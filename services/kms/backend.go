@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
 	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -299,26 +300,43 @@ type StorageBackend interface {
 // ensure InMemoryBackend satisfies StorageBackend at compile time.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
+// grantRegionStore bundles a region's canonical grants [store.Table] with its
+// two secondary indexes. Table.Put/Delete keep both indexes consistent
+// automatically, which is what lets RevokeGrant/RetireGrant/janitor purge drop
+// a grant with a single table.Delete call instead of the three-map manual
+// bookkeeping (grants/grantsByToken/grantsByKey) this replaces.
+type grantRegionStore struct {
+	table *store.Table[Grant]
+	// byToken indexes grants by GrantToken for O(1) lookup on the
+	// encrypt/decrypt grant-validation hot path (findGrantByToken).
+	byToken *store.Index[Grant]
+	// byKey indexes grants by KeyID for O(1) ListGrants and grant-count checks
+	// on the CreateGrant hot path.
+	byKey *store.Index[Grant]
+}
+
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys    map[string]map[string]*Key
-	aliases map[string]map[string]*Alias
-	grants  map[string]map[string]*Grant
-	// grantsByToken indexes grants by their GrantToken for O(1) lookup on the
-	// encrypt/decrypt grant-validation hot path. Kept consistent with grants on
-	// every create/revoke/retire.
-	grantsByToken map[string]map[string]*Grant
-	// grantsByKey indexes grants by keyID for O(1) ListGrants and grant-count
-	// checks on the CreateGrant hot path. Kept consistent with grants on every
-	// create/revoke/retire.
-	grantsByKey        map[string]map[string]map[string]*Grant
+	// keys, aliases, and customKeyStores hold one [store.Table] per AWS
+	// region, created lazily by keysStore/aliasesStore/customKeyStoresStore
+	// exactly as the plain per-region maps they replace were. grants holds one
+	// [grantRegionStore] per region instead, bundling the canonical grants
+	// table with its two secondary indexes -- see grantRegionStore.
+	keys               map[string]*store.Table[Key]
+	aliases            map[string]*store.Table[Alias]
+	grants             map[string]*grantRegionStore
 	policies           map[string]map[string]string
 	keyMaterials       map[string]map[string]*keyMaterial
 	keyMaterialHistory map[string]map[string][]*keyMaterial
-	customKeyStores    map[string]map[string]*CustomKeyStore
-	mu                 *lockmetrics.RWMutex
-	accountID          string
-	defaultRegion      string
+	customKeyStores    map[string]*store.Table[CustomKeyStore]
+	// registry accumulates every per-region table registered by
+	// keysStore/aliasesStore/grantsRegion/customKeyStoresStore over the
+	// backend's lifetime, so Snapshot/Restore/Reset collapse to one
+	// store.Registry call each regardless of how many regions are in use.
+	registry      *store.Registry
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	defaultRegion string
 	// keyIDResolutionCache maps alias names and ARNs to resolved key UUIDs to avoid
 	// repeated aliasesStore lookups on hot paths. Stored as a pointer so clearResolutionCache
 	// can swap it in O(1) instead of iterating all entries.
@@ -340,15 +358,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new KMS backend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		keys:                 make(map[string]map[string]*Key),
-		aliases:              make(map[string]map[string]*Alias),
-		grants:               make(map[string]map[string]*Grant),
-		grantsByToken:        make(map[string]map[string]*Grant),
-		grantsByKey:          make(map[string]map[string]map[string]*Grant),
+		keys:                 make(map[string]*store.Table[Key]),
+		aliases:              make(map[string]*store.Table[Alias]),
+		grants:               make(map[string]*grantRegionStore),
 		policies:             make(map[string]map[string]string),
 		keyMaterials:         make(map[string]map[string]*keyMaterial),
 		keyMaterialHistory:   make(map[string]map[string][]*keyMaterial),
-		customKeyStores:      make(map[string]map[string]*CustomKeyStore),
+		customKeyStores:      make(map[string]*store.Table[CustomKeyStore]),
+		registry:             store.NewRegistry(),
 		accountID:            accountID,
 		defaultRegion:        region,
 		mu:                   lockmetrics.New("kms"),
@@ -356,68 +373,56 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 }
 
-// keysStore returns (creating lazily) the per-region keys map.
-func (b *InMemoryBackend) keysStore(region string) map[string]*Key {
-	if m, ok := b.keys[region]; ok {
-		return m
+// keysStore returns (registering lazily) the per-region keys table.
+func (b *InMemoryBackend) keysStore(region string) *store.Table[Key] {
+	if t, ok := b.keys[region]; ok {
+		return t
 	}
 
-	m := make(map[string]*Key)
-	b.keys[region] = m
+	t := store.Register(b.registry, "keys:"+region, store.New(func(k *Key) string { return k.KeyID }))
+	b.keys[region] = t
 
-	return m
+	return t
 }
 
-// aliasesStore returns (creating lazily) the per-region aliases map.
-func (b *InMemoryBackend) aliasesStore(region string) map[string]*Alias {
-	if m, ok := b.aliases[region]; ok {
-		return m
+// aliasesStore returns (registering lazily) the per-region aliases table.
+func (b *InMemoryBackend) aliasesStore(region string) *store.Table[Alias] {
+	if t, ok := b.aliases[region]; ok {
+		return t
 	}
 
-	m := make(map[string]*Alias)
-	b.aliases[region] = m
+	t := store.Register(b.registry, "aliases:"+region, store.New(func(a *Alias) string { return a.AliasName }))
+	b.aliases[region] = t
 
-	return m
+	return t
 }
 
-// grantsStore returns (creating lazily) the per-region grants map.
-func (b *InMemoryBackend) grantsStore(region string) map[string]*Grant {
-	if m, ok := b.grants[region]; ok {
-		return m
+// grantsRegion returns (registering lazily) the per-region grant store, which
+// bundles the canonical grants table with its byToken/byKey indexes.
+func (b *InMemoryBackend) grantsRegion(region string) *grantRegionStore {
+	if g, ok := b.grants[region]; ok {
+		return g
 	}
 
-	m := make(map[string]*Grant)
-	b.grants[region] = m
+	t := store.Register(b.registry, "grants:"+region, store.New(func(g *Grant) string { return g.GrantID }))
+	g := &grantRegionStore{
+		table:   t,
+		byToken: t.AddIndex("byToken", func(g *Grant) string { return g.GrantToken }),
+		byKey:   t.AddIndex("byKey", func(g *Grant) string { return g.KeyID }),
+	}
+	b.grants[region] = g
 
-	return m
+	return g
 }
 
-// grantsByTokenStore returns (creating lazily) the per-region grantsByToken map.
-func (b *InMemoryBackend) grantsByTokenStore(region string) map[string]*Grant {
-	if m, ok := b.grantsByToken[region]; ok {
-		return m
-	}
-
-	m := make(map[string]*Grant)
-	b.grantsByToken[region] = m
-
-	return m
-}
-
-// grantsByKeyStore returns (creating lazily) the per-key grants map for a region.
-func (b *InMemoryBackend) grantsByKeyStore(region, keyID string) map[string]*Grant {
-	if b.grantsByKey[region] == nil {
-		b.grantsByKey[region] = make(map[string]map[string]*Grant)
-	}
-
-	if b.grantsByKey[region][keyID] == nil {
-		b.grantsByKey[region][keyID] = make(map[string]*Grant)
-	}
-
-	return b.grantsByKey[region][keyID]
+// grantsStore returns (registering lazily) the per-region canonical grants table.
+func (b *InMemoryBackend) grantsStore(region string) *store.Table[Grant] {
+	return b.grantsRegion(region).table
 }
 
 // policiesStore returns (creating lazily) the per-region policies map.
+// Policies remain a plain map: a policy is a bare JSON string with no identity
+// field of its own to derive a store.Table key function from.
 func (b *InMemoryBackend) policiesStore(region string) map[string]string {
 	if m, ok := b.policies[region]; ok {
 		return m
@@ -430,6 +435,9 @@ func (b *InMemoryBackend) policiesStore(region string) map[string]string {
 }
 
 // keyMaterialsStore returns (creating lazily) the per-region keyMaterials map.
+// keyMaterial carries no identity field of its own (it is pure crypto
+// material -- see crypto.go), so it remains a plain map keyed externally by
+// keyID, exactly as before.
 func (b *InMemoryBackend) keyMaterialsStore(region string) map[string]*keyMaterial {
 	if m, ok := b.keyMaterials[region]; ok {
 		return m
@@ -441,7 +449,9 @@ func (b *InMemoryBackend) keyMaterialsStore(region string) map[string]*keyMateri
 	return m
 }
 
-// keyMaterialHistoryStore returns (creating lazily) the per-region keyMaterialHistory map.
+// keyMaterialHistoryStore returns (creating lazily) the per-region
+// keyMaterialHistory map. The value is a slice of history entries rather than
+// a single identity-bearing struct, so it remains a plain map.
 func (b *InMemoryBackend) keyMaterialHistoryStore(region string) map[string][]*keyMaterial {
 	if m, ok := b.keyMaterialHistory[region]; ok {
 		return m
@@ -453,16 +463,20 @@ func (b *InMemoryBackend) keyMaterialHistoryStore(region string) map[string][]*k
 	return m
 }
 
-// customKeyStoresStore returns (creating lazily) the per-region customKeyStores map.
-func (b *InMemoryBackend) customKeyStoresStore(region string) map[string]*CustomKeyStore {
-	if m, ok := b.customKeyStores[region]; ok {
-		return m
+// customKeyStoresStore returns (registering lazily) the per-region customKeyStores table.
+func (b *InMemoryBackend) customKeyStoresStore(region string) *store.Table[CustomKeyStore] {
+	if t, ok := b.customKeyStores[region]; ok {
+		return t
 	}
 
-	m := make(map[string]*CustomKeyStore)
-	b.customKeyStores[region] = m
+	t := store.Register(
+		b.registry,
+		"customKeyStores:"+region,
+		store.New(func(cs *CustomKeyStore) string { return cs.CustomKeyStoreID }),
+	)
+	b.customKeyStores[region] = t
 
-	return m
+	return t
 }
 
 // resolveKeyID resolves an alias name or ARN to a plain key UUID and region.
@@ -483,7 +497,7 @@ func (b *InMemoryBackend) resolveKeyID(
 	}
 
 	if strings.HasPrefix(keyID, "alias/") {
-		alias, ok := b.aliasesStore(ctxRegion)[keyID]
+		alias, ok := b.aliasesStore(ctxRegion).Get(keyID)
 		if !ok {
 			return "", "", ErrAliasNotFound
 		}
@@ -514,7 +528,7 @@ func (b *InMemoryBackend) resolveARNKeyID(keyID string) (string, string, error) 
 	}
 
 	if strings.HasPrefix(parsed.Resource, "alias/") {
-		alias, ok := b.aliasesStore(parsed.Region)[parsed.Resource]
+		alias, ok := b.aliasesStore(parsed.Region).Get(parsed.Resource)
 		if !ok {
 			return "", "", ErrAliasNotFound
 		}
@@ -541,9 +555,9 @@ func (b *InMemoryBackend) clearResolutionCache() {
 // re-validates the alias against the live store instead of serving a stale hit.
 // Must be called with the write lock held.
 func (b *InMemoryBackend) evictAliasesFromCache(region, keyID string) {
-	for aliasName, alias := range b.aliasesStore(region) {
+	for _, alias := range b.aliasesStore(region).All() {
 		if alias.TargetKeyID == keyID {
-			b.keyIDResolutionCache.Delete(aliasName)
+			b.keyIDResolutionCache.Delete(alias.AliasName)
 		}
 	}
 }
@@ -773,7 +787,7 @@ func (b *InMemoryBackend) CreateKey(
 		b.keyMaterialsStore(region)[keyID] = km
 	}
 
-	b.keysStore(region)[keyID] = key
+	b.keysStore(region).Put(key)
 
 	out := &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
@@ -810,9 +824,9 @@ func (b *InMemoryBackend) ListKeys(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	entries := make([]KeyListEntry, 0, len(b.keysStore(region)))
+	entries := make([]KeyListEntry, 0, b.keysStore(region).Len())
 
-	for _, k := range b.keysStore(region) {
+	for _, k := range b.keysStore(region).All() {
 		entries = append(
 			entries,
 			KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description},
@@ -1565,7 +1579,7 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	if _, exists := b.aliasesStore(region)[input.AliasName]; exists {
+	if b.aliasesStore(region).Has(input.AliasName) {
 		return ErrAliasAlreadyExists
 	}
 
@@ -1574,19 +1588,19 @@ func (b *InMemoryBackend) CreateAlias(ctx context.Context, input *CreateAliasInp
 		return err
 	}
 
-	if _, exists := b.keysStore(region)[targetID]; !exists {
+	if !b.keysStore(region).Has(targetID) {
 		return ErrKeyNotFound
 	}
 
 	now := UnixTimeFloat(time.Now())
 	aliasArn := gopherarn.Build("kms", region, b.accountID, input.AliasName)
-	b.aliasesStore(region)[input.AliasName] = &Alias{
+	b.aliasesStore(region).Put(&Alias{
 		AliasName:       input.AliasName,
 		AliasArn:        aliasArn,
 		TargetKeyID:     targetID,
 		CreationDate:    now,
 		LastUpdatedDate: now,
-	}
+	})
 
 	return nil
 }
@@ -1599,7 +1613,7 @@ func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInp
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	alias, exists := b.aliasesStore(region)[input.AliasName]
+	alias, exists := b.aliasesStore(region).Get(input.AliasName)
 	if !exists {
 		return ErrAliasNotFound
 	}
@@ -1609,7 +1623,7 @@ func (b *InMemoryBackend) UpdateAlias(ctx context.Context, input *UpdateAliasInp
 		return err
 	}
 
-	targetKey, ok := b.keysStore(region)[targetID]
+	targetKey, ok := b.keysStore(region).Get(targetID)
 	if !ok {
 		return ErrKeyNotFound
 	}
@@ -1638,14 +1652,14 @@ func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInp
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	alias, exists := b.aliasesStore(region)[input.AliasName]
+	alias, exists := b.aliasesStore(region).Get(input.AliasName)
 	if !exists {
 		return ErrAliasNotFound
 	}
 
 	// Prevent deleting an alias that targets a key scheduled for deletion.
 	if alias.TargetKeyID != "" {
-		if key, ok := b.keysStore(region)[alias.TargetKeyID]; ok &&
+		if key, ok := b.keysStore(region).Get(alias.TargetKeyID); ok &&
 			key.KeyState == KeyStatePendingDeletion {
 			return fmt.Errorf(
 				"%w: key %s is pending deletion; cancel the deletion before deleting the alias",
@@ -1654,7 +1668,7 @@ func (b *InMemoryBackend) DeleteAlias(ctx context.Context, input *DeleteAliasInp
 		}
 	}
 
-	delete(b.aliasesStore(region), input.AliasName)
+	b.aliasesStore(region).Delete(input.AliasName)
 	b.keyIDResolutionCache.Delete(input.AliasName)
 
 	return nil
@@ -1681,9 +1695,9 @@ func (b *InMemoryBackend) ListAliases(
 		}
 	}
 
-	aliases := make([]Alias, 0, len(b.aliasesStore(region)))
+	aliases := make([]Alias, 0, b.aliasesStore(region).Len())
 
-	for _, a := range b.aliasesStore(region) {
+	for _, a := range b.aliasesStore(region).All() {
 		if resolvedKeyID != "" && a.TargetKeyID != resolvedKeyID {
 			continue
 		}
@@ -2091,7 +2105,7 @@ func (b *InMemoryBackend) lookupKey(ctx context.Context, keyID string) (*Key, er
 		return nil, err
 	}
 
-	key, ok := b.keysStore(region)[resolved]
+	key, ok := b.keysStore(region).Get(resolved)
 	if !ok {
 		// For plain UUID lookups (not ARN or alias), fall back to searching all regions.
 		// This preserves mock compatibility: multi-region tests create replicas in a target
@@ -2321,8 +2335,8 @@ func (b *InMemoryBackend) buildReplicaMultiRegionConfig(key *Key) *MultiRegionCo
 // findKeyInAnyRegion searches all region stores for a key with the given keyID.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) findKeyInAnyRegion(keyID string) *Key {
-	for _, regionKeys := range b.keys {
-		if k, ok := regionKeys[keyID]; ok {
+	for _, t := range b.keys {
+		if k, ok := t.Get(keyID); ok {
 			return k
 		}
 	}
@@ -2333,8 +2347,8 @@ func (b *InMemoryBackend) findKeyInAnyRegion(keyID string) *Key {
 // findPrimaryKeyForReplica locates the primary key that lists replicaKey.KeyID in its
 // ReplicaKeyIDs. Must be called with at least a read lock held.
 func (b *InMemoryBackend) findPrimaryKeyForReplica(replicaKey *Key) *Key {
-	for _, regionKeys := range b.keys {
-		for _, k := range regionKeys {
+	for _, t := range b.keys {
+		for _, k := range t.All() {
 			if !k.MultiRegion || extractRegionFromARN(k.Arn) != replicaKey.PrimaryRegion {
 				continue
 			}
@@ -2445,7 +2459,7 @@ func (b *InMemoryBackend) CreateGrant(
 		return nil, err
 	}
 
-	key, ok := b.keysStore(region)[keyID]
+	key, ok := b.keysStore(region).Get(keyID)
 	if !ok {
 		return nil, ErrKeyNotFound
 	}
@@ -2454,7 +2468,9 @@ func (b *InMemoryBackend) CreateGrant(
 		return nil, keyStateError(key)
 	}
 
-	if len(b.grantsByKeyStore(region, keyID)) >= maxGrantsPerKey {
+	grantsForKey := b.grantsRegion(region)
+
+	if len(grantsForKey.byKey.Get(keyID)) >= maxGrantsPerKey {
 		return nil, fmt.Errorf(
 			"%w: grant limit of %d exceeded for key %q",
 			ErrLimitExceeded,
@@ -2478,9 +2494,8 @@ func (b *InMemoryBackend) CreateGrant(
 		Constraints:       input.Constraints,
 		CreationDate:      UnixTimeFloat(now),
 	}
-	b.grantsStore(region)[grantID] = grant
-	b.grantsByTokenStore(region)[grantToken] = grant
-	b.grantsByKeyStore(region, keyID)[grantID] = grant
+	// A single Put keeps the byToken and byKey indexes consistent automatically.
+	grantsForKey.table.Put(grant)
 
 	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
 }
@@ -2516,10 +2531,10 @@ func grantConstraintsSatisfied(c *GrantConstraints, encCtx map[string]string) bo
 // findGrantByToken returns the first grant whose GrantToken matches any of the provided tokens.
 // Searches all regions. Must be called with at least a read lock held.
 func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
-	for _, regionMap := range b.grantsByToken {
+	for _, gs := range b.grants {
 		for _, token := range grantTokens {
-			if g, ok := regionMap[token]; ok {
-				return g
+			if matches := gs.byToken.Get(token); len(matches) > 0 {
+				return matches[0]
 			}
 		}
 	}
@@ -2598,14 +2613,14 @@ func (b *InMemoryBackend) ListGrants(
 		return nil, err
 	}
 
-	if _, ok := b.keysStore(region)[keyID]; !ok {
+	if !b.keysStore(region).Has(keyID) {
 		return nil, ErrKeyNotFound
 	}
 
 	var grants []Grant
-	for grantID, g := range b.grantsByKey[region][keyID] {
+	for _, g := range b.grantsRegion(region).byKey.Get(keyID) {
 		// Filter by GrantId if specified.
-		if input.GrantID != "" && grantID != input.GrantID {
+		if input.GrantID != "" && g.GrantID != input.GrantID {
 			continue
 		}
 		grants = append(grants, *g)
@@ -2652,20 +2667,18 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 		return err
 	}
 
-	if _, ok := b.keysStore(region)[keyID]; !ok {
+	if !b.keysStore(region).Has(keyID) {
 		return ErrKeyNotFound
 	}
 
-	grant, ok := b.grantsStore(region)[input.GrantID]
+	grant, ok := b.grantsStore(region).Get(input.GrantID)
 	if !ok || grant.KeyID != keyID {
 		return ErrGrantNotFound
 	}
 
-	delete(b.grantsStore(region), input.GrantID)
-	delete(b.grantsByTokenStore(region), grant.GrantToken)
-	if rm := b.grantsByKey[region]; rm != nil {
-		delete(rm[grant.KeyID], input.GrantID)
-	}
+	// A single Delete keeps the byToken and byKey indexes consistent
+	// automatically (including dropping now-empty index groups on purge).
+	b.grantsStore(region).Delete(input.GrantID)
 
 	return nil
 }
@@ -2679,13 +2692,10 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 
 	if input.GrantToken != "" {
 		// Search all regions for the grant token.
-		for r, regionMap := range b.grantsByToken {
-			if g, ok := regionMap[input.GrantToken]; ok {
-				delete(b.grantsStore(r), g.GrantID)
-				delete(regionMap, input.GrantToken)
-				if rm := b.grantsByKey[r]; rm != nil {
-					delete(rm[g.KeyID], g.GrantID)
-				}
+		for _, gs := range b.grants {
+			if matches := gs.byToken.Get(input.GrantToken); len(matches) > 0 {
+				g := matches[0]
+				gs.table.Delete(g.GrantID)
 
 				return nil
 			}
@@ -2698,7 +2708,7 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 		return ErrGrantNotFound
 	}
 
-	grant, ok := b.grantsStore(region)[input.GrantID]
+	grant, ok := b.grantsStore(region).Get(input.GrantID)
 	if !ok {
 		return ErrGrantNotFound
 	}
@@ -2714,11 +2724,8 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 		}
 	}
 
-	delete(b.grantsStore(region), input.GrantID)
-	delete(b.grantsByTokenStore(region), grant.GrantToken)
-	if rm := b.grantsByKey[region]; rm != nil {
-		delete(rm[grant.KeyID], input.GrantID)
-	}
+	// A single Delete keeps the byToken and byKey indexes consistent automatically.
+	b.grantsStore(region).Delete(input.GrantID)
 
 	return nil
 }
@@ -2734,7 +2741,7 @@ func (b *InMemoryBackend) ListRetirableGrants(
 	region := getRegion(ctx, b.defaultRegion)
 
 	grants := make([]Grant, 0)
-	for _, g := range b.grantsStore(region) {
+	for _, g := range b.grantsStore(region).All() {
 		if g.RetiringPrincipal == input.RetiringPrincipal {
 			grants = append(grants, *g)
 		}
@@ -2822,7 +2829,7 @@ func (b *InMemoryBackend) PutKeyPolicy(ctx context.Context, input *PutKeyPolicyI
 		return err
 	}
 
-	if _, ok := b.keysStore(region)[keyID]; !ok {
+	if !b.keysStore(region).Has(keyID) {
 		return ErrKeyNotFound
 	}
 
@@ -2857,7 +2864,7 @@ func (b *InMemoryBackend) GetKeyPolicy(
 		return nil, err
 	}
 
-	if _, ok := b.keysStore(region)[keyID]; !ok {
+	if !b.keysStore(region).Has(keyID) {
 		return nil, ErrKeyNotFound
 	}
 
@@ -3310,7 +3317,7 @@ func (b *InMemoryBackend) ReplicateKey(
 	}
 
 	// Store replica key in the target region's store.
-	b.keysStore(input.ReplicaRegion)[replica.KeyID] = replica
+	b.keysStore(input.ReplicaRegion).Put(replica)
 
 	// Record the replica key ID on the source (primary) key so DescribeKey can
 	// return the full MultiRegionConfiguration.
@@ -3438,15 +3445,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.keys = make(map[string]map[string]*Key)
-	b.aliases = make(map[string]map[string]*Alias)
-	b.grants = make(map[string]map[string]*Grant)
-	b.grantsByToken = make(map[string]map[string]*Grant)
-	b.grantsByKey = make(map[string]map[string]map[string]*Grant)
+	// registry.ResetAll empties every already-registered per-region keys/
+	// aliases/grants/customKeyStores table in place. It deliberately does NOT
+	// unregister them: b.keys/b.aliases/b.grants/b.customKeyStores keep
+	// pointing at the same *store.Table/*grantRegionStore instances, so a
+	// region touched again after Reset reuses its existing registration
+	// instead of re-registering under an already-used name (which would
+	// panic -- see store.Register).
+	b.registry.ResetAll()
 	b.policies = make(map[string]map[string]string)
 	b.keyMaterials = make(map[string]map[string]*keyMaterial)
 	b.keyMaterialHistory = make(map[string]map[string][]*keyMaterial)
-	b.customKeyStores = make(map[string]map[string]*CustomKeyStore)
 	b.clearResolutionCache()
 }
 
@@ -3476,7 +3485,7 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 	region := getRegion(ctx, b.defaultRegion)
 
 	// Ensure name is unique.
-	for _, ks := range b.customKeyStoresStore(region) {
+	for _, ks := range b.customKeyStoresStore(region).All() {
 		if ks.CustomKeyStoreName == input.CustomKeyStoreName {
 			return nil, fmt.Errorf(
 				"%w: custom key store with name %q already exists",
@@ -3487,13 +3496,13 @@ func (b *InMemoryBackend) CreateCustomKeyStore(
 
 	storeID := uuid.New().String()
 
-	b.customKeyStoresStore(region)[storeID] = &CustomKeyStore{
+	b.customKeyStoresStore(region).Put(&CustomKeyStore{
 		CustomKeyStoreID:   storeID,
 		CustomKeyStoreName: input.CustomKeyStoreName,
 		ConnectionState:    ConnectionStateDisconnected,
 		CreationDate:       UnixTimeFloat(time.Now()),
 		CustomKeyStoreType: storeType,
-	}
+	})
 
 	return &CreateCustomKeyStoreOutput{CustomKeyStoreID: storeID}, nil
 }
@@ -3512,7 +3521,7 @@ func (b *InMemoryBackend) DeleteCustomKeyStore(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
+	ks, ok := b.customKeyStoresStore(region).Get(input.CustomKeyStoreID)
 	if !ok {
 		return fmt.Errorf(
 			"%w: custom key store %q not found",
@@ -3528,7 +3537,7 @@ func (b *InMemoryBackend) DeleteCustomKeyStore(
 		)
 	}
 
-	delete(b.customKeyStoresStore(region), input.CustomKeyStoreID)
+	b.customKeyStoresStore(region).Delete(input.CustomKeyStoreID)
 
 	return nil
 }
@@ -3542,9 +3551,9 @@ func (b *InMemoryBackend) DescribeCustomKeyStores(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	stores := make([]CustomKeyStore, 0, len(b.customKeyStoresStore(region)))
+	stores := make([]CustomKeyStore, 0, b.customKeyStoresStore(region).Len())
 
-	for _, ks := range b.customKeyStoresStore(region) {
+	for _, ks := range b.customKeyStoresStore(region).All() {
 		if input.CustomKeyStoreID != "" && ks.CustomKeyStoreID != input.CustomKeyStoreID {
 			continue
 		}
@@ -3601,7 +3610,7 @@ func (b *InMemoryBackend) ConnectCustomKeyStore(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
+	ks, ok := b.customKeyStoresStore(region).Get(input.CustomKeyStoreID)
 	if !ok {
 		return fmt.Errorf(
 			"%w: custom key store %q not found",
@@ -3636,7 +3645,7 @@ func (b *InMemoryBackend) DisconnectCustomKeyStore(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
+	ks, ok := b.customKeyStoresStore(region).Get(input.CustomKeyStoreID)
 	if !ok {
 		return fmt.Errorf(
 			"%w: custom key store %q not found",
@@ -3671,7 +3680,7 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	ks, ok := b.customKeyStoresStore(region)[input.CustomKeyStoreID]
+	ks, ok := b.customKeyStoresStore(region).Get(input.CustomKeyStoreID)
 	if !ok {
 		return fmt.Errorf(
 			"%w: custom key store %q not found",
@@ -3681,7 +3690,7 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(
 	}
 
 	if input.NewCustomKeyStoreName != "" && input.NewCustomKeyStoreName != ks.CustomKeyStoreName {
-		for _, existing := range b.customKeyStoresStore(region) {
+		for _, existing := range b.customKeyStoresStore(region).All() {
 			if existing.CustomKeyStoreName == input.NewCustomKeyStoreName {
 				return fmt.Errorf(
 					"%w: custom key store with name %q already exists",
@@ -4066,7 +4075,7 @@ func (b *InMemoryBackend) AddKeyInternal(key *Key, km *keyMaterial) {
 		region = b.defaultRegion
 	}
 
-	b.keysStore(region)[key.KeyID] = key
+	b.keysStore(region).Put(key)
 
 	if km != nil {
 		b.keyMaterialsStore(region)[key.KeyID] = km
@@ -4079,5 +4088,5 @@ func (b *InMemoryBackend) AddCustomKeyStoreInternal(ks *CustomKeyStore) {
 	b.mu.Lock("AddCustomKeyStoreInternal")
 	defer b.mu.Unlock()
 
-	b.customKeyStoresStore(b.defaultRegion)[ks.CustomKeyStoreID] = ks
+	b.customKeyStoresStore(b.defaultRegion).Put(ks)
 }

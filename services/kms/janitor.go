@@ -160,7 +160,7 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 			continue
 		}
 
-		key, ok := j.Backend.keysStore(e.region)[e.keyID]
+		key, ok := j.Backend.keysStore(e.region).Get(e.keyID)
 		if !ok {
 			continue // already purged
 		}
@@ -192,8 +192,9 @@ func (j *Janitor) sweepFromHeap(now float64) (int, int) {
 // Must be called with the backend write lock held.
 func (j *Janitor) sweepKeys(now float64) (int, int) {
 	var purged, expired int
-	for region, regionKeys := range j.Backend.keys {
-		for keyID, key := range regionKeys {
+	for region, t := range j.Backend.keys {
+		for _, key := range t.All() {
+			keyID := key.KeyID
 			if key.KeyState == KeyStatePendingDeletion {
 				if key.DeletionDate != 0 && now >= key.DeletionDate {
 					j.purgeKey(region, keyID)
@@ -219,29 +220,24 @@ func (j *Janitor) purgeKey(region, keyID string) {
 	delete(j.Backend.keyMaterialsStore(region), keyID)
 	delete(j.Backend.keyMaterialHistoryStore(region), keyID)
 
-	for aliasName, alias := range j.Backend.aliasesStore(region) {
+	for _, alias := range j.Backend.aliasesStore(region).All() {
 		if alias.TargetKeyID == keyID {
-			j.Backend.keyIDResolutionCache.Delete(aliasName)
-			delete(j.Backend.aliasesStore(region), aliasName)
+			j.Backend.keyIDResolutionCache.Delete(alias.AliasName)
+			j.Backend.aliasesStore(region).Delete(alias.AliasName)
 		}
 	}
 
-	for grantID, grant := range j.Backend.grantsStore(region) {
+	// table.Delete keeps the byToken and byKey indexes consistent
+	// automatically, including dropping the now-empty byKey group for keyID
+	// outright (see store.Index.remove) -- this keyID can never be looked up
+	// again after a permanent purge, so no separate index cleanup is needed.
+	for _, grant := range j.Backend.grantsStore(region).All() {
 		if grant.KeyID == keyID {
-			delete(j.Backend.grantsStore(region), grantID)
-			delete(j.Backend.grantsByTokenStore(region), grant.GrantToken)
+			j.Backend.grantsStore(region).Delete(grant.GrantID)
 		}
 	}
 
-	// Drop the per-key grant index entirely: grantsByKeyStore lazily recreates it
-	// on next access, and leaving the (now-empty or stale) submap behind after a
-	// permanent key purge would leak memory for the lifetime of the process, since
-	// this keyID can never be looked up again.
-	if rm := j.Backend.grantsByKey[region]; rm != nil {
-		delete(rm, keyID)
-	}
-
-	delete(j.Backend.keysStore(region), keyID)
+	j.Backend.keysStore(region).Delete(keyID)
 	delete(j.Backend.policiesStore(region), keyID)
 	j.Backend.lastUsage.Delete(region + ":" + keyID)
 }
@@ -271,8 +267,9 @@ func (j *Janitor) expireMaterial(region, keyID string, key *Key) {
 func (j *Janitor) sweepAutoRotations(now float64) int {
 	rotated := 0
 
-	for region, regionKeys := range j.Backend.keys {
-		for keyID, key := range regionKeys {
+	for region, t := range j.Backend.keys {
+		for _, key := range t.All() {
+			keyID := key.KeyID
 			if !key.RotationEnabled ||
 				key.KeyState != KeyStateEnabled ||
 				key.Origin == KeyOriginExternal ||
