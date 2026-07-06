@@ -87,14 +87,14 @@ func (b *InMemoryBackend) applyDueTransitionsLocked(now time.Time) {
 
 		delete(b.clusterTransitions, id)
 
-		c, ok := b.clusters[id]
+		c, ok := b.clusters.Get(id)
 		if !ok {
 			continue
 		}
 
 		if tr.remove {
 			c.Tags.Close()
-			delete(b.clusters, id)
+			b.clusters.Delete(id)
 
 			if b.dnsRegistrar != nil {
 				b.dnsRegistrar.Deregister(c.Endpoint)

@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -366,39 +366,47 @@ type Cluster struct {
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
-	dnsRegistrar           DNSRegistrar
-	customDomains          map[string]*CustomDomainAssociation
-	events                 map[string]*Event
-	partners               map[string]*Partner
-	dataShares             map[string]*DataShare
-	securityGroups         map[string]*ClusterSecurityGroup
-	snapshots              map[string]*Snapshot
-	endpointAuths          map[string]*EndpointAuthorization
-	activeResizes          map[string]*ResizeProgress
-	parameterGroups        map[string]*ClusterParameterGroup
-	subnetGroups           map[string]*ClusterSubnetGroup
-	loggingStatuses        map[string]*LoggingStatus
-	eventSubscriptions     map[string]*EventSubscription
-	clusters               map[string]*Cluster
-	snapshotCopyGrants     map[string]*SnapshotCopyGrant
-	snapshotSchedules      map[string]*SnapshotSchedule
-	usageLimits            map[string]*UsageLimit
-	authProfiles           map[string]*AuthenticationProfile
-	resourcePolicies       map[string]*ResourcePolicy
-	tableRestores          map[string]*TableRestoreStatus
-	snapshotCopyConfigs    map[string]*SnapshotCopyConfig
-	hsmClientCerts         map[string]*HsmClientCertificate
-	hsmConfigs             map[string]*HsmConfiguration
-	reservedNodes          map[string]*ReservedNode
-	scheduledActions       map[string]*ScheduledAction
-	slScheduledActions     map[string]*ServerlessScheduledAction
-	integrations           map[string]*Integration
-	idcApplications        map[string]*IdcApplication
-	slNamespaces           map[string]*Namespace
-	slWorkgroups           map[string]*Workgroup
-	slSnapshots            map[string]*ServerlessSnapshot
-	slUsageLimits          map[string]*ServerlessUsageLimit
-	endpointAccesses       map[string]*EndpointAccess
+	dnsRegistrar   DNSRegistrar
+	registry       *store.Registry
+	customDomains  *store.Table[CustomDomainAssociation]
+	events         *store.Table[Event]
+	partners       *store.Table[Partner]
+	dataShares     *store.Table[DataShare]
+	securityGroups *store.Table[ClusterSecurityGroup]
+	snapshots      *store.Table[Snapshot]
+	endpointAuths  *store.Table[EndpointAuthorization]
+	// activeResizes is intentionally NOT a store.Table: ResizeProgress carries
+	// no ClusterIdentifier field of its own, so its key (clusterID) is not a
+	// pure function of the value -- see store_setup.go.
+	activeResizes   map[string]*ResizeProgress
+	parameterGroups *store.Table[ClusterParameterGroup]
+	subnetGroups    *store.Table[ClusterSubnetGroup]
+	// loggingStatuses is intentionally NOT a store.Table; see activeResizes above.
+	loggingStatuses    map[string]*LoggingStatus
+	eventSubscriptions *store.Table[EventSubscription]
+	clusters           *store.Table[Cluster]
+	snapshotCopyGrants *store.Table[SnapshotCopyGrant]
+	snapshotSchedules  *store.Table[SnapshotSchedule]
+	usageLimits        *store.Table[UsageLimit]
+	authProfiles       *store.Table[AuthenticationProfile]
+	resourcePolicies   *store.Table[ResourcePolicy]
+	tableRestores      *store.Table[TableRestoreStatus]
+	// snapshotCopyConfigs is intentionally NOT a store.Table; see activeResizes above.
+	snapshotCopyConfigs map[string]*SnapshotCopyConfig
+	hsmClientCerts      *store.Table[HsmClientCertificate]
+	hsmConfigs          *store.Table[HsmConfiguration]
+	reservedNodes       *store.Table[ReservedNode]
+	scheduledActions    *store.Table[ScheduledAction]
+	slScheduledActions  *store.Table[ServerlessScheduledAction]
+	integrations        *store.Table[Integration]
+	idcApplications     *store.Table[IdcApplication]
+	slNamespaces        *store.Table[Namespace]
+	slWorkgroups        *store.Table[Workgroup]
+	slSnapshots         *store.Table[ServerlessSnapshot]
+	slUsageLimits       *store.Table[ServerlessUsageLimit]
+	endpointAccesses    *store.Table[EndpointAccess]
+	// clusterTransitions holds in-flight lifecycle state, intentionally never
+	// persisted (see Restore) and keyed externally by cluster ID.
 	clusterTransitions     map[string]*clusterTransition
 	mu                     *lockmetrics.RWMutex
 	reconcileStop          chan struct{}
@@ -418,44 +426,20 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		clusters:            make(map[string]*Cluster),
-		reservedNodes:       make(map[string]*ReservedNode),
-		partners:            make(map[string]*Partner),
-		dataShares:          make(map[string]*DataShare),
-		securityGroups:      make(map[string]*ClusterSecurityGroup),
-		snapshots:           make(map[string]*Snapshot),
-		endpointAuths:       make(map[string]*EndpointAuthorization),
+	b := &InMemoryBackend{
 		activeResizes:       make(map[string]*ResizeProgress),
-		parameterGroups:     make(map[string]*ClusterParameterGroup),
-		subnetGroups:        make(map[string]*ClusterSubnetGroup),
 		loggingStatuses:     make(map[string]*LoggingStatus),
-		eventSubscriptions:  make(map[string]*EventSubscription),
-		events:              make(map[string]*Event),
-		snapshotCopyGrants:  make(map[string]*SnapshotCopyGrant),
-		snapshotSchedules:   make(map[string]*SnapshotSchedule),
-		usageLimits:         make(map[string]*UsageLimit),
-		authProfiles:        make(map[string]*AuthenticationProfile),
-		resourcePolicies:    make(map[string]*ResourcePolicy),
-		tableRestores:       make(map[string]*TableRestoreStatus),
 		snapshotCopyConfigs: make(map[string]*SnapshotCopyConfig),
-		hsmClientCerts:      make(map[string]*HsmClientCertificate),
-		hsmConfigs:          make(map[string]*HsmConfiguration),
-		scheduledActions:    make(map[string]*ScheduledAction),
-		customDomains:       make(map[string]*CustomDomainAssociation),
-		endpointAccesses:    make(map[string]*EndpointAccess),
-		integrations:        make(map[string]*Integration),
-		idcApplications:     make(map[string]*IdcApplication),
-		slNamespaces:        make(map[string]*Namespace),
-		slWorkgroups:        make(map[string]*Workgroup),
-		slSnapshots:         make(map[string]*ServerlessSnapshot),
-		slUsageLimits:       make(map[string]*ServerlessUsageLimit),
-		slScheduledActions:  make(map[string]*ServerlessScheduledAction),
 		clusterTransitions:  make(map[string]*clusterTransition),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("redshift"),
+		registry:            store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state while preserving configuration.
@@ -463,42 +447,14 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
+	for _, c := range b.clusters.All() {
 		c.Tags.Close()
 	}
 
-	b.clusters = make(map[string]*Cluster)
-	b.reservedNodes = make(map[string]*ReservedNode)
-	b.partners = make(map[string]*Partner)
-	b.dataShares = make(map[string]*DataShare)
-	b.securityGroups = make(map[string]*ClusterSecurityGroup)
-	b.snapshots = make(map[string]*Snapshot)
-	b.endpointAuths = make(map[string]*EndpointAuthorization)
+	b.registry.ResetAll()
 	b.activeResizes = make(map[string]*ResizeProgress)
-	b.parameterGroups = make(map[string]*ClusterParameterGroup)
-	b.subnetGroups = make(map[string]*ClusterSubnetGroup)
 	b.loggingStatuses = make(map[string]*LoggingStatus)
-	b.eventSubscriptions = make(map[string]*EventSubscription)
-	b.events = make(map[string]*Event)
-	b.snapshotCopyGrants = make(map[string]*SnapshotCopyGrant)
-	b.snapshotSchedules = make(map[string]*SnapshotSchedule)
-	b.usageLimits = make(map[string]*UsageLimit)
-	b.authProfiles = make(map[string]*AuthenticationProfile)
-	b.resourcePolicies = make(map[string]*ResourcePolicy)
-	b.tableRestores = make(map[string]*TableRestoreStatus)
 	b.snapshotCopyConfigs = make(map[string]*SnapshotCopyConfig)
-	b.hsmClientCerts = make(map[string]*HsmClientCertificate)
-	b.hsmConfigs = make(map[string]*HsmConfiguration)
-	b.scheduledActions = make(map[string]*ScheduledAction)
-	b.customDomains = make(map[string]*CustomDomainAssociation)
-	b.endpointAccesses = make(map[string]*EndpointAccess)
-	b.integrations = make(map[string]*Integration)
-	b.idcApplications = make(map[string]*IdcApplication)
-	b.slNamespaces = make(map[string]*Namespace)
-	b.slWorkgroups = make(map[string]*Workgroup)
-	b.slSnapshots = make(map[string]*ServerlessSnapshot)
-	b.slUsageLimits = make(map[string]*ServerlessUsageLimit)
-	b.slScheduledActions = make(map[string]*ServerlessScheduledAction)
 	b.clusterTransitions = make(map[string]*clusterTransition)
 	b.resetServerlessIndexes()
 }
@@ -545,7 +501,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[id]; exists {
+	if _, exists := b.clusters.Get(id); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 
@@ -578,7 +534,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		NumberOfNodes:     1,
 		Tags:              tags.New("redshift.cluster." + id + ".tags"),
 	}
-	b.clusters[id] = cluster
+	b.clusters.Put(cluster)
 
 	// Schedule the creating→available transition instead of spawning an
 	// unmanaged per-cluster goroutine. The managed reconciler (or a lazy read)
@@ -604,7 +560,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -626,7 +582,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 	cp := cloneCluster(cluster)
 	delete(b.clusterTransitions, id)
 	cluster.Tags.Close()
-	delete(b.clusters, id)
+	b.clusters.Delete(id)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
@@ -647,7 +603,7 @@ func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([
 	defer b.mu.RUnlock()
 
 	if id != "" {
-		c, exists := b.clusters[id]
+		c, exists := b.clusters.Get(id)
 		if !exists {
 			return nil, "", fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
@@ -655,32 +611,29 @@ func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) ([
 		return []Cluster{cloneCluster(c)}, "", nil
 	}
 
-	ids := make([]string, 0, len(b.clusters))
-	for k := range b.clusters {
-		ids = append(ids, k)
-	}
-
-	sort.Strings(ids)
+	// Snapshot returns every cluster ordered by key (ClusterIdentifier)
+	// ascending, matching the previous sort.Strings(ids) behaviour.
+	sorted := b.clusters.Snapshot()
 
 	// Advance past the marker (exclusive — marker is the last ID on the previous page).
 	if marker != "" {
 		cut := 0
-		for cut < len(ids) && ids[cut] <= marker {
+		for cut < len(sorted) && sorted[cut].ClusterIdentifier <= marker {
 			cut++
 		}
 
-		ids = ids[cut:]
+		sorted = sorted[cut:]
 	}
 
 	nextMarker := ""
-	if maxRecords > 0 && len(ids) > maxRecords {
-		ids = ids[:maxRecords]
-		nextMarker = ids[len(ids)-1]
+	if maxRecords > 0 && len(sorted) > maxRecords {
+		sorted = sorted[:maxRecords]
+		nextMarker = sorted[len(sorted)-1].ClusterIdentifier
 	}
 
-	clusters := make([]Cluster, 0, len(ids))
-	for _, k := range ids {
-		clusters = append(clusters, cloneCluster(b.clusters[k]))
+	clusters := make([]Cluster, 0, len(sorted))
+	for _, c := range sorted {
+		clusters = append(clusters, cloneCluster(c))
 	}
 
 	return clusters, nextMarker, nil
@@ -691,9 +644,11 @@ func (b *InMemoryBackend) DescribeTags() map[string]map[string]string {
 	b.mu.RLock("DescribeTags")
 	defer b.mu.RUnlock()
 
-	result := make(map[string]map[string]string, len(b.clusters))
-	for id, c := range b.clusters {
-		result[id] = c.Tags.Clone()
+	all := b.clusters.All()
+	result := make(map[string]map[string]string, len(all))
+
+	for _, c := range all {
+		result[c.ClusterIdentifier] = c.Tags.Clone()
 	}
 
 	return result
@@ -704,7 +659,7 @@ func (b *InMemoryBackend) CreateTags(clusterID string, kv map[string]string) err
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 
-	c, exists := b.clusters[clusterID]
+	c, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -719,7 +674,7 @@ func (b *InMemoryBackend) DeleteTags(clusterID string, keys []string) error {
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
-	c, exists := b.clusters[clusterID]
+	c, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -751,7 +706,7 @@ func (b *InMemoryBackend) AcceptReservedNodeExchange(reservedNodeID, targetOffer
 	b.mu.Lock("AcceptReservedNodeExchange")
 	defer b.mu.Unlock()
 
-	existing, exists := b.reservedNodes[reservedNodeID]
+	existing, exists := b.reservedNodes.Get(reservedNodeID)
 	if !exists {
 		return nil, fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
 	}
@@ -769,7 +724,7 @@ func (b *InMemoryBackend) AcceptReservedNodeExchange(reservedNodeID, targetOffer
 		State:                  "active",
 		OfferingType:           existing.OfferingType,
 	}
-	b.reservedNodes[reservedNodeID] = exchanged
+	b.reservedNodes.Put(exchanged)
 
 	cp := *exchanged
 
@@ -791,11 +746,10 @@ func (b *InMemoryBackend) AddPartner(accountID, clusterID, databaseName, partner
 	b.mu.Lock("AddPartner")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	key := partnerKey(clusterID, databaseName, partnerName)
 	partner := &Partner{
 		AccountID:         accountID,
 		ClusterIdentifier: clusterID,
@@ -804,7 +758,7 @@ func (b *InMemoryBackend) AddPartner(accountID, clusterID, databaseName, partner
 		Status:            partnerStatusActive,
 		StatusMessage:     "",
 	}
-	b.partners[key] = partner
+	b.partners.Put(partner)
 
 	cp := *partner
 
@@ -823,7 +777,7 @@ func (b *InMemoryBackend) AssociateDataShareConsumer(
 	b.mu.Lock("AssociateDataShareConsumer")
 	defer b.mu.Unlock()
 
-	ds, exists := b.dataShares[dataShareArn]
+	ds, exists := b.dataShares.Get(dataShareArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: data share %s not found", ErrDataShareNotFound, dataShareArn)
 	}
@@ -855,7 +809,7 @@ func (b *InMemoryBackend) AuthorizeClusterSecurityGroupIngress(
 	b.mu.Lock("AuthorizeClusterSecurityGroupIngress")
 	defer b.mu.Unlock()
 
-	sg, exists := b.securityGroups[groupName]
+	sg, exists := b.securityGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, groupName)
 	}
@@ -886,7 +840,7 @@ func (b *InMemoryBackend) AuthorizeDataShare(dataShareArn, consumerIdentifier st
 	b.mu.Lock("AuthorizeDataShare")
 	defer b.mu.Unlock()
 
-	ds, exists := b.dataShares[dataShareArn]
+	ds, exists := b.dataShares.Get(dataShareArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: data share %s not found", ErrDataShareNotFound, dataShareArn)
 	}
@@ -918,12 +872,12 @@ func (b *InMemoryBackend) AuthorizeEndpointAccess(
 	b.mu.Lock("AuthorizeEndpointAccess")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	key := endpointAuthKey(clusterID, grantee)
-	if _, exists := b.endpointAuths[key]; exists {
+	if _, exists := b.endpointAuths.Get(key); exists {
 		return nil, fmt.Errorf("%w: endpoint authorization already exists for cluster %s and account %s",
 			ErrEndpointAuthAlreadyExists, clusterID, grantee)
 	}
@@ -942,7 +896,7 @@ func (b *InMemoryBackend) AuthorizeEndpointAccess(
 		AllowedVPCs:       allowedVPCs,
 		EndpointCount:     0,
 	}
-	b.endpointAuths[key] = auth
+	b.endpointAuths.Put(auth)
 
 	return cloneEndpointAuth(auth), nil
 }
@@ -959,7 +913,7 @@ func (b *InMemoryBackend) AuthorizeSnapshotAccess(snapshotID, accountWithRestore
 	b.mu.Lock("AuthorizeSnapshotAccess")
 	defer b.mu.Unlock()
 
-	snap, exists := b.snapshots[snapshotID]
+	snap, exists := b.snapshots.Get(snapshotID)
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
@@ -982,7 +936,7 @@ func (b *InMemoryBackend) BatchDeleteClusterSnapshots(identifiers []string) ([]S
 	var deleted []string
 
 	for _, id := range identifiers {
-		if _, exists := b.snapshots[id]; !exists {
+		if _, exists := b.snapshots.Get(id); !exists {
 			batchErrors = append(batchErrors, SnapshotBatchError{
 				SnapshotIdentifier: id,
 				FailureCode:        errClusterSnapshotNotFound,
@@ -992,7 +946,7 @@ func (b *InMemoryBackend) BatchDeleteClusterSnapshots(identifiers []string) ([]S
 			continue
 		}
 
-		delete(b.snapshots, id)
+		b.snapshots.Delete(id)
 		deleted = append(deleted, id)
 	}
 
@@ -1015,7 +969,7 @@ func (b *InMemoryBackend) BatchModifyClusterSnapshots(
 	var modified []string
 
 	for _, id := range identifiers {
-		snap, exists := b.snapshots[id]
+		snap, exists := b.snapshots.Get(id)
 		if !exists {
 			batchErrors = append(batchErrors, SnapshotBatchError{
 				SnapshotIdentifier: id,
@@ -1042,7 +996,7 @@ func (b *InMemoryBackend) CancelResize(clusterID string) (*ResizeProgress, error
 	b.mu.Lock("CancelResize")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
@@ -1108,28 +1062,28 @@ func cloneSnapshot(snap *Snapshot) *Snapshot {
 func (b *InMemoryBackend) AddReservedNodeInternal(node *ReservedNode) {
 	b.mu.Lock("AddReservedNodeInternal")
 	defer b.mu.Unlock()
-	b.reservedNodes[node.ReservedNodeID] = node
+	b.reservedNodes.Put(node)
 }
 
 // AddDataShareInternal seeds a data share directly into the backend.
 func (b *InMemoryBackend) AddDataShareInternal(ds *DataShare) {
 	b.mu.Lock("AddDataShareInternal")
 	defer b.mu.Unlock()
-	b.dataShares[ds.DataShareArn] = ds
+	b.dataShares.Put(ds)
 }
 
 // AddSecurityGroupInternal seeds a cluster security group directly into the backend.
 func (b *InMemoryBackend) AddSecurityGroupInternal(sg *ClusterSecurityGroup) {
 	b.mu.Lock("AddSecurityGroupInternal")
 	defer b.mu.Unlock()
-	b.securityGroups[sg.ClusterSecurityGroupName] = sg
+	b.securityGroups.Put(sg)
 }
 
 // AddSnapshotInternal seeds a snapshot directly into the backend.
 func (b *InMemoryBackend) AddSnapshotInternal(snap *Snapshot) {
 	b.mu.Lock("AddSnapshotInternal")
 	defer b.mu.Unlock()
-	b.snapshots[snap.SnapshotIdentifier] = snap
+	b.snapshots.Put(snap)
 }
 
 // AddActiveResizeInternal seeds an active resize directly into the backend.
@@ -1143,12 +1097,12 @@ func (b *InMemoryBackend) AddActiveResizeInternal(clusterID string, resize *Resi
 func (b *InMemoryBackend) AddParameterGroupInternal(pg *ClusterParameterGroup) {
 	b.mu.Lock("AddParameterGroupInternal")
 	defer b.mu.Unlock()
-	b.parameterGroups[pg.ParameterGroupName] = pg
+	b.parameterGroups.Put(pg)
 }
 
 // AddSubnetGroupInternal seeds a subnet group directly into the backend.
 func (b *InMemoryBackend) AddSubnetGroupInternal(sg *ClusterSubnetGroup) {
 	b.mu.Lock("AddSubnetGroupInternal")
 	defer b.mu.Unlock()
-	b.subnetGroups[sg.ClusterSubnetGroupName] = sg
+	b.subnetGroups.Put(sg)
 }

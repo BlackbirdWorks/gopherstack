@@ -152,7 +152,7 @@ func (b *InMemoryBackend) CreateNamespace(
 	b.mu.Lock("CreateNamespace")
 	defer b.mu.Unlock()
 
-	if _, ok := b.slNamespaces[namespaceName]; ok {
+	if _, ok := b.slNamespaces.Get(namespaceName); ok {
 		return nil, fmt.Errorf(
 			"%w: namespace %q already exists",
 			ErrNamespaceAlreadyExists,
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) CreateNamespace(
 		IamRoles:      rolesCopy,
 		LogExports:    exportsCopy,
 	}
-	b.slNamespaces[namespaceName] = ns
+	b.slNamespaces.Put(ns)
 	b.slNamespaceIdx.insert(namespaceName)
 
 	return cloneNamespace(ns), nil
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) GetNamespace(namespaceName string) (*Namespace, error)
 	b.mu.RLock("GetNamespace")
 	defer b.mu.RUnlock()
 
-	ns, ok := b.slNamespaces[namespaceName]
+	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*N
 	list := make([]*Namespace, 0, len(keys))
 
 	for _, name := range keys {
-		if ns, ok := b.slNamespaces[name]; ok {
+		if ns, ok := b.slNamespaces.Get(name); ok {
 			list = append(list, cloneNamespace(ns))
 		}
 	}
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) UpdateNamespace(
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
 
-	ns, ok := b.slNamespaces[namespaceName]
+	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
@@ -289,13 +289,13 @@ func (b *InMemoryBackend) DeleteNamespace(namespaceName string) (*Namespace, err
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
 
-	ns, ok := b.slNamespaces[namespaceName]
+	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
 
 	cp := cloneNamespace(ns)
-	delete(b.slNamespaces, namespaceName)
+	b.slNamespaces.Delete(namespaceName)
 	b.slNamespaceIdx.remove(namespaceName)
 
 	return cp, nil
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 	b.mu.Lock("CreateWorkgroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.slWorkgroups[workgroupName]; ok {
+	if _, ok := b.slWorkgroups.Get(workgroupName); ok {
 		return nil, fmt.Errorf(
 			"%w: workgroup %q already exists",
 			ErrWorkgroupAlreadyExists,
@@ -332,7 +332,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 		)
 	}
 
-	if _, ok := b.slNamespaces[namespaceName]; !ok {
+	if _, ok := b.slNamespaces.Get(namespaceName); !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
 
@@ -369,7 +369,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 		SubnetIDs:        subnetsCopy,
 		SecurityGroupIDs: sgCopy,
 	}
-	b.slWorkgroups[workgroupName] = wg
+	b.slWorkgroups.Put(wg)
 	b.slWorkgroupIdx.insert(workgroupName)
 
 	return cloneWorkgroup(wg), nil
@@ -380,7 +380,7 @@ func (b *InMemoryBackend) GetWorkgroup(workgroupName string) (*Workgroup, error)
 	b.mu.RLock("GetWorkgroup")
 	defer b.mu.RUnlock()
 
-	wg, ok := b.slWorkgroups[workgroupName]
+	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, workgroupName)
 	}
@@ -400,7 +400,7 @@ func (b *InMemoryBackend) ListWorkgroups(maxResults int, nextToken string) ([]*W
 	list := make([]*Workgroup, 0, len(keys))
 
 	for _, name := range keys {
-		if wg, ok := b.slWorkgroups[name]; ok {
+		if wg, ok := b.slWorkgroups.Get(name); ok {
 			list = append(list, cloneWorkgroup(wg))
 		}
 	}
@@ -441,7 +441,7 @@ func (b *InMemoryBackend) UpdateWorkgroup(
 	b.mu.Lock("UpdateWorkgroup")
 	defer b.mu.Unlock()
 
-	wg, ok := b.slWorkgroups[workgroupName]
+	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, workgroupName)
 	}
@@ -470,13 +470,13 @@ func (b *InMemoryBackend) DeleteWorkgroup(workgroupName string) (*Workgroup, err
 	b.mu.Lock("DeleteWorkgroup")
 	defer b.mu.Unlock()
 
-	wg, ok := b.slWorkgroups[workgroupName]
+	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, workgroupName)
 	}
 
 	cp := cloneWorkgroup(wg)
-	delete(b.slWorkgroups, workgroupName)
+	b.slWorkgroups.Delete(workgroupName)
 	b.slWorkgroupIdx.remove(workgroupName)
 
 	return cp, nil
@@ -504,7 +504,7 @@ func (b *InMemoryBackend) GetCredentials(
 	b.mu.RLock("GetCredentials")
 	defer b.mu.RUnlock()
 
-	wg, ok := b.slWorkgroups[workgroupName]
+	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
 		return "", "", "", fmt.Errorf(
 			"%w: workgroup %q not found",
@@ -515,7 +515,7 @@ func (b *InMemoryBackend) GetCredentials(
 
 	resolvedDB := dbName
 	if resolvedDB == "" {
-		ns, nsOK := b.slNamespaces[wg.NamespaceName]
+		ns, nsOK := b.slNamespaces.Get(wg.NamespaceName)
 		if nsOK && ns.DBName != "" {
 			resolvedDB = ns.DBName
 		} else {
@@ -543,12 +543,12 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 	b.mu.Lock("CreateServerlessSnapshot")
 	defer b.mu.Unlock()
 
-	ns, ok := b.slNamespaces[namespaceName]
+	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
 
-	if _, exists := b.slSnapshots[snapshotName]; exists {
+	if _, exists := b.slSnapshots.Get(snapshotName); exists {
 		return nil, fmt.Errorf(
 			"%w: snapshot %q already exists",
 			ErrServerlessConflict,
@@ -567,7 +567,7 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 		Status:             slStatusAvailable,
 		AdminUsername:      ns.AdminUsername,
 	}
-	b.slSnapshots[snapshotName] = snap
+	b.slSnapshots.Put(snap)
 	b.slSnapshotIdx.insert(snapshotName)
 
 	return cloneServerlessSnapshot(snap), nil
@@ -578,7 +578,7 @@ func (b *InMemoryBackend) GetServerlessSnapshot(snapshotName string) (*Serverles
 	b.mu.RLock("GetServerlessSnapshot")
 	defer b.mu.RUnlock()
 
-	snap, ok := b.slSnapshots[snapshotName]
+	snap, ok := b.slSnapshots.Get(snapshotName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: snapshot %q not found",
@@ -606,7 +606,7 @@ func (b *InMemoryBackend) ListServerlessSnapshots(
 	list := make([]*ServerlessSnapshot, 0, len(keys))
 
 	for _, name := range keys {
-		snap, ok := b.slSnapshots[name]
+		snap, ok := b.slSnapshots.Get(name)
 		if !ok {
 			continue
 		}
@@ -650,7 +650,7 @@ func (b *InMemoryBackend) DeleteServerlessSnapshot(
 	b.mu.Lock("DeleteServerlessSnapshot")
 	defer b.mu.Unlock()
 
-	snap, ok := b.slSnapshots[snapshotName]
+	snap, ok := b.slSnapshots.Get(snapshotName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: snapshot %q not found",
@@ -660,7 +660,7 @@ func (b *InMemoryBackend) DeleteServerlessSnapshot(
 	}
 
 	cp := cloneServerlessSnapshot(snap)
-	delete(b.slSnapshots, snapshotName)
+	b.slSnapshots.Delete(snapshotName)
 	b.slSnapshotIdx.remove(snapshotName)
 
 	return cp, nil
@@ -698,7 +698,7 @@ func (b *InMemoryBackend) CreateServerlessUsageLimit(
 		Period:        period,
 		BreachAction:  breachAction,
 	}
-	b.slUsageLimits[id] = ul
+	b.slUsageLimits.Put(ul)
 	b.slUsageLimitIdx.insert(id)
 
 	return cloneServerlessUsageLimit(ul), nil
@@ -711,7 +711,7 @@ func (b *InMemoryBackend) GetServerlessUsageLimit(
 	b.mu.RLock("GetServerlessUsageLimit")
 	defer b.mu.RUnlock()
 
-	ul, ok := b.slUsageLimits[usageLimitID]
+	ul, ok := b.slUsageLimits.Get(usageLimitID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: usage limit %q not found",
@@ -739,7 +739,7 @@ func (b *InMemoryBackend) ListServerlessUsageLimits(
 	list := make([]*ServerlessUsageLimit, 0, len(keys))
 
 	for _, id := range keys {
-		ul, ok := b.slUsageLimits[id]
+		ul, ok := b.slUsageLimits.Get(id)
 		if !ok {
 			continue
 		}
@@ -784,7 +784,7 @@ func (b *InMemoryBackend) UpdateServerlessUsageLimit(
 	b.mu.Lock("UpdateServerlessUsageLimit")
 	defer b.mu.Unlock()
 
-	ul, ok := b.slUsageLimits[usageLimitID]
+	ul, ok := b.slUsageLimits.Get(usageLimitID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: usage limit %q not found",
@@ -811,7 +811,7 @@ func (b *InMemoryBackend) DeleteServerlessUsageLimit(
 	b.mu.Lock("DeleteServerlessUsageLimit")
 	defer b.mu.Unlock()
 
-	ul, ok := b.slUsageLimits[usageLimitID]
+	ul, ok := b.slUsageLimits.Get(usageLimitID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: usage limit %q not found",
@@ -821,7 +821,7 @@ func (b *InMemoryBackend) DeleteServerlessUsageLimit(
 	}
 
 	cp := cloneServerlessUsageLimit(ul)
-	delete(b.slUsageLimits, usageLimitID)
+	b.slUsageLimits.Delete(usageLimitID)
 	b.slUsageLimitIdx.remove(usageLimitID)
 
 	return cp, nil
@@ -845,7 +845,7 @@ func (b *InMemoryBackend) CreateServerlessScheduledAction(
 	b.mu.Lock("CreateServerlessScheduledAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.slScheduledActions[scheduledActionName]; ok {
+	if _, ok := b.slScheduledActions.Get(scheduledActionName); ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled action %q already exists",
 			ErrServerlessConflict,
@@ -870,7 +870,7 @@ func (b *InMemoryBackend) CreateServerlessScheduledAction(
 		Status:              slStatusActive,
 		TargetAction:        targetAction,
 	}
-	b.slScheduledActions[scheduledActionName] = sa
+	b.slScheduledActions.Put(sa)
 	b.slScheduledActionIdx.insert(scheduledActionName)
 
 	return cloneServerlessScheduledAction(sa), nil
@@ -883,7 +883,7 @@ func (b *InMemoryBackend) GetServerlessScheduledAction(
 	b.mu.RLock("GetServerlessScheduledAction")
 	defer b.mu.RUnlock()
 
-	sa, ok := b.slScheduledActions[scheduledActionName]
+	sa, ok := b.slScheduledActions.Get(scheduledActionName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled action %q not found",
@@ -911,7 +911,7 @@ func (b *InMemoryBackend) ListServerlessScheduledActions(
 	list := make([]*ServerlessScheduledAction, 0, len(keys))
 
 	for _, name := range keys {
-		sa, ok := b.slScheduledActions[name]
+		sa, ok := b.slScheduledActions.Get(name)
 		if !ok {
 			continue
 		}
@@ -956,7 +956,7 @@ func (b *InMemoryBackend) UpdateServerlessScheduledAction(
 	b.mu.Lock("UpdateServerlessScheduledAction")
 	defer b.mu.Unlock()
 
-	sa, ok := b.slScheduledActions[scheduledActionName]
+	sa, ok := b.slScheduledActions.Get(scheduledActionName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled action %q not found",
@@ -991,7 +991,7 @@ func (b *InMemoryBackend) DeleteServerlessScheduledAction(
 	b.mu.Lock("DeleteServerlessScheduledAction")
 	defer b.mu.Unlock()
 
-	sa, ok := b.slScheduledActions[scheduledActionName]
+	sa, ok := b.slScheduledActions.Get(scheduledActionName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled action %q not found",
@@ -1001,7 +1001,7 @@ func (b *InMemoryBackend) DeleteServerlessScheduledAction(
 	}
 
 	cp := cloneServerlessScheduledAction(sa)
-	delete(b.slScheduledActions, scheduledActionName)
+	b.slScheduledActions.Delete(scheduledActionName)
 	b.slScheduledActionIdx.remove(scheduledActionName)
 
 	return cp, nil

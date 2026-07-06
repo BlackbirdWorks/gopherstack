@@ -19,7 +19,7 @@ func (b *InMemoryBackend) CreateSnapshotCopyGrant(
 	b.mu.Lock("CreateSnapshotCopyGrant")
 	defer b.mu.Unlock()
 
-	if _, exists := b.snapshotCopyGrants[name]; exists {
+	if _, exists := b.snapshotCopyGrants.Get(name); exists {
 		return nil, fmt.Errorf("%w: grant %s already exists", ErrSnapshotCopyGrantAlreadyExists, name)
 	}
 
@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateSnapshotCopyGrant(
 		KMSKeyID:              kmsKeyID,
 		Tags:                  tagMap,
 	}
-	b.snapshotCopyGrants[name] = grant
+	b.snapshotCopyGrants.Put(grant)
 
 	cp := *grant
 
@@ -44,11 +44,11 @@ func (b *InMemoryBackend) DeleteSnapshotCopyGrant(name string) error {
 	b.mu.Lock("DeleteSnapshotCopyGrant")
 	defer b.mu.Unlock()
 
-	if _, exists := b.snapshotCopyGrants[name]; !exists {
+	if _, exists := b.snapshotCopyGrants.Get(name); !exists {
 		return fmt.Errorf("%w: grant %s not found", ErrSnapshotCopyGrantNotFound, name)
 	}
 
-	delete(b.snapshotCopyGrants, name)
+	b.snapshotCopyGrants.Delete(name)
 
 	return nil
 }
@@ -59,7 +59,7 @@ func (b *InMemoryBackend) DescribeSnapshotCopyGrants(name string) ([]SnapshotCop
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		g, exists := b.snapshotCopyGrants[name]
+		g, exists := b.snapshotCopyGrants.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: grant %s not found", ErrSnapshotCopyGrantNotFound, name)
 		}
@@ -69,9 +69,9 @@ func (b *InMemoryBackend) DescribeSnapshotCopyGrants(name string) ([]SnapshotCop
 		return []SnapshotCopyGrant{cp}, nil
 	}
 
-	result := make([]SnapshotCopyGrant, 0, len(b.snapshotCopyGrants))
+	result := make([]SnapshotCopyGrant, 0, b.snapshotCopyGrants.Len())
 
-	for _, g := range b.snapshotCopyGrants {
+	for _, g := range b.snapshotCopyGrants.All() {
 		result = append(result, *g)
 	}
 
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) EnableSnapshotCopy(
 	b.mu.Lock("EnableSnapshotCopy")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -133,7 +133,7 @@ func (b *InMemoryBackend) DisableSnapshotCopy(clusterID string) (*Cluster, error
 	b.mu.Lock("DisableSnapshotCopy")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) ModifySnapshotCopyRetentionPeriod(clusterID string, re
 	b.mu.Lock("ModifySnapshotCopyRetentionPeriod")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) CreateSnapshotSchedule(
 	b.mu.Lock("CreateSnapshotSchedule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.snapshotSchedules[scheduleID]; exists {
+	if _, exists := b.snapshotSchedules.Get(scheduleID); exists {
 		return nil, fmt.Errorf("%w: schedule %s already exists", ErrSnapshotScheduleAlreadyExists, scheduleID)
 	}
 
@@ -202,7 +202,7 @@ func (b *InMemoryBackend) CreateSnapshotSchedule(
 		ScheduleDefinitions: defCopy,
 		Tags:                tagMap,
 	}
-	b.snapshotSchedules[scheduleID] = sched
+	b.snapshotSchedules.Put(sched)
 
 	cp := cloneSnapshotSchedule(sched)
 
@@ -218,11 +218,11 @@ func (b *InMemoryBackend) DeleteSnapshotSchedule(scheduleID string) error {
 	b.mu.Lock("DeleteSnapshotSchedule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.snapshotSchedules[scheduleID]; !exists {
+	if _, exists := b.snapshotSchedules.Get(scheduleID); !exists {
 		return fmt.Errorf("%w: schedule %s not found", ErrSnapshotScheduleNotFound, scheduleID)
 	}
 
-	delete(b.snapshotSchedules, scheduleID)
+	b.snapshotSchedules.Delete(scheduleID)
 
 	return nil
 }
@@ -233,7 +233,7 @@ func (b *InMemoryBackend) DescribeSnapshotSchedules(scheduleID string) ([]Snapsh
 	defer b.mu.RUnlock()
 
 	if scheduleID != "" {
-		s, exists := b.snapshotSchedules[scheduleID]
+		s, exists := b.snapshotSchedules.Get(scheduleID)
 		if !exists {
 			return nil, fmt.Errorf("%w: schedule %s not found", ErrSnapshotScheduleNotFound, scheduleID)
 		}
@@ -241,9 +241,9 @@ func (b *InMemoryBackend) DescribeSnapshotSchedules(scheduleID string) ([]Snapsh
 		return []SnapshotSchedule{*cloneSnapshotSchedule(s)}, nil
 	}
 
-	result := make([]SnapshotSchedule, 0, len(b.snapshotSchedules))
+	result := make([]SnapshotSchedule, 0, b.snapshotSchedules.Len())
 
-	for _, s := range b.snapshotSchedules {
+	for _, s := range b.snapshotSchedules.All() {
 		result = append(result, *cloneSnapshotSchedule(s))
 	}
 
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) ModifySnapshotSchedule(scheduleID string, definitions 
 	b.mu.Lock("ModifySnapshotSchedule")
 	defer b.mu.Unlock()
 
-	sched, exists := b.snapshotSchedules[scheduleID]
+	sched, exists := b.snapshotSchedules.Get(scheduleID)
 	if !exists {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrSnapshotScheduleNotFound, scheduleID)
 	}
@@ -280,12 +280,12 @@ func (b *InMemoryBackend) ModifyClusterSnapshotSchedule(clusterID, scheduleID st
 	b.mu.Lock("ModifyClusterSnapshotSchedule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	if !disassociate && scheduleID != "" {
-		if _, exists := b.snapshotSchedules[scheduleID]; !exists {
+		if _, exists := b.snapshotSchedules.Get(scheduleID); !exists {
 			return fmt.Errorf("%w: schedule %s not found", ErrSnapshotScheduleNotFound, scheduleID)
 		}
 	}
@@ -308,7 +308,7 @@ func (b *InMemoryBackend) CreateUsageLimit(
 	b.mu.Lock("CreateUsageLimit")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
@@ -323,7 +323,7 @@ func (b *InMemoryBackend) CreateUsageLimit(
 		Amount:            amount,
 		Tags:              tagMap,
 	}
-	b.usageLimits[id] = ul
+	b.usageLimits.Put(ul)
 
 	cp := *ul
 
@@ -339,11 +339,11 @@ func (b *InMemoryBackend) DeleteUsageLimit(usageLimitID string) error {
 	b.mu.Lock("DeleteUsageLimit")
 	defer b.mu.Unlock()
 
-	if _, exists := b.usageLimits[usageLimitID]; !exists {
+	if _, exists := b.usageLimits.Get(usageLimitID); !exists {
 		return fmt.Errorf("%w: usage limit %s not found", ErrUsageLimitNotFound, usageLimitID)
 	}
 
-	delete(b.usageLimits, usageLimitID)
+	b.usageLimits.Delete(usageLimitID)
 
 	return nil
 }
@@ -353,9 +353,9 @@ func (b *InMemoryBackend) DescribeUsageLimits(clusterID, featureType string) ([]
 	b.mu.RLock("DescribeUsageLimits")
 	defer b.mu.RUnlock()
 
-	result := make([]UsageLimit, 0, len(b.usageLimits))
+	result := make([]UsageLimit, 0, b.usageLimits.Len())
 
-	for _, ul := range b.usageLimits {
+	for _, ul := range b.usageLimits.All() {
 		if clusterID != "" && ul.ClusterIdentifier != clusterID {
 			continue
 		}
@@ -380,7 +380,7 @@ func (b *InMemoryBackend) ModifyUsageLimit(usageLimitID, breachAction string, am
 	b.mu.Lock("ModifyUsageLimit")
 	defer b.mu.Unlock()
 
-	ul, exists := b.usageLimits[usageLimitID]
+	ul, exists := b.usageLimits.Get(usageLimitID)
 	if !exists {
 		return nil, fmt.Errorf("%w: usage limit %s not found", ErrUsageLimitNotFound, usageLimitID)
 	}
@@ -409,7 +409,7 @@ func (b *InMemoryBackend) CreateAuthenticationProfile(name, content string) (*Au
 	b.mu.Lock("CreateAuthenticationProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.authProfiles[name]; exists {
+	if _, exists := b.authProfiles.Get(name); exists {
 		return nil, fmt.Errorf("%w: profile %s already exists", ErrAuthProfileAlreadyExists, name)
 	}
 
@@ -417,7 +417,7 @@ func (b *InMemoryBackend) CreateAuthenticationProfile(name, content string) (*Au
 		AuthenticationProfileName:    name,
 		AuthenticationProfileContent: content,
 	}
-	b.authProfiles[name] = ap
+	b.authProfiles.Put(ap)
 
 	cp := *ap
 
@@ -433,11 +433,11 @@ func (b *InMemoryBackend) DeleteAuthenticationProfile(name string) error {
 	b.mu.Lock("DeleteAuthenticationProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.authProfiles[name]; !exists {
+	if _, exists := b.authProfiles.Get(name); !exists {
 		return fmt.Errorf("%w: profile %s not found", ErrAuthProfileNotFound, name)
 	}
 
-	delete(b.authProfiles, name)
+	b.authProfiles.Delete(name)
 
 	return nil
 }
@@ -448,7 +448,7 @@ func (b *InMemoryBackend) DescribeAuthenticationProfiles(name string) ([]Authent
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		ap, exists := b.authProfiles[name]
+		ap, exists := b.authProfiles.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: profile %s not found", ErrAuthProfileNotFound, name)
 		}
@@ -458,9 +458,9 @@ func (b *InMemoryBackend) DescribeAuthenticationProfiles(name string) ([]Authent
 		return []AuthenticationProfile{cp}, nil
 	}
 
-	result := make([]AuthenticationProfile, 0, len(b.authProfiles))
+	result := make([]AuthenticationProfile, 0, b.authProfiles.Len())
 
-	for _, ap := range b.authProfiles {
+	for _, ap := range b.authProfiles.All() {
 		cp := *ap
 		result = append(result, cp)
 	}
@@ -477,7 +477,7 @@ func (b *InMemoryBackend) ModifyAuthenticationProfile(name, content string) (*Au
 	b.mu.Lock("ModifyAuthenticationProfile")
 	defer b.mu.Unlock()
 
-	ap, exists := b.authProfiles[name]
+	ap, exists := b.authProfiles.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: profile %s not found", ErrAuthProfileNotFound, name)
 	}
@@ -499,7 +499,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (*ResourcePolicy
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
-	rp, exists := b.resourcePolicies[resourceArn]
+	rp, exists := b.resourcePolicies.Get(resourceArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: resource policy for %s not found", ErrResourcePolicyNotFound, resourceArn)
 	}
@@ -522,7 +522,7 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy string) (*Resour
 		ResourceArn: resourceArn,
 		Policy:      policy,
 	}
-	b.resourcePolicies[resourceArn] = rp
+	b.resourcePolicies.Put(rp)
 
 	cp := *rp
 
@@ -538,11 +538,11 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.resourcePolicies[resourceArn]; !exists {
+	if _, exists := b.resourcePolicies.Get(resourceArn); !exists {
 		return fmt.Errorf("%w: resource policy for %s not found", ErrResourcePolicyNotFound, resourceArn)
 	}
 
-	delete(b.resourcePolicies, resourceArn)
+	b.resourcePolicies.Delete(resourceArn)
 
 	return nil
 }
@@ -558,7 +558,7 @@ func (b *InMemoryBackend) GetClusterCredentialsWithIAM(clusterID, _ string) (*Cl
 	b.mu.RLock("GetClusterCredentialsWithIAM")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
@@ -580,7 +580,7 @@ func (b *InMemoryBackend) FailoverPrimaryCompute(clusterID string) (*Cluster, er
 	b.mu.Lock("FailoverPrimaryCompute")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -597,9 +597,9 @@ func (b *InMemoryBackend) DescribeTableRestoreStatus(clusterID string) ([]TableR
 	b.mu.RLock("DescribeTableRestoreStatus")
 	defer b.mu.RUnlock()
 
-	result := make([]TableRestoreStatus, 0, len(b.tableRestores))
+	result := make([]TableRestoreStatus, 0, b.tableRestores.Len())
 
-	for _, tr := range b.tableRestores {
+	for _, tr := range b.tableRestores.All() {
 		if clusterID != "" && tr.ClusterIdentifier != clusterID {
 			continue
 		}

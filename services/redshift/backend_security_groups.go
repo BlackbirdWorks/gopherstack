@@ -13,7 +13,7 @@ func (b *InMemoryBackend) CreateClusterSecurityGroup(name, description string) (
 	b.mu.Lock("CreateClusterSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.securityGroups[name]; exists {
+	if _, exists := b.securityGroups.Get(name); exists {
 		return nil, fmt.Errorf("%w: security group %s already exists", ErrSecurityGroupAlreadyExists, name)
 	}
 
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateClusterSecurityGroup(name, description string) (
 		IPRanges:                 []IPRange{},
 		EC2SecurityGroups:        []EC2SecurityGroup{},
 	}
-	b.securityGroups[name] = sg
+	b.securityGroups.Put(sg)
 
 	return cloneSecurityGroup(sg), nil
 }
@@ -37,11 +37,11 @@ func (b *InMemoryBackend) DeleteClusterSecurityGroup(name string) error {
 	b.mu.Lock("DeleteClusterSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.securityGroups[name]; !exists {
+	if _, exists := b.securityGroups.Get(name); !exists {
 		return fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, name)
 	}
 
-	delete(b.securityGroups, name)
+	b.securityGroups.Delete(name)
 
 	return nil
 }
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) DescribeClusterSecurityGroups(name string) ([]ClusterS
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		sg, exists := b.securityGroups[name]
+		sg, exists := b.securityGroups.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, name)
 		}
@@ -60,8 +60,8 @@ func (b *InMemoryBackend) DescribeClusterSecurityGroups(name string) ([]ClusterS
 		return []ClusterSecurityGroup{*cloneSecurityGroup(sg)}, nil
 	}
 
-	result := make([]ClusterSecurityGroup, 0, len(b.securityGroups))
-	for _, sg := range b.securityGroups {
+	result := make([]ClusterSecurityGroup, 0, b.securityGroups.Len())
+	for _, sg := range b.securityGroups.All() {
 		result = append(result, *cloneSecurityGroup(sg))
 	}
 
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) RevokeClusterSecurityGroupIngress(
 	b.mu.Lock("RevokeClusterSecurityGroupIngress")
 	defer b.mu.Unlock()
 
-	sg, exists := b.securityGroups[groupName]
+	sg, exists := b.securityGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: security group %s not found", ErrSecurityGroupNotFound, groupName)
 	}
