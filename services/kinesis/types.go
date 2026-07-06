@@ -115,19 +115,25 @@ const (
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
-	CreatedAt          time.Time `json:"createdAt"`
-	mu                 *lockmetrics.RWMutex
-	Tags               *tags.Tags           `json:"tags,omitempty"`
-	Consumers          map[string]*Consumer `json:"consumers,omitempty"`
-	Name               string               `json:"name"`
-	ARN                string               `json:"arn"`
-	Status             string               `json:"status"`
-	EncryptionType     string               `json:"encryptionType,omitempty"`
-	KeyID              string               `json:"keyId,omitempty"`
-	StreamMode         string               `json:"streamMode,omitempty"`
-	Shards             []*Shard             `json:"shards"`
-	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
-	RetentionPeriod    int                  `json:"retentionPeriod"`
+	CreatedAt time.Time `json:"createdAt"`
+	mu        *lockmetrics.RWMutex
+	Tags      *tags.Tags           `json:"tags,omitempty"`
+	Consumers map[string]*Consumer `json:"consumers,omitempty"`
+	Name      string               `json:"name"`
+	ARN       string               `json:"arn"`
+	// Region is the AWS region this stream lives in. It is the second half of
+	// the composite key (see streamKey in backend.go) that keeps same-named
+	// streams in different regions isolated inside the single flat
+	// store.Table[Stream] — the region-nested map it replaced used the
+	// region as an outer map key instead of a field on Stream itself.
+	Region             string   `json:"region,omitempty"`
+	Status             string   `json:"status"`
+	EncryptionType     string   `json:"encryptionType,omitempty"`
+	KeyID              string   `json:"keyId,omitempty"`
+	StreamMode         string   `json:"streamMode,omitempty"`
+	Shards             []*Shard `json:"shards"`
+	EnhancedMonitoring []string `json:"enhancedMonitoring,omitempty"`
+	RetentionPeriod    int      `json:"retentionPeriod"`
 	// MaxRecordSizeBytes is the per-record data payload size limit for this stream.
 	// Defaults to defaultMaxRecordSizeBytes (1 MiB); updatable via UpdateMaxRecordSize.
 	MaxRecordSizeBytes int `json:"maxRecordSizeBytes,omitempty"`

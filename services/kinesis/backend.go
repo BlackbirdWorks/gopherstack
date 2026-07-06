@@ -1,7 +1,6 @@
 package kinesis
 
 import (
-	"cmp"
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 used as a non-cryptographic hash key for Kinesis shard routing, matching the AWS API contract
 	"encoding/base64"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -154,17 +154,6 @@ func isValidConsumerName(s string) bool {
 	return consumerNameRe.MatchString(s)
 }
 
-// sortedKeys returns the keys of map m in sorted order.
-func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
-	keys := make([]K, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-
-	return keys
-}
-
 // kinesisThrottleFault holds the state of an active FIS throughput-exception fault on a stream.
 type kinesisThrottleFault struct {
 	expiry      time.Time
@@ -173,11 +162,20 @@ type kinesisThrottleFault struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 //
-// All resource maps are nested by region (outer key = region) so that
-// same-named streams in different regions are fully isolated — including their
-// shards, records, consumers, FIS throttle faults, and resource policies.
+// Streams are keyed by a composite "region/name" key (see streamKey) inside a
+// single flat [store.Table], with a secondary [store.Index] grouping them by
+// region — so same-named streams in different regions remain fully isolated,
+// including their shards, records, and consumers, all of which stay inline
+// fields on Stream (see pkgs/store's package doc: shards/records are the
+// per-stream hot path and are not decomposed into their own tables).
+// fisThroughputFaults and resourcePolicies are NOT store.Table candidates:
+// their value types (a pointer with no self-describing identity, and a bare
+// string) carry no key of their own to hand a Table keyFn, so they remain
+// plain nested maps guarded the same way as before.
 type InMemoryBackend struct {
-	streams                  map[string]map[string]*Stream               // region → stream name → stream
+	streams                  *store.Table[Stream]
+	streamsByRegion          *store.Index[Stream]
+	registry                 *store.Registry
 	fisThroughputFaults      map[string]map[string]*kinesisThrottleFault // region → stream name → fault
 	faultsMu                 *lockmetrics.RWMutex
 	resourcePolicies         map[string]map[string]string // region → resource ARN → policy
@@ -195,8 +193,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		streams:                  make(map[string]map[string]*Stream),
+	b := &InMemoryBackend{
 		fisThroughputFaults:      make(map[string]map[string]*kinesisThrottleFault),
 		faultsMu:                 lockmetrics.New("kinesis.faults"),
 		resourcePolicies:         make(map[string]map[string]string),
@@ -204,27 +201,26 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:                   region,
 		mu:                       lockmetrics.New("kinesis"),
 		onDemandStreamCountLimit: defaultOnDemandStreamCountLimit,
+		registry:                 store.NewRegistry(),
 	}
+	b.streams = store.Register(b.registry, "streams", store.New(streamTableKeyFn))
+	b.streamsByRegion = b.streams.AddIndex("region", func(v *Stream) string { return v.Region })
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured to use as its default.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// streamsStore returns the stream map for the given region, lazily creating it.
-// Callers must hold b.mu (write lock).
-func (b *InMemoryBackend) streamsStore(region string) map[string]*Stream {
-	if b.streams[region] == nil {
-		b.streams[region] = make(map[string]*Stream)
-	}
-
-	return b.streams[region]
+// streamKey builds the composite primary key ("region/name") a Stream is
+// stored under in b.streams, mirroring the region-nested map key it replaces.
+func streamKey(region, name string) string {
+	return region + "/" + name
 }
 
-// streamsView returns the existing stream map for the given region without
-// creating it. A nil map (region never written) reads as empty. Safe under a
-// read lock. Callers must hold b.mu (read or write lock).
-func (b *InMemoryBackend) streamsView(region string) map[string]*Stream {
-	return b.streams[region]
+// streamTableKeyFn is the [store.Table] key function for b.streams.
+func streamTableKeyFn(v *Stream) string {
+	return streamKey(v.Region, v.Name)
 }
 
 // faultsStore returns the FIS throttle-fault map for the given region, lazily
@@ -335,7 +331,7 @@ func (s *Shard) nextSequenceNumber() string {
 	)
 }
 
-func checkOnDemandLimit(streams map[string]*Stream, limit int) error {
+func checkOnDemandLimit(streams []*Stream, limit int) error {
 	onDemandCount := 0
 	for _, s := range streams {
 		if s.StreamMode == streamModeOnDemand {
@@ -403,8 +399,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		return ErrValidation
 	}
 
-	streams := b.streamsStore(region)
-	if _, exists := streams[input.StreamName]; exists {
+	if b.streams.Has(streamKey(region, input.StreamName)) {
 		return ErrStreamAlreadyExists
 	}
 
@@ -439,16 +434,17 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	}
 
 	if streamMode == streamModeOnDemand {
-		if err := checkOnDemandLimit(streams, b.onDemandStreamCountLimit); err != nil {
+		if err := checkOnDemandLimit(b.streamsByRegion.Get(region), b.onDemandStreamCountLimit); err != nil {
 			return err
 		}
 	}
 
 	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
-	streams[input.StreamName] = &Stream{
+	b.streams.Put(&Stream{
 		Name:               input.StreamName,
 		ARN:                streamARN,
+		Region:             region,
 		Status:             streamStatusActive,
 		Shards:             shards,
 		mu:                 newStreamLock(input.StreamName),
@@ -458,7 +454,7 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 		Consumers:          make(map[string]*Consumer),
 		StreamMode:         streamMode,
 		MaxRecordSizeBytes: defaultMaxRecordSizeBytes,
-	}
+	})
 
 	return nil
 }
@@ -469,8 +465,7 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 
 	b.mu.Lock("DeleteStream")
 
-	streams := b.streamsStore(region)
-	stream, exists := streams[input.StreamName]
+	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
 	if !exists {
 		b.mu.Unlock()
 
@@ -485,7 +480,7 @@ func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamI
 
 	// Mark the stream as deleting before removing it (AWS-realistic status transition).
 	stream.Status = streamStatusDeleting
-	delete(streams, input.StreamName)
+	b.streams.Delete(streamKey(region, input.StreamName))
 	b.mu.Unlock()
 	b.faultsMu.Lock("DeleteStream.faults")
 	delete(b.faultsStore(region), input.StreamName)
@@ -510,7 +505,7 @@ func (b *InMemoryBackend) DescribeStream(
 
 	b.mu.RLock("DescribeStream")
 
-	stream, exists := b.streamsView(region)[input.StreamName]
+	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -593,7 +588,12 @@ func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInp
 	defer b.mu.RUnlock()
 
 	// AWS returns stream names in alphabetical order.
-	names := sortedKeys(b.streamsView(region))
+	regionStreams := b.streamsByRegion.Get(region)
+	names := make([]string, len(regionStreams))
+	for i, s := range regionStreams {
+		names[i] = s.Name
+	}
+	slices.Sort(names)
 
 	// Apply pagination start point: prefer ExclusiveStartStreamName, then NextToken.
 	start := input.ExclusiveStartStreamName
@@ -642,7 +642,7 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) 
 
 	b.mu.RLock("PutRecord")
 
-	stream, exists := b.streamsView(region)[input.StreamName]
+	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -769,7 +769,7 @@ func (b *InMemoryBackend) PutRecords(ctx context.Context, input *PutRecordsInput
 	// exist, rather than reporting "InternalFailure" on every result entry.
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("PutRecords.exists")
-	_, exists := b.streamsView(region)[input.StreamName]
+	_, exists := b.streams.Get(streamKey(region, input.StreamName))
 	b.mu.RUnlock()
 	if !exists {
 		return nil, ErrStreamNotFound
@@ -844,7 +844,7 @@ func (b *InMemoryBackend) GetShardIterator(
 
 	b.mu.RLock("GetShardIterator")
 
-	stream, exists := b.streamsView(region)[input.StreamName]
+	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -930,7 +930,7 @@ func (b *InMemoryBackend) GetRecords(ctx context.Context, input *GetRecordsInput
 
 	b.mu.RLock("GetRecords")
 
-	stream, exists := b.streamsView(region)[it.StreamName]
+	stream, exists := b.streams.Get(streamKey(region, it.StreamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -1072,7 +1072,7 @@ func (b *InMemoryBackend) ListShards(ctx context.Context, input *ListShardsInput
 
 	b.mu.RLock("ListShards")
 
-	stream, exists := b.streamsView(region)[input.StreamName]
+	stream, exists := b.streams.Get(streamKey(region, input.StreamName))
 	if !exists {
 		b.mu.RUnlock()
 
@@ -1131,18 +1131,16 @@ func (b *InMemoryBackend) ListAll(_ context.Context) []StreamInfo {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	result := make([]StreamInfo, 0)
-	for _, regionStreams := range b.streams {
-		for _, s := range regionStreams {
-			s.mu.RLock("ListAll.stream")
-			result = append(result, StreamInfo{
-				Name:       s.Name,
-				ARN:        s.ARN,
-				Status:     s.Status,
-				ShardCount: len(s.Shards),
-			})
-			s.mu.RUnlock()
-		}
+	result := make([]StreamInfo, 0, b.streams.Len())
+	for _, s := range b.streams.All() {
+		s.mu.RLock("ListAll.stream")
+		result = append(result, StreamInfo{
+			Name:       s.Name,
+			ARN:        s.ARN,
+			Status:     s.Status,
+			ShardCount: len(s.Shards),
+		})
+		s.mu.RUnlock()
 	}
 
 	return result
@@ -1261,7 +1259,7 @@ func (b *InMemoryBackend) RegisterStreamConsumer(
 	b.mu.RLock("RegisterStreamConsumer")
 
 	streamName := streamNameFromARN(input.StreamARN)
-	stream, ok := b.streamsView(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 
 	if !ok {
 		b.mu.RUnlock()
@@ -1325,7 +1323,7 @@ func (b *InMemoryBackend) DescribeStreamConsumer(
 	region := regionFromARNOrCtx(ctx, arnForRegion, b.region)
 
 	b.mu.RLock("DescribeStreamConsumer")
-	stream, ok := b.streamsView(region)[sName]
+	stream, ok := b.streams.Get(streamKey(region, sName))
 	if !ok {
 		b.mu.RUnlock()
 		if input.ConsumerARN != "" {
@@ -1356,7 +1354,7 @@ func (b *InMemoryBackend) ListStreamConsumers(
 	b.mu.RLock("ListStreamConsumers")
 
 	streamName := streamNameFromARN(input.StreamARN)
-	stream, ok := b.streamsView(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 
 	if !ok {
 		b.mu.RUnlock()
@@ -1413,7 +1411,7 @@ func (b *InMemoryBackend) DeregisterStreamConsumer(ctx context.Context, input *D
 	region := regionFromARNOrCtx(ctx, arnForRegion, b.region)
 
 	b.mu.RLock("DeregisterStreamConsumer")
-	stream, ok := b.streamsView(region)[sName]
+	stream, ok := b.streams.Get(streamKey(region, sName))
 	if !ok {
 		b.mu.RUnlock()
 
@@ -1443,7 +1441,7 @@ func (b *InMemoryBackend) SubscribeToShard(
 
 	b.mu.RLock("SubscribeToShard")
 
-	stream, ok := b.streamsView(region)[sName]
+	stream, ok := b.streams.Get(streamKey(region, sName))
 	if !ok {
 		b.mu.RUnlock()
 
@@ -1556,7 +1554,7 @@ func (b *InMemoryBackend) UpdateShardCount(
 	b.mu.Lock("UpdateShardCount")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsStore(region)[input.StreamName]
+	stream, ok := b.streams.Get(streamKey(region, input.StreamName))
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
@@ -1663,7 +1661,7 @@ func (b *InMemoryBackend) EnableEnhancedMonitoring(
 	b.mu.Lock("EnableEnhancedMonitoring")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsStore(region)[input.StreamName]
+	stream, ok := b.streams.Get(streamKey(region, input.StreamName))
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
@@ -1696,7 +1694,7 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 	b.mu.Lock("DisableEnhancedMonitoring")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsStore(region)[input.StreamName]
+	stream, ok := b.streams.Get(streamKey(region, input.StreamName))
 	if !ok {
 		return nil, ErrStreamNotFound
 	}
@@ -1730,7 +1728,7 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 	b.mu.Lock("IncreaseStreamRetentionPeriod")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsStore(region)[input.StreamName]
+	stream, ok := b.streams.Get(streamKey(region, input.StreamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1765,7 +1763,7 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	b.mu.Lock("DecreaseStreamRetentionPeriod")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsStore(region)[input.StreamName]
+	stream, ok := b.streams.Get(streamKey(region, input.StreamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1820,7 +1818,7 @@ func (b *InMemoryBackend) MergeShards(ctx context.Context, input *MergeShardsInp
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streamsStore(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1901,7 +1899,7 @@ func (b *InMemoryBackend) SplitShard(ctx context.Context, input *SplitShardInput
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streamsStore(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -1982,7 +1980,7 @@ func (b *InMemoryBackend) StartStreamEncryption(ctx context.Context, input *Star
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streamsStore(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -2011,7 +2009,7 @@ func (b *InMemoryBackend) StopStreamEncryption(ctx context.Context, input *StopS
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streamsStore(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -2082,7 +2080,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 	b.mu.RLock("ListTagsForResource")
 
 	streamName := streamNameFromARN(input.ResourceARN)
-	stream, ok := b.streamsView(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 
 	if !ok {
 		b.mu.RUnlock()
@@ -2111,7 +2109,7 @@ func (b *InMemoryBackend) DescribeAccountSettings(ctx context.Context) (*Describ
 	defer b.mu.RUnlock()
 
 	onDemandCount := 0
-	for _, s := range b.streamsView(region) {
+	for _, s := range b.streamsByRegion.Get(region) {
 		s.mu.RLock("DescribeAccountSettings.stream")
 		if s.StreamMode == streamModeOnDemand {
 			onDemandCount++
@@ -2132,17 +2130,15 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, regionStreams := range b.streams {
-		for _, stream := range regionStreams {
-			stream.mu.Lock("Reset.stream")
-			if stream.Tags != nil {
-				stream.Tags.Close()
-			}
-			stream.mu.Unlock()
+	for _, stream := range b.streams.All() {
+		stream.mu.Lock("Reset.stream")
+		if stream.Tags != nil {
+			stream.Tags.Close()
 		}
+		stream.mu.Unlock()
 	}
 
-	b.streams = make(map[string]map[string]*Stream)
+	b.registry.ResetAll()
 	b.faultsMu.Lock("Reset.faults")
 	b.fisThroughputFaults = make(map[string]map[string]*kinesisThrottleFault)
 	b.faultsMu.Unlock()
@@ -2160,7 +2156,7 @@ func (b *InMemoryBackend) purgeStreamEntry(region, name string, s *Stream, cutof
 		if s.Tags != nil {
 			s.Tags.Close()
 		}
-		delete(b.streamsStore(region), name)
+		b.streams.Delete(streamKey(region, name))
 		b.faultsMu.Lock("Purge.faults")
 		delete(b.faultsStore(region), name)
 		b.faultsMu.Unlock()
@@ -2197,17 +2193,12 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	var purgedNames []string
 
 	b.mu.Lock("Purge")
-	for region, regionStreams := range b.streams {
+	for _, s := range b.streams.All() {
 		if ctx.Err() != nil {
 			break
 		}
-		for name, s := range regionStreams {
-			if ctx.Err() != nil {
-				break
-			}
-			if b.purgeStreamEntry(region, name, s, cutoff) {
-				purgedNames = append(purgedNames, name)
-			}
+		if b.purgeStreamEntry(s.Region, s.Name, s, cutoff) {
+			purgedNames = append(purgedNames, s.Name)
 		}
 	}
 	b.mu.Unlock()
@@ -2225,7 +2216,7 @@ func (b *InMemoryBackend) CountOpenShards(ctx context.Context) int {
 	defer b.mu.RUnlock()
 
 	count := 0
-	for _, s := range b.streamsView(region) {
+	for _, s := range b.streamsByRegion.Get(region) {
 		s.mu.RLock("CountOpenShards.stream")
 		for _, sh := range s.Shards {
 			if !sh.Closed {
@@ -2267,7 +2258,7 @@ func (b *InMemoryBackend) UpdateMaxRecordSize(ctx context.Context, input *Update
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	stream, ok := b.streamsView(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 	if !ok {
 		b.mu.RUnlock()
 
@@ -2301,7 +2292,7 @@ func (b *InMemoryBackend) UpdateStreamWarmThroughput(
 		streamName = streamNameFromARN(input.StreamARN)
 	}
 
-	_, ok := b.streamsView(region)[streamName]
+	_, ok := b.streams.Get(streamKey(region, streamName))
 	b.mu.RUnlock()
 
 	if !ok {
@@ -2319,7 +2310,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 	b.mu.RLock("TagResource")
 
 	streamName := streamNameFromARN(input.ResourceARN)
-	stream, ok := b.streamsView(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 
 	if !ok {
 		b.mu.RUnlock()
@@ -2347,7 +2338,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourc
 	b.mu.RLock("UntagResource")
 
 	streamName := streamNameFromARN(input.ResourceARN)
-	stream, ok := b.streamsView(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 
 	if !ok {
 		b.mu.RUnlock()
@@ -2379,8 +2370,9 @@ func (b *InMemoryBackend) AddStreamInternal(stream *Stream) {
 	if region == "" {
 		region = b.region
 	}
+	stream.Region = region
 
-	b.streamsStore(region)[stream.Name] = stream
+	b.streams.Put(stream)
 }
 
 // UpdateStreamMode changes the mode of a stream identified by its ARN.
@@ -2391,7 +2383,7 @@ func (b *InMemoryBackend) UpdateStreamMode(ctx context.Context, input *UpdateStr
 	defer b.mu.Unlock()
 
 	streamName := streamNameFromARN(input.StreamARN)
-	stream, ok := b.streamsStore(region)[streamName]
+	stream, ok := b.streams.Get(streamKey(region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}

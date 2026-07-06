@@ -65,7 +65,7 @@ func (b *InMemoryBackend) HasFaultForTest(streamName string) bool {
 func (b *InMemoryBackend) ShardRecordCountForTest(streamName string, shardIdx int) int {
 	b.mu.RLock("ShardRecordCountForTest")
 
-	stream, ok := b.streamsView(b.region)[streamName]
+	stream, ok := b.streams.Get(streamKey(b.region, streamName))
 	if !ok || shardIdx >= len(stream.Shards) {
 		b.mu.RUnlock()
 
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) SetRetentionPeriodForTest(streamName string, hours int
 	b.mu.Lock("SetRetentionPeriodForTest")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsView(b.region)[streamName]
+	stream, ok := b.streams.Get(streamKey(b.region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -111,7 +111,7 @@ func (b *InMemoryBackend) PushOldRecordForTest(streamName string, shardIdx int, 
 	b.mu.Lock("PushOldRecordForTest")
 	defer b.mu.Unlock()
 
-	stream, ok := b.streamsView(b.region)[streamName]
+	stream, ok := b.streams.Get(streamKey(b.region, streamName))
 	if !ok {
 		return ErrStreamNotFound
 	}
@@ -160,12 +160,7 @@ func (b *InMemoryBackend) StreamCount() int {
 	b.mu.RLock("StreamCount")
 	defer b.mu.RUnlock()
 
-	count := 0
-	for _, regionStreams := range b.streams {
-		count += len(regionStreams)
-	}
-
-	return count
+	return b.streams.Len()
 }
 
 // ResourcePolicyCount returns the total number of resource policies in the backend
