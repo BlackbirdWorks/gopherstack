@@ -108,8 +108,8 @@ func (b *InMemoryBackend) rebuildDistributionSearchIndex() {
 	b.distSearchTokens = make(map[string]map[string]struct{})
 	b.distSearchInverted = make(map[string]map[string]struct{})
 
-	for id, d := range b.distributions {
-		b.indexDistributionConfig(id, d.RawConfig)
+	for _, d := range b.distributions.All() {
+		b.indexDistributionConfig(d.ID, d.RawConfig)
 	}
 }
 
@@ -133,7 +133,7 @@ func (b *InMemoryBackend) distributionsByConfigSearch(searchStr string) []*Distr
 
 	out := make([]*Distribution, 0, len(ids))
 	for id := range ids {
-		if d, ok := b.distributions[id]; ok {
+		if d, ok := b.distributions.Get(id); ok {
 			out = append(out, b.copyDistribution(d))
 		}
 	}

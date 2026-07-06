@@ -109,7 +109,7 @@ func (b *InMemoryBackend) CreateTrustStore(
 		CertificateAuthorityCertificatesBundle: bundle,
 		Tags:                                   make(map[string]string),
 	}
-	b.trustStores[id] = ts
+	b.trustStores.Put(ts)
 	b.trustStoreARNs[ts.ARN] = id
 	b.trustStoreByName[name] = id
 
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) GetTrustStore(id string) (*TrustStore, error) {
 	b.mu.RLock("GetTrustStore")
 	defer b.mu.RUnlock()
 
-	ts, ok := b.trustStores[id]
+	ts, ok := b.trustStores.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
@@ -134,8 +134,8 @@ func (b *InMemoryBackend) ListTrustStores() []*TrustStore {
 	b.mu.RLock("ListTrustStores")
 	defer b.mu.RUnlock()
 
-	out := make([]*TrustStore, 0, len(b.trustStores))
-	for _, ts := range b.trustStores {
+	out := make([]*TrustStore, 0, b.trustStores.Len())
+	for _, ts := range b.trustStores.All() {
 		out = append(out, b.copyTrustStore(ts))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -152,7 +152,7 @@ func (b *InMemoryBackend) UpdateTrustStore(
 	b.mu.Lock("UpdateTrustStore")
 	defer b.mu.Unlock()
 
-	ts, ok := b.trustStores[id]
+	ts, ok := b.trustStores.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
@@ -185,14 +185,14 @@ func (b *InMemoryBackend) DeleteTrustStore(id string) error {
 	b.mu.Lock("DeleteTrustStore")
 	defer b.mu.Unlock()
 
-	ts, ok := b.trustStores[id]
+	ts, ok := b.trustStores.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
 
 	delete(b.trustStoreByName, ts.Name)
 	delete(b.trustStoreARNs, ts.ARN)
-	delete(b.trustStores, id)
+	b.trustStores.Delete(id)
 
 	return nil
 }
@@ -275,7 +275,9 @@ func (b *InMemoryBackend) CreateStreamingDistribution(
 
 	if cfg.CallerReference != "" {
 		if existingID, ok := b.streamingDistributionCallerRefs[cfg.CallerReference]; ok {
-			return b.copyStreamingDistribution(b.streamingDistributions[existingID]), nil
+			existing, _ := b.streamingDistributions.Get(existingID)
+
+			return b.copyStreamingDistribution(existing), nil
 		}
 	}
 
@@ -291,7 +293,7 @@ func (b *InMemoryBackend) CreateStreamingDistribution(
 		RawConfig:        rawConfig,
 		Tags:             make(map[string]string),
 	}
-	b.streamingDistributions[id] = sd
+	b.streamingDistributions.Put(sd)
 	b.streamingDistributionARNs[sd.ARN] = id
 
 	if cfg.CallerReference != "" {
@@ -306,7 +308,7 @@ func (b *InMemoryBackend) GetStreamingDistribution(id string) (*StreamingDistrib
 	b.mu.RLock("GetStreamingDistribution")
 	defer b.mu.RUnlock()
 
-	sd, ok := b.streamingDistributions[id]
+	sd, ok := b.streamingDistributions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: streaming distribution %s not found", ErrStreamingDistributionNotFound, id)
 	}
@@ -319,8 +321,8 @@ func (b *InMemoryBackend) ListStreamingDistributions() []*StreamingDistribution 
 	b.mu.RLock("ListStreamingDistributions")
 	defer b.mu.RUnlock()
 
-	out := make([]*StreamingDistribution, 0, len(b.streamingDistributions))
-	for _, sd := range b.streamingDistributions {
+	out := make([]*StreamingDistribution, 0, b.streamingDistributions.Len())
+	for _, sd := range b.streamingDistributions.All() {
 		out = append(out, b.copyStreamingDistribution(sd))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -338,7 +340,7 @@ func (b *InMemoryBackend) UpdateStreamingDistribution(
 	b.mu.Lock("UpdateStreamingDistribution")
 	defer b.mu.Unlock()
 
-	sd, ok := b.streamingDistributions[id]
+	sd, ok := b.streamingDistributions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: streaming distribution %s not found", ErrStreamingDistributionNotFound, id)
 	}
@@ -358,7 +360,7 @@ func (b *InMemoryBackend) DeleteStreamingDistribution(id string) error {
 	b.mu.Lock("DeleteStreamingDistribution")
 	defer b.mu.Unlock()
 
-	sd, ok := b.streamingDistributions[id]
+	sd, ok := b.streamingDistributions.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: streaming distribution %s not found", ErrStreamingDistributionNotFound, id)
 	}
@@ -372,7 +374,7 @@ func (b *InMemoryBackend) DeleteStreamingDistribution(id string) error {
 
 	delete(b.streamingDistributionARNs, sd.ARN)
 	delete(b.streamingDistributionCallerRefs, sd.Config.CallerReference)
-	delete(b.streamingDistributions, id)
+	b.streamingDistributions.Delete(id)
 
 	return nil
 }
@@ -499,7 +501,7 @@ func (b *InMemoryBackend) GetConnectionGroup(id string) (*ConnectionGroup, error
 	b.mu.RLock("GetConnectionGroup")
 	defer b.mu.RUnlock()
 
-	cg, ok := b.connectionGroups[id]
+	cg, ok := b.connectionGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: connection group %s not found", ErrConnectionGroupNotFound, id)
 	}
@@ -523,7 +525,9 @@ func (b *InMemoryBackend) GetConnectionGroupByRoutingEndpoint(endpoint string) (
 		)
 	}
 
-	return b.copyConnectionGroup(b.connectionGroups[id]), nil
+	cg, _ := b.connectionGroups.Get(id)
+
+	return b.copyConnectionGroup(cg), nil
 }
 
 // ListConnectionGroups returns all connection groups sorted by ID.
@@ -531,8 +535,8 @@ func (b *InMemoryBackend) ListConnectionGroups() []*ConnectionGroup {
 	b.mu.RLock("ListConnectionGroups")
 	defer b.mu.RUnlock()
 
-	out := make([]*ConnectionGroup, 0, len(b.connectionGroups))
-	for _, cg := range b.connectionGroups {
+	out := make([]*ConnectionGroup, 0, b.connectionGroups.Len())
+	for _, cg := range b.connectionGroups.All() {
 		out = append(out, b.copyConnectionGroup(cg))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -550,7 +554,7 @@ func (b *InMemoryBackend) UpdateConnectionGroup(
 	b.mu.Lock("UpdateConnectionGroup")
 	defer b.mu.Unlock()
 
-	cg, ok := b.connectionGroups[id]
+	cg, ok := b.connectionGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: connection group %s not found", ErrConnectionGroupNotFound, id)
 	}
@@ -579,7 +583,7 @@ func (b *InMemoryBackend) DeleteConnectionGroup(id string) error {
 	b.mu.Lock("DeleteConnectionGroup")
 	defer b.mu.Unlock()
 
-	cg, ok := b.connectionGroups[id]
+	cg, ok := b.connectionGroups.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: connection group %s not found", ErrConnectionGroupNotFound, id)
 	}
@@ -587,7 +591,7 @@ func (b *InMemoryBackend) DeleteConnectionGroup(id string) error {
 	delete(b.connectionGroupByName, cg.Name)
 	delete(b.connectionGroupByRoutingEndpoint, cg.RoutingEndpoint)
 	delete(b.connectionGroupARNs, cg.ARN)
-	delete(b.connectionGroups, id)
+	b.connectionGroups.Delete(id)
 
 	return nil
 }
@@ -612,12 +616,12 @@ func (b *InMemoryBackend) copyConnectionFunction(fn *ConnectionFunction) *Connec
 // resolveConnectionFunction returns the function and its UUID key by id or name, mirroring the
 // real API's "Identifier" request field which accepts either. Must be called with the lock held.
 func (b *InMemoryBackend) resolveConnectionFunction(idOrName string) (*ConnectionFunction, string) {
-	if fn, ok := b.connectionFunctions[idOrName]; ok {
+	if fn, ok := b.connectionFunctions.Get(idOrName); ok {
 		return fn, idOrName
 	}
 
 	if uuid, ok := b.connectionFunctionByName[idOrName]; ok {
-		if fn, fnOK := b.connectionFunctions[uuid]; fnOK {
+		if fn, fnOK := b.connectionFunctions.Get(uuid); fnOK {
 			return fn, uuid
 		}
 	}
@@ -643,8 +647,8 @@ func (b *InMemoryBackend) ListConnectionFunctions() []*ConnectionFunction {
 	b.mu.RLock("ListConnectionFunctions")
 	defer b.mu.RUnlock()
 
-	out := make([]*ConnectionFunction, 0, len(b.connectionFunctions))
-	for _, fn := range b.connectionFunctions {
+	out := make([]*ConnectionFunction, 0, b.connectionFunctions.Len())
+	for _, fn := range b.connectionFunctions.All() {
 		out = append(out, b.copyConnectionFunction(fn))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -695,7 +699,7 @@ func (b *InMemoryBackend) DeleteConnectionFunction(idOrName string) error {
 	}
 
 	delete(b.connectionFunctionARNs, fn.ARN)
-	delete(b.connectionFunctions, id)
+	b.connectionFunctions.Delete(id)
 	delete(b.connectionFunctionByName, fn.Name)
 
 	return nil
@@ -778,7 +782,7 @@ func (b *InMemoryBackend) GetAnycastIPList(id string) (*AnycastIPList, error) {
 	b.mu.RLock("GetAnycastIPList")
 	defer b.mu.RUnlock()
 
-	list, ok := b.anycastIPLists[id]
+	list, ok := b.anycastIPLists.Get(id)
 	if !ok {
 		return nil, ErrAnycastIPListNotFound
 	}
@@ -790,8 +794,8 @@ func (b *InMemoryBackend) ListAnycastIPLists() []*AnycastIPList {
 	b.mu.RLock("ListAnycastIPLists")
 	defer b.mu.RUnlock()
 
-	out := make([]*AnycastIPList, 0, len(b.anycastIPLists))
-	for _, list := range b.anycastIPLists {
+	out := make([]*AnycastIPList, 0, b.anycastIPLists.Len())
+	for _, list := range b.anycastIPLists.All() {
 		out = append(out, b.copyAnycastIPList(list))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -805,7 +809,7 @@ func (b *InMemoryBackend) UpdateAnycastIPList(id string, ipCount int32) (*Anycas
 	b.mu.Lock("UpdateAnycastIPList")
 	defer b.mu.Unlock()
 
-	list, ok := b.anycastIPLists[id]
+	list, ok := b.anycastIPLists.Get(id)
 	if !ok {
 		return nil, ErrAnycastIPListNotFound
 	}
@@ -827,13 +831,13 @@ func (b *InMemoryBackend) DeleteAnycastIPList(id string) error {
 	b.mu.Lock("DeleteAnycastIPList")
 	defer b.mu.Unlock()
 
-	list, ok := b.anycastIPLists[id]
+	list, ok := b.anycastIPLists.Get(id)
 	if !ok {
 		return ErrAnycastIPListNotFound
 	}
 	delete(b.anycastIPListByName, list.Name)
 	delete(b.anycastIPListARNs, list.ARN)
-	delete(b.anycastIPLists, id)
+	b.anycastIPLists.Delete(id)
 
 	return nil
 }
@@ -875,7 +879,7 @@ func (b *InMemoryBackend) GetManagedCertificateDetails(tenantID string) (*Manage
 	b.mu.Lock("GetManagedCertificateDetails")
 	defer b.mu.Unlock()
 
-	tenant, ok := b.distributionTenants[tenantID]
+	tenant, ok := b.distributionTenants.Get(tenantID)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution tenant %s not found", ErrDistributionTenantNotFound, tenantID)
 	}
@@ -935,7 +939,7 @@ func (b *InMemoryBackend) ListDistributionsByWebACLID(webACLID string) []*Distri
 	var out []*Distribution
 	for distID, wID := range b.distributionWebACLs {
 		if wID == webACLID {
-			if d, ok := b.distributions[distID]; ok {
+			if d, ok := b.distributions.Get(distID); ok {
 				cp := *d
 				out = append(out, &cp)
 			}

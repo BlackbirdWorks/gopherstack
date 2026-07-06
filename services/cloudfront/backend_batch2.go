@@ -220,7 +220,7 @@ func (b *InMemoryBackend) CreateDistributionTenant(
 	if t.Tags == nil {
 		t.Tags = make(map[string]string)
 	}
-	b.distributionTenants[id] = t
+	b.distributionTenants.Put(t)
 	b.distributionTenantARNs[t.ARN] = id
 	for _, d := range domains {
 		b.distributionTenantsByDomain[d] = id
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) GetDistributionTenant(id string) (*DistributionTenant,
 	b.mu.RLock("GetDistributionTenant")
 	defer b.mu.RUnlock()
 
-	t, ok := b.distributionTenants[id]
+	t, ok := b.distributionTenants.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) GetDistributionTenantByDomain(domain string) (*Distrib
 	if !ok {
 		return nil, fmt.Errorf("%w: tenant with domain %s not found", ErrDistributionTenantNotFound, domain)
 	}
-	t, ok := b.distributionTenants[id]
+	t, ok := b.distributionTenants.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
@@ -280,7 +280,7 @@ func (b *InMemoryBackend) UpdateDistributionTenant(
 	b.mu.Lock("UpdateDistributionTenant")
 	defer b.mu.Unlock()
 
-	t, ok := b.distributionTenants[id]
+	t, ok := b.distributionTenants.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
@@ -329,7 +329,7 @@ func (b *InMemoryBackend) DeleteDistributionTenant(id string) error {
 	b.mu.Lock("DeleteDistributionTenant")
 	defer b.mu.Unlock()
 
-	t, ok := b.distributionTenants[id]
+	t, ok := b.distributionTenants.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, id)
 	}
@@ -340,8 +340,8 @@ func (b *InMemoryBackend) DeleteDistributionTenant(id string) error {
 	delete(b.distributionTenantsByDomain, t.Domain)
 	delete(b.distributionTenantARNs, t.ARN)
 	delete(b.distributionTenantWebACLs, id)
-	delete(b.distributionTenants, id)
-	delete(b.tenantInvalidations, id)
+	b.distributionTenants.Delete(id)
+	b.deleteInvalidationsForTenant(id)
 	delete(b.tenantInvalidationReadyAt, id)
 
 	return nil
@@ -352,8 +352,8 @@ func (b *InMemoryBackend) ListDistributionTenants() []*DistributionTenant {
 	b.mu.RLock("ListDistributionTenants")
 	defer b.mu.RUnlock()
 
-	out := make([]*DistributionTenant, 0, len(b.distributionTenants))
-	for _, t := range b.distributionTenants {
+	out := make([]*DistributionTenant, 0, b.distributionTenants.Len())
+	for _, t := range b.distributionTenants.All() {
 		out = append(out, b.copyTenant(t))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -377,8 +377,8 @@ func (b *InMemoryBackend) ListDistributionTenantsByCustomization(webACLArn strin
 	b.mu.RLock("ListDistributionTenantsByCustomization")
 	defer b.mu.RUnlock()
 
-	out := make([]*DistributionTenant, 0, len(b.distributionTenants))
-	for _, t := range b.distributionTenants {
+	out := make([]*DistributionTenant, 0, b.distributionTenants.Len())
+	for _, t := range b.distributionTenants.All() {
 		if webACLArn != "" && b.distributionTenantWebACLs[t.ID] != webACLArn {
 			continue
 		}
@@ -428,7 +428,7 @@ func (b *InMemoryBackend) UpdateDomainAssociation(
 func (b *InMemoryBackend) updateDomainAssociationToTenant(
 	domain, targetTenantID string,
 ) (*DomainAssociationResult, error) {
-	target, ok := b.distributionTenants[targetTenantID]
+	target, ok := b.distributionTenants.Get(targetTenantID)
 	if !ok {
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, targetTenantID)
 	}
@@ -456,7 +456,7 @@ func (b *InMemoryBackend) updateDomainAssociationToTenant(
 func (b *InMemoryBackend) updateDomainAssociationToDistribution(
 	domain, targetDistID string,
 ) (*DomainAssociationResult, error) {
-	d, ok := b.distributions[targetDistID]
+	d, ok := b.distributions.Get(targetDistID)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, targetDistID)
 	}
@@ -494,12 +494,12 @@ func (b *InMemoryBackend) VerifyDNSConfiguration(identifier string) ([]DNSConfig
 	}
 
 	var domains []string
-	switch {
-	case b.distributionTenants[identifier] != nil:
-		domains = b.distributionTenants[identifier].Domains
-	case b.distributions[identifier] != nil:
+
+	if t, ok := b.distributionTenants.Get(identifier); ok {
+		domains = t.Domains
+	} else if _, distOK := b.distributions.Get(identifier); distOK {
 		domains = b.distributionAliases[identifier]
-	default:
+	} else {
 		return nil, fmt.Errorf("%w: identifier %s not found", ErrDistributionTenantNotFound, identifier)
 	}
 
@@ -536,7 +536,7 @@ func (b *InMemoryBackend) DisassociateDistributionWebACL(distID string) error {
 	b.mu.Lock("DisassociateDistributionWebACL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributions[distID]; !ok {
+	if _, ok := b.distributions.Get(distID); !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, distID)
 	}
 	delete(b.distributionWebACLs, distID)
@@ -549,7 +549,7 @@ func (b *InMemoryBackend) CreateInvalidationForTenant(tenantID string, paths []s
 	b.mu.Lock("CreateInvalidationForTenant")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributionTenants[tenantID]; !ok {
+	if _, ok := b.distributionTenants.Get(tenantID); !ok {
 		return nil, fmt.Errorf("%w: tenant %s not found", ErrDistributionTenantNotFound, tenantID)
 	}
 
@@ -561,8 +561,9 @@ func (b *InMemoryBackend) CreateInvalidationForTenant(tenantID string, paths []s
 		Status:     statusInProgress,
 		CreateTime: now,
 		Paths:      paths,
+		tenantID:   tenantID,
 	}
-	b.tenantInvalidations[tenantID] = append(b.tenantInvalidations[tenantID], inv)
+	b.tenantInvalidations.Put(inv)
 
 	if b.tenantInvalidationReadyAt[tenantID] == nil {
 		b.tenantInvalidationReadyAt[tenantID] = make(map[string]time.Time)
@@ -580,8 +581,8 @@ func (b *InMemoryBackend) GetInvalidationForTenant(tenantID, invalidationID stri
 	b.mu.RLock("GetInvalidationForTenant")
 	defer b.mu.RUnlock()
 
-	invs, ok := b.tenantInvalidations[tenantID]
-	if !ok {
+	invs := b.tenantInvalidationsByTenant.Get(tenantID)
+	if len(invs) == 0 {
 		return nil, fmt.Errorf(
 			"%w: invalidation %s not found for tenant %s",
 			ErrInvalidationNotFound,
@@ -605,7 +606,7 @@ func (b *InMemoryBackend) ListInvalidationsForTenant(tenantID string) []*Invalid
 	b.mu.RLock("ListInvalidationsForTenant")
 	defer b.mu.RUnlock()
 
-	invs := b.tenantInvalidations[tenantID]
+	invs := b.tenantInvalidationsByTenant.Get(tenantID)
 	out := make([]*Invalidation, 0, len(invs))
 	for _, inv := range invs {
 		cp := *inv
@@ -620,12 +621,12 @@ func (b *InMemoryBackend) UpdateDistributionWithStagingConfig(primaryID, staging
 	b.mu.Lock("UpdateDistributionWithStagingConfig")
 	defer b.mu.Unlock()
 
-	primary, ok := b.distributions[primaryID]
+	primary, ok := b.distributions.Get(primaryID)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, primaryID)
 	}
 
-	staging, ok := b.distributions[stagingID]
+	staging, ok := b.distributions.Get(stagingID)
 	if !ok {
 		return nil, fmt.Errorf("%w: staging distribution %s not found", ErrNotFound, stagingID)
 	}
@@ -704,7 +705,7 @@ func (b *InMemoryBackend) ListConflictingAliasesByDomain(domain string) []*Distr
 	var out []*Distribution
 	for distID, aliases := range b.distributionAliases {
 		if slices.Contains(aliases, domain) {
-			if d, ok := b.distributions[distID]; ok {
+			if d, ok := b.distributions.Get(distID); ok {
 				cp := *d
 				out = append(out, &cp)
 			}
@@ -719,7 +720,7 @@ func (b *InMemoryBackend) UpdateKeyValueStore(id, comment string) (*KeyValueStor
 	b.mu.Lock("UpdateKeyValueStore")
 	defer b.mu.Unlock()
 
-	kvs, ok := b.keyValueStores[id]
+	kvs, ok := b.keyValueStores.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, id)
 	}
