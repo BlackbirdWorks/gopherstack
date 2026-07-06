@@ -3,31 +3,107 @@ package lambda
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// lambdaSnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set/shape of resources registered on b.registry -- see
+// registerAllTables in store_setup.go). It must be bumped whenever a change
+// there would make an older snapshot unsafe to decode as the current shape.
+// Restore compares this against the persisted value and discards (rather
+// than attempts to partially decode) any mismatch -- see Restore below. This
+// mirrors the services/sqs pilot (commit 0f09d77c) and the services/ec2
+// conversion (commit 12e611a4).
+const lambdaSnapshotVersion = 1
+
+// permissionSnapshot is the DTO used to serialise a *FunctionPermission.
+// FunctionPermission.FunctionName and .Qualifier are tagged `json:"-"` (they
+// are internal bookkeeping the AWS response shape never carries), which means
+// they -- along with permissionKeyFn's ability to reconstruct a
+// b.permissions key from them -- would be silently lost if a
+// *store.Table[FunctionPermission] were round-tripped through
+// store.Registry's generic JSON encoding. permissionSnapshot instead gives
+// those two fields real json tags purely for the on-disk shape, following the
+// DTO-registry pattern the services/sqs pilot (commit 0f09d77c) established
+// for exactly this "dirty struct" case.
+type permissionSnapshot struct {
+	StatementID      string `json:"statementId"`
+	FunctionName     string `json:"functionName"`
+	Qualifier        string `json:"qualifier,omitempty"`
+	Action           string `json:"action"`
+	Effect           string `json:"effect"`
+	Principal        string `json:"principal"`
+	SourceAccount    string `json:"sourceAccount,omitempty"`
+	SourceArn        string `json:"sourceArn,omitempty"`
+	EventSourceToken string `json:"eventSourceToken,omitempty"`
+	PrincipalOrgID   string `json:"principalOrgId,omitempty"`
+}
+
+// permissionSnapshotKey is the store.Table key function for the ephemeral DTO
+// table Snapshot/Restore build around permissionSnapshot; it mirrors
+// permissionKeyFn exactly so the on-disk table is keyed identically to the
+// live b.permissions table.
+func permissionSnapshotKey(p *permissionSnapshot) string {
+	return permissionMapKey(p.FunctionName, p.Qualifier) + "|" + p.StatementID
+}
+
+func permissionToSnapshot(p *FunctionPermission) *permissionSnapshot {
+	return &permissionSnapshot{
+		StatementID:      p.StatementID,
+		FunctionName:     p.FunctionName,
+		Qualifier:        p.Qualifier,
+		Action:           p.Action,
+		Effect:           p.Effect,
+		Principal:        p.Principal,
+		SourceAccount:    p.SourceAccount,
+		SourceArn:        p.SourceArn,
+		EventSourceToken: p.EventSourceToken,
+		PrincipalOrgID:   p.PrincipalOrgID,
+	}
+}
+
+func permissionFromSnapshot(p *permissionSnapshot) *FunctionPermission {
+	return &FunctionPermission{
+		StatementID:      p.StatementID,
+		FunctionName:     p.FunctionName,
+		Qualifier:        p.Qualifier,
+		Action:           p.Action,
+		Effect:           p.Effect,
+		Principal:        p.Principal,
+		SourceAccount:    p.SourceAccount,
+		SourceArn:        p.SourceArn,
+		EventSourceToken: p.EventSourceToken,
+		PrincipalOrgID:   p.PrincipalOrgID,
+	}
+}
+
 type backendSnapshot struct {
-	Functions             map[string]*FunctionConfiguration                      `json:"functions"`
-	EventSourceMappings   map[string]*EventSourceMapping                         `json:"eventSourceMappings"`
-	Aliases               map[string]map[string]*FunctionAlias                   `json:"aliases"`
+	// Tables holds one JSON-encoded array per table registered on b.registry
+	// (functions, functionURLConfigs, eventSourceMappings, aliases) PLUS a
+	// "permissions" entry built separately from permissionSnapshot DTOs (see
+	// Snapshot/Restore below) -- b.permissions itself is not registered on
+	// b.registry; see store_setup.go's package doc. Tables registered on
+	// b.ephemeralRegistry (codeSigningConfigs, capacityProviders,
+	// provisionedConcurrencies) are deliberately NOT included here -- they
+	// were never persisted before this refactor and must stay that way.
+	Tables map[string]json.RawMessage `json:"tables"`
+	// The fields below have no pure, self-contained identity (see
+	// store_setup.go's exclusion list) so they cannot become store.Tables, but
+	// they WERE persisted before this refactor and must remain so.
+	EventInvokeConfigs    map[string]*FunctionEventInvokeConfig                  `json:"eventInvokeConfigs"`
 	Versions              map[string][]*FunctionVersion                          `json:"versions"`
-	FunctionURLConfigs    map[string]*FunctionURLConfig                          `json:"functionURLConfigs"`
 	VersionCounters       map[string]int                                         `json:"versionCounters"`
 	Layers                map[string][]*LayerVersion                             `json:"layers"`
 	LayerVersionCounters  map[string]int64                                       `json:"layerVersionCounters"`
 	LayerPolicies         map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
-	EventInvokeConfigs    map[string]*FunctionEventInvokeConfig                  `json:"eventInvokeConfigs"`
 	FunctionConcurrencies map[string]int                                         `json:"functionConcurrencies"`
-	// Permissions holds each function's (optionally qualifier-scoped)
-	// resource-based policy statements, keyed by permissionMapKey(name,
-	// qualifier). Previously omitted from the snapshot entirely, so every
-	// AddPermission call was silently lost across a persistence Restore even
-	// though persistence was enabled — a no-stub-rule violation.
-	Permissions map[string]map[string]*FunctionPermission `json:"permissions,omitempty"`
-	AccountID   string                                    `json:"accountID"`
-	Region      string                                    `json:"region"`
+	AccountID             string                                                 `json:"accountID"`
+	Region                string                                                 `json:"region"`
+	Version               int                                                    `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -37,19 +113,46 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "lambda: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
+	// b.permissions is not on b.registry (see store_setup.go's package doc),
+	// so its Tables entry is built from a throwaway DTO registry instead,
+	// exactly mirroring the services/sqs pilot's Queue/moveTaskState pattern.
+	permDTOReg := store.NewRegistry()
+	permDTOs := store.Register(permDTOReg, "permissions", store.New(permissionSnapshotKey))
+
+	for _, p := range b.permissions.Snapshot() {
+		permDTOs.Put(permissionToSnapshot(p))
+	}
+
+	permTables, err := permDTOReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "lambda: snapshot permissions marshal failed", "error", err)
+
+		return nil
+	}
+
+	tables["permissions"] = permTables["permissions"]
+
 	snap := backendSnapshot{
-		Functions:             b.functions,
-		EventSourceMappings:   b.eventSourceMappings,
-		Aliases:               b.aliases,
+		Version:               lambdaSnapshotVersion,
+		Tables:                tables,
+		EventInvokeConfigs:    b.eventInvokeConfigs,
 		Versions:              b.versions,
-		FunctionURLConfigs:    b.functionURLConfigs,
 		VersionCounters:       b.versionCounters,
 		Layers:                b.layers,
 		LayerVersionCounters:  b.layerVersionCounters,
 		LayerPolicies:         b.layerPolicies,
-		EventInvokeConfigs:    b.eventInvokeConfigs,
 		FunctionConcurrencies: b.functionConcurrencies,
-		Permissions:           b.permissions,
 		AccountID:             b.accountID,
 		Region:                b.region,
 	}
@@ -79,23 +182,59 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	restoreSnapshotFunctions(snap.Functions, snap.FunctionConcurrencies)
-	restoreSnapshotLayers(snap.Layers)
+	if snap.Version != lambdaSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape — that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/sqs pilot (commit 0f09d77c) and the
+		// services/ec2 conversion (commit 12e611a4). Only b.registry is reset:
+		// b.ephemeralRegistry's tables (codeSigningConfigs, capacityProviders,
+		// provisionedConcurrencies) were never persisted, so Restore has never
+		// touched them and must not start now.
+		logger.Load(ctx).WarnContext(ctx,
+			"lambda: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", lambdaSnapshotVersion)
 
-	b.functions = snap.Functions
-	b.eventSourceMappings = snap.EventSourceMappings
-	b.aliases = snap.Aliases
+		b.registry.ResetAll()
+		b.permissions.Reset()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("lambda: restore snapshot tables: %w", err)
+	}
+
+	// b.permissions is not on b.registry (see store_setup.go's package doc),
+	// so it is restored separately from its "permissions" DTO entry.
+	permDTOReg := store.NewRegistry()
+	permDTOs := store.Register(permDTOReg, "permissions", store.New(permissionSnapshotKey))
+
+	if err := permDTOReg.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("lambda: restore snapshot permissions: %w", err)
+	}
+
+	livePerms := make([]*FunctionPermission, 0, permDTOs.Len())
+	for _, p := range permDTOs.All() {
+		livePerms = append(livePerms, permissionFromSnapshot(p))
+	}
+
+	b.permissions.Restore(livePerms)
+
+	b.eventInvokeConfigs = snap.EventInvokeConfigs
 	b.versions = snap.Versions
-	b.functionURLConfigs = snap.FunctionURLConfigs
 	b.versionCounters = snap.VersionCounters
 	b.layers = snap.Layers
 	b.layerVersionCounters = snap.LayerVersionCounters
 	b.layerPolicies = snap.LayerPolicies
-	b.eventInvokeConfigs = snap.EventInvokeConfigs
 	b.functionConcurrencies = snap.FunctionConcurrencies
-	b.permissions = snap.Permissions
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	restoreSnapshotFunctions(b.functions.All(), b.functionConcurrencies)
+	restoreSnapshotLayers(b.layers)
 
 	// versionIndex is a derived lookup (UUID/qualifier -> published version
 	// snapshot) built incrementally by PublishVersion; it is not itself
@@ -124,12 +263,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// FunctionName keeps working after a restore.
 	b.esmByFunctionARN = make(map[string]map[string]struct{})
 
-	for id, m := range snap.EventSourceMappings {
+	for _, m := range b.eventSourceMappings.All() {
 		if b.esmByFunctionARN[m.FunctionARN] == nil {
 			b.esmByFunctionARN[m.FunctionARN] = make(map[string]struct{})
 		}
 
-		b.esmByFunctionARN[m.FunctionARN][id] = struct{}{}
+		b.esmByFunctionARN[m.FunctionARN][m.UUID] = struct{}{}
 	}
 
 	return nil
@@ -138,24 +277,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // normalizeSnapshot initialises nil maps in a snapshot to empty maps so callers
 // never need to nil-check after a Restore.
 func normalizeSnapshot(snap *backendSnapshot) {
-	if snap.Functions == nil {
-		snap.Functions = make(map[string]*FunctionConfiguration)
-	}
-
-	if snap.EventSourceMappings == nil {
-		snap.EventSourceMappings = make(map[string]*EventSourceMapping)
-	}
-
-	if snap.Aliases == nil {
-		snap.Aliases = make(map[string]map[string]*FunctionAlias)
+	if snap.EventInvokeConfigs == nil {
+		snap.EventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
 	}
 
 	if snap.Versions == nil {
 		snap.Versions = make(map[string][]*FunctionVersion)
-	}
-
-	if snap.FunctionURLConfigs == nil {
-		snap.FunctionURLConfigs = make(map[string]*FunctionURLConfig)
 	}
 
 	if snap.VersionCounters == nil {
@@ -174,30 +301,22 @@ func normalizeSnapshot(snap *backendSnapshot) {
 		snap.LayerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
 	}
 
-	if snap.EventInvokeConfigs == nil {
-		snap.EventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
-	}
-
 	if snap.FunctionConcurrencies == nil {
 		snap.FunctionConcurrencies = make(map[string]int)
-	}
-
-	if snap.Permissions == nil {
-		snap.Permissions = make(map[string]map[string]*FunctionPermission)
 	}
 }
 
 // restoreSnapshotFunctions clears transient fields on restored function configurations
 // and re-links ReservedConcurrentExecutions from the concurrency map.
-func restoreSnapshotFunctions(fns map[string]*FunctionConfiguration, concurrencies map[string]int) {
-	for name, fn := range fns {
+func restoreSnapshotFunctions(fns []*FunctionConfiguration, concurrencies map[string]int) {
+	for _, fn := range fns {
 		fn.ZipData = nil
 
 		if fn.LastUpdateStatus == "" {
 			fn.LastUpdateStatus = LastUpdateStatusSuccessful
 		}
 
-		if reserved, ok := concurrencies[name]; ok {
+		if reserved, ok := concurrencies[fn.FunctionName]; ok {
 			v := reserved
 			fn.ReservedConcurrentExecutions = &v
 		} else {

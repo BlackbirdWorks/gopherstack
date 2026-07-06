@@ -468,10 +468,19 @@ func BuildFunctionURLHandler(b *InMemoryBackend, functionName string) http.Handl
 }
 
 // SetFunctionURLConfigForTest inserts a function URL config directly for testing.
+// The store.Table backing b.functionURLConfigs derives its key from
+// cfg.FunctionArn (see functionURLConfigsKeyFn in store_setup.go), so callers
+// that omit FunctionArn get it defaulted here to match functionName -- exactly
+// what CreateFunctionURLConfig itself would have set via buildURLARN.
 func SetFunctionURLConfigForTest(b *InMemoryBackend, functionName string, cfg *FunctionURLConfig) {
 	b.mu.Lock("SetFunctionURLConfigForTest")
 	defer b.mu.Unlock()
-	b.functionURLConfigs[functionName] = cfg
+
+	if cfg.FunctionArn == "" {
+		cfg.FunctionArn = buildURLARN(b.region, b.accountID, functionName)
+	}
+
+	b.functionURLConfigs.Put(cfg)
 }
 
 // AsyncOutcomeForTest describes a completed async invocation for delivery testing.
@@ -505,7 +514,7 @@ func GetFunctionStateForTest(b *InMemoryBackend, name string) FunctionState {
 	b.mu.RLock("GetFunctionStateForTest")
 	defer b.mu.RUnlock()
 
-	if fn, ok := b.functions[name]; ok {
+	if fn, ok := b.functions.Get(name); ok {
 		return fn.State
 	}
 

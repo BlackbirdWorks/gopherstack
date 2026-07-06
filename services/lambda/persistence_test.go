@@ -152,6 +152,119 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Len(t, page.Data, 1)
 			},
 		},
+		{
+			// Phase 3.3 (pkgs/store conversion): exercises every store.Table
+			// registered on b.registry (functions, functionURLConfigs,
+			// eventSourceMappings, eventInvokeConfigs, aliases, permissions)
+			// plus every raw-but-still-persisted field (versions,
+			// versionCounters, layers, layerVersionCounters, layerPolicies,
+			// functionConcurrencies) in one round trip, so a regression that
+			// silently drops any of them from Snapshot/Restore fails this test.
+			name: "full_backend_state_round_trip",
+			setup: func(b *lambda.InMemoryBackend) string {
+				const fnName = "full-state-fn"
+
+				fn := &lambda.FunctionConfiguration{
+					FunctionName: fnName,
+					Runtime:      "python3.9",
+					Role:         "arn:aws:iam::000000000000:role/test",
+					Handler:      "index.handler",
+				}
+				require.NoError(t, b.CreateFunction(fn))
+
+				// functionURLConfigs (store.Table)
+				_, err := b.CreateFunctionURLConfig(t.Context(), fnName, "NONE", nil, "")
+				require.NoError(t, err)
+
+				// eventInvokeConfigs (store.Table)
+				maxRetry := 1
+				_, err = b.PutFunctionEventInvokeConfig(fnName, &lambda.PutFunctionEventInvokeConfigInput{
+					MaximumRetryAttempts: &maxRetry,
+				})
+				require.NoError(t, err)
+
+				// aliases (store.Table, composite key)
+				_, err = b.CreateAlias(fnName, &lambda.CreateAliasInput{
+					Name:            "prod",
+					FunctionVersion: "$LATEST",
+				})
+				require.NoError(t, err)
+
+				// permissions (store.Table, composite key)
+				_, err = b.AddPermission(fnName, "", &lambda.AddPermissionInput{
+					StatementID: "AllowInvoke",
+					Action:      "lambda:InvokeFunction",
+					Principal:   "s3.amazonaws.com",
+				})
+				require.NoError(t, err)
+
+				// versions / versionCounters (raw, persisted)
+				_, err = b.PublishVersion(fnName, "v1")
+				require.NoError(t, err)
+
+				// functionConcurrencies (raw, persisted)
+				_, err = b.PutFunctionConcurrency(fnName, 5)
+				require.NoError(t, err)
+
+				// layers / layerVersionCounters (raw, persisted)
+				_, err = b.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+					LayerName: "full-state-layer",
+					Content:   &lambda.LayerVersionContentInput{ZipFile: []byte("zip")},
+				})
+				require.NoError(t, err)
+
+				// layerPolicies (raw, persisted)
+				_, err = b.AddLayerVersionPermission("full-state-layer", 1, &lambda.AddLayerVersionPermissionInput{
+					StatementID: "LayerAllow",
+					Action:      "lambda:GetLayerVersion",
+					Principal:   "*",
+				})
+				require.NoError(t, err)
+
+				return fnName
+			},
+			verify: func(t *testing.T, b *lambda.InMemoryBackend, id string) {
+				t.Helper()
+
+				_, err := b.GetFunctionURLConfig(id)
+				require.NoError(t, err, "functionURLConfigs must survive restore")
+
+				eic, err := b.GetFunctionEventInvokeConfig(id)
+				if assert.NoError(t, err, "eventInvokeConfigs must survive restore") {
+					require.NotNil(t, eic.MaximumRetryAttempts)
+					assert.Equal(t, 1, *eic.MaximumRetryAttempts)
+				}
+
+				_, err = b.GetAlias(id, "prod")
+				require.NoError(t, err, "aliases must survive restore")
+
+				policy, err := b.GetPolicy(id, "")
+				if assert.NoError(t, err, "permissions must survive restore") {
+					assert.Contains(t, *policy.Policy, "AllowInvoke")
+				}
+
+				concurrency, err := b.GetFunctionConcurrency(id)
+				if assert.NoError(t, err, "functionConcurrencies must survive restore") {
+					assert.Equal(t, 5, concurrency.ReservedConcurrentExecutions)
+				}
+
+				versions, err := b.ListVersionsByFunction(id, "", 0)
+				if assert.NoError(t, err, "versions/versionCounters must survive restore") {
+					var found bool
+					for _, v := range versions.Data {
+						if v.Version == "1" {
+							found = true
+						}
+					}
+					assert.True(t, found, "published version 1 must survive restore")
+				}
+
+				policyOut, err := b.GetLayerVersionPolicy("full-state-layer", 1)
+				if assert.NoError(t, err, "layerPolicies must survive restore") {
+					assert.Contains(t, policyOut.Policy, "LayerAllow")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

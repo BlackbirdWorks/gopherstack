@@ -95,12 +95,12 @@ type esmHealthEntry struct {
 // deleted-function mapping transitions to a degraded state.
 func (j *Janitor) sweepESMs(ctx context.Context) {
 	j.Backend.mu.RLock("JanitorSweepESMs")
-	esmCount := len(j.Backend.eventSourceMappings)
+	esmCount := j.Backend.eventSourceMappings.Len()
 
 	var toCheck []esmHealthEntry
-	for id, esm := range j.Backend.eventSourceMappings {
+	for _, esm := range j.Backend.eventSourceMappings.All() {
 		if esm.State == ESMStateEnabled {
-			toCheck = append(toCheck, esmHealthEntry{uuid: id, functionARN: esm.FunctionARN})
+			toCheck = append(toCheck, esmHealthEntry{uuid: esm.UUID, functionARN: esm.FunctionARN})
 		}
 	}
 	j.Backend.mu.RUnlock()
@@ -117,7 +117,7 @@ func (j *Janitor) sweepESMs(ctx context.Context) {
 	if len(degraded) > 0 {
 		j.Backend.mu.Lock("JanitorSweepESMs.degrade")
 		for _, id := range degraded {
-			if esm, ok := j.Backend.eventSourceMappings[id]; ok {
+			if esm, ok := j.Backend.eventSourceMappings.Get(id); ok {
 				esm.LastProcessingResult = "PROBLEM"
 			}
 		}
