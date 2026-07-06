@@ -356,21 +356,19 @@ func (db *InMemoryDB) snapshotItemsByTableARN(tableARN string) []map[string]any 
 	db.mu.RLock("snapshotItemsByTableARN")
 	defer db.mu.RUnlock()
 
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.TableArn != tableARN {
-				continue
-			}
-
-			t.mu.RLock("snapshotItemsByTableARN")
-			items := make([]map[string]any, 0, len(t.Items))
-			for i := range t.Items {
-				items = append(items, deepCopyItem(t.Items[i]))
-			}
-			t.mu.RUnlock()
-
-			return items
+	for _, t := range db.tables.All() {
+		if t.TableArn != tableARN {
+			continue
 		}
+
+		t.mu.RLock("snapshotItemsByTableARN")
+		items := make([]map[string]any, 0, len(t.Items))
+		for i := range t.Items {
+			items = append(items, deepCopyItem(t.Items[i]))
+		}
+		t.mu.RUnlock()
+
+		return items
 	}
 
 	return nil
@@ -385,17 +383,15 @@ func (db *InMemoryDB) countTableItems(_ context.Context, tableARN string) (int, 
 	db.mu.RLock("countTableItems")
 	defer db.mu.RUnlock()
 
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.TableArn != tableARN {
-				continue
-			}
-			t.mu.RLock("countTableItems")
-			n := len(t.Items)
-			t.mu.RUnlock()
-
-			return n, nil
+	for _, t := range db.tables.All() {
+		if t.TableArn != tableARN {
+			continue
 		}
+		t.mu.RLock("countTableItems")
+		n := len(t.Items)
+		t.mu.RUnlock()
+
+		return n, nil
 	}
 
 	return 0, nil

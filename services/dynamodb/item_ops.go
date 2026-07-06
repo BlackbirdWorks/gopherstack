@@ -118,14 +118,8 @@ func (db *InMemoryDB) getTableRLock(ctx context.Context, name string) (*Table, b
 	defer db.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, db)
-	regionTables, regionExists := db.Tables[region]
-	if regionExists {
-		if table, tableExists := regionTables[name]; tableExists {
-			return table, true
-		}
-	}
 
-	return nil, false
+	return db.tables.Get(tableKey(region, name))
 }
 
 func getPKAndSK(

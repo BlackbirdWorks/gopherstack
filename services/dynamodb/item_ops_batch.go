@@ -242,15 +242,15 @@ func (db *InMemoryDB) batchGetTableRefs(
 	defer db.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, db)
-	regionTables, ok := db.Tables[region]
-	if !ok {
+	if len(db.tablesByRegion.Get(region)) == 0 {
 		// Region might not have tables yet
 		return nil, NewResourceNotFoundException("No tables found in region")
 	}
+
 	tableRefs := make(map[string]*Table, len(requestItems))
 
 	for tableName := range requestItems {
-		t, exists := regionTables[tableName]
+		t, exists := db.tables.Get(tableKey(region, tableName))
 		if !exists {
 			return nil, NewResourceNotFoundException("Table not found: " + tableName)
 		}
@@ -526,15 +526,9 @@ func (db *InMemoryDB) getRequestTables(
 	requestItems map[string][]types.WriteRequest,
 ) (map[string]*Table, error) {
 	tables := make(map[string]*Table, len(requestItems))
-	regionTables, regionExists := db.Tables[region]
 
 	for tableName := range requestItems {
-		var table *Table
-		if regionExists {
-			if t, tableExists := regionTables[tableName]; tableExists {
-				table = t
-			}
-		}
+		table, _ := db.tables.Get(tableKey(region, tableName))
 
 		if table == nil {
 			return nil, NewResourceNotFoundException("Table not found: " + tableName)

@@ -111,7 +111,7 @@ func (db *InMemoryDB) CreateBackup(
 
 	// Check for duplicate backup name scoped to this table; AWS returns BackupInUseException.
 	db.mu.RLock("CreateBackup.checkDuplicate")
-	for _, existing := range db.Backups {
+	for _, existing := range db.backups.All() {
 		if existing.TableName == tableName && existing.BackupName == backupName &&
 			existing.BackupStatus != models.BackupStatusDeleted {
 			db.mu.RUnlock()
@@ -147,10 +147,11 @@ func (db *InMemoryDB) CreateBackup(
 	}
 
 	db.mu.Lock("CreateBackup")
-	db.Backups[bkpARN] = backup
-	evictOldest(
-		db.Backups,
+	db.backups.Put(backup)
+	evictOldestFromTable(
+		db.backups,
 		maxBackupsRetained,
+		backupKeyFn,
 		func(b *Backup) time.Time { return b.CreationDateTime },
 	)
 	db.mu.Unlock()
@@ -185,7 +186,7 @@ func (db *InMemoryDB) DescribeBackup(
 	}
 
 	db.mu.RLock("DescribeBackup")
-	backup, exists := db.Backups[backupArn]
+	backup, exists := db.backups.Get(backupArn)
 	var backupCopy Backup
 	if exists {
 		backupCopy = *backup
@@ -224,14 +225,14 @@ func (db *InMemoryDB) DeleteBackup(
 	db.mu.Lock("DeleteBackup")
 	defer db.mu.Unlock()
 
-	backup, exists := db.Backups[backupArn]
+	backup, exists := db.backups.Get(backupArn)
 	if !exists {
 		return nil, NewResourceNotFoundException("backup not found: " + backupArn)
 	}
 
 	backupCopy := *backup
 	backupCopy.BackupStatus = models.BackupStatusDeleted
-	delete(db.Backups, backupArn)
+	db.backups.Delete(backupArn)
 
 	return &sdkdynamodb.DeleteBackupOutput{
 		BackupDescription: buildSDKBackupDescription(&backupCopy),

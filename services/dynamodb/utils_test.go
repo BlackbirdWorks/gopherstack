@@ -39,7 +39,7 @@ func TestExtractKeySchema(t *testing.T) {
 			},
 			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
 				t.Helper()
-				table := db.Tables["us-east-1"][tableName]
+				table, _ := db.GetTableInRegion(tableName, "us-east-1")
 				schema, idx, err := db.ExtractKeySchema(table, "")
 				require.NoError(t, err)
 				assert.Nil(t, idx)
@@ -78,7 +78,7 @@ func TestExtractKeySchema(t *testing.T) {
 			},
 			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
 				t.Helper()
-				table := db.Tables["us-east-1"][tableName]
+				table, _ := db.GetTableInRegion(tableName, "us-east-1")
 				schema, idx, err := db.ExtractKeySchema(table, "GSI1")
 				require.NoError(t, err)
 				require.NotNil(t, idx)
@@ -103,7 +103,7 @@ func TestExtractKeySchema(t *testing.T) {
 			},
 			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
 				t.Helper()
-				table := db.Tables["us-east-1"][tableName]
+				table, _ := db.GetTableInRegion(tableName, "us-east-1")
 				_, _, err := db.ExtractKeySchema(table, "InvalidIndex")
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "not found")
@@ -360,7 +360,7 @@ func TestRebuildIndexes(t *testing.T) {
 	_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
-	table := db.Tables["us-east-1"][tableName]
+	table, _ := db.GetTableInRegion(tableName, "us-east-1")
 	table.InitializeIndexes()
 	assert.Empty(t, table.PKIndex())
 

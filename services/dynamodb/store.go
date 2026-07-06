@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -135,17 +136,31 @@ const (
 )
 
 // InMemoryDB stores tables and items organized by region.
+//
+// tables, deletingTables, backups, globalTables, exports, imports, and
+// streamARNIndex are *store.Table wrappers (see pkgs/store and
+// store_setup.go) registered once on registry at construction time;
+// txnTokens, txnPending, and fisReplicationPaused remain plain maps because
+// their value type (time.Time) carries no identity a store.Table key
+// function could extract -- see store_setup.go's doc comment.
 type InMemoryDB struct {
-	Tables               map[string]map[string]*Table
-	deletingTables       map[string]map[string]*Table
-	Backups              map[string]*Backup            // backupARN → Backup
-	GlobalTables         map[string]*StoredGlobalTable // globalTableName → StoredGlobalTable
-	exports              map[string]storedExport       // exportARN → storedExport
-	imports              map[string]storedImport       // importARN → storedImport
-	txnTokens            map[string]time.Time          // committed idempotency tokens → expiry time
-	txnPending           map[string]time.Time          // in-progress idempotency tokens → start time
-	streamARNIndex       map[string]*Table             // streamARN → Table (reverse index)
-	fisReplicationPaused map[string]time.Time          // keyed by table ARN; value is expiry (zero = no expiry)
+	tables         *store.Table[Table] // key: tableKey(region, name)
+	tablesByRegion *store.Index[Table] // secondary index: region -> tables in that region
+	// deletingTables uses the same key scheme as tables; it is a staging area
+	// for deleted tables, drained by the janitor's runTableCleaner.
+	deletingTables *store.Table[Table]
+	backups        *store.Table[Backup]            // key: BackupArn
+	globalTables   *store.Table[StoredGlobalTable] // key: GlobalTableName
+	exports        *store.Table[storedExport]      // key: ExportArn
+	imports        *store.Table[storedImport]      // key: ImportArn
+	// streamARNIndex is a reverse index (key: StreamARN) onto the same
+	// *Table pointers stored in `tables` -- see store_setup.go's
+	// streamARNKeyFn doc for why this can't be a store.Index.
+	streamARNIndex       *store.Table[Table]
+	registry             *store.Registry
+	txnTokens            map[string]time.Time // committed idempotency tokens → expiry time
+	txnPending           map[string]time.Time // in-progress idempotency tokens → start time
+	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	iteratorStore        *ShardIteratorStore // opaque shard iterator tokens
@@ -268,16 +283,10 @@ type Table struct {
 func NewInMemoryDB() *InMemoryDB {
 	const exprCacheSize = 1000
 
-	return &InMemoryDB{
-		Tables:               make(map[string]map[string]*Table),
-		deletingTables:       make(map[string]map[string]*Table),
-		Backups:              make(map[string]*Backup),
-		GlobalTables:         make(map[string]*StoredGlobalTable),
-		exports:              make(map[string]storedExport),
-		imports:              make(map[string]storedImport),
+	db := &InMemoryDB{
+		registry:             store.NewRegistry(),
 		txnTokens:            make(map[string]time.Time),
 		txnPending:           make(map[string]time.Time),
-		streamARNIndex:       make(map[string]*Table),
 		fisReplicationPaused: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
 		iteratorStore:        NewShardIteratorStore(),
@@ -286,6 +295,9 @@ func NewInMemoryDB() *InMemoryDB {
 		mu:                   lockmetrics.New("ddb"),
 		throttler:            NewThrottler(false),
 	}
+	registerAllTables(db)
+
+	return db
 }
 
 // Close releases all backend resources.
@@ -293,10 +305,8 @@ func (db *InMemoryDB) Close() {
 	db.mu.Lock("Close")
 	defer db.mu.Unlock()
 
-	for _, regionTables := range db.Tables {
-		for _, table := range regionTables {
-			stopTableTimers(table)
-		}
+	for _, table := range db.tables.All() {
+		stopTableTimers(table)
 	}
 
 	if db.exprCache != nil {
@@ -460,10 +470,8 @@ func (db *InMemoryDB) SetKinesisEmitter(emitter KinesisEmitter) {
 	defer db.mu.Unlock()
 
 	db.kinesisEmitter = emitter
-	for _, region := range db.Tables {
-		for _, t := range region {
-			t.kinesisEmitter = emitter
-		}
+	for _, t := range db.tables.All() {
+		t.kinesisEmitter = emitter
 	}
 }
 
@@ -546,12 +554,14 @@ func (db *InMemoryDB) Regions() []string {
 	db.mu.RLock("Regions")
 	defer db.mu.RUnlock()
 
-	var regions []string
+	seen := make(map[string]struct{})
+	for _, t := range db.tables.All() {
+		seen[tableRegion(t)] = struct{}{}
+	}
 
-	for region, regionTables := range db.Tables {
-		if len(regionTables) > 0 {
-			regions = append(regions, region)
-		}
+	regions := make([]string, 0, len(seen))
+	for r := range seen {
+		regions = append(regions, r)
 	}
 
 	sort.Strings(regions)
@@ -566,13 +576,13 @@ func (db *InMemoryDB) TableNamesByRegion(region string) []string {
 
 	var names []string
 
-	for r, regionTables := range db.Tables {
-		if region != "" && r != region {
-			continue
+	if region != "" {
+		for _, t := range db.tablesByRegion.Get(region) {
+			names = append(names, t.Name)
 		}
-
-		for name := range regionTables {
-			names = append(names, name)
+	} else {
+		for _, t := range db.tables.All() {
+			names = append(names, t.Name)
 		}
 	}
 
@@ -586,14 +596,7 @@ func (db *InMemoryDB) ListAllTables() []*Table {
 	db.mu.RLock("ListAllTables")
 	defer db.mu.RUnlock()
 
-	var tables []*Table
-	for _, regionTables := range db.Tables {
-		for _, table := range regionTables {
-			tables = append(tables, table)
-		}
-	}
-
-	return tables
+	return db.tables.All()
 }
 
 // GetTable returns a table by name from the default region (for UI/backward compatibility).
@@ -610,14 +613,7 @@ func (db *InMemoryDB) GetTableInRegion(name string, region string) (*Table, bool
 		region = db.defaultRegion
 	}
 
-	regionTables, exists := db.Tables[region]
-	if !exists {
-		return nil, false
-	}
-
-	table, exists := regionTables[name]
-
-	return table, exists
+	return db.tables.Get(tableKey(region, name))
 }
 
 // SetDefaultRegion sets the default region for this backend.
@@ -647,19 +643,18 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 	db.mu.RLock("TaggedTables")
 	defer db.mu.RUnlock()
 
-	var result []TaggedTableInfo
+	all := db.tables.All()
+	result := make([]TaggedTableInfo, 0, len(all))
 
-	for _, regionTables := range db.Tables {
-		for _, table := range regionTables {
-			var tagMap map[string]string
-			if table.Tags != nil {
-				table.mu.RLock("TaggedTables.tag")
-				tagMap = table.Tags.Clone()
-				table.mu.RUnlock()
-			}
-
-			result = append(result, TaggedTableInfo{ARN: table.TableArn, Tags: tagMap})
+	for _, table := range all {
+		var tagMap map[string]string
+		if table.Tags != nil {
+			table.mu.RLock("TaggedTables.tag")
+			tagMap = table.Tags.Clone()
+			table.mu.RUnlock()
 		}
+
+		result = append(result, TaggedTableInfo{ARN: table.TableArn, Tags: tagMap})
 	}
 
 	return result
@@ -709,19 +704,17 @@ func (db *InMemoryDB) Purge(ctx context.Context, cutoff time.Time) {
 // purgeActiveTables removes active tables created before cutoff.
 // Returns false if ctx is cancelled mid-loop.
 func (db *InMemoryDB) purgeActiveTables(ctx context.Context, cutoff time.Time) bool {
-	for _, regionTables := range db.Tables {
-		for n, table := range regionTables {
-			if ctx.Err() != nil {
-				return false
+	for _, table := range db.tables.All() {
+		if ctx.Err() != nil {
+			return false
+		}
+		if table.CreationDateTime.Before(cutoff) {
+			stopTableTimers(table)
+			if table.Tags != nil {
+				table.Tags.Close()
 			}
-			if table.CreationDateTime.Before(cutoff) {
-				stopTableTimers(table)
-				if table.Tags != nil {
-					table.Tags.Close()
-				}
-				table.mu.Close()
-				delete(regionTables, n)
-			}
+			table.mu.Close()
+			db.tables.Delete(tableKeyFn(table))
 		}
 	}
 
@@ -731,12 +724,12 @@ func (db *InMemoryDB) purgeActiveTables(ctx context.Context, cutoff time.Time) b
 // purgeStreamARNIndex removes stream ARN index entries for tables deleted before cutoff.
 // Returns false if ctx is cancelled mid-loop.
 func (db *InMemoryDB) purgeStreamARNIndex(ctx context.Context, cutoff time.Time) bool {
-	for arn, table := range db.streamARNIndex {
+	for _, table := range db.streamARNIndex.All() {
 		if ctx.Err() != nil {
 			return false
 		}
 		if table.CreationDateTime.Before(cutoff) {
-			delete(db.streamARNIndex, arn)
+			db.streamARNIndex.Delete(table.StreamARN)
 		}
 	}
 
@@ -746,12 +739,12 @@ func (db *InMemoryDB) purgeStreamARNIndex(ctx context.Context, cutoff time.Time)
 // purgeBackups removes backups created before cutoff.
 // Returns false if ctx is cancelled mid-loop.
 func (db *InMemoryDB) purgeBackups(ctx context.Context, cutoff time.Time) bool {
-	for n, backup := range db.Backups {
+	for _, backup := range db.backups.All() {
 		if ctx.Err() != nil {
 			return false
 		}
 		if backup.CreationDateTime.Before(cutoff) {
-			delete(db.Backups, n)
+			db.backups.Delete(backup.BackupArn)
 		}
 	}
 
@@ -760,12 +753,12 @@ func (db *InMemoryDB) purgeBackups(ctx context.Context, cutoff time.Time) bool {
 
 // purgeGlobalTables removes global tables created before cutoff.
 func (db *InMemoryDB) purgeGlobalTables(ctx context.Context, cutoff time.Time) {
-	for n, gt := range db.GlobalTables {
+	for _, gt := range db.globalTables.All() {
 		if ctx.Err() != nil {
 			return
 		}
 		if gt.CreationDateTime.Before(cutoff) {
-			delete(db.GlobalTables, n)
+			db.globalTables.Delete(gt.GlobalTableName)
 		}
 	}
 }
@@ -780,35 +773,28 @@ func (db *InMemoryDB) Reset() {
 
 	// Stop activation timers and close mutex metrics for existing tables
 	// (both active and deleting) to avoid goroutine leaks and metric registry leaks.
-	for _, regionTables := range db.Tables {
-		for _, table := range regionTables {
-			stopTableTimers(table)
-			if table.Tags != nil {
-				table.Tags.Close()
-			}
-
-			table.mu.Close()
+	for _, table := range db.tables.All() {
+		stopTableTimers(table)
+		if table.Tags != nil {
+			table.Tags.Close()
 		}
+
+		table.mu.Close()
 	}
 
-	for _, regionTables := range db.deletingTables {
-		for _, table := range regionTables {
-			stopTableTimers(table)
-			if table.Tags != nil {
-				table.Tags.Close()
-			}
-
-			table.mu.Close()
+	for _, table := range db.deletingTables.All() {
+		stopTableTimers(table)
+		if table.Tags != nil {
+			table.Tags.Close()
 		}
+
+		table.mu.Close()
 	}
 
-	db.Tables = make(map[string]map[string]*Table)
-	db.deletingTables = make(map[string]map[string]*Table)
-	db.streamARNIndex = make(map[string]*Table)
-	db.Backups = make(map[string]*Backup)
-	db.GlobalTables = make(map[string]*StoredGlobalTable)
-	db.exports = make(map[string]storedExport)
-	db.imports = make(map[string]storedImport)
+	// registry.ResetAll() collapses tables/deletingTables/backups/globalTables/
+	// exports/imports/streamARNIndex to one call; only the plain (non-store)
+	// maps need explicit resets below.
+	db.registry.ResetAll()
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
@@ -839,7 +825,7 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 	defer db.mu.Unlock()
 
 	now := time.Now()
-	rec := storedExport{
+	rec := &storedExport{
 		CreatedAt:       now,
 		StartTime:       now,
 		ExportArn:       desc.ExportArn,
@@ -861,36 +847,13 @@ func (db *InMemoryDB) storeExport(desc exportDescriptionFields) {
 		rec.ExportTime = time.Now()
 	}
 
-	db.exports[desc.ExportArn] = rec
-	evictOldest(
+	db.exports.Put(rec)
+	evictOldestFromTable(
 		db.exports,
 		maxExportsRetained,
-		func(v storedExport) time.Time { return v.CreatedAt },
+		exportKeyFn,
+		func(v *storedExport) time.Time { return v.CreatedAt },
 	)
-}
-
-// evictOldest drops oldest-by-CreatedAt entries from m until len(m) <= keep.
-// We evict on insert rather than on a timer so memory stays bounded even when
-// the janitor is disabled. timeOf returns the entry's creation timestamp.
-func evictOldest[V any](m map[string]V, keep int, timeOf func(V) time.Time) {
-	if len(m) <= keep {
-		return
-	}
-
-	type kv struct {
-		t time.Time
-		k string
-	}
-
-	entries := make([]kv, 0, len(m))
-	for k, v := range m {
-		entries = append(entries, kv{timeOf(v), k})
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].t.Before(entries[j].t) })
-
-	for i := range len(m) - keep {
-		delete(m, entries[i].k)
-	}
 }
 
 // lookupExport retrieves a stored export by ARN.
@@ -898,7 +861,7 @@ func (db *InMemoryDB) lookupExport(exportARN string) (exportDescriptionFields, b
 	db.mu.RLock("lookupExport")
 	defer db.mu.RUnlock()
 
-	e, ok := db.exports[exportARN]
+	e, ok := db.exports.Get(exportARN)
 	if !ok {
 		return exportDescriptionFields{}, false
 	}
@@ -939,7 +902,7 @@ func (db *InMemoryDB) updateExport(
 	db.mu.Lock("updateExport")
 	defer db.mu.Unlock()
 
-	e, ok := db.exports[exportARN]
+	e, ok := db.exports.Get(exportARN)
 	if !ok {
 		return
 	}
@@ -950,7 +913,8 @@ func (db *InMemoryDB) updateExport(
 	e.ItemCount = itemCount
 	e.BilledSizeBytes = billedBytes
 	e.EndTime = time.Now()
-	db.exports[exportARN] = e
+	// e is the live pointer stored in db.exports (ExportArn, its key, never
+	// changes), so mutating it in place is sufficient -- no Put needed.
 }
 
 // listExportsWire returns stored exports filtered by requestRegion and optionally by
@@ -994,8 +958,9 @@ func (db *InMemoryDB) listExportsWire(
 ) *listExportsOutput {
 	db.mu.RLock("listExportsWire")
 
-	summaries := make([]exportDescriptionFields, 0, len(db.exports))
-	for _, e := range db.exports {
+	all := db.exports.All()
+	summaries := make([]exportDescriptionFields, 0, len(all))
+	for _, e := range all {
 		if db.regionFromARN(e.ExportArn) != requestRegion {
 			continue
 		}
@@ -1004,7 +969,7 @@ func (db *InMemoryDB) listExportsWire(
 			continue
 		}
 
-		summaries = append(summaries, exportToSummaryFields(e))
+		summaries = append(summaries, exportToSummaryFields(*e))
 	}
 
 	db.mu.RUnlock()
@@ -1055,11 +1020,12 @@ func (db *InMemoryDB) storeImport(imp storedImport) {
 	if imp.CreatedAt.IsZero() {
 		imp.CreatedAt = time.Now()
 	}
-	db.imports[imp.ImportArn] = imp
-	evictOldest(
+	db.imports.Put(&imp)
+	evictOldestFromTable(
 		db.imports,
 		maxImportsRetained,
-		func(v storedImport) time.Time { return v.CreatedAt },
+		importKeyFn,
+		func(v *storedImport) time.Time { return v.CreatedAt },
 	)
 }
 
@@ -1068,18 +1034,22 @@ func (db *InMemoryDB) lookupImport(importARN string) (storedImport, bool) {
 	db.mu.RLock("lookupImport")
 	defer db.mu.RUnlock()
 
-	imp, ok := db.imports[importARN]
+	imp, ok := db.imports.Get(importARN)
+	if !ok {
+		return storedImport{}, false
+	}
 
-	return imp, ok
+	return *imp, true
 }
 
 // listImportsStored returns all stored imports as a slice, sorted by ARN.
 func (db *InMemoryDB) listImportsStored() []storedImport {
 	db.mu.RLock("listImportsStored")
 
-	result := make([]storedImport, 0, len(db.imports))
-	for _, imp := range db.imports {
-		result = append(result, imp)
+	all := db.imports.All()
+	result := make([]storedImport, 0, len(all))
+	for _, imp := range all {
+		result = append(result, *imp)
 	}
 
 	db.mu.RUnlock()

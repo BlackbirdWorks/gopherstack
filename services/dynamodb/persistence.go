@@ -11,12 +11,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// dynamodbSnapshotVersion identifies the shape of dbSnapshot. It must be
+// bumped whenever a change to Table, Backup, StoredGlobalTable, or
+// dbSnapshot itself would make an older snapshot unsafe to decode as the
+// current shape. Restore compares this against the persisted value and
+// discards (rather than attempts to partially decode) any mismatch -- see
+// Restore below. This mirrors the services/sqs pilot (commit 0f09d77c) and
+// the services/ec2 conversion (commit 12e611a4).
+//
+// Only tables/backups/globalTables are persisted here, matching the
+// pre-refactor behavior: deletingTables, exports, imports, txnTokens,
+// txnPending, and fisReplicationPaused were never part of the snapshot
+// either (deletingTables is a transient staging area drained by the
+// janitor; the rest are short-lived caches/metadata not worth persisting).
+const dynamodbSnapshotVersion = 1
+
 type dbSnapshot struct {
-	Tables        map[string]map[string]*Table  `json:"Tables"`
-	Backups       map[string]*Backup            `json:"Backups,omitempty"`
-	GlobalTables  map[string]*StoredGlobalTable `json:"GlobalTables,omitempty"`
-	DefaultRegion string                        `json:"DefaultRegion"`
-	AccountID     string                        `json:"AccountID"`
+	DefaultRegion string               `json:"defaultRegion"`
+	AccountID     string               `json:"accountID"`
+	Tables        []*Table             `json:"tables"`
+	Backups       []*Backup            `json:"backups,omitempty"`
+	GlobalTables  []*StoredGlobalTable `json:"globalTables,omitempty"`
+	Version       int                  `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -29,9 +45,10 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 	defer db.mu.RUnlock()
 
 	snap := dbSnapshot{
-		Tables:        db.Tables,
-		Backups:       db.Backups,
-		GlobalTables:  db.GlobalTables,
+		Version:       dynamodbSnapshotVersion,
+		Tables:        db.tables.Snapshot(),
+		Backups:       db.backups.Snapshot(),
+		GlobalTables:  db.globalTables.Snapshot(),
 		DefaultRegion: db.defaultRegion,
 		AccountID:     db.accountID,
 	}
@@ -59,47 +76,50 @@ func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	// Reinitialise per-table mutexes and rebuild indexes before taking db.mu,
+	// matching the pre-refactor ordering (this touches only the freshly
+	// unmarshaled Table values, not any backend state).
+	for _, t := range snap.Tables {
+		if t.mu == nil {
+			t.mu = lockmetrics.New("ddb-table")
+		}
+
+		t.rebuildIndexes()
+		restoreStreamSeq(t)
+	}
+
 	db.mu.Lock("Restore")
 	defer db.mu.Unlock()
 
-	if snap.Tables == nil {
-		snap.Tables = make(map[string]map[string]*Table)
+	if snap.Version != dynamodbSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/sqs pilot (commit 0f09d77c).
+		logger.Load(ctx).WarnContext(ctx,
+			"DynamoDB: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", dynamodbSnapshotVersion,
+		)
+
+		db.registry.ResetAll()
+
+		return nil
 	}
 
-	if snap.Backups == nil {
-		snap.Backups = make(map[string]*Backup)
-	}
-
-	if snap.GlobalTables == nil {
-		snap.GlobalTables = make(map[string]*StoredGlobalTable)
-	}
-
-	// Reinitialise per-table mutexes and rebuild indexes.
-	for _, regionTables := range snap.Tables {
-		for _, t := range regionTables {
-			if t.mu == nil {
-				t.mu = lockmetrics.New("ddb-table")
-			}
-
-			t.rebuildIndexes()
-			restoreStreamSeq(t)
-		}
-	}
-
-	db.Tables = snap.Tables
-	db.Backups = snap.Backups
-	db.GlobalTables = snap.GlobalTables
+	db.tables.Restore(snap.Tables)
+	db.backups.Restore(snap.Backups)
+	db.globalTables.Restore(snap.GlobalTables)
 	db.defaultRegion = snap.DefaultRegion
 	db.accountID = snap.AccountID
 
 	// Rebuild the stream ARN reverse index from the restored tables.
-	db.streamARNIndex = make(map[string]*Table)
+	db.streamARNIndex.Reset()
 
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.StreamARN != "" {
-				db.streamARNIndex[t.StreamARN] = t
-			}
+	for _, t := range db.tables.All() {
+		if t.StreamARN != "" {
+			db.streamARNIndex.Put(t)
 		}
 	}
 

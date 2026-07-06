@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -33,7 +34,7 @@ func (db *InMemoryDB) TagResource(
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
 	db.mu.RLock("TagResource")
-	table := findTableByName(db.Tables, tableName)
+	table := findTableByName(db.tables, tableName)
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -62,7 +63,7 @@ func (db *InMemoryDB) UntagResource(
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
 	db.mu.RLock("UntagResource")
-	table := findTableByName(db.Tables, tableName)
+	table := findTableByName(db.tables, tableName)
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -87,7 +88,7 @@ func (db *InMemoryDB) ListTagsOfResource(
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
 	db.mu.RLock("ListTagsOfResource")
-	table := findTableByName(db.Tables, tableName)
+	table := findTableByName(db.tables, tableName)
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -114,11 +115,14 @@ func (db *InMemoryDB) ListTagsOfResource(
 	return &dynamodb.ListTagsOfResourceOutput{Tags: sdkTags}, nil
 }
 
-// findTableByName searches all region-keyed table maps for a table with the given name.
-// Returns nil if not found. Must be called with db.mu held.
-func findTableByName(tables map[string]map[string]*Table, name string) *Table {
-	for _, regionTables := range tables {
-		if t, ok := regionTables[name]; ok {
+// findTableByName searches all regions for a table with the given name.
+// Returns nil if not found. Must be called with db.mu held. If the same
+// table name exists in more than one region the result is one of them,
+// chosen in unspecified order -- this matches the pre-store behavior, which
+// iterated a map[string]map[string]*Table (also unordered).
+func findTableByName(tables *store.Table[Table], name string) *Table {
+	for _, t := range tables.All() {
+		if t.Name == name {
 			return t
 		}
 	}
