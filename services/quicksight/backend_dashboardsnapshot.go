@@ -49,7 +49,7 @@ func (b *InMemoryBackend) StartDashboardSnapshotJob(
 	b.mu.Lock("StartDashboardSnapshotJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dashboards[dashboardKey(accountID, dashboardID)]; !ok {
+	if !b.dashboards.Has(dashboardKey(accountID, dashboardID)) {
 		return nil, ErrDashboardNotFound
 	}
 
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) StartDashboardSnapshotJob(
 		DashboardID:     dashboardID,
 		Status:          snapshotJobStatusQueued,
 	}
-	b.dashboardSnapshotJobs[dashboardSnapshotJobKey(accountID, dashboardID, jobID)] = job
+	b.dashboardSnapshotJobs.Put(job)
 
 	return job.toDashboardSnapshotJob(), nil
 }
@@ -87,7 +87,7 @@ func (b *InMemoryBackend) DescribeDashboardSnapshotJob(
 	b.mu.Lock("DescribeDashboardSnapshotJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.dashboardSnapshotJobs[dashboardSnapshotJobKey(accountID, dashboardID, jobID)]
+	job, ok := b.dashboardSnapshotJobs.Get(dashboardSnapshotJobKey(accountID, dashboardID, jobID))
 	if !ok {
 		return nil, ErrDashboardSnapshotJobNotFound
 	}
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) DescribeDashboardSnapshotJobResult(
 	b.mu.Lock("DescribeDashboardSnapshotJobResult")
 	defer b.mu.Unlock()
 
-	job, ok := b.dashboardSnapshotJobs[dashboardSnapshotJobKey(accountID, dashboardID, jobID)]
+	job, ok := b.dashboardSnapshotJobs.Get(dashboardSnapshotJobKey(accountID, dashboardID, jobID))
 	if !ok {
 		return nil, ErrDashboardSnapshotJobNotFound
 	}
@@ -131,7 +131,7 @@ func (b *InMemoryBackend) StartDashboardSnapshotJobSchedule(accountID, dashboard
 	b.mu.RLock("StartDashboardSnapshotJobSchedule")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.dashboards[dashboardKey(accountID, dashboardID)]; !ok {
+	if !b.dashboards.Has(dashboardKey(accountID, dashboardID)) {
 		return ErrDashboardNotFound
 	}
 

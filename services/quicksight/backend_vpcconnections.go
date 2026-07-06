@@ -3,7 +3,6 @@ package quicksight
 import (
 	"maps"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -64,7 +63,7 @@ func (b *InMemoryBackend) CreateVPCConnection(
 	defer b.mu.Unlock()
 
 	key := vpcConnectionKey(accountID, vpcConnectionID)
-	if _, exists := b.vpcConnections[key]; exists {
+	if b.vpcConnections.Has(key) {
 		return nil, ErrVPCConnectionAlreadyExists
 	}
 
@@ -83,7 +82,7 @@ func (b *InMemoryBackend) CreateVPCConnection(
 		Status:             statusCreationSuccessful,
 		AvailabilityStatus: vpcConnectionAvailabilityAvailable,
 	}
-	b.vpcConnections[key] = v
+	b.vpcConnections.Put(v)
 
 	if len(tags) > 0 {
 		b.tags[v.Arn] = maps.Clone(tags)
@@ -96,7 +95,7 @@ func (b *InMemoryBackend) DescribeVPCConnection(accountID, vpcConnectionID strin
 	b.mu.RLock("DescribeVPCConnection")
 	defer b.mu.RUnlock()
 
-	v, ok := b.vpcConnections[vpcConnectionKey(accountID, vpcConnectionID)]
+	v, ok := b.vpcConnections.Get(vpcConnectionKey(accountID, vpcConnectionID))
 	if !ok {
 		return nil, ErrVPCConnectionNotFound
 	}
@@ -113,7 +112,7 @@ func (b *InMemoryBackend) UpdateVPCConnection(
 	defer b.mu.Unlock()
 
 	key := vpcConnectionKey(accountID, vpcConnectionID)
-	v, ok := b.vpcConnections[key]
+	v, ok := b.vpcConnections.Get(key)
 	if !ok {
 		return nil, ErrVPCConnectionNotFound
 	}
@@ -144,32 +143,27 @@ func (b *InMemoryBackend) DeleteVPCConnection(accountID, vpcConnectionID string)
 	defer b.mu.Unlock()
 
 	key := vpcConnectionKey(accountID, vpcConnectionID)
-	v, ok := b.vpcConnections[key]
+	v, ok := b.vpcConnections.Get(key)
 	if !ok {
 		return ErrVPCConnectionNotFound
 	}
 
 	delete(b.tags, v.Arn)
-	delete(b.vpcConnections, key)
+	b.vpcConnections.Delete(key)
 
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListVPCConnections(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*VPCConnection, string, error) {
 	b.mu.RLock("ListVPCConnections")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	var all []*storedVPCConnection
-	for k, v := range b.vpcConnections {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, v)
-		}
-	}
+	all := b.vpcConnections.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].VPCConnectionID < all[j].VPCConnectionID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {

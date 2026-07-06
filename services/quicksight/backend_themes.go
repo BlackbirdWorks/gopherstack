@@ -5,7 +5,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -94,7 +93,7 @@ func (b *InMemoryBackend) CreateTheme(
 	defer b.mu.Unlock()
 
 	key := themeKey(accountID, themeID)
-	if _, exists := b.themes[key]; exists {
+	if b.themes.Has(key) {
 		return nil, ErrThemeAlreadyExists
 	}
 
@@ -120,7 +119,7 @@ func (b *InMemoryBackend) CreateTheme(
 		Aliases:       map[string]int64{themeAliasLatest: 1},
 		Permissions:   clonePermissions(permissions),
 	}
-	b.themes[key] = t
+	b.themes.Put(t)
 
 	if len(tags) > 0 {
 		b.tags[arn] = maps.Clone(tags)
@@ -135,7 +134,7 @@ func (b *InMemoryBackend) DescribeTheme(accountID, themeID string, versionNumber
 	b.mu.RLock("DescribeTheme")
 	defer b.mu.RUnlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, ErrThemeNotFound
 	}
@@ -156,7 +155,7 @@ func (b *InMemoryBackend) UpdateTheme(
 	defer b.mu.Unlock()
 
 	key := themeKey(accountID, themeID)
-	t, ok := b.themes[key]
+	t, ok := b.themes.Get(key)
 	if !ok {
 		return nil, ErrThemeNotFound
 	}
@@ -196,14 +195,14 @@ func (b *InMemoryBackend) DeleteTheme(accountID, themeID string, versionNumber i
 	defer b.mu.Unlock()
 
 	key := themeKey(accountID, themeID)
-	t, ok := b.themes[key]
+	t, ok := b.themes.Get(key)
 	if !ok {
 		return ErrThemeNotFound
 	}
 
 	if versionNumber == 0 {
 		delete(b.tags, t.Arn)
-		delete(b.themes, key)
+		b.themes.Delete(key)
 
 		return nil
 	}
@@ -215,7 +214,7 @@ func (b *InMemoryBackend) DeleteTheme(accountID, themeID string, versionNumber i
 
 	if len(t.Versions) == 0 {
 		delete(b.tags, t.Arn)
-		delete(b.themes, key)
+		b.themes.Delete(key)
 
 		return nil
 	}
@@ -234,14 +233,8 @@ func (b *InMemoryBackend) DeleteTheme(accountID, themeID string, versionNumber i
 	return nil
 }
 
-func (b *InMemoryBackend) allThemesLocked(accountID string) []*storedTheme {
-	prefix := accountID + "/"
-	all := make([]*storedTheme, 0, len(b.themes))
-	for k, t := range b.themes {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, t)
-		}
-	}
+func (b *InMemoryBackend) allThemesLocked(_ string) []*storedTheme {
+	all := b.themes.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ThemeID < all[j].ThemeID })
 
 	return all
@@ -293,7 +286,7 @@ func (b *InMemoryBackend) ListThemeVersions(
 	b.mu.RLock("ListThemeVersions")
 	defer b.mu.RUnlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, "", ErrThemeNotFound
 	}
@@ -343,7 +336,7 @@ func (b *InMemoryBackend) DescribeThemePermissions(accountID, themeID string) (*
 	b.mu.RLock("DescribeThemePermissions")
 	defer b.mu.RUnlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, nil, ErrThemeNotFound
 	}
@@ -360,7 +353,7 @@ func (b *InMemoryBackend) UpdateThemePermissions(
 	b.mu.Lock("UpdateThemePermissions")
 	defer b.mu.Unlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, nil, ErrThemeNotFound
 	}
@@ -386,7 +379,7 @@ func (b *InMemoryBackend) CreateThemeAlias(
 	b.mu.Lock("CreateThemeAlias")
 	defer b.mu.Unlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, ErrThemeNotFound
 	}
@@ -412,7 +405,7 @@ func (b *InMemoryBackend) DescribeThemeAlias(accountID, themeID, aliasName strin
 	b.mu.RLock("DescribeThemeAlias")
 	defer b.mu.RUnlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, ErrThemeNotFound
 	}
@@ -436,7 +429,7 @@ func (b *InMemoryBackend) UpdateThemeAlias(
 	b.mu.Lock("UpdateThemeAlias")
 	defer b.mu.Unlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, ErrThemeNotFound
 	}
@@ -462,7 +455,7 @@ func (b *InMemoryBackend) DeleteThemeAlias(accountID, themeID, aliasName string)
 	b.mu.Lock("DeleteThemeAlias")
 	defer b.mu.Unlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return ErrThemeNotFound
 	}
@@ -485,7 +478,7 @@ func (b *InMemoryBackend) ListThemeAliases(
 	b.mu.RLock("ListThemeAliases")
 	defer b.mu.RUnlock()
 
-	t, ok := b.themes[themeKey(accountID, themeID)]
+	t, ok := b.themes.Get(themeKey(accountID, themeID))
 	if !ok {
 		return nil, "", ErrThemeNotFound
 	}

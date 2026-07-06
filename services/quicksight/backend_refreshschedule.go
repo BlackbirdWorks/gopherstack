@@ -38,7 +38,7 @@ func (b *InMemoryBackend) CreateRefreshSchedule(
 	b.mu.Lock("CreateRefreshSchedule")
 	defer b.mu.Unlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return nil, ErrDataSetNotFound
 	}
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) DescribeRefreshSchedule(accountID, datasetID, schedule
 	b.mu.RLock("DescribeRefreshSchedule")
 	defer b.mu.RUnlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return nil, ErrDataSetNotFound
 	}
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) UpdateRefreshSchedule(
 	b.mu.Lock("UpdateRefreshSchedule")
 	defer b.mu.Unlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return nil, ErrDataSetNotFound
 	}
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) DeleteRefreshSchedule(accountID, datasetID, scheduleID
 	b.mu.Lock("DeleteRefreshSchedule")
 	defer b.mu.Unlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return ErrDataSetNotFound
 	}
@@ -133,7 +133,7 @@ func (b *InMemoryBackend) ListRefreshSchedules(accountID, datasetID string) ([]*
 	b.mu.RLock("ListRefreshSchedules")
 	defer b.mu.RUnlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return nil, ErrDataSetNotFound
 	}
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) PutDataSetRefreshProperties(
 	b.mu.Lock("PutDataSetRefreshProperties")
 	defer b.mu.Unlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return nil, ErrDataSetNotFound
 	}
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) DescribeDataSetRefreshProperties(
 	b.mu.RLock("DescribeDataSetRefreshProperties")
 	defer b.mu.RUnlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return nil, ErrDataSetNotFound
 	}
@@ -197,7 +197,7 @@ func (b *InMemoryBackend) DeleteDataSetRefreshProperties(accountID, datasetID st
 	b.mu.Lock("DeleteDataSetRefreshProperties")
 	defer b.mu.Unlock()
 
-	ds, ok := b.dataSets[dataSetKey(accountID, datasetID)]
+	ds, ok := b.dataSets.Get(dataSetKey(accountID, datasetID))
 	if !ok {
 		return ErrDataSetNotFound
 	}

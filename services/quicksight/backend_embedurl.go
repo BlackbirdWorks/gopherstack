@@ -71,7 +71,7 @@ func (b *InMemoryBackend) GenerateEmbedURLForAnonymousUser(
 	b.mu.RLock("GenerateEmbedURLForAnonymousUser")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+	if !b.namespaces.Has(nsKey(accountID, namespace)) {
 		return "", "", ErrNamespaceNotFound
 	}
 
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) GenerateEmbedURLForRegisteredUser(
 	defer b.mu.RUnlock()
 
 	if namespace, userName, ok := parseUserArn(userArn); ok {
-		if _, exists := b.users[userKey(accountID, namespace, userName)]; !exists {
+		if !b.users.Has(userKey(accountID, namespace, userName)) {
 			return "", ErrUserNotFound
 		}
 	}
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) GetDashboardEmbedURL(accountID, dashboardID, identityT
 	b.mu.RLock("GetDashboardEmbedURL")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.dashboards[dashboardKey(accountID, dashboardID)]; !ok {
+	if !b.dashboards.Has(dashboardKey(accountID, dashboardID)) {
 		return "", ErrDashboardNotFound
 	}
 
@@ -165,7 +165,7 @@ func (b *InMemoryBackend) GenerateIdentityContext(
 	defer b.mu.RUnlock()
 
 	if namespace != "" {
-		if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+		if !b.namespaces.Has(nsKey(accountID, namespace)) {
 			return "", ErrNamespaceNotFound
 		}
 	}

@@ -47,7 +47,7 @@ func (b *InMemoryBackend) CreateCustomPermissions(
 	defer b.mu.Unlock()
 
 	key := customPermissionsKey(accountID, name)
-	if _, exists := b.customPermissions[key]; exists {
+	if b.customPermissions.Has(key) {
 		return nil, ErrCustomPermissionsAlreadyExists
 	}
 
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) CreateCustomPermissions(
 		Arn:          b.buildARN("custom-permissions", name),
 		Capabilities: capabilities,
 	}
-	b.customPermissions[key] = cp
+	b.customPermissions.Put(cp)
 
 	if len(tags) > 0 {
 		b.tags[cp.Arn] = maps.Clone(tags)
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) DescribeCustomPermissions(accountID, name string) (*Cu
 	b.mu.RLock("DescribeCustomPermissions")
 	defer b.mu.RUnlock()
 
-	cp, ok := b.customPermissions[customPermissionsKey(accountID, name)]
+	cp, ok := b.customPermissions.Get(customPermissionsKey(accountID, name))
 	if !ok {
 		return nil, ErrCustomPermissionsNotFound
 	}
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) UpdateCustomPermissions(
 	b.mu.Lock("UpdateCustomPermissions")
 	defer b.mu.Unlock()
 
-	cp, ok := b.customPermissions[customPermissionsKey(accountID, name)]
+	cp, ok := b.customPermissions.Get(customPermissionsKey(accountID, name))
 	if !ok {
 		return nil, ErrCustomPermissionsNotFound
 	}
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) DeleteCustomPermissions(accountID, name string) error 
 	defer b.mu.Unlock()
 
 	key := customPermissionsKey(accountID, name)
-	if _, ok := b.customPermissions[key]; !ok {
+	if !b.customPermissions.Has(key) {
 		return ErrCustomPermissionsNotFound
 	}
 
@@ -117,27 +117,21 @@ func (b *InMemoryBackend) DeleteCustomPermissions(accountID, name string) error 
 		}
 	}
 
-	delete(b.customPermissions, key)
+	b.customPermissions.Delete(key)
 
 	return nil
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListCustomPermissions(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*CustomPermissions, string, error) {
 	b.mu.RLock("ListCustomPermissions")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	all := make([]*storedCustomPermissions, 0, len(b.customPermissions))
-	for k, cp := range b.customPermissions {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, cp)
-		}
-	}
+	all := b.customPermissions.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
@@ -181,7 +175,7 @@ func (b *InMemoryBackend) UpdateRoleCustomPermission(accountID, namespace, role,
 	b.mu.Lock("UpdateRoleCustomPermission")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customPermissions[customPermissionsKey(accountID, customPermissionsName)]; !ok {
+	if !b.customPermissions.Has(customPermissionsKey(accountID, customPermissionsName)) {
 		return ErrCustomPermissionsNotFound
 	}
 
@@ -302,10 +296,10 @@ func (b *InMemoryBackend) UpdateUserCustomPermission(
 	b.mu.Lock("UpdateUserCustomPermission")
 	defer b.mu.Unlock()
 
-	if _, ok := b.users[userKey(accountID, namespace, userName)]; !ok {
+	if !b.users.Has(userKey(accountID, namespace, userName)) {
 		return ErrUserNotFound
 	}
-	if _, ok := b.customPermissions[customPermissionsKey(accountID, customPermissionsName)]; !ok {
+	if !b.customPermissions.Has(customPermissionsKey(accountID, customPermissionsName)) {
 		return ErrCustomPermissionsNotFound
 	}
 
