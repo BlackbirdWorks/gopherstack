@@ -45,7 +45,7 @@ func AppCount(b *InMemoryBackend) int {
 	b.mu.RLock("AppCount")
 	defer b.mu.RUnlock()
 
-	return len(b.apps)
+	return b.apps.Len()
 }
 
 // CampaignCount returns the number of campaigns in the backend.
@@ -53,7 +53,7 @@ func CampaignCount(b *InMemoryBackend) int {
 	b.mu.RLock("CampaignCount")
 	defer b.mu.RUnlock()
 
-	return len(b.campaigns)
+	return b.campaigns.Len()
 }
 
 // SegmentCount returns the number of segments in the backend.
@@ -61,7 +61,7 @@ func SegmentCount(b *InMemoryBackend) int {
 	b.mu.RLock("SegmentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.segments)
+	return b.segments.Len()
 }
 
 // JourneyCount returns the number of journeys in the backend.
@@ -69,7 +69,7 @@ func JourneyCount(b *InMemoryBackend) int {
 	b.mu.RLock("JourneyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.journeys)
+	return b.journeys.Len()
 }
 
 // EmailTemplateCount returns the number of email templates in the backend.
@@ -77,7 +77,7 @@ func EmailTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("EmailTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.emailTemplates)
+	return b.emailTemplates.Len()
 }
 
 // InAppTemplateCount returns the number of in-app templates in the backend.
@@ -85,7 +85,7 @@ func InAppTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("InAppTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.inAppTemplates)
+	return b.inAppTemplates.Len()
 }
 
 // PushTemplateCount returns the number of push templates in the backend.
@@ -93,7 +93,7 @@ func PushTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("PushTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.pushTemplates)
+	return b.pushTemplates.Len()
 }
 
 // SmsTemplateCount returns the number of SMS templates in the backend.
@@ -101,7 +101,7 @@ func SmsTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("SmsTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.smsTemplates)
+	return b.smsTemplates.Len()
 }
 
 // ExportJobCount returns the number of export jobs in the backend.
@@ -109,7 +109,7 @@ func ExportJobCount(b *InMemoryBackend) int {
 	b.mu.RLock("ExportJobCount")
 	defer b.mu.RUnlock()
 
-	return len(b.exportJobs)
+	return b.exportJobs.Len()
 }
 
 // ImportJobCount returns the number of import jobs in the backend.
@@ -117,7 +117,7 @@ func ImportJobCount(b *InMemoryBackend) int {
 	b.mu.RLock("ImportJobCount")
 	defer b.mu.RUnlock()
 
-	return len(b.importJobs)
+	return b.importJobs.Len()
 }
 
 // RecommenderCount returns the number of recommender configurations in the backend.
@@ -125,7 +125,7 @@ func RecommenderCount(b *InMemoryBackend) int {
 	b.mu.RLock("RecommenderCount")
 	defer b.mu.RUnlock()
 
-	return len(b.recommenders)
+	return b.recommenders.Len()
 }
 
 // ARNIndexSize returns the number of entries in the ARN index.

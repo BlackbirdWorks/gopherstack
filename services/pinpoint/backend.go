@@ -11,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -55,22 +56,23 @@ type storedAppSettings struct {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	inAppTemplates         map[string]*InAppTemplate
-	segments               map[string]*Segment
-	campaigns              map[string]*Campaign
-	emailTemplates         map[string]*EmailTemplate
-	exportJobs             map[string]*ExportJob
-	importJobs             map[string]*ImportJob
+	registry               *store.Registry
+	inAppTemplates         *store.Table[InAppTemplate]
+	segments               *store.Table[Segment]
+	campaigns              *store.Table[Campaign]
+	emailTemplates         *store.Table[EmailTemplate]
+	exportJobs             *store.Table[ExportJob]
+	importJobs             *store.Table[ImportJob]
 	arnIndex               map[string]tagHolder
-	pushTemplates          map[string]*PushTemplate
-	apps                   map[string]*App
-	recommenders           map[string]*RecommenderConfiguration
-	journeys               map[string]*Journey
-	smsTemplates           map[string]*SmsTemplate
-	voiceTemplates         map[string]*VoiceTemplate
-	endpoints              map[string]*Endpoint
-	eventStreams           map[string]*EventStream
-	channels               map[string]*Channel
+	pushTemplates          *store.Table[PushTemplate]
+	apps                   *store.Table[App]
+	recommenders           *store.Table[RecommenderConfiguration]
+	journeys               *store.Table[Journey]
+	smsTemplates           *store.Table[SmsTemplate]
+	voiceTemplates         *store.Table[VoiceTemplate]
+	endpoints              *store.Table[Endpoint]
+	eventStreams           *store.Table[EventStream]
+	channels               *store.Table[Channel]
 	appSettings            map[string]*storedAppSettings
 	campaignVersions       map[string][]*Campaign
 	segmentVersions        map[string][]*Segment
@@ -87,26 +89,12 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new Pinpoint in-memory backend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		region:                 region,
 		accountID:              accountID,
 		mu:                     lockmetrics.New("pinpoint"),
-		apps:                   make(map[string]*App),
+		registry:               store.NewRegistry(),
 		arnIndex:               make(map[string]tagHolder),
-		campaigns:              make(map[string]*Campaign),
-		channels:               make(map[string]*Channel),
-		emailTemplates:         make(map[string]*EmailTemplate),
-		endpoints:              make(map[string]*Endpoint),
-		eventStreams:           make(map[string]*EventStream),
-		exportJobs:             make(map[string]*ExportJob),
-		importJobs:             make(map[string]*ImportJob),
-		inAppTemplates:         make(map[string]*InAppTemplate),
-		journeys:               make(map[string]*Journey),
-		pushTemplates:          make(map[string]*PushTemplate),
-		recommenders:           make(map[string]*RecommenderConfiguration),
-		segments:               make(map[string]*Segment),
-		smsTemplates:           make(map[string]*SmsTemplate),
-		voiceTemplates:         make(map[string]*VoiceTemplate),
 		appSettings:            make(map[string]*storedAppSettings),
 		campaignVersions:       make(map[string][]*Campaign),
 		segmentVersions:        make(map[string][]*Segment),
@@ -117,6 +105,10 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		sentMessages:           make(map[string]int),
 		otpCodes:               make(map[string]string),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all stored state and returns the backend to a pristine state.
@@ -124,22 +116,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.apps = make(map[string]*App)
+	b.registry.ResetAll()
+
 	b.arnIndex = make(map[string]tagHolder)
-	b.campaigns = make(map[string]*Campaign)
-	b.channels = make(map[string]*Channel)
-	b.emailTemplates = make(map[string]*EmailTemplate)
-	b.endpoints = make(map[string]*Endpoint)
-	b.eventStreams = make(map[string]*EventStream)
-	b.exportJobs = make(map[string]*ExportJob)
-	b.importJobs = make(map[string]*ImportJob)
-	b.inAppTemplates = make(map[string]*InAppTemplate)
-	b.journeys = make(map[string]*Journey)
-	b.pushTemplates = make(map[string]*PushTemplate)
-	b.recommenders = make(map[string]*RecommenderConfiguration)
-	b.segments = make(map[string]*Segment)
-	b.smsTemplates = make(map[string]*SmsTemplate)
-	b.voiceTemplates = make(map[string]*VoiceTemplate)
 	b.appSettings = make(map[string]*storedAppSettings)
 	b.campaignVersions = make(map[string][]*Campaign)
 	b.segmentVersions = make(map[string][]*Segment)
@@ -166,7 +145,7 @@ func (b *InMemoryBackend) AddAppInternal(app *App) {
 	b.mu.Lock("AddAppInternal")
 	defer b.mu.Unlock()
 
-	b.apps[app.ID] = app
+	b.apps.Put(app)
 	b.arnIndex[app.ARN] = app
 }
 
@@ -175,7 +154,7 @@ func (b *InMemoryBackend) AddCampaignInternal(c *Campaign) {
 	b.mu.Lock("AddCampaignInternal")
 	defer b.mu.Unlock()
 
-	b.campaigns[c.ID] = c
+	b.campaigns.Put(c)
 	b.arnIndex[c.ARN] = c
 }
 
@@ -184,7 +163,7 @@ func (b *InMemoryBackend) AddSegmentInternal(s *Segment) {
 	b.mu.Lock("AddSegmentInternal")
 	defer b.mu.Unlock()
 
-	b.segments[s.ID] = s
+	b.segments.Put(s)
 	b.arnIndex[s.ARN] = s
 }
 
@@ -193,7 +172,7 @@ func (b *InMemoryBackend) AddJourneyInternal(j *Journey) {
 	b.mu.Lock("AddJourneyInternal")
 	defer b.mu.Unlock()
 
-	b.journeys[j.ID] = j
+	b.journeys.Put(j)
 	b.arnIndex[j.ARN] = j
 }
 
@@ -217,7 +196,7 @@ func (b *InMemoryBackend) CreateApp(region, accountID, name string, tags map[str
 		CreationDate: nowRFC3339(),
 	}
 
-	b.apps[appID] = app
+	b.apps.Put(app)
 	b.arnIndex[appARN] = app
 
 	return cloneApp(app), nil
@@ -228,7 +207,7 @@ func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
 	b.mu.RLock("GetApp")
 	defer b.mu.RUnlock()
 
-	app, ok := b.apps[appID]
+	app, ok := b.apps.Get(appID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -241,12 +220,12 @@ func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
-	app, ok := b.apps[appID]
+	app, ok := b.apps.Get(appID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.apps, appID)
+	b.apps.Delete(appID)
 	delete(b.arnIndex, app.ARN)
 
 	b.purgeAppStateLocked(appID)
@@ -266,32 +245,48 @@ func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 // ApplicationID, so they are filtered by that field.
 func (b *InMemoryBackend) purgeAppStateLocked(appID string) {
 	delete(b.appEvents, appID)
-	delete(b.eventStreams, appID)
+	b.eventStreams.Delete(appID)
 	delete(b.otpCodes, appID)
 	delete(b.appSettings, appID)
 	delete(b.sentMessages, appID)
 
 	prefix := appID + "/"
-	deletePrefixed(b.endpoints, prefix)
-	deletePrefixed(b.channels, prefix)
 	deletePrefixed(b.campaignVersions, prefix)
 	deletePrefixed(b.segmentVersions, prefix)
 	deletePrefixed(b.campaignActivities, prefix)
 	deletePrefixed(b.journeyRuns, prefix)
 
-	for id, c := range b.campaigns {
-		if c != nil && c.ApplicationID == appID {
-			delete(b.campaigns, id)
-		}
-	}
-	for id, s := range b.segments {
-		if s != nil && s.ApplicationID == appID {
-			delete(b.segments, id)
-		}
-	}
-	for id, j := range b.journeys {
-		if j != nil && j.ApplicationID == appID {
-			delete(b.journeys, id)
+	purgeTableByAppID(b.endpoints, appID,
+		func(e *Endpoint) string { return e.ApplicationID },
+		func(e *Endpoint) string { return prefix + e.ID },
+	)
+	purgeTableByAppID(b.channels, appID,
+		func(c *Channel) string { return c.ApplicationID },
+		func(c *Channel) string { return prefix + c.ChannelType },
+	)
+	purgeTableByAppID(b.campaigns, appID,
+		func(c *Campaign) string { return c.ApplicationID },
+		func(c *Campaign) string { return c.ID },
+	)
+	purgeTableByAppID(b.segments, appID,
+		func(s *Segment) string { return s.ApplicationID },
+		func(s *Segment) string { return s.ID },
+	)
+	purgeTableByAppID(b.journeys, appID,
+		func(j *Journey) string { return j.ApplicationID },
+		func(j *Journey) string { return j.ID },
+	)
+}
+
+// purgeTableByAppID deletes every value in t whose owning application (per
+// appIDOf) matches appID, using keyOf to recover each value's own table key.
+// Factoring the scan+filter+delete loop out per resource kind keeps
+// purgeAppStateLocked a flat list of calls instead of one branch per
+// app-scoped table, which is what keeps its cyclomatic complexity in check.
+func purgeTableByAppID[V any](t *store.Table[V], appID string, appIDOf, keyOf func(*V) string) {
+	for _, v := range t.All() {
+		if v != nil && appIDOf(v) == appID {
+			t.Delete(keyOf(v))
 		}
 	}
 }
@@ -310,9 +305,10 @@ func (b *InMemoryBackend) GetApps() ([]*App, error) {
 	b.mu.RLock("GetApps")
 	defer b.mu.RUnlock()
 
-	apps := make([]*App, 0, len(b.apps))
+	all := b.apps.All()
+	apps := make([]*App, 0, len(all))
 
-	for _, app := range b.apps {
+	for _, app := range all {
 		apps = append(apps, cloneApp(app))
 	}
 
@@ -392,7 +388,7 @@ func (b *InMemoryBackend) CreateCampaign(
 	b.mu.Lock("CreateCampaign")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -436,7 +432,7 @@ func (b *InMemoryBackend) CreateCampaign(
 	}
 
 	c.Version = 1
-	b.campaigns[id] = c
+	b.campaigns.Put(c)
 	b.arnIndex[campaignARN] = c
 
 	// Track campaign version history.
@@ -464,7 +460,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 	b.mu.Lock("CreateEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.emailTemplates[templateName]; exists {
+	if _, exists := b.emailTemplates.Get(templateName); exists {
 		return nil, ErrAlreadyExists
 	}
 
@@ -486,7 +482,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 		Version:              "1",
 	}
 
-	b.emailTemplates[templateName] = t
+	b.emailTemplates.Put(t)
 	b.arnIndex[templateARN] = t
 
 	// Track template version history.
@@ -506,7 +502,7 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 	b.mu.Lock("CreateInAppTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.inAppTemplates[templateName]; exists {
+	if _, exists := b.inAppTemplates.Get(templateName); exists {
 		return nil, ErrAlreadyExists
 	}
 
@@ -525,7 +521,7 @@ func (b *InMemoryBackend) CreateInAppTemplate(
 		Version:             "1",
 	}
 
-	b.inAppTemplates[templateName] = t
+	b.inAppTemplates.Put(t)
 	b.arnIndex[templateARN] = t
 
 	// Track template version history.
@@ -545,7 +541,7 @@ func (b *InMemoryBackend) CreatePushTemplate(
 	b.mu.Lock("CreatePushTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.pushTemplates[templateName]; exists {
+	if _, exists := b.pushTemplates.Get(templateName); exists {
 		return nil, ErrAlreadyExists
 	}
 
@@ -567,7 +563,7 @@ func (b *InMemoryBackend) CreatePushTemplate(
 		Version:             "1",
 	}
 
-	b.pushTemplates[templateName] = t
+	b.pushTemplates.Put(t)
 	b.arnIndex[templateARN] = t
 
 	// Track template version history.
@@ -587,7 +583,7 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 	b.mu.Lock("CreateSmsTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.smsTemplates[templateName]; exists {
+	if _, exists := b.smsTemplates.Get(templateName); exists {
 		return nil, ErrAlreadyExists
 	}
 
@@ -606,7 +602,7 @@ func (b *InMemoryBackend) CreateSmsTemplate(
 		Version:             "1",
 	}
 
-	b.smsTemplates[templateName] = t
+	b.smsTemplates.Put(t)
 	b.arnIndex[templateARN] = t
 
 	// Track template version history.
@@ -630,7 +626,7 @@ func (b *InMemoryBackend) CreateExportJob(
 	b.mu.Lock("CreateExportJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -647,7 +643,7 @@ func (b *InMemoryBackend) CreateExportJob(
 		CreationDate:  nowRFC3339(),
 	}
 
-	b.exportJobs[id] = j
+	b.exportJobs.Put(j)
 
 	cp := *j
 
@@ -664,7 +660,7 @@ func (b *InMemoryBackend) CreateImportJob(
 	b.mu.Lock("CreateImportJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -683,7 +679,7 @@ func (b *InMemoryBackend) CreateImportJob(
 		CreationDate:  now,
 	}
 
-	b.importJobs[id] = j
+	b.importJobs.Put(j)
 
 	// Materialise an IMPORT-type segment so Terraform/clients can look it up.
 	segName := req.SegmentName
@@ -713,7 +709,7 @@ func (b *InMemoryBackend) CreateImportJob(
 		Version:          1,
 	}
 
-	b.segments[segID] = seg
+	b.segments.Put(seg)
 	b.arnIndex[segARN] = seg
 
 	versionKey := appID + "/" + segID
@@ -735,7 +731,7 @@ func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req cre
 	b.mu.Lock("CreateJourney")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -772,7 +768,7 @@ func (b *InMemoryBackend) CreateJourney(region, accountID, appID string, req cre
 		}
 	}
 
-	b.journeys[id] = j
+	b.journeys.Put(j)
 	b.arnIndex[journeyARN] = j
 
 	return cloneJourney(j), nil
@@ -809,7 +805,7 @@ func (b *InMemoryBackend) CreateRecommenderConfiguration(
 		LastModifiedDate:              now,
 	}
 
-	b.recommenders[id] = r
+	b.recommenders.Put(r)
 
 	cp := *r
 	cp.Attributes = nonNilAttrsCopy(r.Attributes)
@@ -826,7 +822,7 @@ func (b *InMemoryBackend) CreateSegment(region, accountID, appID string, req cre
 	b.mu.Lock("CreateSegment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -855,7 +851,7 @@ func (b *InMemoryBackend) CreateSegment(region, accountID, appID string, req cre
 	}
 
 	s.Version = 1
-	b.segments[id] = s
+	b.segments.Put(s)
 	b.arnIndex[segmentARN] = s
 
 	// Track segment version history.

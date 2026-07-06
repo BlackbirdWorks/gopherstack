@@ -15,12 +15,12 @@ func TotalPerAppEntries(b *InMemoryBackend) int {
 	b.mu.RLock("TotalPerAppEntries")
 	defer b.mu.RUnlock()
 
-	return len(b.appEvents) + len(b.eventStreams) + len(b.otpCodes) +
+	return len(b.appEvents) + b.eventStreams.Len() + len(b.otpCodes) +
 		len(b.appSettings) + len(b.sentMessages) +
-		len(b.endpoints) + len(b.channels) +
+		b.endpoints.Len() + b.channels.Len() +
 		len(b.campaignVersions) + len(b.segmentVersions) +
 		len(b.campaignActivities) + len(b.journeyRuns) +
-		len(b.campaigns) + len(b.segments) + len(b.journeys)
+		b.campaigns.Len() + b.segments.Len() + b.journeys.Len()
 }
 
 // AppEventCount returns the number of retained events for an application.
@@ -114,6 +114,33 @@ func DeleteEmailTemplateForTest(b *InMemoryBackend, templateName string) error {
 // UpdateEmailTemplateForTest updates an email template (increments its version).
 func UpdateEmailTemplateForTest(b *InMemoryBackend, templateName string) error {
 	_, err := b.UpdateEmailTemplate(templateName, createEmailTemplateRequest{})
+
+	return err
+}
+
+// CreateVoiceTemplateForTest creates a voice template with the given name,
+// exercising the voiceTemplates table without exporting the request type.
+func CreateVoiceTemplateForTest(b *InMemoryBackend, region, accountID, templateName, body string) error {
+	_, err := b.CreateVoiceTemplate(region, accountID, templateName, createVoiceTemplateRequest{Body: body})
+
+	return err
+}
+
+// UpdateEndpointForTest creates or updates an endpoint with a minimal address,
+// exercising the endpoints table without exporting the request type.
+func UpdateEndpointForTest(b *InMemoryBackend, appID, endpointID, address string) error {
+	_, err := b.UpdateEndpoint(appID, endpointID, updateEndpointRequest{Address: address})
+
+	return err
+}
+
+// PutEventStreamForTest creates or updates the event stream for an app,
+// exercising the eventStreams table without exporting the request type.
+func PutEventStreamForTest(b *InMemoryBackend, appID, destinationStreamArn, roleArn string) error {
+	_, err := b.PutEventStream(appID, putEventStreamRequest{
+		DestinationStreamArn: destinationStreamArn,
+		RoleArn:              roleArn,
+	})
 
 	return err
 }

@@ -155,7 +155,7 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 	b.mu.Lock("CreateVoiceTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.voiceTemplates[templateName]; exists {
+	if _, exists := b.voiceTemplates.Get(templateName); exists {
 		return nil, ErrAlreadyExists
 	}
 
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 		CreationDate: nowRFC3339(),
 	}
 
-	b.voiceTemplates[templateName] = t
+	b.voiceTemplates.Put(t)
 
 	// Track template version history.
 	versionKey := templateName + "/VOICE"
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) GetVoiceTemplate(templateName string) (*VoiceTemplate,
 	b.mu.RLock("GetVoiceTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.voiceTemplates[templateName]
+	t, ok := b.voiceTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) UpdateVoiceTemplate(
 	b.mu.Lock("UpdateVoiceTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.voiceTemplates[templateName]
+	t, ok := b.voiceTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -251,12 +251,12 @@ func (b *InMemoryBackend) DeleteVoiceTemplate(templateName string) (*VoiceTempla
 	b.mu.Lock("DeleteVoiceTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.voiceTemplates[templateName]
+	t, ok := b.voiceTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.voiceTemplates, templateName)
+	b.voiceTemplates.Delete(templateName)
 
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
@@ -269,11 +269,11 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 	b.mu.RLock("ListTemplates")
 	defer b.mu.RUnlock()
 
-	totalCap := len(b.emailTemplates) + len(b.inAppTemplates) + len(b.pushTemplates) +
-		len(b.smsTemplates) + len(b.voiceTemplates)
+	totalCap := b.emailTemplates.Len() + b.inAppTemplates.Len() + b.pushTemplates.Len() +
+		b.smsTemplates.Len() + b.voiceTemplates.Len()
 	items := make([]*templateListItem, 0, totalCap)
 
-	for _, t := range b.emailTemplates {
+	for _, t := range b.emailTemplates.All() {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
 			TemplateType: ChannelTypeEmail,
@@ -282,7 +282,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 		})
 	}
 
-	for _, t := range b.inAppTemplates {
+	for _, t := range b.inAppTemplates.All() {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
 			TemplateType: templateTypeINAPP,
@@ -291,7 +291,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 		})
 	}
 
-	for _, t := range b.pushTemplates {
+	for _, t := range b.pushTemplates.All() {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
 			TemplateType: templateTypePUSH,
@@ -300,7 +300,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 		})
 	}
 
-	for _, t := range b.smsTemplates {
+	for _, t := range b.smsTemplates.All() {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
 			TemplateType: ChannelTypeSMS,
@@ -309,7 +309,7 @@ func (b *InMemoryBackend) ListTemplates() ([]*templateListItem, error) {
 		})
 	}
 
-	for _, t := range b.voiceTemplates {
+	for _, t := range b.voiceTemplates.All() {
 		items = append(items, &templateListItem{
 			TemplateName: t.TemplateName,
 			TemplateType: ChannelTypeVoice,
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) GetCampaign(appID, campaignID string) (*Campaign, erro
 	b.mu.RLock("GetCampaign")
 	defer b.mu.RUnlock()
 
-	c, ok := b.campaigns[campaignID]
+	c, ok := b.campaigns.Get(campaignID)
 	if !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -351,13 +351,13 @@ func (b *InMemoryBackend) GetCampaigns(appID string) ([]*Campaign, error) {
 	b.mu.RLock("GetCampaigns")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
 	var campaigns []*Campaign
 
-	for _, c := range b.campaigns {
+	for _, c := range b.campaigns.All() {
 		if c.ApplicationID == appID {
 			campaigns = append(campaigns, cloneCampaign(c))
 		}
@@ -439,7 +439,7 @@ func (b *InMemoryBackend) UpdateCampaign(
 	b.mu.Lock("UpdateCampaign")
 	defer b.mu.Unlock()
 
-	c, ok := b.campaigns[campaignID]
+	c, ok := b.campaigns.Get(campaignID)
 	if !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -469,12 +469,12 @@ func (b *InMemoryBackend) DeleteCampaign(appID, campaignID string) (*Campaign, e
 	b.mu.Lock("DeleteCampaign")
 	defer b.mu.Unlock()
 
-	c, ok := b.campaigns[campaignID]
+	c, ok := b.campaigns.Get(campaignID)
 	if !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.campaigns, campaignID)
+	b.campaigns.Delete(campaignID)
 	delete(b.arnIndex, c.ARN)
 	delete(b.campaignVersions, appID+"/"+campaignID)
 
@@ -490,7 +490,7 @@ func (b *InMemoryBackend) GetSegment(appID, segmentID string) (*Segment, error) 
 	b.mu.RLock("GetSegment")
 	defer b.mu.RUnlock()
 
-	s, ok := b.segments[segmentID]
+	s, ok := b.segments.Get(segmentID)
 	if !ok || s.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -503,13 +503,13 @@ func (b *InMemoryBackend) GetSegments(appID string) ([]*Segment, error) {
 	b.mu.RLock("GetSegments")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
 	var segments []*Segment
 
-	for _, s := range b.segments {
+	for _, s := range b.segments.All() {
 		if s.ApplicationID == appID {
 			segments = append(segments, cloneSegment(s))
 		}
@@ -530,7 +530,7 @@ func (b *InMemoryBackend) UpdateSegment(
 	b.mu.Lock("UpdateSegment")
 	defer b.mu.Unlock()
 
-	s, ok := b.segments[segmentID]
+	s, ok := b.segments.Get(segmentID)
 	if !ok || s.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -567,12 +567,12 @@ func (b *InMemoryBackend) DeleteSegment(appID, segmentID string) (*Segment, erro
 	b.mu.Lock("DeleteSegment")
 	defer b.mu.Unlock()
 
-	s, ok := b.segments[segmentID]
+	s, ok := b.segments.Get(segmentID)
 	if !ok || s.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.segments, segmentID)
+	b.segments.Delete(segmentID)
 	delete(b.arnIndex, s.ARN)
 	delete(b.segmentVersions, appID+"/"+segmentID)
 
@@ -588,7 +588,7 @@ func (b *InMemoryBackend) GetJourney(appID, journeyID string) (*Journey, error) 
 	b.mu.RLock("GetJourney")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -601,13 +601,13 @@ func (b *InMemoryBackend) GetJourneys(appID string) ([]*Journey, error) {
 	b.mu.RLock("GetJourneys")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
 	var journeys []*Journey
 
-	for _, j := range b.journeys {
+	for _, j := range b.journeys.All() {
 		if j.ApplicationID == appID {
 			journeys = append(journeys, cloneJourney(j))
 		}
@@ -628,7 +628,7 @@ func (b *InMemoryBackend) UpdateJourney(
 	b.mu.Lock("UpdateJourney")
 	defer b.mu.Unlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -709,7 +709,7 @@ func (b *InMemoryBackend) UpdateJourneyState(appID, journeyID, state string) (*J
 	b.mu.Lock("UpdateJourneyState")
 	defer b.mu.Unlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -744,12 +744,12 @@ func (b *InMemoryBackend) DeleteJourney(appID, journeyID string) (*Journey, erro
 	b.mu.Lock("DeleteJourney")
 	defer b.mu.Unlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.journeys, journeyID)
+	b.journeys.Delete(journeyID)
 	delete(b.arnIndex, j.ARN)
 
 	return cloneJourney(j), nil
@@ -764,7 +764,7 @@ func (b *InMemoryBackend) GetEmailTemplate(templateName string) (*EmailTemplate,
 	b.mu.RLock("GetEmailTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.emailTemplates[templateName]
+	t, ok := b.emailTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -780,7 +780,7 @@ func (b *InMemoryBackend) UpdateEmailTemplate(
 	b.mu.Lock("UpdateEmailTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.emailTemplates[templateName]
+	t, ok := b.emailTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -835,12 +835,12 @@ func (b *InMemoryBackend) DeleteEmailTemplate(templateName string) (*EmailTempla
 	b.mu.Lock("DeleteEmailTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.emailTemplates[templateName]
+	t, ok := b.emailTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.emailTemplates, templateName)
+	b.emailTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
 	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeEmail)
 
@@ -852,7 +852,7 @@ func (b *InMemoryBackend) GetInAppTemplate(templateName string) (*InAppTemplate,
 	b.mu.RLock("GetInAppTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.inAppTemplates[templateName]
+	t, ok := b.inAppTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -868,7 +868,7 @@ func (b *InMemoryBackend) UpdateInAppTemplate(
 	b.mu.Lock("UpdateInAppTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.inAppTemplates[templateName]
+	t, ok := b.inAppTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -911,12 +911,12 @@ func (b *InMemoryBackend) DeleteInAppTemplate(templateName string) (*InAppTempla
 	b.mu.Lock("DeleteInAppTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.inAppTemplates[templateName]
+	t, ok := b.inAppTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.inAppTemplates, templateName)
+	b.inAppTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
 	delete(b.templateVersionHistory, templateName+"/"+templateTypeINAPP)
 
@@ -928,7 +928,7 @@ func (b *InMemoryBackend) GetPushTemplate(templateName string) (*PushTemplate, e
 	b.mu.RLock("GetPushTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.pushTemplates[templateName]
+	t, ok := b.pushTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -944,7 +944,7 @@ func (b *InMemoryBackend) UpdatePushTemplate(
 	b.mu.Lock("UpdatePushTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.pushTemplates[templateName]
+	t, ok := b.pushTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -999,12 +999,12 @@ func (b *InMemoryBackend) DeletePushTemplate(templateName string) (*PushTemplate
 	b.mu.Lock("DeletePushTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.pushTemplates[templateName]
+	t, ok := b.pushTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.pushTemplates, templateName)
+	b.pushTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
 	delete(b.templateVersionHistory, templateName+"/"+templateTypePUSH)
 
@@ -1016,7 +1016,7 @@ func (b *InMemoryBackend) GetSmsTemplate(templateName string) (*SmsTemplate, err
 	b.mu.RLock("GetSmsTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.smsTemplates[templateName]
+	t, ok := b.smsTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -1032,7 +1032,7 @@ func (b *InMemoryBackend) UpdateSmsTemplate(
 	b.mu.Lock("UpdateSmsTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.smsTemplates[templateName]
+	t, ok := b.smsTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -1075,12 +1075,12 @@ func (b *InMemoryBackend) DeleteSmsTemplate(templateName string) (*SmsTemplate, 
 	b.mu.Lock("DeleteSmsTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.smsTemplates[templateName]
+	t, ok := b.smsTemplates.Get(templateName)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.smsTemplates, templateName)
+	b.smsTemplates.Delete(templateName)
 	delete(b.arnIndex, t.ARN)
 	delete(b.templateVersionHistory, templateName+"/"+ChannelTypeSMS)
 
@@ -1097,7 +1097,7 @@ func (b *InMemoryBackend) GetEndpoint(appID, endpointID string) (*Endpoint, erro
 	defer b.mu.RUnlock()
 
 	key := appID + "/" + endpointID
-	e, ok := b.endpoints[key]
+	e, ok := b.endpoints.Get(key)
 
 	if !ok {
 		return nil, ErrAppNotFound
@@ -1122,14 +1122,14 @@ func (b *InMemoryBackend) UpdateEndpoint(
 
 	key := appID + "/" + endpointID
 
-	e, ok := b.endpoints[key]
+	e, ok := b.endpoints.Get(key)
 	if !ok {
 		e = &Endpoint{
 			ApplicationID: appID,
 			ID:            endpointID,
 			CreationDate:  nowRFC3339(),
 		}
-		b.endpoints[key] = e
+		b.endpoints.Put(e)
 	}
 
 	applyEndpointFields(e, req)
@@ -1144,12 +1144,12 @@ func (b *InMemoryBackend) DeleteEndpoint(appID, endpointID string) (*Endpoint, e
 
 	key := appID + "/" + endpointID
 
-	e, ok := b.endpoints[key]
+	e, ok := b.endpoints.Get(key)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.endpoints, key)
+	b.endpoints.Delete(key)
 
 	return cloneEndpoint(e), nil
 }
@@ -1161,7 +1161,7 @@ func (b *InMemoryBackend) GetUserEndpoints(appID, userID string) ([]*Endpoint, e
 
 	var endpoints []*Endpoint
 
-	for _, e := range b.endpoints {
+	for _, e := range b.endpoints.All() {
 		if e.ApplicationID == appID && e.UserID == userID {
 			endpoints = append(endpoints, cloneEndpoint(e))
 		}
@@ -1175,9 +1175,9 @@ func (b *InMemoryBackend) DeleteUserEndpoints(appID, userID string) error {
 	b.mu.Lock("DeleteUserEndpoints")
 	defer b.mu.Unlock()
 
-	for key, e := range b.endpoints {
+	for _, e := range b.endpoints.All() {
 		if e.ApplicationID == appID && e.UserID == userID {
-			delete(b.endpoints, key)
+			b.endpoints.Delete(e.ApplicationID + "/" + e.ID)
 		}
 	}
 
@@ -1246,14 +1246,14 @@ func (b *InMemoryBackend) UpdateEndpointsBatch(
 	for endpointID, req := range endpoints {
 		key := appID + "/" + endpointID
 
-		e, ok := b.endpoints[key]
+		e, ok := b.endpoints.Get(key)
 		if !ok {
 			e = &Endpoint{
 				ApplicationID: appID,
 				ID:            endpointID,
 				CreationDate:  nowRFC3339(),
 			}
-			b.endpoints[key] = e
+			b.endpoints.Put(e)
 		}
 
 		applyEndpointFields(e, req)
@@ -1283,7 +1283,7 @@ func (b *InMemoryBackend) GetEventStream(appID string) (*EventStream, error) {
 	b.mu.RLock("GetEventStream")
 	defer b.mu.RUnlock()
 
-	e, ok := b.eventStreams[appID]
+	e, ok := b.eventStreams.Get(appID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -1308,7 +1308,7 @@ func (b *InMemoryBackend) PutEventStream(
 		LastModifiedDate:     nowRFC3339(),
 	}
 
-	b.eventStreams[appID] = e
+	b.eventStreams.Put(e)
 
 	cp := *e
 
@@ -1320,12 +1320,12 @@ func (b *InMemoryBackend) DeleteEventStream(appID string) (*EventStream, error) 
 	b.mu.Lock("DeleteEventStream")
 	defer b.mu.Unlock()
 
-	e, ok := b.eventStreams[appID]
+	e, ok := b.eventStreams.Get(appID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.eventStreams, appID)
+	b.eventStreams.Delete(appID)
 
 	cp := *e
 
@@ -1342,7 +1342,7 @@ func (b *InMemoryBackend) GetChannel(appID, channelType string) *Channel {
 	defer b.mu.RUnlock()
 
 	key := appID + "/" + channelType
-	if ch, ok := b.channels[key]; ok {
+	if ch, ok := b.channels.Get(key); ok {
 		cp := *ch
 		cp.ExtraData = cloneAnyMap(ch.ExtraData)
 
@@ -1394,7 +1394,7 @@ func (b *InMemoryBackend) UpsertChannel(
 
 	key := appID + "/" + channelType
 
-	existing := b.channels[key]
+	existing, _ := b.channels.Get(key)
 
 	now := nowRFC3339()
 	version := 1
@@ -1424,7 +1424,7 @@ func (b *InMemoryBackend) UpsertChannel(
 		ExtraData:        cloneAnyMap(extra),
 	}
 
-	b.channels[key] = ch
+	b.channels.Put(ch)
 
 	cp := *ch
 	cp.ExtraData = cloneAnyMap(ch.ExtraData)
@@ -1438,13 +1438,13 @@ func (b *InMemoryBackend) DeleteChannel(appID, channelType string) *Channel {
 	defer b.mu.Unlock()
 
 	key := appID + "/" + channelType
-	ch := b.channels[key]
+	ch, _ := b.channels.Get(key)
 
 	if ch == nil {
 		ch = &Channel{ApplicationID: appID, ChannelType: channelType}
 	}
 
-	delete(b.channels, key)
+	b.channels.Delete(key)
 
 	cp := *ch
 	cp.ExtraData = cloneAnyMap(ch.ExtraData)
@@ -1459,11 +1459,11 @@ func (b *InMemoryBackend) GetAllChannels(appID string) map[string]*Channel {
 
 	result := make(map[string]*Channel)
 
-	for key, ch := range b.channels {
+	for _, ch := range b.channels.All() {
 		if ch.ApplicationID == appID {
 			cp := *ch
 			cp.ExtraData = cloneAnyMap(ch.ExtraData)
-			result[key] = &cp
+			result[ch.ApplicationID+"/"+ch.ChannelType] = &cp
 		}
 	}
 
@@ -1481,7 +1481,7 @@ func (b *InMemoryBackend) GetRecommenderConfiguration(
 	b.mu.RLock("GetRecommenderConfiguration")
 	defer b.mu.RUnlock()
 
-	r, ok := b.recommenders[recommenderID]
+	r, ok := b.recommenders.Get(recommenderID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -1497,9 +1497,9 @@ func (b *InMemoryBackend) GetRecommenderConfigurations() ([]*RecommenderConfigur
 	b.mu.RLock("GetRecommenderConfigurations")
 	defer b.mu.RUnlock()
 
-	results := make([]*RecommenderConfiguration, 0, len(b.recommenders))
+	results := make([]*RecommenderConfiguration, 0, b.recommenders.Len())
 
-	for _, r := range b.recommenders {
+	for _, r := range b.recommenders.All() {
 		cp := *r
 		cp.Attributes = nonNilAttrsCopy(r.Attributes)
 		results = append(results, &cp)
@@ -1566,7 +1566,7 @@ func (b *InMemoryBackend) UpdateRecommenderConfiguration(
 	b.mu.Lock("UpdateRecommenderConfiguration")
 	defer b.mu.Unlock()
 
-	r, ok := b.recommenders[recommenderID]
+	r, ok := b.recommenders.Get(recommenderID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
@@ -1608,12 +1608,12 @@ func (b *InMemoryBackend) DeleteRecommenderConfiguration(
 	b.mu.Lock("DeleteRecommenderConfiguration")
 	defer b.mu.Unlock()
 
-	r, ok := b.recommenders[recommenderID]
+	r, ok := b.recommenders.Get(recommenderID)
 	if !ok {
 		return nil, ErrAppNotFound
 	}
 
-	delete(b.recommenders, recommenderID)
+	b.recommenders.Delete(recommenderID)
 
 	cp := *r
 	cp.Attributes = nonNilAttrsCopy(r.Attributes)
@@ -1630,7 +1630,7 @@ func (b *InMemoryBackend) GetExportJob(appID, jobID string) (*ExportJob, error) 
 	b.mu.RLock("GetExportJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.exportJobs[jobID]
+	j, ok := b.exportJobs.Get(jobID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -1647,7 +1647,7 @@ func (b *InMemoryBackend) GetExportJobs(appID string) ([]*ExportJob, error) {
 
 	var jobs []*ExportJob
 
-	for _, j := range b.exportJobs {
+	for _, j := range b.exportJobs.All() {
 		if j.ApplicationID == appID {
 			cp := *j
 			jobs = append(jobs, &cp)
@@ -1662,7 +1662,7 @@ func (b *InMemoryBackend) GetImportJob(appID, jobID string) (*ImportJob, error) 
 	b.mu.RLock("GetImportJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.importJobs[jobID]
+	j, ok := b.importJobs.Get(jobID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -1679,7 +1679,7 @@ func (b *InMemoryBackend) GetImportJobs(appID string) ([]*ImportJob, error) {
 
 	var jobs []*ImportJob
 
-	for _, j := range b.importJobs {
+	for _, j := range b.importJobs.All() {
 		if j.ApplicationID == appID {
 			cp := *j
 			jobs = append(jobs, &cp)
@@ -1701,7 +1701,7 @@ func (b *InMemoryBackend) GetSegmentImportJobs(appID, segmentID string) ([]*Impo
 
 	var jobs []*ImportJob
 
-	for _, j := range b.importJobs {
+	for _, j := range b.importJobs.All() {
 		if j.ApplicationID == appID && j.SegmentID == segmentID {
 			cp := *j
 			jobs = append(jobs, &cp)
@@ -1720,7 +1720,7 @@ func (b *InMemoryBackend) GetApplicationDateRangeKpi(appID, kpiName string) (*kp
 	b.mu.RLock("GetApplicationDateRangeKpi")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -1738,7 +1738,7 @@ func (b *InMemoryBackend) GetCampaignDateRangeKpi(
 	b.mu.RLock("GetCampaignDateRangeKpi")
 	defer b.mu.RUnlock()
 
-	c, ok := b.campaigns[campaignID]
+	c, ok := b.campaigns.Get(campaignID)
 	if !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -1758,7 +1758,7 @@ func (b *InMemoryBackend) GetJourneyDateRangeKpi(
 	b.mu.RLock("GetJourneyDateRangeKpi")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -1779,7 +1779,7 @@ func (b *InMemoryBackend) SendMessages(
 	b.mu.Lock("SendMessages")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -1805,7 +1805,7 @@ func (b *InMemoryBackend) SendUsersMessages(
 	b.mu.Lock("SendUsersMessages")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -1814,13 +1814,12 @@ func (b *InMemoryBackend) SendUsersMessages(
 	for userID := range req.SendUsersMessageRequest.Users {
 		endpointResults := make(map[string]messageResult)
 
-		for key, ep := range b.endpoints {
+		for _, ep := range b.endpoints.All() {
 			if ep.ApplicationID != appID || ep.UserID != userID {
 				continue
 			}
 
-			// key is "appID/endpointID" — extract endpointID.
-			endpointID := key[len(appID)+1:]
+			endpointID := ep.ID
 			endpointResults[endpointID] = messageResult{
 				DeliveryStatus: deliveryStatusSuccessful,
 				MessageID:      uuid.NewString(),
@@ -1848,7 +1847,7 @@ func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse,
 	b.mu.Lock("SendOTPMessage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -1875,7 +1874,7 @@ func (b *InMemoryBackend) VerifyOTPMessage(appID, code string) (*verifyOTPMessag
 	b.mu.RLock("VerifyOTPMessage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -1897,7 +1896,7 @@ func (b *InMemoryBackend) PutEvents(appID string, req putEventsRequest) (*events
 	b.mu.Lock("PutEvents")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -2017,16 +2016,15 @@ func (b *InMemoryBackend) RemoveAttributes(
 	b.mu.Lock("RemoveAttributes")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
 	// Remove the attribute from all endpoints in this app.
-	for key, e := range b.endpoints {
+	for _, e := range b.endpoints.All() {
 		if e.ApplicationID == appID {
 			if e.Attributes != nil {
 				delete(e.Attributes, attributeType)
-				b.endpoints[key] = e
 			}
 		}
 	}
@@ -2043,14 +2041,14 @@ func (b *InMemoryBackend) GetInAppMessages(appID, _ string) (*inAppMessagesRespo
 	b.mu.RLock("GetInAppMessages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
 	// Collect in-app templates as message campaigns for this app.
 	var campaigns []inAppMessageCampaign
 
-	for _, t := range b.inAppTemplates {
+	for _, t := range b.inAppTemplates.All() {
 		campaigns = append(campaigns, inAppMessageCampaign{CampaignID: t.TemplateName})
 	}
 
@@ -2070,7 +2068,7 @@ func (b *InMemoryBackend) GetCampaignActivities(
 	b.mu.RLock("GetCampaignActivities")
 	defer b.mu.RUnlock()
 
-	c, ok := b.campaigns[campaignID]
+	c, ok := b.campaigns.Get(campaignID)
 	if !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2092,7 +2090,7 @@ func (b *InMemoryBackend) GetJourneyExecutionMetrics(
 	b.mu.RLock("GetJourneyExecutionMetrics")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2116,7 +2114,7 @@ func (b *InMemoryBackend) GetJourneyExecutionActivityMetrics(
 	b.mu.RLock("GetJourneyExecutionActivityMetrics")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2140,7 +2138,7 @@ func (b *InMemoryBackend) GetJourneyRuns(appID, journeyID string) (*journeyRunsR
 	b.mu.RLock("GetJourneyRuns")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2163,7 +2161,7 @@ func (b *InMemoryBackend) GetJourneyRunExecutionMetrics(
 	b.mu.RLock("GetJourneyRunExecutionMetrics")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2185,7 +2183,7 @@ func (b *InMemoryBackend) GetJourneyRunExecutionActivityMetrics(
 	b.mu.RLock("GetJourneyRunExecutionActivityMetrics")
 	defer b.mu.RUnlock()
 
-	j, ok := b.journeys[journeyID]
+	j, ok := b.journeys.Get(journeyID)
 	if !ok || j.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2220,7 +2218,7 @@ func (b *InMemoryBackend) GetCampaignVersion(
 	}
 
 	// Fall back to current campaign if version not found in history.
-	c, ok := b.campaigns[campaignID]
+	c, ok := b.campaigns.Get(campaignID)
 	if !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2233,7 +2231,7 @@ func (b *InMemoryBackend) GetCampaignVersions(appID, campaignID string) ([]*Camp
 	b.mu.RLock("GetCampaignVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.campaigns[campaignID]; !ok {
+	if _, ok := b.campaigns.Get(campaignID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -2266,7 +2264,7 @@ func (b *InMemoryBackend) GetSegmentVersion(
 	}
 
 	// Fall back to current segment if version not found in history.
-	s, ok := b.segments[segmentID]
+	s, ok := b.segments.Get(segmentID)
 	if !ok || s.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
@@ -2279,7 +2277,7 @@ func (b *InMemoryBackend) GetSegmentVersions(appID, segmentID string) ([]*Segmen
 	b.mu.RLock("GetSegmentVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.segments[segmentID]; !ok {
+	if _, ok := b.segments.Get(segmentID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -2349,7 +2347,7 @@ func (b *InMemoryBackend) GetApplicationSettings(appID string) (*storedAppSettin
 	b.mu.RLock("GetApplicationSettings")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
@@ -2379,7 +2377,7 @@ func (b *InMemoryBackend) UpdateApplicationSettings(
 	b.mu.Lock("UpdateApplicationSettings")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if _, ok := b.apps.Get(appID); !ok {
 		return nil, ErrAppNotFound
 	}
 
