@@ -3,16 +3,27 @@ package iot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// iotSnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set/shape of resources registered on b.registry -- see
+// registerAllTables in store_setup.go -- plus the one "dirty" DTO table,
+// topicRuleDestinations). It must be bumped whenever a change there would
+// make an older snapshot unsafe to decode as the current shape. Restore
+// compares this against the persisted value and discards (rather than
+// attempts to partially decode) any mismatch -- see Restore below. This
+// mirrors the services/ec2 (12e611a4) and services/sqs (0f09d77c) pilots.
+const iotSnapshotVersion = 1
+
 type backendSnapshot struct {
+	Tables                          map[string]json.RawMessage                    `json:"tables"`
 	AuditTasks                      map[string]string                             `json:"auditTasks"`
 	MetricValues                    map[string][]*MetricDatapoint                 `json:"metricValues"`
-	Rules                           map[string]*TopicRule                         `json:"rules"`
 	CertificateTransfers            map[string]string                             `json:"certificateTransfers"`
 	ThingBillingGroups              map[string]string                             `json:"thingBillingGroups"`
 	ThingThingGroups                map[string][]string                           `json:"thingThingGroups"`
@@ -22,54 +33,20 @@ type backendSnapshot struct {
 	SecurityProfileTargets          map[string][]string                           `json:"securityProfileTargets"`
 	ThingPrincipals                 map[string][]string                           `json:"thingPrincipals"`
 	ThingGroupIndexingConfiguration *ThingGroupIndexingConfiguration              `json:"thingGroupIndexingConfiguration"`
-	Policies                        map[string]*Policy                            `json:"policies"`
-	Things                          map[string]*Thing                             `json:"things"`
 	AuditMitigationTasks            map[string]string                             `json:"auditMitigationTasks"`
-	RegistrationTasks               map[string]*ThingRegistrationTask             `json:"registrationTasks"`
-	AuditMitigationTaskObjects      map[string]*AuditMitigationTask               `json:"auditMitigationTaskObjects"`
 	AuditMitigationExecutions       map[string][]*AuditMitigationActionExecution  `json:"auditMitigationExecutions"`
-	DetectMitigationTasks           map[string]*DetectMitigationTask              `json:"detectMitigationTasks"`
 	DetectMitigationExecutions      map[string][]*DetectMitigationActionExecution `json:"detectMitigationExecutions"`
-	ActiveViolations                map[string]*ActiveViolation                   `json:"activeViolations"`
 	BehaviorTrainingSummaries       map[string][]*BehaviorModelTrainingSummary    `json:"behaviorTrainingSummaries"`
 	AccountEncryptionConfig         *AccountEncryptionConfiguration               `json:"accountEncryptionConfig"`
 	SbomValidationResults           map[string][]*SbomValidationResult            `json:"sbomValidationResults"`
 	ThingIndexingConfiguration      *ThingIndexingConfiguration                   `json:"thingIndexingConfiguration"`
 	ThingConnectivity               map[string]*ThingConnectivityData             `json:"thingConnectivity"`
-	ThingTypes                      map[string]*ThingType                         `json:"thingTypes"`
-	ThingGroups                     map[string]*ThingGroup                        `json:"thingGroups"`
 	ThingGroupMembers               map[string][]string                           `json:"thingGroupMembers"`
-	Certificates                    map[string]*Certificate                       `json:"certificates"`
-	CertificateProviders            map[string]*CertificateProvider               `json:"certificateProviders"`
-	CACertificates                  map[string]*CACertificate                     `json:"caCertificates"`
 	PolicyVersions                  map[string][]*PolicyVersion                   `json:"policyVersions"`
-	TopicRuleDestinations           map[string]*topicRuleDestSnap                 `json:"topicRuleDestinations"`
 	ResourceTags                    map[string]map[string]string                  `json:"resourceTags"`
-	Jobs                            map[string]*Job                               `json:"jobs"`
-	JobExecutions                   map[string]*JobExecution                      `json:"jobExecutions"`
-	JobTemplates                    map[string]*JobTemplate                       `json:"jobTemplates"`
-	RoleAliases                     map[string]*RoleAlias                         `json:"roleAliases"`
-	DomainConfigs                   map[string]*DomainConfiguration               `json:"domainConfigs"`
-	Authorizers                     map[string]*Authorizer                        `json:"authorizers"`
-	BillingGroups                   map[string]*BillingGroup                      `json:"billingGroups"`
-	ProvTemplates                   map[string]*ProvisioningTemplate              `json:"provTemplates"`
 	ProvTemplateVersions            map[string][]*ProvisioningTemplateVersion     `json:"provTemplateVersions"`
-	ScheduledAudits                 map[string]*ScheduledAudit                    `json:"scheduledAudits"`
-	MitigationActions               map[string]*MitigationAction                  `json:"mitigationActions"`
-	SecurityProfiles                map[string]*SecurityProfile                   `json:"securityProfiles"`
-	AuditSuppressions               map[string]*AuditSuppression                  `json:"auditSuppressions"`
-	AuditFindings                   map[string]*AuditFinding                      `json:"auditFindings"`
-	AuditTaskObjects                map[string]*AuditTask                         `json:"auditTaskObjects"`
-	Dimensions                      map[string]*Dimension                         `json:"dimensions"`
-	Streams                         map[string]*IoTStream                         `json:"streams"`
-	OTAUpdates                      map[string]*OTAUpdate                         `json:"otaUpdates"`
-	IoTPackages                     map[string]*IoTPackage                        `json:"iotPackages"`
 	PackageVersions2                map[string]map[string]*IoTPackageVersion      `json:"packageVersions2"`
-	Commands                        map[string]*IoTCommand                        `json:"commands"`
 	CommandExecutions               map[string]*IoTCommandExecution               `json:"commandExecutions"`
-	FleetMetrics                    map[string]*FleetMetric                       `json:"fleetMetrics"`
-	CustomMetrics                   map[string]*CustomMetric                      `json:"customMetrics"`
-	V2LoggingLevels                 map[string]*V2LoggingLevel                    `json:"v2LoggingLevels"`
 	AuditConfiguration              *AccountAuditConfiguration                    `json:"auditConfiguration"`
 	PackageConfig                   *PackageConfiguration                         `json:"packageConfig"`
 	V2LoggingOptions                *V2LoggingOptions                             `json:"v2LoggingOptions"`
@@ -78,36 +55,45 @@ type backendSnapshot struct {
 	RegistrationCode                string                                        `json:"registrationCode"`
 	DefaultAuthorizer               string                                        `json:"defaultAuthorizer"`
 	ViolationEvents                 []*ViolationEvent                             `json:"violationEvents"`
+	Version                         int                                           `json:"version"`
 }
+
+// topicRuleDestinationsTableName is the Tables blob key used for the
+// topicRuleDestinations DTO entry, both in the ephemeral DTO registry built
+// by Snapshot/Restore below and as the map key inside backendSnapshot.Tables.
+const topicRuleDestinationsTableName = "topicRuleDestinations"
 
 // Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	things := make(map[string]*Thing, len(b.things))
-	for k, v := range b.things {
-		cp := cloneThing(v)
-		things[k] = cp
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "iot: snapshot table marshal failed", "error", err)
+
+		return nil
 	}
 
-	policies := make(map[string]*Policy, len(b.policies))
-	for k, v := range b.policies {
-		policies[k] = clonePolicy(v)
+	destTables, err := b.snapshotTopicRuleDestinationsTable()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "iot: snapshot table marshal failed", "error", err)
+
+		return nil
 	}
 
-	rules := make(map[string]*TopicRule, len(b.rules))
-	for k, v := range b.rules {
-		rules[k] = cloneTopicRule(v)
-	}
+	maps.Copy(tables, destTables)
 
-	certTransfers := make(map[string]string, len(b.certificateTransfers))
-	maps.Copy(certTransfers, b.certificateTransfers)
-
-	billingGroups := make(map[string]string, len(b.thingBillingGroups))
-	maps.Copy(billingGroups, b.thingBillingGroups)
-
-	thingGroups := copyStringSliceMap(b.thingThingGroups)
+	ddSnap := b.snapshotDeviceDefender()
+	finalSnap := b.snapshotFinalOps()
+	thingResSnap := b.snapshotThingResources()
+	provSnap := b.snapshotProvisioning()
+	miscSnap := b.snapshotResourceMisc()
+	cfgSnap := b.snapshotConfig()
 
 	sboms := make(map[string]*SbomDocument, len(b.packageVersionSboms))
 	for k, v := range b.packageVersionSboms {
@@ -124,26 +110,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		thingGroupIndexingConfig = cloneThingGroupIndexingConfiguration(b.thingGroupIndexingConfig)
 	}
 
-	registrationTasks := make(map[string]*ThingRegistrationTask, len(b.registrationTasks))
-	for k, v := range b.registrationTasks {
-		registrationTasks[k] = cloneRegistrationTask(v)
-	}
-
-	ddSnap := b.snapshotDeviceDefender()
-	finalSnap := b.snapshotFinalOps()
-	thingResSnap := b.snapshotThingResources()
-	provSnap := b.snapshotProvisioning()
-	auditExtraSnap := b.snapshotAuditExtra()
-	miscSnap := b.snapshotResourceMisc()
-	cfgSnap := b.snapshotConfig()
-
 	snap := backendSnapshot{
-		Things:                 things,
-		Policies:               policies,
-		Rules:                  rules,
-		CertificateTransfers:   certTransfers,
-		ThingBillingGroups:     billingGroups,
-		ThingThingGroups:       thingGroups,
+		Version:                iotSnapshotVersion,
+		Tables:                 tables,
+		CertificateTransfers:   copyStringMap(b.certificateTransfers),
+		ThingBillingGroups:     copyStringMap(b.thingBillingGroups),
+		ThingThingGroups:       copyStringSliceMap(b.thingThingGroups),
 		PackageVersionSboms:    sboms,
 		JobTargets:             copyStringSliceMap(b.jobTargets),
 		PolicyTargets:          copyStringSliceMap(b.policyTargets),
@@ -155,13 +127,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ThingIndexingConfiguration:      thingIndexingConfig,
 		ThingGroupIndexingConfiguration: thingGroupIndexingConfig,
 
-		RegistrationTasks: registrationTasks,
-
-		AuditMitigationTaskObjects: ddSnap.AuditMitigationTaskObjects,
 		AuditMitigationExecutions:  ddSnap.AuditMitigationExecutions,
-		DetectMitigationTasks:      ddSnap.DetectMitigationTasks,
 		DetectMitigationExecutions: ddSnap.DetectMitigationExecutions,
-		ActiveViolations:           ddSnap.ActiveViolations,
 		ViolationEvents:            ddSnap.ViolationEvents,
 
 		AccountEncryptionConfig:   finalSnap.AccountEncryptionConfig,
@@ -169,9 +136,24 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		MetricValues:              finalSnap.MetricValues,
 		ThingConnectivity:         finalSnap.ThingConnectivity,
 		BehaviorTrainingSummaries: finalSnap.BehaviorTrainingSummaries,
-	}
 
-	applyExtSnapshot(&snap, thingResSnap, provSnap, auditExtraSnap, miscSnap, cfgSnap)
+		ThingGroupMembers: thingResSnap.ThingGroupMembers,
+		PolicyVersions:    thingResSnap.PolicyVersions,
+		ResourceTags:      thingResSnap.ResourceTags,
+
+		ProvTemplateVersions: provSnap.ProvTemplateVersions,
+
+		PackageVersions2:  miscSnap.PackageVersions2,
+		CommandExecutions: miscSnap.CommandExecutions,
+
+		AuditConfiguration:  cfgSnap.AuditConfiguration,
+		PackageConfig:       cfgSnap.PackageConfig,
+		V2LoggingOptions:    cfgSnap.V2LoggingOptions,
+		LoggingOptions:      cfgSnap.LoggingOptions,
+		EventConfigurations: cfgSnap.EventConfigurations,
+		RegistrationCode:    cfgSnap.RegistrationCode,
+		DefaultAuthorizer:   cfgSnap.DefaultAuthorizer,
+	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -195,25 +177,33 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	things := make(map[string]*Thing, len(snap.Things))
-	for k, v := range snap.Things {
-		cp := cloneThing(v)
-		things[k] = cp
+	if snap.Version != iotSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/ec2/sqs pilots.
+		logger.Load(ctx).WarnContext(ctx,
+			"iot: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", iotSnapshotVersion)
+
+		b.registry.ResetAll()
+
+		return nil
 	}
 
-	policies := make(map[string]*Policy, len(snap.Policies))
-	for k, v := range snap.Policies {
-		policies[k] = clonePolicy(v)
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("iot: restore snapshot tables: %w", err)
 	}
 
-	rules := make(map[string]*TopicRule, len(snap.Rules))
-	for k, v := range snap.Rules {
-		rules[k] = cloneTopicRule(v)
+	// Re-derive topicRuleDestinations from its DTO entry so ConfirmationToken
+	// (dropped by the generic per-table decode above, since it is tagged
+	// json:"-" on the live type) round-trips. See Snapshot's comment.
+	if err := b.restoreTopicRuleDestinationsTable(snap.Tables); err != nil {
+		return err
 	}
 
-	b.things = things
-	b.policies = policies
-	b.rules = rules
 	b.certificateTransfers = copyStringMap(snap.CertificateTransfers)
 	b.thingBillingGroups = copyStringMap(snap.ThingBillingGroups)
 	b.thingThingGroups = copyStringSliceMap(snap.ThingThingGroups)
@@ -242,17 +232,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.thingGroupIndexingConfig = nil
 	}
 
-	b.registrationTasks = make(map[string]*ThingRegistrationTask, len(snap.RegistrationTasks))
-	for k, v := range snap.RegistrationTasks {
-		b.registrationTasks[k] = cloneRegistrationTask(v)
-	}
-
 	b.restoreDeviceDefender(deviceDefenderSnapshot{
-		AuditMitigationTaskObjects: snap.AuditMitigationTaskObjects,
 		AuditMitigationExecutions:  snap.AuditMitigationExecutions,
-		DetectMitigationTasks:      snap.DetectMitigationTasks,
 		DetectMitigationExecutions: snap.DetectMitigationExecutions,
-		ActiveViolations:           snap.ActiveViolations,
 		ViolationEvents:            snap.ViolationEvents,
 	})
 
@@ -264,29 +246,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		BehaviorTrainingSummaries: snap.BehaviorTrainingSummaries,
 	})
 
-	thingRes, prov, auditExtra, misc, cfg := extGroupsFromSnapshot(&snap)
-	b.restoreThingResources(thingRes)
-	b.restoreProvisioning(prov)
-	b.restoreAuditExtra(auditExtra)
-	b.restoreResourceMisc(misc)
-	b.restoreConfig(cfg)
+	b.restoreThingResources(thingResourceSnapshot{
+		ThingGroupMembers: snap.ThingGroupMembers,
+		PolicyVersions:    snap.PolicyVersions,
+		ResourceTags:      snap.ResourceTags,
+	})
+	b.restoreProvisioning(provisioningSnapshot{ProvTemplateVersions: snap.ProvTemplateVersions})
+	b.restoreResourceMisc(resourceMiscSnapshot{
+		PackageVersions2:  snap.PackageVersions2,
+		CommandExecutions: snap.CommandExecutions,
+	})
+	b.restoreConfig(configSnapshot{
+		AuditConfiguration:  snap.AuditConfiguration,
+		PackageConfig:       snap.PackageConfig,
+		V2LoggingOptions:    snap.V2LoggingOptions,
+		LoggingOptions:      snap.LoggingOptions,
+		EventConfigurations: snap.EventConfigurations,
+		RegistrationCode:    snap.RegistrationCode,
+		DefaultAuthorizer:   snap.DefaultAuthorizer,
+	})
 
 	return nil
 }
 
 func ensureNonNilSnap(snap *backendSnapshot) {
-	if snap.Things == nil {
-		snap.Things = make(map[string]*Thing)
-	}
-
-	if snap.Policies == nil {
-		snap.Policies = make(map[string]*Policy)
-	}
-
-	if snap.Rules == nil {
-		snap.Rules = make(map[string]*TopicRule)
-	}
-
 	if snap.CertificateTransfers == nil {
 		snap.CertificateTransfers = make(map[string]string)
 	}
@@ -327,14 +310,9 @@ func ensureNonNilSnap(snap *backendSnapshot) {
 		snap.AuditTasks = make(map[string]string)
 	}
 
-	if snap.RegistrationTasks == nil {
-		snap.RegistrationTasks = make(map[string]*ThingRegistrationTask)
-	}
-
 	ensureNonNilFinalOpsSnap(snap)
 	ensureNonNilThingResourceSnap(snap)
 	ensureNonNilProvisioningSnap(snap)
-	ensureNonNilAuditExtraSnap(snap)
 	ensureNonNilResourceMiscSnap(snap)
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -58,68 +59,77 @@ type RuleDispatcher interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	dispatcher                 RuleDispatcher
-	shadows                    map[shadowKey]*ThingShadow // thing+name → shadow
-	customMetrics              map[string]*CustomMetric
-	resourceTags               map[string]map[string]string
-	rules                      map[string]*TopicRule
-	certificateTransfers       map[string]string
-	thingBillingGroups         map[string]string
-	thingThingGroups           map[string][]string
-	packageVersionSboms        map[string]*SbomDocument
-	jobTargets                 map[string][]string
-	fleetMetrics               map[string]*FleetMetric
-	securityProfileTargets     map[string][]string
-	thingPrincipals            map[string][]string
-	auditMitigationTasks       map[string]string
-	auditTasks                 map[string]string
-	thingTypes                 map[string]*ThingType
-	thingGroups                map[string]*ThingGroup
-	thingGroupMembers          map[string][]string
-	certificates               map[string]*Certificate
-	policyVersions             map[string][]*PolicyVersion
-	topicRuleDestinations      map[string]*TopicRuleDestination
-	certificateProviders       map[string]*CertificateProvider
-	jobs                       map[string]*Job
-	jobExecutions              map[string]*JobExecution
-	jobTemplates               map[string]*JobTemplate
-	roleAliases                map[string]*RoleAlias
-	domainConfigs              map[string]*DomainConfiguration
-	dimensions                 map[string]*Dimension
-	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
-	authorizers                map[string]*Authorizer
-	billingGroups              map[string]*BillingGroup
-	scheduledAudits            map[string]*ScheduledAudit
-	mitigationActions          map[string]*MitigationAction
-	securityProfiles           map[string]*SecurityProfile
-	caCertificates             map[string]*CACertificate
-	streams                    map[string]*IoTStream
-	policyTargets              map[string][]string
-	policies                   map[string]*Policy
-	provTemplates              map[string]*ProvisioningTemplate
-	things                     map[string]*Thing
+	dispatcher             RuleDispatcher
+	shadows                map[shadowKey]*ThingShadow // thing+name → shadow
+	resourceTags           map[string]map[string]string
+	certificateTransfers   map[string]string
+	thingBillingGroups     map[string]string
+	thingThingGroups       map[string][]string
+	packageVersionSboms    map[string]*SbomDocument
+	jobTargets             map[string][]string
+	securityProfileTargets map[string][]string
+	thingPrincipals        map[string][]string
+	auditMitigationTasks   map[string]string
+	auditTasks             map[string]string
+	thingGroupMembers      map[string][]string
+	policyVersions         map[string][]*PolicyVersion
+	provTemplateVersions   map[string][]*ProvisioningTemplateVersion
+	policyTargets          map[string][]string
+
+	// registry lets Reset collapse every converted resource table's
+	// lifecycle to one call (registry.ResetAll()) instead of hand-rolled
+	// re-initialization. See store_setup.go's registerAllTables for the
+	// full list of tables and the (documented) fields left as raw maps
+	// above/below instead.
+	registry *store.Registry
+
+	customMetrics              *store.Table[CustomMetric]
+	rules                      *store.Table[TopicRule]
+	fleetMetrics               *store.Table[FleetMetric]
+	thingTypes                 *store.Table[ThingType]
+	thingGroups                *store.Table[ThingGroup]
+	certificates               *store.Table[Certificate]
+	topicRuleDestinations      *store.Table[TopicRuleDestination]
+	certificateProviders       *store.Table[CertificateProvider]
+	jobs                       *store.Table[Job]
+	jobExecutions              *store.Table[JobExecution]
+	jobTemplates               *store.Table[JobTemplate]
+	roleAliases                *store.Table[RoleAlias]
+	domainConfigs              *store.Table[DomainConfiguration]
+	dimensions                 *store.Table[Dimension]
+	authorizers                *store.Table[Authorizer]
+	billingGroups              *store.Table[BillingGroup]
+	scheduledAudits            *store.Table[ScheduledAudit]
+	mitigationActions          *store.Table[MitigationAction]
+	securityProfiles           *store.Table[SecurityProfile]
+	caCertificates             *store.Table[CACertificate]
+	streams                    *store.Table[IoTStream]
+	policies                   *store.Table[Policy]
+	provTemplates              *store.Table[ProvisioningTemplate]
+	things                     *store.Table[Thing]
+	auditTaskObjects           *store.Table[AuditTask]
+	otaUpdates                 *store.Table[OTAUpdate]
+	iotPackages                *store.Table[IoTPackage]
+	auditSuppressions          *store.Table[AuditSuppression]
+	auditFindings              *store.Table[AuditFinding]
+	v2LoggingLevels            *store.Table[V2LoggingLevel]
+	commands                   *store.Table[IoTCommand]
+	registrationTasks          *store.Table[ThingRegistrationTask]
+	auditMitigationTaskObjects *store.Table[AuditMitigationTask]
+	detectMitigationTasks      *store.Table[DetectMitigationTask]
+	activeViolations           *store.Table[ActiveViolation]
+
 	auditConfiguration         *AccountAuditConfiguration
-	auditTaskObjects           map[string]*AuditTask
-	otaUpdates                 map[string]*OTAUpdate
-	iotPackages                map[string]*IoTPackage
 	packageVersions2           map[string]map[string]*IoTPackageVersion
 	packageConfig              *PackageConfiguration
-	auditSuppressions          map[string]*AuditSuppression
-	auditFindings              map[string]*AuditFinding
 	v2LoggingOptions           *V2LoggingOptions
-	v2LoggingLevels            map[string]*V2LoggingLevel
 	loggingOptions             *LoggingOptions
 	eventConfigurations        *EventConfigurations
-	commands                   map[string]*IoTCommand
 	commandExecutions          map[string]*IoTCommandExecution
 	thingIndexingConfig        *ThingIndexingConfiguration
 	thingGroupIndexingConfig   *ThingGroupIndexingConfiguration
-	registrationTasks          map[string]*ThingRegistrationTask
-	auditMitigationTaskObjects map[string]*AuditMitigationTask
 	auditMitigationExecutions  map[string][]*AuditMitigationActionExecution
-	detectMitigationTasks      map[string]*DetectMitigationTask
 	detectMitigationExecutions map[string][]*DetectMitigationActionExecution
-	activeViolations           map[string]*ActiveViolation
 	accountEncryptionConfig    *AccountEncryptionConfiguration
 	sbomValidationResults      map[string][]*SbomValidationResult
 	metricValues               map[string][]*MetricDatapoint
@@ -142,10 +152,9 @@ const mqttDefaultPort = 1883
 
 // NewInMemoryBackend creates a new InMemoryBackend with default values.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		things:                 make(map[string]*Thing),
-		policies:               make(map[string]*Policy),
-		rules:                  make(map[string]*TopicRule),
+	b := &InMemoryBackend{
+		registry: store.NewRegistry(),
+
 		certificateTransfers:   make(map[string]string),
 		thingBillingGroups:     make(map[string]string),
 		thingThingGroups:       make(map[string][]string),
@@ -156,48 +165,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 		thingPrincipals:        make(map[string][]string),
 		auditMitigationTasks:   make(map[string]string),
 		auditTasks:             make(map[string]string),
-		thingTypes:             make(map[string]*ThingType),
-		thingGroups:            make(map[string]*ThingGroup),
 		thingGroupMembers:      make(map[string][]string),
-		certificates:           make(map[string]*Certificate),
 		policyVersions:         make(map[string][]*PolicyVersion),
-		topicRuleDestinations:  make(map[string]*TopicRuleDestination),
-		certificateProviders:   make(map[string]*CertificateProvider),
-		jobs:                   make(map[string]*Job),
-		jobExecutions:          make(map[string]*JobExecution),
-		jobTemplates:           make(map[string]*JobTemplate),
-		roleAliases:            make(map[string]*RoleAlias),
-		domainConfigs:          make(map[string]*DomainConfiguration),
-		provTemplates:          make(map[string]*ProvisioningTemplate),
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
-		authorizers:            make(map[string]*Authorizer),
-		billingGroups:          make(map[string]*BillingGroup),
-		scheduledAudits:        make(map[string]*ScheduledAudit),
-		mitigationActions:      make(map[string]*MitigationAction),
-		securityProfiles:       make(map[string]*SecurityProfile),
-		caCertificates:         make(map[string]*CACertificate),
-		streams:                make(map[string]*IoTStream),
-		fleetMetrics:           make(map[string]*FleetMetric),
-		customMetrics:          make(map[string]*CustomMetric),
-		dimensions:             make(map[string]*Dimension),
 		resourceTags:           make(map[string]map[string]string),
-		auditTaskObjects:       make(map[string]*AuditTask),
-		otaUpdates:             make(map[string]*OTAUpdate),
-		iotPackages:            make(map[string]*IoTPackage),
 		packageVersions2:       make(map[string]map[string]*IoTPackageVersion),
-		auditSuppressions:      make(map[string]*AuditSuppression),
-		auditFindings:          make(map[string]*AuditFinding),
-		v2LoggingLevels:        make(map[string]*V2LoggingLevel),
 		shadows:                make(map[shadowKey]*ThingShadow),
-		commands:               make(map[string]*IoTCommand),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
-		registrationTasks:      make(map[string]*ThingRegistrationTask),
 
-		auditMitigationTaskObjects: make(map[string]*AuditMitigationTask),
 		auditMitigationExecutions:  make(map[string][]*AuditMitigationActionExecution),
-		detectMitigationTasks:      make(map[string]*DetectMitigationTask),
 		detectMitigationExecutions: make(map[string][]*DetectMitigationActionExecution),
-		activeViolations:           make(map[string]*ActiveViolation),
 
 		sbomValidationResults:     make(map[string][]*SbomValidationResult),
 		metricValues:              make(map[string][]*MetricDatapoint),
@@ -208,6 +185,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		region:    "us-east-1",
 		mqttPort:  mqttDefaultPort,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account and region.
@@ -221,17 +202,11 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 
 // resetBatch3 clears all batch-3 backend state (called from Reset, lock held).
 func (b *InMemoryBackend) resetBatch3() {
-	b.otaUpdates = make(map[string]*OTAUpdate)
-	b.iotPackages = make(map[string]*IoTPackage)
 	b.packageVersions2 = make(map[string]map[string]*IoTPackageVersion)
 	b.packageConfig = nil
-	b.auditSuppressions = make(map[string]*AuditSuppression)
-	b.auditFindings = make(map[string]*AuditFinding)
 	b.v2LoggingOptions = nil
-	b.v2LoggingLevels = make(map[string]*V2LoggingLevel)
 	b.loggingOptions = nil
 	b.eventConfigurations = nil
-	b.commands = make(map[string]*IoTCommand)
 	b.commandExecutions = make(map[string]*IoTCommandExecution)
 }
 
@@ -240,9 +215,22 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.things = make(map[string]*Thing)
-	b.policies = make(map[string]*Policy)
-	b.rules = make(map[string]*TopicRule)
+	// Clears every table registered in store_setup.go's registerAllTables
+	// (things, thingTypes, thingGroups, certificates, policies, rules, jobs,
+	// jobExecutions, jobTemplates, billingGroups, topicRuleDestinations,
+	// certificateProviders, roleAliases, domainConfigs, dimensions,
+	// authorizers, scheduledAudits, mitigationActions, securityProfiles,
+	// caCertificates, streams, provTemplates, auditTaskObjects, otaUpdates,
+	// iotPackages, auditSuppressions, auditFindings, v2LoggingLevels,
+	// commands, registrationTasks, auditMitigationTaskObjects,
+	// detectMitigationTasks, activeViolations, fleetMetrics, customMetrics)
+	// in one call instead of one hand-rolled make() per map.
+	//
+	// b.shadows is deliberately NOT part of the registry and NOT cleared
+	// here -- see store_setup.go's registerAllTables comment for why this
+	// preserves a pre-existing quirk byte-for-byte.
+	b.registry.ResetAll()
+
 	b.certificateTransfers = make(map[string]string)
 	b.thingBillingGroups = make(map[string]string)
 	b.thingThingGroups = make(map[string][]string)
@@ -253,34 +241,11 @@ func (b *InMemoryBackend) Reset() {
 	b.thingPrincipals = make(map[string][]string)
 	b.auditMitigationTasks = make(map[string]string)
 	b.auditTasks = make(map[string]string)
-	b.thingTypes = make(map[string]*ThingType)
-	b.thingGroups = make(map[string]*ThingGroup)
 	b.thingGroupMembers = make(map[string][]string)
-	b.certificates = make(map[string]*Certificate)
 	b.policyVersions = make(map[string][]*PolicyVersion)
-	b.topicRuleDestinations = make(map[string]*TopicRuleDestination)
-	b.certificateProviders = make(map[string]*CertificateProvider)
-	b.jobs = make(map[string]*Job)
-	b.jobExecutions = make(map[string]*JobExecution)
-	b.jobTemplates = make(map[string]*JobTemplate)
-	b.roleAliases = make(map[string]*RoleAlias)
-	b.domainConfigs = make(map[string]*DomainConfiguration)
-	b.provTemplates = make(map[string]*ProvisioningTemplate)
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)
-	b.authorizers = make(map[string]*Authorizer)
-	b.billingGroups = make(map[string]*BillingGroup)
-	b.scheduledAudits = make(map[string]*ScheduledAudit)
-	b.mitigationActions = make(map[string]*MitigationAction)
-	b.securityProfiles = make(map[string]*SecurityProfile)
-	b.caCertificates = make(map[string]*CACertificate)
-	b.streams = make(map[string]*IoTStream)
-	b.fleetMetrics = make(map[string]*FleetMetric)
-	b.customMetrics = make(map[string]*CustomMetric)
-	b.dimensions = make(map[string]*Dimension)
 	b.resourceTags = make(map[string]map[string]string)
-	b.auditTaskObjects = make(map[string]*AuditTask)
 	b.resetBatch3()
-	b.registrationTasks = make(map[string]*ThingRegistrationTask)
 	b.registrationCode = ""
 	b.defaultAuthorizer = ""
 	b.auditConfiguration = nil
@@ -303,11 +268,8 @@ func (b *InMemoryBackend) resetFinalOps() {
 // resetDeviceDefender clears all Device Defender backend state (audit + detect
 // mitigation-action tasks and violations). Called from Reset, lock held.
 func (b *InMemoryBackend) resetDeviceDefender() {
-	b.auditMitigationTaskObjects = make(map[string]*AuditMitigationTask)
 	b.auditMitigationExecutions = make(map[string][]*AuditMitigationActionExecution)
-	b.detectMitigationTasks = make(map[string]*DetectMitigationTask)
 	b.detectMitigationExecutions = make(map[string][]*DetectMitigationActionExecution)
-	b.activeViolations = make(map[string]*ActiveViolation)
 	b.violationEvents = nil
 }
 
@@ -332,9 +294,9 @@ func (b *InMemoryBackend) GetRules() []*TopicRule {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*TopicRule, 0, len(b.rules))
+	out := make([]*TopicRule, 0, b.rules.Len())
 
-	for _, r := range b.rules {
+	for _, r := range b.rules.All() {
 		out = append(out, cloneTopicRule(r))
 	}
 
@@ -388,13 +350,6 @@ func cloneTopicRule(r *TopicRule) *TopicRule {
 	}
 }
 
-// clonePolicy creates a deep copy of a Policy.
-func clonePolicy(p *Policy) *Policy {
-	cp := *p
-
-	return &cp
-}
-
 // cloneSbomDocument creates a deep copy of a SbomDocument.
 func cloneSbomDocument(s *SbomDocument) *SbomDocument {
 	if s == nil {
@@ -432,7 +387,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.things[input.ThingName]; exists {
+	if b.things.Has(input.ThingName) {
 		return nil, fmt.Errorf("%w: thing %q already exists", ErrAlreadyExists, input.ThingName)
 	}
 
@@ -445,7 +400,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thing/%s", input.ThingName))
 	id := uuid.NewString()
 
-	b.things[input.ThingName] = &Thing{
+	b.things.Put(&Thing{
 		ThingName:     input.ThingName,
 		ThingTypeName: input.ThingTypeName,
 		ThingType:     input.ThingTypeName,
@@ -454,7 +409,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		ARN:           arn,
 		Version:       1,
 		CreatedAt:     time.Now(),
-	}
+	})
 
 	return &CreateThingOutput{
 		ThingName: input.ThingName,
@@ -468,7 +423,7 @@ func (b *InMemoryBackend) DescribeThing(thingName string) (*Thing, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	t, ok := b.things[thingName]
+	t, ok := b.things.Get(thingName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
@@ -481,11 +436,11 @@ func (b *InMemoryBackend) ListThings() []*Thing {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.things)
-	out := make([]*Thing, 0, len(keys))
+	items := b.things.Snapshot()
+	out := make([]*Thing, 0, len(items))
 
-	for _, k := range keys {
-		out = append(out, cloneThing(b.things[k]))
+	for _, v := range items {
+		out = append(out, cloneThing(v))
 	}
 
 	return out
@@ -496,7 +451,7 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -504,7 +459,7 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 		return fmt.Errorf("%w: thing %q has attached principals", ErrDeleteConflict, thingName)
 	}
 
-	delete(b.things, thingName)
+	b.things.Delete(thingName)
 
 	return nil
 }
@@ -518,7 +473,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.rules[input.RuleName]; exists {
+	if b.rules.Has(input.RuleName) {
 		return fmt.Errorf("%w: rule %q already exists", ErrAlreadyExists, input.RuleName)
 	}
 
@@ -539,7 +494,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		sqlVersion = "2015-10-08"
 	}
 
-	b.rules[input.RuleName] = &TopicRule{
+	b.rules.Put(&TopicRule{
 		RuleName:         input.RuleName,
 		ARN:              arn,
 		SQL:              payload.SQL,
@@ -548,7 +503,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		Actions:          actions,
 		Enabled:          !payload.RuleDisabled,
 		CreatedAt:        time.Now(),
-	}
+	})
 
 	return nil
 }
@@ -558,7 +513,7 @@ func (b *InMemoryBackend) GetTopicRule(ruleName string) (*TopicRule, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	r, ok := b.rules[ruleName]
+	r, ok := b.rules.Get(ruleName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
 	}
@@ -571,11 +526,11 @@ func (b *InMemoryBackend) ListTopicRules() []*TopicRule {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.rules)
-	out := make([]*TopicRule, 0, len(keys))
+	items := b.rules.Snapshot()
+	out := make([]*TopicRule, 0, len(items))
 
-	for _, k := range keys {
-		out = append(out, cloneTopicRule(b.rules[k]))
+	for _, v := range items {
+		out = append(out, cloneTopicRule(v))
 	}
 
 	return out
@@ -586,11 +541,11 @@ func (b *InMemoryBackend) DeleteTopicRule(ruleName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.rules[ruleName]; !ok {
+	if !b.rules.Has(ruleName) {
 		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
 	}
 
-	delete(b.rules, ruleName)
+	b.rules.Delete(ruleName)
 
 	return nil
 }
@@ -604,20 +559,20 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.policies[input.PolicyName]; exists {
+	if b.policies.Has(input.PolicyName) {
 		return nil, fmt.Errorf("%w: policy %q already exists", ErrAlreadyExists, input.PolicyName)
 	}
 
 	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", input.PolicyName))
 	now := time.Now()
 
-	b.policies[input.PolicyName] = &Policy{
+	b.policies.Put(&Policy{
 		PolicyName:     input.PolicyName,
 		PolicyDocument: input.PolicyDocument,
 		ARN:            arn,
 		CreatedAt:      now,
 		LastModifiedAt: now,
-	}
+	})
 
 	// AWS automatically creates version "1" as the default on CreatePolicy.
 	b.policyVersions[input.PolicyName] = []*PolicyVersion{
@@ -796,7 +751,7 @@ func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMit
 	defer b.mu.Unlock()
 
 	b.auditMitigationTasks[input.TaskID] = string(JobStatusCanceled)
-	if t, ok := b.auditMitigationTaskObjects[input.TaskID]; ok {
+	if t, ok := b.auditMitigationTaskObjects.Get(input.TaskID); ok {
 		t.TaskStatus = string(JobStatusCanceled)
 		t.EndTime = float64(time.Now().Unix())
 	}
@@ -819,7 +774,7 @@ func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	p, ok := b.policies[policyName]
+	p, ok := b.policies.Get(policyName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
 	}
@@ -848,7 +803,7 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.policies[policyName]; !ok {
+	if !b.policies.Has(policyName) {
 		return fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
 	}
 
@@ -856,7 +811,7 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 		return fmt.Errorf("%w: policy %q has attached targets", ErrDeleteConflict, policyName)
 	}
 
-	delete(b.policies, policyName)
+	b.policies.Delete(policyName)
 
 	return nil
 }
@@ -866,11 +821,11 @@ func (b *InMemoryBackend) ListPolicies() []*Policy {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.policies)
-	out := make([]*Policy, 0, len(keys))
+	items := b.policies.Snapshot()
+	out := make([]*Policy, 0, len(items))
 
-	for _, k := range keys {
-		cp := *b.policies[k]
+	for _, v := range items {
+		cp := *v
 		out = append(out, &cp)
 	}
 
@@ -882,7 +837,7 @@ func (b *InMemoryBackend) DisableTopicRule(ruleName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	r, ok := b.rules[ruleName]
+	r, ok := b.rules.Get(ruleName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
 	}
@@ -897,7 +852,7 @@ func (b *InMemoryBackend) EnableTopicRule(ruleName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	r, ok := b.rules[ruleName]
+	r, ok := b.rules.Get(ruleName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
 	}
@@ -916,7 +871,7 @@ func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	r, ok := b.rules[input.RuleName]
+	r, ok := b.rules.Get(input.RuleName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRuleNotFound, input.RuleName)
 	}
@@ -954,7 +909,7 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	t, ok := b.things[input.ThingName]
+	t, ok := b.things.Get(input.ThingName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, input.ThingName)
 	}
@@ -994,7 +949,7 @@ func (b *InMemoryBackend) ListThingPrincipals(thingName string) ([]string, error
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -1030,7 +985,7 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 		t.Version = 1
 	}
 
-	b.things[t.ThingName] = &t
+	b.things.Put(&t)
 }
 
 // AddPolicyInternal seeds a Policy directly into the backend for testing.
@@ -1042,7 +997,7 @@ func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
 		p.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", p.PolicyName))
 	}
 
-	b.policies[p.PolicyName] = &p
+	b.policies.Put(&p)
 }
 
 // AddRuleInternal seeds a TopicRule directly into the backend for testing.
@@ -1058,7 +1013,7 @@ func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
 		r.Actions = []RuleAction{}
 	}
 
-	b.rules[r.RuleName] = &r
+	b.rules.Put(&r)
 }
 
 // -----------------------------------------------------------
@@ -1134,7 +1089,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.thingTypes[input.ThingTypeName]; exists {
+	if b.thingTypes.Has(input.ThingTypeName) {
 		return nil, fmt.Errorf("%w: thing type %q already exists", ErrAlreadyExists, input.ThingTypeName)
 	}
 
@@ -1148,7 +1103,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		CreatedAt:            time.Now(),
 	}
 
-	b.thingTypes[input.ThingTypeName] = tt
+	b.thingTypes.Put(tt)
 
 	return tt, nil
 }
@@ -1158,7 +1113,7 @@ func (b *InMemoryBackend) DescribeThingType(thingTypeName string) (*ThingType, e
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	tt, ok := b.thingTypes[thingTypeName]
+	tt, ok := b.thingTypes.Get(thingTypeName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
 	}
@@ -1173,11 +1128,11 @@ func (b *InMemoryBackend) ListThingTypes() []*ThingType {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.thingTypes)
-	out := make([]*ThingType, 0, len(keys))
+	items := b.thingTypes.Snapshot()
+	out := make([]*ThingType, 0, len(items))
 
-	for _, k := range keys {
-		cp := *b.thingTypes[k]
+	for _, v := range items {
+		cp := *v
 		out = append(out, &cp)
 	}
 
@@ -1189,7 +1144,7 @@ func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) err
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	tt, ok := b.thingTypes[input.ThingTypeName]
+	tt, ok := b.thingTypes.Get(input.ThingTypeName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
 	}
@@ -1210,7 +1165,7 @@ func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	tt, ok := b.thingTypes[thingTypeName]
+	tt, ok := b.thingTypes.Get(thingTypeName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
 	}
@@ -1219,7 +1174,7 @@ func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
 		return fmt.Errorf("%w: thing type %q must be deprecated before deletion", ErrValidation, thingTypeName)
 	}
 
-	delete(b.thingTypes, thingTypeName)
+	b.thingTypes.Delete(thingTypeName)
 
 	return nil
 }
@@ -1237,7 +1192,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.thingGroups[input.ThingGroupName]; exists {
+	if b.thingGroups.Has(input.ThingGroupName) {
 		return nil, fmt.Errorf("%w: thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
 	}
 
@@ -1261,7 +1216,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 		CreatedAt:       time.Now(),
 	}
 
-	b.thingGroups[input.ThingGroupName] = tg
+	b.thingGroups.Put(tg)
 	b.thingGroupMembers[input.ThingGroupName] = []string{}
 
 	return tg, nil
@@ -1272,7 +1227,7 @@ func (b *InMemoryBackend) DescribeThingGroup(thingGroupName string) (*ThingGroup
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	tg, ok := b.thingGroups[thingGroupName]
+	tg, ok := b.thingGroups.Get(thingGroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
 	}
@@ -1291,11 +1246,11 @@ func (b *InMemoryBackend) ListThingGroups() []*ThingGroup {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.thingGroups)
-	out := make([]*ThingGroup, 0, len(keys))
+	items := b.thingGroups.Snapshot()
+	out := make([]*ThingGroup, 0, len(items))
 
-	for _, k := range keys {
-		tg := b.thingGroups[k]
+	for _, v := range items {
+		tg := v
 		cp := *tg
 		cp.Attributes = make(map[string]string, len(tg.Attributes))
 		maps.Copy(cp.Attributes, tg.Attributes)
@@ -1316,7 +1271,7 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	tg, ok := b.thingGroups[input.ThingGroupName]
+	tg, ok := b.thingGroups.Get(input.ThingGroupName)
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
@@ -1347,11 +1302,11 @@ func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.thingGroups[thingGroupName]; !ok {
+	if !b.thingGroups.Has(thingGroupName) {
 		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
 	}
 
-	delete(b.thingGroups, thingGroupName)
+	b.thingGroups.Delete(thingGroupName)
 	delete(b.thingGroupMembers, thingGroupName)
 
 	return nil
@@ -1391,7 +1346,7 @@ func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupIn
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.thingGroups[input.ThingGroupName]; !ok {
+	if !b.thingGroups.Has(input.ThingGroupName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
 
@@ -1433,7 +1388,7 @@ func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromC
 	}
 
 	cert := b.newCertificate(fakePEM, status)
-	b.certificates[cert.CertificateID] = cert
+	b.certificates.Put(cert)
 
 	return cert, nil
 }
@@ -1454,7 +1409,7 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 	}
 
 	cert := b.newCertificate(pem, status)
-	b.certificates[cert.CertificateID] = cert
+	b.certificates.Put(cert)
 
 	return cert, nil
 }
@@ -1469,7 +1424,7 @@ func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificat
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	cert, ok := b.certificates[certificateID]
+	cert, ok := b.certificates.Get(certificateID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
 	}
@@ -1484,11 +1439,11 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.certificates)
-	out := make([]*Certificate, 0, len(keys))
+	items := b.certificates.Snapshot()
+	out := make([]*Certificate, 0, len(items))
 
-	for _, k := range keys {
-		cp := *b.certificates[k]
+	for _, v := range items {
+		cp := *v
 		out = append(out, &cp)
 	}
 
@@ -1520,7 +1475,7 @@ func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cert, ok := b.certificates[input.CertificateID]
+	cert, ok := b.certificates.Get(input.CertificateID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrCertificateNotFound, input.CertificateID)
 	}
@@ -1536,7 +1491,7 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cert, ok := b.certificates[certificateID]
+	cert, ok := b.certificates.Get(certificateID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
 	}
@@ -1545,7 +1500,7 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 		return fmt.Errorf("%w: certificate %q must be deactivated before deletion", ErrDeleteConflict, certificateID)
 	}
 
-	delete(b.certificates, certificateID)
+	b.certificates.Delete(certificateID)
 
 	return nil
 }
@@ -1582,7 +1537,7 @@ func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput)
 
 	for policyName, targets := range b.policyTargets {
 		if slices.Contains(targets, input.Target) {
-			if p, ok := b.policies[policyName]; ok {
+			if p, ok := b.policies.Get(policyName); ok {
 				cp := *p
 				out = append(out, &cp)
 			}
@@ -1608,7 +1563,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	p, ok := b.policies[input.PolicyName]
+	p, ok := b.policies.Get(input.PolicyName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
 	}
@@ -1669,7 +1624,7 @@ func (b *InMemoryBackend) ListPolicyVersions(policyName string) ([]*PolicyVersio
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.policies[policyName]; !ok {
+	if !b.policies.Has(policyName) {
 		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
 	}
 
@@ -1768,7 +1723,7 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 		dest.Status = statusEnabled
 	}
 
-	b.topicRuleDestinations[arn] = dest
+	b.topicRuleDestinations.Put(dest)
 
 	return dest, nil
 }
@@ -1778,7 +1733,7 @@ func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestina
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	dest, ok := b.topicRuleDestinations[arn]
+	dest, ok := b.topicRuleDestinations.Get(arn)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
 	}
@@ -1793,11 +1748,11 @@ func (b *InMemoryBackend) ListTopicRuleDestinations() []*TopicRuleDestination {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.topicRuleDestinations)
-	out := make([]*TopicRuleDestination, 0, len(keys))
+	items := b.topicRuleDestinations.Snapshot()
+	out := make([]*TopicRuleDestination, 0, len(items))
 
-	for _, k := range keys {
-		cp := *b.topicRuleDestinations[k]
+	for _, v := range items {
+		cp := *v
 		out = append(out, &cp)
 	}
 
@@ -1809,7 +1764,7 @@ func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDesti
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	dest, ok := b.topicRuleDestinations[input.ARN]
+	dest, ok := b.topicRuleDestinations.Get(input.ARN)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, input.ARN)
 	}
@@ -1824,11 +1779,11 @@ func (b *InMemoryBackend) DeleteTopicRuleDestination(arn string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.topicRuleDestinations[arn]; !ok {
+	if !b.topicRuleDestinations.Has(arn) {
 		return fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
 	}
 
-	delete(b.topicRuleDestinations, arn)
+	b.topicRuleDestinations.Delete(arn)
 
 	return nil
 }
@@ -1848,7 +1803,7 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.certificateProviders[input.CertificateProviderName]; exists {
+	if b.certificateProviders.Has(input.CertificateProviderName) {
 		return nil, fmt.Errorf("%w: certificate provider %q already exists",
 			ErrAlreadyExists, input.CertificateProviderName)
 	}
@@ -1868,7 +1823,7 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 		LastModifiedAt:              time.Now(),
 	}
 
-	b.certificateProviders[input.CertificateProviderName] = cp
+	b.certificateProviders.Put(cp)
 
 	return cp, nil
 }
@@ -1878,7 +1833,7 @@ func (b *InMemoryBackend) DescribeCertificateProvider(name string) (*Certificate
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	cp, ok := b.certificateProviders[name]
+	cp, ok := b.certificateProviders.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, name)
 	}
@@ -1895,13 +1850,13 @@ func (b *InMemoryBackend) ListCertificateProviders() []*CertificateProvider {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.certificateProviders)
-	out := make([]*CertificateProvider, 0, len(keys))
+	items := b.certificateProviders.Snapshot()
+	out := make([]*CertificateProvider, 0, len(items))
 
-	for _, k := range keys {
-		cp := *b.certificateProviders[k]
-		cp.AccountDefaultForOperations = make([]string, len(b.certificateProviders[k].AccountDefaultForOperations))
-		copy(cp.AccountDefaultForOperations, b.certificateProviders[k].AccountDefaultForOperations)
+	for _, v := range items {
+		cp := *v
+		cp.AccountDefaultForOperations = make([]string, len(v.AccountDefaultForOperations))
+		copy(cp.AccountDefaultForOperations, v.AccountDefaultForOperations)
 		out = append(out, &cp)
 	}
 
@@ -1913,7 +1868,7 @@ func (b *InMemoryBackend) UpdateCertificateProvider(input *UpdateCertificateProv
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cp, ok := b.certificateProviders[input.CertificateProviderName]
+	cp, ok := b.certificateProviders.Get(input.CertificateProviderName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, input.CertificateProviderName)
 	}
@@ -1938,11 +1893,11 @@ func (b *InMemoryBackend) DeleteCertificateProvider(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.certificateProviders[name]; !ok {
+	if !b.certificateProviders.Has(name) {
 		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, name)
 	}
 
-	delete(b.certificateProviders, name)
+	b.certificateProviders.Delete(name)
 
 	return nil
 }
@@ -1968,7 +1923,7 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) (*ThingSh
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -1988,7 +1943,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, state 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -2016,7 +1971,7 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) error 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -2035,7 +1990,7 @@ func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 

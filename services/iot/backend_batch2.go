@@ -57,7 +57,7 @@ func (b *InMemoryBackend) RegisterCACertificate(pem, status string) (*CACertific
 	if ca.Status == "" {
 		ca.Status = "ACTIVE"
 	}
-	b.caCertificates[id] = ca
+	b.caCertificates.Put(ca)
 
 	return cloneCACert(ca), nil
 }
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) DescribeCACertificate(id string) (*CACertificate, erro
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ca, ok := b.caCertificates[id]
+	ca, ok := b.caCertificates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("CA certificate %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -78,9 +78,9 @@ func (b *InMemoryBackend) ListCACertificates() []*CACertificate {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*CACertificate, 0, len(b.caCertificates))
-	for _, k := range sortedKeys(b.caCertificates) {
-		out = append(out, cloneCACert(b.caCertificates[k]))
+	out := make([]*CACertificate, 0, b.caCertificates.Len())
+	for _, v := range b.caCertificates.Snapshot() {
+		out = append(out, cloneCACert(v))
 	}
 
 	return out
@@ -90,7 +90,7 @@ func (b *InMemoryBackend) UpdateCACertificate(id, status string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ca, ok := b.caCertificates[id]
+	ca, ok := b.caCertificates.Get(id)
 	if !ok {
 		return fmt.Errorf("CA certificate %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -106,10 +106,10 @@ func (b *InMemoryBackend) DeleteCACertificate(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.caCertificates[id]; !ok {
+	if !b.caCertificates.Has(id) {
 		return fmt.Errorf("CA certificate %q not found: %w", id, ErrResourceNotFound)
 	}
-	delete(b.caCertificates, id)
+	b.caCertificates.Delete(id)
 
 	return nil
 }
@@ -119,8 +119,8 @@ func (b *InMemoryBackend) ListCertificatesByCA(caID string) []*Certificate {
 	defer b.mu.RUnlock()
 
 	var out []*Certificate
-	for _, k := range sortedKeys(b.certificates) {
-		cert := b.certificates[k]
+	for _, v := range b.certificates.Snapshot() {
+		cert := v
 		if cert.CACertificateID == caID {
 			cp := *cert
 			out = append(out, &cp)
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.streams[input.StreamID]; exists {
+	if b.streams.Has(input.StreamID) {
 		return nil, fmt.Errorf("stream %q already exists: %w", input.StreamID, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -195,7 +195,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, er
 		CreatedAt:     now,
 		LastUpdated:   now,
 	}
-	b.streams[input.StreamID] = s
+	b.streams.Put(s)
 
 	return cloneStream(s), nil
 }
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) DescribeStream(id string) (*IoTStream, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	s, ok := b.streams[id]
+	s, ok := b.streams.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("stream %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -216,9 +216,9 @@ func (b *InMemoryBackend) ListStreams() []*IoTStream {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*IoTStream, 0, len(b.streams))
-	for _, k := range sortedKeys(b.streams) {
-		out = append(out, cloneStream(b.streams[k]))
+	out := make([]*IoTStream, 0, b.streams.Len())
+	for _, v := range b.streams.Snapshot() {
+		out = append(out, cloneStream(v))
 	}
 
 	return out
@@ -228,7 +228,7 @@ func (b *InMemoryBackend) UpdateStream(id, description, roleARN string, files []
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	s, ok := b.streams[id]
+	s, ok := b.streams.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("stream %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -251,10 +251,10 @@ func (b *InMemoryBackend) DeleteStream(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.streams[id]; !ok {
+	if !b.streams.Has(id) {
 		return fmt.Errorf("stream %q not found: %w", id, ErrResourceNotFound)
 	}
-	delete(b.streams, id)
+	b.streams.Delete(id)
 
 	return nil
 }
@@ -305,7 +305,7 @@ func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*Fle
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.fleetMetrics[input.MetricName]; exists {
+	if b.fleetMetrics.Has(input.MetricName) {
 		return nil, fmt.Errorf("fleet metric %q already exists: %w", input.MetricName, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -323,7 +323,7 @@ func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*Fle
 		CreationDate: now,
 		LastModified: now,
 	}
-	b.fleetMetrics[input.MetricName] = fm
+	b.fleetMetrics.Put(fm)
 
 	return cloneFleetMetric(fm), nil
 }
@@ -332,7 +332,7 @@ func (b *InMemoryBackend) DescribeFleetMetric(name string) (*FleetMetric, error)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	fm, ok := b.fleetMetrics[name]
+	fm, ok := b.fleetMetrics.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -344,9 +344,9 @@ func (b *InMemoryBackend) ListFleetMetrics() []*FleetMetric {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*FleetMetric, 0, len(b.fleetMetrics))
-	for _, k := range sortedKeys(b.fleetMetrics) {
-		out = append(out, cloneFleetMetric(b.fleetMetrics[k]))
+	out := make([]*FleetMetric, 0, b.fleetMetrics.Len())
+	for _, v := range b.fleetMetrics.Snapshot() {
+		out = append(out, cloneFleetMetric(v))
 	}
 
 	return out
@@ -356,7 +356,7 @@ func (b *InMemoryBackend) UpdateFleetMetric(name, queryString, description strin
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	fm, ok := b.fleetMetrics[name]
+	fm, ok := b.fleetMetrics.Get(name)
 	if !ok {
 		return fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -379,10 +379,10 @@ func (b *InMemoryBackend) DeleteFleetMetric(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.fleetMetrics[name]; !ok {
+	if !b.fleetMetrics.Has(name) {
 		return fmt.Errorf("fleet metric %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.fleetMetrics, name)
+	b.fleetMetrics.Delete(name)
 
 	return nil
 }
@@ -426,7 +426,7 @@ func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*C
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.customMetrics[input.MetricName]; exists {
+	if b.customMetrics.Has(input.MetricName) {
 		return nil, fmt.Errorf("custom metric %q already exists: %w", input.MetricName, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -440,7 +440,7 @@ func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*C
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
-	b.customMetrics[input.MetricName] = cm
+	b.customMetrics.Put(cm)
 
 	return cloneCustomMetric(cm), nil
 }
@@ -449,7 +449,7 @@ func (b *InMemoryBackend) DescribeCustomMetric(name string) (*CustomMetric, erro
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	cm, ok := b.customMetrics[name]
+	cm, ok := b.customMetrics.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("custom metric %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -461,9 +461,9 @@ func (b *InMemoryBackend) ListCustomMetrics() []*CustomMetric {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*CustomMetric, 0, len(b.customMetrics))
-	for _, k := range sortedKeys(b.customMetrics) {
-		out = append(out, cloneCustomMetric(b.customMetrics[k]))
+	out := make([]*CustomMetric, 0, b.customMetrics.Len())
+	for _, v := range b.customMetrics.Snapshot() {
+		out = append(out, cloneCustomMetric(v))
 	}
 
 	return out
@@ -473,7 +473,7 @@ func (b *InMemoryBackend) UpdateCustomMetric(name, displayName string) (*CustomM
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cm, ok := b.customMetrics[name]
+	cm, ok := b.customMetrics.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("custom metric %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -490,10 +490,10 @@ func (b *InMemoryBackend) DeleteCustomMetric(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.customMetrics[name]; !ok {
+	if !b.customMetrics.Has(name) {
 		return fmt.Errorf("custom metric %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.customMetrics, name)
+	b.customMetrics.Delete(name)
 
 	return nil
 }
@@ -537,7 +537,7 @@ func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimensi
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.dimensions[input.Name]; exists {
+	if b.dimensions.Has(input.Name) {
 		return nil, fmt.Errorf("dimension %q already exists: %w", input.Name, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -550,7 +550,7 @@ func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimensi
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
-	b.dimensions[input.Name] = d
+	b.dimensions.Put(d)
 
 	return cloneDimension(d), nil
 }
@@ -559,7 +559,7 @@ func (b *InMemoryBackend) DescribeDimension(name string) (*Dimension, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	d, ok := b.dimensions[name]
+	d, ok := b.dimensions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("dimension %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -571,9 +571,9 @@ func (b *InMemoryBackend) ListDimensions() []*Dimension {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*Dimension, 0, len(b.dimensions))
-	for _, k := range sortedKeys(b.dimensions) {
-		out = append(out, cloneDimension(b.dimensions[k]))
+	out := make([]*Dimension, 0, b.dimensions.Len())
+	for _, v := range b.dimensions.Snapshot() {
+		out = append(out, cloneDimension(v))
 	}
 
 	return out
@@ -583,7 +583,7 @@ func (b *InMemoryBackend) UpdateDimension(name string, stringValues []string) (*
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	d, ok := b.dimensions[name]
+	d, ok := b.dimensions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("dimension %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -599,10 +599,10 @@ func (b *InMemoryBackend) DeleteDimension(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.dimensions[name]; !ok {
+	if !b.dimensions.Has(name) {
 		return fmt.Errorf("dimension %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.dimensions, name)
+	b.dimensions.Delete(name)
 
 	return nil
 }
@@ -728,12 +728,12 @@ func (b *InMemoryBackend) StartOnDemandAuditTask(_ []string) (string, error) {
 
 	id := uuid.NewString()[:12]
 	b.auditTasks[id] = string(JobStatusInProgress)
-	b.auditTaskObjects[id] = &AuditTask{
+	b.auditTaskObjects.Put(&AuditTask{
 		TaskID:        id,
 		TaskStatus:    string(JobStatusInProgress),
 		TaskType:      "ON_DEMAND_AUDIT_TASK",
 		TaskStartTime: float64(time.Now().Unix()),
-	}
+	})
 
 	return id, nil
 }
@@ -742,7 +742,7 @@ func (b *InMemoryBackend) DescribeAuditTask(taskID string) (*AuditTask, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	task, ok := b.auditTaskObjects[taskID]
+	task, ok := b.auditTaskObjects.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("audit task %q not found: %w", taskID, ErrResourceNotFound)
 	}
@@ -756,9 +756,9 @@ func (b *InMemoryBackend) ListAuditTasks(taskType string) []*AuditTask {
 	defer b.mu.RUnlock()
 
 	var out []*AuditTask
-	keys := sortedKeys(b.auditTaskObjects)
-	for _, k := range keys {
-		task := b.auditTaskObjects[k]
+	items := b.auditTaskObjects.Snapshot()
+	for _, v := range items {
+		task := v
 		if taskType == "" || task.TaskType == taskType {
 			cp := *task
 			out = append(out, &cp)
@@ -877,7 +877,7 @@ func (b *InMemoryBackend) ListPrincipalPolicies(principal string) []*Policy {
 	var out []*Policy
 	for policyName, targets := range b.policyTargets {
 		if slices.Contains(targets, principal) {
-			if p, ok := b.policies[policyName]; ok {
+			if p, ok := b.policies.Get(policyName); ok {
 				cp := *p
 				out = append(out, &cp)
 			}
@@ -934,7 +934,7 @@ func (b *InMemoryBackend) GetEffectivePolicies(thingName, principal string) []*P
 	for policyName, targets := range b.policyTargets {
 		for _, target := range targets {
 			if slices.Contains(principals, target) && !seen[policyName] {
-				if pol, ok := b.policies[policyName]; ok {
+				if pol, ok := b.policies.Get(policyName); ok {
 					cp := *pol
 					out = append(out, &cp)
 					seen[policyName] = true
@@ -982,8 +982,7 @@ func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution 
 	defer b.mu.RUnlock()
 
 	var out []*JobExecution
-	for k, exec := range b.jobExecutions {
-		_ = k
+	for _, exec := range b.jobExecutions.All() {
 		if exec.JobID == jobID {
 			cp := *exec
 			out = append(out, &cp)
@@ -1000,8 +999,7 @@ func (b *InMemoryBackend) ListJobExecutionsForThing(thingName string) []*JobExec
 	defer b.mu.RUnlock()
 
 	var out []*JobExecution
-	for k, exec := range b.jobExecutions {
-		_ = k
+	for _, exec := range b.jobExecutions.All() {
 		if exec.ThingName == thingName {
 			cp := *exec
 			out = append(out, &cp)

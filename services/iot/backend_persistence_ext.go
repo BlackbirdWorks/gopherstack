@@ -1,6 +1,12 @@
 package iot
 
-import "maps"
+import (
+	"encoding/json"
+	"fmt"
+	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+)
 
 // ---------------------------------------------------------------------------
 // This file closes a persistence gap (gopherstack-264): several live
@@ -10,6 +16,20 @@ import "maps"
 // backend_devicedefender.go and backend_final_ops.go: each group of related
 // fields gets its own bundle struct plus a pair of snapshot/restore methods,
 // keeping Snapshot()/Restore() themselves within the cyclop/funlen limits.
+//
+// Phase 3.3 note: most of the *T-valued maps these groups used to carry
+// (ThingTypes, ThingGroups, Certificates, CertificateProviders,
+// CACertificates, Jobs, JobExecutions, JobTemplates, RoleAliases,
+// DomainConfigs, Authorizers, BillingGroups, ProvTemplates,
+// ScheduledAudits, MitigationActions, SecurityProfiles, AuditSuppressions,
+// AuditFindings, AuditTaskObjects, Dimensions, Streams, OTAUpdates,
+// IoTPackages, Commands, FleetMetrics, CustomMetrics, V2LoggingLevels) moved
+// to store.Table[T]s registered on b.registry (see store_setup.go) and now
+// round-trip via registry.SnapshotAll()/RestoreAll() in persistence.go
+// instead of through these bundles. What remains here is exactly the raw
+// (non-Table) state: slice-valued maps, nested maps, and the one "dirty"
+// table (TopicRuleDestination, handled directly in persistence.go via its
+// own small DTO registry, mirroring the services/sqs pilot).
 // ---------------------------------------------------------------------------
 
 // topicRuleDestSnap mirrors TopicRuleDestination for persistence purposes.
@@ -23,6 +43,10 @@ type topicRuleDestSnap struct {
 	Status            string                        `json:"status"`
 	ConfirmationToken string                        `json:"confirmationToken,omitempty"`
 }
+
+// topicRuleDestSnapKey is the store.Table key function used for the
+// ephemeral DTO table built inside Snapshot/Restore for topicRuleDestinations.
+func topicRuleDestSnapKey(s *topicRuleDestSnap) string { return s.ARN }
 
 func toTopicRuleDestSnap(d *TopicRuleDestination) *topicRuleDestSnap {
 	var props *HTTPURLDestinationProperties
@@ -54,28 +78,51 @@ func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
 	}
 }
 
-func cloneThingType(t *ThingType) *ThingType {
-	cp := *t
-	cp.SearchableAttributes = append([]string(nil), t.SearchableAttributes...)
+// snapshotTopicRuleDestinationsTable builds the "dirty" topicRuleDestinations
+// entry for backendSnapshot.Tables via a small throwaway DTO registry,
+// mirroring the services/sqs pilot's DTO-registry pattern but scoped to just
+// this one table. TopicRuleDestination.ConfirmationToken is tagged json:"-"
+// (AWS delivers it out-of-band and it must never leak into API responses),
+// so registry.SnapshotAll's generic per-table encoding of the live type would
+// otherwise silently drop it; the topicRuleDestSnap DTO carries it through
+// instead. Extracted from Snapshot to keep it within the repo's funlen limit.
+// Must be called with b.mu held (read or write).
+func (b *InMemoryBackend) snapshotTopicRuleDestinationsTable() (map[string]json.RawMessage, error) {
+	destDTOReg := store.NewRegistry()
+	destDTOs := store.Register(destDTOReg, topicRuleDestinationsTableName, store.New(topicRuleDestSnapKey))
 
-	return &cp
-}
-
-func cloneThingGroup(g *ThingGroup) *ThingGroup {
-	cp := *g
-	if g.Attributes != nil {
-		cp.Attributes = maps.Clone(g.Attributes)
+	for _, d := range b.topicRuleDestinations.Snapshot() {
+		destDTOs.Put(toTopicRuleDestSnap(d))
 	}
 
-	cp.Members = append([]string(nil), g.Members...)
+	tables, err := destDTOReg.SnapshotAll()
+	if err != nil {
+		return nil, fmt.Errorf("iot: snapshot topicRuleDestinations marshal failed: %w", err)
+	}
 
-	return &cp
+	return tables, nil
 }
 
-func cloneCertificate(c *Certificate) *Certificate {
-	cp := *c
+// restoreTopicRuleDestinationsTable restores b.topicRuleDestinations from its
+// DTO entry in tables (the inverse of snapshotTopicRuleDestinationsTable).
+// Extracted from Restore to keep it within the repo's funlen limit. Must be
+// called with b.mu held (write).
+func (b *InMemoryBackend) restoreTopicRuleDestinationsTable(tables map[string]json.RawMessage) error {
+	destDTOReg := store.NewRegistry()
+	destDTOs := store.Register(destDTOReg, topicRuleDestinationsTableName, store.New(topicRuleDestSnapKey))
 
-	return &cp
+	if err := destDTOReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("iot: restore topicRuleDestinations: %w", err)
+	}
+
+	liveDests := make([]*TopicRuleDestination, 0, destDTOs.Len())
+	for _, s := range destDTOs.All() {
+		liveDests = append(liveDests, fromTopicRuleDestSnap(s))
+	}
+
+	b.topicRuleDestinations.Restore(liveDests)
+
+	return nil
 }
 
 func clonePolicyVersion(v *PolicyVersion) *PolicyVersion {
@@ -93,19 +140,6 @@ func clonePolicyVersions(src []*PolicyVersion) []*PolicyVersion {
 	return out
 }
 
-func cloneCertificateProvider(p *CertificateProvider) *CertificateProvider {
-	cp := *p
-	cp.AccountDefaultForOperations = append([]string(nil), p.AccountDefaultForOperations...)
-
-	return &cp
-}
-
-func cloneJobExecution(e *JobExecution) *JobExecution {
-	cp := *e
-
-	return &cp
-}
-
 func cloneProvTemplateVersion(v *ProvisioningTemplateVersion) *ProvisioningTemplateVersion {
 	cp := *v
 
@@ -119,12 +153,6 @@ func cloneProvTemplateVersions(src []*ProvisioningTemplateVersion) []*Provisioni
 	}
 
 	return out
-}
-
-func cloneAuditTaskObj(t *AuditTask) *AuditTask {
-	cp := *t
-
-	return &cp
 }
 
 func cloneIoTCommandExecution(e *IoTCommandExecution) *IoTCommandExecution {
@@ -167,274 +195,57 @@ func copyNestedStringMap(m map[string]map[string]string) map[string]map[string]s
 	return cp
 }
 
-// applyExtSnapshot copies the five gopherstack-264 group snapshots onto snap.
-// Extracted from Snapshot() to keep it within the repo's funlen limit.
-func applyExtSnapshot(
-	snap *backendSnapshot,
-	thingRes thingResourceSnapshot,
-	prov provisioningSnapshot,
-	auditExtra auditExtraSnapshot,
-	misc resourceMiscSnapshot,
-	cfg configSnapshot,
-) {
-	snap.ThingTypes = thingRes.ThingTypes
-	snap.ThingGroups = thingRes.ThingGroups
-	snap.ThingGroupMembers = thingRes.ThingGroupMembers
-	snap.Certificates = thingRes.Certificates
-	snap.CertificateProviders = thingRes.CertificateProviders
-	snap.CACertificates = thingRes.CACertificates
-	snap.PolicyVersions = thingRes.PolicyVersions
-	snap.TopicRuleDestinations = thingRes.TopicRuleDestinations
-	snap.ResourceTags = thingRes.ResourceTags
-
-	snap.Jobs = prov.Jobs
-	snap.JobExecutions = prov.JobExecutions
-	snap.JobTemplates = prov.JobTemplates
-	snap.RoleAliases = prov.RoleAliases
-	snap.DomainConfigs = prov.DomainConfigs
-	snap.Authorizers = prov.Authorizers
-	snap.BillingGroups = prov.BillingGroups
-	snap.ProvTemplates = prov.ProvTemplates
-	snap.ProvTemplateVersions = prov.ProvTemplateVersions
-
-	snap.ScheduledAudits = auditExtra.ScheduledAudits
-	snap.MitigationActions = auditExtra.MitigationActions
-	snap.SecurityProfiles = auditExtra.SecurityProfiles
-	snap.AuditSuppressions = auditExtra.AuditSuppressions
-	snap.AuditFindings = auditExtra.AuditFindings
-	snap.AuditTaskObjects = auditExtra.AuditTaskObjects
-	snap.Dimensions = auditExtra.Dimensions
-
-	snap.Streams = misc.Streams
-	snap.OTAUpdates = misc.OTAUpdates
-	snap.IoTPackages = misc.IoTPackages
-	snap.PackageVersions2 = misc.PackageVersions2
-	snap.Commands = misc.Commands
-	snap.CommandExecutions = misc.CommandExecutions
-	snap.FleetMetrics = misc.FleetMetrics
-	snap.CustomMetrics = misc.CustomMetrics
-	snap.V2LoggingLevels = misc.V2LoggingLevels
-
-	snap.AuditConfiguration = cfg.AuditConfiguration
-	snap.PackageConfig = cfg.PackageConfig
-	snap.V2LoggingOptions = cfg.V2LoggingOptions
-	snap.LoggingOptions = cfg.LoggingOptions
-	snap.EventConfigurations = cfg.EventConfigurations
-	snap.RegistrationCode = cfg.RegistrationCode
-	snap.DefaultAuthorizer = cfg.DefaultAuthorizer
-}
-
-// extGroupsFromSnapshot extracts the five gopherstack-264 group snapshots
-// from a restored backendSnapshot. Extracted from Restore() to keep it
-// within the repo's funlen limit.
-func extGroupsFromSnapshot(
-	snap *backendSnapshot,
-) (thingResourceSnapshot, provisioningSnapshot, auditExtraSnapshot, resourceMiscSnapshot, configSnapshot) {
-	thingRes := thingResourceSnapshot{
-		ThingTypes:            snap.ThingTypes,
-		ThingGroups:           snap.ThingGroups,
-		ThingGroupMembers:     snap.ThingGroupMembers,
-		Certificates:          snap.Certificates,
-		CertificateProviders:  snap.CertificateProviders,
-		CACertificates:        snap.CACertificates,
-		PolicyVersions:        snap.PolicyVersions,
-		TopicRuleDestinations: snap.TopicRuleDestinations,
-		ResourceTags:          snap.ResourceTags,
-	}
-
-	prov := provisioningSnapshot{
-		Jobs:                 snap.Jobs,
-		JobExecutions:        snap.JobExecutions,
-		JobTemplates:         snap.JobTemplates,
-		RoleAliases:          snap.RoleAliases,
-		DomainConfigs:        snap.DomainConfigs,
-		Authorizers:          snap.Authorizers,
-		BillingGroups:        snap.BillingGroups,
-		ProvTemplates:        snap.ProvTemplates,
-		ProvTemplateVersions: snap.ProvTemplateVersions,
-	}
-
-	auditExtra := auditExtraSnapshot{
-		ScheduledAudits:   snap.ScheduledAudits,
-		MitigationActions: snap.MitigationActions,
-		SecurityProfiles:  snap.SecurityProfiles,
-		AuditSuppressions: snap.AuditSuppressions,
-		AuditFindings:     snap.AuditFindings,
-		AuditTaskObjects:  snap.AuditTaskObjects,
-		Dimensions:        snap.Dimensions,
-	}
-
-	misc := resourceMiscSnapshot{
-		Streams:           snap.Streams,
-		OTAUpdates:        snap.OTAUpdates,
-		IoTPackages:       snap.IoTPackages,
-		PackageVersions2:  snap.PackageVersions2,
-		Commands:          snap.Commands,
-		CommandExecutions: snap.CommandExecutions,
-		FleetMetrics:      snap.FleetMetrics,
-		CustomMetrics:     snap.CustomMetrics,
-		V2LoggingLevels:   snap.V2LoggingLevels,
-	}
-
-	cfg := configSnapshot{
-		AuditConfiguration:  snap.AuditConfiguration,
-		PackageConfig:       snap.PackageConfig,
-		V2LoggingOptions:    snap.V2LoggingOptions,
-		LoggingOptions:      snap.LoggingOptions,
-		EventConfigurations: snap.EventConfigurations,
-		RegistrationCode:    snap.RegistrationCode,
-		DefaultAuthorizer:   snap.DefaultAuthorizer,
-	}
-
-	return thingRes, prov, auditExtra, misc, cfg
-}
-
 // ---------------------------------------------------------------------------
-// Group 1: Things, groups, and certificates.
+// Group 1: Raw thing/group/certificate-family state (everything in this
+// family that is *T-valued now lives in a store.Table on b.registry instead).
 // ---------------------------------------------------------------------------
 
-// thingResourceSnapshot bundles ThingType/ThingGroup/Certificate-family
-// fields of backendSnapshot so Snapshot/Restore can delegate to a single
-// helper each, keeping their own cyclomatic complexity low.
+// thingResourceSnapshot bundles the raw (non-Table) ThingGroup/Certificate
+// -family fields of backendSnapshot so Snapshot/Restore can delegate to a
+// single helper each, keeping their own cyclomatic complexity low.
 type thingResourceSnapshot struct {
-	ThingTypes            map[string]*ThingType
-	ThingGroups           map[string]*ThingGroup
-	ThingGroupMembers     map[string][]string
-	Certificates          map[string]*Certificate
-	CertificateProviders  map[string]*CertificateProvider
-	CACertificates        map[string]*CACertificate
-	PolicyVersions        map[string][]*PolicyVersion
-	TopicRuleDestinations map[string]*topicRuleDestSnap
-	ResourceTags          map[string]map[string]string
+	ThingGroupMembers map[string][]string
+	PolicyVersions    map[string][]*PolicyVersion
+	ResourceTags      map[string]map[string]string
 }
 
-// snapshotThingResources deep-copies all thing/group/certificate state. Must
-// be called with b.mu held (read or write).
+// snapshotThingResources deep-copies the raw thing/group/certificate state.
+// Must be called with b.mu held (read or write).
 func (b *InMemoryBackend) snapshotThingResources() thingResourceSnapshot {
-	thingTypes := make(map[string]*ThingType, len(b.thingTypes))
-	for k, v := range b.thingTypes {
-		thingTypes[k] = cloneThingType(v)
-	}
-
-	thingGroups := make(map[string]*ThingGroup, len(b.thingGroups))
-	for k, v := range b.thingGroups {
-		thingGroups[k] = cloneThingGroup(v)
-	}
-
-	certificates := make(map[string]*Certificate, len(b.certificates))
-	for k, v := range b.certificates {
-		certificates[k] = cloneCertificate(v)
-	}
-
-	certProviders := make(map[string]*CertificateProvider, len(b.certificateProviders))
-	for k, v := range b.certificateProviders {
-		certProviders[k] = cloneCertificateProvider(v)
-	}
-
-	caCerts := make(map[string]*CACertificate, len(b.caCertificates))
-	for k, v := range b.caCertificates {
-		caCerts[k] = cloneCACert(v)
-	}
-
 	policyVersions := make(map[string][]*PolicyVersion, len(b.policyVersions))
 	for k, v := range b.policyVersions {
 		policyVersions[k] = clonePolicyVersions(v)
 	}
 
-	destinations := make(map[string]*topicRuleDestSnap, len(b.topicRuleDestinations))
-	for k, v := range b.topicRuleDestinations {
-		destinations[k] = toTopicRuleDestSnap(v)
-	}
-
 	return thingResourceSnapshot{
-		ThingTypes:            thingTypes,
-		ThingGroups:           thingGroups,
-		ThingGroupMembers:     copyStringSliceMap(b.thingGroupMembers),
-		Certificates:          certificates,
-		CertificateProviders:  certProviders,
-		CACertificates:        caCerts,
-		PolicyVersions:        policyVersions,
-		TopicRuleDestinations: destinations,
-		ResourceTags:          copyNestedStringMap(b.resourceTags),
+		ThingGroupMembers: copyStringSliceMap(b.thingGroupMembers),
+		PolicyVersions:    policyVersions,
+		ResourceTags:      copyNestedStringMap(b.resourceTags),
 	}
 }
 
-// restoreThingResources restores thing/group/certificate state from a
-// snapshot. Must be called with b.mu held (write).
+// restoreThingResources restores the raw thing/group/certificate state from
+// a snapshot. Must be called with b.mu held (write).
 func (b *InMemoryBackend) restoreThingResources(snap thingResourceSnapshot) {
-	b.thingTypes = make(map[string]*ThingType, len(snap.ThingTypes))
-	for k, v := range snap.ThingTypes {
-		b.thingTypes[k] = cloneThingType(v)
-	}
-
-	b.thingGroups = make(map[string]*ThingGroup, len(snap.ThingGroups))
-	for k, v := range snap.ThingGroups {
-		b.thingGroups[k] = cloneThingGroup(v)
-	}
-
 	b.thingGroupMembers = copyStringSliceMap(snap.ThingGroupMembers)
-
-	b.certificates = make(map[string]*Certificate, len(snap.Certificates))
-	for k, v := range snap.Certificates {
-		b.certificates[k] = cloneCertificate(v)
-	}
-
-	b.certificateProviders = make(map[string]*CertificateProvider, len(snap.CertificateProviders))
-	for k, v := range snap.CertificateProviders {
-		b.certificateProviders[k] = cloneCertificateProvider(v)
-	}
-
-	b.caCertificates = make(map[string]*CACertificate, len(snap.CACertificates))
-	for k, v := range snap.CACertificates {
-		b.caCertificates[k] = cloneCACert(v)
-	}
 
 	b.policyVersions = make(map[string][]*PolicyVersion, len(snap.PolicyVersions))
 	for k, v := range snap.PolicyVersions {
 		b.policyVersions[k] = clonePolicyVersions(v)
 	}
 
-	b.topicRuleDestinations = make(map[string]*TopicRuleDestination, len(snap.TopicRuleDestinations))
-	for k, v := range snap.TopicRuleDestinations {
-		b.topicRuleDestinations[k] = fromTopicRuleDestSnap(v)
-	}
-
 	b.resourceTags = copyNestedStringMap(snap.ResourceTags)
 }
 
 // ensureNonNilThingResourceSnap defaults nil maps in a restored snapshot's
-// thing/group/certificate fields to empty maps.
+// raw thing/group/certificate fields to empty maps.
 func ensureNonNilThingResourceSnap(snap *backendSnapshot) {
-	if snap.ThingTypes == nil {
-		snap.ThingTypes = make(map[string]*ThingType)
-	}
-
-	if snap.ThingGroups == nil {
-		snap.ThingGroups = make(map[string]*ThingGroup)
-	}
-
 	if snap.ThingGroupMembers == nil {
 		snap.ThingGroupMembers = make(map[string][]string)
 	}
 
-	if snap.Certificates == nil {
-		snap.Certificates = make(map[string]*Certificate)
-	}
-
-	if snap.CertificateProviders == nil {
-		snap.CertificateProviders = make(map[string]*CertificateProvider)
-	}
-
-	if snap.CACertificates == nil {
-		snap.CACertificates = make(map[string]*CACertificate)
-	}
-
 	if snap.PolicyVersions == nil {
 		snap.PolicyVersions = make(map[string][]*PolicyVersion)
-	}
-
-	if snap.TopicRuleDestinations == nil {
-		snap.TopicRuleDestinations = make(map[string]*topicRuleDestSnap)
 	}
 
 	if snap.ResourceTags == nil {
@@ -443,349 +254,71 @@ func ensureNonNilThingResourceSnap(snap *backendSnapshot) {
 }
 
 // ---------------------------------------------------------------------------
-// Group 2: Jobs and provisioning resources.
+// Group 2: Raw provisioning-template state (Job/JobTemplate/RoleAlias/
+// DomainConfiguration/Authorizer/BillingGroup/ProvisioningTemplate are now
+// store.Table[T]s; only the slice-valued ProvTemplateVersions stays raw).
 // ---------------------------------------------------------------------------
 
-// provisioningSnapshot bundles Job/JobTemplate/RoleAlias/DomainConfiguration/
-// Authorizer/BillingGroup/ProvisioningTemplate-family fields of
-// backendSnapshot so Snapshot/Restore can delegate to a single helper each.
+// provisioningSnapshot bundles the raw (non-Table) provisioning-template
+// field of backendSnapshot.
 type provisioningSnapshot struct {
-	Jobs                 map[string]*Job
-	JobExecutions        map[string]*JobExecution
-	JobTemplates         map[string]*JobTemplate
-	RoleAliases          map[string]*RoleAlias
-	DomainConfigs        map[string]*DomainConfiguration
-	Authorizers          map[string]*Authorizer
-	BillingGroups        map[string]*BillingGroup
-	ProvTemplates        map[string]*ProvisioningTemplate
 	ProvTemplateVersions map[string][]*ProvisioningTemplateVersion
 }
 
-// snapshotProvisioning deep-copies all job/provisioning state. Must be
-// called with b.mu held (read or write).
+// snapshotProvisioning deep-copies the raw provisioning-template state. Must
+// be called with b.mu held (read or write).
 func (b *InMemoryBackend) snapshotProvisioning() provisioningSnapshot {
-	jobs := make(map[string]*Job, len(b.jobs))
-	for k, v := range b.jobs {
-		jobs[k] = cloneJob(v)
-	}
-
-	jobExecutions := make(map[string]*JobExecution, len(b.jobExecutions))
-	for k, v := range b.jobExecutions {
-		jobExecutions[k] = cloneJobExecution(v)
-	}
-
-	jobTemplates := make(map[string]*JobTemplate, len(b.jobTemplates))
-	for k, v := range b.jobTemplates {
-		jobTemplates[k] = cloneJobTemplate(v)
-	}
-
-	roleAliases := make(map[string]*RoleAlias, len(b.roleAliases))
-	for k, v := range b.roleAliases {
-		roleAliases[k] = cloneRoleAlias(v)
-	}
-
-	domainConfigs := make(map[string]*DomainConfiguration, len(b.domainConfigs))
-	for k, v := range b.domainConfigs {
-		domainConfigs[k] = cloneDomainConfig(v)
-	}
-
-	authorizers := make(map[string]*Authorizer, len(b.authorizers))
-	for k, v := range b.authorizers {
-		authorizers[k] = cloneAuthorizer(v)
-	}
-
-	billingGroups := make(map[string]*BillingGroup, len(b.billingGroups))
-	for k, v := range b.billingGroups {
-		billingGroups[k] = cloneBillingGroup(v)
-	}
-
-	provTemplates := make(map[string]*ProvisioningTemplate, len(b.provTemplates))
-	for k, v := range b.provTemplates {
-		provTemplates[k] = cloneProvTemplate(v)
-	}
-
 	provTemplateVersions := make(map[string][]*ProvisioningTemplateVersion, len(b.provTemplateVersions))
 	for k, v := range b.provTemplateVersions {
 		provTemplateVersions[k] = cloneProvTemplateVersions(v)
 	}
 
 	return provisioningSnapshot{
-		Jobs:                 jobs,
-		JobExecutions:        jobExecutions,
-		JobTemplates:         jobTemplates,
-		RoleAliases:          roleAliases,
-		DomainConfigs:        domainConfigs,
-		Authorizers:          authorizers,
-		BillingGroups:        billingGroups,
-		ProvTemplates:        provTemplates,
 		ProvTemplateVersions: provTemplateVersions,
 	}
 }
 
-// restoreProvisioning restores job/provisioning state from a snapshot. Must
-// be called with b.mu held (write).
+// restoreProvisioning restores the raw provisioning-template state from a
+// snapshot. Must be called with b.mu held (write).
 func (b *InMemoryBackend) restoreProvisioning(snap provisioningSnapshot) {
-	b.jobs = make(map[string]*Job, len(snap.Jobs))
-	for k, v := range snap.Jobs {
-		b.jobs[k] = cloneJob(v)
-	}
-
-	b.jobExecutions = make(map[string]*JobExecution, len(snap.JobExecutions))
-	for k, v := range snap.JobExecutions {
-		b.jobExecutions[k] = cloneJobExecution(v)
-	}
-
-	b.jobTemplates = make(map[string]*JobTemplate, len(snap.JobTemplates))
-	for k, v := range snap.JobTemplates {
-		b.jobTemplates[k] = cloneJobTemplate(v)
-	}
-
-	b.roleAliases = make(map[string]*RoleAlias, len(snap.RoleAliases))
-	for k, v := range snap.RoleAliases {
-		b.roleAliases[k] = cloneRoleAlias(v)
-	}
-
-	b.domainConfigs = make(map[string]*DomainConfiguration, len(snap.DomainConfigs))
-	for k, v := range snap.DomainConfigs {
-		b.domainConfigs[k] = cloneDomainConfig(v)
-	}
-
-	b.authorizers = make(map[string]*Authorizer, len(snap.Authorizers))
-	for k, v := range snap.Authorizers {
-		b.authorizers[k] = cloneAuthorizer(v)
-	}
-
-	b.billingGroups = make(map[string]*BillingGroup, len(snap.BillingGroups))
-	for k, v := range snap.BillingGroups {
-		b.billingGroups[k] = cloneBillingGroup(v)
-	}
-
-	b.provTemplates = make(map[string]*ProvisioningTemplate, len(snap.ProvTemplates))
-	for k, v := range snap.ProvTemplates {
-		b.provTemplates[k] = cloneProvTemplate(v)
-	}
-
 	b.provTemplateVersions = make(map[string][]*ProvisioningTemplateVersion, len(snap.ProvTemplateVersions))
 	for k, v := range snap.ProvTemplateVersions {
 		b.provTemplateVersions[k] = cloneProvTemplateVersions(v)
 	}
 }
 
-// ensureNonNilProvisioningSnap defaults nil maps in a restored snapshot's
-// job/provisioning fields to empty maps.
+// ensureNonNilProvisioningSnap defaults nil maps in a restored snapshot's raw
+// provisioning-template field to an empty map.
 func ensureNonNilProvisioningSnap(snap *backendSnapshot) {
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*Job)
-	}
-
-	if snap.JobExecutions == nil {
-		snap.JobExecutions = make(map[string]*JobExecution)
-	}
-
-	if snap.JobTemplates == nil {
-		snap.JobTemplates = make(map[string]*JobTemplate)
-	}
-
-	if snap.RoleAliases == nil {
-		snap.RoleAliases = make(map[string]*RoleAlias)
-	}
-
-	if snap.DomainConfigs == nil {
-		snap.DomainConfigs = make(map[string]*DomainConfiguration)
-	}
-
-	if snap.Authorizers == nil {
-		snap.Authorizers = make(map[string]*Authorizer)
-	}
-
-	if snap.BillingGroups == nil {
-		snap.BillingGroups = make(map[string]*BillingGroup)
-	}
-
-	if snap.ProvTemplates == nil {
-		snap.ProvTemplates = make(map[string]*ProvisioningTemplate)
-	}
-
 	if snap.ProvTemplateVersions == nil {
 		snap.ProvTemplateVersions = make(map[string][]*ProvisioningTemplateVersion)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Group 3: Audit-related resources not already covered by
-// deviceDefenderSnapshot.
+// Group 3 (audit-extra) is gone: ScheduledAudit, MitigationAction,
+// SecurityProfile, AuditSuppression, AuditFinding, AuditTask, and Dimension
+// were its only fields and all moved to store.Table[T]s on b.registry (see
+// store_setup.go), so nothing raw remains in this family.
 // ---------------------------------------------------------------------------
 
-// auditExtraSnapshot bundles ScheduledAudit/MitigationAction/SecurityProfile/
-// AuditSuppression/AuditFinding/AuditTask/Dimension fields of
-// backendSnapshot so Snapshot/Restore can delegate to a single helper each.
-type auditExtraSnapshot struct {
-	ScheduledAudits   map[string]*ScheduledAudit
-	MitigationActions map[string]*MitigationAction
-	SecurityProfiles  map[string]*SecurityProfile
-	AuditSuppressions map[string]*AuditSuppression
-	AuditFindings     map[string]*AuditFinding
-	AuditTaskObjects  map[string]*AuditTask
-	Dimensions        map[string]*Dimension
-}
-
-// snapshotAuditExtra deep-copies the remaining audit-related state. Must be
-// called with b.mu held (read or write).
-func (b *InMemoryBackend) snapshotAuditExtra() auditExtraSnapshot {
-	scheduledAudits := make(map[string]*ScheduledAudit, len(b.scheduledAudits))
-	for k, v := range b.scheduledAudits {
-		scheduledAudits[k] = cloneScheduledAudit(v)
-	}
-
-	mitigationActions := make(map[string]*MitigationAction, len(b.mitigationActions))
-	for k, v := range b.mitigationActions {
-		mitigationActions[k] = cloneMitigationAction(v)
-	}
-
-	securityProfiles := make(map[string]*SecurityProfile, len(b.securityProfiles))
-	for k, v := range b.securityProfiles {
-		securityProfiles[k] = cloneSecurityProfile(v)
-	}
-
-	auditSuppressions := make(map[string]*AuditSuppression, len(b.auditSuppressions))
-	for k, v := range b.auditSuppressions {
-		auditSuppressions[k] = cloneAuditSuppression(v)
-	}
-
-	auditFindings := make(map[string]*AuditFinding, len(b.auditFindings))
-	for k, v := range b.auditFindings {
-		auditFindings[k] = cloneAuditFinding(v)
-	}
-
-	auditTaskObjects := make(map[string]*AuditTask, len(b.auditTaskObjects))
-	for k, v := range b.auditTaskObjects {
-		auditTaskObjects[k] = cloneAuditTaskObj(v)
-	}
-
-	dimensions := make(map[string]*Dimension, len(b.dimensions))
-	for k, v := range b.dimensions {
-		dimensions[k] = cloneDimension(v)
-	}
-
-	return auditExtraSnapshot{
-		ScheduledAudits:   scheduledAudits,
-		MitigationActions: mitigationActions,
-		SecurityProfiles:  securityProfiles,
-		AuditSuppressions: auditSuppressions,
-		AuditFindings:     auditFindings,
-		AuditTaskObjects:  auditTaskObjects,
-		Dimensions:        dimensions,
-	}
-}
-
-// restoreAuditExtra restores the remaining audit-related state from a
-// snapshot. Must be called with b.mu held (write).
-func (b *InMemoryBackend) restoreAuditExtra(snap auditExtraSnapshot) {
-	b.scheduledAudits = make(map[string]*ScheduledAudit, len(snap.ScheduledAudits))
-	for k, v := range snap.ScheduledAudits {
-		b.scheduledAudits[k] = cloneScheduledAudit(v)
-	}
-
-	b.mitigationActions = make(map[string]*MitigationAction, len(snap.MitigationActions))
-	for k, v := range snap.MitigationActions {
-		b.mitigationActions[k] = cloneMitigationAction(v)
-	}
-
-	b.securityProfiles = make(map[string]*SecurityProfile, len(snap.SecurityProfiles))
-	for k, v := range snap.SecurityProfiles {
-		b.securityProfiles[k] = cloneSecurityProfile(v)
-	}
-
-	b.auditSuppressions = make(map[string]*AuditSuppression, len(snap.AuditSuppressions))
-	for k, v := range snap.AuditSuppressions {
-		b.auditSuppressions[k] = cloneAuditSuppression(v)
-	}
-
-	b.auditFindings = make(map[string]*AuditFinding, len(snap.AuditFindings))
-	for k, v := range snap.AuditFindings {
-		b.auditFindings[k] = cloneAuditFinding(v)
-	}
-
-	b.auditTaskObjects = make(map[string]*AuditTask, len(snap.AuditTaskObjects))
-	for k, v := range snap.AuditTaskObjects {
-		b.auditTaskObjects[k] = cloneAuditTaskObj(v)
-	}
-
-	b.dimensions = make(map[string]*Dimension, len(snap.Dimensions))
-	for k, v := range snap.Dimensions {
-		b.dimensions[k] = cloneDimension(v)
-	}
-}
-
-// ensureNonNilAuditExtraSnap defaults nil maps in a restored snapshot's
-// remaining audit-related fields to empty maps.
-func ensureNonNilAuditExtraSnap(snap *backendSnapshot) {
-	if snap.ScheduledAudits == nil {
-		snap.ScheduledAudits = make(map[string]*ScheduledAudit)
-	}
-
-	if snap.MitigationActions == nil {
-		snap.MitigationActions = make(map[string]*MitigationAction)
-	}
-
-	if snap.SecurityProfiles == nil {
-		snap.SecurityProfiles = make(map[string]*SecurityProfile)
-	}
-
-	if snap.AuditSuppressions == nil {
-		snap.AuditSuppressions = make(map[string]*AuditSuppression)
-	}
-
-	if snap.AuditFindings == nil {
-		snap.AuditFindings = make(map[string]*AuditFinding)
-	}
-
-	if snap.AuditTaskObjects == nil {
-		snap.AuditTaskObjects = make(map[string]*AuditTask)
-	}
-
-	if snap.Dimensions == nil {
-		snap.Dimensions = make(map[string]*Dimension)
-	}
-}
-
 // ---------------------------------------------------------------------------
-// Group 4: Streams, packages, commands, and metrics.
+// Group 4: Raw stream/package/command/metric state (Stream, OTAUpdate,
+// IoTPackage, Command, FleetMetric, CustomMetric, and V2LoggingLevel are now
+// store.Table[T]s; the nested PackageVersions2 map and the commandExecutions
+// map -- whose key isn't recoverable from its value -- stay raw).
 // ---------------------------------------------------------------------------
 
-// resourceMiscSnapshot bundles Stream/OTAUpdate/IoTPackage(Version)/Command
-// (Execution)/FleetMetric/CustomMetric/V2LoggingLevel fields of
-// backendSnapshot so Snapshot/Restore can delegate to a single helper each.
+// resourceMiscSnapshot bundles the raw (non-Table) stream/package/command
+// /metric fields of backendSnapshot.
 type resourceMiscSnapshot struct {
-	Streams           map[string]*IoTStream
-	OTAUpdates        map[string]*OTAUpdate
-	IoTPackages       map[string]*IoTPackage
 	PackageVersions2  map[string]map[string]*IoTPackageVersion
-	Commands          map[string]*IoTCommand
 	CommandExecutions map[string]*IoTCommandExecution
-	FleetMetrics      map[string]*FleetMetric
-	CustomMetrics     map[string]*CustomMetric
-	V2LoggingLevels   map[string]*V2LoggingLevel
 }
 
-// snapshotResourceMisc deep-copies stream/package/command/metric state. Must
-// be called with b.mu held (read or write).
+// snapshotResourceMisc deep-copies the raw stream/package/command/metric
+// state. Must be called with b.mu held (read or write).
 func (b *InMemoryBackend) snapshotResourceMisc() resourceMiscSnapshot {
-	streams := make(map[string]*IoTStream, len(b.streams))
-	for k, v := range b.streams {
-		streams[k] = cloneStream(v)
-	}
-
-	otaUpdates := make(map[string]*OTAUpdate, len(b.otaUpdates))
-	for k, v := range b.otaUpdates {
-		otaUpdates[k] = cloneOTAUpdate(v)
-	}
-
-	iotPackages := make(map[string]*IoTPackage, len(b.iotPackages))
-	for k, v := range b.iotPackages {
-		iotPackages[k] = cloneIoTPackage(v)
-	}
-
 	packageVersions2 := make(map[string]map[string]*IoTPackageVersion, len(b.packageVersions2))
 	for pkg, versions := range b.packageVersions2 {
 		cp := make(map[string]*IoTPackageVersion, len(versions))
@@ -795,62 +328,20 @@ func (b *InMemoryBackend) snapshotResourceMisc() resourceMiscSnapshot {
 		packageVersions2[pkg] = cp
 	}
 
-	commands := make(map[string]*IoTCommand, len(b.commands))
-	for k, v := range b.commands {
-		commands[k] = cloneIoTCommand(v)
-	}
-
 	commandExecutions := make(map[string]*IoTCommandExecution, len(b.commandExecutions))
 	for k, v := range b.commandExecutions {
 		commandExecutions[k] = cloneIoTCommandExecution(v)
 	}
 
-	fleetMetrics := make(map[string]*FleetMetric, len(b.fleetMetrics))
-	for k, v := range b.fleetMetrics {
-		fleetMetrics[k] = cloneFleetMetric(v)
-	}
-
-	customMetrics := make(map[string]*CustomMetric, len(b.customMetrics))
-	for k, v := range b.customMetrics {
-		customMetrics[k] = cloneCustomMetric(v)
-	}
-
-	v2LoggingLevels := make(map[string]*V2LoggingLevel, len(b.v2LoggingLevels))
-	for k, v := range b.v2LoggingLevels {
-		v2LoggingLevels[k] = cloneV2LogLevel(v)
-	}
-
 	return resourceMiscSnapshot{
-		Streams:           streams,
-		OTAUpdates:        otaUpdates,
-		IoTPackages:       iotPackages,
 		PackageVersions2:  packageVersions2,
-		Commands:          commands,
 		CommandExecutions: commandExecutions,
-		FleetMetrics:      fleetMetrics,
-		CustomMetrics:     customMetrics,
-		V2LoggingLevels:   v2LoggingLevels,
 	}
 }
 
-// restoreResourceMisc restores stream/package/command/metric state from a
-// snapshot. Must be called with b.mu held (write).
+// restoreResourceMisc restores the raw stream/package/command/metric state
+// from a snapshot. Must be called with b.mu held (write).
 func (b *InMemoryBackend) restoreResourceMisc(snap resourceMiscSnapshot) {
-	b.streams = make(map[string]*IoTStream, len(snap.Streams))
-	for k, v := range snap.Streams {
-		b.streams[k] = cloneStream(v)
-	}
-
-	b.otaUpdates = make(map[string]*OTAUpdate, len(snap.OTAUpdates))
-	for k, v := range snap.OTAUpdates {
-		b.otaUpdates[k] = cloneOTAUpdate(v)
-	}
-
-	b.iotPackages = make(map[string]*IoTPackage, len(snap.IoTPackages))
-	for k, v := range snap.IoTPackages {
-		b.iotPackages[k] = cloneIoTPackage(v)
-	}
-
 	b.packageVersions2 = make(map[string]map[string]*IoTPackageVersion, len(snap.PackageVersions2))
 	for pkg, versions := range snap.PackageVersions2 {
 		cp := make(map[string]*IoTPackageVersion, len(versions))
@@ -860,69 +351,21 @@ func (b *InMemoryBackend) restoreResourceMisc(snap resourceMiscSnapshot) {
 		b.packageVersions2[pkg] = cp
 	}
 
-	b.commands = make(map[string]*IoTCommand, len(snap.Commands))
-	for k, v := range snap.Commands {
-		b.commands[k] = cloneIoTCommand(v)
-	}
-
 	b.commandExecutions = make(map[string]*IoTCommandExecution, len(snap.CommandExecutions))
 	for k, v := range snap.CommandExecutions {
 		b.commandExecutions[k] = cloneIoTCommandExecution(v)
 	}
-
-	b.fleetMetrics = make(map[string]*FleetMetric, len(snap.FleetMetrics))
-	for k, v := range snap.FleetMetrics {
-		b.fleetMetrics[k] = cloneFleetMetric(v)
-	}
-
-	b.customMetrics = make(map[string]*CustomMetric, len(snap.CustomMetrics))
-	for k, v := range snap.CustomMetrics {
-		b.customMetrics[k] = cloneCustomMetric(v)
-	}
-
-	b.v2LoggingLevels = make(map[string]*V2LoggingLevel, len(snap.V2LoggingLevels))
-	for k, v := range snap.V2LoggingLevels {
-		b.v2LoggingLevels[k] = cloneV2LogLevel(v)
-	}
 }
 
-// ensureNonNilResourceMiscSnap defaults nil maps in a restored snapshot's
+// ensureNonNilResourceMiscSnap defaults nil maps in a restored snapshot's raw
 // stream/package/command/metric fields to empty maps.
 func ensureNonNilResourceMiscSnap(snap *backendSnapshot) {
-	if snap.Streams == nil {
-		snap.Streams = make(map[string]*IoTStream)
-	}
-
-	if snap.OTAUpdates == nil {
-		snap.OTAUpdates = make(map[string]*OTAUpdate)
-	}
-
-	if snap.IoTPackages == nil {
-		snap.IoTPackages = make(map[string]*IoTPackage)
-	}
-
 	if snap.PackageVersions2 == nil {
 		snap.PackageVersions2 = make(map[string]map[string]*IoTPackageVersion)
 	}
 
-	if snap.Commands == nil {
-		snap.Commands = make(map[string]*IoTCommand)
-	}
-
 	if snap.CommandExecutions == nil {
 		snap.CommandExecutions = make(map[string]*IoTCommandExecution)
-	}
-
-	if snap.FleetMetrics == nil {
-		snap.FleetMetrics = make(map[string]*FleetMetric)
-	}
-
-	if snap.CustomMetrics == nil {
-		snap.CustomMetrics = make(map[string]*CustomMetric)
-	}
-
-	if snap.V2LoggingLevels == nil {
-		snap.V2LoggingLevels = make(map[string]*V2LoggingLevel)
 	}
 }
 

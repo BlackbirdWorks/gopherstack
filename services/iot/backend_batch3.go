@@ -51,7 +51,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.otaUpdates[id]; exists {
+	if b.otaUpdates.Has(id) {
 		return nil, fmt.Errorf("OTA update %q already exists: %w", id, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
-	b.otaUpdates[id] = o
+	b.otaUpdates.Put(o)
 
 	return cloneOTAUpdate(o), nil
 }
@@ -75,7 +75,7 @@ func (b *InMemoryBackend) GetOTAUpdate(id string) (*OTAUpdate, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	o, ok := b.otaUpdates[id]
+	o, ok := b.otaUpdates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("OTA update %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -87,10 +87,10 @@ func (b *InMemoryBackend) DeleteOTAUpdate(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.otaUpdates[id]; !ok {
+	if !b.otaUpdates.Has(id) {
 		return fmt.Errorf("OTA update %q not found: %w", id, ErrResourceNotFound)
 	}
-	delete(b.otaUpdates, id)
+	b.otaUpdates.Delete(id)
 
 	return nil
 }
@@ -99,10 +99,10 @@ func (b *InMemoryBackend) ListOTAUpdates() []*OTAUpdate {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.otaUpdates)
-	out := make([]*OTAUpdate, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, cloneOTAUpdate(b.otaUpdates[k]))
+	items := b.otaUpdates.Snapshot()
+	out := make([]*OTAUpdate, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneOTAUpdate(v))
 	}
 
 	return out
@@ -141,7 +141,7 @@ func (b *InMemoryBackend) CreateIoTPackage(name, description string, tags map[st
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.iotPackages[name]; exists {
+	if b.iotPackages.Has(name) {
 		return nil, fmt.Errorf("package %q already exists: %w", name, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) CreateIoTPackage(name, description string, tags map[st
 		LastModifiedDate: now,
 	}
 	maps.Copy(p.Tags, tags)
-	b.iotPackages[name] = p
+	b.iotPackages.Put(p)
 
 	return cloneIoTPackage(p), nil
 }
@@ -163,7 +163,7 @@ func (b *InMemoryBackend) GetIoTPackage(name string) (*IoTPackage, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	p, ok := b.iotPackages[name]
+	p, ok := b.iotPackages.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("package %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) UpdateIoTPackage(name, description, defaultVersionName
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	p, ok := b.iotPackages[name]
+	p, ok := b.iotPackages.Get(name)
 	if !ok {
 		return fmt.Errorf("package %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -194,10 +194,10 @@ func (b *InMemoryBackend) DeleteIoTPackage(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.iotPackages[name]; !ok {
+	if !b.iotPackages.Has(name) {
 		return fmt.Errorf("package %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.iotPackages, name)
+	b.iotPackages.Delete(name)
 
 	return nil
 }
@@ -206,10 +206,10 @@ func (b *InMemoryBackend) ListIoTPackages() []*IoTPackage {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.iotPackages)
-	out := make([]*IoTPackage, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, cloneIoTPackage(b.iotPackages[k]))
+	items := b.iotPackages.Snapshot()
+	out := make([]*IoTPackage, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneIoTPackage(v))
 	}
 
 	return out
@@ -425,18 +425,18 @@ func (b *InMemoryBackend) CreateAuditSuppression(
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
-	if _, exists := b.auditSuppressions[key]; exists {
+	if b.auditSuppressions.Has(key) {
 		return fmt.Errorf("audit suppression %q already exists: %w", key, ErrAlreadyExists)
 	}
 	rid := make(map[string]any, len(resourceID))
 	maps.Copy(rid, resourceID)
-	b.auditSuppressions[key] = &AuditSuppression{
+	b.auditSuppressions.Put(&AuditSuppression{
 		CheckName:            checkName,
 		ResourceIdentifier:   rid,
 		Description:          description,
 		SuppressIndefinitely: suppressIndefinitely,
 		ExpirationDate:       expirationDate,
-	}
+	})
 
 	return nil
 }
@@ -449,7 +449,7 @@ func (b *InMemoryBackend) DescribeAuditSuppression(
 	defer b.mu.RUnlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
-	s, ok := b.auditSuppressions[key]
+	s, ok := b.auditSuppressions.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
 	}
@@ -468,7 +468,7 @@ func (b *InMemoryBackend) UpdateAuditSuppression(
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
-	s, ok := b.auditSuppressions[key]
+	s, ok := b.auditSuppressions.Get(key)
 	if !ok {
 		return fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
 	}
@@ -488,10 +488,10 @@ func (b *InMemoryBackend) DeleteAuditSuppression(checkName string, resourceID ma
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
-	if _, ok := b.auditSuppressions[key]; !ok {
+	if !b.auditSuppressions.Has(key) {
 		return fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
 	}
-	delete(b.auditSuppressions, key)
+	b.auditSuppressions.Delete(key)
 
 	return nil
 }
@@ -500,10 +500,10 @@ func (b *InMemoryBackend) ListAuditSuppressions() []*AuditSuppression {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.auditSuppressions)
-	out := make([]*AuditSuppression, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, cloneAuditSuppression(b.auditSuppressions[k]))
+	items := b.auditSuppressions.Snapshot()
+	out := make([]*AuditSuppression, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneAuditSuppression(v))
 	}
 
 	return out
@@ -553,7 +553,7 @@ func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
 		stored.FindingTime = float64(time.Now().Unix())
 	}
 
-	b.auditFindings[stored.FindingID] = stored
+	b.auditFindings.Put(stored)
 
 	return cloneAuditFinding(stored)
 }
@@ -562,7 +562,7 @@ func (b *InMemoryBackend) DescribeAuditFinding(findingID string) (*AuditFinding,
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	f, ok := b.auditFindings[findingID]
+	f, ok := b.auditFindings.Get(findingID)
 	if !ok {
 		return nil, fmt.Errorf("audit finding %q not found: %w", findingID, ErrResourceNotFound)
 	}
@@ -574,10 +574,10 @@ func (b *InMemoryBackend) ListAuditFindings() []*AuditFinding {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.auditFindings)
-	out := make([]*AuditFinding, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, cloneAuditFinding(b.auditFindings[k]))
+	items := b.auditFindings.Snapshot()
+	out := make([]*AuditFinding, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneAuditFinding(v))
 	}
 
 	return out
@@ -589,7 +589,7 @@ func (b *InMemoryBackend) ListRelatedResourcesForAuditFinding(findingID string) 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	f, ok := b.auditFindings[findingID]
+	f, ok := b.auditFindings.Get(findingID)
 	if !ok {
 		return nil, fmt.Errorf("audit finding %q not found: %w", findingID, ErrResourceNotFound)
 	}
@@ -661,10 +661,9 @@ func (b *InMemoryBackend) SetV2LoggingLevel(target map[string]any, logLevel stri
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := v2LogLevelKey(target)
 	tgt := make(map[string]any, len(target))
 	maps.Copy(tgt, target)
-	b.v2LoggingLevels[key] = &V2LoggingLevel{Target: tgt, LogLevel: logLevel}
+	b.v2LoggingLevels.Put(&V2LoggingLevel{Target: tgt, LogLevel: logLevel})
 
 	return nil
 }
@@ -674,10 +673,10 @@ func (b *InMemoryBackend) DeleteV2LoggingLevel(target map[string]any) error {
 	defer b.mu.Unlock()
 
 	key := v2LogLevelKey(target)
-	if _, ok := b.v2LoggingLevels[key]; !ok {
+	if !b.v2LoggingLevels.Has(key) {
 		return fmt.Errorf("V2 logging level %q not found: %w", key, ErrResourceNotFound)
 	}
-	delete(b.v2LoggingLevels, key)
+	b.v2LoggingLevels.Delete(key)
 
 	return nil
 }
@@ -686,10 +685,10 @@ func (b *InMemoryBackend) ListV2LoggingLevels() []*V2LoggingLevel {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.v2LoggingLevels)
-	out := make([]*V2LoggingLevel, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, cloneV2LogLevel(b.v2LoggingLevels[k]))
+	items := b.v2LoggingLevels.Snapshot()
+	out := make([]*V2LoggingLevel, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneV2LogLevel(v))
 	}
 
 	return out
@@ -733,7 +732,7 @@ func (b *InMemoryBackend) SetLoggingOptions(roleARN, logLevel string) error {
 // CreateProvisioningClaim returns a fake cert/key pair for the given template.
 func (b *InMemoryBackend) CreateProvisioningClaim(templateName string) (string, string, string, error) {
 	b.mu.RLock()
-	_, ok := b.provTemplates[templateName]
+	_, ok := b.provTemplates.Get(templateName)
 	b.mu.RUnlock()
 
 	if !ok {
@@ -757,7 +756,7 @@ func (b *InMemoryBackend) CreateKeysAndCertificate(setAsActive bool) (*Certifica
 		status = certStatusActive
 	}
 	cert := b.newCertificate(fakePEM, status)
-	b.certificates[cert.CertificateID] = cert
+	b.certificates.Put(cert)
 	cp := *cert
 
 	return &cp, fakePublicKey, fakePrivateKey, nil
@@ -772,7 +771,7 @@ func (b *InMemoryBackend) TransferCertificate(certID, targetAccount string) erro
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cert, ok := b.certificates[certID]
+	cert, ok := b.certificates.Get(certID)
 	if !ok {
 		return fmt.Errorf("certificate %q not found: %w", certID, ErrCertificateNotFound)
 	}
@@ -788,7 +787,7 @@ func (b *InMemoryBackend) RejectCertificateTransfer(certID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cert, ok := b.certificates[certID]
+	cert, ok := b.certificates.Get(certID)
 	if !ok {
 		return fmt.Errorf("certificate %q not found: %w", certID, ErrCertificateNotFound)
 	}
@@ -908,7 +907,7 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.thingGroups[input.ThingGroupName]; exists {
+	if b.thingGroups.Has(input.ThingGroupName) {
 		return nil, fmt.Errorf("%w: dynamic thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
 	}
 	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thinggroup/%s", input.ThingGroupName))
@@ -930,7 +929,7 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 		QueryString:     input.QueryString,
 		IsDynamic:       true,
 	}
-	b.thingGroups[input.ThingGroupName] = tg
+	b.thingGroups.Put(tg)
 	b.thingGroupMembers[input.ThingGroupName] = []string{}
 
 	return tg, nil
@@ -941,10 +940,10 @@ func (b *InMemoryBackend) DeleteDynamicThingGroup(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.thingGroups[name]; !ok {
+	if !b.thingGroups.Has(name) {
 		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, name)
 	}
-	delete(b.thingGroups, name)
+	b.thingGroups.Delete(name)
 	delete(b.thingGroupMembers, name)
 
 	return nil
@@ -959,7 +958,7 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	tg, ok := b.thingGroups[input.ThingGroupName]
+	tg, ok := b.thingGroups.Get(input.ThingGroupName)
 	if !ok {
 		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
 	}
@@ -1017,7 +1016,7 @@ func (b *InMemoryBackend) CreateCommand(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.commands[id]; exists {
+	if b.commands.Has(id) {
 		return nil, fmt.Errorf("command %q already exists: %w", id, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -1034,7 +1033,7 @@ func (b *InMemoryBackend) CreateCommand(
 	}
 	maps.Copy(cmd.Tags, tags)
 	maps.Copy(cmd.Payload, payload)
-	b.commands[id] = cmd
+	b.commands.Put(cmd)
 
 	return cloneIoTCommand(cmd), nil
 }
@@ -1043,7 +1042,7 @@ func (b *InMemoryBackend) GetCommand(id string) (*IoTCommand, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	cmd, ok := b.commands[id]
+	cmd, ok := b.commands.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("command %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -1055,7 +1054,7 @@ func (b *InMemoryBackend) UpdateCommand(id, displayName, description string, dep
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cmd, ok := b.commands[id]
+	cmd, ok := b.commands.Get(id)
 	if !ok {
 		return fmt.Errorf("command %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -1075,10 +1074,10 @@ func (b *InMemoryBackend) DeleteCommand(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.commands[id]; !ok {
+	if !b.commands.Has(id) {
 		return fmt.Errorf("command %q not found: %w", id, ErrResourceNotFound)
 	}
-	delete(b.commands, id)
+	b.commands.Delete(id)
 
 	return nil
 }
@@ -1087,10 +1086,10 @@ func (b *InMemoryBackend) ListCommands() []*IoTCommand {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.commands)
-	out := make([]*IoTCommand, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, cloneIoTCommand(b.commands[k]))
+	items := b.commands.Snapshot()
+	out := make([]*IoTCommand, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneIoTCommand(v))
 	}
 
 	return out
