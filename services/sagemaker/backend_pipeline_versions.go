@@ -81,7 +81,7 @@ func (b *InMemoryBackend) ListPipelineVersions(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[pipelineName]; !ok {
+	if _, ok := b.pipelinesStore(region).Get(pipelineName); !ok {
 		return nil, "", fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
 	}
 
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) ListPipelineVersions(
 // findPipelineByARNLocked returns the pipeline with the given ARN. Callers
 // must hold b.mu (read or write).
 func (b *InMemoryBackend) findPipelineByARNLocked(region, pipelineArn string) (*Pipeline, bool) {
-	for _, p := range b.pipelinesStore(region) {
+	for _, p := range b.pipelinesStore(region).All() {
 		if p.PipelineArn == pipelineArn {
 			return p, true
 		}
@@ -163,7 +163,7 @@ func (b *InMemoryBackend) DescribePipelineDefinitionForExecution(
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region)[execArn]
+	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
 	if !ok {
 		return "", time.Time{}, fmt.Errorf(
 			"%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn,
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) UpdatePipelineExecution(
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region)[execArn]
+	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline execution %q not found", ErrPipelineExecutionNotFound, execArn,

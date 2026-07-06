@@ -98,7 +98,7 @@ func (b *InMemoryBackend) DisassociateTrialComponent(
 	)
 
 	key := trialComponentKey(trialName, trialComponentName)
-	delete(b.trialComponentAssociationsStore(region), key)
+	b.trialComponentAssociationsStore(region).Delete(key)
 
 	return trialArn, trialComponentArn, nil
 }
@@ -116,11 +116,11 @@ func (b *InMemoryBackend) ListTrialComponents(
 
 	allowed := b.trialComponentNameFilterLocked(region, experimentName, trialName)
 
-	list := make([]*TrialComponent, 0, len(b.trialComponentsStore(region)))
+	list := make([]*TrialComponent, 0, b.trialComponentsStore(region).Len())
 
-	for name, tc := range b.trialComponentsStore(region) {
+	for _, tc := range b.trialComponentsStore(region).All() {
 		if allowed != nil {
-			if _, ok := allowed[name]; !ok {
+			if _, ok := allowed[tc.TrialComponentName]; !ok {
 				continue
 			}
 		}
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) trialComponentNameFilterLocked(
 	if trialName != "" {
 		trialNames[trialName] = true
 	} else {
-		for _, t := range b.trialsStore(region) {
+		for _, t := range b.trialsStore(region).All() {
 			if t.ExperimentName == experimentName {
 				trialNames[t.TrialName] = true
 			}
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) trialComponentNameFilterLocked(
 
 	allowed := map[string]bool{}
 
-	for _, assoc := range b.trialComponentAssociationsStore(region) {
+	for _, assoc := range b.trialComponentAssociationsStore(region).All() {
 		if trialNames[assoc.TrialName] {
 			allowed[assoc.TrialComponentName] = true
 		}
@@ -184,7 +184,7 @@ func (b *InMemoryBackend) ListImageAliases(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.smImagesStore(region)[imageName]; !ok {
+	if _, ok := b.smImagesStore(region).Get(imageName); !ok {
 		return nil, "", fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
 	}
 
@@ -246,7 +246,7 @@ func (b *InMemoryBackend) UpdateProject(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.projectsStore(region)[name]
+	p, ok := b.projectsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}

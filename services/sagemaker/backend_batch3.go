@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ func cloneJobDefinition(j *JobDefinition) *JobDefinition {
 // per-region map's lazy initialisation stays race-free.
 func (b *InMemoryBackend) createJobDefinition(
 	ctx context.Context,
-	storeFn func(string) map[string]*JobDefinition,
+	storeFn func(string) *store.Table[JobDefinition],
 	defType, name, roleArn, endpointName string,
 	config map[string]json.RawMessage,
 	tags map[string]string,
@@ -113,8 +114,8 @@ func (b *InMemoryBackend) createJobDefinition(
 		return nil, fmt.Errorf("%w: %sJobDefinitionName is required", ErrValidation, defType)
 	}
 
-	store := storeFn(region)
-	if _, ok := store[name]; ok {
+	tbl := storeFn(region)
+	if _, ok := tbl.Get(name); ok {
 		return nil, fmt.Errorf("%w: %s job definition %q already exists", alreadyExists, defType, name)
 	}
 
@@ -130,14 +131,14 @@ func (b *InMemoryBackend) createJobDefinition(
 		Config:            config,
 		CreationTime:      time.Now(),
 	}
-	store[name] = j
+	tbl.Put(j)
 
 	return cloneJobDefinition(j), nil
 }
 
 func (b *InMemoryBackend) describeJobDefinition(
 	ctx context.Context,
-	storeFn func(string) map[string]*JobDefinition,
+	storeFn func(string) *store.Table[JobDefinition],
 	name string,
 	notFound error,
 ) (*JobDefinition, error) {
@@ -146,7 +147,7 @@ func (b *InMemoryBackend) describeJobDefinition(
 	b.mu.RLock("describeJobDefinition")
 	defer b.mu.RUnlock()
 
-	j, ok := storeFn(region)[name]
+	j, ok := storeFn(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: job definition %q not found", notFound, name)
 	}
@@ -156,7 +157,7 @@ func (b *InMemoryBackend) describeJobDefinition(
 
 func (b *InMemoryBackend) deleteJobDefinition(
 	ctx context.Context,
-	storeFn func(string) map[string]*JobDefinition,
+	storeFn func(string) *store.Table[JobDefinition],
 	name string,
 	notFound error,
 ) error {
@@ -165,12 +166,12 @@ func (b *InMemoryBackend) deleteJobDefinition(
 	b.mu.Lock("deleteJobDefinition")
 	defer b.mu.Unlock()
 
-	store := storeFn(region)
-	if _, ok := store[name]; !ok {
+	tbl := storeFn(region)
+	if _, ok := tbl.Get(name); !ok {
 		return fmt.Errorf("%w: job definition %q not found", notFound, name)
 	}
 
-	delete(store, name)
+	tbl.Delete(name)
 
 	return nil
 }
@@ -228,15 +229,15 @@ func sortJobDefinitions(list []*JobDefinition, sortBy, sortOrder string) {
 // definition types. storeFn is called only while b.mu is held (by the
 // per-type List* wrapper).
 func (b *InMemoryBackend) listJobDefinitions(
-	storeFn func(string) map[string]*JobDefinition,
+	storeFn func(string) *store.Table[JobDefinition],
 	region, nextToken string,
 	f JobDefinitionFilter,
 ) ([]*JobDefinition, string) {
-	store := storeFn(region)
+	items := storeFn(region).All()
 
-	list := make([]*JobDefinition, 0, len(store))
+	list := make([]*JobDefinition, 0, len(items))
 
-	for _, j := range store {
+	for _, j := range items {
 		if matchesJobDefinitionFilter(j, f) {
 			list = append(list, cloneJobDefinition(j))
 		}
@@ -432,21 +433,28 @@ func cloneMonitoringAlert(a *MonitoringAlert) *MonitoringAlert {
 	return &cp
 }
 
-// monitoringAlertsFor returns (creating if necessary) the alert map for a
-// monitoring schedule. Callers must hold b.mu (any lock kind for read-only
-// lookups that tolerate a nil result; b.mu.Lock for creation).
-func (b *InMemoryBackend) monitoringAlertsFor(region, scheduleName string) map[string]*MonitoringAlert {
-	perSchedule := b.monitoringAlerts[region]
-	if perSchedule == nil {
-		perSchedule = make(map[string]map[string]*MonitoringAlert)
-		b.monitoringAlerts[region] = perSchedule
+// monitoringAlertKey builds the store.Table primary key for a monitoring
+// alert: its schedule name and alert name are already unique together within
+// a region (an alert belongs to exactly one schedule).
+func monitoringAlertKey(scheduleName, alertName string) string {
+	return scheduleName + "/" + alertName
+}
+
+// monitoringAlertsStore returns (registering if necessary) the per-region
+// store.Table of MonitoringAlert, keyed by monitoringAlertKey(scheduleName,
+// alertName). Callers must hold b.mu.
+func (b *InMemoryBackend) monitoringAlertsStore(r string) *store.Table[MonitoringAlert] {
+	if b.monitoringAlerts[r] == nil {
+		b.monitoringAlerts[r] = store.Register(
+			b.registry,
+			"monitoringAlerts:"+r,
+			store.New(func(v *MonitoringAlert) string {
+				return monitoringAlertKey(v.MonitoringScheduleName, v.MonitoringAlertName)
+			}),
+		)
 	}
 
-	if perSchedule[scheduleName] == nil {
-		perSchedule[scheduleName] = make(map[string]*MonitoringAlert)
-	}
-
-	return perSchedule[scheduleName]
+	return b.monitoringAlerts[r]
 }
 
 // UpdateMonitoringAlert updates the datapoints/evaluation-period configuration
@@ -462,15 +470,15 @@ func (b *InMemoryBackend) UpdateMonitoringAlert(
 	b.mu.Lock("UpdateMonitoringAlert")
 	defer b.mu.Unlock()
 
-	sched, ok := b.monitoringSchedulesStore(region)[scheduleName]
+	sched, ok := b.monitoringSchedulesStore(region).Get(scheduleName)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, scheduleName)
 	}
 
-	alerts := b.monitoringAlertsFor(region, scheduleName)
+	tbl := b.monitoringAlertsStore(region)
 	now := time.Now()
 
-	a, ok := alerts[alertName]
+	a, ok := tbl.Get(monitoringAlertKey(scheduleName, alertName))
 	if !ok {
 		a = &MonitoringAlert{
 			MonitoringScheduleName: scheduleName,
@@ -478,7 +486,7 @@ func (b *InMemoryBackend) UpdateMonitoringAlert(
 			AlertStatus:            "OK",
 			CreationTime:           now,
 		}
-		alerts[alertName] = a
+		tbl.Put(a)
 	}
 
 	a.DatapointsToAlert = datapointsToAlert
@@ -498,16 +506,22 @@ func (b *InMemoryBackend) ListMonitoringAlerts(
 	b.mu.RLock("ListMonitoringAlerts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.monitoringSchedulesStore(region)[scheduleName]; !ok {
+	if _, ok := b.monitoringSchedulesStore(region).Get(scheduleName); !ok {
 		return nil, "", fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, scheduleName)
 	}
 
-	var alerts map[string]*MonitoringAlert
-	if perSchedule := b.monitoringAlerts[region]; perSchedule != nil {
-		alerts = perSchedule[scheduleName]
+	// Rebuild a by-alert-name map scoped to this schedule, matching the
+	// pre-conversion per-schedule map's exact key shape, so pagination tokens
+	// (alert names) behave identically.
+	alerts := make(map[string]*MonitoringAlert)
+
+	for _, a := range b.monitoringAlertsStore(region).All() {
+		if a.MonitoringScheduleName == scheduleName {
+			alerts[a.MonitoringAlertName] = a
+		}
 	}
 
-	items, next := sagemakerListKeyPaged(alerts, nextToken, cloneMonitoringAlert)
+	items, next := sagemakerListKeyPagedMap(alerts, nextToken, cloneMonitoringAlert)
 
 	return items, next, nil
 }
@@ -717,9 +731,9 @@ func (b *InMemoryBackend) ListMonitoringExecutions(
 	b.mu.RLock("ListMonitoringExecutions")
 	defer b.mu.RUnlock()
 
-	list := make([]*MonitoringExecution, 0, len(b.monitoringExecutions[region]))
+	list := make([]*MonitoringExecution, 0, b.monitoringExecutionsStore(region).Len())
 
-	for _, e := range b.monitoringExecutions[region] {
+	for _, e := range b.monitoringExecutionsStore(region).All() {
 		if matchesMonitoringExecutionFilter(e, f) {
 			list = append(list, cloneMonitoringExecution(e))
 		}
@@ -775,7 +789,7 @@ func (b *InMemoryBackend) CreateHumanTaskUI(
 
 	store := b.humanTaskUisStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: human task UI %q already exists", ErrValidation, name)
 	}
 
@@ -788,7 +802,7 @@ func (b *InMemoryBackend) CreateHumanTaskUI(
 		Tags:              mergeTags(nil, tags),
 		CreationTime:      time.Now(),
 	}
-	store[name] = ui
+	store.Put(ui)
 
 	return cloneHumanTaskUI(ui), nil
 }
@@ -800,7 +814,7 @@ func (b *InMemoryBackend) DescribeHumanTaskUI(ctx context.Context, name string) 
 	b.mu.RLock("DescribeHumanTaskUI")
 	defer b.mu.RUnlock()
 
-	ui, ok := b.humanTaskUisStore(region)[name]
+	ui, ok := b.humanTaskUisStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
@@ -815,7 +829,7 @@ func (b *InMemoryBackend) HumanTaskUIExistsByARN(ctx context.Context, humanTaskU
 	b.mu.RLock("HumanTaskUIExistsByARN")
 	defer b.mu.RUnlock()
 
-	for _, ui := range b.humanTaskUisStore(region) {
+	for _, ui := range b.humanTaskUisStore(region).All() {
 		if ui.HumanTaskUIArn == humanTaskUIArn {
 			return true
 		}
@@ -833,11 +847,11 @@ func (b *InMemoryBackend) DeleteHumanTaskUI(ctx context.Context, name string) er
 
 	store := b.humanTaskUisStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -951,11 +965,11 @@ func (b *InMemoryBackend) CreateWorkforce(ctx context.Context, opts CreateWorkfo
 
 	store := b.workforcesStore(region)
 
-	if _, ok := store[opts.Name]; ok {
+	if _, ok := store.Get(opts.Name); ok {
 		return nil, fmt.Errorf("%w: workforce %q already exists", ErrValidation, opts.Name)
 	}
 
-	if len(store) > 0 {
+	if store.Len() > 0 {
 		return nil, fmt.Errorf(
 			"%w: only one workforce is allowed per Amazon Web Services account per Amazon Web Services Region",
 			ErrValidation,
@@ -985,7 +999,7 @@ func (b *InMemoryBackend) CreateWorkforce(ctx context.Context, opts CreateWorkfo
 		w.WorkforceVpcConfig.VpcEndpointID = "vpce-" + generateID()[:17]
 	}
 
-	store[opts.Name] = w
+	store.Put(w)
 
 	return cloneWorkforce(w), nil
 }
@@ -997,7 +1011,7 @@ func (b *InMemoryBackend) DescribeWorkforce(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeWorkforce")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workforcesStore(region)[name]
+	w, ok := b.workforcesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
 	}
@@ -1020,7 +1034,7 @@ func (b *InMemoryBackend) UpdateWorkforce(ctx context.Context, opts UpdateWorkfo
 	b.mu.Lock("UpdateWorkforce")
 	defer b.mu.Unlock()
 
-	w, ok := b.workforcesStore(region)[opts.Name]
+	w, ok := b.workforcesStore(region).Get(opts.Name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, opts.Name)
 	}
@@ -1052,12 +1066,12 @@ func (b *InMemoryBackend) DeleteWorkforce(ctx context.Context, name string) erro
 	b.mu.Lock("DeleteWorkforce")
 	defer b.mu.Unlock()
 
-	w, ok := b.workforcesStore(region)[name]
+	w, ok := b.workforcesStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
 	}
 
-	for _, wt := range b.workteamsStore(region) {
+	for _, wt := range b.workteamsStore(region).All() {
 		if wt.WorkforceArn == w.WorkforceArn {
 			return fmt.Errorf(
 				"%w: workforce %q still has associated work teams", ErrWorkteamInUse, name,
@@ -1065,7 +1079,7 @@ func (b *InMemoryBackend) DeleteWorkforce(ctx context.Context, name string) erro
 		}
 	}
 
-	delete(b.workforcesStore(region), name)
+	b.workforcesStore(region).Delete(name)
 
 	return nil
 }
@@ -1078,7 +1092,12 @@ func (b *InMemoryBackend) ListWorkforces(ctx context.Context, nextToken string) 
 	b.mu.RLock("ListWorkforces")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(b.workforcesStore(region), nextToken, cloneWorkforce)
+	return sagemakerListKeyPaged(
+		b.workforcesStore(region),
+		nextToken,
+		cloneWorkforce,
+		func(v *Workforce) string { return v.WorkforceName },
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -1119,7 +1138,7 @@ func (b *InMemoryBackend) CreateFlowDefinition(
 
 	store := b.flowDefinitionsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: flow definition %q already exists", ErrValidation, name)
 	}
 
@@ -1133,7 +1152,7 @@ func (b *InMemoryBackend) CreateFlowDefinition(
 		Tags:                 mergeTags(nil, tags),
 		CreationTime:         time.Now(),
 	}
-	store[name] = f
+	store.Put(f)
 
 	return cloneFlowDefinition(f), nil
 }
@@ -1145,7 +1164,7 @@ func (b *InMemoryBackend) DescribeFlowDefinition(ctx context.Context, name strin
 	b.mu.RLock("DescribeFlowDefinition")
 	defer b.mu.RUnlock()
 
-	f, ok := b.flowDefinitionsStore(region)[name]
+	f, ok := b.flowDefinitionsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow definition %q not found", ErrFlowDefinitionNotFound, name)
 	}
@@ -1162,11 +1181,11 @@ func (b *InMemoryBackend) DeleteFlowDefinition(ctx context.Context, name string)
 
 	store := b.flowDefinitionsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: flow definition %q not found", ErrFlowDefinitionNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1208,7 +1227,7 @@ func (b *InMemoryBackend) CreateAppImageConfig(
 
 	store := b.appImageConfigsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: app image config %q already exists", ErrValidation, name)
 	}
 
@@ -1222,7 +1241,7 @@ func (b *InMemoryBackend) CreateAppImageConfig(
 		CreationTime:       now,
 		LastModifiedTime:   now,
 	}
-	store[name] = a
+	store.Put(a)
 
 	return cloneAppImageConfig(a), nil
 }
@@ -1234,7 +1253,7 @@ func (b *InMemoryBackend) DescribeAppImageConfig(ctx context.Context, name strin
 	b.mu.RLock("DescribeAppImageConfig")
 	defer b.mu.RUnlock()
 
-	a, ok := b.appImageConfigsStore(region)[name]
+	a, ok := b.appImageConfigsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
@@ -1249,7 +1268,7 @@ func (b *InMemoryBackend) UpdateAppImageConfig(ctx context.Context, name string)
 	b.mu.Lock("UpdateAppImageConfig")
 	defer b.mu.Unlock()
 
-	a, ok := b.appImageConfigsStore(region)[name]
+	a, ok := b.appImageConfigsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
@@ -1268,11 +1287,11 @@ func (b *InMemoryBackend) DeleteAppImageConfig(ctx context.Context, name string)
 
 	store := b.appImageConfigsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1338,7 +1357,7 @@ func (b *InMemoryBackend) DescribeInferenceExperiment(ctx context.Context, name 
 	b.mu.RLock("DescribeInferenceExperiment")
 	defer b.mu.RUnlock()
 
-	e, ok := b.inferenceExperimentsStore(region)[name]
+	e, ok := b.inferenceExperimentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -1353,7 +1372,7 @@ func (b *InMemoryBackend) StopInferenceExperiment(ctx context.Context, name stri
 	b.mu.Lock("StopInferenceExperiment")
 	defer b.mu.Unlock()
 
-	e, ok := b.inferenceExperimentsStore(region)[name]
+	e, ok := b.inferenceExperimentsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -1371,7 +1390,7 @@ func (b *InMemoryBackend) StartInferenceExperiment(ctx context.Context, name str
 	b.mu.Lock("StartInferenceExperiment")
 	defer b.mu.Unlock()
 
-	e, ok := b.inferenceExperimentsStore(region)[name]
+	e, ok := b.inferenceExperimentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -1392,7 +1411,7 @@ func (b *InMemoryBackend) UpdateInferenceExperiment(
 	b.mu.Lock("UpdateInferenceExperiment")
 	defer b.mu.Unlock()
 
-	e, ok := b.inferenceExperimentsStore(region)[name]
+	e, ok := b.inferenceExperimentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -1415,11 +1434,11 @@ func (b *InMemoryBackend) DeleteInferenceExperiment(ctx context.Context, name st
 
 	store := b.inferenceExperimentsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1487,7 +1506,7 @@ func (b *InMemoryBackend) DescribeMlflowTrackingServer(
 	b.mu.RLock("DescribeMlflowTrackingServer")
 	defer b.mu.RUnlock()
 
-	s, ok := b.mlflowTrackingServersStore(region)[name]
+	s, ok := b.mlflowTrackingServersStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -1504,11 +1523,11 @@ func (b *InMemoryBackend) DeleteMlflowTrackingServer(ctx context.Context, name s
 
 	store := b.mlflowTrackingServersStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1520,7 +1539,7 @@ func (b *InMemoryBackend) StartMlflowTrackingServer(ctx context.Context, name st
 	b.mu.Lock("StartMlflowTrackingServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.mlflowTrackingServersStore(region)[name]
+	s, ok := b.mlflowTrackingServersStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -1538,7 +1557,7 @@ func (b *InMemoryBackend) StopMlflowTrackingServer(ctx context.Context, name str
 	b.mu.Lock("StopMlflowTrackingServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.mlflowTrackingServersStore(region)[name]
+	s, ok := b.mlflowTrackingServersStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -1557,7 +1576,7 @@ func (b *InMemoryBackend) CreatePresignedMlflowTrackingServerURL(ctx context.Con
 	b.mu.RLock("CreatePresignedMlflowTrackingServerURL")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.mlflowTrackingServersStore(region)[name]; !ok {
+	if _, ok := b.mlflowTrackingServersStore(region).Get(name); !ok {
 		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
@@ -1618,7 +1637,7 @@ func (b *InMemoryBackend) CreateMlflowApp(ctx context.Context, opts CreateMlflow
 	appARN := arn.Build("sagemaker", region, b.accountID, "mlflow-app/"+opts.Name)
 
 	store := b.mlflowAppsStore(region)
-	if _, ok := store[appARN]; ok {
+	if _, ok := store.Get(appARN); ok {
 		return nil, sagemakerDupErr("MLflow App", opts.Name)
 	}
 
@@ -1636,7 +1655,7 @@ func (b *InMemoryBackend) CreateMlflowApp(ctx context.Context, opts CreateMlflow
 		CreationTime:          now,
 		LastModifiedTime:      now,
 	}
-	store[appARN] = m
+	store.Put(m)
 
 	return cloneMlflowApp(m), nil
 }
@@ -1648,7 +1667,7 @@ func (b *InMemoryBackend) DescribeMlflowApp(ctx context.Context, arnStr string) 
 	b.mu.RLock("DescribeMlflowApp")
 	defer b.mu.RUnlock()
 
-	m, ok := b.mlflowAppsStore(region)[arnStr]
+	m, ok := b.mlflowAppsStore(region).Get(arnStr)
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
 	}
@@ -1665,11 +1684,11 @@ func (b *InMemoryBackend) DeleteMlflowApp(ctx context.Context, arnStr string) er
 
 	store := b.mlflowAppsStore(region)
 
-	if _, ok := store[arnStr]; !ok {
+	if _, ok := store.Get(arnStr); !ok {
 		return fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
 	}
 
-	delete(store, arnStr)
+	store.Delete(arnStr)
 
 	return nil
 }
@@ -1690,7 +1709,7 @@ func (b *InMemoryBackend) UpdateMlflowApp(ctx context.Context, opts UpdateMlflow
 	b.mu.Lock("UpdateMlflowApp")
 	defer b.mu.Unlock()
 
-	m, ok := b.mlflowAppsStore(region)[opts.Arn]
+	m, ok := b.mlflowAppsStore(region).Get(opts.Arn)
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, opts.Arn)
 	}
@@ -1723,7 +1742,12 @@ func (b *InMemoryBackend) ListMlflowApps(ctx context.Context, nextToken string) 
 	b.mu.RLock("ListMlflowApps")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(b.mlflowAppsStore(region), nextToken, cloneMlflowApp)
+	return sagemakerListKeyPaged(
+		b.mlflowAppsStore(region),
+		nextToken,
+		cloneMlflowApp,
+		func(v *MlflowApp) string { return v.Arn },
+	)
 }
 
 // CreatePresignedMlflowAppURL returns a one-time presigned URL for accessing
@@ -1734,7 +1758,7 @@ func (b *InMemoryBackend) CreatePresignedMlflowAppURL(ctx context.Context, arnSt
 	b.mu.RLock("CreatePresignedMlflowAppURL")
 	defer b.mu.RUnlock()
 
-	m, ok := b.mlflowAppsStore(region)[arnStr]
+	m, ok := b.mlflowAppsStore(region).Get(arnStr)
 	if !ok {
 		return "", fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
 	}
@@ -1783,7 +1807,7 @@ func (b *InMemoryBackend) CreateModelCard(
 
 	store := b.modelCardsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: model card %q already exists", ErrValidation, name)
 	}
 
@@ -1800,7 +1824,7 @@ func (b *InMemoryBackend) CreateModelCard(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	store[name] = c
+	store.Put(c)
 
 	return cloneModelCard(c), nil
 }
@@ -1812,7 +1836,7 @@ func (b *InMemoryBackend) DescribeModelCard(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeModelCard")
 	defer b.mu.RUnlock()
 
-	c, ok := b.modelCardsStore(region)[name]
+	c, ok := b.modelCardsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
@@ -1827,7 +1851,7 @@ func (b *InMemoryBackend) UpdateModelCard(ctx context.Context, name, content str
 	b.mu.Lock("UpdateModelCard")
 	defer b.mu.Unlock()
 
-	c, ok := b.modelCardsStore(region)[name]
+	c, ok := b.modelCardsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
@@ -1848,11 +1872,11 @@ func (b *InMemoryBackend) DeleteModelCard(ctx context.Context, name string) erro
 
 	store := b.modelCardsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1896,7 +1920,7 @@ func (b *InMemoryBackend) CreateOptimizationJob(
 
 	store := b.optimizationJobsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: optimization job %q already exists", ErrValidation, name)
 	}
 
@@ -1912,7 +1936,7 @@ func (b *InMemoryBackend) CreateOptimizationJob(
 		CreationTime:          now,
 		LastModifiedTime:      now,
 	}
-	store[name] = j
+	store.Put(j)
 
 	return cloneOptimizationJob(j), nil
 }
@@ -1924,7 +1948,7 @@ func (b *InMemoryBackend) DescribeOptimizationJob(ctx context.Context, name stri
 	b.mu.RLock("DescribeOptimizationJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.optimizationJobsStore(region)[name]
+	j, ok := b.optimizationJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
@@ -1941,11 +1965,11 @@ func (b *InMemoryBackend) DeleteOptimizationJob(ctx context.Context, name string
 
 	store := b.optimizationJobsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1957,7 +1981,7 @@ func (b *InMemoryBackend) StopOptimizationJob(ctx context.Context, name string) 
 	b.mu.Lock("StopOptimizationJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.optimizationJobsStore(region)[name]
+	j, ok := b.optimizationJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
@@ -2006,7 +2030,7 @@ func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 
 	store := b.studioLifecycleConfigsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: Studio lifecycle config %q already exists", ErrValidation, name)
 	}
 
@@ -2021,7 +2045,7 @@ func (b *InMemoryBackend) CreateStudioLifecycleConfig(
 		CreationTime:                 now,
 		LastModifiedTime:             now,
 	}
-	store[name] = s
+	store.Put(s)
 
 	return cloneStudioLifecycleConfig(s), nil
 }
@@ -2036,7 +2060,7 @@ func (b *InMemoryBackend) DescribeStudioLifecycleConfig(
 	b.mu.RLock("DescribeStudioLifecycleConfig")
 	defer b.mu.RUnlock()
 
-	s, ok := b.studioLifecycleConfigsStore(region)[name]
+	s, ok := b.studioLifecycleConfigsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: Studio lifecycle config %q not found", ErrStudioLifecycleConfigNotFound, name)
 	}
@@ -2053,11 +2077,11 @@ func (b *InMemoryBackend) DeleteStudioLifecycleConfig(ctx context.Context, name 
 
 	store := b.studioLifecycleConfigsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: Studio lifecycle config %q not found", ErrStudioLifecycleConfigNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -2115,7 +2139,7 @@ func (b *InMemoryBackend) CreatePartnerApp(ctx context.Context, opts CreatePartn
 
 	store := b.partnerAppsStore(region)
 
-	if _, ok := store[appARN]; ok {
+	if _, ok := store.Get(appARN); ok {
 		return nil, fmt.Errorf("%w: partner app %q already exists", ErrValidation, opts.Name)
 	}
 
@@ -2133,7 +2157,7 @@ func (b *InMemoryBackend) CreatePartnerApp(ctx context.Context, opts CreatePartn
 		CreationTime:      now,
 		LastModifiedTime:  now,
 	}
-	store[appARN] = p
+	store.Put(p)
 
 	return clonePartnerApp(p), nil
 }
@@ -2145,7 +2169,7 @@ func (b *InMemoryBackend) DescribePartnerApp(ctx context.Context, arnStr string)
 	b.mu.RLock("DescribePartnerApp")
 	defer b.mu.RUnlock()
 
-	p, ok := b.partnerAppsStore(region)[arnStr]
+	p, ok := b.partnerAppsStore(region).Get(arnStr)
 	if !ok {
 		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
@@ -2162,11 +2186,11 @@ func (b *InMemoryBackend) DeletePartnerApp(ctx context.Context, arnStr string) e
 
 	store := b.partnerAppsStore(region)
 
-	if _, ok := store[arnStr]; !ok {
+	if _, ok := store.Get(arnStr); !ok {
 		return fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
 
-	delete(store, arnStr)
+	store.Delete(arnStr)
 
 	return nil
 }
@@ -2185,7 +2209,7 @@ func (b *InMemoryBackend) UpdatePartnerApp(ctx context.Context, opts UpdatePartn
 	b.mu.Lock("UpdatePartnerApp")
 	defer b.mu.Unlock()
 
-	p, ok := b.partnerAppsStore(region)[opts.Arn]
+	p, ok := b.partnerAppsStore(region).Get(opts.Arn)
 	if !ok {
 		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, opts.Arn)
 	}
@@ -2210,7 +2234,12 @@ func (b *InMemoryBackend) ListPartnerApps(ctx context.Context, nextToken string)
 	b.mu.RLock("ListPartnerApps")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(b.partnerAppsStore(region), nextToken, clonePartnerApp)
+	return sagemakerListKeyPaged(
+		b.partnerAppsStore(region),
+		nextToken,
+		clonePartnerApp,
+		func(v *PartnerApp) string { return v.Arn },
+	)
 }
 
 // CreatePartnerAppPresignedURL returns a one-time presigned URL for accessing
@@ -2221,7 +2250,7 @@ func (b *InMemoryBackend) CreatePartnerAppPresignedURL(ctx context.Context, arnS
 	b.mu.RLock("CreatePartnerAppPresignedURL")
 	defer b.mu.RUnlock()
 
-	p, ok := b.partnerAppsStore(region)[arnStr]
+	p, ok := b.partnerAppsStore(region).Get(arnStr)
 	if !ok {
 		return "", fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
@@ -2324,7 +2353,7 @@ func (b *InMemoryBackend) CreateTrainingPlan(
 
 	store := b.trainingPlansStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: training plan %q already exists", ErrValidation, name)
 	}
 
@@ -2343,7 +2372,7 @@ func (b *InMemoryBackend) CreateTrainingPlan(
 		b.applyOfferingToPlan(region, t, offering, now, spareInstanceCountPerUltraServer)
 	}
 
-	store[name] = t
+	store.Put(t)
 
 	return cloneTrainingPlan(t), nil
 }
@@ -2384,7 +2413,7 @@ func (b *InMemoryBackend) DescribeTrainingPlan(ctx context.Context, name string)
 	b.mu.RLock("DescribeTrainingPlan")
 	defer b.mu.RUnlock()
 
-	t, ok := b.trainingPlansStore(region)[name]
+	t, ok := b.trainingPlansStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: training plan %q not found", ErrTrainingPlanNotFound, name)
 	}

@@ -198,7 +198,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.endpointsStore(region)[name]; ok {
+	if _, ok := b.endpointsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAlreadyExists, name)
 	}
 
@@ -213,7 +213,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
 	}
-	b.endpointsStore(region)[name] = ep
+	b.endpointsStore(region).Put(ep)
 	b.endpointARNIndexStore(region)[epARN] = name
 
 	return cloneEndpoint(ep), nil
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 	region := getRegion(ctx, b.region)
 
-	ep, ok := b.endpointsStore(region)[name]
+	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 
 	region := getRegion(ctx, b.region)
 
-	ep, ok := b.endpointsStore(region)[name]
+	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -260,7 +260,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 	arnIdx := b.endpointARNIndexStore(region)
 	delete(arnIdx, ep.EndpointArn)
 	endpoints := b.endpointsStore(region)
-	delete(endpoints, name)
+	endpoints.Delete(name)
 
 	return nil
 }
@@ -272,7 +272,7 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, name, endpointConf
 
 	region := getRegion(ctx, b.region)
 
-	ep, ok := b.endpointsStore(region)[name]
+	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -316,7 +316,7 @@ func (b *InMemoryBackend) DescribeTrainingJob(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	tj, ok := b.trainingJobsStore(region)[name]
+	tj, ok := b.trainingJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -342,7 +342,7 @@ func (b *InMemoryBackend) StopTrainingJob(ctx context.Context, name string) erro
 
 	region := getRegion(ctx, b.region)
 
-	tj, ok := b.trainingJobsStore(region)[name]
+	tj, ok := b.trainingJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -360,7 +360,7 @@ func (b *InMemoryBackend) DeleteTrainingJob(ctx context.Context, name string) er
 
 	region := getRegion(ctx, b.region)
 
-	tj, ok := b.trainingJobsStore(region)[name]
+	tj, ok := b.trainingJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -368,7 +368,7 @@ func (b *InMemoryBackend) DeleteTrainingJob(ctx context.Context, name string) er
 	arnIdx := b.trainingJobARNIndexStore(region)
 	delete(arnIdx, tj.TrainingJobArn)
 	store := b.trainingJobsStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -400,7 +400,7 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.notebooksStore(region)[name]; ok {
+	if _, ok := b.notebooksStore(region).Get(name); ok {
 		return nil, fmt.Errorf(
 			"%w: notebook instance %s already exists",
 			ErrNotebookAlreadyExists,
@@ -420,7 +420,7 @@ func (b *InMemoryBackend) CreateNotebookInstance(
 		LastModifiedTime:       now,
 		Tags:                   mergeTags(nil, tags),
 	}
-	b.notebooksStore(region)[name] = nb
+	b.notebooksStore(region).Put(nb)
 	b.notebookARNIndexStore(region)[nbARN] = name
 
 	return cloneNotebook(nb), nil
@@ -433,7 +433,7 @@ func (b *InMemoryBackend) DescribeNotebookInstance(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -462,8 +462,8 @@ func (b *InMemoryBackend) ListNotebookInstances(
 	region := getRegion(ctx, b.region)
 
 	store := b.notebooksStore(region)
-	list := make([]*NotebookInstance, 0, len(store))
-	for _, nb := range store {
+	list := make([]*NotebookInstance, 0, store.Len())
+	for _, nb := range store.All() {
 		if !matchesNotebookFilter(nb, filter) {
 			continue
 		}
@@ -515,7 +515,7 @@ func (b *InMemoryBackend) DeleteNotebookInstance(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -523,7 +523,7 @@ func (b *InMemoryBackend) DeleteNotebookInstance(ctx context.Context, name strin
 	arnIdx := b.notebookARNIndexStore(region)
 	delete(arnIdx, nb.NotebookInstanceArn)
 	store := b.notebooksStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -535,7 +535,7 @@ func (b *InMemoryBackend) StartNotebookInstance(ctx context.Context, name string
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -553,7 +553,7 @@ func (b *InMemoryBackend) StopNotebookInstance(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -571,7 +571,7 @@ func (b *InMemoryBackend) UpdateNotebookInstance(ctx context.Context, name, inst
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -591,7 +591,7 @@ func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(ctx context.Context
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -616,7 +616,7 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.hpTuningJobsStore(region)[name]; ok {
+	if _, ok := b.hpTuningJobsStore(region).Get(name); ok {
 		return nil, fmt.Errorf(
 			"%w: HP tuning job %s already exists",
 			ErrHPTuningJobAlreadyExists,
@@ -635,7 +635,7 @@ func (b *InMemoryBackend) CreateHyperParameterTuningJob(
 		LastModifiedTime:              now,
 		Tags:                          mergeTags(nil, tags),
 	}
-	b.hpTuningJobsStore(region)[name] = j
+	b.hpTuningJobsStore(region).Put(j)
 	b.hpTuningJobARNIndexStore(region)[jobARN] = name
 
 	return cloneHPTuningJob(j), nil
@@ -651,7 +651,7 @@ func (b *InMemoryBackend) DescribeHyperParameterTuningJob(
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.hpTuningJobsStore(region)[name]
+	j, ok := b.hpTuningJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -682,7 +682,7 @@ func (b *InMemoryBackend) StopHyperParameterTuningJob(ctx context.Context, name 
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.hpTuningJobsStore(region)[name]
+	j, ok := b.hpTuningJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -700,7 +700,7 @@ func (b *InMemoryBackend) DeleteHyperParameterTuningJob(ctx context.Context, nam
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.hpTuningJobsStore(region)[name]
+	j, ok := b.hpTuningJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -708,7 +708,7 @@ func (b *InMemoryBackend) DeleteHyperParameterTuningJob(ctx context.Context, nam
 	arnIdx := b.hpTuningJobARNIndexStore(region)
 	delete(arnIdx, j.HyperParameterTuningJobArn)
 	store := b.hpTuningJobsStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }

@@ -21,9 +21,9 @@ func (b *InMemoryBackend) CreatePresignedDomainURL(
 
 	region := getRegion(ctx, b.region)
 
-	d, ok := b.domainsStore(region)[domainID]
+	d, ok := b.domainsStore(region).Get(domainID)
 	if !ok {
-		for _, cand := range b.domainsStore(region) {
+		for _, cand := range b.domainsStore(region).All() {
 			if cand.DomainName == domainID {
 				d = cand
 				ok = true
@@ -37,8 +37,8 @@ func (b *InMemoryBackend) CreatePresignedDomainURL(
 		return "", fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainID)
 	}
 
-	key := userProfileKey{DomainID: d.DomainID, UserProfileName: userProfileName}
-	if _, profileOK := b.userProfilesStore(region)[key]; !profileOK {
+	key := userProfileKeyString(userProfileKey{DomainID: d.DomainID, UserProfileName: userProfileName})
+	if _, profileOK := b.userProfilesStore(region).Get(key); !profileOK {
 		return "", fmt.Errorf(
 			"%w: user profile %q not found in domain %q", ErrUserProfileNotFound, userProfileName, domainID,
 		)

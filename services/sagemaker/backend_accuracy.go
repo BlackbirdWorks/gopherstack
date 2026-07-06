@@ -99,7 +99,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.notebookLifecycleConfigsStore(region)[name]; ok {
+	if _, ok := b.notebookLifecycleConfigsStore(region).Get(name); ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %s already exists",
 			ErrNotebookLifecycleConfigAlreadyExists,
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceLifecycleConfig(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.notebookLifecycleConfigsStore(region)[name] = lc
+	b.notebookLifecycleConfigsStore(region).Put(lc)
 
 	return cloneNotebookLifecycleConfig(lc), nil
 }
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) DescribeNotebookInstanceLifecycleConfig(
 
 	region := getRegion(ctx, b.region)
 
-	lc, ok := b.notebookLifecycleConfigsStore(region)[name]
+	lc, ok := b.notebookLifecycleConfigsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) UpdateNotebookInstanceLifecycleConfig(
 
 	region := getRegion(ctx, b.region)
 
-	lc, ok := b.notebookLifecycleConfigsStore(region)[name]
+	lc, ok := b.notebookLifecycleConfigsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
@@ -188,7 +188,7 @@ func (b *InMemoryBackend) DeleteNotebookInstanceLifecycleConfig(ctx context.Cont
 	region := getRegion(ctx, b.region)
 	store := b.notebookLifecycleConfigsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf(
 			"%w: notebook lifecycle config %q not found",
 			ErrNotebookLifecycleConfigNotFound,
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) DeleteNotebookInstanceLifecycleConfig(ctx context.Cont
 		)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -231,7 +231,7 @@ func (b *InMemoryBackend) scheduleNotebookTransition(
 		b.mu.Lock("scheduleNotebookTransition.goroutine")
 		defer b.mu.Unlock()
 
-		if nb, ok := b.notebooksStore(region)[name]; ok {
+		if nb, ok := b.notebooksStore(region).Get(name); ok {
 			nb.NotebookInstanceStatus = nextStatus
 			nb.LastModifiedTime = time.Now()
 		}
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) StartNotebookInstanceFSM(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -278,7 +278,7 @@ func (b *InMemoryBackend) StopNotebookInstanceFSM(ctx context.Context, name stri
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -328,7 +328,7 @@ func (b *InMemoryBackend) UpdateNotebookInstanceFull(
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region)[name]
+	nb, ok := b.notebooksStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -512,7 +512,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.trainingJobsStore(region)[opts.TrainingJobName]; ok {
+	if _, ok := b.trainingJobsStore(region).Get(opts.TrainingJobName); ok {
 		return nil, fmt.Errorf(
 			"%w: training job %s already exists",
 			ErrTrainingJobAlreadyExists,
@@ -549,7 +549,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 			{StartTime: now, Status: "Starting", StatusMessage: "Launching requested ML instances"},
 		},
 	}
-	b.trainingJobsStore(region)[opts.TrainingJobName] = tj
+	b.trainingJobsStore(region).Put(tj)
 	b.trainingJobARNIndexStore(region)[jobARN] = opts.TrainingJobName
 
 	b.scheduleTrainingCompletion(b.lifecycleCtx, region, opts.TrainingJobName)
@@ -565,7 +565,7 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, region
 		b.mu.Lock("scheduleTrainingCompletion.goroutine")
 		defer b.mu.Unlock()
 
-		tj, ok := b.trainingJobsStore(region)[name]
+		tj, ok := b.trainingJobsStore(region).Get(name)
 		if !ok {
 			return
 		}
@@ -603,7 +603,7 @@ func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) e
 
 	region := getRegion(ctx, b.region)
 
-	tj, ok := b.trainingJobsStore(region)[name]
+	tj, ok := b.trainingJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -615,7 +615,7 @@ func (b *InMemoryBackend) StopTrainingJobFSM(ctx context.Context, name string) e
 		b.mu.Lock("StopTrainingJobFSM.goroutine")
 		defer b.mu.Unlock()
 
-		if tj2, ok2 := b.trainingJobsStore(region)[name]; ok2 &&
+		if tj2, ok2 := b.trainingJobsStore(region).Get(name); ok2 &&
 			tj2.TrainingJobStatus == pipelineStatusStopping {
 			tj2.TrainingJobStatus = pipelineStatusStopped
 			tj2.LastModifiedTime = time.Now()
@@ -645,8 +645,8 @@ func (b *InMemoryBackend) ListTrainingJobsFiltered(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*TrainingJob, 0, len(b.trainingJobsStore(region)))
-	for _, tj := range b.trainingJobsStore(region) {
+	list := make([]*TrainingJob, 0, b.trainingJobsStore(region).Len())
+	for _, tj := range b.trainingJobsStore(region).All() {
 		if f.StatusEquals != "" && !strings.EqualFold(tj.TrainingJobStatus, f.StatusEquals) {
 			continue
 		}
@@ -706,7 +706,7 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 		b.mu.Lock("scheduleEndpointTransition.goroutine")
 		defer b.mu.Unlock()
 
-		if ep, ok := b.endpointsStore(region)[name]; ok {
+		if ep, ok := b.endpointsStore(region).Get(name); ok {
 			ep.EndpointStatus = nextStatus
 			ep.LastModifiedTime = time.Now()
 		}
@@ -762,7 +762,7 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 
 	region := getRegion(ctx, b.region)
 
-	ep, ok := b.endpointsStore(region)[name]
+	ep, ok := b.endpointsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -938,7 +938,7 @@ func (b *InMemoryBackend) CreateProcessingJob(ctx context.Context, opts Processi
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.processingJobsStore(region)[opts.ProcessingJobName]; ok {
+	if _, ok := b.processingJobsStore(region).Get(opts.ProcessingJobName); ok {
 		return nil, fmt.Errorf(
 			"%w: processing job %s already exists",
 			ErrProcessingJobAlreadyExists,
@@ -964,7 +964,7 @@ func (b *InMemoryBackend) CreateProcessingJob(ctx context.Context, opts Processi
 		ProcessingStartTime:    &now,
 		Tags:                   mergeTags(nil, opts.Tags),
 	}
-	b.processingJobsStore(region)[opts.ProcessingJobName] = pj
+	b.processingJobsStore(region).Put(pj)
 	b.processingJobARNIndexStore(region)[pjARN] = opts.ProcessingJobName
 
 	b.scheduleProcessingCompletion(b.lifecycleCtx, region, opts.ProcessingJobName)
@@ -980,7 +980,7 @@ func (b *InMemoryBackend) scheduleProcessingCompletion(ctx context.Context, regi
 		b.mu.Lock("scheduleProcessingCompletion.goroutine")
 		defer b.mu.Unlock()
 
-		pj, ok := b.processingJobsStore(region)[name]
+		pj, ok := b.processingJobsStore(region).Get(name)
 		if !ok || pj.ProcessingJobStatus != "InProgress" {
 			return
 		}
@@ -998,7 +998,7 @@ func (b *InMemoryBackend) DescribeProcessingJob(ctx context.Context, name string
 
 	region := getRegion(ctx, b.region)
 
-	pj, ok := b.processingJobsStore(region)[name]
+	pj, ok := b.processingJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
@@ -1013,7 +1013,7 @@ func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) er
 
 	region := getRegion(ctx, b.region)
 
-	pj, ok := b.processingJobsStore(region)[name]
+	pj, ok := b.processingJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
@@ -1025,7 +1025,7 @@ func (b *InMemoryBackend) StopProcessingJob(ctx context.Context, name string) er
 		b.mu.Lock("StopProcessingJob.goroutine")
 		defer b.mu.Unlock()
 
-		if pj2, ok2 := b.processingJobsStore(region)[name]; ok2 && pj2.ProcessingJobStatus == "Stopping" {
+		if pj2, ok2 := b.processingJobsStore(region).Get(name); ok2 && pj2.ProcessingJobStatus == "Stopping" {
 			pj2.ProcessingJobStatus = "Stopped"
 			pj2.LastModifiedTime = time.Now()
 		}
@@ -1042,7 +1042,7 @@ func (b *InMemoryBackend) DeleteProcessingJob(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	pj, ok := b.processingJobsStore(region)[name]
+	pj, ok := b.processingJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: processing job %q not found", ErrProcessingJobNotFound, name)
 	}
@@ -1054,7 +1054,7 @@ func (b *InMemoryBackend) DeleteProcessingJob(ctx context.Context, name string) 
 		)
 	}
 
-	delete(b.processingJobsStore(region), name)
+	b.processingJobsStore(region).Delete(name)
 	delete(b.processingJobARNIndexStore(region), pj.ProcessingJobArn)
 
 	return nil
@@ -1071,8 +1071,8 @@ func (b *InMemoryBackend) ListProcessingJobs(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*ProcessingJob, 0, len(b.processingJobsStore(region)))
-	for _, pj := range b.processingJobsStore(region) {
+	list := make([]*ProcessingJob, 0, b.processingJobsStore(region).Len())
+	for _, pj := range b.processingJobsStore(region).All() {
 		if statusEquals != "" && !strings.EqualFold(pj.ProcessingJobStatus, statusEquals) {
 			continue
 		}
@@ -1214,7 +1214,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.notebooksStore(region)[opts.Name]; ok {
+	if _, ok := b.notebooksStore(region).Get(opts.Name); ok {
 		return nil, fmt.Errorf(
 			"%w: notebook instance %s already exists",
 			ErrNotebookAlreadyExists,
@@ -1245,7 +1245,7 @@ func (b *InMemoryBackend) CreateNotebookInstanceFull(
 		LastModifiedTime:           now,
 		Tags:                       mergeTags(nil, opts.Tags),
 	}
-	b.notebooksStore(region)[opts.Name] = nb
+	b.notebooksStore(region).Put(nb)
 	b.notebookARNIndexStore(region)[nbARN] = opts.Name
 
 	return cloneNotebook(nb), nil

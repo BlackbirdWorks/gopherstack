@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // defaultLineageGroupName is the name of the lineage group SageMaker
@@ -92,17 +93,25 @@ type Edge struct {
 	AssociationType string `json:"AssociationType,omitempty"`
 }
 
-func (b *InMemoryBackend) artifactsStore(r string) map[string]*Artifact {
+func (b *InMemoryBackend) artifactsStore(r string) *store.Table[Artifact] {
 	if b.artifacts[r] == nil {
-		b.artifacts[r] = make(map[string]*Artifact)
+		b.artifacts[r] = store.Register(
+			b.registry,
+			"artifacts:"+r,
+			store.New(func(v *Artifact) string { return v.ArtifactArn }),
+		)
 	}
 
 	return b.artifacts[r]
 }
 
-func (b *InMemoryBackend) contextsStore(r string) map[string]*Context {
+func (b *InMemoryBackend) contextsStore(r string) *store.Table[Context] {
 	if b.contexts[r] == nil {
-		b.contexts[r] = make(map[string]*Context)
+		b.contexts[r] = store.Register(
+			b.registry,
+			"contexts:"+r,
+			store.New(func(v *Context) string { return v.ContextName }),
+		)
 	}
 
 	return b.contexts[r]
@@ -148,7 +157,7 @@ func (b *InMemoryBackend) CreateArtifact(
 	}
 
 	artifactARN := arn.Build("sagemaker", region, b.accountID, "artifact/"+slug)
-	if _, ok := store[artifactARN]; ok {
+	if _, ok := store.Get(artifactARN); ok {
 		return nil, fmt.Errorf("%w: artifact %q already exists", ErrArtifactAlreadyExists, artifactARN)
 	}
 
@@ -163,7 +172,7 @@ func (b *InMemoryBackend) CreateArtifact(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	store[artifactARN] = ar
+	store.Put(ar)
 
 	return cloneArtifact(ar), nil
 }
@@ -175,7 +184,7 @@ func (b *InMemoryBackend) DescribeArtifact(ctx context.Context, artifactArn stri
 
 	region := getRegion(ctx, b.region)
 
-	ar, ok := b.artifactsStore(region)[artifactArn]
+	ar, ok := b.artifactsStore(region).Get(artifactArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: artifact %q not found", ErrArtifactNotFound, artifactArn)
 	}
@@ -196,7 +205,7 @@ func (b *InMemoryBackend) UpdateArtifact(
 	region := getRegion(ctx, b.region)
 	store := b.artifactsStore(region)
 
-	ar, ok := store[artifactArn]
+	ar, ok := store.Get(artifactArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: artifact %q not found", ErrArtifactNotFound, artifactArn)
 	}
@@ -228,13 +237,13 @@ func (b *InMemoryBackend) DeleteArtifact(ctx context.Context, artifactArn string
 	region := getRegion(ctx, b.region)
 	store := b.artifactsStore(region)
 
-	ar, ok := store[artifactArn]
+	ar, ok := store.Get(artifactArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: artifact %q not found", ErrArtifactNotFound, artifactArn)
 	}
 
 	cp := cloneArtifact(ar)
-	delete(store, artifactArn)
+	store.Delete(artifactArn)
 
 	return cp, nil
 }
@@ -250,9 +259,9 @@ func (b *InMemoryBackend) ListArtifacts(
 	region := getRegion(ctx, b.region)
 	store := b.artifactsStore(region)
 
-	filtered := make(map[string]*Artifact, len(store))
+	filtered := make(map[string]*Artifact, store.Len())
 
-	for k, ar := range store {
+	for _, ar := range store.All() {
 		if artifactType != "" && ar.ArtifactType != artifactType {
 			continue
 		}
@@ -261,10 +270,10 @@ func (b *InMemoryBackend) ListArtifacts(
 			continue
 		}
 
-		filtered[k] = ar
+		filtered[ar.ArtifactArn] = ar
 	}
 
-	return sagemakerListPaged(filtered, nextToken, cloneArtifact,
+	return sagemakerListPagedMap(filtered, nextToken, cloneArtifact,
 		func(a, b *Artifact) bool { return a.ArtifactArn < b.ArtifactArn })
 }
 
@@ -298,7 +307,7 @@ func (b *InMemoryBackend) CreateContext(
 	region := getRegion(ctx, b.region)
 	store := b.contextsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: context %q already exists", ErrContextAlreadyExists, name)
 	}
 
@@ -315,7 +324,7 @@ func (b *InMemoryBackend) CreateContext(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	store[name] = c
+	store.Put(c)
 	b.contextARNIndexStore(region)[contextARN] = name
 
 	return cloneContext(c), nil
@@ -328,7 +337,7 @@ func (b *InMemoryBackend) DescribeContext(ctx context.Context, name string) (*Co
 
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.contextsStore(region)[name]
+	c, ok := b.contextsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: context %q not found", ErrContextNotFound, name)
 	}
@@ -349,7 +358,7 @@ func (b *InMemoryBackend) UpdateContext(
 	region := getRegion(ctx, b.region)
 	store := b.contextsStore(region)
 
-	c, ok := store[name]
+	c, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: context %q not found", ErrContextNotFound, name)
 	}
@@ -381,13 +390,13 @@ func (b *InMemoryBackend) DeleteContext(ctx context.Context, name string) (*Cont
 	region := getRegion(ctx, b.region)
 	store := b.contextsStore(region)
 
-	c, ok := store[name]
+	c, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: context %q not found", ErrContextNotFound, name)
 	}
 
 	cp := cloneContext(c)
-	delete(store, name)
+	store.Delete(name)
 	delete(b.contextARNIndexStore(region), c.ContextArn)
 
 	return cp, nil
@@ -404,9 +413,9 @@ func (b *InMemoryBackend) ListContexts(
 	region := getRegion(ctx, b.region)
 	store := b.contextsStore(region)
 
-	filtered := make(map[string]*Context, len(store))
+	filtered := make(map[string]*Context, store.Len())
 
-	for k, c := range store {
+	for _, c := range store.All() {
 		if contextType != "" && c.ContextType != contextType {
 			continue
 		}
@@ -415,10 +424,10 @@ func (b *InMemoryBackend) ListContexts(
 			continue
 		}
 
-		filtered[k] = c
+		filtered[c.ContextName] = c
 	}
 
-	return sagemakerListPaged(filtered, nextToken, cloneContext,
+	return sagemakerListPagedMap(filtered, nextToken, cloneContext,
 		func(a, b *Context) bool { return a.ContextName < b.ContextName })
 }
 
@@ -433,7 +442,7 @@ func (b *InMemoryBackend) DescribeAction(ctx context.Context, name string) (*Act
 
 	region := getRegion(ctx, b.region)
 
-	a, ok := b.actionsStore(region)[name]
+	a, ok := b.actionsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: action %q not found", ErrActionNotFound, name)
 	}
@@ -454,7 +463,7 @@ func (b *InMemoryBackend) UpdateAction(
 	region := getRegion(ctx, b.region)
 	store := b.actionsStore(region)
 
-	a, ok := store[name]
+	a, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: action %q not found", ErrActionNotFound, name)
 	}
@@ -490,13 +499,13 @@ func (b *InMemoryBackend) DeleteAction(ctx context.Context, name string) (*Actio
 	region := getRegion(ctx, b.region)
 	store := b.actionsStore(region)
 
-	a, ok := store[name]
+	a, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: action %q not found", ErrActionNotFound, name)
 	}
 
 	cp := cloneAction(a)
-	delete(store, name)
+	store.Delete(name)
 	delete(b.actionARNIndexStore(region), a.ActionArn)
 
 	return cp, nil
@@ -513,9 +522,9 @@ func (b *InMemoryBackend) ListActions(
 	region := getRegion(ctx, b.region)
 	store := b.actionsStore(region)
 
-	filtered := make(map[string]*Action, len(store))
+	filtered := make(map[string]*Action, store.Len())
 
-	for k, a := range store {
+	for _, a := range store.All() {
 		if actionType != "" && a.ActionType != actionType {
 			continue
 		}
@@ -524,10 +533,10 @@ func (b *InMemoryBackend) ListActions(
 			continue
 		}
 
-		filtered[k] = a
+		filtered[a.ActionName] = a
 	}
 
-	return sagemakerListPaged(filtered, nextToken, cloneAction,
+	return sagemakerListPagedMap(filtered, nextToken, cloneAction,
 		func(a, b *Action) bool { return a.ActionName < b.ActionName })
 }
 
@@ -544,7 +553,7 @@ func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, sourceArn, dest
 	store := b.associationsStore(region)
 
 	key := associationKey(sourceArn, destinationArn)
-	if _, ok := store[key]; !ok {
+	if _, ok := store.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: association between %s and %s not found",
 			ErrAssociationNotFound,
@@ -553,7 +562,7 @@ func (b *InMemoryBackend) DeleteAssociation(ctx context.Context, sourceArn, dest
 		)
 	}
 
-	delete(store, key)
+	store.Delete(key)
 
 	return nil
 }
@@ -569,9 +578,9 @@ func (b *InMemoryBackend) ListAssociations(
 	region := getRegion(ctx, b.region)
 	store := b.associationsStore(region)
 
-	filtered := make(map[string]*Association, len(store))
+	filtered := make(map[string]*Association, store.Len())
 
-	for k, a := range store {
+	for _, a := range store.All() {
 		if sourceArn != "" && a.SourceArn != sourceArn {
 			continue
 		}
@@ -584,10 +593,10 @@ func (b *InMemoryBackend) ListAssociations(
 			continue
 		}
 
-		filtered[k] = a
+		filtered[associationKey(a.SourceArn, a.DestinationArn)] = a
 	}
 
-	return sagemakerListPaged(filtered, nextToken, cloneAssociation,
+	return sagemakerListPagedMap(filtered, nextToken, cloneAssociation,
 		func(a, b *Association) bool { return a.AssociationArn < b.AssociationArn })
 }
 
@@ -650,17 +659,17 @@ func (b *InMemoryBackend) lineageEntityLookup(
 	region, entityArn string,
 ) (string, string, string, bool) {
 	if actionName, found := b.actionARNIndexStore(region)[entityArn]; found {
-		if a, exists := b.actionsStore(region)[actionName]; exists {
+		if a, exists := b.actionsStore(region).Get(actionName); exists {
 			return a.ActionName, a.ActionType, "Action", true
 		}
 	}
 
-	if ar, found := b.artifactsStore(region)[entityArn]; found {
+	if ar, found := b.artifactsStore(region).Get(entityArn); found {
 		return ar.ArtifactName, ar.ArtifactType, "Artifact", true
 	}
 
 	if contextName, found := b.contextARNIndexStore(region)[entityArn]; found {
-		if c, exists := b.contextsStore(region)[contextName]; exists {
+		if c, exists := b.contextsStore(region).Get(contextName); exists {
 			return c.ContextName, c.ContextType, "Context", true
 		}
 	}
@@ -774,7 +783,7 @@ func (b *InMemoryBackend) buildLineageAdjacency(region string) (map[string][]Edg
 	fwd := make(map[string][]Edge)
 	back := make(map[string][]Edge)
 
-	for _, a := range b.associationsStore(region) {
+	for _, a := range b.associationsStore(region).All() {
 		e := Edge{SourceArn: a.SourceArn, DestinationArn: a.DestinationArn, AssociationType: a.AssociationType}
 		fwd[a.SourceArn] = append(fwd[a.SourceArn], e)
 		back[a.DestinationArn] = append(back[a.DestinationArn], e)

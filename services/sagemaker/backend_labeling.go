@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -206,9 +207,13 @@ type CreateLabelingJobOptions struct {
 	HumanTaskConfig             HumanTaskConfig
 }
 
-func (b *InMemoryBackend) labelingJobsStore(r string) map[string]*LabelingJob {
+func (b *InMemoryBackend) labelingJobsStore(r string) *store.Table[LabelingJob] {
 	if b.labelingJobs[r] == nil {
-		b.labelingJobs[r] = make(map[string]*LabelingJob)
+		b.labelingJobs[r] = store.Register(
+			b.registry,
+			"labelingJobs:"+r,
+			store.New(func(v *LabelingJob) string { return v.LabelingJobName }),
+		)
 	}
 
 	return b.labelingJobs[r]
@@ -229,7 +234,7 @@ func (b *InMemoryBackend) CreateLabelingJob(
 	}
 
 	store := b.labelingJobsStore(region)
-	if _, ok := store[opts.LabelingJobName]; ok {
+	if _, ok := store.Get(opts.LabelingJobName); ok {
 		return nil, fmt.Errorf(
 			"%w: labeling job %q already exists", ErrLabelingJobAlreadyExists, opts.LabelingJobName,
 		)
@@ -255,7 +260,7 @@ func (b *InMemoryBackend) CreateLabelingJob(
 		CreationTime:                now,
 		LastModifiedTime:            now,
 	}
-	store[opts.LabelingJobName] = j
+	store.Put(j)
 
 	b.scheduleLabelingJobCompletion(b.lifecycleCtx, region, opts.LabelingJobName)
 
@@ -268,7 +273,7 @@ func (b *InMemoryBackend) CreateLabelingJob(
 func (b *InMemoryBackend) scheduleLabelingJobCompletion(ctx context.Context, region, name string) {
 	b.runDelayed(ctx, labelingJobStopDelay, func() {
 		b.mu.Lock("scheduleLabelingJobCompletion.toInProgress")
-		j, ok := b.labelingJobsStore(region)[name]
+		j, ok := b.labelingJobsStore(region).Get(name)
 		if ok && j.LabelingJobStatus == labelingJobStatusInitializing {
 			j.LabelingJobStatus = labelingJobStatusInProgress
 			j.LastModifiedTime = time.Now()
@@ -280,7 +285,7 @@ func (b *InMemoryBackend) scheduleLabelingJobCompletion(ctx context.Context, reg
 		b.mu.Lock("scheduleLabelingJobCompletion.toCompleted")
 		defer b.mu.Unlock()
 
-		j, ok := b.labelingJobsStore(region)[name]
+		j, ok := b.labelingJobsStore(region).Get(name)
 		if !ok || j.LabelingJobStatus != labelingJobStatusInProgress {
 			return
 		}
@@ -302,7 +307,7 @@ func (b *InMemoryBackend) DescribeLabelingJob(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.labelingJobsStore(region)[name]
+	j, ok := b.labelingJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: labeling job %q not found", ErrLabelingJobNotFound, name)
 	}
@@ -317,7 +322,7 @@ func (b *InMemoryBackend) StopLabelingJob(ctx context.Context, name string) erro
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.labelingJobsStore(region)[name]
+	j, ok := b.labelingJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: labeling job %q not found", ErrLabelingJobNotFound, name)
 	}
@@ -336,7 +341,7 @@ func (b *InMemoryBackend) StopLabelingJob(ctx context.Context, name string) erro
 		b.mu.Lock("StopLabelingJob.goroutine")
 		defer b.mu.Unlock()
 
-		if j2, ok2 := b.labelingJobsStore(region)[name]; ok2 && j2.LabelingJobStatus == labelingJobStatusStopping {
+		if j2, ok2 := b.labelingJobsStore(region).Get(name); ok2 && j2.LabelingJobStatus == labelingJobStatusStopping {
 			j2.LabelingJobStatus = labelingJobStatusStopped
 			j2.LastModifiedTime = time.Now()
 		}
@@ -363,9 +368,9 @@ func (b *InMemoryBackend) ListLabelingJobs(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*LabelingJob, 0, len(b.labelingJobsStore(region)))
+	list := make([]*LabelingJob, 0, b.labelingJobsStore(region).Len())
 
-	for _, j := range b.labelingJobsStore(region) {
+	for _, j := range b.labelingJobsStore(region).All() {
 		if filter.StatusEquals != "" && j.LabelingJobStatus != filter.StatusEquals {
 			continue
 		}
@@ -400,9 +405,9 @@ func (b *InMemoryBackend) ListLabelingJobsForWorkteam(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*LabelingJob, 0, len(b.labelingJobsStore(region)))
+	list := make([]*LabelingJob, 0, b.labelingJobsStore(region).Len())
 
-	for _, j := range b.labelingJobsStore(region) {
+	for _, j := range b.labelingJobsStore(region).All() {
 		if j.HumanTaskConfig.WorkteamArn == workteamArn {
 			list = append(list, cloneLabelingJob(j))
 		}

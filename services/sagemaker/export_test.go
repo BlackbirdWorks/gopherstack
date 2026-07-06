@@ -1,9 +1,11 @@
 package sagemaker
 
-func sumRegions[T any](m map[string]map[string]*T) int {
+import "github.com/blackbirdworks/gopherstack/pkgs/store"
+
+func sumRegions[T any](m map[string]*store.Table[T]) int {
 	total := 0
-	for _, regionMap := range m {
-		total += len(regionMap)
+	for _, tbl := range m {
+		total += tbl.Len()
 	}
 
 	return total
@@ -86,8 +88,7 @@ func SeedMonitoringExecution(b *InMemoryBackend, region string, e *MonitoringExe
 	b.mu.Lock("SeedMonitoringExecution")
 	defer b.mu.Unlock()
 
-	store := b.monitoringExecutionsStore(region)
-	store[e.MonitoringScheduleName+"|"+e.ProcessingJobArn] = e
+	b.monitoringExecutionsStore(region).Put(e)
 }
 
 // SeedMonitoringAlertHistory inserts an alert-history entry directly into the
