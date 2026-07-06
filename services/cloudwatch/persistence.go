@@ -3,25 +3,31 @@ package cloudwatch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// cloudwatchSnapshotVersion identifies the shape of backendSnapshot's Tables
+// blob (i.e. the set/shape of resources registered on b.registry -- see
+// registerAllTables in store_setup.go). It must be bumped whenever a change
+// there would make an older snapshot unsafe to decode as the current shape.
+// Restore compares this against the persisted value and discards (rather than
+// attempts to partially decode) any mismatch -- see Restore below. This
+// mirrors the services/sqs pilot (commit 0f09d77c) and the services/ec2
+// conversion (commit 12e611a4).
+const cloudwatchSnapshotVersion = 1
+
 type backendSnapshot struct {
-	Metrics          map[string]map[string]*metricRecord `json:"metrics"`
-	Alarms           map[string]*MetricAlarm             `json:"alarms"`
-	CompositeAlarms  map[string]*CompositeAlarm          `json:"compositeAlarms"`
-	AlarmHistory     map[string][]AlarmHistoryItem       `json:"alarmHistory"`
-	Dashboards       map[string]*dashboardRecord         `json:"dashboards"`
-	AnomalyDetectors map[string]*AnomalyDetector         `json:"anomalyDetectors"`
-	InsightRules     map[string]*InsightRule             `json:"insightRules"`
-	MetricStreams    map[string]*MetricStream            `json:"metricStreams"`
-	AlarmMuteRules   map[string]*AlarmMuteRule           `json:"alarmMuteRules"`
-	MetricFilters    map[string]*MetricFilter            `json:"metricFilters"`
-	AccountID        string                              `json:"accountID"`
-	Region           string                              `json:"region"`
-	TotalMetrics     int                                 `json:"totalMetrics"`
+	Tables       map[string]json.RawMessage          `json:"tables"`
+	Metrics      map[string]map[string]*metricRecord `json:"metrics"`
+	AlarmHistory map[string][]AlarmHistoryItem       `json:"alarmHistory"`
+	AccountID    string                              `json:"accountID"`
+	Region       string                              `json:"region"`
+	Version      int                                 `json:"version"`
+	TotalMetrics int                                 `json:"totalMetrics"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -30,20 +36,25 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "cloudwatch: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Metrics:          b.metrics,
-		Alarms:           b.alarms,
-		CompositeAlarms:  b.compositeAlarms,
-		AlarmHistory:     b.alarmHistory,
-		Dashboards:       b.dashboards,
-		AnomalyDetectors: b.anomalyDetectors,
-		InsightRules:     b.insightRules,
-		MetricStreams:    b.metricStreams,
-		AlarmMuteRules:   b.alarmMuteRules,
-		MetricFilters:    b.metricFilters,
-		AccountID:        b.accountID,
-		Region:           b.region,
-		TotalMetrics:     b.totalMetrics,
+		Version:      cloudwatchSnapshotVersion,
+		Tables:       tables,
+		Metrics:      b.metrics,
+		AlarmHistory: b.alarmHistory,
+		AccountID:    b.accountID,
+		Region:       b.region,
+		TotalMetrics: b.totalMetrics,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "cloudwatch", snap)
@@ -61,56 +72,39 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	if snap.Version != cloudwatchSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/sqs pilot (commit 0f09d77c).
+		logger.Load(ctx).WarnContext(ctx,
+			"cloudwatch: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", cloudwatchSnapshotVersion)
+
+		b.metrics = make(map[string]map[string]*metricRecord)
+		b.alarmHistory = make(map[string][]AlarmHistoryItem)
+		b.totalMetrics = 0
+		b.registry.ResetAll()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("cloudwatch: restore snapshot tables: %w", err)
+	}
+
 	if snap.Metrics == nil {
 		snap.Metrics = make(map[string]map[string]*metricRecord)
-	}
-
-	if snap.Alarms == nil {
-		snap.Alarms = make(map[string]*MetricAlarm)
-	}
-
-	if snap.CompositeAlarms == nil {
-		snap.CompositeAlarms = make(map[string]*CompositeAlarm)
 	}
 
 	if snap.AlarmHistory == nil {
 		snap.AlarmHistory = make(map[string][]AlarmHistoryItem)
 	}
 
-	if snap.Dashboards == nil {
-		snap.Dashboards = make(map[string]*dashboardRecord)
-	}
-
-	if snap.AnomalyDetectors == nil {
-		snap.AnomalyDetectors = make(map[string]*AnomalyDetector)
-	}
-
-	if snap.InsightRules == nil {
-		snap.InsightRules = make(map[string]*InsightRule)
-	}
-
-	if snap.MetricStreams == nil {
-		snap.MetricStreams = make(map[string]*MetricStream)
-	}
-
-	if snap.AlarmMuteRules == nil {
-		snap.AlarmMuteRules = make(map[string]*AlarmMuteRule)
-	}
-
-	if snap.MetricFilters == nil {
-		snap.MetricFilters = make(map[string]*MetricFilter)
-	}
-
 	b.metrics = snap.Metrics
-	b.alarms = snap.Alarms
-	b.compositeAlarms = snap.CompositeAlarms
 	b.alarmHistory = snap.AlarmHistory
-	b.dashboards = snap.Dashboards
-	b.anomalyDetectors = snap.AnomalyDetectors
-	b.insightRules = snap.InsightRules
-	b.metricStreams = snap.MetricStreams
-	b.alarmMuteRules = snap.AlarmMuteRules
-	b.metricFilters = snap.MetricFilters
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.totalMetrics = snap.TotalMetrics
