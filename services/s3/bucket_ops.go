@@ -1043,7 +1043,7 @@ func (h *S3Handler) getBucketACL(
 	if strings.HasPrefix(strings.TrimSpace(canned), "<") {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(canned)) //nolint:gosec // pre-stored XML body is trusted
+		_, _ = w.Write([]byte(canned))
 
 		return
 	}

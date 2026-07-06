@@ -1,10 +1,13 @@
 package s3_test
 
 import (
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,6 +41,102 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, out.Buckets, 1)
 				assert.Equal(t, id, *out.Buckets[0].Name)
+			},
+		},
+		{
+			// Exercises every piece of backend state that Snapshot/Restore must
+			// round-trip: the converted "buckets" and "uploads" store.Table
+			// entries (including an inline object inside the bucket entry),
+			// AND the raw-left b.tags map and defaultRegion string that stayed
+			// plain fields (not store.Tables) — so a future change that drops
+			// either from Snapshot/Restore fails this test.
+			name: "full_state_round_trip",
+			setup: func(b *s3.InMemoryBackend) string {
+				b.SetDefaultRegion("eu-west-1")
+
+				ctx := t.Context()
+				bucketName := "full-state-bucket"
+
+				if _, err := b.CreateBucket(ctx, &sdk_s3.CreateBucketInput{
+					Bucket: aws.String(bucketName),
+				}); err != nil {
+					return ""
+				}
+
+				if _, err := b.PutObject(ctx, &sdk_s3.PutObjectInput{
+					Bucket: aws.String(bucketName),
+					Key:    aws.String("obj.txt"),
+					Body:   strings.NewReader("hello"),
+				}); err != nil {
+					return ""
+				}
+
+				if _, err := b.PutObjectTagging(ctx, &sdk_s3.PutObjectTaggingInput{
+					Bucket: aws.String(bucketName),
+					Key:    aws.String("obj.txt"),
+					Tagging: &types.Tagging{
+						TagSet: []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
+					},
+				}); err != nil {
+					return ""
+				}
+
+				if _, err := b.CreateMultipartUpload(ctx, &sdk_s3.CreateMultipartUploadInput{
+					Bucket: aws.String(bucketName),
+					Key:    aws.String("large.bin"),
+				}); err != nil {
+					return ""
+				}
+
+				return bucketName
+			},
+			verify: func(t *testing.T, b *s3.InMemoryBackend, id string) {
+				t.Helper()
+
+				ctx := t.Context()
+
+				out, err := b.ListBuckets(ctx, &sdk_s3.ListBucketsInput{})
+				require.NoError(t, err)
+				require.Len(t, out.Buckets, 1)
+				assert.Equal(t, id, aws.ToString(out.Buckets[0].Name))
+
+				// The object stored inline inside the bucket's store.Table entry.
+				getOut, err := b.GetObject(ctx, &sdk_s3.GetObjectInput{
+					Bucket: aws.String(id),
+					Key:    aws.String("obj.txt"),
+				})
+				require.NoError(t, err)
+				body, readErr := io.ReadAll(getOut.Body)
+				require.NoError(t, readErr)
+				assert.Equal(t, "hello", string(body))
+
+				// b.tags: a raw (non-store.Table) map — must still round-trip.
+				tagOut, err := b.GetObjectTagging(ctx, &sdk_s3.GetObjectTaggingInput{
+					Bucket: aws.String(id),
+					Key:    aws.String("obj.txt"),
+				})
+				require.NoError(t, err)
+				require.Len(t, tagOut.TagSet, 1)
+				assert.Equal(t, "env", aws.ToString(tagOut.TagSet[0].Key))
+				assert.Equal(t, "prod", aws.ToString(tagOut.TagSet[0].Value))
+
+				// The "uploads" store.Table entry, and its bucket-index grouping.
+				mpOut, err := b.ListMultipartUploads(ctx, &sdk_s3.ListMultipartUploadsInput{
+					Bucket: aws.String(id),
+				})
+				require.NoError(t, err)
+				require.Len(t, mpOut.Uploads, 1)
+				assert.Equal(t, "large.bin", aws.ToString(mpOut.Uploads[0].Key))
+
+				// b.defaultRegion: a raw (non-store.Table) string field — a
+				// freshly created bucket with no explicit region must land in
+				// the restored default region.
+				require.NoError(t, err)
+				_, err = b.CreateBucket(ctx, &sdk_s3.CreateBucketInput{
+					Bucket: aws.String("region-check-bucket"),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "eu-west-1", b.BucketRegion("region-check-bucket"))
 			},
 		},
 		{
@@ -103,52 +202,95 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
-// TestInMemoryBackend_RestoreActivePrecedesOverPending verifies that
-// buildBucketIndex prefers the active bucket over a pending-delete entry when
-// a snapshot (e.g. from an older version) contains both for the same name.
-// The snapshot is crafted as raw JSON to exercise the path directly.
-func TestInMemoryBackend_RestoreActivePrecedesOverPending(t *testing.T) {
+// TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshot verifies that a
+// snapshot whose "version" field doesn't match the current s3SnapshotVersion —
+// including every snapshot written before the Phase 3.3 pkgs/store conversion
+// (which predates the version field entirely, and used the old
+// {"buckets": {region: {name: ...}}, "uploads": {bucket: {uploadID: ...}}}
+// shape, with a legacy flat-uploads variant on top of that) — is discarded
+// cleanly (Restore returns no error, backend ends up empty) rather than
+// partially decoded as the current {"tables": {...}} shape. This mirrors the
+// services/ec2 and services/sqs Phase 3.x conversions, which made the same
+// tradeoff.
+func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshot(t *testing.T) {
 	t.Parallel()
 
-	// Craft a snapshot JSON that has:
-	//   us-east-1 / "shared": DeletePending = true   (pending-delete)
-	//   us-west-2 / "shared": DeletePending = false  (active)
-	snap := []byte(`{
-		"buckets": {
-			"us-east-1": {
-				"shared": {
-					"name": "shared",
-					"deletePending": true,
-					"versioning": "Suspended",
-					"objects": {}
-				}
-			},
-			"us-west-2": {
-				"shared": {
-					"name": "shared",
-					"deletePending": false,
-					"versioning": "Suspended",
-					"objects": {}
-				}
-			}
+	tests := []struct {
+		name     string
+		snapshot []byte
+	}{
+		{
+			// Pre-conversion region-nested bucket shape, no version field.
+			name: "legacy_region_nested_buckets_no_version",
+			snapshot: []byte(`{
+				"buckets": {
+					"us-east-1": {
+						"shared": {
+							"name": "shared",
+							"deletePending": true,
+							"versioning": "Suspended",
+							"objects": {}
+						}
+					},
+					"us-west-2": {
+						"shared": {
+							"name": "shared",
+							"deletePending": false,
+							"versioning": "Suspended",
+							"objects": {}
+						}
+					}
+				},
+				"tags": {},
+				"uploads": {},
+				"defaultRegion": "us-east-1"
+			}`),
 		},
-		"tags": {},
-		"uploads": {},
-		"defaultRegion": "us-east-1"
-	}`)
+		{
+			// Pre-issue-620 flat uploads shape on top of the pre-conversion
+			// bucket shape, no version field.
+			name: "legacy_flat_uploads_no_version",
+			snapshot: []byte(`{
+				"buckets": {
+					"us-east-1": {
+						"my-bucket": {
+							"name": "my-bucket",
+							"deletePending": false,
+							"objects": {}
+						}
+					}
+				},
+				"tags": {},
+				"uploads": {
+					"1234567890": {
+						"uploadID": "1234567890",
+						"bucket":   "my-bucket",
+						"key":      "large-file",
+						"initiated": "2024-01-01T00:00:00Z",
+						"parts": {}
+					}
+				},
+				"defaultRegion": "us-east-1"
+			}`),
+		},
+		{
+			name:     "explicit_future_version",
+			snapshot: []byte(`{"version": 999, "tables": {}}`),
+		},
+	}
 
-	b := s3.NewInMemoryBackend(nil)
-	require.NoError(t, b.Restore(t.Context(), snap))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	// getBucket must resolve to the active (us-west-2) entry.
-	_, err := b.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String("shared")})
-	require.NoError(t, err, "active bucket must be reachable after restore")
+			b := s3.NewInMemoryBackend(nil)
+			require.NoError(t, b.Restore(t.Context(), tc.snapshot))
 
-	// ListBuckets must show exactly one entry (the active bucket).
-	out, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
-	require.NoError(t, err)
-	assert.Len(t, out.Buckets, 1)
-	assert.Equal(t, "shared", aws.ToString(out.Buckets[0].Name))
+			out, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+			require.NoError(t, err)
+			assert.Empty(t, out.Buckets, "incompatible snapshot must be discarded, not partially decoded")
+		})
+	}
 }
 
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
@@ -157,45 +299,4 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	b := s3.NewInMemoryBackend(nil)
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
-}
-
-// TestInMemoryBackend_RestoreLegacyFlatUploads verifies that a snapshot using the
-// pre-issue-620 flat uploads format (map[uploadID]*StoredMultipartUpload) can be
-// restored into the current nested format (map[bucket]map[uploadID]*…).
-func TestInMemoryBackend_RestoreLegacyFlatUploads(t *testing.T) {
-	t.Parallel()
-
-	// Craft a snapshot with the legacy flat uploads format.
-	snap := []byte(`{
-		"buckets": {
-			"us-east-1": {
-				"my-bucket": {
-					"name": "my-bucket",
-					"deletePending": false,
-					"objects": {}
-				}
-			}
-		},
-		"tags": {},
-		"uploads": {
-			"1234567890": {
-				"uploadID": "1234567890",
-				"bucket":   "my-bucket",
-				"key":      "large-file",
-				"initiated": "2024-01-01T00:00:00Z",
-				"parts": {}
-			}
-		},
-		"defaultRegion": "us-east-1"
-	}`)
-
-	b := s3.NewInMemoryBackend(nil)
-	require.NoError(t, b.Restore(t.Context(), snap))
-
-	out, err := b.ListMultipartUploads(t.Context(), &sdk_s3.ListMultipartUploadsInput{
-		Bucket: aws.String("my-bucket"),
-	})
-	require.NoError(t, err)
-	require.Len(t, out.Uploads, 1, "legacy upload should be present after restore")
-	assert.Equal(t, "large-file", aws.ToString(out.Uploads[0].Key))
 }

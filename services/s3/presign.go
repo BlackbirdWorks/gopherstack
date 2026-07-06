@@ -133,8 +133,9 @@ func (h *S3Handler) validatePresignedRequest(
 	// rejected with 400 AuthorizationQueryParametersError.
 	if expires > maxPresignExpirySeconds {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    errAuthQueryParams,
-			Message: "X-Amz-Expires must be less than a week (in seconds); that is, the given X-Amz-Expires must be less than 604800 seconds.",
+			Code: errAuthQueryParams,
+			Message: "X-Amz-Expires must be less than a week (in seconds); that is, the given " +
+				"X-Amz-Expires must be less than 604800 seconds.",
 		}, http.StatusBadRequest)
 
 		return false

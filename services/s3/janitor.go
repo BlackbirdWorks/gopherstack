@@ -223,13 +223,12 @@ func (j *Janitor) sweepAndDrain(ctx context.Context) {
 	b := j.Backend
 
 	b.mu.RLock("S3Janitor")
-	pending := make([]string, 0, len(b.buckets))
+	all := b.buckets.All()
+	pending := make([]string, 0, len(all))
 
-	for _, regionBuckets := range b.buckets {
-		for name, bucket := range regionBuckets {
-			if bucket.DeletePending {
-				pending = append(pending, name)
-			}
+	for _, bucket := range all {
+		if bucket.DeletePending {
+			pending = append(pending, bucket.Name)
 		}
 	}
 	b.mu.RUnlock()
@@ -305,16 +304,12 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	now := time.Now().UTC()
 	abortBefore := now.Add(-defaultMultipartMaxAge)
 
-	type expiredKey struct{ bucket, uploadID string }
-
 	b.mu.RLock("S3Janitor.cleanupDefaultMultipart.scan")
-	var expired []expiredKey
+	var expired []string
 
-	for bucketName, uploads := range b.uploads {
-		for uploadID, upload := range uploads {
-			if upload.Initiated.Before(abortBefore) {
-				expired = append(expired, expiredKey{bucketName, uploadID})
-			}
+	for _, upload := range b.uploads.All() {
+		if upload.Initiated.Before(abortBefore) {
+			expired = append(expired, upload.UploadID)
 		}
 	}
 	b.mu.RUnlock()
@@ -324,10 +319,8 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	}
 
 	b.mu.Lock("S3Janitor.cleanupDefaultMultipart.delete")
-	for _, e := range expired {
-		if uploads, ok := b.uploads[e.bucket]; ok {
-			delete(uploads, e.uploadID)
-		}
+	for _, uploadID := range expired {
+		b.uploads.Delete(uploadID)
 	}
 	b.mu.Unlock()
 }
@@ -343,12 +336,13 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 func (j *Janitor) processBucket(ctx context.Context, name string) {
 	b := j.Backend
 
-	// Locate the bucket once; it cannot move between regions.
+	// Locate the bucket once; buckets are keyed by name, so this is a single
+	// O(1) lookup (bucket names cannot collide, let alone "move regions").
 	b.mu.RLock("S3Janitor.processBucket")
-	bucket, foundRegion := findBucketAcrossRegions(b.buckets, name)
+	bucket, ok := b.buckets.Get(name)
 	b.mu.RUnlock()
 
-	if bucket == nil {
+	if !ok {
 		return
 	}
 
@@ -374,25 +368,11 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 			continue
 		}
 
-		// Bucket is empty — remove it from the region map and clean up the
-		// region entry if it has become empty to prevent unbounded map growth.
-		// Guard the index removal: only delete if it still points at foundRegion
-		// so a future bucket with the same name keeps its index entry.
-		// Also purge orphaned uploads and tags to prevent resource leaks.
+		// Bucket is empty — remove it from the table and purge orphaned
+		// uploads and tags to prevent resource leaks.
 		b.mu.Lock("S3Janitor.removeBucket")
-		if regionBuckets, exists := b.buckets[foundRegion]; exists {
-			delete(regionBuckets, name)
-
-			if len(regionBuckets) == 0 {
-				delete(b.buckets, foundRegion)
-			}
-		}
-
-		if b.bucketIndex[name] == foundRegion {
-			delete(b.bucketIndex, name)
-		}
-
-		delete(b.uploads, name)
+		b.buckets.Delete(name)
+		b.purgeUploadsForBucketLocked(name)
 
 		prefix := name + "/"
 		for tagKey := range b.tags {
@@ -429,34 +409,33 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	}
 	var snapshots []bucketSnapshot
 
-	for _, regionBuckets := range b.buckets {
-		for name, bucket := range regionBuckets {
-			if bucket.DeletePending || bucket.LifecycleConfig == "" {
-				continue
-			}
-			bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
-			lcXML := bucket.LifecycleConfig
-			bucket.mu.RUnlock()
-			if lcXML == "" {
-				continue
-			}
-
-			// Snapshot tags for this bucket's objects.
-			tagsByKey := make(map[string][]types.Tag)
-			pfx := name + "/"
-			for k, v := range b.tags {
-				if strings.HasPrefix(k, pfx) {
-					tagsByKey[k] = slices.Clone(v)
-				}
-			}
-
-			snapshots = append(snapshots, bucketSnapshot{
-				name:      name,
-				bucket:    bucket,
-				lcXML:     lcXML,
-				tagsByKey: tagsByKey,
-			})
+	for _, bucket := range b.buckets.All() {
+		name := bucket.Name
+		if bucket.DeletePending || bucket.LifecycleConfig == "" {
+			continue
 		}
+		bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
+		lcXML := bucket.LifecycleConfig
+		bucket.mu.RUnlock()
+		if lcXML == "" {
+			continue
+		}
+
+		// Snapshot tags for this bucket's objects.
+		tagsByKey := make(map[string][]types.Tag)
+		pfx := name + "/"
+		for k, v := range b.tags {
+			if strings.HasPrefix(k, pfx) {
+				tagsByKey[k] = slices.Clone(v)
+			}
+		}
+
+		snapshots = append(snapshots, bucketSnapshot{
+			name:      name,
+			bucket:    bucket,
+			lcXML:     lcXML,
+			tagsByKey: tagsByKey,
+		})
 	}
 	b.mu.RUnlock()
 
@@ -801,21 +780,6 @@ func tagMatchesFilter(t types.Tag, f lifecycleTag) bool {
 		t.Value != nil && *t.Value == f.Value
 }
 
-// findBucketAcrossRegions returns the bucket and its region for the given bucket name,
-// or nil and an empty string if not found. Must be called with b.mu held.
-func findBucketAcrossRegions(
-	buckets map[string]map[string]*StoredBucket,
-	name string,
-) (*StoredBucket, string) {
-	for region, regionBuckets := range buckets {
-		if bkt, exists := regionBuckets[name]; exists {
-			return bkt, region
-		}
-	}
-
-	return nil, ""
-}
-
 // GetExpirationHeader calculates the x-amz-expiration header for an object
 // based on the bucket's lifecycle configuration.
 func (j *Janitor) GetExpirationHeader(
@@ -978,15 +942,19 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time
 	b.mu.Lock("S3Janitor.abortStaleMultipartUploads")
 	defer b.mu.Unlock()
 
-	bucketUploads, ok := b.uploads[bucketName]
-	if !ok {
-		return
+	// Copy matching upload IDs out of the index-owned group slice before
+	// issuing any Delete, per [store.Index.Get]'s doc.
+	grouped := b.uploadsByBucket.Get(bucketName)
+	stale := make([]string, 0, len(grouped))
+
+	for _, upload := range grouped {
+		if upload.Initiated.Before(abortBefore) {
+			stale = append(stale, upload.UploadID)
+		}
 	}
 
-	for uploadID, upload := range bucketUploads {
-		if upload.Initiated.Before(abortBefore) {
-			delete(bucketUploads, uploadID)
-		}
+	for _, uploadID := range stale {
+		b.uploads.Delete(uploadID)
 	}
 }
 

@@ -250,7 +250,8 @@ func writePostObjectResponse(
 		w.Header().Set("Location", loc)
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write(postObjectResponseXML(bucketName, key, etag, loc, r))
+		body := postObjectResponseXML(bucketName, key, etag, loc, r)
+		_, _ = w.Write(body) //nolint:gosec // XML-escaped by encoding/xml, served as application/xml
 
 		return
 	}

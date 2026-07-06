@@ -13,10 +13,18 @@ import (
 const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
+//
+// Region is the region the bucket was created in. It is the [store.Table] key
+// function's identity companion: buckets are keyed by Name (globally unique —
+// CreateBucket enforces this across all regions, mirroring real S3's global
+// bucket-namespace), so Region moved here from the old region->name->*StoredBucket
+// nesting to make that identity self-contained. It never changes after
+// creation (S3 has no "move bucket to another region" operation).
 type StoredBucket struct {
 	CreationDate                 time.Time                `json:"creationDate"`
 	Objects                      map[string]*StoredObject `json:"objects,omitempty"`
 	mu                           *lockmetrics.RWMutex
+	Region                       string                       `json:"region,omitempty"`
 	WebsiteConfig                string                       `json:"websiteConfig,omitempty"`
 	PublicAccessBlockConfig      string                       `json:"publicAccessBlockConfig,omitempty"`
 	LifecycleConfig              string                       `json:"lifecycleConfig,omitempty"`
