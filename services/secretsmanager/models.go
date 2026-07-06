@@ -34,6 +34,16 @@ type SecretVersion struct {
 
 // Secret represents a stored secret including all versions.
 type Secret struct {
+	// region is the AWS region this secret belongs to. It is the outer half of
+	// the composite key ("region|Name") used by the backend's flat
+	// store.Table[Secret] (see store_setup.go), which replaces the old
+	// map[string]map[string]*Secret nesting (outer key = region). Unexported
+	// so it never appears in Secrets Manager wire responses -- those are
+	// always built by hand (secretToListEntry, DescribeSecret, etc.), never by
+	// marshaling Secret directly -- but persistence.go must carry it through
+	// the secretSnapshot DTO explicitly since json.Marshal never sees
+	// unexported fields.
+	region string
 	// Tags is a map of key/value tag pairs.
 	Tags *tags.Tags `json:"Tags,omitempty"`
 	// DeletedDate is set when the secret is deleted; nil means active.

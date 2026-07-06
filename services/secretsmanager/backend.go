@@ -23,6 +23,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -128,11 +129,19 @@ const (
 )
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
-// InMemoryBackend stores Secrets Manager state. All resource maps are nested by
-// region (outer key = region) so that secrets are isolated per region.
+// InMemoryBackend stores Secrets Manager state. secrets is isolated per region
+// via a region-qualified composite key ("region|name") on a single flat
+// store.Table, with a secondary index (secretsByRegion) grouping entries by
+// region for per-region scans (ListSecrets, BatchGetSecretValue's filter
+// path); see store_setup.go. resourcePolicies and replicationConfigs remain
+// nested map[string]map[string]... (outer key = region) since their values
+// (a bare string, a bare slice) carry no identity of their own to key a
+// store.Table by -- see store_setup.go's doc comment for the full rationale.
 type InMemoryBackend struct {
 	lambdaInvoker      LambdaInvoker
-	secrets            map[string]map[string]*Secret
+	registry           *store.Registry
+	secrets            *store.Table[Secret]
+	secretsByRegion    *store.Index[Secret]
 	resourcePolicies   map[string]map[string]string
 	replicationConfigs map[string]map[string][]ReplicationStatusType
 	mu                 *lockmetrics.RWMutex
@@ -169,8 +178,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		svcCtx = context.Background()
 	}
 
-	return &InMemoryBackend{
-		secrets:            make(map[string]map[string]*Secret),
+	b := &InMemoryBackend{
+		registry:           store.NewRegistry(),
 		resourcePolicies:   make(map[string]map[string]string),
 		replicationConfigs: make(map[string]map[string][]ReplicationStatusType),
 		accountID:          accountID,
@@ -180,18 +189,52 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		schedulerStop:      make(chan struct{}),
 		svcCtx:             svcCtx,
 	}
+
+	registerAllTables(b)
+
+	return b
+}
+
+// secretGet returns the secret stored under region+name, performing no
+// mutation -- safe to call while holding either b.mu.RLock or b.mu.Lock.
+// Replaces the pre-Phase-3.3 secretsStoreRO(region)[name] (and, for
+// write-path callers, secretsStore(region)[name]) map lookup: store.Table.Get
+// never lazily creates anything, so the "safe to call under RLock" guarantee
+// the old *StoreRO helpers were carefully split out for is now structural
+// rather than a documented caveat callers had to remember to honour.
+func (b *InMemoryBackend) secretGet(region, name string) (*Secret, bool) {
+	return b.secrets.Get(secretTableKey(region, name))
+}
+
+// secretHas reports whether region+name exists, without mutation.
+func (b *InMemoryBackend) secretHas(region, name string) bool {
+	return b.secrets.Has(secretTableKey(region, name))
+}
+
+// secretPut inserts or replaces s, which must already have its unexported
+// region field set (see CreateSecret's literal and AddSecretInternal) so the
+// key it is stored under matches secretKeyFn.
+func (b *InMemoryBackend) secretPut(s *Secret) {
+	b.secrets.Put(s)
+}
+
+// secretDelete removes the secret stored under region+name. Every call site
+// already knows the secret exists (it was just looked up via secretGet), so
+// [store.Table.Delete]'s existed-bool is intentionally discarded here.
+func (b *InMemoryBackend) secretDelete(region, name string) {
+	b.secrets.Delete(secretTableKey(region, name))
+}
+
+// secretsInRegion returns every secret registered under region, in
+// unspecified order (mirrors the old secrets[region] map's iteration). The
+// returned slice is owned by the underlying index -- see [store.Index.Get] --
+// so callers that need to mutate the table while iterating must copy it first.
+func (b *InMemoryBackend) secretsInRegion(region string) []*Secret {
+	return b.secretsByRegion.Get(region)
 }
 
 // The *Store helpers return the per-region inner map, lazily creating it.
 // Callers must hold b.mu.
-
-func (b *InMemoryBackend) secretsStore(region string) map[string]*Secret {
-	if b.secrets[region] == nil {
-		b.secrets[region] = make(map[string]*Secret)
-	}
-
-	return b.secrets[region]
-}
 
 func (b *InMemoryBackend) resourcePoliciesStore(region string) map[string]string {
 	if b.resourcePolicies[region] == nil {
@@ -215,10 +258,8 @@ func (b *InMemoryBackend) replicationConfigsStore(region string) map[string][]Re
 // iterations), so callers get correct "no entries for this region" behaviour without
 // mutating the outer map. Never use these under RLock if the result will be written
 // through by the caller — that still requires the write-locked *Store variant above.
-
-func (b *InMemoryBackend) secretsStoreRO(region string) map[string]*Secret {
-	return b.secrets[region]
-}
+// (secrets itself no longer needs a StoreRO variant: store.Table.Get never lazily
+// creates anything, so secretGet above is unconditionally RLock-safe.)
 
 func (b *InMemoryBackend) resourcePoliciesStoreRO(region string) map[string]string {
 	return b.resourcePolicies[region]
@@ -353,8 +394,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
-	secrets := b.secretsStore(region)
-	if existing, exists := secrets[input.Name]; exists {
+	if existing, exists := b.secretGet(region, input.Name); exists {
 		return b.createSecretNameCollision(region, existing, input)
 	}
 
@@ -366,6 +406,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 	arn := b.buildARNWithRegion(region, input.Name, suffix)
 
 	secret := &Secret{
+		region:      region,
 		ARN:         arn,
 		Name:        input.Name,
 		Description: input.Description,
@@ -386,7 +427,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 
 	versionID := seedInitialVersion(secret, input, b.now())
 
-	secrets[input.Name] = secret
+	b.secretPut(secret)
 
 	if len(input.AddReplicaRegions) > 0 {
 		replicas := make([]ReplicationStatusType, 0, len(input.AddReplicaRegions))
@@ -496,7 +537,7 @@ func (b *InMemoryBackend) GetSecretValue(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStore(region)[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -594,7 +635,7 @@ func (b *InMemoryBackend) PutSecretValue(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStore(region)[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -765,8 +806,7 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 
 	name := resolveSecretID(input.SecretID)
 
-	secrets := b.secretsStore(region)
-	secret, exists := secrets[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -788,7 +828,7 @@ func (b *InMemoryBackend) DeleteSecret(ctx context.Context, input *DeleteSecretI
 			secret.Tags.Close()
 		}
 
-		delete(secrets, name)
+		b.secretDelete(region, name)
 		delete(b.resourcePoliciesStore(region), name)
 		delete(b.replicationConfigsStore(region), name)
 
@@ -843,10 +883,10 @@ func (b *InMemoryBackend) ListSecrets(ctx context.Context, input *ListSecretsInp
 	b.mu.RLock(opListSecrets)
 	defer b.mu.RUnlock()
 
-	secrets := b.secretsStoreRO(region)
-	entries := make([]SecretListEntry, 0, len(secrets))
+	secretsInRegion := b.secretsInRegion(region)
+	entries := make([]SecretListEntry, 0, len(secretsInRegion))
 
-	for _, s := range secrets {
+	for _, s := range secretsInRegion {
 		if s.DeletedDate != nil && !input.IncludePlannedDeletion {
 			continue
 		}
@@ -1051,7 +1091,7 @@ func (b *InMemoryBackend) ListSecretVersionIDs(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStoreRO(region)[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -1125,7 +1165,7 @@ func (b *InMemoryBackend) DescribeSecret(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStoreRO(region)[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -1216,7 +1256,7 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStore(region)[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -1288,7 +1328,7 @@ func (b *InMemoryBackend) RestoreSecret(ctx context.Context, input *RestoreSecre
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, exists := b.secretsStore(region)[name]
+	secret, exists := b.secretGet(region, name)
 	if !exists {
 		return nil, ErrSecretNotFound
 	}
@@ -1317,12 +1357,11 @@ func (b *InMemoryBackend) ListAll() []SecretListEntry {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	var entries []SecretListEntry
+	all := b.secrets.All()
+	entries := make([]SecretListEntry, 0, len(all))
 
-	for _, regionSecrets := range b.secrets {
-		for _, s := range regionSecrets {
-			entries = append(entries, secretToListEntry(s))
-		}
+	for _, s := range all {
+		entries = append(entries, secretToListEntry(s))
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
@@ -1393,7 +1432,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
-	secret, ok := b.secretsStore(region)[id]
+	secret, ok := b.secretGet(region, id)
 	if !ok {
 		return ErrSecretNotFound
 	}
@@ -1439,7 +1478,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourc
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
-	secret, ok := b.secretsStore(region)[id]
+	secret, ok := b.secretGet(region, id)
 	if !ok {
 		return ErrSecretNotFound
 	}
@@ -1461,7 +1500,7 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
-	secret, ok := b.secretsStore(region)[id]
+	secret, ok := b.secretGet(region, id)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -1584,7 +1623,7 @@ func (b *InMemoryBackend) FinishRotation(ctx context.Context, secretID, versionI
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(secretID)
-	secret, ok := b.secretsStore(region)[id]
+	secret, ok := b.secretGet(region, id)
 
 	if !ok || secret.DeletedDate != nil {
 		return ErrSecretNotFound
@@ -1604,7 +1643,7 @@ func (b *InMemoryBackend) AbortRotation(ctx context.Context, secretID, versionID
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(secretID)
-	secret, ok := b.secretsStore(region)[id]
+	secret, ok := b.secretGet(region, id)
 
 	if !ok || secret.DeletedDate != nil {
 		return ErrSecretNotFound
@@ -1937,19 +1976,17 @@ func (b *InMemoryBackend) TaggedSecrets(_ context.Context) []TaggedSecretInfo {
 
 	var result []TaggedSecretInfo
 
-	for _, regionSecrets := range b.secrets {
-		for _, secret := range regionSecrets {
-			if secret.DeletedDate != nil {
-				continue
-			}
-
-			var tagMap map[string]string
-			if secret.Tags != nil {
-				tagMap = secret.Tags.Clone()
-			}
-
-			result = append(result, TaggedSecretInfo{ARN: secret.ARN, Tags: tagMap})
+	for _, secret := range b.secrets.All() {
+		if secret.DeletedDate != nil {
+			continue
 		}
+
+		var tagMap map[string]string
+		if secret.Tags != nil {
+			tagMap = secret.Tags.Clone()
+		}
+
+		result = append(result, TaggedSecretInfo{ARN: secret.ARN, Tags: tagMap})
 	}
 
 	return result
@@ -1977,7 +2014,7 @@ func (b *InMemoryBackend) TagSecretByARN(_ context.Context, secretARN string, ne
 
 	name := resolveSecretID(secretARN)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
 	}
@@ -2000,7 +2037,7 @@ func (b *InMemoryBackend) UntagSecretByARN(_ context.Context, secretARN string, 
 
 	name := resolveSecretID(secretARN)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
 	}
@@ -2061,12 +2098,11 @@ func (b *InMemoryBackend) BatchGetSecretValue(
 // Must be called with write lock held.
 func (b *InMemoryBackend) batchGetByIDList(region string, ids []string, out *BatchGetSecretValueOutput) {
 	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
-	secrets := b.secretsStore(region)
 
 	for _, id := range ids {
 		name := resolveSecretID(id)
 
-		secret, ok := secrets[name]
+		secret, ok := b.secretGet(region, name)
 		if !ok {
 			out.Errors = append(out.Errors, APIErrorType{
 				ErrorCode: errResourceNotFoundException,
@@ -2111,11 +2147,11 @@ func (b *InMemoryBackend) batchGetByFilter(
 	input *BatchGetSecretValueInput,
 	out *BatchGetSecretValueOutput,
 ) *BatchGetSecretValueOutput {
-	secrets := b.secretsStore(region)
-	allValues := make([]SecretValueEntry, 0, len(secrets))
+	secretsInRegion := b.secretsInRegion(region)
+	allValues := make([]SecretValueEntry, 0, len(secretsInRegion))
 	accessDay := UnixTimeFloat(b.now().UTC().Truncate(hoursPerDay * time.Hour))
 
-	for _, secret := range secrets {
+	for _, secret := range secretsInRegion {
 		if secret.DeletedDate != nil || !batchMatchesFilters(secret, input.Filters) {
 			continue
 		}
@@ -2209,7 +2245,7 @@ func (b *InMemoryBackend) CancelRotateSecret(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2256,7 +2292,7 @@ func (b *InMemoryBackend) GetResourcePolicy(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStoreRO(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2289,7 +2325,7 @@ func (b *InMemoryBackend) PutResourcePolicy(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2334,7 +2370,7 @@ func (b *InMemoryBackend) DeleteResourcePolicy(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2370,7 +2406,7 @@ func (b *InMemoryBackend) ReplicateSecretToRegions(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2430,7 +2466,7 @@ func (b *InMemoryBackend) RemoveRegionsFromReplication(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2475,7 +2511,7 @@ func (b *InMemoryBackend) StopReplicationToReplica(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2504,7 +2540,7 @@ func (b *InMemoryBackend) UpdateSecretVersionStage(
 
 	name := resolveSecretID(input.SecretID)
 
-	secret, ok := b.secretsStore(region)[name]
+	secret, ok := b.secretGet(region, name)
 	if !ok {
 		return nil, ErrSecretNotFound
 	}
@@ -2623,15 +2659,13 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, regionSecrets := range b.secrets {
-		for _, secret := range regionSecrets {
-			if secret.Tags != nil {
-				secret.Tags.Close()
-			}
+	for _, secret := range b.secrets.All() {
+		if secret.Tags != nil {
+			secret.Tags.Close()
 		}
 	}
 
-	b.secrets = make(map[string]map[string]*Secret)
+	b.registry.ResetAll()
 	b.resourcePolicies = make(map[string]map[string]string)
 	b.replicationConfigs = make(map[string]map[string][]ReplicationStatusType)
 }
@@ -2680,11 +2714,9 @@ func (b *InMemoryBackend) runScheduledRotations(now time.Time) {
 	b.mu.Lock("rotationScheduler")
 	var pending []pendingRotation
 
-	for region, regionSecrets := range b.secrets {
-		for id, secret := range regionSecrets {
-			if p, ok := b.scheduleRotationLocked(region, id, secret, now); ok {
-				pending = append(pending, p)
-			}
+	for _, secret := range b.secrets.All() {
+		if p, ok := b.scheduleRotationLocked(secret.region, secret.Name, secret, now); ok {
+			pending = append(pending, p)
 		}
 	}
 
@@ -2848,8 +2880,8 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // The secret is placed in the region encoded in its ARN (falling back to the
 // backend's default region). Must not be called concurrently with other operations.
 func (b *InMemoryBackend) AddSecretInternal(s *Secret) {
-	region := regionFromARN(s.ARN, b.region)
-	b.secretsStore(region)[s.Name] = s
+	s.region = regionFromARN(s.ARN, b.region)
+	b.secretPut(s)
 }
 
 // ValidateResourcePolicy validates a resource-based policy document for a secret.
@@ -2870,7 +2902,7 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 		defer b.mu.RUnlock()
 
 		name := resolveSecretID(input.SecretID)
-		if _, ok := b.secretsStoreRO(region)[name]; !ok {
+		if !b.secretHas(region, name) {
 			return nil, ErrSecretNotFound
 		}
 	}

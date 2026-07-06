@@ -8,13 +8,18 @@ import (
 )
 
 // Test_ConcurrentRegionReads_NoDataRace exercises read-only ops (RLock-guarded) against
-// many never-before-seen regions concurrently. Before the fix, ListSecrets,
+// many never-before-seen regions concurrently. Before the original fix, ListSecrets,
 // ListSecretVersionIDs, DescribeSecret, GetResourcePolicy, and ValidateResourcePolicy all
-// called the lazily-creating *Store(region) helper (which writes b.secrets[region] =
+// called a lazily-creating *Store(region) helper (which wrote b.secrets[region] =
 // make(...) on first touch) while holding only an RLock — a concurrent map write during
 // a shared read lock, which the Go race detector (and, at higher contention, the runtime
-// itself) flags as a data race. The fix introduces non-mutating *StoreRO(region) helpers
-// for read paths. Run with `go test -race` to verify.
+// itself) flags as a data race. The fix introduced non-mutating *StoreRO(region) helpers
+// for read paths. Phase 3.3 replaced the region-nested secrets map with a flat
+// store.Table[Secret] (see store_setup.go): store.Table.Get never lazily creates
+// anything, so secretGet is unconditionally RLock-safe and this race class is now
+// structurally impossible for secrets, not just avoided by convention. This test remains
+// to guard resourcePolicies/replicationConfigs, which are still region-nested raw maps
+// using the original *Store/*StoreRO split. Run with `go test -race` to verify.
 func Test_ConcurrentRegionReads_NoDataRace(t *testing.T) {
 	t.Parallel()
 

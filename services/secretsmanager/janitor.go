@@ -63,29 +63,27 @@ func (j *Janitor) sweepExpiredSecrets(ctx context.Context) {
 	j.Backend.mu.Lock("sweepExpiredSecrets")
 	purged := 0
 
-	for region, regionSecrets := range j.Backend.secrets {
-		for name, secret := range regionSecrets {
-			if secret.DeletedDate == nil {
-				continue
+	for _, secret := range j.Backend.secrets.All() {
+		if secret.DeletedDate == nil {
+			continue
+		}
+		// Use ScheduledDeletionDate if set (reflects the actual RecoveryWindowInDays supplied at
+		// delete time). Fall back to the default 30-day window for secrets deleted before this
+		// field was introduced or force-deleted without a recovery window.
+		var deletionTime float64
+		if secret.ScheduledDeletionDate != nil {
+			deletionTime = *secret.ScheduledDeletionDate
+		} else {
+			deletionTime = *secret.DeletedDate + float64(defaultRecoveryWindowDays*secondsPerDay)
+		}
+		if nowFloat >= deletionTime {
+			if secret.Tags != nil {
+				secret.Tags.Close()
 			}
-			// Use ScheduledDeletionDate if set (reflects the actual RecoveryWindowInDays supplied at
-			// delete time). Fall back to the default 30-day window for secrets deleted before this
-			// field was introduced or force-deleted without a recovery window.
-			var deletionTime float64
-			if secret.ScheduledDeletionDate != nil {
-				deletionTime = *secret.ScheduledDeletionDate
-			} else {
-				deletionTime = *secret.DeletedDate + float64(defaultRecoveryWindowDays*secondsPerDay)
-			}
-			if nowFloat >= deletionTime {
-				if secret.Tags != nil {
-					secret.Tags.Close()
-				}
-				delete(regionSecrets, name)
-				delete(j.Backend.resourcePoliciesStore(region), name)
-				delete(j.Backend.replicationConfigsStore(region), name)
-				purged++
-			}
+			j.Backend.secretDelete(secret.region, secret.Name)
+			delete(j.Backend.resourcePoliciesStore(secret.region), secret.Name)
+			delete(j.Backend.replicationConfigsStore(secret.region), secret.Name)
+			purged++
 		}
 	}
 	j.Backend.mu.Unlock()
