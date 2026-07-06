@@ -53,7 +53,7 @@ type imageEntry struct {
 // digestTags maps image digest → all tags for that image (from digestTagsIndex).
 func evaluateLifecyclePolicy(
 	policyText string,
-	images map[string]*Image,
+	images []*Image,
 	digestTags map[string][]string,
 ) []ImageIdentifier {
 	if policyText == "" {
@@ -141,21 +141,20 @@ func expiredIdentifier(e *imageEntry) ImageIdentifier {
 func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []ImageIdentifier {
 	b.lifecycleLastEvaluated[repositoryName] = time.Now()
 
-	policyText := b.lifecyclePolicies[repositoryName]
-	if policyText == "" {
+	entry, ok := b.lifecyclePolicies.Get(repositoryName)
+	if !ok || entry.PolicyText == "" {
 		return nil
 	}
 
 	expired := evaluateLifecyclePolicy(
-		policyText,
-		b.images[repositoryName],
+		entry.PolicyText,
+		b.imagesByRepo.Get(repositoryName),
 		b.digestTagsIndex[repositoryName],
 	)
 	if len(expired) == 0 {
 		return nil
 	}
 
-	repoImages := b.images[repositoryName]
 	repoTags := b.tagIndex[repositoryName]
 	deleted := make([]ImageIdentifier, 0, len(expired))
 
@@ -169,15 +168,12 @@ func (b *InMemoryBackend) applyLifecyclePolicyLocked(repositoryName string) []Im
 			continue
 		}
 
-		if !deleteByDigestLocked(repoImages, repoTags, digest) {
+		if !deleteByDigestLocked(b.images, repoTags, repositoryName, digest) {
 			continue
 		}
 
 		b.clearDigestTagsLocked(repositoryName, digest)
-
-		if findings := b.imageScanFindings[repositoryName]; findings != nil {
-			delete(findings, digest)
-		}
+		b.imageScanFindings.Delete(findingsTableKey(repositoryName, digest))
 
 		deleted = append(deleted, ImageIdentifier{ImageDigest: digest, ImageTag: id.ImageTag})
 	}
@@ -196,14 +192,14 @@ func (b *InMemoryBackend) RunLifecycleExpiry(ctx context.Context) int {
 
 	total := 0
 
-	for repositoryName := range b.lifecyclePolicies {
+	for _, entry := range b.lifecyclePolicies.All() {
 		select {
 		case <-ctx.Done():
 			return total
 		default:
 		}
 
-		total += len(b.applyLifecyclePolicyLocked(repositoryName))
+		total += len(b.applyLifecyclePolicyLocked(entry.RepositoryName))
 	}
 
 	return total

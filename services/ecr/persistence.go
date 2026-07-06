@@ -2,28 +2,57 @@ package ecr
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// ecrSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to any store.Table DTO or backendSnapshot itself
+// would make an older snapshot unsafe to decode as the current shape --
+// Restore compares this against the persisted value and discards (rather
+// than attempts to partially decode) any mismatch, see Restore below.
+//
+// This is the first versioned ecr snapshot: Phase 3.3 (the pkgs/store
+// conversion) moved every *T resource map registered on b.registry from a
+// nested map[string]map[string]*T (or bare map[string]T) shape directly under
+// backendSnapshot to a flat store.Table JSON array nested under Tables, so any
+// snapshot written before this conversion is unconditionally incompatible --
+// it decodes as Version 0 via Go's json zero value, which never equals
+// ecrSnapshotVersion.
+const ecrSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the ECR backend.
+//
+// Tables holds one JSON-encoded array per store.Table registered on
+// b.registry, produced by [store.Registry.SnapshotAll] -- see store_setup.go
+// for the full list ("repos", "images", "imageScanFindings",
+// "pullThroughCacheRules", "repositoryCreationTemplates", "lifecyclePolicies",
+// "lifecyclePolicyPreviews", "repositoryPolicies", "accountSettings",
+// "pullTimeUpdateExclusions").
+//
+// The remaining fields persist state deliberately left off b.registry -- see
+// the comment above registerAllTables in store_setup.go for why each one is
+// exempt. RepoTags and UploadedLayers were persisted before this conversion
+// and still are (unchanged shape/JSON tag, so an old snapshot's values for
+// these two fields would in isolation still decode correctly -- but Restore
+// discards the whole snapshot on a Version mismatch regardless, matching the
+// services/sqs precedent that a snapshot must never be partially decoded).
+// tagIndex, digestTagsIndex, layerUploads, repoUploadIndex, and
+// lifecycleLastEvaluated were never persisted before this conversion and
+// still aren't.
 type backendSnapshot struct {
-	RepositoryPolicies          map[string]string                              `json:"repositoryPolicies,omitempty"`
-	ImageScanFindings           map[string]map[string]*ImageScanFindingsResult `json:"imageScanFindings,omitempty"`
-	PullThroughCacheRules       map[string]*PullThroughCacheRule               `json:"pullThroughCacheRules"`
-	RepositoryCreationTemplates map[string]*RepositoryCreationTemplate         `json:"repositoryCreationTemplates"`
-	LifecyclePolicies           map[string]string                              `json:"lifecyclePolicies"`
-	LifecyclePolicyPreviews     map[string]*LifecyclePolicyPreviewResult       `json:"lifecyclePolicyPreviews,omitempty"`
-	Images                      map[string]map[string]*Image                   `json:"images"`
-	UploadedLayers              map[string]map[string]int64                    `json:"uploadedLayers"`
-	Repos                       map[string]*Repository                         `json:"repos"`
-	RepoTags                    map[string]map[string]string                   `json:"repoTags,omitempty"`
-	AccountSettings             map[string]string                              `json:"accountSettings,omitempty"`
-	PullTimeUpdateExclusions    map[string]*PullTimeUpdateExclusion            `json:"pullTimeUpdateExclusions,omitempty"`
-	RegistryScanningConfig      *RegistryScanningSettings                      `json:"registryScanningConfig,omitempty"`
-	ReplicationConfig           *ReplicationConfig                             `json:"replicationConfig,omitempty"`
-	SigningConfig               *SigningSettings                               `json:"signingConfig,omitempty"`
-	RegistryPolicy              string                                         `json:"registryPolicy"`
+	Tables                 map[string]json.RawMessage   `json:"tables"`
+	RepoTags               map[string]map[string]string `json:"repoTags,omitempty"`
+	UploadedLayers         map[string]map[string]int64  `json:"uploadedLayers,omitempty"`
+	RegistryScanningConfig *RegistryScanningSettings    `json:"registryScanningConfig,omitempty"`
+	ReplicationConfig      *ReplicationConfig           `json:"replicationConfig,omitempty"`
+	SigningConfig          *SigningSettings             `json:"signingConfig,omitempty"`
+	RegistryPolicy         string                       `json:"registryPolicy"`
+	Version                int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -32,23 +61,27 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// Every registered table's value type is a plain JSON-friendly struct,
+		// so a marshal failure here would indicate a programming error rather
+		// than bad input data. Log and skip the snapshot rather than panic,
+		// matching the persistence.Persistable contract (nil is skipped by the
+		// Manager).
+		logger.Load(ctx).WarnContext(ctx, "ecr: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Repos:                       copyPointerMap(b.repos),
-		Images:                      copyNestedPointerMap(b.images),
-		PullThroughCacheRules:       copyPointerMap(b.pullThroughCacheRules),
-		RepositoryCreationTemplates: copyPointerMap(b.repositoryCreationTemplates),
-		LifecyclePolicies:           copyMap(b.lifecyclePolicies),
-		LifecyclePolicyPreviews:     copyLifecyclePolicyPreviews(b.lifecyclePolicyPreviews),
-		RegistryPolicy:              b.registryPolicy,
-		UploadedLayers:              copyNestedMap(b.uploadedLayers),
-		RepoTags:                    copyNestedMap(b.repoTags),
-		RepositoryPolicies:          copyMap(b.repositoryPolicies),
-		ImageScanFindings:           copyImageScanFindingsMap(b.imageScanFindings),
-		AccountSettings:             copyMap(b.accountSettings),
-		PullTimeUpdateExclusions:    copyPointerMap(b.pullTimeUpdateExclusions),
-		RegistryScanningConfig:      copyRegistryScanningSettings(b.registryScanningConfig),
-		ReplicationConfig:           copyReplicationConfig(b.replicationConfig),
-		SigningConfig:               copySigningSettings(b.signingConfig),
+		Version:                ecrSnapshotVersion,
+		Tables:                 tables,
+		RepoTags:               copyNestedMap(b.repoTags),
+		UploadedLayers:         copyNestedMap(b.uploadedLayers),
+		RegistryScanningConfig: copyRegistryScanningSettings(b.registryScanningConfig),
+		ReplicationConfig:      copyReplicationConfig(b.replicationConfig),
+		SigningConfig:          copySigningSettings(b.signingConfig),
+		RegistryPolicy:         b.registryPolicy,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "ecr", snap)
@@ -65,19 +98,29 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.repos = copyPointerMap(snap.Repos)
-	b.images = copyNestedPointerMap(snap.Images)
-	b.pullThroughCacheRules = copyPointerMap(snap.PullThroughCacheRules)
-	b.repositoryCreationTemplates = copyPointerMap(snap.RepositoryCreationTemplates)
-	b.lifecyclePolicies = copyMap(snap.LifecyclePolicies)
-	b.lifecyclePolicyPreviews = copyLifecyclePolicyPreviews(snap.LifecyclePolicyPreviews)
-	b.registryPolicy = snap.RegistryPolicy
-	b.uploadedLayers = copyNestedMap(snap.UploadedLayers)
+	if snap.Version != ecrSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across this snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"ecr: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", ecrSnapshotVersion)
+
+		b.registry.ResetAll()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("ecr: restore snapshot tables: %w", err)
+	}
+
 	b.repoTags = copyNestedMap(snap.RepoTags)
-	b.repositoryPolicies = copyMap(snap.RepositoryPolicies)
-	b.imageScanFindings = copyImageScanFindingsMap(snap.ImageScanFindings)
-	b.accountSettings = copyMap(snap.AccountSettings)
-	b.pullTimeUpdateExclusions = copyPointerMap(snap.PullTimeUpdateExclusions)
+	b.uploadedLayers = copyNestedMap(snap.UploadedLayers)
+	b.registryPolicy = snap.RegistryPolicy
 	b.registryScanningConfig = copyRegistryScanningSettings(snap.RegistryScanningConfig)
 	b.replicationConfig = copyReplicationConfig(snap.ReplicationConfig)
 	b.signingConfig = copySigningSettings(snap.SigningConfig)
@@ -103,54 +146,6 @@ func copyNestedMap[T any](in map[string]map[string]T) map[string]map[string]T {
 	cp := make(map[string]map[string]T, len(in))
 	for key, value := range in {
 		cp[key] = copyMap(value)
-	}
-
-	return cp
-}
-
-func copyPointerMap[T any](in map[string]*T) map[string]*T {
-	cp := make(map[string]*T, len(in))
-	for key, value := range in {
-		valueCp := *value
-		cp[key] = &valueCp
-	}
-
-	return cp
-}
-
-func copyNestedPointerMap[T any](in map[string]map[string]*T) map[string]map[string]*T {
-	cp := make(map[string]map[string]*T, len(in))
-	for key, value := range in {
-		cp[key] = copyPointerMap(value)
-	}
-
-	return cp
-}
-
-func copyLifecyclePolicyPreviews(
-	in map[string]*LifecyclePolicyPreviewResult,
-) map[string]*LifecyclePolicyPreviewResult {
-	cp := make(map[string]*LifecyclePolicyPreviewResult, len(in))
-	for repo, preview := range in {
-		previewCp := *preview
-		previewCp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
-		cp[repo] = &previewCp
-	}
-
-	return cp
-}
-
-func copyImageScanFindingsMap(
-	in map[string]map[string]*ImageScanFindingsResult,
-) map[string]map[string]*ImageScanFindingsResult {
-	cp := make(map[string]map[string]*ImageScanFindingsResult, len(in))
-	for repo, findings := range in {
-		repoCp := make(map[string]*ImageScanFindingsResult, len(findings))
-		for digest, result := range findings {
-			resultCp := copyImageScanFindingsResult(result)
-			repoCp[digest] = &resultCp
-		}
-		cp[repo] = repoCp
 	}
 
 	return cp

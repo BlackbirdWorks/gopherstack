@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -533,63 +535,70 @@ var _ Backend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend stores ECR repository state in memory.
 type InMemoryBackend struct {
-	repoTags                    map[string]map[string]string
-	signingConfig               *SigningSettings
-	tagIndex                    map[string]map[string]string
-	digestTagsIndex             map[string]map[string][]string
-	pullThroughCacheRules       map[string]*PullThroughCacheRule
-	repositoryCreationTemplates map[string]*RepositoryCreationTemplate
-	lifecyclePolicies           map[string]string
-	lifecyclePolicyPreviews     map[string]*LifecyclePolicyPreviewResult
-	uploadedLayers              map[string]map[string]int64
-	layerUploads                map[string]*layerUploadState
-	repoUploadIndex             map[string]map[string]struct{}
-	repositoryPolicies          map[string]string
-	images                      map[string]map[string]*Image
-	imageScanFindings           map[string]map[string]*ImageScanFindingsResult
-	repos                       map[string]*Repository
-	accountSettings             map[string]string
-	pullTimeUpdateExclusions    map[string]*PullTimeUpdateExclusion
-	mu                          *lockmetrics.RWMutex
-	registryScanningConfig      *RegistryScanningSettings
-	replicationConfig           *ReplicationConfig
-	lifecycleLastEvaluated      map[string]time.Time
-	registryPolicy              string
-	accountID                   string
-	region                      string
-	endpoint                    string
-	layerUploadQueue            []layerUploadQueueEntry
-	replicationSettleDelay      time.Duration
+	// registry lets Reset/Snapshot/Restore collapse the resource-table
+	// lifecycle to one call each (registry.ResetAll/SnapshotAll/RestoreAll)
+	// instead of hand-rolled per-map wiring. See pkgs/store's package doc and
+	// the services/sqs pilot (commit 0f09d77c) for the pattern this follows.
+	// See store_setup.go for every table registered on it, and for the
+	// fields deliberately left as plain maps below instead.
+	registry                    *store.Registry
+	repos                       *store.Table[Repository]
+	images                      *store.Table[Image]
+	imagesByRepo                *store.Index[Image]
+	imageScanFindings           *store.Table[ImageScanFindingsResult]
+	imageScanFindingsByRepo     *store.Index[ImageScanFindingsResult]
+	pullThroughCacheRules       *store.Table[PullThroughCacheRule]
+	repositoryCreationTemplates *store.Table[RepositoryCreationTemplate]
+	lifecyclePolicies           *store.Table[lifecyclePolicyEntry]
+	lifecyclePolicyPreviews     *store.Table[LifecyclePolicyPreviewResult]
+	repositoryPolicies          *store.Table[repositoryPolicyEntry]
+	accountSettings             *store.Table[accountSettingEntry]
+	pullTimeUpdateExclusions    *store.Table[PullTimeUpdateExclusion]
+
+	// The following are deliberately left as plain maps -- see the doc above
+	// registerAllTables in store_setup.go for why each one is exempt.
+	repoTags               map[string]map[string]string
+	signingConfig          *SigningSettings
+	tagIndex               map[string]map[string]string
+	digestTagsIndex        map[string]map[string][]string
+	uploadedLayers         map[string]map[string]int64
+	layerUploads           map[string]*layerUploadState
+	repoUploadIndex        map[string]map[string]struct{}
+	mu                     *lockmetrics.RWMutex
+	registryScanningConfig *RegistryScanningSettings
+	replicationConfig      *ReplicationConfig
+	lifecycleLastEvaluated map[string]time.Time
+	registryPolicy         string
+	accountID              string
+	region                 string
+	endpoint               string
+	layerUploadQueue       []layerUploadQueueEntry
+	replicationSettleDelay time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
-	return &InMemoryBackend{
-		repos:                       make(map[string]*Repository),
-		images:                      make(map[string]map[string]*Image),
-		tagIndex:                    make(map[string]map[string]string),
-		digestTagsIndex:             make(map[string]map[string][]string),
-		pullThroughCacheRules:       make(map[string]*PullThroughCacheRule),
-		repositoryCreationTemplates: make(map[string]*RepositoryCreationTemplate),
-		lifecyclePolicies:           make(map[string]string),
-		lifecyclePolicyPreviews:     make(map[string]*LifecyclePolicyPreviewResult),
-		uploadedLayers:              make(map[string]map[string]int64),
-		layerUploads:                make(map[string]*layerUploadState),
-		repoUploadIndex:             make(map[string]map[string]struct{}),
-		layerUploadQueue:            make([]layerUploadQueueEntry, 0),
-		repoTags:                    make(map[string]map[string]string),
-		repositoryPolicies:          make(map[string]string),
-		imageScanFindings:           make(map[string]map[string]*ImageScanFindingsResult),
-		accountSettings:             make(map[string]string),
-		pullTimeUpdateExclusions:    make(map[string]*PullTimeUpdateExclusion),
-		registryScanningConfig:      &RegistryScanningSettings{ScanType: scanTypeBasic},
-		replicationConfig:           &ReplicationConfig{},
-		lifecycleLastEvaluated:      make(map[string]time.Time),
-		mu:                          lockmetrics.New("ecr"),
-		accountID:                   accountID,
-		region:                      region,
-		endpoint:                    endpoint,
+	b := &InMemoryBackend{
+		registry:               store.NewRegistry(),
+		tagIndex:               make(map[string]map[string]string),
+		digestTagsIndex:        make(map[string]map[string][]string),
+		uploadedLayers:         make(map[string]map[string]int64),
+		layerUploads:           make(map[string]*layerUploadState),
+		repoUploadIndex:        make(map[string]map[string]struct{}),
+		layerUploadQueue:       make([]layerUploadQueueEntry, 0),
+		repoTags:               make(map[string]map[string]string),
+		registryScanningConfig: &RegistryScanningSettings{ScanType: scanTypeBasic},
+		replicationConfig:      &ReplicationConfig{},
+		lifecycleLastEvaluated: make(map[string]time.Time),
+		mu:                     lockmetrics.New("ecr"),
+		accountID:              accountID,
+		region:                 region,
+		endpoint:               endpoint,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // SetEndpoint updates the registry endpoint used in repository URIs.
@@ -658,7 +667,7 @@ func (b *InMemoryBackend) CreateRepository(
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[name]; ok {
+	if b.repos.Has(name) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryAlreadyExists, name)
 	}
 
@@ -685,7 +694,7 @@ func (b *InMemoryBackend) CreateRepository(
 		ImageTagMutability: imageTagMutability,
 		ScanOnPush:         scanOnPush,
 	}
-	b.repos[name] = repo
+	b.repos.Put(repo)
 
 	cp := *repo
 
@@ -701,8 +710,9 @@ func (b *InMemoryBackend) DescribeRepositories(
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		out := make([]Repository, 0, len(b.repos))
-		for _, r := range b.repos {
+		all := b.repos.All()
+		out := make([]Repository, 0, len(all))
+		for _, r := range all {
 			out = append(out, *r)
 		}
 
@@ -716,7 +726,7 @@ func (b *InMemoryBackend) DescribeRepositories(
 	out := make([]Repository, 0, len(names))
 
 	for _, name := range names {
-		r, ok := b.repos[name]
+		r, ok := b.repos.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, name)
 		}
@@ -735,21 +745,32 @@ func (b *InMemoryBackend) DeleteRepository(
 	b.mu.Lock("DeleteRepository")
 	defer b.mu.Unlock()
 
-	r, ok := b.repos[name]
+	r, ok := b.repos.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, name)
 	}
 
-	delete(b.repos, name)
-	delete(b.images, name)
+	b.repos.Delete(name)
+
+	// slices.Clone the index results before deleting in the loop: Table.Delete
+	// mutates the very index b.imagesByRepo.Get/b.imageScanFindingsByRepo.Get
+	// returned, so iterating the live (unsloned) slice while deleting from it
+	// would skip entries.
+	for _, img := range slices.Clone(b.imagesByRepo.Get(name)) {
+		b.images.Delete(imageTableKey(img.RepositoryName, img.ImageDigest))
+	}
+
+	for _, f := range slices.Clone(b.imageScanFindingsByRepo.Get(name)) {
+		b.imageScanFindings.Delete(findingsTableKey(f.RepositoryName, f.ImageID.ImageDigest))
+	}
+
 	delete(b.tagIndex, name)
 	delete(b.digestTagsIndex, name)
 	delete(b.uploadedLayers, name)
-	delete(b.lifecyclePolicies, name)
-	delete(b.lifecyclePolicyPreviews, name)
+	b.lifecyclePolicies.Delete(name)
+	b.lifecyclePolicyPreviews.Delete(name)
 	delete(b.repoTags, r.RepositoryARN)
-	delete(b.repositoryPolicies, name)
-	delete(b.imageScanFindings, name)
+	b.repositoryPolicies.Delete(name)
 
 	// Clean up any in-progress layer uploads associated with this repository.
 	for uploadID := range b.repoUploadIndex[name] {
@@ -771,7 +792,7 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 	b.mu.RLock("BatchCheckLayerAvailability")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
@@ -801,11 +822,12 @@ func (b *InMemoryBackend) BatchCheckLayerAvailability(
 // deleteByDigestLocked removes an image by digest, deletes all tag bindings for
 // that digest, and returns true if the image was found.
 func deleteByDigestLocked(
-	repoImages map[string]*Image,
+	images *store.Table[Image],
 	repoTags map[string]string,
-	digest string,
+	repositoryName, digest string,
 ) bool {
-	if _, ok := repoImages[digest]; !ok {
+	key := imageTableKey(repositoryName, digest)
+	if !images.Has(key) {
 		return false
 	}
 
@@ -816,21 +838,25 @@ func deleteByDigestLocked(
 		}
 	}
 
-	delete(repoImages, digest)
+	images.Delete(key)
 
 	return true
 }
 
 // deleteByTagLocked removes a tag binding, clears the image's tag field if it
 // matches, and falls back to a linear scan for legacy images. Returns true if found.
-func deleteByTagLocked(repoImages map[string]*Image, repoTags map[string]string, tag string) bool {
+func deleteByTagLocked(
+	images *store.Table[Image],
+	repoTags map[string]string,
+	repositoryName, tag string,
+) bool {
 	digest, ok := repoTags[tag]
 	if !ok {
 		return false
 	}
 
 	delete(repoTags, tag)
-	if img, exists := repoImages[digest]; exists {
+	if img, exists := images.Get(imageTableKey(repositoryName, digest)); exists {
 		img.ImageID.ImageTag = ""
 	}
 
@@ -848,28 +874,27 @@ func (b *InMemoryBackend) BatchDeleteImage(ctx context.Context, //nolint:revive 
 	b.mu.Lock("BatchDeleteImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
 	deleted := make([]ImageIdentifier, 0, len(imageIDs))
 	failures := make([]ImageFailure, 0, len(imageIDs))
 
-	repoImages := b.images[repositoryName]
 	repoTags := b.tagIndex[repositoryName]
 
 	for _, id := range imageIDs {
 		var found bool
 
 		if id.ImageDigest != "" {
-			found = deleteByDigestLocked(repoImages, repoTags, id.ImageDigest)
+			found = deleteByDigestLocked(b.images, repoTags, repositoryName, id.ImageDigest)
 			if found {
 				b.clearDigestTagsLocked(repositoryName, id.ImageDigest)
 			}
 		} else if id.ImageTag != "" {
 			// Snapshot the digest before deletion so we can update the reverse index.
 			oldDigest := repoTags[id.ImageTag]
-			found = deleteByTagLocked(repoImages, repoTags, id.ImageTag)
+			found = deleteByTagLocked(b.images, repoTags, repositoryName, id.ImageTag)
 			if found && oldDigest != "" {
 				b.removeDigestTagLocked(repositoryName, oldDigest, id.ImageTag)
 			}
@@ -897,18 +922,17 @@ func (b *InMemoryBackend) BatchGetImage(ctx context.Context, //nolint:revive // 
 	b.mu.RLock("BatchGetImage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
 	imgs := make([]Image, 0, len(imageIDs))
 	failures := make([]ImageFailure, 0, len(imageIDs))
 
-	repoImages := b.images[repositoryName]
 	repoTagIdx := b.tagIndex[repositoryName]
 
 	for _, id := range imageIDs {
-		img, ok := findImageLocked(repoImages, repoTagIdx, id)
+		img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, repoTagIdx, id)
 		if ok {
 			cp := *img
 			// Preserve requested tag in imageId for the response.
@@ -1001,11 +1025,11 @@ func (b *InMemoryBackend) DescribeImages(
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	repoImages := b.images[repositoryName]
+	repoImages := b.imagesByRepo.Get(repositoryName)
 	repoTagIdx := b.tagIndex[repositoryName]
 	digestTags := b.digestTagsIndex[repositoryName]
 
@@ -1028,7 +1052,7 @@ func (b *InMemoryBackend) DescribeImages(
 		}
 	} else {
 		for _, id := range imageIDs {
-			img, ok := findImageLocked(repoImages, repoTagIdx, id)
+			img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, repoTagIdx, id)
 			if !ok {
 				return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 			}
@@ -1054,7 +1078,7 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 	failures := make([]RepositoryScanningConfigurationFailure, 0, len(repositoryNames))
 
 	for _, name := range repositoryNames {
-		repo, ok := b.repos[name]
+		repo, ok := b.repos.Get(name)
 		if !ok {
 			failures = append(failures, RepositoryScanningConfigurationFailure{
 				RepositoryName: name,
@@ -1090,7 +1114,7 @@ func (b *InMemoryBackend) CompleteLayerUpload(
 	b.mu.Lock("CompleteLayerUpload")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
@@ -1232,7 +1256,7 @@ func (b *InMemoryBackend) GetDownloadURLForLayer(
 	b.mu.RLock("GetDownloadURLForLayer")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return "", fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
@@ -1256,7 +1280,7 @@ func (b *InMemoryBackend) InitiateLayerUpload(
 	b.mu.Lock("InitiateLayerUpload")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
@@ -1308,7 +1332,7 @@ func (b *InMemoryBackend) UploadLayerPart(ctx context.Context, //nolint:revive /
 	b.mu.Lock("UploadLayerPart")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
@@ -1354,7 +1378,7 @@ func (b *InMemoryBackend) CreatePullThroughCacheRule(
 	b.mu.Lock("CreatePullThroughCacheRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullThroughCacheRules[prefix]; ok {
+	if b.pullThroughCacheRules.Has(prefix) {
 		return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleAlreadyExists, prefix)
 	}
 
@@ -1370,7 +1394,7 @@ func (b *InMemoryBackend) CreatePullThroughCacheRule(
 		CreatedAt:                now,
 		UpdatedAt:                now,
 	}
-	b.pullThroughCacheRules[prefix] = rule
+	b.pullThroughCacheRules.Put(rule)
 
 	cp := *rule
 
@@ -1385,14 +1409,14 @@ func (b *InMemoryBackend) DescribePullThroughCacheRules(
 	b.mu.RLock("DescribePullThroughCacheRules")
 	defer b.mu.RUnlock()
 
-	out := make([]PullThroughCacheRule, 0, len(b.pullThroughCacheRules))
+	out := make([]PullThroughCacheRule, 0, b.pullThroughCacheRules.Len())
 	if len(prefixes) == 0 {
-		for _, rule := range b.pullThroughCacheRules {
+		for _, rule := range b.pullThroughCacheRules.All() {
 			out = append(out, *rule)
 		}
 	} else {
 		for _, prefix := range prefixes {
-			rule, ok := b.pullThroughCacheRules[prefix]
+			rule, ok := b.pullThroughCacheRules.Get(prefix)
 			if !ok {
 				return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
 			}
@@ -1421,7 +1445,7 @@ func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
 	b.mu.Lock("CreateRepositoryCreationTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoryCreationTemplates[req.Prefix]; ok {
+	if b.repositoryCreationTemplates.Has(req.Prefix) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateAlreadyExists, req.Prefix)
 	}
 
@@ -1441,7 +1465,7 @@ func (b *InMemoryBackend) CreateRepositoryCreationTemplate(
 		CreatedAt:                          now,
 		UpdatedAt:                          now,
 	}
-	b.repositoryCreationTemplates[req.Prefix] = tmpl
+	b.repositoryCreationTemplates.Put(tmpl)
 
 	cp := *tmpl
 
@@ -1456,12 +1480,12 @@ func (b *InMemoryBackend) DeleteRepositoryCreationTemplate(
 	b.mu.Lock("DeleteRepositoryCreationTemplate")
 	defer b.mu.Unlock()
 
-	tmpl, ok := b.repositoryCreationTemplates[prefix]
+	tmpl, ok := b.repositoryCreationTemplates.Get(prefix)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateNotFound, prefix)
 	}
 
-	delete(b.repositoryCreationTemplates, prefix)
+	b.repositoryCreationTemplates.Delete(prefix)
 	cp := copyRepositoryCreationTemplate(tmpl)
 
 	return &cp, nil
@@ -1475,14 +1499,14 @@ func (b *InMemoryBackend) DescribeRepositoryCreationTemplates(
 	b.mu.RLock("DescribeRepositoryCreationTemplates")
 	defer b.mu.RUnlock()
 
-	out := make([]RepositoryCreationTemplate, 0, len(b.repositoryCreationTemplates))
+	out := make([]RepositoryCreationTemplate, 0, b.repositoryCreationTemplates.Len())
 	if len(prefixes) == 0 {
-		for _, tmpl := range b.repositoryCreationTemplates {
+		for _, tmpl := range b.repositoryCreationTemplates.All() {
 			out = append(out, copyRepositoryCreationTemplate(tmpl))
 		}
 	} else {
 		for _, prefix := range prefixes {
-			tmpl, ok := b.repositoryCreationTemplates[prefix]
+			tmpl, ok := b.repositoryCreationTemplates.Get(prefix)
 			if !ok {
 				return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateNotFound, prefix)
 			}
@@ -1504,17 +1528,18 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	if _, ok := b.lifecyclePolicies[repositoryName]; !ok {
+	entry, ok := b.lifecyclePolicies.Get(repositoryName)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLifecyclePolicyNotFound, repositoryName)
 	}
 
-	policyText := b.lifecyclePolicies[repositoryName]
+	policyText := entry.PolicyText
 	lastEvaluated := b.lifecycleLastEvaluated[repositoryName]
-	delete(b.lifecyclePolicies, repositoryName)
+	b.lifecyclePolicies.Delete(repositoryName)
 	delete(b.lifecycleLastEvaluated, repositoryName)
 
 	return &LifecyclePolicyResult{
@@ -1533,17 +1558,17 @@ func (b *InMemoryBackend) GetLifecyclePolicy(
 	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	policyText, ok := b.lifecyclePolicies[repositoryName]
+	entry, ok := b.lifecyclePolicies.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLifecyclePolicyNotFound, repositoryName)
 	}
 
 	return &LifecyclePolicyResult{
-		LifecyclePolicyText: policyText,
+		LifecyclePolicyText: entry.PolicyText,
 		LastEvaluatedAt:     b.lifecycleLastEvaluated[repositoryName],
 		RepositoryName:      repositoryName,
 		RegistryID:          b.accountID,
@@ -1558,11 +1583,11 @@ func (b *InMemoryBackend) GetLifecyclePolicyPreview(
 	b.mu.RLock("GetLifecyclePolicyPreview")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	preview, ok := b.lifecyclePolicyPreviews[repositoryName]
+	preview, ok := b.lifecyclePolicyPreviews.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLifecyclePolicyNotFound, repositoryName)
 	}
@@ -1581,11 +1606,11 @@ func (b *InMemoryBackend) PutLifecyclePolicy(
 	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	b.lifecyclePolicies[repositoryName] = policyText
+	b.lifecyclePolicies.Put(&lifecyclePolicyEntry{RepositoryName: repositoryName, PolicyText: policyText})
 
 	// AWS evaluates a newly applied lifecycle policy right away; matched images
 	// are expired and deleted rather than merely stored.
@@ -1607,15 +1632,18 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 	b.mu.Lock("StartLifecyclePolicyPreview")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
 	if policyText == "" {
-		policyText = b.lifecyclePolicies[repositoryName]
+		if entry, ok := b.lifecyclePolicies.Get(repositoryName); ok {
+			policyText = entry.PolicyText
+		}
 	}
 
-	expired := evaluateLifecyclePolicy(policyText, b.images[repositoryName], b.digestTagsIndex[repositoryName])
+	expired := evaluateLifecyclePolicy(
+		policyText, b.imagesByRepo.Get(repositoryName), b.digestTagsIndex[repositoryName])
 
 	preview := &LifecyclePolicyPreviewResult{
 		LifecyclePolicyText: policyText,
@@ -1624,7 +1652,7 @@ func (b *InMemoryBackend) StartLifecyclePolicyPreview(
 		RegistryID:          b.accountID,
 		Status:              scanStatusComplete,
 	}
-	b.lifecyclePolicyPreviews[repositoryName] = preview
+	b.lifecyclePolicyPreviews.Put(preview)
 
 	cp := *preview
 	cp.PreviewResults = append([]ImageIdentifier(nil), preview.PreviewResults...)
@@ -1640,12 +1668,12 @@ func (b *InMemoryBackend) DeletePullThroughCacheRule(
 	b.mu.Lock("DeletePullThroughCacheRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.pullThroughCacheRules[prefix]
+	rule, ok := b.pullThroughCacheRules.Get(prefix)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
 	}
 
-	delete(b.pullThroughCacheRules, prefix)
+	b.pullThroughCacheRules.Delete(prefix)
 
 	cp := *rule
 
@@ -1660,7 +1688,7 @@ func (b *InMemoryBackend) UpdatePullThroughCacheRule(
 	b.mu.Lock("UpdatePullThroughCacheRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.pullThroughCacheRules[prefix]
+	rule, ok := b.pullThroughCacheRules.Get(prefix)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
 	}
@@ -1687,7 +1715,7 @@ func (b *InMemoryBackend) ValidatePullThroughCacheRule(
 	b.mu.RLock("ValidatePullThroughCacheRule")
 	defer b.mu.RUnlock()
 
-	rule, ok := b.pullThroughCacheRules[prefix]
+	rule, ok := b.pullThroughCacheRules.Get(prefix)
 	if !ok {
 		return &ValidatePullThroughCacheRuleResult{
 			EcrRepositoryPrefix: prefix,
@@ -1714,12 +1742,13 @@ func (b *InMemoryBackend) AddImageInternal(repositoryName string, img Image) {
 	b.mu.Lock("AddImageInternal")
 	defer b.mu.Unlock()
 
-	if b.images[repositoryName] == nil {
-		b.images[repositoryName] = make(map[string]*Image)
-	}
-
 	cp := img
-	b.images[repositoryName][img.ImageDigest] = &cp
+	// RepositoryName is part of the store.Table composite key (see
+	// imageTableKey); normalize it to the map-scoping repositoryName argument
+	// exactly as PutImage's normalizeImageFields does, so a test-seeded image
+	// is found by repo-scoped lookups the same way a PutImage-created one is.
+	cp.RepositoryName = repositoryName
+	b.images.Put(&cp)
 
 	if img.ImageID.ImageTag != "" {
 		if b.tagIndex[repositoryName] == nil {
@@ -1862,17 +1891,17 @@ func (b *InMemoryBackend) GetRepositoryPolicy(
 	b.mu.RLock("GetRepositoryPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	policyText, ok := b.repositoryPolicies[repositoryName]
+	entry, ok := b.repositoryPolicies.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryPolicyNotFound, repositoryName)
 	}
 
 	return &RepositoryPolicyResult{
-		PolicyText:     policyText,
+		PolicyText:     entry.PolicyText,
 		RegistryID:     b.accountID,
 		RepositoryName: repositoryName,
 	}, nil
@@ -1886,11 +1915,11 @@ func (b *InMemoryBackend) SetRepositoryPolicy(
 	b.mu.Lock("SetRepositoryPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	b.repositoryPolicies[repositoryName] = policyText
+	b.repositoryPolicies.Put(&repositoryPolicyEntry{RepositoryName: repositoryName, PolicyText: policyText})
 
 	return &RepositoryPolicyResult{
 		PolicyText:     policyText,
@@ -1907,16 +1936,17 @@ func (b *InMemoryBackend) DeleteRepositoryPolicy(
 	b.mu.Lock("DeleteRepositoryPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	policyText, ok := b.repositoryPolicies[repositoryName]
+	entry, ok := b.repositoryPolicies.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryPolicyNotFound, repositoryName)
 	}
 
-	delete(b.repositoryPolicies, repositoryName)
+	policyText := entry.PolicyText
+	b.repositoryPolicies.Delete(repositoryName)
 
 	return &RepositoryPolicyResult{
 		PolicyText:     policyText,
@@ -1970,11 +2000,11 @@ func (b *InMemoryBackend) DescribeImageSigningStatus(
 	b.mu.RLock("DescribeImageSigningStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID); !ok {
+	if _, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName], imageID); !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrRepositoryNotFound)
 	}
 
@@ -2002,17 +2032,17 @@ func (b *InMemoryBackend) DescribeImageScanFindings(
 	b.mu.RLock("DescribeImageScanFindings")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, "", fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
+	img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
 
-	findings := b.imageScanFindings[repositoryName][img.ImageDigest]
-	if findings == nil {
+	findings, ok := b.imageScanFindings.Get(findingsTableKey(repositoryName, img.ImageDigest))
+	if !ok {
 		return nil, "", fmt.Errorf("%w: image scan not found for %s in %s",
 			ErrScanNotFoundException, img.ImageDigest, repositoryName)
 	}
@@ -2071,23 +2101,19 @@ func (b *InMemoryBackend) StartImageScan(ctx context.Context, //nolint:revive //
 	b.mu.Lock("StartImageScan")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
+	img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
-	}
-
-	if b.imageScanFindings[repositoryName] == nil {
-		b.imageScanFindings[repositoryName] = make(map[string]*ImageScanFindingsResult)
 	}
 
 	result := generateMockScanFindings(
 		img.ImageDigest, repositoryName, b.accountID, img.ImageID, b.effectiveScanTypeLocked(),
 	)
-	b.imageScanFindings[repositoryName][img.ImageDigest] = result
+	b.imageScanFindings.Put(result)
 
 	return &ImageScanStartResult{
 		ImageID:        img.ImageID,
@@ -2132,7 +2158,7 @@ func (b *InMemoryBackend) ListImages(
 	b.mu.RLock("ListImages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
@@ -2141,8 +2167,10 @@ func (b *InMemoryBackend) ListImages(
 	// Build a reverse map: digest → []tag from tagIndex.
 	digestTags := buildDigestTagsLocked(repoTagIdx)
 
-	out := make([]ImageIdentifier, 0, len(b.images[repositoryName]))
-	for _, img := range b.images[repositoryName] {
+	repoImages := b.imagesByRepo.Get(repositoryName)
+
+	out := make([]ImageIdentifier, 0, len(repoImages))
+	for _, img := range repoImages {
 		tags := imageTagsLocked(img, digestTags)
 		isTagged := len(tags) > 0
 
@@ -2180,11 +2208,11 @@ func (b *InMemoryBackend) ListImageReferrers(
 	b.mu.RLock("ListImageReferrers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	if _, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], subject); !ok &&
+	if _, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName], subject); !ok &&
 		subject.ImageDigest != "" {
 		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
@@ -2195,16 +2223,16 @@ func (b *InMemoryBackend) ListImageReferrers(
 // retagImageLocked moves a tag to a new digest: if the tag already maps to a
 // different digest, it clears the old image's ImageTag field so it becomes untagged.
 func retagImageLocked(
-	repoImages map[string]*Image,
+	images *store.Table[Image],
 	repoTags map[string]string,
-	tag, newDigest string,
+	repositoryName, tag, newDigest string,
 ) {
 	oldDigest, has := repoTags[tag]
 	if !has || oldDigest == newDigest {
 		return
 	}
 
-	if oldImg, exists := repoImages[oldDigest]; exists {
+	if oldImg, exists := images.Get(imageTableKey(repositoryName, oldDigest)); exists {
 		if oldImg.ImageID.ImageTag == tag {
 			oldImg.ImageID.ImageTag = ""
 		}
@@ -2241,7 +2269,7 @@ func normalizeImageFields(image *Image, repositoryName, accountID string) {
 	}
 }
 
-func (b *InMemoryBackend) PutImage( //nolint:cyclop // complexity matches AWS PutImage contract
+func (b *InMemoryBackend) PutImage(
 	ctx context.Context, //nolint:revive // existing issue.
 	repositoryName string,
 	image Image,
@@ -2249,7 +2277,7 @@ func (b *InMemoryBackend) PutImage( //nolint:cyclop // complexity matches AWS Pu
 	b.mu.Lock("PutImage")
 	defer b.mu.Unlock()
 
-	repo, ok := b.repos[repositoryName]
+	repo, ok := b.repos.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
@@ -2281,17 +2309,13 @@ func (b *InMemoryBackend) PutImage( //nolint:cyclop // complexity matches AWS Pu
 
 	// If tag already points to a different digest, untag the old image.
 	if tag != "" {
-		retagImageLocked(b.images[repositoryName], repoTags, tag, image.ImageDigest)
+		retagImageLocked(b.images, repoTags, repositoryName, tag, image.ImageDigest)
 	}
 
 	normalizeImageFields(&image, repositoryName, b.accountID)
 
-	if b.images[repositoryName] == nil {
-		b.images[repositoryName] = make(map[string]*Image)
-	}
-
 	stored := image
-	b.images[repositoryName][image.ImageDigest] = &stored
+	b.images.Put(&stored)
 
 	// Update tag index and keep digestTagsIndex in sync.
 	if tag != "" {
@@ -2319,7 +2343,7 @@ func (b *InMemoryBackend) PutImageScanningConfiguration(
 	b.mu.Lock("PutImageScanningConfiguration")
 	defer b.mu.Unlock()
 
-	repo, ok := b.repos[repositoryName]
+	repo, ok := b.repos.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
@@ -2343,7 +2367,7 @@ func (b *InMemoryBackend) PutImageTagMutability(
 	b.mu.Lock("PutImageTagMutability")
 	defer b.mu.Unlock()
 
-	repo, ok := b.repos[repositoryName]
+	repo, ok := b.repos.Get(repositoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
@@ -2370,11 +2394,11 @@ func (b *InMemoryBackend) DescribeImageReplicationStatus(
 	b.mu.RLock("DescribeImageReplicationStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
+	img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
@@ -2480,11 +2504,11 @@ func (b *InMemoryBackend) UpdateImageStorageClass(
 	b.mu.Lock("UpdateImageStorageClass")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
+	if !b.repos.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryNotFound, repositoryName)
 	}
 
-	img, ok := findImageLocked(b.images[repositoryName], b.tagIndex[repositoryName], imageID)
+	img, ok := findImageLocked(b.images, b.imagesByRepo, repositoryName, b.tagIndex[repositoryName], imageID)
 	if !ok {
 		return nil, fmt.Errorf("%w: image not found", ErrImageNotFound)
 	}
@@ -2513,7 +2537,11 @@ func (b *InMemoryBackend) GetAccountSetting(
 	b.mu.RLock("GetAccountSetting")
 	defer b.mu.RUnlock()
 
-	return b.accountSettings[name], nil
+	if entry, ok := b.accountSettings.Get(name); ok {
+		return entry.Value, nil
+	}
+
+	return "", nil
 }
 
 // PutAccountSetting updates a registry account setting.
@@ -2524,7 +2552,7 @@ func (b *InMemoryBackend) PutAccountSetting(
 	b.mu.Lock("PutAccountSetting")
 	defer b.mu.Unlock()
 
-	b.accountSettings[name] = value
+	b.accountSettings.Put(&accountSettingEntry{Name: name, Value: value})
 
 	return value, nil
 }
@@ -2538,7 +2566,7 @@ func (b *InMemoryBackend) RegisterPullTimeUpdateExclusion(
 	defer b.mu.Unlock()
 
 	exclusion := &PullTimeUpdateExclusion{CreatedAt: time.Now(), PrincipalArn: principalArn}
-	b.pullTimeUpdateExclusions[principalArn] = exclusion
+	b.pullTimeUpdateExclusions.Put(exclusion)
 	cp := *exclusion
 
 	return &cp, nil
@@ -2552,12 +2580,12 @@ func (b *InMemoryBackend) DeregisterPullTimeUpdateExclusion(
 	b.mu.Lock("DeregisterPullTimeUpdateExclusion")
 	defer b.mu.Unlock()
 
-	exclusion, ok := b.pullTimeUpdateExclusions[principalArn]
+	exclusion, ok := b.pullTimeUpdateExclusions.Get(principalArn)
 	if !ok {
 		return &PullTimeUpdateExclusion{PrincipalArn: principalArn}, nil
 	}
 
-	delete(b.pullTimeUpdateExclusions, principalArn)
+	b.pullTimeUpdateExclusions.Delete(principalArn)
 	cp := *exclusion
 
 	return &cp, nil
@@ -2570,8 +2598,8 @@ func (b *InMemoryBackend) ListPullTimeUpdateExclusions(
 	b.mu.RLock("ListPullTimeUpdateExclusions")
 	defer b.mu.RUnlock()
 
-	out := make([]PullTimeUpdateExclusion, 0, len(b.pullTimeUpdateExclusions))
-	for _, exclusion := range b.pullTimeUpdateExclusions {
+	out := make([]PullTimeUpdateExclusion, 0, b.pullTimeUpdateExclusions.Len())
+	for _, exclusion := range b.pullTimeUpdateExclusions.All() {
 		out = append(out, *exclusion)
 	}
 
@@ -2588,7 +2616,7 @@ func (b *InMemoryBackend) UpdateRepositoryCreationTemplate(
 	b.mu.Lock("UpdateRepositoryCreationTemplate")
 	defer b.mu.Unlock()
 
-	tmpl, ok := b.repositoryCreationTemplates[req.Prefix]
+	tmpl, ok := b.repositoryCreationTemplates.Get(req.Prefix)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryCreationTemplateNotFound, req.Prefix)
 	}
@@ -2676,30 +2704,30 @@ func sortedTagKeys(tags map[string]string) []string {
 	return keys
 }
 
-// findImageLocked looks up an image by digest or tag.
+// findImageLocked looks up an image by digest or tag within repositoryName.
 // tagIdx is the per-repository tag→digest index; it may be nil for older callers.
+// imagesByRepo is only consulted by the fallback linear scan (images that
+// predate the tag index).
 func findImageLocked(
-	images map[string]*Image,
+	images *store.Table[Image],
+	imagesByRepo *store.Index[Image],
+	repositoryName string,
 	tagIdx map[string]string,
 	id ImageIdentifier,
 ) (*Image, bool) {
 	if id.ImageDigest != "" {
-		img, ok := images[id.ImageDigest]
-
-		return img, ok
+		return images.Get(imageTableKey(repositoryName, id.ImageDigest))
 	}
 
 	if id.ImageTag != "" {
 		// Fast path via tag index.
 		if tagIdx != nil {
 			if digest, ok := tagIdx[id.ImageTag]; ok {
-				img, exists := images[digest]
-
-				return img, exists
+				return images.Get(imageTableKey(repositoryName, digest))
 			}
 		}
 		// Fallback: linear scan for images without tag index entry.
-		for _, img := range images {
+		for _, img := range imagesByRepo.Get(repositoryName) {
 			if img.ImageID.ImageTag == id.ImageTag {
 				return img, true
 			}
@@ -2893,22 +2921,13 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.repos = make(map[string]*Repository)
-	b.images = make(map[string]map[string]*Image)
+	b.registry.ResetAll()
 	b.tagIndex = make(map[string]map[string]string)
 	b.digestTagsIndex = make(map[string]map[string][]string)
-	b.pullThroughCacheRules = make(map[string]*PullThroughCacheRule)
-	b.repositoryCreationTemplates = make(map[string]*RepositoryCreationTemplate)
-	b.lifecyclePolicies = make(map[string]string)
-	b.lifecyclePolicyPreviews = make(map[string]*LifecyclePolicyPreviewResult)
 	b.lifecycleLastEvaluated = make(map[string]time.Time)
 	b.uploadedLayers = make(map[string]map[string]int64)
 	b.layerUploads = make(map[string]*layerUploadState)
 	b.repoTags = make(map[string]map[string]string)
-	b.repositoryPolicies = make(map[string]string)
-	b.imageScanFindings = make(map[string]map[string]*ImageScanFindingsResult)
-	b.accountSettings = make(map[string]string)
-	b.pullTimeUpdateExclusions = make(map[string]*PullTimeUpdateExclusion)
 	b.registryPolicy = ""
 	b.registryScanningConfig = &RegistryScanningSettings{ScanType: scanTypeBasic}
 	b.replicationConfig = &ReplicationConfig{}
@@ -2921,7 +2940,7 @@ func (b *InMemoryBackend) AddRepositoryInternal(repo Repository) {
 	defer b.mu.Unlock()
 
 	cp := repo
-	b.repos[repo.RepositoryName] = &cp
+	b.repos.Put(&cp)
 }
 
 // AddLifecyclePolicyInternal seeds a lifecycle policy directly into the backend for testing.
@@ -2929,5 +2948,5 @@ func (b *InMemoryBackend) AddLifecyclePolicyInternal(repositoryName, policy stri
 	b.mu.Lock("AddLifecyclePolicyInternal")
 	defer b.mu.Unlock()
 
-	b.lifecyclePolicies[repositoryName] = policy
+	b.lifecyclePolicies.Put(&lifecyclePolicyEntry{RepositoryName: repositoryName, PolicyText: policy})
 }
