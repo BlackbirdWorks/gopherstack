@@ -9,7 +9,7 @@ func ExpireDomainProcessing(b *InMemoryBackend, name string) {
 	b.mu.Lock("ExpireDomainProcessing")
 	defer b.mu.Unlock()
 
-	if d, ok := b.domains[name]; ok {
+	if d, ok := b.domains.Get(name); ok {
 		d.ProcessingUntil = time.Now().Add(-time.Hour)
 	}
 }
@@ -20,7 +20,7 @@ func ExpireCollectionStatus(b *InMemoryBackend, id string) {
 	b.mu.Lock("ExpireCollectionStatus")
 	defer b.mu.Unlock()
 
-	for _, c := range b.slCollections {
+	for _, c := range b.slCollections.All() {
 		if c.ID == id {
 			c.StatusUntil = time.Now().Add(-time.Hour)
 		}
@@ -33,7 +33,7 @@ func ExpireOutboundConnection(b *InMemoryBackend, id string) {
 	b.mu.Lock("ExpireOutboundConnection")
 	defer b.mu.Unlock()
 
-	if c, ok := b.outboundConnections[id]; ok {
+	if c, ok := b.outboundConnections.Get(id); ok {
 		c.StatusUntil = time.Now().Add(-time.Hour)
 	}
 }
@@ -43,7 +43,7 @@ func ExpireVpcEndpoint(b *InMemoryBackend, id string) {
 	b.mu.Lock("ExpireVpcEndpoint")
 	defer b.mu.Unlock()
 
-	if ep, ok := b.vpcEndpoints[id]; ok {
+	if ep, ok := b.vpcEndpoints.Get(id); ok {
 		ep.StatusUntil = time.Now().Add(-time.Hour)
 	}
 }
@@ -61,7 +61,7 @@ func DomainServiceSoftwareStatus(b *InMemoryBackend, name string) string {
 	b.mu.RLock("DomainServiceSoftwareStatus")
 	defer b.mu.RUnlock()
 
-	d, ok := b.domains[name]
+	d, ok := b.domains.Get(name)
 	if !ok || d.ServiceSoftware == nil {
 		return ""
 	}
@@ -74,7 +74,7 @@ func DomainCount(b *InMemoryBackend) int {
 	b.mu.RLock("DomainCount")
 	defer b.mu.RUnlock()
 
-	return len(b.domains)
+	return b.domains.Len()
 }
 
 // ConnectionCount returns the number of inbound connections in the backend.
@@ -82,7 +82,7 @@ func ConnectionCount(b *InMemoryBackend) int {
 	b.mu.RLock("ConnectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.inboundConnections)
+	return b.inboundConnections.Len()
 }
 
 // DataSourceCount returns the total number of domain data sources across all domains.
@@ -90,12 +90,7 @@ func DataSourceCount(b *InMemoryBackend) int {
 	b.mu.RLock("DataSourceCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, m := range b.domainDataSources {
-		total += len(m)
-	}
-
-	return total
+	return b.domainDataSources.Len()
 }
 
 // DirectQueryDataSourceCount returns the number of direct-query data sources.
@@ -103,7 +98,7 @@ func DirectQueryDataSourceCount(b *InMemoryBackend) int {
 	b.mu.RLock("DirectQueryDataSourceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.directQueryDataSources)
+	return b.directQueryDataSources.Len()
 }
 
 // ApplicationCount returns the number of applications in the backend.
@@ -111,7 +106,7 @@ func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.applications)
+	return b.applications.Len()
 }
 
 // ARNIndexSize returns the number of entries in the ARN index.
@@ -119,7 +114,7 @@ func ARNIndexSize(b *InMemoryBackend) int {
 	b.mu.RLock("ARNIndexSize")
 	defer b.mu.RUnlock()
 
-	return len(b.arnIndex)
+	return b.domainsByARN.Len()
 }
 
 // HandlerOpsLen returns the number of operations in GetSupportedOperations.
@@ -156,8 +151,8 @@ func SeedInboundConnection(b *InMemoryBackend, connectionID string) {
 	b.mu.Lock("SeedInboundConnection")
 	defer b.mu.Unlock()
 
-	b.inboundConnections[connectionID] = &InboundConnection{
+	b.inboundConnections.Put(&InboundConnection{
 		ConnectionID: connectionID,
 		Status:       "PENDING_ACCEPTANCE",
-	}
+	})
 }

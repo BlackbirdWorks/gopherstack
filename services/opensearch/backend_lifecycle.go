@@ -1,6 +1,9 @@
 package opensearch
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // clock returns the backend's current time, honouring an injected clock when set.
 func (b *InMemoryBackend) clock() time.Time {
@@ -69,20 +72,25 @@ func statusWindowElapsed(status string, until, now time.Time) bool {
 // removeDomainLocked performs the full cascade removal of a domain and all its
 // domain-scoped resources. The caller must hold the write lock.
 func (b *InMemoryBackend) removeDomainLocked(name string) {
-	d, ok := b.domains[name]
+	d, ok := b.domains.Get(name)
 	if !ok {
 		return
 	}
 
-	delete(b.domains, name)
-	delete(b.arnIndex, d.ARN)
+	b.domains.Delete(name)
 
 	if d.Tags != nil {
 		d.Tags.Close()
 	}
 
-	// Cascade-clean all domain-scoped resources.
-	delete(b.domainDataSources, name)
+	// Cascade-clean all domain-scoped resources. The byDomain index results
+	// are cloned before deleting from the underlying table, since Index.Get
+	// returns a slice owned by the index that a concurrent Delete may
+	// invalidate mid-range.
+	for _, ds := range slices.Clone(b.domainDataSourcesByDomain.Get(name)) {
+		b.domainDataSources.Delete(dataSourceKey(ds.DomainName, ds.Name))
+	}
+
 	delete(b.vpcAuthorizations, name)
 
 	for pkgID := range b.domainPackages[name] {
@@ -97,9 +105,12 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 
 	delete(b.domainMaintenances, name)
 	delete(b.upgradeHistory, upgradeHistoryKey(name))
-	delete(b.autoTunes, autoTuneKey(name))
-	delete(b.dryRuns, name)
-	delete(b.domainIndexes, name)
+	b.autoTunes.Delete(autoTuneKey(name))
+	b.dryRuns.Delete(name)
+
+	for _, idx := range slices.Clone(b.domainIndexesByDomain.Get(name)) {
+		b.domainIndexes.Delete(domainIndexKey(idx.DomainName, idx.IndexName))
+	}
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(d.Endpoint)
@@ -111,9 +122,11 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 func (b *InMemoryBackend) purgeExpiredDomainsLocked() {
 	now := b.clock()
 
-	for name, d := range b.domains {
+	// Table.All returns a fresh slice, so cascading removeDomainLocked deletes
+	// from the table while ranging over it here is safe.
+	for _, d := range b.domains.All() {
 		if deleteWindowElapsed(d, now) {
-			b.removeDomainLocked(name)
+			b.removeDomainLocked(d.Name)
 		}
 	}
 }

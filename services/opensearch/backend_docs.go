@@ -34,21 +34,11 @@ type SearchResult struct {
 // findIndexLocked returns the stored index for a domain, or an error. The caller
 // must hold at least a read lock.
 func (b *InMemoryBackend) findIndexLocked(domainName, indexName string) (*DomainIndex, error) {
-	if d, ok := b.domains[domainName]; !ok || deleteWindowElapsed(d, b.clock()) {
+	if d, ok := b.domains.Get(domainName); !ok || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	idxMap := b.domainIndexes[domainName]
-	if idxMap == nil {
-		return nil, fmt.Errorf(
-			"%w: index %s not found on domain %s",
-			ErrConnectionNotFound,
-			indexName,
-			domainName,
-		)
-	}
-
-	idx, ok := idxMap[indexName]
+	idx, ok := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -162,7 +152,7 @@ func (b *InMemoryBackend) DomainDocumentCount(domainName string) int {
 	defer b.mu.RUnlock()
 
 	total := 0
-	for _, idx := range b.domainIndexes[domainName] {
+	for _, idx := range b.domainIndexesByDomain.Get(domainName) {
 		total += idx.DocumentCount
 	}
 

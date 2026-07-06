@@ -25,6 +25,7 @@ type UpgradeStepItem struct {
 // AutoTuneConfig stores auto-tune configuration for a domain.
 type AutoTuneConfig struct {
 	DesiredState         string                        `json:"DesiredState"`
+	DomainName           string                        `json:"-"`
 	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"MaintenanceSchedules,omitempty"`
 }
 
@@ -155,7 +156,7 @@ func (b *InMemoryBackend) UpgradeDomain(domainName, upgradeName string) error {
 	b.mu.Lock("UpgradeDomain")
 	defer b.mu.Unlock()
 
-	d, ok := b.domains[domainName]
+	d, ok := b.domains.Get(domainName)
 	if !ok || deleteWindowElapsed(d, b.clock()) {
 		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
@@ -200,7 +201,7 @@ func (b *InMemoryBackend) GetUpgradeHistory(domainName string) ([]*UpgradeHistor
 	b.mu.RLock("GetUpgradeHistory")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domains[domainName]; !ok {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
 
@@ -220,7 +221,7 @@ func (b *InMemoryBackend) GetUpgradeStatus(domainName string) (string, string, s
 	b.mu.RLock("GetUpgradeStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domains[domainName]; !ok {
+	if !b.domains.Has(domainName) {
 		return "", "", "", fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
 
@@ -242,14 +243,15 @@ func (b *InMemoryBackend) SetAutoTune(
 	b.mu.Lock("SetAutoTune")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domains[domainName]; !ok {
+	if !b.domains.Has(domainName) {
 		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
 
-	b.autoTunes[autoTuneKey(domainName)] = &AutoTuneConfig{
+	b.autoTunes.Put(&AutoTuneConfig{
 		DesiredState:         desiredState,
 		MaintenanceSchedules: schedules,
-	}
+		DomainName:           domainName,
+	})
 
 	return nil
 }
@@ -259,11 +261,11 @@ func (b *InMemoryBackend) GetAutoTune(domainName string) ([]*AutoTune, error) {
 	b.mu.RLock("GetAutoTune")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domains[domainName]; !ok {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
 
-	cfg, ok := b.autoTunes[autoTuneKey(domainName)]
+	cfg, ok := b.autoTunes.Get(autoTuneKey(domainName))
 	if !ok || cfg == nil {
 		return []*AutoTune{}, nil
 	}
@@ -421,15 +423,15 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]string, 0, len(b.domains))
+	out := make([]string, 0, b.domains.Len())
 
-	for name, d := range b.domains {
+	for _, d := range b.domains.All() {
 		if deleteWindowElapsed(d, now) {
 			continue
 		}
 
 		if engineType == "" {
-			out = append(out, name)
+			out = append(out, d.Name)
 
 			continue
 		}
@@ -439,11 +441,11 @@ func (b *InMemoryBackend) ListDomainNamesByEngine(engineType string) []string {
 		switch engineType {
 		case engineTypeOpenSearch:
 			if isOpenSearchEngine(d.EngineVersion) {
-				out = append(out, name)
+				out = append(out, d.Name)
 			}
 		case engineTypeElasticsearch:
 			if !isOpenSearchEngine(d.EngineVersion) {
-				out = append(out, name)
+				out = append(out, d.Name)
 			}
 		}
 	}
@@ -473,15 +475,15 @@ func (b *InMemoryBackend) ListDomainEntriesFiltered(engineType string) []DomainE
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]DomainEntry, 0, len(b.domains))
+	out := make([]DomainEntry, 0, b.domains.Len())
 
-	for name, d := range b.domains {
+	for _, d := range b.domains.All() {
 		if deleteWindowElapsed(d, now) {
 			continue
 		}
 
 		if engineType == "" {
-			out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+			out = append(out, DomainEntry{Name: d.Name, EngineVersion: d.EngineVersion})
 
 			continue
 		}
@@ -489,15 +491,15 @@ func (b *InMemoryBackend) ListDomainEntriesFiltered(engineType string) []DomainE
 		switch engineType {
 		case engineTypeOpenSearch:
 			if isOpenSearchEngine(d.EngineVersion) {
-				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+				out = append(out, DomainEntry{Name: d.Name, EngineVersion: d.EngineVersion})
 			}
 		case engineTypeElasticsearch:
 			if !isOpenSearchEngine(d.EngineVersion) {
-				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+				out = append(out, DomainEntry{Name: d.Name, EngineVersion: d.EngineVersion})
 			}
 		default:
 			if strings.HasPrefix(d.EngineVersion, engineType+"_") {
-				out = append(out, DomainEntry{Name: name, EngineVersion: d.EngineVersion})
+				out = append(out, DomainEntry{Name: d.Name, EngineVersion: d.EngineVersion})
 			}
 		}
 	}
