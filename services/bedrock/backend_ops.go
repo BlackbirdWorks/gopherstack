@@ -76,7 +76,7 @@ func (b *InMemoryBackend) GetEvaluationJob(jobARN string) (*EvaluationJob, error
 	b.mu.RLock("GetEvaluationJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.evaluationJobs[jobARN]
+	job, ok := b.evaluationJobs.Get(jobARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: evaluation job %s not found", ErrNotFound, jobARN)
 	}
@@ -92,8 +92,8 @@ func (b *InMemoryBackend) ListEvaluationJobs() []*EvaluationJob {
 	b.mu.RLock("ListEvaluationJobs")
 	defer b.mu.RUnlock()
 
-	jobs := make([]*EvaluationJob, 0, len(b.evaluationJobs))
-	for _, j := range b.evaluationJobs {
+	jobs := make([]*EvaluationJob, 0, b.evaluationJobs.Len())
+	for _, j := range b.evaluationJobs.All() {
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		jobs = append(jobs, &cp)
@@ -111,7 +111,7 @@ func (b *InMemoryBackend) StopEvaluationJob(jobARN string) error {
 	b.mu.Lock("StopEvaluationJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.evaluationJobs[jobARN]
+	job, ok := b.evaluationJobs.Get(jobARN)
 	if !ok {
 		return fmt.Errorf("%w: evaluation job %s not found", ErrNotFound, jobARN)
 	}
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicy(policyARN string) (*Automa
 	b.mu.RLock("GetAutomatedReasoningPolicy")
 	defer b.mu.RUnlock()
 
-	policy, ok := b.automatedReasoningPolicies[policyARN]
+	policy, ok := b.automatedReasoningPolicies.Get(policyARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
@@ -154,8 +154,8 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicies() []*AutomatedReasoning
 	b.mu.RLock("ListAutomatedReasoningPolicies")
 	defer b.mu.RUnlock()
 
-	policies := make([]*AutomatedReasoningPolicy, 0, len(b.automatedReasoningPolicies))
-	for _, p := range b.automatedReasoningPolicies {
+	policies := make([]*AutomatedReasoningPolicy, 0, b.automatedReasoningPolicies.Len())
+	for _, p := range b.automatedReasoningPolicies.All() {
 		cp := *p
 		cp.Tags = copyTags(p.Tags)
 		policies = append(policies, &cp)
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicy(
 	b.mu.Lock("UpdateAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
-	policy, ok := b.automatedReasoningPolicies[policyARN]
+	policy, ok := b.automatedReasoningPolicies.Get(policyARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
@@ -194,24 +194,24 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicy(policyARN string) error
 	b.mu.Lock("DeleteAutomatedReasoningPolicy")
 	defer b.mu.Unlock()
 
-	policy, ok := b.automatedReasoningPolicies[policyARN]
+	policy, ok := b.automatedReasoningPolicies.Get(policyARN)
 	if !ok {
 		return fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
 	delete(b.arpByName, policy.Name)
-	delete(b.automatedReasoningPolicies, policyARN)
+	b.automatedReasoningPolicies.Delete(policyARN)
 
 	// Remove associated workflows and test cases.
-	for id, wf := range b.arpBuildWorkflows {
+	for _, wf := range b.arpBuildWorkflows.All() {
 		if wf.PolicyArn == policyARN {
-			delete(b.arpBuildWorkflows, id)
+			b.arpBuildWorkflows.Delete(wf.BuildWorkflowID)
 		}
 	}
 
-	for id, tc := range b.arpTestCases {
+	for _, tc := range b.arpTestCases.All() {
 		if tc.PolicyArn == policyARN {
-			delete(b.arpTestCases, id)
+			b.arpTestCases.Delete(tc.TestCaseID)
 		}
 	}
 
@@ -227,7 +227,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
 	b.mu.Lock("StartAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.Unlock()
 
-	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
@@ -239,7 +239,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
 		PolicyArn:       policyARN,
 		Status:          statusRunning,
 	}
-	b.arpBuildWorkflows[id] = wf
+	b.arpBuildWorkflows.Put(wf)
 	cp := *wf
 
 	return &cp, nil
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflow(
 	b.mu.RLock("GetAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.RUnlock()
 
-	wf, ok := b.arpBuildWorkflows[workflowID]
+	wf, ok := b.arpBuildWorkflows.Get(workflowID)
 	if !ok || wf.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
@@ -270,7 +270,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyBuildWorkflows(
 	defer b.mu.RUnlock()
 
 	var workflows []*AutomatedReasoningPolicyBuildWorkflow
-	for _, wf := range b.arpBuildWorkflows {
+	for _, wf := range b.arpBuildWorkflows.All() {
 		if wf.PolicyArn == policyARN {
 			cp := *wf
 			workflows = append(workflows, &cp)
@@ -289,12 +289,12 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicyBuildWorkflow(policyARN,
 	b.mu.Lock("DeleteAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.Unlock()
 
-	wf, ok := b.arpBuildWorkflows[workflowID]
+	wf, ok := b.arpBuildWorkflows.Get(workflowID)
 	if !ok || wf.PolicyArn != policyARN {
 		return fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	delete(b.arpBuildWorkflows, workflowID)
+	b.arpBuildWorkflows.Delete(workflowID)
 
 	return nil
 }
@@ -308,7 +308,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestCase(
 	b.mu.RLock("GetAutomatedReasoningPolicyTestCase")
 	defer b.mu.RUnlock()
 
-	tc, ok := b.arpTestCases[testCaseID]
+	tc, ok := b.arpTestCases.Get(testCaseID)
 	if !ok || tc.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestCases(policyARN string
 	defer b.mu.RUnlock()
 
 	var cases []*AutomatedReasoningPolicyTestCase
-	for _, tc := range b.arpTestCases {
+	for _, tc := range b.arpTestCases.All() {
 		if tc.PolicyArn == policyARN {
 			cp := *tc
 			cases = append(cases, &cp)
@@ -345,7 +345,7 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyTestCase(
 	b.mu.Lock("UpdateAutomatedReasoningPolicyTestCase")
 	defer b.mu.Unlock()
 
-	tc, ok := b.arpTestCases[testCaseID]
+	tc, ok := b.arpTestCases.Get(testCaseID)
 	if !ok || tc.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
@@ -360,12 +360,12 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicyTestCase(policyARN, test
 	b.mu.Lock("DeleteAutomatedReasoningPolicyTestCase")
 	defer b.mu.Unlock()
 
-	tc, ok := b.arpTestCases[testCaseID]
+	tc, ok := b.arpTestCases.Get(testCaseID)
 	if !ok || tc.PolicyArn != policyARN {
 		return fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	delete(b.arpTestCases, testCaseID)
+	b.arpTestCases.Delete(testCaseID)
 
 	return nil
 }
@@ -377,7 +377,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(policyARN strin
 	b.mu.RLock("GetAutomatedReasoningPolicyAnnotations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
@@ -394,7 +394,7 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyAnnotations(policyARN st
 	b.mu.Lock("UpdateAutomatedReasoningPolicyAnnotations")
 	defer b.mu.Unlock()
 
-	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
 		return fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
@@ -414,7 +414,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(policyARN stri
 	b.mu.RLock("GetAutomatedReasoningPolicyNextScenario")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
 		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
@@ -428,7 +428,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 	b.mu.RLock("GetAutomatedReasoningPolicyBuildWorkflowResultAssets")
 	defer b.mu.RUnlock()
 
-	wf, ok := b.arpBuildWorkflows[workflowID]
+	wf, ok := b.arpBuildWorkflows.Get(workflowID)
 	if !ok || wf.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
@@ -442,7 +442,7 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(policyARN, versi
 	defer b.mu.RUnlock()
 
 	key := policyARN + ":" + version
-	v, ok := b.arpVersions[key]
+	v, ok := b.arpVersions.Get(key)
 
 	if !ok {
 		return nil, fmt.Errorf("%w: version %s of policy %s not found", ErrNotFound, version, policyARN)
@@ -463,7 +463,7 @@ func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(
 	b.mu.Lock("StartAutomatedReasoningPolicyTestWorkflow")
 	defer b.mu.Unlock()
 
-	tc, ok := b.arpTestCases[testCaseID]
+	tc, ok := b.arpTestCases.Get(testCaseID)
 	if !ok || tc.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
@@ -476,7 +476,7 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(policyARN, testC
 	b.mu.RLock("GetAutomatedReasoningPolicyTestResult")
 	defer b.mu.RUnlock()
 
-	tc, ok := b.arpTestCases[testCaseID]
+	tc, ok := b.arpTestCases.Get(testCaseID)
 	if !ok || tc.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
@@ -490,7 +490,7 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 	defer b.mu.RUnlock()
 
 	var results []map[string]any
-	for _, tc := range b.arpTestCases {
+	for _, tc := range b.arpTestCases.All() {
 		if tc.PolicyArn == policyARN {
 			results = append(results, map[string]any{
 				keyTestCaseID: tc.TestCaseID,
@@ -526,7 +526,7 @@ func (b *InMemoryBackend) CreateModelInvocationJob(
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
 	}
 
-	for _, j := range b.modelInvocationJobs {
+	for _, j := range b.modelInvocationJobs.All() {
 		if j.JobName == name {
 			return nil, fmt.Errorf("%w: model invocation job %s already exists", ErrAlreadyExists, name)
 		}
@@ -554,7 +554,7 @@ func (b *InMemoryBackend) CreateModelInvocationJob(
 		job.ClientToken = opt.ClientToken
 	}
 
-	b.modelInvocationJobs[jobARN] = job
+	b.modelInvocationJobs.Put(job)
 	cp := *job
 	cp.Tags = copyTags(job.Tags)
 
@@ -566,7 +566,7 @@ func (b *InMemoryBackend) GetModelInvocationJob(jobARN string) (*ModelInvocation
 	b.mu.RLock("GetModelInvocationJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.modelInvocationJobs[jobARN]
+	job, ok := b.modelInvocationJobs.Get(jobARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: model invocation job %s not found", ErrNotFound, jobARN)
 	}
@@ -595,8 +595,8 @@ func (b *InMemoryBackend) ListModelInvocationJobs(
 	b.mu.RLock("ListModelInvocationJobs")
 	defer b.mu.RUnlock()
 
-	jobs := make([]*ModelInvocationJob, 0, len(b.modelInvocationJobs))
-	for _, j := range b.modelInvocationJobs {
+	jobs := make([]*ModelInvocationJob, 0, b.modelInvocationJobs.Len())
+	for _, j := range b.modelInvocationJobs.All() {
 		if !matchesInvocationJobFilter(j, in) {
 			continue
 		}
@@ -690,7 +690,7 @@ func (b *InMemoryBackend) StopModelInvocationJob(jobARN string) error {
 	b.mu.Lock("StopModelInvocationJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.modelInvocationJobs[jobARN]
+	job, ok := b.modelInvocationJobs.Get(jobARN)
 	if !ok {
 		return fmt.Errorf("%w: model invocation job %s not found", ErrNotFound, jobARN)
 	}
@@ -717,7 +717,7 @@ func (b *InMemoryBackend) GetImportedModel(modelARN string) (*ModelImportJob, er
 	b.mu.RLock("GetImportedModel")
 	defer b.mu.RUnlock()
 
-	for _, j := range b.modelImportJobs {
+	for _, j := range b.modelImportJobs.All() {
 		if j.ImportedModelArn == modelARN {
 			cp := *j
 			cp.Tags = copyTags(j.Tags)
@@ -735,7 +735,7 @@ func (b *InMemoryBackend) ListImportedModels() []*ModelImportJob {
 	defer b.mu.RUnlock()
 
 	var models []*ModelImportJob
-	for _, j := range b.modelImportJobs {
+	for _, j := range b.modelImportJobs.All() {
 		if j.ImportedModelArn != "" {
 			cp := *j
 			cp.Tags = copyTags(j.Tags)
@@ -755,9 +755,9 @@ func (b *InMemoryBackend) DeleteImportedModel(modelARN string) error {
 	b.mu.Lock("DeleteImportedModel")
 	defer b.mu.Unlock()
 
-	for jobARN, j := range b.modelImportJobs {
+	for _, j := range b.modelImportJobs.All() {
 		if j.ImportedModelArn == modelARN {
-			delete(b.modelImportJobs, jobARN)
+			b.modelImportJobs.Delete(j.JobArn)
 
 			return nil
 		}
@@ -793,7 +793,7 @@ func (b *InMemoryBackend) CreatePromptRouter(name string, tags []Tag) (*PromptRo
 		UpdatedAt:        now,
 		Tags:             copyTags(tags),
 	}
-	b.promptRouters[routerARN] = router
+	b.promptRouters.Put(router)
 	b.promptRoutersByName[name] = routerARN
 	cp := *router
 	cp.Tags = copyTags(router.Tags)
@@ -806,7 +806,7 @@ func (b *InMemoryBackend) GetPromptRouter(routerARN string) (*PromptRouter, erro
 	b.mu.RLock("GetPromptRouter")
 	defer b.mu.RUnlock()
 
-	router, ok := b.promptRouters[routerARN]
+	router, ok := b.promptRouters.Get(routerARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt router %s not found", ErrNotFound, routerARN)
 	}
@@ -822,8 +822,8 @@ func (b *InMemoryBackend) ListPromptRouters() []*PromptRouter {
 	b.mu.RLock("ListPromptRouters")
 	defer b.mu.RUnlock()
 
-	routers := make([]*PromptRouter, 0, len(b.promptRouters))
-	for _, r := range b.promptRouters {
+	routers := make([]*PromptRouter, 0, b.promptRouters.Len())
+	for _, r := range b.promptRouters.All() {
 		cp := *r
 		cp.Tags = copyTags(r.Tags)
 		routers = append(routers, &cp)
@@ -841,13 +841,13 @@ func (b *InMemoryBackend) DeletePromptRouter(routerARN string) error {
 	b.mu.Lock("DeletePromptRouter")
 	defer b.mu.Unlock()
 
-	router, ok := b.promptRouters[routerARN]
+	router, ok := b.promptRouters.Get(routerARN)
 	if !ok {
 		return fmt.Errorf("%w: prompt router %s not found", ErrNotFound, routerARN)
 	}
 
 	delete(b.promptRoutersByName, router.PromptRouterName)
-	delete(b.promptRouters, routerARN)
+	b.promptRouters.Delete(routerARN)
 
 	return nil
 }
@@ -859,7 +859,7 @@ func (b *InMemoryBackend) GetCustomModelDeployment(deployARN string) (*CustomMod
 	b.mu.RLock("GetCustomModelDeployment")
 	defer b.mu.RUnlock()
 
-	d, ok := b.customModelDeployments[deployARN]
+	d, ok := b.customModelDeployments.Get(deployARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: custom model deployment %s not found", ErrNotFound, deployARN)
 	}
@@ -875,8 +875,8 @@ func (b *InMemoryBackend) ListCustomModelDeployments() []*CustomModelDeployment 
 	b.mu.RLock("ListCustomModelDeployments")
 	defer b.mu.RUnlock()
 
-	deployments := make([]*CustomModelDeployment, 0, len(b.customModelDeployments))
-	for _, d := range b.customModelDeployments {
+	deployments := make([]*CustomModelDeployment, 0, b.customModelDeployments.Len())
+	for _, d := range b.customModelDeployments.All() {
 		cp := *d
 		cp.Tags = copyTags(d.Tags)
 		deployments = append(deployments, &cp)
@@ -894,7 +894,7 @@ func (b *InMemoryBackend) UpdateCustomModelDeployment(deployARN string) (*Custom
 	b.mu.Lock("UpdateCustomModelDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.customModelDeployments[deployARN]
+	d, ok := b.customModelDeployments.Get(deployARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: custom model deployment %s not found", ErrNotFound, deployARN)
 	}
@@ -912,13 +912,13 @@ func (b *InMemoryBackend) DeleteCustomModelDeployment(deployARN string) error {
 	b.mu.Lock("DeleteCustomModelDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.customModelDeployments[deployARN]
+	d, ok := b.customModelDeployments.Get(deployARN)
 	if !ok {
 		return fmt.Errorf("%w: custom model deployment %s not found", ErrNotFound, deployARN)
 	}
 
 	delete(b.customModelDeployByName, d.ModelDeploymentName)
-	delete(b.customModelDeployments, deployARN)
+	b.customModelDeployments.Delete(deployARN)
 
 	return nil
 }
@@ -930,8 +930,8 @@ func (b *InMemoryBackend) ListFoundationModelAgreementOffers() []*FoundationMode
 	b.mu.RLock("ListFoundationModelAgreementOffers")
 	defer b.mu.RUnlock()
 
-	agreements := make([]*FoundationModelAgreement, 0, len(b.foundationModelAgreements))
-	for _, a := range b.foundationModelAgreements {
+	agreements := make([]*FoundationModelAgreement, 0, b.foundationModelAgreements.Len())
+	for _, a := range b.foundationModelAgreements.All() {
 		cp := *a
 		agreements = append(agreements, &cp)
 	}
@@ -948,11 +948,11 @@ func (b *InMemoryBackend) DeleteFoundationModelAgreement(modelID string) error {
 	b.mu.Lock("DeleteFoundationModelAgreement")
 	defer b.mu.Unlock()
 
-	if _, ok := b.foundationModelAgreements[modelID]; !ok {
+	if _, ok := b.foundationModelAgreements.Get(modelID); !ok {
 		return fmt.Errorf("%w: foundation model agreement for %s not found", ErrNotFound, modelID)
 	}
 
-	delete(b.foundationModelAgreements, modelID)
+	b.foundationModelAgreements.Delete(modelID)
 
 	return nil
 }
@@ -986,8 +986,8 @@ func (b *InMemoryBackend) ListEnforcedGuardrailsConfiguration() []*EnforcedGuard
 	b.mu.RLock("ListEnforcedGuardrailsConfiguration")
 	defer b.mu.RUnlock()
 
-	configs := make([]*EnforcedGuardrailConfig, 0, len(b.enforcedGuardrailConfigs))
-	for _, c := range b.enforcedGuardrailConfigs {
+	configs := make([]*EnforcedGuardrailConfig, 0, b.enforcedGuardrailConfigs.Len())
+	for _, c := range b.enforcedGuardrailConfigs.All() {
 		cp := *c
 		configs = append(configs, &cp)
 	}
@@ -1004,14 +1004,10 @@ func (b *InMemoryBackend) PutEnforcedGuardrailConfiguration(guardrailID, version
 	b.mu.Lock("PutEnforcedGuardrailConfiguration")
 	defer b.mu.Unlock()
 
-	if b.enforcedGuardrailConfigs == nil {
-		b.enforcedGuardrailConfigs = make(map[string]*EnforcedGuardrailConfig)
-	}
-
-	b.enforcedGuardrailConfigs[guardrailID] = &EnforcedGuardrailConfig{
+	b.enforcedGuardrailConfigs.Put(&EnforcedGuardrailConfig{
 		GuardrailID:      guardrailID,
 		GuardrailVersion: version,
-	}
+	})
 }
 
 // DeleteEnforcedGuardrailConfiguration removes an enforced guardrail config.
@@ -1019,11 +1015,11 @@ func (b *InMemoryBackend) DeleteEnforcedGuardrailConfiguration(guardrailID strin
 	b.mu.Lock("DeleteEnforcedGuardrailConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.enforcedGuardrailConfigs[guardrailID]; !ok {
+	if _, ok := b.enforcedGuardrailConfigs.Get(guardrailID); !ok {
 		return fmt.Errorf("%w: enforced guardrail configuration for %s not found", ErrNotFound, guardrailID)
 	}
 
-	delete(b.enforcedGuardrailConfigs, guardrailID)
+	b.enforcedGuardrailConfigs.Delete(guardrailID)
 
 	return nil
 }

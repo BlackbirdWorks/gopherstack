@@ -231,7 +231,7 @@ func (b *InMemoryBackend) CreateAgentWithConfiguration(config AgentConfiguration
 		GuardrailConfiguration: maps.Clone(config.GuardrailConfiguration),
 		MemoryConfiguration:    maps.Clone(config.MemoryConfiguration),
 	}
-	b.agents[id] = ag
+	b.agents.Put(ag)
 	b.agentsByName[config.AgentName] = id
 
 	cp := *ag
@@ -244,7 +244,7 @@ func (b *InMemoryBackend) GetAgent(agentID string) (*Agent, error) {
 	b.mu.Lock("GetAgent")
 	defer b.mu.Unlock()
 
-	ag, ok := b.agents[agentID]
+	ag, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -260,8 +260,8 @@ func (b *InMemoryBackend) ListAgents(maxResults int, nextToken string) ([]*Agent
 	b.mu.Lock("ListAgents")
 	defer b.mu.Unlock()
 
-	list := make([]*Agent, 0, len(b.agents))
-	for _, ag := range b.agents {
+	list := make([]*Agent, 0, b.agents.Len())
+	for _, ag := range b.agents.All() {
 		b.advanceAgentStatus(ag)
 		cp := *ag
 		list = append(list, &cp)
@@ -288,7 +288,7 @@ func (b *InMemoryBackend) UpdateAgentWithConfiguration(agentID string, config Ag
 	b.mu.Lock("UpdateAgent")
 	defer b.mu.Unlock()
 
-	ag, ok := b.agents[agentID]
+	ag, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -335,20 +335,29 @@ func (b *InMemoryBackend) DeleteAgent(agentID string) error {
 	b.mu.Lock("DeleteAgent")
 	defer b.mu.Unlock()
 
-	ag, ok := b.agents[agentID]
+	ag, ok := b.agents.Get(agentID)
 	if !ok {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	prefix := agentID + "/"
-	for k := range b.agentAliases {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			return fmt.Errorf("%w: agent %q has active aliases and cannot be deleted", ErrAlreadyExists, agentID)
+	hasAlias := false
+
+	b.agentAliases.Range(func(alias *AgentAlias) bool {
+		if alias.AgentID == agentID {
+			hasAlias = true
+
+			return false
 		}
+
+		return true
+	})
+
+	if hasAlias {
+		return fmt.Errorf("%w: agent %q has active aliases and cannot be deleted", ErrAlreadyExists, agentID)
 	}
 
 	delete(b.agentsByName, ag.AgentName)
-	delete(b.agents, agentID)
+	b.agents.Delete(agentID)
 
 	return nil
 }
@@ -358,7 +367,7 @@ func (b *InMemoryBackend) PrepareAgent(agentID string) (*Agent, error) {
 	b.mu.Lock("PrepareAgent")
 	defer b.mu.Unlock()
 
-	ag, ok := b.agents[agentID]
+	ag, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -405,7 +414,7 @@ func (b *InMemoryBackend) CreateAgentActionGroupWithSchemas(
 	b.mu.Lock("CreateAgentActionGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if _, ok := b.agents.Get(agentID); !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
@@ -426,7 +435,7 @@ func (b *InMemoryBackend) CreateAgentActionGroupWithSchemas(
 		APISchema:           maps.Clone(apiSchema),
 		FunctionSchema:      maps.Clone(functionSchema),
 	}
-	b.agentActionGroups[agentActionGroupKey(agentID, id)] = ag
+	b.agentActionGroups.Put(ag)
 	cp := *ag
 
 	return &cp, nil
@@ -439,7 +448,7 @@ func (b *InMemoryBackend) GetAgentActionGroup(
 	b.mu.RLock("GetAgentActionGroup")
 	defer b.mu.RUnlock()
 
-	ag, ok := b.agentActionGroups[agentActionGroupKey(agentID, actionGroupID)]
+	ag, ok := b.agentActionGroups.Get(agentActionGroupKey(agentID, actionGroupID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: action group %q not found for agent %q",
@@ -463,11 +472,10 @@ func (b *InMemoryBackend) ListAgentActionGroups(
 	b.mu.RLock("ListAgentActionGroups")
 	defer b.mu.RUnlock()
 
-	list := make([]*AgentActionGroup, 0, len(b.agentActionGroups))
-	prefix := agentID + "/"
+	list := make([]*AgentActionGroup, 0, b.agentActionGroups.Len())
 
-	for k, ag := range b.agentActionGroups {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, ag := range b.agentActionGroups.All() {
+		if ag.AgentID == agentID {
 			cp := *ag
 			list = append(list, &cp)
 		}
@@ -499,7 +507,7 @@ func (b *InMemoryBackend) UpdateAgentActionGroupWithSchemas(
 
 	key := agentActionGroupKey(agentID, actionGroupID)
 
-	ag, ok := b.agentActionGroups[key]
+	ag, ok := b.agentActionGroups.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: action group %q not found", ErrNotFound, actionGroupID)
 	}
@@ -531,11 +539,11 @@ func (b *InMemoryBackend) DeleteAgentActionGroup(agentID, actionGroupID string) 
 
 	key := agentActionGroupKey(agentID, actionGroupID)
 
-	if _, ok := b.agentActionGroups[key]; !ok {
+	if _, ok := b.agentActionGroups.Get(key); !ok {
 		return fmt.Errorf("%w: action group %q not found", ErrNotFound, actionGroupID)
 	}
 
-	delete(b.agentActionGroups, key)
+	b.agentActionGroups.Delete(key)
 
 	return nil
 }
@@ -551,7 +559,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 	b.mu.Lock("CreateAgentAlias")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if _, ok := b.agents.Get(agentID); !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
@@ -574,7 +582,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 			RoutingConfiguration: []AgentAliasRouting{{AgentVersion: agentVersion}},
 		}},
 	}
-	b.agentAliases[agentAliasKey(agentID, aliasID)] = alias
+	b.agentAliases.Put(alias)
 	cp := *alias
 
 	return &cp, nil
@@ -585,7 +593,7 @@ func (b *InMemoryBackend) GetAgentAlias(agentID, aliasID string) (*AgentAlias, e
 	b.mu.RLock("GetAgentAlias")
 	defer b.mu.RUnlock()
 
-	alias, ok := b.agentAliases[agentAliasKey(agentID, aliasID)]
+	alias, ok := b.agentAliases.Get(agentAliasKey(agentID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: agent alias %q not found", ErrNotFound, aliasID)
 	}
@@ -604,11 +612,10 @@ func (b *InMemoryBackend) ListAgentAliases(
 	b.mu.RLock("ListAgentAliases")
 	defer b.mu.RUnlock()
 
-	list := make([]*AgentAlias, 0, len(b.agentAliases))
-	prefix := agentID + "/"
+	list := make([]*AgentAlias, 0, b.agentAliases.Len())
 
-	for k, alias := range b.agentAliases {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, alias := range b.agentAliases.All() {
+		if alias.AgentID == agentID {
 			cp := *alias
 			list = append(list, &cp)
 		}
@@ -628,7 +635,7 @@ func (b *InMemoryBackend) UpdateAgentAlias(
 
 	key := agentAliasKey(agentID, aliasID)
 
-	alias, ok := b.agentAliases[key]
+	alias, ok := b.agentAliases.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent alias %q not found", ErrNotFound, aliasID)
 	}
@@ -663,11 +670,11 @@ func (b *InMemoryBackend) DeleteAgentAlias(agentID, aliasID string) error {
 
 	key := agentAliasKey(agentID, aliasID)
 
-	if _, ok := b.agentAliases[key]; !ok {
+	if _, ok := b.agentAliases.Get(key); !ok {
 		return fmt.Errorf("%w: agent alias %q not found", ErrNotFound, aliasID)
 	}
 
-	delete(b.agentAliases, key)
+	b.agentAliases.Delete(key)
 
 	return nil
 }
@@ -683,11 +690,11 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 	b.mu.Lock("AssociateAgentKnowledgeBase")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if _, ok := b.agents.Get(agentID); !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	if _, ok := b.knowledgeBases[kbID]; !ok {
+	if _, ok := b.knowledgeBases.Get(kbID); !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
@@ -698,7 +705,7 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 		Description:     description,
 		KBState:         actionGroupEnabled,
 	}
-	b.agentKBAssociations[agentKBKey(agentID, kbID)] = assoc
+	b.agentKBAssociations.Put(assoc)
 	cp := *assoc
 
 	return &cp, nil
@@ -711,7 +718,7 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(agentID, kbID string) e
 
 	key := agentKBKey(agentID, kbID)
 
-	if _, ok := b.agentKBAssociations[key]; !ok {
+	if _, ok := b.agentKBAssociations.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: association not found for agent %q and kb %q",
 			ErrNotFound,
@@ -720,7 +727,7 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(agentID, kbID string) e
 		)
 	}
 
-	delete(b.agentKBAssociations, key)
+	b.agentKBAssociations.Delete(key)
 
 	return nil
 }
@@ -732,7 +739,7 @@ func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
 	b.mu.Lock("UpdateAgentKnowledgeBase")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.agentKBAssociations[agentKBKey(agentID, kbID)]
+	assoc, ok := b.agentKBAssociations.Get(agentKBKey(agentID, kbID))
 	if !ok {
 		return nil, fmt.Errorf("%w: association not found for agent %q and kb %q", ErrNotFound, agentID, kbID)
 	}
@@ -756,7 +763,7 @@ func (b *InMemoryBackend) GetAgentKnowledgeBase(
 	b.mu.RLock("GetAgentKnowledgeBase")
 	defer b.mu.RUnlock()
 
-	assoc, ok := b.agentKBAssociations[agentKBKey(agentID, kbID)]
+	assoc, ok := b.agentKBAssociations.Get(agentKBKey(agentID, kbID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: association not found for agent %q and kb %q",
@@ -780,11 +787,10 @@ func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	b.mu.RLock("ListAgentKnowledgeBases")
 	defer b.mu.RUnlock()
 
-	list := make([]*AgentKnowledgeBaseAssociation, 0, len(b.agentKBAssociations))
-	prefix := agentID + "/"
+	list := make([]*AgentKnowledgeBaseAssociation, 0, b.agentKBAssociations.Len())
 
-	for k, assoc := range b.agentKBAssociations {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, assoc := range b.agentKBAssociations.All() {
+		if assoc.AgentID == agentID {
 			cp := *assoc
 			list = append(list, &cp)
 		}
@@ -836,7 +842,7 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 		StorageConfiguration:       storageConfig,
 		Tags:                       tagsCopy,
 	}
-	b.knowledgeBases[id] = kb
+	b.knowledgeBases.Put(kb)
 	b.kbByName[name] = id
 	cp := *kb
 
@@ -848,7 +854,7 @@ func (b *InMemoryBackend) GetKnowledgeBase(kbID string) (*KnowledgeBase, error) 
 	b.mu.RLock("GetKnowledgeBase")
 	defer b.mu.RUnlock()
 
-	kb, ok := b.knowledgeBases[kbID]
+	kb, ok := b.knowledgeBases.Get(kbID)
 	if !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
@@ -866,8 +872,8 @@ func (b *InMemoryBackend) ListKnowledgeBases(
 	b.mu.RLock("ListKnowledgeBases")
 	defer b.mu.RUnlock()
 
-	list := make([]*KnowledgeBase, 0, len(b.knowledgeBases))
-	for _, kb := range b.knowledgeBases {
+	list := make([]*KnowledgeBase, 0, b.knowledgeBases.Len())
+	for _, kb := range b.knowledgeBases.All() {
 		cp := *kb
 		list = append(list, &cp)
 	}
@@ -884,7 +890,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 	b.mu.Lock("UpdateKnowledgeBase")
 	defer b.mu.Unlock()
 
-	kb, ok := b.knowledgeBases[kbID]
+	kb, ok := b.knowledgeBases.Get(kbID)
 	if !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
@@ -914,13 +920,13 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(kbID string) error {
 	b.mu.Lock("DeleteKnowledgeBase")
 	defer b.mu.Unlock()
 
-	kb, ok := b.knowledgeBases[kbID]
+	kb, ok := b.knowledgeBases.Get(kbID)
 	if !ok {
 		return fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
 	delete(b.kbByName, kb.Name)
-	delete(b.knowledgeBases, kbID)
+	b.knowledgeBases.Delete(kbID)
 
 	return nil
 }
@@ -945,7 +951,7 @@ func (b *InMemoryBackend) CreateDataSourceWithConfiguration(
 	b.mu.Lock("CreateDataSource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.knowledgeBases[kbID]; !ok {
+	if _, ok := b.knowledgeBases.Get(kbID); !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
@@ -965,7 +971,7 @@ func (b *InMemoryBackend) CreateDataSourceWithConfiguration(
 		DataSourceConfiguration: maps.Clone(dsConfig),
 		VectorIngestionConfig:   maps.Clone(vectorConfig),
 	}
-	b.dataSources[kbID+"/"+id] = ds
+	b.dataSources.Put(ds)
 	cp := *ds
 
 	return &cp, nil
@@ -976,7 +982,7 @@ func (b *InMemoryBackend) GetDataSource(kbID, dsID string) (*DataSource, error) 
 	b.mu.RLock("GetDataSource")
 	defer b.mu.RUnlock()
 
-	ds, ok := b.dataSources[kbID+"/"+dsID]
+	ds, ok := b.dataSources.Get(kbID + "/" + dsID)
 	if !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
@@ -995,11 +1001,10 @@ func (b *InMemoryBackend) ListDataSources(
 	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
 
-	list := make([]*DataSource, 0, len(b.dataSources))
-	prefix := kbID + "/"
+	list := make([]*DataSource, 0, b.dataSources.Len())
 
-	for k, ds := range b.dataSources {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, ds := range b.dataSources.All() {
+		if ds.KnowledgeBaseID == kbID {
 			cp := *ds
 			list = append(list, &cp)
 		}
@@ -1027,7 +1032,7 @@ func (b *InMemoryBackend) UpdateDataSourceWithConfiguration(
 
 	key := kbID + "/" + dsID
 
-	ds, ok := b.dataSources[key]
+	ds, ok := b.dataSources.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
@@ -1062,11 +1067,11 @@ func (b *InMemoryBackend) DeleteDataSource(kbID, dsID string) error {
 
 	key := kbID + "/" + dsID
 
-	if _, ok := b.dataSources[key]; !ok {
+	if _, ok := b.dataSources.Get(key); !ok {
 		return fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
-	delete(b.dataSources, key)
+	b.dataSources.Delete(key)
 
 	return nil
 }
@@ -1081,17 +1086,16 @@ func (b *InMemoryBackend) StartIngestionJob(kbID, dsID, description string) (*In
 	b.mu.Lock("StartIngestionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.knowledgeBases[kbID]; !ok {
+	if _, ok := b.knowledgeBases.Get(kbID); !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
-	if _, ok := b.dataSources[kbID+"/"+dsID]; !ok {
+	if _, ok := b.dataSources.Get(kbID + "/" + dsID); !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
-	prefix := kbID + "/" + dsID + "/"
-	for k, job := range b.ingestionJobs {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix && job.Status == jobStatusStarting {
+	for _, job := range b.ingestionJobs.All() {
+		if job.KnowledgeBaseID == kbID && job.DataSourceID == dsID && job.Status == jobStatusStarting {
 			return nil, fmt.Errorf("%w: data source %q already has a running ingestion job", ErrAlreadyExists, dsID)
 		}
 	}
@@ -1109,7 +1113,7 @@ func (b *InMemoryBackend) StartIngestionJob(kbID, dsID, description string) (*In
 		Status:          jobStatusStarting,
 		Description:     description,
 	}
-	b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)] = job
+	b.ingestionJobs.Put(job)
 
 	job.completionDueAt = now.Add(ingestionCompleteDelay)
 
@@ -1123,7 +1127,7 @@ func (b *InMemoryBackend) GetIngestionJob(kbID, dsID, jobID string) (*IngestionJ
 	b.mu.Lock("GetIngestionJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)]
+	job, ok := b.ingestionJobs.Get(ingestionJobKey(kbID, dsID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
 	}
@@ -1143,11 +1147,10 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	b.mu.Lock("ListIngestionJobs")
 	defer b.mu.Unlock()
 
-	list := make([]*IngestionJob, 0, len(b.ingestionJobs))
-	prefix := kbID + "/" + dsID + "/"
+	list := make([]*IngestionJob, 0, b.ingestionJobs.Len())
 
-	for k, job := range b.ingestionJobs {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, job := range b.ingestionJobs.All() {
+		if job.KnowledgeBaseID == kbID && job.DataSourceID == dsID {
 			advanceIngestionJob(job)
 			cp := *job
 			list = append(list, &cp)
