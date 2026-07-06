@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -458,14 +459,23 @@ const (
 )
 
 type InMemoryBackend struct {
-	loadBalancers map[string]*LoadBalancer // keyed by ARN
-	targetGroups  map[string]*TargetGroup  // keyed by ARN
-	listeners     map[string]*Listener     // keyed by ARN
-	rules         map[string]*Rule         // keyed by ARN
-	trustStores   map[string]*TrustStore   // keyed by ARN
-	// resourcePolicies stores resource policies keyed by ResourceArn.
+	registry      *store.Registry
+	loadBalancers *store.Table[LoadBalancer] // keyed by ARN
+	targetGroups  *store.Table[TargetGroup]  // keyed by ARN
+	listeners     *store.Table[Listener]     // keyed by ARN
+	// listenersByLB indexes listeners by their owning load balancer ARN.
+	listenersByLB *store.Index[Listener]
+	rules         *store.Table[Rule] // keyed by ARN
+	// rulesByListener indexes rules by their owning listener ARN.
+	rulesByListener *store.Index[Rule]
+	trustStores     *store.Table[TrustStore] // keyed by ARN
+	// resourcePolicies stores resource policies keyed by ResourceArn. Left as a
+	// plain map (not a store.Table) because the value is a bare string with no
+	// identity field of its own -- see store_setup.go.
 	resourcePolicies map[string]string
 	// lifecycle: tracks when initial targets become healthy / start draining.
+	// Left as plain maps (not store.Tables) because they are doubly-nested
+	// (tgArn → targetKey → timestamp), not a map[string]*V shape -- see store_setup.go.
 	targetReadyAt       map[string]map[string]time.Time // tgArn → targetKey → readyAt (initial→healthy)
 	targetDrainingUntil map[string]map[string]time.Time // tgArn → targetKey → drainExpiresAt
 	mu                  *lockmetrics.RWMutex
@@ -478,11 +488,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory ELBv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		loadBalancers:       make(map[string]*LoadBalancer),
-		targetGroups:        make(map[string]*TargetGroup),
-		listeners:           make(map[string]*Listener),
-		rules:               make(map[string]*Rule),
-		trustStores:         make(map[string]*TrustStore),
+		registry:            store.NewRegistry(),
 		resourcePolicies:    make(map[string]string),
 		accountID:           accountID,
 		region:              region,
@@ -491,6 +497,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		targetDrainingUntil: make(map[string]map[string]time.Time),
 		stopCh:              make(chan struct{}),
 	}
+
+	registerAllTables(b)
 
 	go b.runHealthReconciler()
 
@@ -560,7 +568,7 @@ func (b *InMemoryBackend) collectPendingTargets(now time.Time) []pendingTarget {
 	for tgArn, readyMap := range b.targetReadyAt {
 		for key, readyAt := range readyMap {
 			if now.After(readyAt) {
-				if tg := b.targetGroups[tgArn]; tg != nil {
+				if tg, ok := b.targetGroups.Get(tgArn); ok {
 					pending = append(pending, pendingTarget{tgArn: tgArn, targetKey: key, tg: tg})
 				}
 			}
@@ -588,7 +596,7 @@ func resolveTargetHealth(pending []pendingTarget) []healthResult {
 
 func (b *InMemoryBackend) applyHealthResults(results []healthResult) {
 	for _, r := range results {
-		tg, ok := b.targetGroups[r.tgArn]
+		tg, ok := b.targetGroups.Get(r.tgArn)
 		if !ok {
 			continue
 		}
@@ -633,7 +641,7 @@ func (b *InMemoryBackend) collectDrainedTargets(now time.Time) []drainedTarget {
 // Caller must hold b.mu (write).
 func (b *InMemoryBackend) removeDrainedTargets(drained []drainedTarget) {
 	for _, d := range drained {
-		tg, ok := b.targetGroups[d.tgArn]
+		tg, ok := b.targetGroups.Get(d.tgArn)
 		if !ok {
 			continue
 		}
@@ -930,7 +938,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		return nil, err
 	}
 
-	for _, lb := range b.loadBalancers {
+	for _, lb := range b.loadBalancers.All() {
 		if lb.LoadBalancerName == input.Name {
 			return nil, ErrLoadBalancerAlreadyExists
 		}
@@ -1005,7 +1013,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		Tags:       t,
 	}
 
-	b.loadBalancers[lbArn] = lb
+	b.loadBalancers.Put(lb)
 
 	cp := *lb
 
@@ -1108,7 +1116,7 @@ func (b *InMemoryBackend) DescribeLoadBalancers(
 		result := make([]LoadBalancer, 0, len(arns))
 
 		for _, a := range arns {
-			if lb, ok := b.loadBalancers[a]; ok {
+			if lb, ok := b.loadBalancers.Get(a); ok {
 				result = append(result, *lb)
 			}
 		}
@@ -1154,9 +1162,9 @@ func (b *InMemoryBackend) filterLoadBalancersLocked(arns, names []string) []Load
 		nameSet[n] = true
 	}
 
-	result := make([]LoadBalancer, 0, len(b.loadBalancers))
+	result := make([]LoadBalancer, 0, b.loadBalancers.Len())
 
-	for _, lb := range b.loadBalancers {
+	for _, lb := range b.loadBalancers.All() {
 		if len(arns) > 0 && !arnSet[lb.LoadBalancerArn] {
 			continue
 		}
@@ -1183,29 +1191,29 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 	b.mu.Lock("DeleteLoadBalancer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.loadBalancers[lbArn]; !ok {
+	lb, ok := b.loadBalancers.Get(lbArn)
+	if !ok {
 		return ErrLoadBalancerNotFound
 	}
 
-	// Cascade: delete all listeners and their rules.
-	for listenerArn, l := range b.listeners {
-		if l.LoadBalancerArn != lbArn {
-			continue
-		}
-
-		for ruleArn, r := range b.rules {
-			if r.ListenerArn == listenerArn {
-				r.Tags.Close()
-				delete(b.rules, ruleArn)
-			}
+	// Cascade: delete all listeners and their rules. The index lookups are
+	// copied into fresh slices first because Table.Delete mutates the very
+	// index groups Index.Get returns; iterating the live group while deleting
+	// from it would corrupt the in-progress scan.
+	listenersToDelete := append([]*Listener(nil), b.listenersByLB.Get(lbArn)...)
+	for _, l := range listenersToDelete {
+		rulesToDelete := append([]*Rule(nil), b.rulesByListener.Get(l.ListenerArn)...)
+		for _, r := range rulesToDelete {
+			r.Tags.Close()
+			b.rules.Delete(r.RuleArn)
 		}
 
 		l.Tags.Close()
-		delete(b.listeners, listenerArn)
+		b.listeners.Delete(l.ListenerArn)
 	}
 
-	b.loadBalancers[lbArn].Tags.Close()
-	delete(b.loadBalancers, lbArn)
+	lb.Tags.Close()
+	b.loadBalancers.Delete(lbArn)
 
 	return nil
 }
@@ -1218,7 +1226,7 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
 	b.mu.Lock("ModifyLoadBalancerAttributes")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -1239,7 +1247,7 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 	b.mu.Lock("SetSecurityGroups")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -1265,7 +1273,7 @@ func (b *InMemoryBackend) SetSubnets(
 	b.mu.Lock("SetSubnets")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -1281,7 +1289,7 @@ func (b *InMemoryBackend) SetIPAddressType(lbArn string, ipType string) (*LoadBa
 	b.mu.Lock("SetIPAddressType")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -1316,7 +1324,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		return nil, err
 	}
 
-	for _, tg := range b.targetGroups {
+	for _, tg := range b.targetGroups.All() {
 		if tg.TargetGroupName == input.Name {
 			return nil, ErrTargetGroupAlreadyExists
 		}
@@ -1396,7 +1404,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		Tags: t,
 	}
 
-	b.targetGroups[tgArn] = tg
+	b.targetGroups.Put(tg)
 
 	cp := *tg
 
@@ -1543,17 +1551,11 @@ func actionsReferenceTG(actions []Action, tgArn string) bool {
 func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
 	arns := make(map[string]bool)
 
-	for _, l := range b.listeners {
-		if l.LoadBalancerArn != lbArn {
-			continue
-		}
-
+	for _, l := range b.listenersByLB.Get(lbArn) {
 		collectTGArns(l.DefaultActions, arns)
 
-		for _, r := range b.rules {
-			if r.ListenerArn == l.ListenerArn {
-				collectTGArns(r.Actions, arns)
-			}
+		for _, r := range b.rulesByListener.Get(l.ListenerArn) {
+			collectTGArns(r.Actions, arns)
 		}
 	}
 
@@ -1565,13 +1567,11 @@ func (b *InMemoryBackend) tgArnsForLB(lbArn string) map[string]bool {
 func (b *InMemoryBackend) tgToLBArnsLocked() map[string]map[string]bool {
 	result := make(map[string]map[string]bool)
 
-	for _, l := range b.listeners {
+	for _, l := range b.listeners.All() {
 		collectLBArnsForTG(l.LoadBalancerArn, l.DefaultActions, result)
 
-		for _, r := range b.rules {
-			if r.ListenerArn == l.ListenerArn {
-				collectLBArnsForTG(l.LoadBalancerArn, r.Actions, result)
-			}
+		for _, r := range b.rulesByListener.Get(l.ListenerArn) {
+			collectLBArnsForTG(l.LoadBalancerArn, r.Actions, result)
 		}
 	}
 
@@ -1598,7 +1598,7 @@ func (b *InMemoryBackend) DescribeTargetGroups(
 		result := make([]TargetGroup, 0, len(arns))
 
 		for _, a := range arns {
-			tg, ok := b.targetGroups[a]
+			tg, ok := b.targetGroups.Get(a)
 			if !ok {
 				continue
 			}
@@ -1657,9 +1657,9 @@ func (b *InMemoryBackend) filterTargetGroupsLocked(
 		lbTGArns = b.tgArnsForLB(lbArn)
 	}
 
-	result := make([]TargetGroup, 0, len(b.targetGroups))
+	result := make([]TargetGroup, 0, b.targetGroups.Len())
 
-	for _, tg := range b.targetGroups {
+	for _, tg := range b.targetGroups.All() {
 		if len(arns) > 0 && !arnSet[tg.TargetGroupArn] {
 			continue
 		}
@@ -1697,13 +1697,13 @@ func sortedLBArns(set map[string]bool) []string {
 // isTGInUseLocked returns true if the target group ARN is referenced by any listener or rule.
 // Caller must hold b.mu (read or write).
 func (b *InMemoryBackend) isTGInUseLocked(tgArn string) bool {
-	for _, l := range b.listeners {
+	for _, l := range b.listeners.All() {
 		if actionsReferenceTG(l.DefaultActions, tgArn) {
 			return true
 		}
 	}
 
-	for _, r := range b.rules {
+	for _, r := range b.rules.All() {
 		if actionsReferenceTG(r.Actions, tgArn) {
 			return true
 		}
@@ -1717,7 +1717,7 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 	b.mu.Lock("DeleteTargetGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.targetGroups[tgArn]; !ok {
+	if _, ok := b.targetGroups.Get(tgArn); !ok {
 		return ErrTargetGroupNotFound
 	}
 
@@ -1729,8 +1729,9 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 		)
 	}
 
-	b.targetGroups[tgArn].Tags.Close()
-	delete(b.targetGroups, tgArn)
+	tg, _ := b.targetGroups.Get(tgArn)
+	tg.Tags.Close()
+	b.targetGroups.Delete(tgArn)
 
 	return nil
 }
@@ -1740,7 +1741,7 @@ func (b *InMemoryBackend) RegisterTargets(tgArn string, targets []Target) error 
 	b.mu.Lock("RegisterTargets")
 	defer b.mu.Unlock()
 
-	tg, ok := b.targetGroups[tgArn]
+	tg, ok := b.targetGroups.Get(tgArn)
 	if !ok {
 		return ErrTargetGroupNotFound
 	}
@@ -1780,7 +1781,7 @@ func (b *InMemoryBackend) DeregisterTargets(tgArn string, targets []Target) erro
 	b.mu.Lock("DeregisterTargets")
 	defer b.mu.Unlock()
 
-	tg, ok := b.targetGroups[tgArn]
+	tg, ok := b.targetGroups.Get(tgArn)
 	if !ok {
 		return ErrTargetGroupNotFound
 	}
@@ -1822,7 +1823,7 @@ func (b *InMemoryBackend) DescribeTargetHealth(tgArn string) ([]TargetHealthDesc
 	b.mu.RLock("DescribeTargetHealth")
 	defer b.mu.RUnlock()
 
-	tg, ok := b.targetGroups[tgArn]
+	tg, ok := b.targetGroups.Get(tgArn)
 	if !ok {
 		return nil, ErrTargetGroupNotFound
 	}
@@ -1854,7 +1855,7 @@ func (b *InMemoryBackend) SetTargetHealthState(
 	b.mu.Lock("SetTargetHealthState")
 	defer b.mu.Unlock()
 
-	tg, ok := b.targetGroups[tgArn]
+	tg, ok := b.targetGroups.Get(tgArn)
 	if !ok {
 		return ErrTargetGroupNotFound
 	}
@@ -1954,9 +1955,12 @@ func requireCertsForProtocol(proto string, certs []Certificate) error {
 	return nil
 }
 
-func checkDuplicateListenerPort(listeners map[string]*Listener, lbArn string, port int32) error {
-	for _, existing := range listeners {
-		if existing.LoadBalancerArn == lbArn && existing.Port == port {
+// checkDuplicateListenerPort returns ErrDuplicateListener if any listener in candidates
+// (expected to already be scoped to a single load balancer, e.g. via the listenersByLB index)
+// is bound to port.
+func checkDuplicateListenerPort(candidates []*Listener, port int32) error {
+	for _, existing := range candidates {
+		if existing.Port == port {
 			return fmt.Errorf(
 				"%w: a listener on port %d already exists on this load balancer",
 				ErrDuplicateListener, port,
@@ -1972,7 +1976,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 	b.mu.Lock("CreateListener")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[input.LoadBalancerArn]
+	lb, ok := b.loadBalancers.Get(input.LoadBalancerArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -1992,7 +1996,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		input.SSLPolicy = "ELBSecurityPolicy-2016-08"
 	}
 
-	if err := checkDuplicateListenerPort(b.listeners, input.LoadBalancerArn, input.Port); err != nil {
+	if err := checkDuplicateListenerPort(b.listenersByLB.Get(input.LoadBalancerArn), input.Port); err != nil {
 		return nil, err
 	}
 
@@ -2025,21 +2029,21 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 		Tags:                 t,
 	}
 
-	b.listeners[listenerArn] = listener
+	b.listeners.Put(listener)
 
 	// Auto-create default rule (AWS behaviour: every listener has a default rule).
 	defaultRuleArn := b.ruleARN(listenerArn, priorityDefault)
 	defaultTags := tags.New("elbv2.rule." + defaultRuleArn + ".tags")
 	defaultActions := make([]Action, len(input.DefaultActions))
 	copy(defaultActions, input.DefaultActions)
-	b.rules[defaultRuleArn] = &Rule{
+	b.rules.Put(&Rule{
 		RuleArn:     defaultRuleArn,
 		ListenerArn: listenerArn,
 		Priority:    priorityDefault,
 		IsDefault:   true,
 		Actions:     defaultActions,
 		Tags:        defaultTags,
-	}
+	})
 
 	cp := *listener
 
@@ -2052,7 +2056,7 @@ func (b *InMemoryBackend) describeListenersByARNs(listenerArns []string) ([]List
 	result := make([]Listener, 0, len(listenerArns))
 
 	for _, a := range listenerArns {
-		if l, ok := b.listeners[a]; ok {
+		if l, ok := b.listeners.Get(a); ok {
 			result = append(result, *l)
 		}
 	}
@@ -2068,7 +2072,7 @@ func (b *InMemoryBackend) describeListenersByARNs(listenerArns []string) ([]List
 // Callers must hold at least a read lock.
 func (b *InMemoryBackend) checkLBExists(lbArn string) error {
 	if lbArn != "" {
-		if _, ok := b.loadBalancers[lbArn]; !ok {
+		if _, ok := b.loadBalancers.Get(lbArn); !ok {
 			return ErrLoadBalancerNotFound
 		}
 	}
@@ -2101,9 +2105,9 @@ func (b *InMemoryBackend) DescribeListeners(
 		arnSet[a] = true
 	}
 
-	result := make([]Listener, 0, len(b.listeners))
+	result := make([]Listener, 0, b.listeners.Len())
 
-	for _, l := range b.listeners {
+	for _, l := range b.listeners.All() {
 		if lbArn != "" && l.LoadBalancerArn != lbArn {
 			continue
 		}
@@ -2173,20 +2177,22 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 	b.mu.Lock("DeleteListener")
 	defer b.mu.Unlock()
 
-	if _, ok := b.listeners[listenerArn]; !ok {
+	listener, ok := b.listeners.Get(listenerArn)
+	if !ok {
 		return ErrListenerNotFound
 	}
 
-	// Cascade: delete all rules belonging to this listener.
-	for ruleArn, r := range b.rules {
-		if r.ListenerArn == listenerArn {
-			r.Tags.Close()
-			delete(b.rules, ruleArn)
-		}
+	// Cascade: delete all rules belonging to this listener. The index lookup is
+	// copied into a fresh slice first because Table.Delete mutates the very
+	// index group Index.Get returns (see DeleteLoadBalancer).
+	rulesToDelete := append([]*Rule(nil), b.rulesByListener.Get(listenerArn)...)
+	for _, r := range rulesToDelete {
+		r.Tags.Close()
+		b.rules.Delete(r.RuleArn)
 	}
 
-	b.listeners[listenerArn].Tags.Close()
-	delete(b.listeners, listenerArn)
+	listener.Tags.Close()
+	b.listeners.Delete(listenerArn)
 
 	return nil
 }
@@ -2194,8 +2200,8 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 // syncDefaultRuleActions updates the default rule's actions to match the listener's new default actions.
 // Caller must hold b.mu (write).
 func (b *InMemoryBackend) syncDefaultRuleActions(listenerArn string, actions []Action) {
-	for _, r := range b.rules {
-		if r.ListenerArn == listenerArn && r.IsDefault {
+	for _, r := range b.rulesByListener.Get(listenerArn) {
+		if r.IsDefault {
 			actsCopy := make([]Action, len(actions))
 			copy(actsCopy, actions)
 			r.Actions = actsCopy
@@ -2210,7 +2216,7 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 	b.mu.Lock("ModifyListener")
 	defer b.mu.Unlock()
 
-	l, ok := b.listeners[input.ListenerArn]
+	l, ok := b.listeners.Get(input.ListenerArn)
 	if !ok {
 		return nil, ErrListenerNotFound
 	}
@@ -2220,7 +2226,7 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 	}
 
 	if input.Port != 0 && input.Port != l.Port {
-		if err := checkDuplicateListenerPort(b.listeners, l.LoadBalancerArn, input.Port); err != nil {
+		if err := checkDuplicateListenerPort(b.listenersByLB.Get(l.LoadBalancerArn), input.Port); err != nil {
 			return nil, err
 		}
 
@@ -2260,7 +2266,7 @@ func (b *InMemoryBackend) applyListenerProtocol(l *Listener, input ModifyListene
 		return nil
 	}
 
-	if lb, ok := b.loadBalancers[l.LoadBalancerArn]; ok {
+	if lb, ok := b.loadBalancers.Get(l.LoadBalancerArn); ok {
 		if err := validateListenerProtocol(lb.Type, input.Protocol); err != nil {
 			return err
 		}
@@ -2285,7 +2291,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	b.mu.Lock("CreateRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.listeners[input.ListenerArn]; !ok {
+	if _, ok := b.listeners.Get(input.ListenerArn); !ok {
 		return nil, ErrListenerNotFound
 	}
 
@@ -2299,8 +2305,8 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 			)
 		}
 
-		for _, r := range b.rules {
-			if r.ListenerArn == input.ListenerArn && r.Priority == input.Priority {
+		for _, r := range b.rulesByListener.Get(input.ListenerArn) {
+			if r.Priority == input.Priority {
 				return nil, fmt.Errorf(
 					"%w: priority %s already in use",
 					ErrDuplicateRulePriority,
@@ -2328,7 +2334,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		Tags:        t,
 	}
 
-	b.rules[ruleArn] = rule
+	b.rules.Put(rule)
 
 	cp := *rule
 
@@ -2347,7 +2353,7 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 		result := make([]Rule, 0, len(ruleArns))
 
 		for _, a := range ruleArns {
-			if r, ok := b.rules[a]; ok {
+			if r, ok := b.rules.Get(a); ok {
 				result = append(result, *r)
 			}
 		}
@@ -2366,9 +2372,9 @@ func (b *InMemoryBackend) DescribeRules(listenerArn string, ruleArns []string) (
 		arnSet[a] = true
 	}
 
-	result := make([]Rule, 0, len(b.rules))
+	result := make([]Rule, 0, b.rules.Len())
 
-	for _, r := range b.rules {
+	for _, r := range b.rules.All() {
 		if listenerArn != "" && r.ListenerArn != listenerArn {
 			continue
 		}
@@ -2417,7 +2423,7 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.rules[ruleArn]
+	rule, ok := b.rules.Get(ruleArn)
 	if !ok {
 		return ErrRuleNotFound
 	}
@@ -2430,7 +2436,7 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	}
 
 	rule.Tags.Close()
-	delete(b.rules, ruleArn)
+	b.rules.Delete(ruleArn)
 
 	return nil
 }
@@ -2444,7 +2450,7 @@ func (b *InMemoryBackend) ModifyRule(
 	b.mu.Lock("ModifyRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.rules[ruleArn]
+	rule, ok := b.rules.Get(ruleArn)
 	if !ok {
 		return nil, ErrRuleNotFound
 	}
@@ -2465,23 +2471,23 @@ func (b *InMemoryBackend) ModifyRule(
 // findTagsLocked returns the *tags.Tags for the given resource ARN.
 // Caller must hold b.mu (read or write).
 func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
-	if lb, ok := b.loadBalancers[resArn]; ok {
+	if lb, ok := b.loadBalancers.Get(resArn); ok {
 		return lb.Tags
 	}
 
-	if tg, ok := b.targetGroups[resArn]; ok {
+	if tg, ok := b.targetGroups.Get(resArn); ok {
 		return tg.Tags
 	}
 
-	if l, ok := b.listeners[resArn]; ok {
+	if l, ok := b.listeners.Get(resArn); ok {
 		return l.Tags
 	}
 
-	if r, ok := b.rules[resArn]; ok {
+	if r, ok := b.rules.Get(resArn); ok {
 		return r.Tags
 	}
 
-	if ts, ok := b.trustStores[resArn]; ok {
+	if ts, ok := b.trustStores.Get(resArn); ok {
 		return ts.Tags
 	}
 
@@ -2608,7 +2614,7 @@ func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustSt
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	for _, ts := range b.trustStores {
+	for _, ts := range b.trustStores.All() {
 		if ts.Name == name {
 			return nil, ErrTrustStoreAlreadyExists
 		}
@@ -2630,7 +2636,7 @@ func (b *InMemoryBackend) CreateTrustStore(name string, kvs []tags.KV) (*TrustSt
 		Tags:          t,
 	}
 
-	b.trustStores[tsArn] = ts
+	b.trustStores.Put(ts)
 
 	cp := *ts
 
@@ -2661,9 +2667,9 @@ func (b *InMemoryBackend) DescribeTrustStores(arns []string, names []string) ([]
 		}
 	}
 
-	result := make([]TrustStore, 0, len(b.trustStores))
+	result := make([]TrustStore, 0, b.trustStores.Len())
 
-	for _, ts := range b.trustStores {
+	for _, ts := range b.trustStores.All() {
 		if filterArns {
 			if _, ok := wantArn[ts.TrustStoreArn]; !ok {
 				continue
@@ -2691,13 +2697,13 @@ func (b *InMemoryBackend) DeleteTrustStore(trustStoreArn string) error {
 	b.mu.Lock("DeleteTrustStore")
 	defer b.mu.Unlock()
 
-	ts, ok := b.trustStores[trustStoreArn]
+	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
 		return ErrTrustStoreNotFound
 	}
 
 	ts.Tags.Close()
-	delete(b.trustStores, trustStoreArn)
+	b.trustStores.Delete(trustStoreArn)
 
 	return nil
 }
@@ -2710,7 +2716,7 @@ func (b *InMemoryBackend) AddTrustStoreRevocations(
 	b.mu.Lock("AddTrustStoreRevocations")
 	defer b.mu.Unlock()
 
-	ts, ok := b.trustStores[trustStoreArn]
+	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
 		return ErrTrustStoreNotFound
 	}
@@ -2725,13 +2731,13 @@ func (b *InMemoryBackend) DescribeTrustStoreAssociations(trustStoreArn string) (
 	b.mu.RLock("DescribeTrustStoreAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.trustStores[trustStoreArn]; !ok {
+	if _, ok := b.trustStores.Get(trustStoreArn); !ok {
 		return nil, ErrTrustStoreNotFound
 	}
 
 	var result []string
 
-	for _, l := range b.listeners {
+	for _, l := range b.listeners.All() {
 		if l.MutualAuthentication != nil && l.MutualAuthentication.TrustStoreArn == trustStoreArn {
 			result = append(result, l.ListenerArn)
 		}
@@ -2751,11 +2757,11 @@ func (b *InMemoryBackend) DeleteSharedTrustStoreAssociation(trustStoreArn, resou
 	b.mu.Lock("DeleteSharedTrustStoreAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trustStores[trustStoreArn]; !ok {
+	if _, ok := b.trustStores.Get(trustStoreArn); !ok {
 		return ErrTrustStoreNotFound
 	}
 
-	listener, ok := b.listeners[resourceArn]
+	listener, ok := b.listeners.Get(resourceArn)
 	if !ok || listener.MutualAuthentication == nil ||
 		listener.MutualAuthentication.TrustStoreArn != trustStoreArn {
 		return ErrTrustStoreAssociationNotFound
@@ -2775,7 +2781,7 @@ func (b *InMemoryBackend) ModifyCapacityReservation(
 	b.mu.Lock("ModifyCapacityReservation")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -2816,7 +2822,7 @@ func (b *InMemoryBackend) DescribeCapacityReservation(lbArn string) (*CapacityRe
 	b.mu.RLock("DescribeCapacityReservation")
 	defer b.mu.RUnlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -2839,7 +2845,7 @@ func (b *InMemoryBackend) ModifyIPPools(
 	b.mu.Lock("ModifyIPPools")
 	defer b.mu.Unlock()
 
-	lb, ok := b.loadBalancers[lbArn]
+	lb, ok := b.loadBalancers.Get(lbArn)
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
@@ -2889,7 +2895,7 @@ func (b *InMemoryBackend) AddListenerCertificates(listenerArn string, certs []Ce
 	b.mu.Lock("AddListenerCertificates")
 	defer b.mu.Unlock()
 
-	listener, ok := b.listeners[listenerArn]
+	listener, ok := b.listeners.Get(listenerArn)
 	if !ok {
 		return ErrListenerNotFound
 	}
@@ -2914,7 +2920,7 @@ func (b *InMemoryBackend) DescribeListenerCertificates(listenerArn string) ([]Ce
 	b.mu.RLock("DescribeListenerCertificates")
 	defer b.mu.RUnlock()
 
-	listener, ok := b.listeners[listenerArn]
+	listener, ok := b.listeners.Get(listenerArn)
 	if !ok {
 		return nil, ErrListenerNotFound
 	}
@@ -2930,7 +2936,7 @@ func (b *InMemoryBackend) RemoveListenerCertificates(listenerArn string, certArn
 	b.mu.Lock("RemoveListenerCertificates")
 	defer b.mu.Unlock()
 
-	listener, ok := b.listeners[listenerArn]
+	listener, ok := b.listeners.Get(listenerArn)
 	if !ok {
 		return ErrListenerNotFound
 	}
@@ -2964,7 +2970,7 @@ func (b *InMemoryBackend) ModifyTrustStore(trustStoreArn, name string) (*TrustSt
 	b.mu.Lock("ModifyTrustStore")
 	defer b.mu.Unlock()
 
-	ts, ok := b.trustStores[trustStoreArn]
+	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
 		return nil, ErrTrustStoreNotFound
 	}
@@ -2986,7 +2992,7 @@ func (b *InMemoryBackend) RemoveTrustStoreRevocations(
 	b.mu.Lock("RemoveTrustStoreRevocations")
 	defer b.mu.Unlock()
 
-	ts, ok := b.trustStores[trustStoreArn]
+	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
 		return ErrTrustStoreNotFound
 	}
@@ -3015,7 +3021,7 @@ func (b *InMemoryBackend) DescribeTrustStoreRevocations(
 	b.mu.RLock("DescribeTrustStoreRevocations")
 	defer b.mu.RUnlock()
 
-	ts, ok := b.trustStores[trustStoreArn]
+	ts, ok := b.trustStores.Get(trustStoreArn)
 	if !ok {
 		return nil, ErrTrustStoreNotFound
 	}
@@ -3039,10 +3045,9 @@ func (b *InMemoryBackend) checkRulePriorityCollisions(
 	}
 
 	for _, p := range priorities {
-		listenerArn := b.rules[p.RuleArn].ListenerArn
-		for _, existing := range b.rules {
-			if existing.ListenerArn != listenerArn || batchArns[existing.RuleArn] ||
-				existing.IsDefault {
+		rule, _ := b.rules.Get(p.RuleArn)
+		for _, existing := range b.rulesByListener.Get(rule.ListenerArn) {
+			if batchArns[existing.RuleArn] || existing.IsDefault {
 				continue
 			}
 
@@ -3081,7 +3086,7 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 	// Validate all rules exist and none is a default rule (AWS does not allow reordering defaults).
 	batchArns := make(map[string]bool, len(priorities))
 	for _, p := range priorities {
-		r, ok := b.rules[p.RuleArn]
+		r, ok := b.rules.Get(p.RuleArn)
 		if !ok {
 			return nil, ErrRuleNotFound
 		}
@@ -3103,7 +3108,7 @@ func (b *InMemoryBackend) SetRulePriorities(priorities []RulePriority) ([]Rule, 
 	result := make([]Rule, 0, len(priorities))
 
 	for _, p := range priorities {
-		r := b.rules[p.RuleArn]
+		r, _ := b.rules.Get(p.RuleArn)
 		r.Priority = p.Priority
 		result = append(result, *r)
 	}
@@ -3116,7 +3121,7 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 	b.mu.Lock("ModifyTargetGroup")
 	defer b.mu.Unlock()
 
-	tg, ok := b.targetGroups[input.TargetGroupArn]
+	tg, ok := b.targetGroups.Get(input.TargetGroupArn)
 	if !ok {
 		return nil, ErrTargetGroupNotFound
 	}
@@ -3174,7 +3179,7 @@ func (b *InMemoryBackend) ModifyTargetGroupAttributes(
 	b.mu.Lock("ModifyTargetGroupAttributes")
 	defer b.mu.Unlock()
 
-	tg, ok := b.targetGroups[tgArn]
+	tg, ok := b.targetGroups.Get(tgArn)
 	if !ok {
 		return nil, ErrTargetGroupNotFound
 	}
@@ -3195,7 +3200,7 @@ func (b *InMemoryBackend) DescribeTargetGroupAttributes(tgArn string) (map[strin
 	b.mu.RLock("DescribeTargetGroupAttributes")
 	defer b.mu.RUnlock()
 
-	tg, ok := b.targetGroups[tgArn]
+	tg, ok := b.targetGroups.Get(tgArn)
 	if !ok {
 		return nil, ErrTargetGroupNotFound
 	}
@@ -3214,7 +3219,7 @@ func (b *InMemoryBackend) ModifyListenerAttributes(
 	b.mu.Lock("ModifyListenerAttributes")
 	defer b.mu.Unlock()
 
-	l, ok := b.listeners[listenerArn]
+	l, ok := b.listeners.Get(listenerArn)
 	if !ok {
 		return nil, ErrListenerNotFound
 	}
@@ -3237,7 +3242,7 @@ func (b *InMemoryBackend) DescribeListenerAttributes(
 	b.mu.RLock("DescribeListenerAttributes")
 	defer b.mu.RUnlock()
 
-	l, ok := b.listeners[listenerArn]
+	l, ok := b.listeners.Get(listenerArn)
 	if !ok {
 		return nil, ErrListenerNotFound
 	}
