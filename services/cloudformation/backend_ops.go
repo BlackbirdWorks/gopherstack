@@ -35,7 +35,7 @@ func (b *InMemoryBackend) CreateStackSet(
 ) (*StackSet, error) {
 	b.mu.Lock("CreateStackSet")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[name]; ok {
+	if b.stackSets.Has(name) {
 		return nil, ErrStackSetAlreadyExists
 	}
 	ss := &StackSet{
@@ -45,7 +45,7 @@ func (b *InMemoryBackend) CreateStackSet(
 		TemplateBody: templateBody,
 		Status:       "ACTIVE",
 	}
-	b.stackSets[name] = ss
+	b.stackSets.Put(ss)
 
 	return ss, nil
 }
@@ -55,7 +55,7 @@ func (b *InMemoryBackend) UpdateStackSet(
 ) (*StackSet, error) {
 	b.mu.Lock("UpdateStackSet")
 	defer b.mu.Unlock()
-	ss, ok := b.stackSets[name]
+	ss, ok := b.stackSets.Get(name)
 	if !ok {
 		return nil, ErrStackSetNotFound
 	}
@@ -73,13 +73,13 @@ func (b *InMemoryBackend) UpdateStackSet(
 func (b *InMemoryBackend) DeleteStackSet(name string) error {
 	b.mu.Lock("DeleteStackSet")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[name]; !ok {
+	if !b.stackSets.Has(name) {
 		return ErrStackSetNotFound
 	}
 	if len(b.stackInstances[name]) > 0 {
 		return ErrStackSetNotEmpty
 	}
-	delete(b.stackSets, name)
+	b.stackSets.Delete(name)
 	delete(b.stackInstances, name)
 
 	return nil
@@ -88,7 +88,7 @@ func (b *InMemoryBackend) DeleteStackSet(name string) error {
 func (b *InMemoryBackend) DescribeStackSet(name string) (*StackSet, error) {
 	b.mu.RLock("DescribeStackSet")
 	defer b.mu.RUnlock()
-	ss, ok := b.stackSets[name]
+	ss, ok := b.stackSets.Get(name)
 	if !ok {
 		return nil, ErrStackSetNotFound
 	}
@@ -99,8 +99,8 @@ func (b *InMemoryBackend) DescribeStackSet(name string) (*StackSet, error) {
 func (b *InMemoryBackend) ListStackSets(nextToken string) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
-	result := make([]StackSetSummary, 0, len(b.stackSets))
-	for _, ss := range b.stackSets {
+	result := make([]StackSetSummary, 0, b.stackSets.Len())
+	for _, ss := range b.stackSets.All() {
 		result = append(result, StackSetSummary{
 			StackSetID:   ss.StackSetID,
 			StackSetName: ss.StackSetName,
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) CreateStackInstances(
 ) (string, error) {
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
-	ss, ok := b.stackSets[stackSetName]
+	ss, ok := b.stackSets.Get(stackSetName)
 	if !ok {
 		return "", ErrStackSetNotFound
 	}
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 ) (string, error) {
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	if !b.stackSets.Has(stackSetName) {
 		return "", ErrStackSetNotFound
 	}
 	instances := b.stackInstances[stackSetName]
@@ -241,7 +241,7 @@ func (b *InMemoryBackend) UpdateStackInstances(
 ) (string, error) {
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	if !b.stackSets.Has(stackSetName) {
 		return "", ErrStackSetNotFound
 	}
 	opID := b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
@@ -281,7 +281,7 @@ func (b *InMemoryBackend) DescribeStackInstance(
 func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, error) {
 	b.mu.Lock("DetectStackSetDrift")
 	defer b.mu.Unlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	if !b.stackSets.Has(stackSetName) {
 		return "", ErrStackSetNotFound
 	}
 	opID := b.recordStackSetOperation(stackSetName, "DETECT_DRIFT")
@@ -444,7 +444,7 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 ) ([]AutoDeploymentTarget, error) {
 	b.mu.RLock("ListStackSetAutoDeploymentTargets")
 	defer b.mu.RUnlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	if !b.stackSets.Has(stackSetName) {
 		return nil, ErrStackSetNotFound
 	}
 	// SERVICE_MANAGED stack sets target OUs; for SELF_MANAGED emulation we have no OU hierarchy,
@@ -475,7 +475,7 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) error {
 	b.mu.Lock("ImportStacksToStackSet")
 	defer b.mu.Unlock()
-	ss, ok := b.stackSets[stackSetName]
+	ss, ok := b.stackSets.Get(stackSetName)
 	if !ok {
 		return ErrStackSetNotFound
 	}
@@ -527,7 +527,7 @@ func (b *InMemoryBackend) ListStackInstanceResourceDrifts(
 ) ([]StackResourceDrift, error) {
 	b.mu.RLock("ListStackInstanceResourceDrifts")
 	defer b.mu.RUnlock()
-	if _, ok := b.stackSets[stackSetName]; !ok {
+	if !b.stackSets.Has(stackSetName) {
 		return nil, ErrStackSetNotFound
 	}
 	// Find the matching stack instance's stack ID.
@@ -576,7 +576,7 @@ func (b *InMemoryBackend) CreateGeneratedTemplate(
 		Status:                statusComplete,
 		TemplateBody:          templateBody,
 	}
-	b.generatedTemplates[gt.GeneratedTemplateID] = gt
+	b.generatedTemplates.Put(gt)
 
 	return gt, nil
 }
@@ -642,7 +642,7 @@ func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) strin
 	resources := parseResourceIDs(resourceIDs)
 	if len(resources) == 0 {
 		// Build from existing stack resources as a convenience.
-		for _, stack := range b.stacks {
+		for _, stack := range b.stacks.All() {
 			if stack.StackStatus == statusDeleteComplete {
 				continue
 			}
@@ -664,7 +664,7 @@ func (b *InMemoryBackend) buildGeneratedTemplateBody(resourceIDs []string) strin
 func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
 	b.mu.Lock("UpdateGeneratedTemplate")
 	defer b.mu.Unlock()
-	gt, ok := b.generatedTemplates[id]
+	gt, ok := b.generatedTemplates.Get(id)
 	if !ok {
 		return ErrGeneratedTemplateNotFound
 	}
@@ -678,10 +678,10 @@ func (b *InMemoryBackend) UpdateGeneratedTemplate(id, name string) error {
 func (b *InMemoryBackend) DeleteGeneratedTemplate(id string) error {
 	b.mu.Lock("DeleteGeneratedTemplate")
 	defer b.mu.Unlock()
-	if _, ok := b.generatedTemplates[id]; !ok {
+	if !b.generatedTemplates.Has(id) {
 		return ErrGeneratedTemplateNotFound
 	}
-	delete(b.generatedTemplates, id)
+	b.generatedTemplates.Delete(id)
 
 	return nil
 }
@@ -689,7 +689,7 @@ func (b *InMemoryBackend) DeleteGeneratedTemplate(id string) error {
 func (b *InMemoryBackend) DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error) {
 	b.mu.RLock("DescribeGeneratedTemplate")
 	defer b.mu.RUnlock()
-	gt, ok := b.generatedTemplates[id]
+	gt, ok := b.generatedTemplates.Get(id)
 	if !ok {
 		return nil, ErrGeneratedTemplateNotFound
 	}
@@ -700,7 +700,7 @@ func (b *InMemoryBackend) DescribeGeneratedTemplate(id string) (*GeneratedTempla
 func (b *InMemoryBackend) GetGeneratedTemplate(id string) (string, error) {
 	b.mu.RLock("GetGeneratedTemplate")
 	defer b.mu.RUnlock()
-	gt, ok := b.generatedTemplates[id]
+	gt, ok := b.generatedTemplates.Get(id)
 	if !ok {
 		return "", ErrGeneratedTemplateNotFound
 	}
@@ -713,8 +713,8 @@ func (b *InMemoryBackend) ListGeneratedTemplates(
 ) (page.Page[GeneratedTemplate], error) {
 	b.mu.RLock("ListGeneratedTemplates")
 	defer b.mu.RUnlock()
-	result := make([]GeneratedTemplate, 0, len(b.generatedTemplates))
-	for _, gt := range b.generatedTemplates {
+	result := make([]GeneratedTemplate, 0, b.generatedTemplates.Len())
+	for _, gt := range b.generatedTemplates.All() {
 		result = append(result, *gt)
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -730,14 +730,14 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 	b.mu.Lock("StartResourceScan")
 	defer b.mu.Unlock()
 	scanID := uuid.New().String()
-	b.resourceScans[scanID] = &ResourceScan{
+	b.resourceScans.Put(&ResourceScan{
 		ResourceScanID:      scanID,
 		Status:              statusComplete,
 		PercentageCompleted: resourceScanCompletePercent,
-	}
+	})
 	// Populate scan items from existing active stacks.
 	items := make([]ScannedResource, 0)
-	for _, stack := range b.stacks {
+	for _, stack := range b.stacks.All() {
 		if stack.StackStatus == statusDeleteComplete {
 			continue
 		}
@@ -769,7 +769,7 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 func (b *InMemoryBackend) DescribeResourceScan(scanID string) (*ResourceScan, error) {
 	b.mu.RLock("DescribeResourceScan")
 	defer b.mu.RUnlock()
-	rs, ok := b.resourceScans[scanID]
+	rs, ok := b.resourceScans.Get(scanID)
 	if !ok {
 		return nil, ErrResourceScanNotFound
 	}
@@ -780,8 +780,8 @@ func (b *InMemoryBackend) DescribeResourceScan(scanID string) (*ResourceScan, er
 func (b *InMemoryBackend) ListResourceScans(nextToken string) (page.Page[ResourceScan], error) {
 	b.mu.RLock("ListResourceScans")
 	defer b.mu.RUnlock()
-	result := make([]ResourceScan, 0, len(b.resourceScans))
-	for _, rs := range b.resourceScans {
+	result := make([]ResourceScan, 0, b.resourceScans.Len())
+	for _, rs := range b.resourceScans.All() {
 		result = append(result, *rs)
 	}
 
@@ -791,7 +791,7 @@ func (b *InMemoryBackend) ListResourceScans(nextToken string) (page.Page[Resourc
 func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]ScannedResource, error) {
 	b.mu.RLock("ListResourceScanResources")
 	defer b.mu.RUnlock()
-	if _, ok := b.resourceScans[scanID]; !ok {
+	if !b.resourceScans.Has(scanID) {
 		return nil, ErrResourceScanNotFound
 	}
 	items := b.resourceScanItems[scanID]
@@ -807,7 +807,7 @@ func (b *InMemoryBackend) ListResourceScanRelatedResources(
 ) ([]string, error) {
 	b.mu.RLock("ListResourceScanRelatedResources")
 	defer b.mu.RUnlock()
-	if _, ok := b.resourceScans[scanID]; !ok {
+	if !b.resourceScans.Has(scanID) {
 		return nil, ErrResourceScanNotFound
 	}
 
@@ -823,17 +823,17 @@ func (b *InMemoryBackend) ActivateType(typeName, typeArn string) error {
 	if key == "" {
 		key = "arn:aws:cloudformation:::type/resource/" + typeName
 	}
-	if t, ok := b.typeRegistry[key]; ok {
+	if t, ok := b.typeRegistry.Get(key); ok {
 		t.IsActivated = true
 	} else {
-		b.typeRegistry[key] = &RegisteredType{
+		b.typeRegistry.Put(&RegisteredType{
 			TypeArn:     key,
 			TypeName:    typeName,
 			Type:        typeKindResource,
 			VersionID:   "00000001",
 			Status:      statusComplete,
 			IsActivated: true,
-		}
+		})
 	}
 
 	return nil
@@ -846,7 +846,7 @@ func (b *InMemoryBackend) DeactivateType(typeName, typeArn string) error {
 	if key == "" {
 		key = "arn:aws:cloudformation:::type/resource/" + typeName
 	}
-	t, ok := b.typeRegistry[key]
+	t, ok := b.typeRegistry.Get(key)
 	if !ok || !t.IsActivated {
 		return fmt.Errorf("%w: %s", ErrTypeNotFound, key)
 	}
@@ -874,25 +874,25 @@ func (b *InMemoryBackend) RegisterType(typeName, _ string) (string, error) {
 	for i := range b.typeVersions[typeArn][:len(b.typeVersions[typeArn])-1] {
 		b.typeVersions[typeArn][i].IsDefault = false
 	}
-	if t, ok := b.typeRegistry[typeArn]; ok {
+	if t, ok := b.typeRegistry.Get(typeArn); ok {
 		t.VersionID = versionID
 		t.DefaultVersion = versionID
 	} else {
-		b.typeRegistry[typeArn] = &RegisteredType{
+		b.typeRegistry.Put(&RegisteredType{
 			TypeArn:        typeArn,
 			TypeName:       typeName,
 			Type:           "RESOURCE",
 			VersionID:      versionID,
 			DefaultVersion: versionID,
 			Status:         statusComplete,
-		}
+		})
 	}
-	b.typeRegistrations[token] = &TypeRegistrationRecord{
+	b.typeRegistrations.Put(&TypeRegistrationRecord{
 		Token:    token,
 		TypeName: typeName,
 		TypeArn:  typeArn,
 		Status:   statusComplete,
-	}
+	})
 
 	return token, nil
 }
@@ -900,7 +900,7 @@ func (b *InMemoryBackend) RegisterType(typeName, _ string) (string, error) {
 func (b *InMemoryBackend) DeregisterType(typeArn string) error {
 	b.mu.Lock("DeregisterType")
 	defer b.mu.Unlock()
-	t, ok := b.typeRegistry[typeArn]
+	t, ok := b.typeRegistry.Get(typeArn)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
@@ -913,7 +913,7 @@ func (b *InMemoryBackend) PublishType(typeName string) error {
 	b.mu.Lock("PublishType")
 	defer b.mu.Unlock()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
-	t, ok := b.typeRegistry[typeArn]
+	t, ok := b.typeRegistry.Get(typeArn)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTypeNotFound, typeArn)
 	}
@@ -925,7 +925,7 @@ func (b *InMemoryBackend) PublishType(typeName string) error {
 func (b *InMemoryBackend) SetTypeDefaultVersion(typeArn, version string) error {
 	b.mu.Lock("SetTypeDefaultVersion")
 	defer b.mu.Unlock()
-	if t, ok := b.typeRegistry[typeArn]; ok {
+	if t, ok := b.typeRegistry.Get(typeArn); ok {
 		t.DefaultVersion = version
 		t.VersionID = version
 	}
@@ -956,7 +956,7 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 		if cfg == "" {
 			// Also check by looking up the registry entry (typeName may be a key in typeConfigs).
 			typeArn := "arn:aws:cloudformation:::type/resource/" + id
-			if t, ok := b.typeRegistry[typeArn]; ok {
+			if t, ok := b.typeRegistry.Get(typeArn); ok {
 				cfg = t.Configuration
 			}
 		}
@@ -973,8 +973,8 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
 	b.mu.RLock("ListTypes")
 	defer b.mu.RUnlock()
-	result := make([]TypeSummary, 0, len(b.typeRegistry))
-	for _, t := range b.typeRegistry {
+	result := make([]TypeSummary, 0, b.typeRegistry.Len())
+	for _, t := range b.typeRegistry.All() {
 		if t.Status == typeStatusDeprecated {
 			continue
 		}
@@ -1010,7 +1010,7 @@ func (b *InMemoryBackend) ListTypeVersions(typeName, _ string) ([]string, error)
 		return ids, nil
 	}
 	// Fallback: if no version records but type exists, return its current version.
-	if t, ok := b.typeRegistry[typeArn]; ok {
+	if t, ok := b.typeRegistry.Get(typeArn); ok {
 		return []string{t.VersionID}, nil
 	}
 
@@ -1021,9 +1021,9 @@ func (b *InMemoryBackend) ListTypeRegistrations(typeName, _ string) ([]string, e
 	b.mu.RLock("ListTypeRegistrations")
 	defer b.mu.RUnlock()
 	var tokens []string
-	for token, rec := range b.typeRegistrations {
+	for _, rec := range b.typeRegistrations.All() {
 		if typeName == "" || rec.TypeName == typeName {
-			tokens = append(tokens, token)
+			tokens = append(tokens, rec.Token)
 		}
 	}
 
@@ -1033,7 +1033,7 @@ func (b *InMemoryBackend) ListTypeRegistrations(typeName, _ string) ([]string, e
 func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (string, error) {
 	b.mu.RLock("DescribeTypeRegistration")
 	defer b.mu.RUnlock()
-	rec, ok := b.typeRegistrations[registrationToken]
+	rec, ok := b.typeRegistrations.Get(registrationToken)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
 	}
@@ -1049,12 +1049,12 @@ func (b *InMemoryBackend) TestType(typeName, typeArn string) (string, error) {
 	if key == "" {
 		key = "arn:aws:cloudformation:::type/resource/" + typeName
 	}
-	b.typeRegistrations[token] = &TypeRegistrationRecord{
+	b.typeRegistrations.Put(&TypeRegistrationRecord{
 		Token:    token,
 		TypeName: typeName,
 		TypeArn:  key,
 		Status:   statusComplete,
-	}
+	})
 
 	return token, nil
 }
@@ -1063,11 +1063,11 @@ func (b *InMemoryBackend) RegisterPublisher(connectionArn string) (string, error
 	b.mu.Lock("RegisterPublisher")
 	defer b.mu.Unlock()
 	publisherID := uuid.New().String()
-	b.publishers[publisherID] = &Publisher{
+	b.publishers.Put(&Publisher{
 		PublisherID:   publisherID,
 		ConnectionArn: connectionArn,
 		Status:        "VERIFIED",
-	}
+	})
 
 	return publisherID, nil
 }
@@ -1075,7 +1075,7 @@ func (b *InMemoryBackend) RegisterPublisher(connectionArn string) (string, error
 func (b *InMemoryBackend) DescribePublisher(publisherID string) (string, error) {
 	b.mu.RLock("DescribePublisher")
 	defer b.mu.RUnlock()
-	p, ok := b.publishers[publisherID]
+	p, ok := b.publishers.Get(publisherID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrPublisherNotFound, publisherID)
 	}
@@ -1092,12 +1092,12 @@ func (b *InMemoryBackend) CreateStackRefactor(
 	b.mu.Lock("CreateStackRefactor")
 	defer b.mu.Unlock()
 	refactorID := uuid.New().String()
-	b.stackRefactors[refactorID] = &StackRefactor{
+	b.stackRefactors.Put(&StackRefactor{
 		RefactorID:       refactorID,
 		Description:      description,
 		Status:           "CREATE_COMPLETE",
 		StackDefinitions: stackDefinitions,
-	}
+	})
 
 	return refactorID, nil
 }
@@ -1105,7 +1105,7 @@ func (b *InMemoryBackend) CreateStackRefactor(
 func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string, error) {
 	b.mu.RLock("DescribeStackRefactor")
 	defer b.mu.RUnlock()
-	r, ok := b.stackRefactors[stackRefactorID]
+	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
 		return "", nil
 	}
@@ -1116,7 +1116,7 @@ func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string,
 func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
 	b.mu.Lock("ExecuteStackRefactor")
 	defer b.mu.Unlock()
-	r, ok := b.stackRefactors[stackRefactorID]
+	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
 		return nil
 	}
@@ -1128,8 +1128,8 @@ func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
 func (b *InMemoryBackend) ListStackRefactors(_ string) ([]StackRefactorSummary, error) {
 	b.mu.RLock("ListStackRefactors")
 	defer b.mu.RUnlock()
-	summaries := make([]StackRefactorSummary, 0, len(b.stackRefactors))
-	for _, r := range b.stackRefactors {
+	summaries := make([]StackRefactorSummary, 0, b.stackRefactors.Len())
+	for _, r := range b.stackRefactors.All() {
 		summaries = append(summaries, StackRefactorSummary{
 			StackRefactorID: r.RefactorID,
 			Status:          r.Status,
@@ -1145,7 +1145,7 @@ func (b *InMemoryBackend) ListStackRefactorActions(
 ) ([]StackRefactorAction, error) {
 	b.mu.RLock("ListStackRefactorActions")
 	defer b.mu.RUnlock()
-	r, ok := b.stackRefactors[stackRefactorID]
+	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
 		return []StackRefactorAction{}, nil
 	}
@@ -1228,7 +1228,7 @@ func (b *InMemoryBackend) RecordHandlerProgress(bearerToken, operationStatus str
 func (b *InMemoryBackend) GetHookResult(hookResultToken string) (string, error) {
 	b.mu.RLock("GetHookResult")
 	defer b.mu.RUnlock()
-	r, ok := b.hookResults[hookResultToken]
+	r, ok := b.hookResults.Get(hookResultToken)
 	if !ok {
 		return "SUCCEEDED", nil
 	}
@@ -1241,11 +1241,11 @@ func (b *InMemoryBackend) ListHookResults(hookResultToken, _ string) ([]HookResu
 	defer b.mu.RUnlock()
 	var results []HookResult
 	if hookResultToken != "" {
-		if r, ok := b.hookResults[hookResultToken]; ok {
+		if r, ok := b.hookResults.Get(hookResultToken); ok {
 			results = append(results, *r)
 		}
 	} else {
-		for _, r := range b.hookResults {
+		for _, r := range b.hookResults.All() {
 			results = append(results, *r)
 		}
 	}

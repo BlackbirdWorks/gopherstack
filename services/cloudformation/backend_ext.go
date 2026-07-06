@@ -45,14 +45,14 @@ func (b *InMemoryBackend) DetectStackDrift(nameOrID string) (string, error) {
 	b.resourceDriftStatus[stack.StackID] = resourceStatuses
 
 	detectionID := uuid.New().String()
-	b.driftDetections[detectionID] = &DriftDetectionStatus{
+	b.driftDetections.Put(&DriftDetectionStatus{
 		StackID:                   stack.StackID,
 		StackDriftDetectionID:     detectionID,
 		StackDriftStatus:          overallStatus,
 		DetectionStatus:           detectionComplete,
 		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
-	}
+	})
 	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
 
 	return detectionID, nil
@@ -92,14 +92,14 @@ func (b *InMemoryBackend) DetectStackResourceDrift(nameOrID, logicalID string) (
 	}
 
 	detectionID := uuid.New().String()
-	b.driftDetections[detectionID] = &DriftDetectionStatus{
+	b.driftDetections.Put(&DriftDetectionStatus{
 		StackID:                   stack.StackID,
 		StackDriftDetectionID:     detectionID,
 		StackDriftStatus:          overallStatus,
 		DetectionStatus:           detectionComplete,
 		DriftedStackResourceCount: driftedCount,
 		Timestamp:                 time.Now(),
-	}
+	})
 	b.driftByStackID[stack.StackID] = append(b.driftByStackID[stack.StackID], detectionID)
 
 	return detectionID, nil
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) DescribeStackDriftDetectionStatus(detectionID string) 
 	b.mu.RLock("DescribeStackDriftDetectionStatus")
 	defer b.mu.RUnlock()
 
-	status, ok := b.driftDetections[detectionID]
+	status, ok := b.driftDetections.Get(detectionID)
 	if !ok {
 		return nil, ErrDriftDetectionNotFound
 	}
