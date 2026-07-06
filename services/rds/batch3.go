@@ -31,9 +31,9 @@ func (b *InMemoryBackend) DescribeCustomDBEngineVersions(engine, engineVersion s
 	b.mu.RLock("DescribeCustomDBEngineVersions")
 	defer b.mu.RUnlock()
 
-	result := make([]CustomDBEngineVersion, 0, len(b.customEngineVersions))
+	result := make([]CustomDBEngineVersion, 0, b.customEngineVersions.Len())
 
-	for _, cev := range b.customEngineVersions {
+	for _, cev := range b.customEngineVersions.All() {
 		if engine != "" && cev.Engine != engine {
 			continue
 		}
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) AddDBRecommendation(rec DBRecommendation) {
 	defer b.mu.Unlock()
 
 	cp := rec
-	b.recommendations[rec.RecommendationID] = &cp
+	b.recommendations.Put(&cp)
 }
 
 // GetPerformanceInsightsData returns synthetic Performance Insights metric data points
@@ -86,7 +86,7 @@ func (b *InMemoryBackend) GetPerformanceInsightsData(
 
 	// Validate that the instance exists and has Performance Insights enabled.
 	var found *DBInstance
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		if inst.DbiResourceID == resourceID || inst.DBInstanceIdentifier == resourceID {
 			found = inst
 

@@ -44,7 +44,7 @@ func (b *InMemoryBackend) CreateDBShardGroup(
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBShardGroupIdentifier is required", ErrInvalidParameter)
 	}
-	if _, exists := b.shardGroups[id]; exists {
+	if _, exists := b.shardGroups.Get(id); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBShardGroupAlreadyExists, id)
 	}
 	if clusterID == "" {
@@ -61,7 +61,7 @@ func (b *InMemoryBackend) CreateDBShardGroup(
 		Status:                 shardGroupStatusAvailableInternal,
 		Endpoint:               id + ".limitless." + clusterID + ".rds.amazonaws.com",
 	}
-	b.shardGroups[id] = sg
+	b.shardGroups.Put(sg)
 	cp := *sg
 
 	return &cp, nil
@@ -72,14 +72,14 @@ func (b *InMemoryBackend) DeleteDBShardGroup(id string) (*DBShardGroup, error) {
 	b.mu.Lock("DeleteDBShardGroup")
 	defer b.mu.Unlock()
 
-	sg, exists := b.shardGroups[id]
+	sg, exists := b.shardGroups.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBShardGroupNotFound, id)
 	}
 
 	cp := *sg
 	cp.Status = shardGroupStatusDeletingInternal
-	delete(b.shardGroups, id)
+	b.shardGroups.Delete(id)
 
 	return &cp, nil
 }
@@ -89,8 +89,8 @@ func (b *InMemoryBackend) DescribeDBShardGroups(id string) ([]DBShardGroup, erro
 	b.mu.RLock("DescribeDBShardGroups")
 	defer b.mu.RUnlock()
 
-	result := make([]DBShardGroup, 0, len(b.shardGroups))
-	for _, sg := range b.shardGroups {
+	result := make([]DBShardGroup, 0, b.shardGroups.Len())
+	for _, sg := range b.shardGroups.All() {
 		if id != "" && sg.DBShardGroupIdentifier != id {
 			continue
 		}
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) ModifyDBShardGroup(
 	b.mu.Lock("ModifyDBShardGroup")
 	defer b.mu.Unlock()
 
-	sg, exists := b.shardGroups[id]
+	sg, exists := b.shardGroups.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBShardGroupNotFound, id)
 	}
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) RebootDBShardGroup(id string) (*DBShardGroup, error) {
 	b.mu.Lock("RebootDBShardGroup")
 	defer b.mu.Unlock()
 
-	sg, exists := b.shardGroups[id]
+	sg, exists := b.shardGroups.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBShardGroupNotFound, id)
 	}
@@ -169,7 +169,7 @@ func (b *InMemoryBackend) CreateIntegration(
 	if name == "" {
 		return nil, fmt.Errorf("%w: IntegrationName is required", ErrInvalidParameter)
 	}
-	if _, exists := b.integrations[name]; exists {
+	if _, exists := b.integrations.Get(name); exists {
 		return nil, fmt.Errorf("%w: %s", ErrIntegrationAlreadyExists, name)
 	}
 
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) CreateIntegration(
 		Status:                 integrationStatusActive,
 		CreatedAt:              time.Now(),
 	}
-	b.integrations[name] = intg
+	b.integrations.Put(intg)
 	cp := *intg
 
 	return &cp, nil
@@ -200,11 +200,11 @@ func (b *InMemoryBackend) DeleteIntegration(identifier string) (*Integration, er
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	for _, intg := range b.integrations {
+	for _, intg := range b.integrations.All() {
 		if intg.IntegrationName == identifier || intg.IntegrationArn == identifier {
 			cp := *intg
 			cp.Status = integrationStatusDeleting
-			delete(b.integrations, intg.IntegrationName)
+			b.integrations.Delete(intg.IntegrationName)
 
 			return &cp, nil
 		}
@@ -218,8 +218,8 @@ func (b *InMemoryBackend) DescribeIntegrations(identifier string) ([]Integration
 	b.mu.RLock("DescribeIntegrations")
 	defer b.mu.RUnlock()
 
-	result := make([]Integration, 0, len(b.integrations))
-	for _, intg := range b.integrations {
+	result := make([]Integration, 0, b.integrations.Len())
+	for _, intg := range b.integrations.All() {
 		if identifier != "" && intg.IntegrationName != identifier &&
 			intg.IntegrationArn != identifier {
 			continue
@@ -250,7 +250,7 @@ func (b *InMemoryBackend) ModifyIntegration(identifier, dataFilter, description 
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
-	for _, intg := range b.integrations {
+	for _, intg := range b.integrations.All() {
 		if intg.IntegrationName == identifier || intg.IntegrationArn == identifier {
 			if dataFilter != "" {
 				intg.DataFilter = dataFilter
@@ -288,7 +288,7 @@ func (b *InMemoryBackend) CreateTenantDatabase(
 	}
 
 	key := tenantKey(instanceID, tenantDBName)
-	if _, exists := b.tenantDatabases[key]; exists {
+	if _, exists := b.tenantDatabases.Get(key); exists {
 		return nil, fmt.Errorf(
 			"%w: %s/%s",
 			ErrTenantDatabaseAlreadyExists,
@@ -309,7 +309,7 @@ func (b *InMemoryBackend) CreateTenantDatabase(
 		Status:        tenantStatusAvailableInternal,
 		CreatedAt:     time.Now(),
 	}
-	b.tenantDatabases[key] = tdb
+	b.tenantDatabases.Put(tdb)
 	cp := *tdb
 
 	return &cp, nil
@@ -323,14 +323,14 @@ func (b *InMemoryBackend) DeleteTenantDatabase(
 	defer b.mu.Unlock()
 
 	key := tenantKey(instanceID, tenantDBName)
-	tdb, exists := b.tenantDatabases[key]
+	tdb, exists := b.tenantDatabases.Get(key)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s/%s", ErrTenantDatabaseNotFound, instanceID, tenantDBName)
 	}
 
 	cp := *tdb
 	cp.Status = tenantStatusDeletingInternal
-	delete(b.tenantDatabases, key)
+	b.tenantDatabases.Delete(key)
 
 	return &cp, nil
 }
@@ -342,8 +342,8 @@ func (b *InMemoryBackend) DescribeTenantDatabases(
 	b.mu.RLock("DescribeTenantDatabases")
 	defer b.mu.RUnlock()
 
-	result := make([]TenantDatabase, 0, len(b.tenantDatabases))
-	for _, tdb := range b.tenantDatabases {
+	result := make([]TenantDatabase, 0, b.tenantDatabases.Len())
+	for _, tdb := range b.tenantDatabases.All() {
 		if instanceID != "" && tdb.DBInstanceIdentifier != instanceID {
 			continue
 		}
@@ -377,7 +377,7 @@ func (b *InMemoryBackend) ModifyTenantDatabase(
 	defer b.mu.Unlock()
 
 	key := tenantKey(instanceID, tenantDBName)
-	tdb, exists := b.tenantDatabases[key]
+	tdb, exists := b.tenantDatabases.Get(key)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s/%s", ErrTenantDatabaseNotFound, instanceID, tenantDBName)
 	}
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) CreateDBClusterAutomatedBackup(
 	b.mu.Lock("CreateDBClusterAutomatedBackup")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil
 	}
@@ -411,7 +411,7 @@ func (b *InMemoryBackend) CreateDBClusterAutomatedBackup(
 		Status:              clusterBackupStatusAvailable,
 		StorageEncrypted:    cluster.StorageEncrypted,
 	}
-	b.clusterAutomatedBackups[clusterID] = backup
+	b.clusterAutomatedBackups.Put(backup)
 
 	return backup
 }
@@ -423,11 +423,11 @@ func (b *InMemoryBackend) DeleteDBClusterAutomatedBackup(
 	b.mu.Lock("DeleteDBClusterAutomatedBackup")
 	defer b.mu.Unlock()
 
-	for key, backup := range b.clusterAutomatedBackups {
+	for _, backup := range b.clusterAutomatedBackups.All() {
 		if backup.DBClusterResourceID == resourceID || backup.DBClusterIdentifier == resourceID {
 			cp := *backup
 			cp.Status = clusterBackupStatusDeleted
-			delete(b.clusterAutomatedBackups, key)
+			b.clusterAutomatedBackups.Delete(clusterAutomatedBackupsKeyFn(backup))
 
 			return &cp, nil
 		}
@@ -443,8 +443,8 @@ func (b *InMemoryBackend) DescribeDBClusterAutomatedBackups(
 	b.mu.RLock("DescribeDBClusterAutomatedBackups")
 	defer b.mu.RUnlock()
 
-	result := make([]DBClusterAutomatedBackup, 0, len(b.clusterAutomatedBackups))
-	for _, backup := range b.clusterAutomatedBackups {
+	result := make([]DBClusterAutomatedBackup, 0, b.clusterAutomatedBackups.Len())
+	for _, backup := range b.clusterAutomatedBackups.All() {
 		if clusterID != "" && backup.DBClusterIdentifier != clusterID {
 			continue
 		}
