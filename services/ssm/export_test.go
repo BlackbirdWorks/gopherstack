@@ -31,7 +31,7 @@ func (b *InMemoryBackend) CommandCount() int {
 
 	total := 0
 	for _, cmds := range b.commands {
-		total += len(cmds)
+		total += cmds.Len()
 	}
 
 	return total
@@ -58,9 +58,10 @@ func (b *InMemoryBackend) SetCommandExpiresAfter(cmdID string, expiresAfter floa
 
 	// Try all regions.
 	for _, cmds := range b.commands {
-		if cmd, ok := cmds[cmdID]; ok {
+		if cmdPtr, ok := cmds.Get(cmdID); ok {
+			cmd := *cmdPtr
 			cmd.ExpiresAfter = expiresAfter
-			cmds[cmdID] = cmd
+			cmds.Put(&cmd)
 
 			return
 		}
@@ -118,7 +119,7 @@ func (b *InMemoryBackend) ActivationCount() int {
 	b.mu.RLock("ActivationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.activationsStore(b.Region()))
+	return b.activationsStore(b.Region()).Len()
 }
 
 // AssociationCount returns the number of associations stored in the default region.
@@ -126,7 +127,7 @@ func (b *InMemoryBackend) AssociationCount() int {
 	b.mu.RLock("AssociationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.associationsStore(b.Region()))
+	return b.associationsStore(b.Region()).Len()
 }
 
 // MaintenanceWindowCount returns the number of maintenance windows stored in the default region.
@@ -134,7 +135,7 @@ func (b *InMemoryBackend) MaintenanceWindowCount() int {
 	b.mu.RLock("MaintenanceWindowCount")
 	defer b.mu.RUnlock()
 
-	return len(b.maintenanceWindowsStore(b.Region()))
+	return b.maintenanceWindowsStore(b.Region()).Len()
 }
 
 // OpsItemCount returns the number of OpsItems stored in the default region.
@@ -142,7 +143,7 @@ func (b *InMemoryBackend) OpsItemCount() int {
 	b.mu.RLock("OpsItemCount")
 	defer b.mu.RUnlock()
 
-	return len(b.opsItemsStore(b.Region()))
+	return b.opsItemsStore(b.Region()).Len()
 }
 
 // OpsMetadataCount returns the number of OpsMetadata entries stored in the default region.
@@ -150,7 +151,7 @@ func (b *InMemoryBackend) OpsMetadataCount() int {
 	b.mu.RLock("OpsMetadataCount")
 	defer b.mu.RUnlock()
 
-	return len(b.opsMetadataStore(b.Region()))
+	return b.opsMetadataStore(b.Region()).Len()
 }
 
 // PatchBaselineCount returns the number of patch baselines stored in the default region.
@@ -158,7 +159,7 @@ func (b *InMemoryBackend) PatchBaselineCount() int {
 	b.mu.RLock("PatchBaselineCount")
 	defer b.mu.RUnlock()
 
-	return len(b.patchBaselinesStore(b.Region()))
+	return b.patchBaselinesStore(b.Region()).Len()
 }
 
 // HandlerOpsLen returns the number of supported operations.
@@ -171,10 +172,7 @@ func (b *InMemoryBackend) AddActivationInternal(act Activation) {
 	b.mu.Lock("AddActivationInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.activations[r] == nil {
-		b.activations[r] = make(map[string]Activation)
-	}
-	b.activationsStore(r)[act.ActivationID] = act
+	b.activationsStore(r).Put(&act)
 }
 
 // AddAssociationInternal seeds an association directly into the backend for testing.
@@ -182,10 +180,7 @@ func (b *InMemoryBackend) AddAssociationInternal(assoc Association) {
 	b.mu.Lock("AddAssociationInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.associations[r] == nil {
-		b.associations[r] = make(map[string]Association)
-	}
-	b.associationsStore(r)[assoc.AssociationID] = assoc
+	b.associationsStore(r).Put(&assoc)
 }
 
 // AddMaintenanceWindowInternal seeds a maintenance window directly into the backend for testing.
@@ -193,10 +188,7 @@ func (b *InMemoryBackend) AddMaintenanceWindowInternal(mw MaintenanceWindow) {
 	b.mu.Lock("AddMaintenanceWindowInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.maintenanceWindows[r] == nil {
-		b.maintenanceWindows[r] = make(map[string]MaintenanceWindow)
-	}
-	b.maintenanceWindowsStore(r)[mw.WindowID] = mw
+	b.maintenanceWindowsStore(r).Put(&mw)
 }
 
 // AddOpsItemInternal seeds an OpsItem directly into the backend for testing.
@@ -204,10 +196,7 @@ func (b *InMemoryBackend) AddOpsItemInternal(item OpsItem) {
 	b.mu.Lock("AddOpsItemInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.opsItems[r] == nil {
-		b.opsItems[r] = make(map[string]OpsItem)
-	}
-	b.opsItemsStore(r)[item.OpsItemID] = item
+	b.opsItemsStore(r).Put(&item)
 }
 
 // AddOpsMetadataInternal seeds OpsMetadata directly into the backend for testing.
@@ -215,10 +204,7 @@ func (b *InMemoryBackend) AddOpsMetadataInternal(meta OpsMetadata) {
 	b.mu.Lock("AddOpsMetadataInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.opsMetadata[r] == nil {
-		b.opsMetadata[r] = make(map[string]OpsMetadata)
-	}
-	b.opsMetadataStore(r)[meta.OpsMetadataArn] = meta
+	b.opsMetadataStore(r).Put(&meta)
 }
 
 // AddPatchBaselineInternal seeds a patch baseline directly into the backend for testing.
@@ -226,10 +212,7 @@ func (b *InMemoryBackend) AddPatchBaselineInternal(bl PatchBaseline) {
 	b.mu.Lock("AddPatchBaselineInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.patchBaselines[r] == nil {
-		b.patchBaselines[r] = make(map[string]PatchBaseline)
-	}
-	b.patchBaselinesStore(r)[bl.BaselineID] = bl
+	b.patchBaselinesStore(r).Put(&bl)
 }
 
 // OpsItemRelatedItemCount returns the total number of related items across all OpsItems.
@@ -245,7 +228,12 @@ func (b *InMemoryBackend) GetPatchBaselineInternal(id string) PatchBaseline {
 	b.mu.RLock("GetPatchBaselineInternal")
 	defer b.mu.RUnlock()
 
-	return b.patchBaselinesStore(b.Region())[id]
+	bl, ok := b.patchBaselinesStore(b.Region()).Get(id)
+	if !ok {
+		return PatchBaseline{}
+	}
+
+	return *bl
 }
 
 // ForceInsertParameter injects a parameter directly into the backend, bypassing
@@ -254,10 +242,7 @@ func (b *InMemoryBackend) ForceInsertParameter(p Parameter) {
 	b.mu.Lock("ForceInsertParameter")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.parameters[r] == nil {
-		b.parameters[r] = make(map[string]Parameter)
-	}
-	b.parametersStore(r)[p.Name] = p
+	b.parametersStore(r).Put(&p)
 }
 
 // AddInstancePatchStateInternal seeds an InstancePatchState directly into the backend for testing.
@@ -265,10 +250,7 @@ func (b *InMemoryBackend) AddInstancePatchStateInternal(s InstancePatchState) {
 	b.mu.Lock("AddInstancePatchStateInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.instancePatchStates[r] == nil {
-		b.instancePatchStates[r] = make(map[string]*InstancePatchState)
-	}
-	b.instancePatchStatesStore(r)[s.InstanceID] = &s
+	b.instancePatchStatesStore(r).Put(&s)
 }
 
 // AddInstancePatchesInternal seeds PatchComplianceData for an instance directly into the backend for testing.
@@ -287,10 +269,7 @@ func (b *InMemoryBackend) AddInstancePropertyInternal(p InstanceProperty) {
 	b.mu.Lock("AddInstancePropertyInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.instanceProperties[r] == nil {
-		b.instanceProperties[r] = make(map[string]*InstanceProperty)
-	}
-	b.instancePropertiesStore(r)[p.InstanceID] = &p
+	b.instancePropertiesStore(r).Put(&p)
 }
 
 // AddAvailablePatchInternal seeds a Patch into the available patches catalog for testing.
@@ -321,7 +300,7 @@ func (b *InMemoryBackend) ForceCompleteAutomations() {
 
 	future := timeNow().Add(1_000_000 * time.Hour)
 	for _, execs := range b.automationExecutions {
-		for _, e := range execs {
+		for _, e := range execs.All() {
 			materializeAutomationLocked(e, future)
 		}
 	}
@@ -332,7 +311,7 @@ func (b *InMemoryBackend) SessionCount() int {
 	b.mu.RLock("SessionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.sessionsStore(b.Region()))
+	return b.sessionsStore(b.Region()).Len()
 }
 
 // AddTerminatedSessionInternal seeds a terminated session with the given end
@@ -341,14 +320,11 @@ func (b *InMemoryBackend) AddTerminatedSessionInternal(id string, endDate float6
 	b.mu.Lock("AddTerminatedSessionInternal")
 	defer b.mu.Unlock()
 	r := b.Region()
-	if b.sessions[r] == nil {
-		b.sessions[r] = make(map[string]Session)
-	}
-	b.sessionsStore(r)[id] = Session{
+	b.sessionsStore(r).Put(&Session{
 		SessionID: id,
 		Status:    sessionStatusTerminated,
 		EndDate:   endDate,
-	}
+	})
 }
 
 // AssociationExecutionCount returns the number of stored execution records for

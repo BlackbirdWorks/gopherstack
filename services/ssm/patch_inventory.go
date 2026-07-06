@@ -131,9 +131,12 @@ func (b *InMemoryBackend) resolvePatchGroupBaseline(region, patchGroup string) (
 		return PatchBaseline{}, false
 	}
 
-	bl, found := b.patchBaselinesStore(region)[id]
+	blPtr, found := b.patchBaselinesStore(region).Get(id)
+	if !found {
+		return PatchBaseline{}, false
+	}
 
-	return bl, found
+	return *blPtr, true
 }
 
 // applyPatchBaselineOperation simulates a Patch Manager scan/install run
@@ -186,10 +189,7 @@ func (b *InMemoryBackend) applyPatchBaselineOperation(
 		MissingCount:       missingCount,
 	}
 
-	if b.instancePatchStates[region] == nil {
-		b.instancePatchStates[region] = make(map[string]*InstancePatchState)
-	}
-	b.instancePatchStatesStore(region)[instanceID] = state
+	b.instancePatchStatesStore(region).Put(state)
 
 	if b.instancePatches[region] == nil {
 		b.instancePatches[region] = make(map[string][]PatchComplianceData)
