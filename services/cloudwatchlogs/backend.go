@@ -20,10 +20,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -425,41 +425,71 @@ type storedQuery struct {
 	stats     QueryStatistics
 }
 
-// InMemoryBackend implements StorageBackend using in-memory maps.
+// InMemoryBackend implements StorageBackend using pkgs/store tables in place of
+// the hand-rolled maps this backend used before Phase 3.3 (see store_setup.go).
 type InMemoryBackend struct {
-	deliverer              SubscriptionDeliverer
-	metricEmitter          MetricEmitter
-	ctx                    context.Context
-	accountPolicies        map[string]*AccountPolicy
-	groups                 map[string]map[string]*LogGroup
-	workerSem              chan struct{}
-	streams                map[string]map[string]map[string]*LogStream
-	events                 map[string]map[string]map[string][]*OutputLogEvent
-	subscriptionFilters    map[string]map[string][]*SubscriptionFilter
-	queries                map[string]*storedQuery
-	parsedQueries          map[string]*insightsQuery
-	compiledPatterns       map[string]*compiledFilterPattern
-	exportTasks            map[string]*ExportTask
-	importTasks            map[string]*ImportTask
-	deliveries             map[string]*Delivery
-	logAnomalyDetectors    map[string]*LogAnomalyDetector
-	anomalies              map[string]map[string]*Anomaly
-	scheduledQueries       map[string]*ScheduledQuery
-	scheduledQueryRuns     map[string][]*ScheduledQueryRunSummary
-	s3TableIntegrations    map[string]string
+	deliverer     SubscriptionDeliverer
+	metricEmitter MetricEmitter
+	ctx           context.Context
+	workerSem     chan struct{}
+
+	// registry holds every persisted resource table; Snapshot/Restore drive it
+	// via registry.SnapshotAll()/RestoreAll() (see persistence.go).
+	registry *store.Registry
+	// ephemeralRegistry holds resource tables that are never persisted (query
+	// results/anomalies/scheduled-query run history -- matching this backend's
+	// pre-Phase-3.3 behavior of leaving them out of backendSnapshot) but still
+	// benefit from one-call Reset semantics.
+	ephemeralRegistry *store.Registry
+
+	accountPolicies *store.Table[AccountPolicy]
+
+	// groups, streams, subscriptionFilters, and metricFilters are region-qualified
+	// ("dirty") tables: their value types carry unexported identity fields (see
+	// models.go) so they are registered on neither registry above -- Snapshot/
+	// Restore drive them through DTOs and Reset clears them directly.
+	groups         *store.Table[LogGroup]
+	groupsByRegion *store.Index[LogGroup]
+
+	streams        *store.Table[LogStream]
+	streamsByGroup *store.Index[LogStream]
+
+	subscriptionFilters        *store.Table[SubscriptionFilter]
+	subscriptionFiltersByGroup *store.Index[SubscriptionFilter]
+
+	metricFilters        *store.Table[MetricFilter]
+	metricFiltersByGroup *store.Index[MetricFilter]
+
+	// queries and anomalies are ephemeral (registered on ephemeralRegistry, not
+	// registry -- see above).
+	queries           *store.Table[storedQuery]
+	anomalies         *store.Table[Anomaly]
+	anomalyByDetector *store.Index[Anomaly]
+
+	// parsedQueries and compiledPatterns remain plain maps -- see the doc
+	// comment above registerAllTables in store_setup.go for why.
+	parsedQueries    map[string]*insightsQuery
+	compiledPatterns map[string]*compiledFilterPattern
+
+	exportTasks            *store.Table[ExportTask]
+	importTasks            *store.Table[ImportTask]
+	deliveries             *store.Table[Delivery]
+	logAnomalyDetectors    *store.Table[LogAnomalyDetector]
+	scheduledQueries       *store.Table[ScheduledQuery]
+	scheduledQueryRuns     *store.Table[scheduledQueryRunHistory]
+	s3TableIntegrations    *store.Table[s3TableIntegrationEntry]
 	mu                     *lockmetrics.RWMutex
-	kmsKeys                map[string]string
-	metricFilters          map[string]map[string]map[string]*MetricFilter
-	queryDefinitions       map[string]*QueryDefinition
-	dataProtectionPolicies map[string]string // logGroupName -> policyDocument JSON
-	resourcePolicies       map[string]ResourcePolicy
-	deliveryDestinations   map[string]DeliveryDestination
-	deliverySources        map[string]DeliverySource
-	destinations           map[string]CWLDestination
-	indexPolicies          map[string]IndexPolicy
-	transformers           map[string]Transformer
-	integrations           map[string]CWLIntegration
-	deletionProtected      map[string]bool
+	kmsKeys                *store.Table[kmsKeyEntry]
+	queryDefinitions       *store.Table[QueryDefinition]
+	dataProtectionPolicies *store.Table[dataProtectionPolicyEntry]
+	resourcePolicies       *store.Table[ResourcePolicy]
+	deliveryDestinations   *store.Table[DeliveryDestination]
+	deliverySources        *store.Table[DeliverySource]
+	destinations           *store.Table[CWLDestination]
+	indexPolicies          *store.Table[IndexPolicy]
+	transformers           *store.Table[Transformer]
+	integrations           *store.Table[CWLIntegration]
+	deletionProtected      *store.Table[deletionProtectionEntry]
 	exportSink             ExportSink
 	cancel                 context.CancelFunc
 	region                 string
@@ -503,50 +533,32 @@ func NewInMemoryBackendWithContext(
 
 	ctx, cancel := context.WithCancel(svcCtx)
 
-	return &InMemoryBackend{
-		accountID:              accountID,
-		region:                 region,
-		groups:                 make(map[string]map[string]*LogGroup),
-		streams:                make(map[string]map[string]map[string]*LogStream),
-		events:                 make(map[string]map[string]map[string][]*OutputLogEvent),
-		subscriptionFilters:    make(map[string]map[string][]*SubscriptionFilter),
-		queries:                make(map[string]*storedQuery),
-		parsedQueries:          make(map[string]*insightsQuery),
-		compiledPatterns:       make(map[string]*compiledFilterPattern),
-		exportTasks:            make(map[string]*ExportTask),
-		importTasks:            make(map[string]*ImportTask),
-		deliveries:             make(map[string]*Delivery),
-		logAnomalyDetectors:    make(map[string]*LogAnomalyDetector),
-		anomalies:              make(map[string]map[string]*Anomaly),
-		scheduledQueries:       make(map[string]*ScheduledQuery),
-		scheduledQueryRuns:     make(map[string][]*ScheduledQueryRunSummary),
-		accountPolicies:        make(map[string]*AccountPolicy),
-		kmsKeys:                make(map[string]string),
-		s3TableIntegrations:    make(map[string]string),
-		metricFilters:          make(map[string]map[string]map[string]*MetricFilter),
-		queryDefinitions:       make(map[string]*QueryDefinition),
-		dataProtectionPolicies: make(map[string]string),
-		resourcePolicies:       make(map[string]ResourcePolicy),
-		deliveryDestinations:   make(map[string]DeliveryDestination),
-		deliverySources:        make(map[string]DeliverySource),
-		destinations:           make(map[string]CWLDestination),
-		indexPolicies:          make(map[string]IndexPolicy),
-		transformers:           make(map[string]Transformer),
-		integrations:           make(map[string]CWLIntegration),
-		deletionProtected:      make(map[string]bool),
-		mu:                     lockmetrics.New("cloudwatchlogs"),
-		queryTTL:               defaultQueryTTL,
-		maxQueries:             defaultMaxQueries,
-		maxParsedQueries:       defaultParsedQueryCacheSize,
-		ctx:                    ctx,
-		cancel:                 cancel,
-		workerSem:              make(chan struct{}, defaultDeliveryWorkers),
-		deliveryTimeout:        defaultDeliveryTimeout,
+	b := &InMemoryBackend{
+		accountID:         accountID,
+		region:            region,
+		registry:          store.NewRegistry(),
+		ephemeralRegistry: store.NewRegistry(),
+		parsedQueries:     make(map[string]*insightsQuery),
+		compiledPatterns:  make(map[string]*compiledFilterPattern),
+		mu:                lockmetrics.New("cloudwatchlogs"),
+		queryTTL:          defaultQueryTTL,
+		maxQueries:        defaultMaxQueries,
+		maxParsedQueries:  defaultParsedQueryCacheSize,
+		ctx:               ctx,
+		cancel:            cancel,
+		workerSem:         make(chan struct{}, defaultDeliveryWorkers),
+		deliveryTimeout:   defaultDeliveryTimeout,
 		settings: Settings{
 			MaxRetentionDays: defaultMaxRetentionDays,
 			JanitorInterval:  time.Minute,
 		},
 	}
+
+	registerAllTables(b)
+	registerEphemeralTables(b)
+	registerRegionTables(b)
+
+	return b
 }
 
 // SetSettings updates the backend settings.
@@ -624,56 +636,6 @@ func (b *InMemoryBackend) streamARN(region, groupName, streamName string) string
 	return arn.Build("logs", region, b.accountID, "log-group:"+groupName+":log-stream:"+streamName)
 }
 
-// groupsStore returns the log-group map for the given region, lazily creating it.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) groupsStore(region string) map[string]*LogGroup {
-	if b.groups[region] == nil {
-		b.groups[region] = make(map[string]*LogGroup)
-	}
-
-	return b.groups[region]
-}
-
-// streamsStore returns the streams map (group -> stream -> *LogStream) for the given
-// region, lazily creating it. Callers must hold b.mu.
-func (b *InMemoryBackend) streamsStore(region string) map[string]map[string]*LogStream {
-	if b.streams[region] == nil {
-		b.streams[region] = make(map[string]map[string]*LogStream)
-	}
-
-	return b.streams[region]
-}
-
-// eventsStore returns the events map (group -> stream -> []*OutputLogEvent) for the
-// given region, lazily creating it. Callers must hold b.mu.
-func (b *InMemoryBackend) eventsStore(region string) map[string]map[string][]*OutputLogEvent {
-	if b.events[region] == nil {
-		b.events[region] = make(map[string]map[string][]*OutputLogEvent)
-	}
-
-	return b.events[region]
-}
-
-// subscriptionFiltersStore returns the subscription-filter map (group -> filters) for
-// the given region, lazily creating it. Callers must hold b.mu.
-func (b *InMemoryBackend) subscriptionFiltersStore(region string) map[string][]*SubscriptionFilter {
-	if b.subscriptionFilters[region] == nil {
-		b.subscriptionFilters[region] = make(map[string][]*SubscriptionFilter)
-	}
-
-	return b.subscriptionFilters[region]
-}
-
-// metricFiltersStore returns the metric-filter map (group -> name -> *MetricFilter) for
-// the given region, lazily creating it. Callers must hold b.mu.
-func (b *InMemoryBackend) metricFiltersStore(region string) map[string]map[string]*MetricFilter {
-	if b.metricFilters[region] == nil {
-		b.metricFilters[region] = make(map[string]map[string]*MetricFilter)
-	}
-
-	return b.metricFilters[region]
-}
-
 // CreateLogGroup creates a new log group with the given class and optional KMS key.
 // logGroupClass must be STANDARD or INFREQUENT_ACCESS (defaults to STANDARD if empty).
 func (b *InMemoryBackend) CreateLogGroup(
@@ -708,8 +670,7 @@ func (b *InMemoryBackend) CreateLogGroup(
 	b.mu.Lock("CreateLogGroup")
 	defer b.mu.Unlock()
 
-	groups := b.groupsStore(region)
-	if _, exists := groups[name]; exists {
+	if b.groupHas(region, name) {
 		return nil, fmt.Errorf("%w: Log group %s already exists", ErrLogGroupAlreadyExists, name)
 	}
 
@@ -719,13 +680,12 @@ func (b *InMemoryBackend) CreateLogGroup(
 		Arn:           b.groupARN(region, name),
 		LogGroupClass: logGroupClass,
 		KmsKeyID:      kmsKeyID,
+		region:        region,
 	}
-	groups[name] = g
-	b.streamsStore(region)[name] = make(map[string]*LogStream)
-	b.eventsStore(region)[name] = make(map[string][]*OutputLogEvent)
+	b.groupPut(g)
 
 	if kmsKeyID != "" {
-		b.kmsKeys[name] = kmsKeyID
+		b.kmsKeys.Put(&kmsKeyEntry{Key: name, KmsKeyID: kmsKeyID})
 	}
 
 	cp := *g
@@ -740,16 +700,14 @@ func (b *InMemoryBackend) DeleteLogGroup(ctx context.Context, name string) error
 	b.mu.Lock("DeleteLogGroup")
 	defer b.mu.Unlock()
 
-	groups := b.groupsStore(region)
-	if _, exists := groups[name]; !exists {
+	if !b.groupHas(region, name) {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
 	}
 
-	delete(groups, name)
-	delete(b.streamsStore(region), name)
-	delete(b.eventsStore(region), name)
-	delete(b.subscriptionFiltersStore(region), name)
-	delete(b.metricFiltersStore(region), name)
+	b.groupDelete(region, name)
+	b.deleteStreamsInGroup(region, name)
+	b.deleteSubscriptionFiltersInGroup(region, name)
+	b.deleteMetricFiltersInGroup(region, name)
 
 	return nil
 }
@@ -776,7 +734,7 @@ func (b *InMemoryBackend) SetRetentionPolicy(
 	b.mu.Lock("SetRetentionPolicy")
 	defer b.mu.Unlock()
 
-	g, exists := b.groupsStore(region)[groupName]
+	g, exists := b.groupGet(region, groupName)
 	if !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
@@ -799,7 +757,7 @@ func (b *InMemoryBackend) DescribeLogGroups(
 		limit = defaultDescribeLimit
 	}
 
-	regionGroups := b.groupsStore(region)
+	regionGroups := b.groupsInRegion(region)
 	all := make([]LogGroup, 0, len(regionGroups))
 	for _, g := range regionGroups {
 		if prefix == "" || strings.HasPrefix(g.LogGroupName, prefix) {
@@ -832,12 +790,11 @@ func (b *InMemoryBackend) CreateLogStream(
 	b.mu.Lock("CreateLogStream")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	streams := b.streamsStore(region)
-	if _, exists := streams[groupName][streamName]; exists {
+	if b.streamHas(region, groupName, streamName) {
 		return nil, fmt.Errorf(
 			"%w: Log stream %s already exists",
 			ErrLogStreamAlreadyExist,
@@ -849,9 +806,10 @@ func (b *InMemoryBackend) CreateLogStream(
 		CreationTime:  time.Now().UnixMilli(),
 		LogStreamName: streamName,
 		Arn:           b.streamARN(region, groupName, streamName),
+		region:        region,
+		logGroupName:  groupName,
 	}
-	streams[groupName][streamName] = s
-	b.eventsStore(region)[groupName][streamName] = nil
+	b.streamPut(s)
 
 	return s, nil
 }
@@ -863,23 +821,21 @@ func (b *InMemoryBackend) DeleteLogStream(ctx context.Context, groupName, stream
 	b.mu.Lock("DeleteLogStream")
 	defer b.mu.Unlock()
 
-	groups := b.groupsStore(region)
-	if _, exists := groups[groupName]; !exists {
+	group, groupExists := b.groupGet(region, groupName)
+	if !groupExists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	streams := b.streamsStore(region)
-	if _, exists := streams[groupName][streamName]; !exists {
+	stream, exists := b.streamGet(region, groupName, streamName)
+	if !exists {
 		return fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	stream := streams[groupName][streamName]
-	if stream != nil && groups[groupName] != nil {
-		groups[groupName].StoredBytes -= stream.StoredBytes
+	if stream != nil && group != nil {
+		group.StoredBytes -= stream.StoredBytes
 	}
 
-	delete(streams[groupName], streamName)
-	delete(b.eventsStore(region)[groupName], streamName)
+	b.streamDelete(region, groupName, streamName)
 
 	return nil
 }
@@ -953,7 +909,7 @@ func (b *InMemoryBackend) DescribeLogStreams(
 	b.mu.RLock("DescribeLogStreams")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
@@ -961,7 +917,7 @@ func (b *InMemoryBackend) DescribeLogStreams(
 		limit = defaultDescribeLimit
 	}
 
-	groupStreams := b.streamsStore(region)[groupName]
+	groupStreams := b.streamsInGroup(region, groupName)
 	all := make([]LogStream, 0, len(groupStreams))
 	for _, s := range groupStreams {
 		if prefix == "" || strings.HasPrefix(s.LogStreamName, prefix) {
@@ -1120,27 +1076,23 @@ func (b *InMemoryBackend) PutLogEvents(
 
 	b.mu.Lock("PutLogEvents")
 
-	groups := b.groupsStore(region)
-	if _, exists := groups[groupName]; !exists {
+	group, groupExists := b.groupGet(region, groupName)
+	if !groupExists {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	streams := b.streamsStore(region)
-	groupEvents := b.eventsStore(region)
-	if _, exists := streams[groupName][streamName]; !exists {
+	stream, streamExists := b.streamGet(region, groupName, streamName)
+	if !streamExists {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	stream := streams[groupName][streamName]
-
 	now := time.Now().UnixMilli()
 
 	// Determine the retention cutoff for timestamp validation.
-	group := groups[groupName]
 	var retentionCutoffMs int64
 	if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
 		retentionCutoffMs = now - int64(*group.RetentionInDays)*msPerDay
@@ -1157,10 +1109,10 @@ func (b *InMemoryBackend) PutLogEvents(
 		futureLimit,
 	)
 
-	b.appendEvents(region, groupName, streamName, stream, now, acceptedEvents)
+	b.appendEvents(group, stream, now, acceptedEvents)
 
 	stream.LastIngestionTime = &now
-	nextToken := strconv.FormatInt(int64(len(groupEvents[groupName][streamName])), 10)
+	nextToken := strconv.FormatInt(int64(len(stream.events)), 10)
 
 	// Collect matching subscription filters and metric filter matches while holding the lock.
 	filters := b.matchingFilters(region, groupName, acceptedEvents)
@@ -1221,12 +1173,11 @@ func (b *InMemoryBackend) scheduleFilterDelivery(
 // Note: log events may arrive with out-of-order timestamps (AWS allows this),
 // so min/max timestamp tracking must inspect all events.
 func (b *InMemoryBackend) appendEvents(
-	region, groupName, streamName string, stream *LogStream, now int64, events []InputLogEvent,
+	group *LogGroup, stream *LogStream, now int64, events []InputLogEvent,
 ) {
-	groupEvents := b.eventsStore(region)
-	groups := b.groupsStore(region)
+	groupName, streamName := stream.logGroupName, stream.LogStreamName
 	for _, ev := range events {
-		idx := len(groupEvents[groupName][streamName])
+		idx := len(stream.events)
 		ptr := base64.StdEncoding.EncodeToString(
 			fmt.Appendf(nil, "%s/%s/%d", groupName, streamName, idx),
 		)
@@ -1236,11 +1187,11 @@ func (b *InMemoryBackend) appendEvents(
 			Timestamp:     ev.Timestamp,
 			Ptr:           ptr,
 		}
-		groupEvents[groupName][streamName] = append(groupEvents[groupName][streamName], out)
+		stream.events = append(stream.events, out)
 
 		msgLen := int64(len(ev.Message))
 		stream.StoredBytes += msgLen
-		groups[groupName].StoredBytes += msgLen
+		group.StoredBytes += msgLen
 
 		if stream.FirstEventTimestamp == nil || ev.Timestamp < *stream.FirstEventTimestamp {
 			ts := ev.Timestamp
@@ -1253,12 +1204,12 @@ func (b *InMemoryBackend) appendEvents(
 	}
 
 	// Enforce per-stream event cap: keep only the most recent maxEventsPerStream events.
-	if cur := groupEvents[groupName][streamName]; len(cur) > maxEventsPerStream {
-		groupEvents[groupName][streamName] = cur[len(cur)-maxEventsPerStream:]
+	if cur := stream.events; len(cur) > maxEventsPerStream {
+		stream.events = cur[len(cur)-maxEventsPerStream:]
 		// Recalculate metadata from the remaining events: since events may have
 		// out-of-order timestamps, the dropped events might include the global
 		// min/max, so we must re-scan rather than assume positional ordering.
-		updateStreamTimestamps(stream, groupEvents[groupName][streamName])
+		updateStreamTimestamps(stream, stream.events)
 	}
 }
 
@@ -1282,11 +1233,12 @@ func (b *InMemoryBackend) GetLogEvents(
 	b.mu.RLock("GetLogEvents")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return nil, "", "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streamsStore(region)[groupName][streamName]; !exists {
+	stream, exists := b.streamGet(region, groupName, streamName)
+	if !exists {
 		return nil, "", "", fmt.Errorf(
 			"%w: Log stream %s not found",
 			ErrLogStreamNotFound,
@@ -1294,8 +1246,7 @@ func (b *InMemoryBackend) GetLogEvents(
 		)
 	}
 
-	all := b.eventsStore(region)[groupName][streamName]
-	filtered := filterByTime(all, startTime, endTime)
+	filtered := filterByTime(stream.events, startTime, endTime)
 
 	if limit <= 0 {
 		limit = defaultEventLimit
@@ -1366,7 +1317,7 @@ func (b *InMemoryBackend) FilterLogEvents(
 	b.mu.RLock("FilterLogEvents")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[p.GroupName]; !exists {
+	if !b.groupHas(region, p.GroupName) {
 		return nil, "", nil, fmt.Errorf(
 			"%w: Log group %s not found",
 			ErrLogGroupNotFound,
@@ -1385,12 +1336,15 @@ func (b *InMemoryBackend) FilterLogEvents(
 	if p.LogStreamNamePrefix != "" {
 		streamOrder = filterStreamsByPrefix(streamOrder, p.LogStreamNamePrefix)
 	}
-	groupEvents := b.eventsStore(region)
 
 	var all []taggedEvent
 
 	for _, sName := range streamOrder {
-		for _, ev := range groupEvents[p.GroupName][sName] {
+		stream, ok := b.streamGet(region, p.GroupName, sName)
+		if !ok {
+			continue
+		}
+		for _, ev := range stream.events {
 			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
 			}
@@ -1519,20 +1473,19 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 	b.mu.Lock("PutSubscriptionFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	subFilters := b.subscriptionFiltersStore(region)
-	existing := subFilters[groupName]
+	existing := b.subscriptionFiltersInGroup(region, groupName)
 
 	// Check for a filter with the same name (update).
-	for i, f := range existing {
+	for _, f := range existing {
 		if f.FilterName == filterName {
-			existing[i].FilterPattern = filterPattern
-			existing[i].DestinationArn = destinationArn
-			existing[i].RoleArn = roleArn
-			existing[i].Distribution = distribution
+			f.FilterPattern = filterPattern
+			f.DestinationArn = destinationArn
+			f.RoleArn = roleArn
+			f.Distribution = distribution
 
 			return nil
 		}
@@ -1544,7 +1497,7 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 			ErrSubscriptionFilterLimitExceed, groupName)
 	}
 
-	subFilters[groupName] = append(existing, &SubscriptionFilter{
+	b.subscriptionFilters.Put(&SubscriptionFilter{
 		FilterName:     filterName,
 		FilterPattern:  filterPattern,
 		LogGroupName:   groupName,
@@ -1552,6 +1505,7 @@ func (b *InMemoryBackend) PutSubscriptionFilter(
 		RoleArn:        roleArn,
 		Distribution:   distribution,
 		CreationTime:   time.Now().UnixMilli(),
+		region:         region,
 	})
 
 	return nil
@@ -1568,11 +1522,11 @@ func (b *InMemoryBackend) DescribeSubscriptionFilters(
 	b.mu.RLock("DescribeSubscriptionFilters")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	groupFilters := b.subscriptionFiltersStore(region)[groupName]
+	groupFilters := b.subscriptionFiltersInGroup(region, groupName)
 	all := make([]SubscriptionFilter, 0, len(groupFilters))
 	for _, f := range groupFilters {
 		if filterNamePrefix == "" || strings.HasPrefix(f.FilterName, filterNamePrefix) {
@@ -1612,18 +1566,12 @@ func (b *InMemoryBackend) DeleteSubscriptionFilter(
 	b.mu.Lock("DeleteSubscriptionFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	subFilters := b.subscriptionFiltersStore(region)
-	filters := subFilters[groupName]
-	for i, f := range filters {
-		if f.FilterName == filterName {
-			subFilters[groupName] = append(filters[:i], filters[i+1:]...)
-
-			return nil
-		}
+	if b.subscriptionFilters.Delete(subFilterTableKey(region, groupName, filterName)) {
+		return nil
 	}
 
 	return fmt.Errorf("%w: subscription filter %s not found in log group %s",
@@ -1636,7 +1584,7 @@ func (b *InMemoryBackend) matchingFilters(
 	region, groupName string,
 	events []InputLogEvent,
 ) []*SubscriptionFilter {
-	filters := b.subscriptionFiltersStore(region)[groupName]
+	filters := b.subscriptionFiltersInGroup(region, groupName)
 	if len(filters) == 0 {
 		return nil
 	}
@@ -1672,7 +1620,7 @@ func (b *InMemoryBackend) matchingMetricFilters(
 	region, groupName string,
 	events []InputLogEvent,
 ) []metricFilterMatch {
-	mfMap := b.metricFiltersStore(region)[groupName]
+	mfMap := b.metricFiltersInGroup(region, groupName)
 	if len(mfMap) == 0 {
 		return nil
 	}
@@ -2144,12 +2092,6 @@ func filterByTime(events []*OutputLogEvent, startTime, endTime *int64) []*Output
 	return out
 }
 
-func sortedKeys(m map[string]*LogStream) []string {
-	keys := collections.SortedKeys(m)
-
-	return keys
-}
-
 // filterStreamOrderLocked returns the ordered list of stream names to iterate
 // for FilterLogEvents. When streamNames is empty, all streams in the group are
 // returned in sorted order. When streamNames is non-empty, only the requested
@@ -2159,9 +2101,21 @@ func (b *InMemoryBackend) filterStreamOrderLocked(
 	region, groupName string,
 	streamNames []string,
 ) []string {
-	groupStreams := b.streamsStore(region)[groupName]
+	groupStreams := b.streamsInGroup(region, groupName)
+
 	if len(streamNames) == 0 {
-		return sortedKeys(groupStreams)
+		names := make([]string, len(groupStreams))
+		for i, s := range groupStreams {
+			names[i] = s.LogStreamName
+		}
+		sort.Strings(names)
+
+		return names
+	}
+
+	existing := make(map[string]bool, len(groupStreams))
+	for _, s := range groupStreams {
+		existing[s.LogStreamName] = true
 	}
 
 	seen := make(map[string]bool, len(streamNames))
@@ -2174,7 +2128,7 @@ func (b *InMemoryBackend) filterStreamOrderLocked(
 
 		seen[s] = true
 
-		if _, ok := groupStreams[s]; ok {
+		if existing[s] {
 			out = append(out, s)
 		}
 	}
@@ -2288,13 +2242,13 @@ func (b *InMemoryBackend) evictByTTL() {
 	cutoff := time.Now().Add(-b.queryTTL)
 	newOrder := make([]string, 0, len(b.queriesOrder))
 	for _, qid := range b.queriesOrder {
-		sq, ok := b.queries[qid]
+		sq, ok := b.queries.Get(qid)
 		if !ok {
-			// Entry already removed from the map; drop the stale order reference.
+			// Entry already removed from the table; drop the stale order reference.
 			continue
 		}
 		if sq.createdAt.Before(cutoff) {
-			delete(b.queries, qid)
+			b.queries.Delete(qid)
 
 			continue
 		}
@@ -2312,7 +2266,7 @@ func (b *InMemoryBackend) enforceCap() {
 
 	excess := len(b.queriesOrder) - b.maxQueries
 	for _, qid := range b.queriesOrder[:excess] {
-		delete(b.queries, qid)
+		b.queries.Delete(qid)
 	}
 	b.queriesOrder = b.queriesOrder[excess:]
 }
@@ -2359,22 +2313,16 @@ func (b *InMemoryBackend) collectQueryEvents(
 	var eventsOut []*OutputLogEvent
 	var recordsScanned, bytesScanned float64
 
-	groupEvents := b.eventsStore(region)
-	streams := b.streamsStore(region)
 	for _, groupName := range logGroupNames {
-		streamMap, exists := groupEvents[groupName]
-		if !exists {
-			continue
-		}
-		for streamName, evts := range streamMap {
+		for _, stream := range b.streamsInGroup(region, groupName) {
 			// Narrow the scan by log stream: a stream whose [first,last] event
 			// window does not overlap the query's [startTime,endTime] range holds
 			// no matching records, so skip it entirely instead of scanning every
 			// event. This bounds the scan to streams that can contribute results.
-			if streamOutsideWindow(streams[groupName][streamName], startTime, endTime) {
+			if streamOutsideWindow(stream, startTime, endTime) {
 				continue
 			}
-			matched, records, bytes := scanStreamEvents(evts, startTime, endTime)
+			matched, records, bytes := scanStreamEvents(stream.events, startTime, endTime)
 			eventsOut = append(eventsOut, matched...)
 			recordsScanned += records
 			bytesScanned += bytes
@@ -2493,11 +2441,11 @@ func (b *InMemoryBackend) StartQuery(
 
 	// If this queryID already exists, remove its stale position in queriesOrder to
 	// prevent duplicates that could cause map-miss panics or over-counting.
-	if _, exists := b.queries[queryID]; exists {
+	if b.queries.Has(queryID) {
 		b.removeFromOrder(queryID)
 	}
 
-	b.queries[queryID] = sq
+	b.queries.Put(sq)
 	b.queriesOrder = append(b.queriesOrder, queryID)
 
 	// Enforce the cap after inserting so the new entry counts against the limit.
@@ -2513,7 +2461,7 @@ func (b *InMemoryBackend) GetQueryResults(
 	queryID string,
 ) ([][]ResultField, QueryStatistics, QueryStatus, error) {
 	b.mu.RLock("GetQueryResults")
-	sq, ok := b.queries[queryID]
+	sq, ok := b.queries.Get(queryID)
 	b.mu.RUnlock()
 
 	if !ok {
@@ -2540,7 +2488,7 @@ func (b *InMemoryBackend) StopQuery(queryID string) error {
 	b.mu.Lock("StopQuery")
 	defer b.mu.Unlock()
 
-	sq, ok := b.queries[queryID]
+	sq, ok := b.queries.Get(queryID)
 	if !ok {
 		return fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
@@ -2565,7 +2513,7 @@ func (b *InMemoryBackend) DescribeQueries(
 
 	all := make([]QueryInfo, 0, len(b.queriesOrder))
 	for _, qid := range b.queriesOrder {
-		sq, ok := b.queries[qid]
+		sq, ok := b.queries.Get(qid)
 		if !ok {
 			continue
 		}
@@ -2607,35 +2555,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.groups = make(map[string]map[string]*LogGroup)
-	b.streams = make(map[string]map[string]map[string]*LogStream)
-	b.events = make(map[string]map[string]map[string][]*OutputLogEvent)
-	b.subscriptionFilters = make(map[string]map[string][]*SubscriptionFilter)
-	b.queries = make(map[string]*storedQuery)
+	b.registry.ResetAll()
+	b.ephemeralRegistry.ResetAll()
+	b.groups.Reset()
+	b.streams.Reset()
+	b.subscriptionFilters.Reset()
+	b.metricFilters.Reset()
+
 	b.queriesOrder = nil
-	b.parsedQueries = make(map[string]*insightsQuery)
 	b.parsedQueriesOrder = nil
-	b.exportTasks = make(map[string]*ExportTask)
-	b.importTasks = make(map[string]*ImportTask)
-	b.deliveries = make(map[string]*Delivery)
-	b.logAnomalyDetectors = make(map[string]*LogAnomalyDetector)
-	b.anomalies = make(map[string]map[string]*Anomaly)
-	b.scheduledQueries = make(map[string]*ScheduledQuery)
-	b.scheduledQueryRuns = make(map[string][]*ScheduledQueryRunSummary)
-	b.accountPolicies = make(map[string]*AccountPolicy)
-	b.kmsKeys = make(map[string]string)
-	b.s3TableIntegrations = make(map[string]string)
-	b.metricFilters = make(map[string]map[string]map[string]*MetricFilter)
-	b.queryDefinitions = make(map[string]*QueryDefinition)
-	b.dataProtectionPolicies = make(map[string]string)
-	b.resourcePolicies = make(map[string]ResourcePolicy)
-	b.deliveryDestinations = make(map[string]DeliveryDestination)
-	b.deliverySources = make(map[string]DeliverySource)
-	b.destinations = make(map[string]CWLDestination)
-	b.indexPolicies = make(map[string]IndexPolicy)
-	b.transformers = make(map[string]Transformer)
-	b.integrations = make(map[string]CWLIntegration)
-	b.deletionProtected = make(map[string]bool)
+	b.parsedQueries = make(map[string]*insightsQuery)
 
 	b.compiledPatternsMu.Lock()
 	b.compiledPatterns = make(map[string]*compiledFilterPattern)
@@ -2652,7 +2581,10 @@ func (b *InMemoryBackend) PutDataProtectionPolicy(logGroupIdentifier, policyDocu
 	b.mu.Lock("PutDataProtectionPolicy")
 	defer b.mu.Unlock()
 
-	b.dataProtectionPolicies[logGroupIdentifier] = policyDocument
+	b.dataProtectionPolicies.Put(&dataProtectionPolicyEntry{
+		LogGroupIdentifier: logGroupIdentifier,
+		PolicyDocument:     policyDocument,
+	})
 
 	return nil
 }
@@ -2663,12 +2595,12 @@ func (b *InMemoryBackend) GetDataProtectionPolicy(logGroupIdentifier string) (st
 	b.mu.RLock("GetDataProtectionPolicy")
 	defer b.mu.RUnlock()
 
-	policy, ok := b.dataProtectionPolicies[logGroupIdentifier]
+	entry, ok := b.dataProtectionPolicies.Get(logGroupIdentifier)
 	if !ok {
 		return "{}", nil
 	}
 
-	return policy, nil
+	return entry.PolicyDocument, nil
 }
 
 // DeleteDataProtectionPolicy removes the data protection policy for a log group.
@@ -2676,7 +2608,7 @@ func (b *InMemoryBackend) DeleteDataProtectionPolicy(logGroupIdentifier string) 
 	b.mu.Lock("DeleteDataProtectionPolicy")
 	defer b.mu.Unlock()
 
-	delete(b.dataProtectionPolicies, logGroupIdentifier)
+	b.dataProtectionPolicies.Delete(logGroupIdentifier)
 
 	return nil
 }
@@ -2703,7 +2635,7 @@ func (b *InMemoryBackend) AssociateKmsKey(logGroupName, resourceIdentifier, kmsK
 		key = resourceIdentifier
 	}
 
-	b.kmsKeys[key] = kmsKeyID
+	b.kmsKeys.Put(&kmsKeyEntry{Key: key, KmsKeyID: kmsKeyID})
 
 	return nil
 }
@@ -2722,7 +2654,7 @@ func (b *InMemoryBackend) AssociateSourceToS3TableIntegration(
 	b.mu.Lock("AssociateSourceToS3TableIntegration")
 	defer b.mu.Unlock()
 
-	b.s3TableIntegrations[id] = integrationArn
+	b.s3TableIntegrations.Put(&s3TableIntegrationEntry{ID: id, IntegrationArn: integrationArn})
 
 	return id, nil
 }
@@ -2737,7 +2669,7 @@ func (b *InMemoryBackend) CancelExportTask(taskID string) error {
 	b.mu.Lock("CancelExportTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.exportTasks[taskID]
+	task, ok := b.exportTasks.Get(taskID)
 	if !ok {
 		return fmt.Errorf("%w: export task %s not found", ErrExportTaskNotFound, taskID)
 	}
@@ -2763,7 +2695,7 @@ func (b *InMemoryBackend) CancelImportTask(importID string) (*ImportTask, error)
 	b.mu.Lock("CancelImportTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.importTasks[importID]
+	task, ok := b.importTasks.Get(importID)
 	if !ok {
 		return nil, fmt.Errorf("%w: import task %s not found", ErrImportTaskNotFound, importID)
 	}
@@ -2811,7 +2743,7 @@ func (b *InMemoryBackend) CreateDelivery(
 	b.mu.Lock("CreateDelivery")
 	defer b.mu.Unlock()
 
-	b.deliveries[id] = d
+	b.deliveries.Put(d)
 
 	cp := *d
 	cp.Tags = maps.Clone(d.Tags)
@@ -2856,13 +2788,13 @@ func (b *InMemoryBackend) CreateExportTask(
 	}
 
 	b.mu.Lock("CreateExportTask")
-	if len(b.exportTasks) >= maxExportTasks {
+	if b.exportTasks.Len() >= maxExportTasks {
 		b.mu.Unlock()
 
 		return "", fmt.Errorf("%w: export task limit exceeded", ErrValidation)
 	}
 
-	b.exportTasks[task.TaskID] = task
+	b.exportTasks.Put(task)
 	sink := b.exportSink
 	b.mu.Unlock()
 
@@ -2880,7 +2812,7 @@ func (b *InMemoryBackend) finishExport(task *ExportTask) {
 	b.mu.Lock("finishExport")
 	defer b.mu.Unlock()
 
-	stored, ok := b.exportTasks[task.TaskID]
+	stored, ok := b.exportTasks.Get(task.TaskID)
 	if !ok {
 		return
 	}
@@ -2926,11 +2858,11 @@ func (b *InMemoryBackend) CreateImportTask(
 	b.mu.Lock("CreateImportTask")
 	defer b.mu.Unlock()
 
-	if len(b.importTasks) >= maxImportTasks {
+	if b.importTasks.Len() >= maxImportTasks {
 		return nil, fmt.Errorf("%w: import task limit exceeded", ErrValidation)
 	}
 
-	b.importTasks[importID] = task
+	b.importTasks.Put(task)
 
 	cp := *task
 
@@ -2990,11 +2922,11 @@ func (b *InMemoryBackend) CreateLogAnomalyDetector(
 	b.mu.Lock("CreateLogAnomalyDetector")
 	defer b.mu.Unlock()
 
-	if len(b.logAnomalyDetectors) >= maxAnomalyDetectors {
+	if b.logAnomalyDetectors.Len() >= maxAnomalyDetectors {
 		return "", fmt.Errorf("%w: anomaly detector limit exceeded", ErrValidation)
 	}
 
-	b.logAnomalyDetectors[detectorARN] = detector
+	b.logAnomalyDetectors.Put(detector)
 
 	return detectorARN, nil
 }
@@ -3039,22 +2971,25 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	b.mu.Lock("CreateScheduledQuery")
 	defer b.mu.Unlock()
 
-	if len(b.scheduledQueries) >= maxScheduledQueries {
+	if b.scheduledQueries.Len() >= maxScheduledQueries {
 		return "", fmt.Errorf("%w: scheduled query limit exceeded", ErrValidation)
 	}
 
-	b.scheduledQueries[queryARN] = sq
+	b.scheduledQueries.Put(sq)
 
 	// Seed an initial SUCCEEDED run so history is non-empty from creation.
 	now := time.Now().UnixMilli()
-	b.scheduledQueryRuns[queryARN] = []*ScheduledQueryRunSummary{
-		{
-			Arn:            queryARN,
-			RunStatus:      "SUCCEEDED",
-			ExecutionTime:  now,
-			InvocationTime: now,
+	b.scheduledQueryRuns.Put(&scheduledQueryRunHistory{
+		Arn: queryARN,
+		Runs: []*ScheduledQueryRunSummary{
+			{
+				Arn:            queryARN,
+				RunStatus:      "SUCCEEDED",
+				ExecutionTime:  now,
+				InvocationTime: now,
+			},
 		},
-	}
+	})
 
 	return queryARN, nil
 }
@@ -3077,7 +3012,7 @@ func (b *InMemoryBackend) DeleteAccountPolicy(policyName, policyType string) err
 	defer b.mu.Unlock()
 
 	key := policyName + ":" + policyType
-	delete(b.accountPolicies, key)
+	b.accountPolicies.Delete(key)
 
 	return nil
 }
@@ -3093,7 +3028,7 @@ func (b *InMemoryBackend) DescribeExportTasks(
 	defer b.mu.Unlock()
 
 	now := time.Now().UnixMilli()
-	for _, t := range b.exportTasks {
+	for _, t := range b.exportTasks.All() {
 		age := now - t.CreationTime
 		if age > maxExportTaskAgeMs {
 			continue
@@ -3106,8 +3041,8 @@ func (b *InMemoryBackend) DescribeExportTasks(
 		}
 	}
 
-	all := make([]ExportTask, 0, len(b.exportTasks))
-	for _, t := range b.exportTasks {
+	all := make([]ExportTask, 0, b.exportTasks.Len())
+	for _, t := range b.exportTasks.All() {
 		if taskID != "" && t.TaskID != taskID {
 			continue
 		}
@@ -3145,8 +3080,8 @@ func (b *InMemoryBackend) DescribeImportTasks(
 	b.mu.RLock("DescribeImportTasks")
 	defer b.mu.RUnlock()
 
-	all := make([]ImportTask, 0, len(b.importTasks))
-	for _, t := range b.importTasks {
+	all := make([]ImportTask, 0, b.importTasks.Len())
+	for _, t := range b.importTasks.All() {
 		if taskID != "" && t.ImportID != taskID {
 			continue
 		}
@@ -3180,8 +3115,8 @@ func (b *InMemoryBackend) DescribeDeliveries(
 	b.mu.RLock("DescribeDeliveries")
 	defer b.mu.RUnlock()
 
-	all := make([]Delivery, 0, len(b.deliveries))
-	for _, d := range b.deliveries {
+	all := make([]Delivery, 0, b.deliveries.Len())
+	for _, d := range b.deliveries.All() {
 		cp := *d
 		cp.Tags = maps.Clone(d.Tags)
 		all = append(all, cp)
@@ -3215,7 +3150,7 @@ func (b *InMemoryBackend) GetDelivery(id string) (*Delivery, error) {
 	b.mu.RLock("GetDelivery")
 	defer b.mu.RUnlock()
 
-	d, ok := b.deliveries[id]
+	d, ok := b.deliveries.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: delivery %s not found", ErrDeliveryNotFound, id)
 	}
@@ -3234,10 +3169,9 @@ func (b *InMemoryBackend) DeleteDelivery(id string) error {
 	b.mu.Lock("DeleteDelivery")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deliveries[id]; !ok {
+	if !b.deliveries.Delete(id) {
 		return fmt.Errorf("%w: delivery %s not found", ErrDeliveryNotFound, id)
 	}
-	delete(b.deliveries, id)
 
 	return nil
 }
@@ -3251,14 +3185,13 @@ func (b *InMemoryBackend) DeleteLogAnomalyDetector(detectorArn string) error {
 	b.mu.Lock("DeleteLogAnomalyDetector")
 	defer b.mu.Unlock()
 
-	if _, ok := b.logAnomalyDetectors[detectorArn]; !ok {
+	if !b.logAnomalyDetectors.Delete(detectorArn) {
 		return fmt.Errorf(
 			"%w: anomaly detector %s not found",
 			ErrLogAnomalyDetectorNotFound,
 			detectorArn,
 		)
 	}
-	delete(b.logAnomalyDetectors, detectorArn)
 
 	return nil
 }
@@ -3277,8 +3210,8 @@ func (b *InMemoryBackend) ListLogAnomalyDetectors(
 		filterSet[a] = true
 	}
 
-	all := make([]LogAnomalyDetector, 0, len(b.logAnomalyDetectors))
-	for _, d := range b.logAnomalyDetectors {
+	all := make([]LogAnomalyDetector, 0, b.logAnomalyDetectors.Len())
+	for _, d := range b.logAnomalyDetectors.All() {
 		if len(filterSet) > 0 {
 			match := false
 			for _, a := range d.LogGroupArnList {
@@ -3340,7 +3273,7 @@ func (b *InMemoryBackend) UpdateLogAnomalyDetector(
 	b.mu.Lock("UpdateLogAnomalyDetector")
 	defer b.mu.Unlock()
 
-	d, ok := b.logAnomalyDetectors[detectorArn]
+	d, ok := b.logAnomalyDetectors.Get(detectorArn)
 	if !ok {
 		return fmt.Errorf(
 			"%w: anomaly detector %s not found",
@@ -3379,14 +3312,13 @@ func (b *InMemoryBackend) DeleteScheduledQuery(scheduledQueryArn string) error {
 	b.mu.Lock("DeleteScheduledQuery")
 	defer b.mu.Unlock()
 
-	if _, ok := b.scheduledQueries[scheduledQueryArn]; !ok {
+	if !b.scheduledQueries.Delete(scheduledQueryArn) {
 		return fmt.Errorf(
 			"%w: scheduled query %s not found",
 			ErrScheduledQueryNotFound,
 			scheduledQueryArn,
 		)
 	}
-	delete(b.scheduledQueries, scheduledQueryArn)
 
 	return nil
 }
@@ -3399,8 +3331,8 @@ func (b *InMemoryBackend) ListScheduledQueries(
 	b.mu.RLock("ListScheduledQueries")
 	defer b.mu.RUnlock()
 
-	all := make([]ScheduledQuery, 0, len(b.scheduledQueries))
-	for _, sq := range b.scheduledQueries {
+	all := make([]ScheduledQuery, 0, b.scheduledQueries.Len())
+	for _, sq := range b.scheduledQueries.All() {
 		all = append(all, *sq)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].CreationTime < all[j].CreationTime })
@@ -3438,7 +3370,7 @@ func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) 
 	b.mu.Lock("UpdateScheduledQuery")
 	defer b.mu.Unlock()
 
-	sq, ok := b.scheduledQueries[scheduledQueryArn]
+	sq, ok := b.scheduledQueries.Get(scheduledQueryArn)
 	if !ok {
 		return fmt.Errorf(
 			"%w: scheduled query %s not found",
@@ -3485,7 +3417,6 @@ func (b *InMemoryBackend) PutAccountPolicy(
 	b.mu.Lock("PutAccountPolicy")
 	defer b.mu.Unlock()
 
-	key := policyName + ":" + policyType
 	p := &AccountPolicy{
 		PolicyName:        policyName,
 		PolicyType:        policyType,
@@ -3493,7 +3424,7 @@ func (b *InMemoryBackend) PutAccountPolicy(
 		Scope:             scope,
 		SelectionCriteria: selectionCriteria,
 	}
-	b.accountPolicies[key] = p
+	b.accountPolicies.Put(p)
 	cp := *p
 
 	return &cp, nil
@@ -3516,8 +3447,8 @@ func (b *InMemoryBackend) DescribeAccountPolicies(
 	b.mu.RLock("DescribeAccountPolicies")
 	defer b.mu.RUnlock()
 
-	all := make([]AccountPolicy, 0, len(b.accountPolicies))
-	for _, p := range b.accountPolicies {
+	all := make([]AccountPolicy, 0, b.accountPolicies.Len())
+	for _, p := range b.accountPolicies.All() {
 		if policyType != "" && p.PolicyType != policyType {
 			continue
 		}
@@ -3563,7 +3494,7 @@ func (b *InMemoryBackend) DisassociateKmsKey(logGroupName, resourceIdentifier st
 	if key == "" {
 		key = resourceIdentifier
 	}
-	delete(b.kmsKeys, key)
+	b.kmsKeys.Delete(key)
 
 	return nil
 }
@@ -3589,18 +3520,13 @@ func (b *InMemoryBackend) PutMetricFilter(
 	b.mu.Lock("PutMetricFilter")
 	defer b.mu.Unlock()
 
-	groups := b.groupsStore(region)
-	if _, exists := groups[logGroupName]; !exists {
+	group, exists := b.groupGet(region, logGroupName)
+	if !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
-	metricFilters := b.metricFiltersStore(region)
-	if metricFilters[logGroupName] == nil {
-		metricFilters[logGroupName] = make(map[string]*MetricFilter)
-	}
-
 	creationTime := time.Now().UnixMilli()
-	if existing, ok := metricFilters[logGroupName][filterName]; ok {
+	if existing, ok := b.metricFilterGet(region, logGroupName, filterName); ok {
 		creationTime = existing.CreationTime
 	}
 
@@ -3610,10 +3536,11 @@ func (b *InMemoryBackend) PutMetricFilter(
 		FilterPattern:         filterPattern,
 		MetricTransformations: append([]MetricTransformation(nil), transformations...),
 		CreationTime:          creationTime,
+		region:                region,
 	}
-	metricFilters[logGroupName][filterName] = mf
-	count := len(metricFilters[logGroupName])
-	groups[logGroupName].MetricFilterCount = int32(
+	b.metricFilters.Put(mf)
+	count := len(b.metricFiltersInGroup(region, logGroupName))
+	group.MetricFilterCount = int32(
 		count,
 	) // #nosec G115 -- count bounded by AWS API limit
 
@@ -3631,21 +3558,26 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 	b.mu.RLock("DescribeMetricFilters")
 	defer b.mu.RUnlock()
 
+	var filterSet []*MetricFilter
+	if logGroupName != "" {
+		filterSet = b.metricFiltersInGroup(region, logGroupName)
+	} else {
+		filterSet = b.metricFilters.All()
+	}
+
 	var all []MetricFilter
-	for grp, filters := range b.metricFiltersStore(region) {
-		if logGroupName != "" && grp != logGroupName {
+	for _, mf := range filterSet {
+		if mf.region != region {
 			continue
 		}
-		for _, mf := range filters {
-			if !metricFilterMatches(mf, filterNamePrefix, metricName, metricNamespace) {
-				continue
-			}
-			cp := *mf
-			cp.MetricTransformations = append(
-				[]MetricTransformation(nil),
-				mf.MetricTransformations...)
-			all = append(all, cp)
+		if !metricFilterMatches(mf, filterNamePrefix, metricName, metricNamespace) {
+			continue
 		}
+		cp := *mf
+		cp.MetricTransformations = append(
+			[]MetricTransformation(nil),
+			mf.MetricTransformations...)
+		all = append(all, cp)
 	}
 	sort.Slice(all, func(i, j int) bool {
 		if all[i].LogGroupName != all[j].LogGroupName {
@@ -3711,14 +3643,12 @@ func (b *InMemoryBackend) DeleteMetricFilter(
 	b.mu.Lock("DeleteMetricFilter")
 	defer b.mu.Unlock()
 
-	groups := b.groupsStore(region)
-	if _, exists := groups[logGroupName]; !exists {
+	group, exists := b.groupGet(region, logGroupName)
+	if !exists {
 		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
-	metricFilters := b.metricFiltersStore(region)
-	filters := metricFilters[logGroupName]
-	if _, ok := filters[filterName]; !ok {
+	if !b.metricFilters.Delete(metricFilterTableKey(region, logGroupName, filterName)) {
 		return fmt.Errorf(
 			"%w: metric filter %s not found in log group %s",
 			ErrMetricFilterNotFound,
@@ -3726,12 +3656,8 @@ func (b *InMemoryBackend) DeleteMetricFilter(
 			logGroupName,
 		)
 	}
-	delete(filters, filterName)
-	if len(filters) == 0 {
-		delete(metricFilters, logGroupName)
-	}
-	count := len(metricFilters[logGroupName])
-	groups[logGroupName].MetricFilterCount = int32(
+	count := len(b.metricFiltersInGroup(region, logGroupName))
+	group.MetricFilterCount = int32(
 		count,
 	) // #nosec G115 -- count bounded by AWS API limit
 
@@ -3790,18 +3716,16 @@ func (b *InMemoryBackend) PutQueryDefinition(
 	id := queryDefinitionID
 	if id == "" {
 		// New entry: enforce the cap.
-		if len(b.queryDefinitions) >= maxQueryDefinitions {
+		if b.queryDefinitions.Len() >= maxQueryDefinitions {
 			return "", fmt.Errorf("%w: query definition limit exceeded", ErrValidation)
 		}
 		id = uuid.New().String()
-	} else {
+	} else if !b.queryDefinitions.Has(id) {
 		// Update path: the supplied ID must reference an existing definition.
-		if _, exists := b.queryDefinitions[id]; !exists {
-			return "", fmt.Errorf(
-				"%w: query definition %s not found",
-				ErrQueryDefinitionNotFound, id,
-			)
-		}
+		return "", fmt.Errorf(
+			"%w: query definition %s not found",
+			ErrQueryDefinitionNotFound, id,
+		)
 	}
 	qd := &QueryDefinition{
 		QueryDefinitionID: id,
@@ -3810,7 +3734,7 @@ func (b *InMemoryBackend) PutQueryDefinition(
 		LogGroupNames:     slices.Clone(logGroupNames),
 		LastModified:      time.Now().UnixMilli(),
 	}
-	b.queryDefinitions[id] = qd
+	b.queryDefinitions.Put(qd)
 
 	return id, nil
 }
@@ -3824,8 +3748,8 @@ func (b *InMemoryBackend) DescribeQueryDefinitions(
 	b.mu.RLock("DescribeQueryDefinitions")
 	defer b.mu.RUnlock()
 
-	all := make([]QueryDefinition, 0, len(b.queryDefinitions))
-	for _, qd := range b.queryDefinitions {
+	all := make([]QueryDefinition, 0, b.queryDefinitions.Len())
+	for _, qd := range b.queryDefinitions.All() {
 		if queryDefinitionNamePrefix != "" &&
 			!strings.HasPrefix(qd.Name, queryDefinitionNamePrefix) {
 			continue
@@ -3863,14 +3787,13 @@ func (b *InMemoryBackend) DeleteQueryDefinition(queryDefinitionID string) error 
 	b.mu.Lock("DeleteQueryDefinition")
 	defer b.mu.Unlock()
 
-	if _, ok := b.queryDefinitions[queryDefinitionID]; !ok {
+	if !b.queryDefinitions.Delete(queryDefinitionID) {
 		return fmt.Errorf(
 			"%w: query definition %s not found",
 			ErrQueryDefinitionNotFound,
 			queryDefinitionID,
 		)
 	}
-	delete(b.queryDefinitions, queryDefinitionID)
 
 	return nil
 }
@@ -3882,7 +3805,7 @@ func (b *InMemoryBackend) AddExportTaskInternal(task ExportTask) {
 	defer b.mu.Unlock()
 
 	t := task
-	b.exportTasks[task.TaskID] = &t
+	b.exportTasks.Put(&t)
 }
 
 // AddImportTaskInternal seeds an ImportTask directly into the store for testing.
@@ -3892,7 +3815,7 @@ func (b *InMemoryBackend) AddImportTaskInternal(task ImportTask) {
 	defer b.mu.Unlock()
 
 	t := task
-	b.importTasks[task.ImportID] = &t
+	b.importTasks.Put(&t)
 }
 
 // AddDeliveryInternal seeds a Delivery directly into the store for testing.
@@ -3903,7 +3826,7 @@ func (b *InMemoryBackend) AddDeliveryInternal(delivery Delivery) {
 
 	d := delivery
 	d.Tags = maps.Clone(delivery.Tags)
-	b.deliveries[delivery.ID] = &d
+	b.deliveries.Put(&d)
 }
 
 // AddLogAnomalyDetectorInternal seeds a LogAnomalyDetector directly into the store for testing.
@@ -3914,7 +3837,7 @@ func (b *InMemoryBackend) AddLogAnomalyDetectorInternal(detector LogAnomalyDetec
 
 	d := detector
 	d.LogGroupArnList = slices.Clone(detector.LogGroupArnList)
-	b.logAnomalyDetectors[detector.AnomalyDetectorArn] = &d
+	b.logAnomalyDetectors.Put(&d)
 }
 
 // AddAnomalyInternal seeds an Anomaly directly into the store for testing.
@@ -3923,12 +3846,8 @@ func (b *InMemoryBackend) AddAnomalyInternal(anomaly Anomaly) {
 	b.mu.Lock("AddAnomalyInternal")
 	defer b.mu.Unlock()
 
-	if b.anomalies[anomaly.AnomalyDetectorArn] == nil {
-		b.anomalies[anomaly.AnomalyDetectorArn] = make(map[string]*Anomaly)
-	}
-
 	a := anomaly
-	b.anomalies[anomaly.AnomalyDetectorArn][anomaly.AnomalyID] = &a
+	b.anomalies.Put(&a)
 }
 
 // AddScheduledQueryRunInternal seeds a ScheduledQueryRunSummary for testing.
@@ -3940,7 +3859,12 @@ func (b *InMemoryBackend) AddScheduledQueryRunInternal(
 	defer b.mu.Unlock()
 
 	r := run
-	b.scheduledQueryRuns[scheduledQueryArn] = append(b.scheduledQueryRuns[scheduledQueryArn], &r)
+	history, ok := b.scheduledQueryRuns.Get(scheduledQueryArn)
+	if !ok {
+		history = &scheduledQueryRunHistory{Arn: scheduledQueryArn}
+	}
+	history.Runs = append(history.Runs, &r)
+	b.scheduledQueryRuns.Put(history)
 }
 
 // SetQueryStatusInternal sets the status of an existing query for testing.
@@ -3949,7 +3873,7 @@ func (b *InMemoryBackend) SetQueryStatusInternal(queryID string, status QuerySta
 	b.mu.Lock("SetQueryStatusInternal")
 	defer b.mu.Unlock()
 
-	if sq, ok := b.queries[queryID]; ok {
+	if sq, ok := b.queries.Get(queryID); ok {
 		sq.info.Status = status
 	}
 }
@@ -3991,7 +3915,7 @@ func (b *InMemoryBackend) GetLogAnomalyDetector(detectorArn string) (*LogAnomaly
 	b.mu.RLock("GetLogAnomalyDetector")
 	defer b.mu.RUnlock()
 
-	d, ok := b.logAnomalyDetectors[detectorArn]
+	d, ok := b.logAnomalyDetectors.Get(detectorArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: anomaly detector %s not found",
@@ -4014,7 +3938,7 @@ func (b *InMemoryBackend) GetScheduledQuery(scheduledQueryArn string) (*Schedule
 	b.mu.RLock("GetScheduledQuery")
 	defer b.mu.RUnlock()
 
-	sq, ok := b.scheduledQueries[scheduledQueryArn]
+	sq, ok := b.scheduledQueries.Get(scheduledQueryArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled query %s not found",
@@ -4053,7 +3977,7 @@ func (b *InMemoryBackend) GetLogGroupFields(
 	b.mu.RLock("GetLogGroupFields")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[logGroupName]; !exists {
+	if !b.groupHas(region, logGroupName) {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
@@ -4093,20 +4017,20 @@ func (b *InMemoryBackend) GetLogRecord(
 	b.mu.RLock("GetLogRecord")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[groupName]; !exists {
+	if !b.groupHas(region, groupName) {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
 	}
 
-	if _, exists := b.streamsStore(region)[groupName][streamName]; !exists {
+	stream, exists := b.streamGet(region, groupName, streamName)
+	if !exists {
 		return nil, fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
 	}
 
-	evts := b.eventsStore(region)[groupName][streamName]
-	if idx >= len(evts) {
+	if idx >= len(stream.events) {
 		return nil, fmt.Errorf("%w: log record index %d out of range", ErrValidation, idx)
 	}
 
-	ev := evts[idx]
+	ev := stream.events[idx]
 	result := map[string]string{
 		keyMessageField:  ev.Message,
 		keyTimestamp:     strconv.FormatInt(ev.Timestamp, 10),
@@ -4128,7 +4052,7 @@ func (b *InMemoryBackend) ListAnomalies(
 	defer b.mu.RUnlock()
 
 	if anomalyDetectorArn != "" {
-		if _, ok := b.logAnomalyDetectors[anomalyDetectorArn]; !ok {
+		if !b.logAnomalyDetectors.Has(anomalyDetectorArn) {
 			return nil, "", fmt.Errorf(
 				"%w: anomaly detector %s not found",
 				ErrLogAnomalyDetectorNotFound,
@@ -4139,14 +4063,12 @@ func (b *InMemoryBackend) ListAnomalies(
 
 	var all []Anomaly
 	if anomalyDetectorArn != "" {
-		for _, a := range b.anomalies[anomalyDetectorArn] {
+		for _, a := range b.anomalyByDetector.Get(anomalyDetectorArn) {
 			all = append(all, *a)
 		}
 	} else {
-		for _, detectorAnomalies := range b.anomalies {
-			for _, a := range detectorAnomalies {
-				all = append(all, *a)
-			}
+		for _, a := range b.anomalies.All() {
+			all = append(all, *a)
 		}
 	}
 
@@ -4181,7 +4103,7 @@ func (b *InMemoryBackend) ListLogGroupsForQuery(queryID string) ([]string, error
 	b.mu.RLock("ListLogGroupsForQuery")
 	defer b.mu.RUnlock()
 
-	sq, ok := b.queries[queryID]
+	sq, ok := b.queries.Get(queryID)
 	if !ok {
 		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
@@ -4205,7 +4127,7 @@ func (b *InMemoryBackend) GetScheduledQueryHistory(
 	b.mu.RLock("GetScheduledQueryHistory")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.scheduledQueries[scheduledQueryArn]; !ok {
+	if !b.scheduledQueries.Has(scheduledQueryArn) {
 		return nil, "", fmt.Errorf(
 			"%w: scheduled query %s not found",
 			ErrScheduledQueryNotFound,
@@ -4213,7 +4135,10 @@ func (b *InMemoryBackend) GetScheduledQueryHistory(
 		)
 	}
 
-	runs := b.scheduledQueryRuns[scheduledQueryArn]
+	var runs []*ScheduledQueryRunSummary
+	if history, ok := b.scheduledQueryRuns.Get(scheduledQueryArn); ok {
+		runs = history.Runs
+	}
 	all := make([]ScheduledQueryRunSummary, 0, len(runs))
 	for _, r := range runs {
 		all = append(all, *r)
@@ -4256,7 +4181,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 	b.mu.Lock("UpdateAnomaly")
 	defer b.mu.Unlock()
 
-	if _, ok := b.logAnomalyDetectors[anomalyDetectorArn]; !ok {
+	if !b.logAnomalyDetectors.Has(anomalyDetectorArn) {
 		return fmt.Errorf(
 			"%w: anomaly detector %s not found",
 			ErrLogAnomalyDetectorNotFound,
@@ -4264,17 +4189,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 		)
 	}
 
-	detectorAnomalies, ok := b.anomalies[anomalyDetectorArn]
-	if !ok {
-		return fmt.Errorf(
-			"%w: anomaly %s not found in detector %s",
-			ErrLogAnomalyDetectorNotFound,
-			anomalyID,
-			anomalyDetectorArn,
-		)
-	}
-
-	anomaly, ok := detectorAnomalies[anomalyID]
+	anomaly, ok := b.anomalies.Get(anomalyTableKey(anomalyDetectorArn, anomalyID))
 	if !ok {
 		return fmt.Errorf(
 			"%w: anomaly %s not found in detector %s",

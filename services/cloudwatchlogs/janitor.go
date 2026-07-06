@@ -104,23 +104,21 @@ func (j *Janitor) retentionTargets(now time.Time) []retentionTarget {
 	defer j.Backend.mu.RUnlock()
 
 	var targets []retentionTarget
-	for region, regionGroups := range j.Backend.groups {
-		for groupName, group := range regionGroups {
-			days := j.Backend.settings.MaxRetentionDays
-			if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
-				days = int(*group.RetentionInDays)
-			}
-
-			if days <= 0 {
-				continue
-			}
-
-			targets = append(targets, retentionTarget{
-				region:    region,
-				groupName: groupName,
-				cutoffMs:  now.AddDate(0, 0, -days).UnixMilli(),
-			})
+	for _, group := range j.Backend.groups.All() {
+		days := j.Backend.settings.MaxRetentionDays
+		if group.RetentionInDays != nil && *group.RetentionInDays > 0 {
+			days = int(*group.RetentionInDays)
 		}
+
+		if days <= 0 {
+			continue
+		}
+
+		targets = append(targets, retentionTarget{
+			region:    group.region,
+			groupName: group.LogGroupName,
+			cutoffMs:  now.AddDate(0, 0, -days).UnixMilli(),
+		})
 	}
 
 	return targets
@@ -141,13 +139,14 @@ func (j *Janitor) buildEvictionPlan(region, groupName string, cutoffMs int64) []
 	j.Backend.mu.RLock("JanitorBuildEvictionPlan")
 	defer j.Backend.mu.RUnlock()
 
-	groupEventsMap := j.Backend.events[region][groupName]
-	if len(groupEventsMap) == 0 {
+	groupStreams := j.Backend.streamsInGroup(region, groupName)
+	if len(groupStreams) == 0 {
 		return nil
 	}
 
 	var plan []streamEvictionPlan
-	for streamName, evts := range groupEventsMap {
+	for _, stream := range groupStreams {
+		evts := stream.events
 		kept := make([]*OutputLogEvent, 0, len(evts))
 		var evictedBytes int64
 		var evictedCount int
@@ -163,7 +162,7 @@ func (j *Janitor) buildEvictionPlan(region, groupName string, cutoffMs int64) []
 			continue
 		}
 		plan = append(plan, streamEvictionPlan{
-			streamName:   streamName,
+			streamName:   stream.LogStreamName,
 			kept:         kept,
 			evictedBytes: evictedBytes,
 			evictedCount: evictedCount,
@@ -179,26 +178,25 @@ func (j *Janitor) buildEvictionPlan(region, groupName string, cutoffMs int64) []
 func (j *Janitor) applyEvictionPlan(region, groupName string, plan []streamEvictionPlan) int {
 	evicted := 0
 
-	regionEvents := j.Backend.events[region]
-	regionStreams := j.Backend.streams[region]
-	regionGroups := j.Backend.groups[region]
+	group, _ := j.Backend.groupGet(region, groupName)
 
 	for _, entry := range plan {
-		regionEvents[groupName][entry.streamName] = entry.kept
+		stream, ok := j.Backend.streamGet(region, groupName, entry.streamName)
+		if !ok {
+			continue
+		}
+
+		stream.events = entry.kept
 		evicted += entry.evictedCount
 
 		if entry.evictedBytes > 0 {
-			if stream := regionStreams[groupName][entry.streamName]; stream != nil {
-				stream.StoredBytes -= entry.evictedBytes
-			}
-			if g := regionGroups[groupName]; g != nil {
-				g.StoredBytes -= entry.evictedBytes
+			stream.StoredBytes -= entry.evictedBytes
+			if group != nil {
+				group.StoredBytes -= entry.evictedBytes
 			}
 		}
 
-		if stream := regionStreams[groupName][entry.streamName]; stream != nil {
-			updateStreamTimestamps(stream, entry.kept)
-		}
+		updateStreamTimestamps(stream, entry.kept)
 	}
 
 	return evicted

@@ -95,6 +95,125 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_SnapshotRestore_FullStateRoundTrip exercises a
+// Snapshot->Restore round trip across every persisted resource table
+// (Phase 3.3 pkgs/store conversion), including the region-qualified "dirty"
+// tables (log groups, streams with inline events, subscription filters,
+// metric filters) that round-trip through a DTO rather than a direct
+// json.Marshal of the live store.Table value -- see persistence.go.
+func TestInMemoryBackend_SnapshotRestore_FullStateRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	original := cloudwatchlogs.NewInMemoryBackendWithConfig("111122223333", "us-west-2")
+	t.Cleanup(original.Close)
+
+	// Log group + stream + inline events (the region-qualified tables).
+	_, err := original.CreateLogGroup(ctx, "/full/group", "", "kms-key-1")
+	require.NoError(t, err)
+	retentionDays := int32(30)
+	require.NoError(t, original.SetRetentionPolicy(ctx, "/full/group", &retentionDays))
+	_, err = original.CreateLogStream(ctx, "/full/group", "stream-1")
+	require.NoError(t, err)
+	// Timestamps below minRealisticTimestampMs bypass PutLogEvents' retention/
+	// future-window validation (treated as synthetic test data), so these are
+	// accepted regardless of when the test runs.
+	_, err = original.PutLogEvents(ctx, "/full/group", "stream-1", "", []cloudwatchlogs.InputLogEvent{
+		{Message: "hello", Timestamp: 12345},
+		{Message: "world", Timestamp: 12346},
+	})
+	require.NoError(t, err)
+
+	// Subscription filter + metric filter (also region-qualified).
+	require.NoError(t, original.PutSubscriptionFilter(
+		ctx, "/full/group", "sub-filter", "ERROR",
+		"arn:aws:lambda:us-west-2:111122223333:function:sink", "", "",
+	))
+	require.NoError(t, original.PutMetricFilter(ctx, "/full/group", "metric-filter", "ERROR",
+		[]cloudwatchlogs.MetricTransformation{{MetricName: "Errors", MetricNamespace: "App", MetricValue: "1"}}))
+
+	// Flat "clean" tables.
+	_, err = original.PutAccountPolicy("acct-policy", "SUBSCRIPTION_FILTER_POLICY", "{}", "ALL", "")
+	require.NoError(t, err)
+	require.NoError(t, original.AssociateKmsKey("/full/group", "", "kms-key-2"))
+	_, err = original.AssociateSourceToS3TableIntegration("arn:aws:s3tables:::bucket/tbl", "src", "type")
+	require.NoError(t, err)
+	taskID, err := original.CreateExportTask("exp", "/full/group", "", "dest-bucket", "", 0, 1_800_000_000_000)
+	require.NoError(t, err)
+	importTask, err := original.CreateImportTask("arn:aws:iam:::role/import", "arn:aws:cloudtrail:::store/x")
+	require.NoError(t, err)
+	delivery, err := original.CreateDelivery("src-name", "arn:aws:logs:::delivery-destination/dst", nil)
+	require.NoError(t, err)
+	detectorArn, err := original.CreateLogAnomalyDetector(
+		[]string{"arn:aws:logs:::log-group:/full/group"}, "detector", "", "", "", 0,
+	)
+	require.NoError(t, err)
+	scheduledArn, err := original.CreateScheduledQuery("sched", "fields @message", "", "", "")
+	require.NoError(t, err)
+
+	snap := original.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	fresh := cloudwatchlogs.NewInMemoryBackendWithConfig("111122223333", "us-west-2")
+	t.Cleanup(fresh.Close)
+	require.NoError(t, fresh.Restore(ctx, snap))
+
+	// --- verify region-qualified tables ---
+	groups, _, err := fresh.DescribeLogGroups(ctx, "", "", 100)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "/full/group", groups[0].LogGroupName)
+	require.NotNil(t, groups[0].RetentionInDays)
+	assert.Equal(t, int32(30), *groups[0].RetentionInDays)
+
+	streams, _, err := fresh.DescribeLogStreams(ctx, "/full/group", "", "", "", false, 100)
+	require.NoError(t, err)
+	require.Len(t, streams, 1)
+	assert.Equal(t, "stream-1", streams[0].LogStreamName)
+
+	events, _, _, err := fresh.GetLogEvents(ctx, "/full/group", "stream-1", nil, nil, 100, "", true)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	assert.Equal(t, "hello", events[0].Message)
+	assert.Equal(t, "world", events[1].Message)
+
+	subFilters, _, err := fresh.DescribeSubscriptionFilters(ctx, "/full/group", "", "", 100)
+	require.NoError(t, err)
+	require.Len(t, subFilters, 1)
+	assert.Equal(t, "sub-filter", subFilters[0].FilterName)
+
+	metricFilters, _, err := fresh.DescribeMetricFilters(ctx, "/full/group", "", "", "", "", 100)
+	require.NoError(t, err)
+	require.Len(t, metricFilters, 1)
+	assert.Equal(t, "metric-filter", metricFilters[0].FilterName)
+
+	// --- verify flat tables ---
+	policies, _, err := fresh.DescribeAccountPolicies("", "", nil, 100, "")
+	require.NoError(t, err)
+	require.Len(t, policies, 1)
+	assert.Equal(t, "acct-policy", policies[0].PolicyName)
+
+	exportTasks, _, err := fresh.DescribeExportTasks(taskID, "", 100, "")
+	require.NoError(t, err)
+	require.Len(t, exportTasks, 1)
+
+	importTasks, _, err := fresh.DescribeImportTasks(importTask.ImportID, 100, "")
+	require.NoError(t, err)
+	require.Len(t, importTasks, 1)
+
+	gotDelivery, err := fresh.GetDelivery(delivery.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "src-name", gotDelivery.DeliverySourceName)
+
+	detector, err := fresh.GetLogAnomalyDetector(detectorArn)
+	require.NoError(t, err)
+	assert.Equal(t, "detector", detector.DetectorName)
+
+	scheduled, err := fresh.GetScheduledQuery(scheduledArn)
+	require.NoError(t, err)
+	assert.Equal(t, "sched", scheduled.Name)
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
