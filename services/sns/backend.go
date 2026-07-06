@@ -34,6 +34,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -551,22 +552,26 @@ type InMemoryBackend struct {
 	sqsSender            SQSSender
 	sqsChecker           SQSQueueChecker
 	svcCtx               context.Context
-	topicSubscriptions   map[string]map[string]*Subscription
 	httpClient           *http.Client
-	topics               map[string]*Topic
+	registry             *store.Registry
+	topics               *store.Table[Topic]
 	topicTags            map[string]*svcTags.Tags
-	platformApplications map[string]*PlatformApplication
-	smsSandbox           map[string]*SandboxPhoneNumber
+	platformApplications *store.Table[PlatformApplication]
+	smsSandbox           *store.Table[SandboxPhoneNumber]
 	optedOutPhoneNumbers map[string]bool
 	smsAttributes        map[string]string
 	// originationNumbers holds origination phone numbers keyed by region. AWS SNS exposes no
 	// public "create origination number" API (numbers are provisioned via Pinpoint / AWS
 	// End User Messaging), so a fresh account legitimately has none. This map reflects real
 	// state when populated via SeedOriginationNumber (used by tests / internal seeding).
-	originationNumbers    map[string][]XMLOriginationPhone
-	mu                    *lockmetrics.RWMutex
-	subscriptions         map[string]*Subscription
-	platformEndpoints     map[string]*PlatformEndpoint
+	originationNumbers map[string][]XMLOriginationPhone
+	mu                 *lockmetrics.RWMutex
+	subscriptions      *store.Table[Subscription]
+	// subscriptionsByTopic is a secondary index over subscriptions keyed by
+	// TopicArn, replacing the old hand-maintained topicSubscriptions nested
+	// map. It is kept consistent automatically by subscriptions.Put/Delete.
+	subscriptionsByTopic  *store.Index[Subscription]
+	platformEndpoints     *store.Table[PlatformEndpoint]
 	topicMessageArchive   map[string][]*ArchivedMessage // populated when ArchivePolicy is set
 	signer                *notificationSigner
 	workerSem             chan struct{}
@@ -603,15 +608,10 @@ func NewInMemoryBackendWithContext(
 		svcCtx = context.Background()
 	}
 
-	return &InMemoryBackend{
-		topics:               make(map[string]*Topic),
-		subscriptions:        make(map[string]*Subscription),
-		topicSubscriptions:   make(map[string]map[string]*Subscription),
+	b := &InMemoryBackend{
+		registry:             store.NewRegistry(),
 		topicTags:            make(map[string]*svcTags.Tags),
-		platformApplications: make(map[string]*PlatformApplication),
-		platformEndpoints:    make(map[string]*PlatformEndpoint),
 		topicMessageArchive:  make(map[string][]*ArchivedMessage),
-		smsSandbox:           make(map[string]*SandboxPhoneNumber),
 		optedOutPhoneNumbers: make(map[string]bool),
 		smsAttributes:        make(map[string]string),
 		originationNumbers:   make(map[string][]XMLOriginationPhone),
@@ -624,6 +624,10 @@ func NewInMemoryBackendWithContext(
 		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
 		signer:               newNotificationSigner(region),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // SetHTTPDeliveryClient configures the HTTP client used for HTTP/HTTPS subscription delivery.
@@ -721,7 +725,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(
 	}
 
 	topicArn := arn.Build("sns", region, b.accountID, name)
-	if existing, exists := b.topics[topicArn]; exists {
+	if existing, exists := b.topics.Get(topicArn); exists {
 		// AWS SNS CreateTopic is idempotent: calling it with an existing name
 		// returns the existing topic ARN rather than an error.
 		return existing, nil
@@ -775,8 +779,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(
 		Attributes:        attrs,
 		CreationTimestamp: time.Now().UTC(),
 	}
-	b.topics[topicArn] = topic
-	b.topicSubscriptions[topicArn] = make(map[string]*Subscription)
+	b.topics.Put(topic)
 
 	return topic, nil
 }
@@ -786,11 +789,11 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 	b.mu.Lock("DeleteTopic")
 	defer b.mu.Unlock()
 
-	if _, exists := b.topics[topicArn]; !exists {
+	if !b.topics.Has(topicArn) {
 		return ErrTopicNotFound
 	}
 
-	delete(b.topics, topicArn)
+	b.topics.Delete(topicArn)
 
 	// Close topic tags to prevent resource leak.
 	if t := b.topicTags[topicArn]; t != nil {
@@ -798,13 +801,12 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 		delete(b.topicTags, topicArn)
 	}
 
-	// Remove any orphaned subscriptions for this topic.
-	for subArn, sub := range b.subscriptions {
-		if sub.TopicArn == topicArn {
-			delete(b.subscriptions, subArn)
-		}
+	// Remove any orphaned subscriptions for this topic. subscriptionsByTopic.Get
+	// returns the live index group directly (see store.Index.Get), so the
+	// slice is copied before deleting to avoid mutating it while iterating.
+	for _, sub := range append([]*Subscription(nil), b.subscriptionsByTopic.Get(topicArn)...) {
+		b.subscriptions.Delete(sub.SubscriptionArn)
 	}
-	delete(b.topicSubscriptions, topicArn)
 
 	// Drop the message archive (ArchivePolicy replay buffer). Without this the
 	// archive both leaks unboundedly for every created-then-deleted topic ARN and,
@@ -849,7 +851,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	b.mu.RLock("GetTopicAttributes")
 	defer b.mu.RUnlock()
 
-	topic, exists := b.topics[topicArn]
+	topic, exists := b.topics.Get(topicArn)
 	if !exists {
 		return nil, ErrTopicNotFound
 	}
@@ -894,7 +896,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	// periodically, so we report 0 for consistency with a fresh mock environment.
 	confirmed, pending := 0, 0
 
-	for _, sub := range b.topicSubscriptions[topicArn] {
+	for _, sub := range b.subscriptionsByTopic.Get(topicArn) {
 		if sub.PendingConfirmation {
 			pending++
 		} else {
@@ -954,7 +956,7 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 	b.mu.Lock("SetTopicAttributes")
 	defer b.mu.Unlock()
 
-	topic, exists := b.topics[topicArn]
+	topic, exists := b.topics.Get(topicArn)
 	if !exists {
 		return ErrTopicNotFound
 	}
@@ -1054,14 +1056,14 @@ func (b *InMemoryBackend) Subscribe(
 	b.mu.Lock("Subscribe")
 	defer b.mu.Unlock()
 
-	topic, exists := b.topics[topicArn]
+	topic, exists := b.topics.Get(topicArn)
 	if !exists {
 		return nil, ErrTopicNotFound
 	}
 
 	// Dedup: return the existing subscription ARN when protocol+endpoint already
 	// has a confirmed subscription on this topic (matches AWS behaviour).
-	for _, existing := range b.topicSubscriptions[topicArn] {
+	for _, existing := range b.subscriptionsByTopic.Get(topicArn) {
 		if !existing.PendingConfirmation &&
 			existing.Protocol == protocol &&
 			existing.Endpoint == endpoint {
@@ -1096,8 +1098,7 @@ func (b *InMemoryBackend) Subscribe(
 		CreationTimestamp:   time.Now().UTC(),
 	}
 
-	b.subscriptions[subArn] = sub
-	b.indexSubscription(sub)
+	b.subscriptions.Put(sub)
 
 	return sub, nil
 }
@@ -1107,13 +1108,9 @@ func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
 	b.mu.Lock("Unsubscribe")
 	defer b.mu.Unlock()
 
-	sub, exists := b.subscriptions[subscriptionArn]
-	if !exists {
+	if !b.subscriptions.Delete(subscriptionArn) {
 		return ErrSubscriptionNotFound
 	}
-
-	delete(b.subscriptions, subscriptionArn)
-	b.removeIndexedSubscription(sub.TopicArn, subscriptionArn)
 
 	return nil
 }
@@ -1131,7 +1128,7 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	defer b.mu.Unlock()
 
 	// Use topic index for O(topic_subs) instead of O(all_subs).
-	for _, sub := range b.topicSubscriptions[topicArn] {
+	for _, sub := range b.subscriptionsByTopic.Get(topicArn) {
 		if sub.PendingConfirmation {
 			sub.PendingConfirmation = false
 
@@ -1149,7 +1146,7 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(
 	b.mu.RLock("GetSubscriptionAttributes")
 	defer b.mu.RUnlock()
 
-	sub, exists := b.subscriptions[subscriptionArn]
+	sub, exists := b.subscriptions.Get(subscriptionArn)
 	if !exists {
 		return nil, ErrSubscriptionNotFound
 	}
@@ -1236,7 +1233,7 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(
 
 	b.mu.Lock("SetSubscriptionAttributes")
 
-	sub, exists := b.subscriptions[subscriptionArn]
+	sub, exists := b.subscriptions.Get(subscriptionArn)
 	if !exists {
 		b.mu.Unlock()
 
@@ -1331,11 +1328,11 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(
 	b.mu.RLock("ListSubscriptionsByTopic")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.topics[topicArn]; !exists {
+	if !b.topics.Has(topicArn) {
 		return nil, "", ErrTopicNotFound
 	}
 
-	topicSubs := b.topicSubscriptions[topicArn]
+	topicSubs := b.subscriptionsByTopic.Get(topicArn)
 	filtered := make([]Subscription, 0, len(topicSubs))
 	for _, sub := range topicSubs {
 		filtered = append(filtered, *sub)
@@ -1837,7 +1834,18 @@ func (b *InMemoryBackend) collectPublishTargets(
 ) publishTargets {
 	var out publishTargets
 
-	for _, sub := range b.topicSubscriptions[topicArn] {
+	// The topic is guaranteed to exist here: every caller holds at least
+	// b.mu.RLock and has already validated topicArn via b.topics.Get/Has
+	// before calling collectPublishTargets (see Publish). Looked up once
+	// (rather than per-subscription) since store.Table.Get returns (v, ok)
+	// and cannot be inlined into the httpDelivery literal below the way the
+	// old raw map index could.
+	var topicEffectivePolicy string
+	if topic, ok := b.topics.Get(topicArn); ok {
+		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
+	}
+
+	for _, sub := range b.subscriptionsByTopic.Get(topicArn) {
 		// Resolve the per-protocol message body for this subscription.
 		// This must happen before filter evaluation when FilterPolicyScope=MessageBody,
 		// because the body itself is the subject of the filter.
@@ -1866,7 +1874,7 @@ func (b *InMemoryBackend) collectPublishTargets(
 				rawDelivery:          sub.RawMessageDelivery,
 				redrivePolicy:        sub.RedrivePolicy,
 				deliveryPolicy:       sub.DeliveryPolicy,
-				topicEffectivePolicy: b.topics[topicArn].Attributes["EffectiveDeliveryPolicy"],
+				topicEffectivePolicy: topicEffectivePolicy,
 				sqsSender:            b.sqsSender,
 			})
 		}
@@ -2195,7 +2203,7 @@ func (b *InMemoryBackend) Publish(
 
 	b.mu.RLock("Publish")
 
-	topic, exists := b.topics[topicArn]
+	topic, exists := b.topics.Get(topicArn)
 	if !exists {
 		b.mu.RUnlock()
 
@@ -2263,7 +2271,7 @@ func (b *InMemoryBackend) PublishToTargetArn(
 	b.mu.RLock("PublishToTargetArn")
 	defer b.mu.RUnlock()
 
-	ep, exists := b.platformEndpoints[targetArn]
+	ep, exists := b.platformEndpoints.Get(targetArn)
 	if !exists {
 		return "", ErrEndpointNotFound
 	}
@@ -2288,7 +2296,7 @@ func (b *InMemoryBackend) PublishSMS(phoneNumber, message string) (string, error
 	}
 
 	b.mu.RLock("PublishSMS-check")
-	sandboxEntry := b.smsSandbox[phoneNumber]
+	sandboxEntry, _ := b.smsSandbox.Get(phoneNumber)
 	optedOut := b.optedOutPhoneNumbers[phoneNumber]
 	b.mu.RUnlock()
 
@@ -2768,27 +2776,6 @@ func matchesConditions(value string, attrExists bool, conditions []json.RawMessa
 	return false
 }
 
-func (b *InMemoryBackend) indexSubscription(sub *Subscription) {
-	topicSubs := b.topicSubscriptions[sub.TopicArn]
-	if topicSubs == nil {
-		topicSubs = make(map[string]*Subscription)
-		b.topicSubscriptions[sub.TopicArn] = topicSubs
-	}
-
-	topicSubs[sub.SubscriptionArn] = sub
-}
-
-func (b *InMemoryBackend) removeIndexedSubscription(topicArn, subscriptionArn string) {
-	topicSubs := b.topicSubscriptions[topicArn]
-	if topicSubs == nil {
-		return
-	}
-
-	delete(topicSubs, subscriptionArn)
-	// Preserve the inner map even when empty so the next Subscribe call does not
-	// need to re-allocate. Only remove it when the topic itself is deleted.
-}
-
 // ListAllTopics returns all topics sorted by ARN.
 func (b *InMemoryBackend) ListAllTopics() []Topic {
 	b.mu.RLock("ListAllTopics")
@@ -2810,8 +2797,8 @@ func (b *InMemoryBackend) ListAllPlatformApplications() []PlatformApplication {
 	b.mu.RLock("ListAllPlatformApplications")
 	defer b.mu.RUnlock()
 
-	apps := make([]PlatformApplication, 0, len(b.platformApplications))
-	for _, app := range b.platformApplications {
+	apps := make([]PlatformApplication, 0, b.platformApplications.Len())
+	for _, app := range b.platformApplications.All() {
 		apps = append(apps, *app)
 	}
 
@@ -2824,8 +2811,8 @@ func (b *InMemoryBackend) ListAllPlatformApplications() []PlatformApplication {
 
 // sortedTopics returns all topics sorted by TopicArn. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedTopics() []Topic {
-	topics := make([]Topic, 0, len(b.topics))
-	for _, t := range b.topics {
+	topics := make([]Topic, 0, b.topics.Len())
+	for _, t := range b.topics.All() {
 		topics = append(topics, *t)
 	}
 
@@ -2840,8 +2827,8 @@ func (b *InMemoryBackend) sortedTopics() []Topic {
 // Must be called with at least RLock held.
 // The region is extracted from the topic ARN (arn:partition:sns:REGION:account:name).
 func (b *InMemoryBackend) sortedTopicsInRegion(region string) []Topic {
-	topics := make([]Topic, 0, len(b.topics))
-	for _, t := range b.topics {
+	topics := make([]Topic, 0, b.topics.Len())
+	for _, t := range b.topics.All() {
 		if arnRegion(t.TopicArn) == region {
 			topics = append(topics, *t)
 		}
@@ -2856,8 +2843,8 @@ func (b *InMemoryBackend) sortedTopicsInRegion(region string) []Topic {
 
 // sortedSubscriptions returns subscriptions sorted by SubscriptionArn. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
-	subs := make([]Subscription, 0, len(b.subscriptions))
-	for _, s := range b.subscriptions {
+	subs := make([]Subscription, 0, b.subscriptions.Len())
+	for _, s := range b.subscriptions.All() {
 		subs = append(subs, *s)
 	}
 
@@ -2946,7 +2933,7 @@ func (b *InMemoryBackend) logDeliveryStatus(
 	err error,
 ) {
 	b.mu.RLock("logDeliveryStatus")
-	topic, ok := b.topics[topicARN]
+	topic, ok := b.topics.Get(topicARN)
 	if !ok {
 		b.mu.RUnlock()
 
@@ -3248,9 +3235,11 @@ func (b *InMemoryBackend) TaggedTopics() []TaggedTopicInfo {
 	b.mu.RLock("TaggedTopics")
 	defer b.mu.RUnlock()
 
-	result := make([]TaggedTopicInfo, 0, len(b.topics))
+	result := make([]TaggedTopicInfo, 0, b.topics.Len())
 
-	for topicARN := range b.topics {
+	for _, topic := range b.topics.All() {
+		topicARN := topic.TopicArn
+
 		var tagMap map[string]string
 		if b.topicTags[topicARN] != nil {
 			tagMap = b.topicTags[topicARN].Clone()
@@ -3267,7 +3256,7 @@ func (b *InMemoryBackend) TagTopicByARN(topicARN string, newTags map[string]stri
 	b.mu.Lock("TagTopicByARN")
 	defer b.mu.Unlock()
 
-	if _, ok := b.topics[topicARN]; !ok {
+	if !b.topics.Has(topicARN) {
 		return fmt.Errorf("%w: topic %s", ErrTopicNotFound, topicARN)
 	}
 
@@ -3285,7 +3274,7 @@ func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) err
 	b.mu.Lock("UntagTopicByARN")
 	defer b.mu.Unlock()
 
-	if _, ok := b.topics[topicARN]; !ok {
+	if !b.topics.Has(topicARN) {
 		return fmt.Errorf("%w: topic %s", ErrTopicNotFound, topicARN)
 	}
 
@@ -3337,7 +3326,7 @@ func (b *InMemoryBackend) CreatePlatformApplicationInRegion(
 
 	appArn := arn.Build("sns", region, b.accountID, "app/"+platform+"/"+name)
 
-	if _, exists := b.platformApplications[appArn]; exists {
+	if b.platformApplications.Has(appArn) {
 		return nil, ErrPlatformApplicationAlreadyExists
 	}
 
@@ -3354,7 +3343,7 @@ func (b *InMemoryBackend) CreatePlatformApplicationInRegion(
 		Attributes:             attrs,
 		CreationTimestamp:      time.Now().UTC(),
 	}
-	b.platformApplications[appArn] = app
+	b.platformApplications.Put(app)
 
 	return app, nil
 }
@@ -3370,14 +3359,14 @@ func (b *InMemoryBackend) GetPlatformApplicationAttributes(
 	b.mu.RLock("GetPlatformApplicationAttributes")
 	defer b.mu.RUnlock()
 
-	app, exists := b.platformApplications[platformApplicationArn]
+	app, exists := b.platformApplications.Get(platformApplicationArn)
 	if !exists {
 		return nil, ErrPlatformApplicationNotFound
 	}
 
 	// Count active and disabled endpoints for this application.
 	var activeCount, disabledCount int
-	for _, ep := range b.platformEndpoints {
+	for _, ep := range b.platformEndpoints.All() {
 		if ep.PlatformApplicationArn != platformApplicationArn {
 			continue
 		}
@@ -3408,7 +3397,7 @@ func (b *InMemoryBackend) SetPlatformApplicationAttributes(
 	b.mu.Lock("SetPlatformApplicationAttributes")
 	defer b.mu.Unlock()
 
-	app, exists := b.platformApplications[platformApplicationArn]
+	app, exists := b.platformApplications.Get(platformApplicationArn)
 	if !exists {
 		return ErrPlatformApplicationNotFound
 	}
@@ -3442,17 +3431,24 @@ func (b *InMemoryBackend) DeletePlatformApplication(platformApplicationArn strin
 	b.mu.Lock("DeletePlatformApplication")
 	defer b.mu.Unlock()
 
-	if _, exists := b.platformApplications[platformApplicationArn]; !exists {
+	if !b.platformApplications.Has(platformApplicationArn) {
 		return ErrPlatformApplicationNotFound
 	}
 
-	delete(b.platformApplications, platformApplicationArn)
+	b.platformApplications.Delete(platformApplicationArn)
 
-	// Remove all endpoints associated with this platform application.
-	for endpointArn, ep := range b.platformEndpoints {
+	// Remove all endpoints associated with this platform application. Collect
+	// keys first rather than deleting from within Table.Range's own iteration.
+	var toDelete []string
+
+	for _, ep := range b.platformEndpoints.All() {
 		if ep.PlatformApplicationArn == platformApplicationArn {
-			delete(b.platformEndpoints, endpointArn)
+			toDelete = append(toDelete, ep.EndpointArn)
 		}
+	}
+
+	for _, endpointArn := range toDelete {
+		b.platformEndpoints.Delete(endpointArn)
 	}
 
 	return nil
@@ -3469,7 +3465,7 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 ) (*PlatformEndpoint, error) {
 	b.mu.Lock("CreatePlatformEndpoint")
 
-	app, exists := b.platformApplications[platformApplicationArn]
+	app, exists := b.platformApplications.Get(platformApplicationArn)
 	if !exists {
 		b.mu.Unlock()
 
@@ -3478,7 +3474,7 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 
 	// Dedup: return the existing endpoint when the same token is already registered
 	// under this platform application (mirrors AWS CreatePlatformEndpoint behaviour).
-	for _, ep := range b.platformEndpoints {
+	for _, ep := range b.platformEndpoints.All() {
 		if ep.PlatformApplicationArn == platformApplicationArn &&
 			ep.Attributes["Token"] == token {
 			b.mu.Unlock()
@@ -3525,7 +3521,7 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 		Attributes:             attrs,
 		CreationTimestamp:      time.Now().UTC(),
 	}
-	b.platformEndpoints[endpointArn] = ep
+	b.platformEndpoints.Put(ep)
 
 	b.mu.Unlock()
 
@@ -3544,7 +3540,7 @@ func (b *InMemoryBackend) GetEndpointAttributes(endpointArn string) (map[string]
 	b.mu.RLock("GetEndpointAttributes")
 	defer b.mu.RUnlock()
 
-	ep, exists := b.platformEndpoints[endpointArn]
+	ep, exists := b.platformEndpoints.Get(endpointArn)
 	if !exists {
 		return nil, ErrEndpointNotFound
 	}
@@ -3564,7 +3560,7 @@ func (b *InMemoryBackend) SetEndpointAttributes(
 ) error {
 	b.mu.Lock("SetEndpointAttributes")
 
-	ep, exists := b.platformEndpoints[endpointArn]
+	ep, exists := b.platformEndpoints.Get(endpointArn)
 	if !exists {
 		b.mu.Unlock()
 
@@ -3591,7 +3587,7 @@ func (b *InMemoryBackend) ListEndpointsByPlatformApplication(
 	b.mu.RLock("ListEndpointsByPlatformApplication")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.platformApplications[platformApplicationArn]; !exists {
+	if !b.platformApplications.Has(platformApplicationArn) {
 		return nil, "", ErrPlatformApplicationNotFound
 	}
 
@@ -3620,7 +3616,7 @@ func (b *InMemoryBackend) ListEndpointsByPlatformApplication(
 func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
 	b.mu.Lock("DeleteEndpoint")
 
-	ep, exists := b.platformEndpoints[endpointArn]
+	ep, exists := b.platformEndpoints.Get(endpointArn)
 	if !exists {
 		b.mu.Unlock()
 
@@ -3628,7 +3624,7 @@ func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
 	}
 
 	platformAppArn := ep.PlatformApplicationArn
-	delete(b.platformEndpoints, endpointArn)
+	b.platformEndpoints.Delete(endpointArn)
 
 	b.mu.Unlock()
 
@@ -3642,8 +3638,8 @@ func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
 
 // sortedPlatformApplications returns platform applications sorted by ARN. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedPlatformApplications() []PlatformApplication {
-	apps := make([]PlatformApplication, 0, len(b.platformApplications))
-	for _, a := range b.platformApplications {
+	apps := make([]PlatformApplication, 0, b.platformApplications.Len())
+	for _, a := range b.platformApplications.All() {
 		apps = append(apps, *a)
 	}
 
@@ -3656,8 +3652,8 @@ func (b *InMemoryBackend) sortedPlatformApplications() []PlatformApplication {
 
 // sortedEndpoints returns platform endpoints sorted by ARN. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
-	eps := make([]PlatformEndpoint, 0, len(b.platformEndpoints))
-	for _, ep := range b.platformEndpoints {
+	eps := make([]PlatformEndpoint, 0, b.platformEndpoints.Len())
+	for _, ep := range b.platformEndpoints.All() {
 		eps = append(eps, *ep)
 	}
 
@@ -3675,7 +3671,7 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 // whether the event topic exists.
 func (b *InMemoryBackend) fireEndpointEvent(appArn, eventAttr string, payload map[string]string) {
 	b.mu.RLock("fireEndpointEvent")
-	app, exists := b.platformApplications[appArn]
+	app, exists := b.platformApplications.Get(appArn)
 	var topicArn string
 	if exists {
 		topicArn = app.Attributes[eventAttr]
@@ -3753,7 +3749,7 @@ func (b *InMemoryBackend) replayMessagesToSubscription(
 	sqsSender := b.sqsSender
 
 	var topicEffectivePolicy string
-	if topic, ok := b.topics[topicArn]; ok {
+	if topic, ok := b.topics.Get(topicArn); ok {
 		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
 	}
 
@@ -3926,7 +3922,7 @@ func (b *InMemoryBackend) AddPermission(topicArn, label string, accounts, action
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
-	topic, exists := b.topics[topicArn]
+	topic, exists := b.topics.Get(topicArn)
 	if !exists {
 		return ErrTopicNotFound
 	}
@@ -3953,7 +3949,7 @@ func (b *InMemoryBackend) RemovePermission(topicArn, label string) error {
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
-	topic, exists := b.topics[topicArn]
+	topic, exists := b.topics.Get(topicArn)
 	if !exists {
 		return ErrTopicNotFound
 	}
@@ -4000,16 +3996,16 @@ func (b *InMemoryBackend) CreateSMSSandboxPhoneNumber(phoneNumber, languageCode 
 	b.mu.Lock("CreateSMSSandboxPhoneNumber")
 	defer b.mu.Unlock()
 
-	if _, exists := b.smsSandbox[phoneNumber]; exists {
+	if b.smsSandbox.Has(phoneNumber) {
 		return ErrSandboxPhoneAlreadyExists
 	}
 
-	b.smsSandbox[phoneNumber] = &SandboxPhoneNumber{
+	b.smsSandbox.Put(&SandboxPhoneNumber{
 		PhoneNumber:       phoneNumber,
 		LanguageCode:      languageCode,
 		Status:            "Pending",
 		CreationTimestamp: time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -4024,11 +4020,9 @@ func (b *InMemoryBackend) DeleteSMSSandboxPhoneNumber(phoneNumber string) error 
 	b.mu.Lock("DeleteSMSSandboxPhoneNumber")
 	defer b.mu.Unlock()
 
-	if _, exists := b.smsSandbox[phoneNumber]; !exists {
+	if !b.smsSandbox.Delete(phoneNumber) {
 		return ErrPhoneNumberNotFound
 	}
-
-	delete(b.smsSandbox, phoneNumber)
 
 	return nil
 }
@@ -4043,7 +4037,7 @@ func (b *InMemoryBackend) VerifySMSSandboxPhoneNumber(phoneNumber, oneTimePasswo
 	b.mu.Lock("VerifySMSSandboxPhoneNumber")
 	defer b.mu.Unlock()
 
-	entry, exists := b.smsSandbox[phoneNumber]
+	entry, exists := b.smsSandbox.Get(phoneNumber)
 	if !exists {
 		return ErrPhoneNumberNotFound
 	}
@@ -4079,8 +4073,8 @@ func (b *InMemoryBackend) ListSMSSandboxPhoneNumbers(
 // sortedSandboxNumbers returns sandbox phone numbers sorted by phone number.
 // Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedSandboxNumbers() []SandboxPhoneNumber {
-	nums := make([]SandboxPhoneNumber, 0, len(b.smsSandbox))
-	for _, n := range b.smsSandbox {
+	nums := make([]SandboxPhoneNumber, 0, b.smsSandbox.Len())
+	for _, n := range b.smsSandbox.All() {
 		nums = append(nums, *n)
 	}
 
@@ -4201,7 +4195,7 @@ func (b *InMemoryBackend) GetDataProtectionPolicy(resourceArn string) (string, e
 	b.mu.RLock("GetDataProtectionPolicy")
 	defer b.mu.RUnlock()
 
-	topic, exists := b.topics[resourceArn]
+	topic, exists := b.topics.Get(resourceArn)
 	if !exists {
 		return "", ErrTopicNotFound
 	}
@@ -4219,7 +4213,7 @@ func (b *InMemoryBackend) PutDataProtectionPolicy(resourceArn, policy string) er
 	b.mu.Lock("PutDataProtectionPolicy")
 	defer b.mu.Unlock()
 
-	topic, exists := b.topics[resourceArn]
+	topic, exists := b.topics.Get(resourceArn)
 	if !exists {
 		return ErrTopicNotFound
 	}
@@ -4320,20 +4314,34 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 }
 
 func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
-	for arn, topic := range b.topics {
+	// Collect eligible-for-deletion ARNs first rather than deleting from
+	// within Table.Range's own iteration.
+	var expired []string
+
+	b.topics.Range(func(topic *Topic) bool {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 
 		if topic.CreationTimestamp.Before(cutoff) {
-			delete(b.topics, arn)
-			delete(b.topicMessageArchive, arn)
-
-			if t := b.topicTags[arn]; t != nil {
-				t.Close()
-				delete(b.topicTags, arn)
-			}
+			expired = append(expired, topic.TopicArn)
 		}
+
+		return true
+	})
+
+	for _, arn := range expired {
+		b.topics.Delete(arn)
+		delete(b.topicMessageArchive, arn)
+
+		if t := b.topicTags[arn]; t != nil {
+			t.Close()
+			delete(b.topicTags, arn)
+		}
+	}
+
+	if ctx.Err() != nil {
+		return
 	}
 
 	// Evict archived messages whose timestamp predates the cutoff, for topics that remain.
@@ -4358,48 +4366,80 @@ func (b *InMemoryBackend) purgeTopics(ctx context.Context, cutoff time.Time) {
 }
 
 func (b *InMemoryBackend) purgeSubscriptions(ctx context.Context, cutoff time.Time) {
-	for subArn, sub := range b.subscriptions {
+	var expired []string
+
+	b.subscriptions.Range(func(sub *Subscription) bool {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if sub.CreationTimestamp.Before(cutoff) {
-			delete(b.subscriptions, subArn)
-			// Also clean up the topic subscription index to prevent stale entries.
-			b.removeIndexedSubscription(sub.TopicArn, subArn)
+			expired = append(expired, sub.SubscriptionArn)
 		}
+
+		return true
+	})
+
+	for _, subArn := range expired {
+		// Table.Delete also removes the entry from subscriptionsByTopic, so no
+		// separate index cleanup (formerly removeIndexedSubscription) is needed.
+		b.subscriptions.Delete(subArn)
 	}
 }
 
 func (b *InMemoryBackend) purgePlatformApplications(ctx context.Context, cutoff time.Time) {
-	for arn, app := range b.platformApplications {
+	var expired []string
+
+	b.platformApplications.Range(func(app *PlatformApplication) bool {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if app.CreationTimestamp.Before(cutoff) {
-			delete(b.platformApplications, arn)
+			expired = append(expired, app.PlatformApplicationArn)
 		}
+
+		return true
+	})
+
+	for _, arn := range expired {
+		b.platformApplications.Delete(arn)
 	}
 }
 
 func (b *InMemoryBackend) purgePlatformEndpoints(ctx context.Context, cutoff time.Time) {
-	for arn, ep := range b.platformEndpoints {
+	var expired []string
+
+	b.platformEndpoints.Range(func(ep *PlatformEndpoint) bool {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if ep.CreationTimestamp.Before(cutoff) {
-			delete(b.platformEndpoints, arn)
+			expired = append(expired, ep.EndpointArn)
 		}
+
+		return true
+	})
+
+	for _, arn := range expired {
+		b.platformEndpoints.Delete(arn)
 	}
 }
 
 func (b *InMemoryBackend) purgeSMSSandbox(ctx context.Context, cutoff time.Time) {
-	for phone, entry := range b.smsSandbox {
+	var expired []string
+
+	b.smsSandbox.Range(func(entry *SandboxPhoneNumber) bool {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if entry.CreationTimestamp.Before(cutoff) {
-			delete(b.smsSandbox, phone)
+			expired = append(expired, entry.PhoneNumber)
 		}
+
+		return true
+	})
+
+	for _, phone := range expired {
+		b.smsSandbox.Delete(phone)
 	}
 }
 
@@ -4416,15 +4456,9 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
-	b.topics = make(map[string]*Topic)
-	b.subscriptions = make(map[string]*Subscription)
-	// topicSubscriptions must be reset alongside subscriptions to avoid stale index entries.
-	b.topicSubscriptions = make(map[string]map[string]*Subscription)
+	b.registry.ResetAll()
 	b.topicTags = make(map[string]*svcTags.Tags)
-	b.platformApplications = make(map[string]*PlatformApplication)
-	b.platformEndpoints = make(map[string]*PlatformEndpoint)
 	b.topicMessageArchive = make(map[string][]*ArchivedMessage)
-	b.smsSandbox = make(map[string]*SandboxPhoneNumber)
 	b.optedOutPhoneNumbers = make(map[string]bool)
 	b.smsAttributes = make(map[string]string)
 	b.smsDeliveries = nil

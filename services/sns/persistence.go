@@ -2,18 +2,38 @@ package sns
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// snsSnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set of resources registered on b.registry -- see registerAllTables
+// in store_setup.go). It must be bumped whenever a change there would make an
+// older snapshot unsafe to decode as the current shape. Restore compares this
+// against the persisted value and discards (rather than attempts to partially
+// decode) any mismatch -- see Restore below. This mirrors the services/sqs
+// pilot (commit 0f09d77c) and the services/ec2 sweep (commit 12e611a4).
+//
+// Snapshots written before this field existed decode with Version == 0, which
+// never equals snsSnapshotVersion, so they are discarded the same way as any
+// other incompatible version rather than partially decoded.
+const snsSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the SNS backend.
+//
+// Tables holds one JSON-encoded array per registered store.Table, produced by
+// [store.Registry.SnapshotAll] -- "topics", "subscriptions",
+// "platformApplications", "platformEndpoints", and "smsSandbox". The remaining
+// fields below are resource maps left un-registered (raw) because their value
+// type is not a pure keyed identity or is slice/scalar-valued -- see the
+// comment on registerAllTables in store_setup.go for why each one.
 type backendSnapshot struct {
-	Topics               map[string]*Topic                `json:"topics"`
-	Subscriptions        map[string]*Subscription         `json:"subscriptions"`
+	Tables               map[string]json.RawMessage       `json:"tables"`
 	TopicTags            map[string]*svcTags.Tags         `json:"topicTags"`
-	PlatformApplications map[string]*PlatformApplication  `json:"platformApplications,omitempty"`
-	PlatformEndpoints    map[string]*PlatformEndpoint     `json:"platformEndpoints,omitempty"`
-	SMSSandbox           map[string]*SandboxPhoneNumber   `json:"smsSandbox,omitempty"`
 	OptedOutPhoneNumbers map[string]bool                  `json:"optedOutPhoneNumbers,omitempty"`
 	SMSAttributes        map[string]string                `json:"smsAttributes,omitempty"`
 	OriginationNumbers   map[string][]XMLOriginationPhone `json:"originationNumbers,omitempty"`
@@ -25,6 +45,7 @@ type backendSnapshot struct {
 	SMSSandboxEnabled   *bool                         `json:"smsSandboxEnabled,omitempty"`
 	AccountID           string                        `json:"accountID"`
 	Region              string                        `json:"region"`
+	Version             int                           `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -33,14 +54,22 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "sns: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	sandboxEnabled := b.smsSandboxEnabled
 	snap := backendSnapshot{
-		Topics:               b.topics,
-		Subscriptions:        b.subscriptions,
+		Version:              snsSnapshotVersion,
+		Tables:               tables,
 		TopicTags:            b.topicTags,
-		PlatformApplications: b.platformApplications,
-		PlatformEndpoints:    b.platformEndpoints,
-		SMSSandbox:           b.smsSandbox,
 		OptedOutPhoneNumbers: b.optedOutPhoneNumbers,
 		SMSAttributes:        b.smsAttributes,
 		OriginationNumbers:   b.originationNumbers,
@@ -57,28 +86,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // snapshots (written before a field existed) restore cleanly instead of leaving
 // the backend with a nil map that panics on first write.
 func (snap *backendSnapshot) fillDefaults() {
-	if snap.Topics == nil {
-		snap.Topics = make(map[string]*Topic)
-	}
-
-	if snap.Subscriptions == nil {
-		snap.Subscriptions = make(map[string]*Subscription)
-	}
-
 	if snap.TopicTags == nil {
 		snap.TopicTags = make(map[string]*svcTags.Tags)
-	}
-
-	if snap.PlatformApplications == nil {
-		snap.PlatformApplications = make(map[string]*PlatformApplication)
-	}
-
-	if snap.PlatformEndpoints == nil {
-		snap.PlatformEndpoints = make(map[string]*PlatformEndpoint)
-	}
-
-	if snap.SMSSandbox == nil {
-		snap.SMSSandbox = make(map[string]*SandboxPhoneNumber)
 	}
 
 	if snap.OptedOutPhoneNumbers == nil {
@@ -111,14 +120,29 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	if snap.Version != snsSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/sqs pilot (commit 0f09d77c).
+		logger.Load(ctx).WarnContext(ctx,
+			"sns: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", snsSnapshotVersion)
+
+		b.registry.ResetAll()
+
+		return nil
+	}
+
 	snap.fillDefaults()
 
-	b.topics = snap.Topics
-	b.subscriptions = snap.Subscriptions
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("sns: restore snapshot tables: %w", err)
+	}
+
 	b.topicTags = snap.TopicTags
-	b.platformApplications = snap.PlatformApplications
-	b.platformEndpoints = snap.PlatformEndpoints
-	b.smsSandbox = snap.SMSSandbox
 	b.optedOutPhoneNumbers = snap.OptedOutPhoneNumbers
 	b.smsAttributes = snap.SMSAttributes
 	b.originationNumbers = snap.OriginationNumbers
@@ -131,21 +155,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.smsSandboxEnabled = true // default for old snapshots that lack this field
 	}
 
-	// Rebuild the per-topic subscription index and restore the parsed filter-policy
-	// cache for each subscription (both are transient and not persisted).
-	b.topicSubscriptions = make(map[string]map[string]*Subscription, len(b.topics))
-	for topicArn := range b.topics {
-		b.topicSubscriptions[topicArn] = make(map[string]*Subscription)
-	}
-
-	for _, sub := range b.subscriptions {
-		if _, ok := b.topicSubscriptions[sub.TopicArn]; !ok {
-			b.topicSubscriptions[sub.TopicArn] = make(map[string]*Subscription)
-		}
-
-		b.topicSubscriptions[sub.TopicArn][sub.SubscriptionArn] = sub
-		// Restore parsed filter policy; ignore errors so a future stricter validation
-		// upgrade does not break loading older snapshots.
+	// Restore the parsed filter-policy cache for each subscription -- it is
+	// transient (unexported field, never marshaled) and not persisted.
+	// subscriptionsByTopic is rebuilt automatically by b.registry.RestoreAll
+	// above (store.Table.Restore repopulates every registered secondary index
+	// from scratch), so no manual topicSubscriptions reconstruction is needed
+	// here anymore.
+	for _, sub := range b.subscriptions.All() {
+		// Ignore errors so a future stricter validation upgrade does not break
+		// loading older snapshots.
 		sub.parsedFilterPolicy, _ = parseFilterPolicy(sub.FilterPolicy)
 	}
 

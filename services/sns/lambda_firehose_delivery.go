@@ -134,7 +134,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 
 	b.mu.RLock("lambda-topic-policy")
 	var topicEffectivePolicy string
-	if topic, ok := b.topics[ev.TopicARN]; ok {
+	if topic, ok := b.topics.Get(ev.TopicARN); ok {
 		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
 	}
 	b.mu.RUnlock()
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 
 	b.mu.RLock("firehose-topic-policy")
 	var topicEffectivePolicy string
-	if topic, ok := b.topics[ev.TopicARN]; ok {
+	if topic, ok := b.topics.Get(ev.TopicARN); ok {
 		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
 	}
 	b.mu.RUnlock()
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 		}
 
 		b.mu.RLock("deliverToApplicationSubscriptions")
-		ep, exists := b.platformEndpoints[sub.Endpoint]
+		ep, exists := b.platformEndpoints.Get(sub.Endpoint)
 		enabled := exists && ep.Attributes["Enabled"] != boolFalseStr
 		b.mu.RUnlock()
 
