@@ -11,7 +11,7 @@ func (b *InMemoryBackend) DeleteSchemaVersion(
 	b.mu.Lock("DeleteSchemaVersion")
 	defer b.mu.Unlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
 	}
@@ -40,11 +40,11 @@ func (b *InMemoryBackend) DeleteIntegrationResourceProperty(resourceArn string) 
 	b.mu.Lock("DeleteIntegrationResourceProperty")
 	defer b.mu.Unlock()
 
-	if _, ok := b.integrationResourceProps[resourceArn]; !ok {
+	if !b.integrationResourceProps.Has(resourceArn) {
 		return fmt.Errorf("resource property for %q not found: %w", resourceArn, ErrNotFound)
 	}
 
-	delete(b.integrationResourceProps, resourceArn)
+	b.integrationResourceProps.Delete(resourceArn)
 
 	return nil
 }
@@ -60,7 +60,7 @@ func (b *InMemoryBackend) DeleteIntegrationTableProperties(resourceArn, tableNam
 	defer b.mu.Unlock()
 
 	key := resourceArn + "|" + tableName
-	if _, ok := b.integrationTableProps[key]; !ok {
+	if !b.integrationTableProps.Has(key) {
 		return fmt.Errorf(
 			"table property for %q/%q not found: %w",
 			resourceArn,
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) DeleteIntegrationTableProperties(resourceArn, tableNam
 		)
 	}
 
-	delete(b.integrationTableProps, key)
+	b.integrationTableProps.Delete(key)
 
 	return nil
 }

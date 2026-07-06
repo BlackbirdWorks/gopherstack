@@ -169,7 +169,7 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.triggers[t.Name]; ok {
+	if b.triggers.Has(t.Name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 		stored.State = "CREATED"
 	}
 
-	b.triggers[t.Name] = stored
+	b.triggers.Put(stored)
 
 	return cloneTrigger(stored), nil
 }
@@ -190,7 +190,7 @@ func (b *InMemoryBackend) GetTrigger(name string) (*Trigger, error) {
 	b.mu.RLock("GetTrigger")
 	defer b.mu.RUnlock()
 
-	t, ok := b.triggers[name]
+	t, ok := b.triggers.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -203,9 +203,10 @@ func (b *InMemoryBackend) GetTriggers() []*Trigger {
 	b.mu.RLock("GetTriggers")
 	defer b.mu.RUnlock()
 
-	out := make([]*Trigger, 0, len(b.triggers))
-	for _, k := range sortedKeys(b.triggers) {
-		out = append(out, cloneTrigger(b.triggers[k]))
+	src := b.triggers.Snapshot()
+	out := make([]*Trigger, 0, len(src))
+	for _, t := range src {
+		out = append(out, cloneTrigger(t))
 	}
 
 	return out
@@ -220,7 +221,7 @@ func (b *InMemoryBackend) BatchGetTriggers(names []string) ([]*Trigger, []string
 	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
-		t, ok := b.triggers[name]
+		t, ok := b.triggers.Get(name)
 		if !ok {
 			missing = append(missing, name)
 
@@ -238,7 +239,7 @@ func (b *InMemoryBackend) UpdateTrigger(name string, update Trigger) error {
 	b.mu.Lock("UpdateTrigger")
 	defer b.mu.Unlock()
 
-	t, ok := b.triggers[name]
+	t, ok := b.triggers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -255,11 +256,11 @@ func (b *InMemoryBackend) DeleteTrigger(name string) error {
 	b.mu.Lock("DeleteTrigger")
 	defer b.mu.Unlock()
 
-	if _, ok := b.triggers[name]; !ok {
+	if !b.triggers.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.triggers, name)
+	b.triggers.Delete(name)
 
 	return nil
 }
@@ -269,7 +270,7 @@ func (b *InMemoryBackend) StartTrigger(name string) error {
 	b.mu.Lock("StartTrigger")
 	defer b.mu.Unlock()
 
-	t, ok := b.triggers[name]
+	t, ok := b.triggers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -284,7 +285,7 @@ func (b *InMemoryBackend) StopTrigger(name string) error {
 	b.mu.Lock("StopTrigger")
 	defer b.mu.Unlock()
 
-	t, ok := b.triggers[name]
+	t, ok := b.triggers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -305,7 +306,7 @@ func (b *InMemoryBackend) CreateWorkflow(w Workflow, tags map[string]string) (*W
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.workflows[w.Name]; ok {
+	if b.workflows.Has(w.Name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -316,7 +317,7 @@ func (b *InMemoryBackend) CreateWorkflow(w Workflow, tags map[string]string) (*W
 	stored.CreatedOn = now
 	stored.LastModifiedOn = now
 
-	b.workflows[w.Name] = stored
+	b.workflows.Put(stored)
 
 	return cloneWorkflow(stored), nil
 }
@@ -326,7 +327,7 @@ func (b *InMemoryBackend) GetWorkflow(name string) (*Workflow, error) {
 	b.mu.RLock("GetWorkflow")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workflows[name]
+	w, ok := b.workflows.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -339,7 +340,13 @@ func (b *InMemoryBackend) GetWorkflows() []string {
 	b.mu.RLock("GetWorkflows")
 	defer b.mu.RUnlock()
 
-	return sortedKeys(b.workflows)
+	src := b.workflows.Snapshot()
+	out := make([]string, len(src))
+	for i, w := range src {
+		out[i] = w.Name
+	}
+
+	return out
 }
 
 // BatchGetWorkflows retrieves multiple workflows by name.
@@ -351,7 +358,7 @@ func (b *InMemoryBackend) BatchGetWorkflows(names []string) ([]*Workflow, []stri
 	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
-		w, ok := b.workflows[name]
+		w, ok := b.workflows.Get(name)
 		if !ok {
 			missing = append(missing, name)
 
@@ -369,7 +376,7 @@ func (b *InMemoryBackend) UpdateWorkflow(name string, update Workflow) error {
 	b.mu.Lock("UpdateWorkflow")
 	defer b.mu.Unlock()
 
-	w, ok := b.workflows[name]
+	w, ok := b.workflows.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -386,11 +393,11 @@ func (b *InMemoryBackend) DeleteWorkflow(name string) error {
 	b.mu.Lock("DeleteWorkflow")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workflows[name]; !ok {
+	if !b.workflows.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.workflows, name)
+	b.workflows.Delete(name)
 	delete(b.workflowRuns, name)
 
 	return nil
@@ -401,7 +408,7 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 	b.mu.Lock("StartWorkflowRun")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workflows[name]; !ok {
+	if !b.workflows.Has(name) {
 		return nil, ErrNotFound
 	}
 
@@ -442,7 +449,7 @@ func (b *InMemoryBackend) GetWorkflowRuns(workflowName string) ([]*WorkflowRun, 
 	b.mu.RLock("GetWorkflowRuns")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.workflows[workflowName]; !ok {
+	if !b.workflows.Has(workflowName) {
 		return nil, ErrNotFound
 	}
 
@@ -468,12 +475,12 @@ func (b *InMemoryBackend) CreateClassifier(c Classifier) error {
 		return ErrValidation
 	}
 
-	if _, ok := b.classifiers[name]; ok {
+	if b.classifiers.Has(name) {
 		return ErrAlreadyExists
 	}
 
 	cp := c
-	b.classifiers[name] = &cp
+	b.classifiers.Put(&cp)
 
 	return nil
 }
@@ -483,7 +490,7 @@ func (b *InMemoryBackend) GetClassifier(name string) (*Classifier, error) {
 	b.mu.RLock("GetClassifier")
 	defer b.mu.RUnlock()
 
-	c, ok := b.classifiers[name]
+	c, ok := b.classifiers.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -498,9 +505,10 @@ func (b *InMemoryBackend) GetClassifiers() []*Classifier {
 	b.mu.RLock("GetClassifiers")
 	defer b.mu.RUnlock()
 
-	out := make([]*Classifier, 0, len(b.classifiers))
-	for _, k := range sortedKeys(b.classifiers) {
-		cp := *b.classifiers[k]
+	src := b.classifiers.Snapshot()
+	out := make([]*Classifier, 0, len(src))
+	for _, c := range src {
+		cp := *c
 		out = append(out, &cp)
 	}
 
@@ -517,12 +525,12 @@ func (b *InMemoryBackend) UpdateClassifier(c Classifier) error {
 		return ErrValidation
 	}
 
-	if _, ok := b.classifiers[name]; !ok {
+	if !b.classifiers.Has(name) {
 		return ErrNotFound
 	}
 
 	cp := c
-	b.classifiers[name] = &cp
+	b.classifiers.Put(&cp)
 
 	return nil
 }
@@ -532,11 +540,11 @@ func (b *InMemoryBackend) DeleteClassifier(name string) error {
 	b.mu.Lock("DeleteClassifier")
 	defer b.mu.Unlock()
 
-	if _, ok := b.classifiers[name]; !ok {
+	if !b.classifiers.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.classifiers, name)
+	b.classifiers.Delete(name)
 
 	return nil
 }
@@ -552,7 +560,7 @@ func (b *InMemoryBackend) CreateDevEndpoint(name string) (*DevEndpoint, error) {
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.devEndpoints[name]; ok {
+	if b.devEndpoints.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -560,7 +568,7 @@ func (b *InMemoryBackend) CreateDevEndpoint(name string) (*DevEndpoint, error) {
 		EndpointName: name,
 		Status:       stateReady,
 	}
-	b.devEndpoints[name] = dep
+	b.devEndpoints.Put(dep)
 
 	cp := *dep
 
@@ -572,7 +580,7 @@ func (b *InMemoryBackend) GetDevEndpoint(name string) (*DevEndpoint, error) {
 	b.mu.RLock("GetDevEndpoint")
 	defer b.mu.RUnlock()
 
-	dep, ok := b.devEndpoints[name]
+	dep, ok := b.devEndpoints.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -587,9 +595,10 @@ func (b *InMemoryBackend) GetAllDevEndpoints() []*DevEndpoint {
 	b.mu.RLock("GetAllDevEndpoints")
 	defer b.mu.RUnlock()
 
-	out := make([]*DevEndpoint, 0, len(b.devEndpoints))
-	for _, k := range sortedKeys(b.devEndpoints) {
-		cp := *b.devEndpoints[k]
+	src := b.devEndpoints.Snapshot()
+	out := make([]*DevEndpoint, 0, len(src))
+	for _, dep := range src {
+		cp := *dep
 		out = append(out, &cp)
 	}
 
@@ -601,11 +610,11 @@ func (b *InMemoryBackend) DeleteDevEndpoint(name string) error {
 	b.mu.Lock("DeleteDevEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.devEndpoints[name]; !ok {
+	if !b.devEndpoints.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.devEndpoints, name)
+	b.devEndpoints.Delete(name)
 
 	return nil
 }

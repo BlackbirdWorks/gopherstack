@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // Registry represents a Glue Schema Registry.
@@ -101,7 +100,7 @@ func (b *InMemoryBackend) CreateRegistry(
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.registries[name]; ok {
+	if b.registries.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -115,7 +114,7 @@ func (b *InMemoryBackend) CreateRegistry(
 		UpdatedTime: float64(time.Now().Unix()),
 	}
 
-	b.registries[name] = reg
+	b.registries.Put(reg)
 
 	return reg, nil
 }
@@ -125,7 +124,7 @@ func (b *InMemoryBackend) DescribeRegistry(name string) (*Registry, error) {
 	b.mu.RLock("DescribeRegistry")
 	defer b.mu.RUnlock()
 
-	reg, ok := b.registries[name]
+	reg, ok := b.registries.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -141,12 +140,12 @@ func (b *InMemoryBackend) ListRegistries() []*Registry {
 	b.mu.RLock("ListRegistries")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.registries)
+	src := b.registries.Snapshot()
 
-	out := make([]*Registry, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.registries[k]
-		cp.Tags = maps.Clone(b.registries[k].Tags)
+	out := make([]*Registry, 0, len(src))
+	for _, reg := range src {
+		cp := *reg
+		cp.Tags = maps.Clone(reg.Tags)
 		out = append(out, &cp)
 	}
 
@@ -158,7 +157,7 @@ func (b *InMemoryBackend) UpdateRegistry(name, description string) error {
 	b.mu.Lock("UpdateRegistry")
 	defer b.mu.Unlock()
 
-	reg, ok := b.registries[name]
+	reg, ok := b.registries.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -174,11 +173,11 @@ func (b *InMemoryBackend) DeleteRegistry(name string) error {
 	b.mu.Lock("DeleteRegistry")
 	defer b.mu.Unlock()
 
-	if _, ok := b.registries[name]; !ok {
+	if !b.registries.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.registries, name)
+	b.registries.Delete(name)
 
 	return nil
 }
@@ -198,7 +197,7 @@ func (b *InMemoryBackend) CreateSchema(
 	}
 
 	key := schemaKey(registryName, schemaName)
-	if _, ok := b.schemas[key]; ok {
+	if b.schemas.Has(key) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -221,7 +220,7 @@ func (b *InMemoryBackend) CreateSchema(
 		CheckpointVersion:   1,
 	}
 
-	b.schemas[key] = s
+	b.schemas.Put(s)
 	b.schemaVersions[schemaVersionListKey(schARN)] = nil // init empty version list
 
 	return s, nil
@@ -232,7 +231,7 @@ func (b *InMemoryBackend) DescribeSchema(registryName, schemaName string) (*Sche
 	b.mu.RLock("DescribeSchema")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -248,10 +247,10 @@ func (b *InMemoryBackend) ListSchemas(registryName string) []*Schema {
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
-	out := make([]*Schema, 0, len(b.schemas))
-	for key, s := range b.schemas {
+	src := b.schemas.All()
+	out := make([]*Schema, 0, len(src))
+	for _, s := range src {
 		if registryName == "" || s.RegistryName == registryName {
-			_ = key
 			cp := *s
 			cp.Tags = maps.Clone(s.Tags)
 			out = append(out, &cp)
@@ -272,7 +271,7 @@ func (b *InMemoryBackend) UpdateSchema(
 	b.mu.Lock("UpdateSchema")
 	defer b.mu.Unlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return ErrNotFound
 	}
@@ -297,13 +296,13 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) error {
 
 	key := schemaKey(registryName, schemaName)
 
-	s, ok := b.schemas[key]
+	s, ok := b.schemas.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 
 	delete(b.schemaVersions, schemaVersionListKey(s.SchemaARN))
-	delete(b.schemas, key)
+	b.schemas.Delete(key)
 
 	return nil
 }
@@ -317,7 +316,7 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 	b.mu.Lock("RegisterSchemaVersion")
 	defer b.mu.Unlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -351,7 +350,7 @@ func (b *InMemoryBackend) GetSchemaVersion(
 	b.mu.RLock("GetSchemaVersion")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -372,7 +371,7 @@ func (b *InMemoryBackend) ListSchemaVersions(registryName, schemaName string) []
 	b.mu.RLock("ListSchemaVersions")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil
 	}
@@ -398,10 +397,11 @@ func (b *InMemoryBackend) GetTableVersions(dbName, tableName string) []*TableVer
 	defer b.mu.RUnlock()
 
 	prefix := tableVersionKey(dbName, tableName, "")
-	out := make([]*TableVersion, 0, len(b.tableVersions))
+	src := b.tableVersions.Snapshot()
+	out := make([]*TableVersion, 0, len(src))
 
-	for k, tv := range b.tableVersions {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, tv := range src {
+		if k := tableVersionEntryKeyFn(tv); len(k) > len(prefix) && k[:len(prefix)] == prefix {
 			cp := *tv
 			if tv.Table != nil {
 				t := *tv.Table
@@ -428,7 +428,7 @@ func (b *InMemoryBackend) GetTableVersion(
 
 	key := tableVersionKey(dbName, tableName, versionID)
 
-	tv, ok := b.tableVersions[key]
+	tv, ok := b.tableVersions.Get(key)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -452,8 +452,8 @@ func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMet
 	defer b.mu.RUnlock()
 
 	if len(crawlerNames) == 0 {
-		for k := range b.crawlers {
-			crawlerNames = append(crawlerNames, k)
+		for _, c := range b.crawlers.All() {
+			crawlerNames = append(crawlerNames, c.Name)
 		}
 
 		sort.Strings(crawlerNames)
@@ -462,7 +462,7 @@ func (b *InMemoryBackend) GetCrawlerMetrics(crawlerNames []string) []*CrawlerMet
 	out := make([]*CrawlerMetrics, 0, len(crawlerNames))
 
 	for _, name := range crawlerNames {
-		c, ok := b.crawlers[name]
+		c, ok := b.crawlers.Get(name)
 		if !ok {
 			continue
 		}

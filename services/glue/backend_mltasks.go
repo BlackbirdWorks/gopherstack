@@ -41,7 +41,7 @@ func mlTaskRunKey(transformID, taskRunID string) string {
 }
 
 func (b *InMemoryBackend) startMLTaskRunLocked(transformID string, taskType MLTaskType) (*MLTaskRun, error) {
-	if _, ok := b.mlTransforms[transformID]; !ok {
+	if !b.mlTransforms.Has(transformID) {
 		return nil, fmt.Errorf("ML transform %q not found: %w", transformID, ErrNotFound)
 	}
 
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) startMLTaskRunLocked(transformID string, taskType MLTa
 		Status:      stateRunning,
 		StartedOn:   float64(time.Now().Unix()),
 	}
-	b.mlTaskRuns[mlTaskRunKey(transformID, taskRunID)] = run
+	b.mlTaskRuns.Put(run)
 	cp := *run
 
 	return &cp, nil
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) GetMLTaskRun(transformID, taskRunID string) (*MLTaskRu
 	b.mu.RLock("GetMLTaskRun")
 	defer b.mu.RUnlock()
 
-	run, ok := b.mlTaskRuns[mlTaskRunKey(transformID, taskRunID)]
+	run, ok := b.mlTaskRuns.Get(mlTaskRunKey(transformID, taskRunID))
 	if !ok {
 		return nil, ErrMLTaskRunNotFound
 	}
@@ -111,16 +111,16 @@ func (b *InMemoryBackend) GetMLTaskRuns(transformID string) ([]*MLTaskRun, error
 	b.mu.RLock("GetMLTaskRuns")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.mlTransforms[transformID]; !ok {
+	if !b.mlTransforms.Has(transformID) {
 		return nil, fmt.Errorf("ML transform %q not found: %w", transformID, ErrNotFound)
 	}
 
 	prefix := transformID + "|"
 	out := make([]*MLTaskRun, 0)
 
-	for _, k := range sortedKeys(b.mlTaskRuns) {
-		if strings.HasPrefix(k, prefix) {
-			cp := *b.mlTaskRuns[k]
+	for _, r := range b.mlTaskRuns.Snapshot() {
+		if k := mlTaskRunEntryKeyFn(r); strings.HasPrefix(k, prefix) {
+			cp := *r
 			out = append(out, &cp)
 		}
 	}
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) CancelMLTaskRun(transformID, taskRunID string) error {
 
 	key := mlTaskRunKey(transformID, taskRunID)
 
-	run, ok := b.mlTaskRuns[key]
+	run, ok := b.mlTaskRuns.Get(key)
 	if !ok {
 		return ErrMLTaskRunNotFound
 	}
@@ -153,8 +153,9 @@ func (b *InMemoryBackend) ListDataQualityEvaluationRuns() []*DataQualityEvaluati
 	b.mu.RLock("ListDataQualityEvaluationRuns")
 	defer b.mu.RUnlock()
 
-	out := make([]*DataQualityEvaluationRun, 0, len(b.dataQualityEvalRuns))
-	for _, r := range b.dataQualityEvalRuns {
+	src := b.dataQualityEvalRuns.All()
+	out := make([]*DataQualityEvaluationRun, 0, len(src))
+	for _, r := range src {
 		cp := *r
 		out = append(out, &cp)
 	}
@@ -169,8 +170,9 @@ func (b *InMemoryBackend) ListDataQualityResults() []*DataQualityResult {
 	b.mu.RLock("ListDataQualityResults")
 	defer b.mu.RUnlock()
 
-	out := make([]*DataQualityResult, 0, len(b.dataQualityResult))
-	for _, r := range b.dataQualityResult {
+	src := b.dataQualityResult.All()
+	out := make([]*DataQualityResult, 0, len(src))
+	for _, r := range src {
 		cp := *r
 		out = append(out, &cp)
 	}

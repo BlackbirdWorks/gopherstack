@@ -12,8 +12,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -454,57 +454,64 @@ type DataQualityEvaluationRun struct {
 	CompletedOn  float64  `json:"CompletedOn,omitempty"`
 }
 
-// InMemoryBackend stores Glue state in memory.
+// InMemoryBackend stores Glue state in memory. Most resource collections are
+// *store.Table[T], registered once on b.registry via registerAllTables (see
+// store_setup.go); a handful remain plain maps because their key is not a
+// pure function of the stored value's own fields, or because they hold a
+// one-to-many history/list rather than a single value per key -- see the
+// comment above registerAllTables in store_setup.go for the full list and
+// rationale.
 type InMemoryBackend struct {
-	databases                 map[string]*Database                      // key: databaseName
-	tables                    map[string]*Table                         // key: "databaseName|tableName"
-	crawlers                  map[string]*Crawler                       // key: crawlerName
-	jobs                      map[string]*Job                           // key: jobName
-	partitions                map[string]*Partition                     // key: partitionKey(db, table, values)
-	partitionIndexes          map[string]*PartitionIndex                // key: "databaseName|tableName|indexName"
-	tableVersions             map[string]*TableVersion                  // key: tableVersionKey(db, table, versionID)
-	connections               map[string]*Connection                    // key: connectionName
-	blueprints                map[string]*Blueprint                     // key: blueprintName
-	customEntityTypes         map[string]*CustomEntityType              // key: name
-	dataQualityResult         map[string]*DataQualityResult             // key: resultID
-	devEndpoints              map[string]*DevEndpoint                   // key: endpointName
-	jobRuns                   map[string][]*JobRun                      // key: jobName
-	jobBookmarks              map[string]*JobBookmark                   // key: jobName
-	dataQualityRulesets       map[string]*DataQualityRuleset            // key: name
-	dataQualityEvalRuns       map[string]*DataQualityEvaluationRun      // key: runId
-	triggers                  map[string]*Trigger                       // key: triggerName
-	workflows                 map[string]*Workflow                      // key: workflowName
-	workflowRuns              map[string][]*WorkflowRun                 // key: workflowName
-	classifiers               map[string]*Classifier                    // key: classifierName
-	registries                map[string]*Registry                      // key: registryName
-	schemas                   map[string]*Schema                        // key: "registryName|schemaName"
-	schemaVersions            map[string][]*SchemaVersion               // key: schemaARN
-	udfs                      map[string]*UserDefinedFunction           // key: "dbName|udfName"
-	securityConfigs           map[string]*SecurityConfiguration         // key: name
-	sessions                  map[string]*Session                       // key: sessionID
-	sessionStatements         map[string][]*Statement                   // key: sessionID
-	tableOptimizers           map[string]*TableOptimizer                // key: "dbName|tableName|type"
-	tableColumnStats          map[string]*ColumnStatistics              // key: "dbName|tableName|colName"
-	partitionColumnStats      map[string]*ColumnStatistics              // key: partKey+"|"+colName
-	resourcePolicies          map[string]*resourcePolicyEntry           // key: resourceARN or "__global__"
-	mlTransforms              map[string]*MLTransform                   // key: transformID
-	catalogs                  map[string]*CatalogEntry                  // key: catalogID
+	databases                 *store.Table[Database]
+	tables                    *store.Table[Table]
+	crawlers                  *store.Table[Crawler]
+	jobs                      *store.Table[Job]
+	partitions                *store.Table[Partition]
+	partitionIndexes          map[string]*PartitionIndex // key: "databaseName|tableName|indexName"
+	tableVersions             *store.Table[TableVersion]
+	connections               *store.Table[Connection]
+	blueprints                *store.Table[Blueprint]
+	customEntityTypes         *store.Table[CustomEntityType]
+	dataQualityResult         *store.Table[DataQualityResult]
+	devEndpoints              *store.Table[DevEndpoint]
+	jobRuns                   map[string][]*JobRun // key: jobName
+	jobBookmarks              *store.Table[JobBookmark]
+	dataQualityRulesets       *store.Table[DataQualityRuleset]
+	dataQualityEvalRuns       *store.Table[DataQualityEvaluationRun]
+	triggers                  *store.Table[Trigger]
+	workflows                 *store.Table[Workflow]
+	workflowRuns              map[string][]*WorkflowRun // key: workflowName
+	classifiers               *store.Table[Classifier]
+	registries                *store.Table[Registry]
+	schemas                   *store.Table[Schema]
+	schemaVersions            map[string][]*SchemaVersion // key: schemaARN
+	udfs                      *store.Table[UserDefinedFunction]
+	securityConfigs           *store.Table[SecurityConfiguration]
+	sessions                  *store.Table[Session]
+	sessionStatements         map[string][]*Statement // key: sessionID
+	tableOptimizers           *store.Table[TableOptimizer]
+	tableColumnStats          map[string]*ColumnStatistics    // key: "dbName|tableName|colName"
+	partitionColumnStats      map[string]*ColumnStatistics    // key: partKey+"|"+colName
+	resourcePolicies          map[string]*resourcePolicyEntry // key: resourceARN or "__global__"
+	mlTransforms              *store.Table[MLTransform]
+	catalogs                  *store.Table[CatalogEntry]
 	catalogEncryptionSettings map[string]*DataCatalogEncryptionSettings // key: catalogID or accountID
-	usageProfiles             map[string]*UsageProfile                  // key: name
-	blueprintRuns             map[string]*BlueprintRun                  // key: runID
-	dqRecommendationRuns      map[string]*DQRuleRecommendationRun       // key: runID
-	columnStatTaskSettings    map[string]*ColumnStatisticsTaskSettings  // key: "dbName|tableName"
-	columnStatTaskRuns        map[string]*ColumnStatisticsTaskRun       // key: runID
-	materializedViewRuns      map[string]*MaterializedViewRefreshRun    // key: taskRunID
-	integrations              map[string]*Integration                   // key: integrationName
-	integrationResourceProps  map[string]*IntegrationResourceProperty   // key: resourceARN
-	integrationTableProps     map[string]*IntegrationTableProperties    // key: "resourceARN|tableName"
-	mlTaskRuns                map[string]*MLTaskRun                     // key: "transformID|taskRunID"
-	catalogImports            map[string]*CatalogImportStatus           // key: catalogID or accountID
-	schemaVersionMetadata     map[string]map[string]string              // key: schemaVersionID → key → value
-	crawlHistory              map[string][]*CrawlHistoryEntry           // key: crawlerName
-	dqStatisticAnnotations    map[string]*StatisticAnnotation           // key: "profileID|statisticID"
+	usageProfiles             *store.Table[UsageProfile]
+	blueprintRuns             *store.Table[BlueprintRun]
+	dqRecommendationRuns      *store.Table[DQRuleRecommendationRun]
+	columnStatTaskSettings    *store.Table[ColumnStatisticsTaskSettings]
+	columnStatTaskRuns        *store.Table[ColumnStatisticsTaskRun]
+	materializedViewRuns      *store.Table[MaterializedViewRefreshRun]
+	integrations              *store.Table[Integration]
+	integrationResourceProps  *store.Table[IntegrationResourceProperty]
+	integrationTableProps     *store.Table[IntegrationTableProperties]
+	mlTaskRuns                *store.Table[MLTaskRun]
+	catalogImports            map[string]*CatalogImportStatus // key: catalogID or accountID
+	schemaVersionMetadata     map[string]map[string]string    // key: schemaVersionID → key → value
+	crawlHistory              map[string][]*CrawlHistoryEntry // key: crawlerName
+	dqStatisticAnnotations    *store.Table[StatisticAnnotation]
 	glueIdentityCenterConfig  *IdentityCenterConfig
+	registry                  *store.Registry
 	mu                        *lockmetrics.RWMutex
 
 	// lifecycle reconciler timers
@@ -513,7 +520,7 @@ type InMemoryBackend struct {
 	crawlerReadyAt map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
 
 	// connection-type registry (custom types registered via RegisterConnectionType).
-	customConnectionTypes map[string]*ConnectionTypeInfo
+	customConnectionTypes *store.Table[ConnectionTypeInfo]
 
 	// reconcileStop signals the managed reconciler goroutine to exit. See the
 	// non-pointer reconciler bookkeeping fields at the end of the struct.
@@ -537,62 +544,28 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory Glue backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		databases:                 make(map[string]*Database),
-		tables:                    make(map[string]*Table),
-		crawlers:                  make(map[string]*Crawler),
-		jobs:                      make(map[string]*Job),
-		partitions:                make(map[string]*Partition),
 		partitionIndexes:          make(map[string]*PartitionIndex),
-		tableVersions:             make(map[string]*TableVersion),
-		connections:               make(map[string]*Connection),
-		blueprints:                make(map[string]*Blueprint),
-		customEntityTypes:         make(map[string]*CustomEntityType),
-		dataQualityResult:         make(map[string]*DataQualityResult),
-		devEndpoints:              make(map[string]*DevEndpoint),
 		jobRuns:                   make(map[string][]*JobRun),
-		jobBookmarks:              make(map[string]*JobBookmark),
-		dataQualityRulesets:       make(map[string]*DataQualityRuleset),
-		dataQualityEvalRuns:       make(map[string]*DataQualityEvaluationRun),
-		triggers:                  make(map[string]*Trigger),
-		workflows:                 make(map[string]*Workflow),
 		workflowRuns:              make(map[string][]*WorkflowRun),
-		classifiers:               make(map[string]*Classifier),
-		registries:                make(map[string]*Registry),
-		schemas:                   make(map[string]*Schema),
 		schemaVersions:            make(map[string][]*SchemaVersion),
-		udfs:                      make(map[string]*UserDefinedFunction),
-		securityConfigs:           make(map[string]*SecurityConfiguration),
-		sessions:                  make(map[string]*Session),
 		sessionStatements:         make(map[string][]*Statement),
-		tableOptimizers:           make(map[string]*TableOptimizer),
 		tableColumnStats:          make(map[string]*ColumnStatistics),
 		partitionColumnStats:      make(map[string]*ColumnStatistics),
 		resourcePolicies:          make(map[string]*resourcePolicyEntry),
-		mlTransforms:              make(map[string]*MLTransform),
-		catalogs:                  make(map[string]*CatalogEntry),
 		catalogEncryptionSettings: make(map[string]*DataCatalogEncryptionSettings),
-		usageProfiles:             make(map[string]*UsageProfile),
-		blueprintRuns:             make(map[string]*BlueprintRun),
-		dqRecommendationRuns:      make(map[string]*DQRuleRecommendationRun),
-		columnStatTaskSettings:    make(map[string]*ColumnStatisticsTaskSettings),
-		columnStatTaskRuns:        make(map[string]*ColumnStatisticsTaskRun),
-		materializedViewRuns:      make(map[string]*MaterializedViewRefreshRun),
-		integrations:              make(map[string]*Integration),
-		integrationResourceProps:  make(map[string]*IntegrationResourceProperty),
-		integrationTableProps:     make(map[string]*IntegrationTableProperties),
-		mlTaskRuns:                make(map[string]*MLTaskRun),
 		catalogImports:            make(map[string]*CatalogImportStatus),
 		schemaVersionMetadata:     make(map[string]map[string]string),
 		crawlHistory:              make(map[string][]*CrawlHistoryEntry),
-		dqStatisticAnnotations:    make(map[string]*StatisticAnnotation),
+		registry:                  store.NewRegistry(),
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
 		jobRunReadyAt:             make(map[string]map[string]time.Time),
 		jobRunDoneAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
-		customConnectionTypes:     make(map[string]*ConnectionTypeInfo),
 	}
+
+	registerAllTables(b)
 
 	return b
 }
@@ -642,7 +615,7 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 	//                    without creating tables (the crawl was interrupted).
 	for name, readyAt := range b.crawlerReadyAt {
 		if now.After(readyAt) {
-			c, ok := b.crawlers[name]
+			c, ok := b.crawlers.Get(name)
 			if ok && c.State == stateRunning {
 				c.State = stateReady
 				c.LastUpdated = float64(now.Unix())
@@ -725,12 +698,12 @@ func (b *InMemoryBackend) createCrawlerTablesLocked(c *Crawler) int {
 		}
 
 		key := c.DatabaseName + "|" + tableName
-		if _, exists := b.tables[key]; !exists {
-			b.tables[key] = &Table{
+		if !b.tables.Has(key) {
+			b.tables.Put(&Table{
 				Name:         tableName,
 				DatabaseName: c.DatabaseName,
 				CreateTime:   float64(time.Now().Unix()),
-			}
+			})
 			created++
 		}
 	}
@@ -743,50 +716,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.databases = make(map[string]*Database)
-	b.tables = make(map[string]*Table)
-	b.crawlers = make(map[string]*Crawler)
-	b.jobs = make(map[string]*Job)
-	b.partitions = make(map[string]*Partition)
+	b.registry.ResetAll()
+
 	b.partitionIndexes = make(map[string]*PartitionIndex)
-	b.tableVersions = make(map[string]*TableVersion)
-	b.connections = make(map[string]*Connection)
-	b.blueprints = make(map[string]*Blueprint)
-	b.customEntityTypes = make(map[string]*CustomEntityType)
-	b.dataQualityResult = make(map[string]*DataQualityResult)
-	b.devEndpoints = make(map[string]*DevEndpoint)
 	b.jobRuns = make(map[string][]*JobRun)
-	b.jobBookmarks = make(map[string]*JobBookmark)
-	b.dataQualityRulesets = make(map[string]*DataQualityRuleset)
-	b.dataQualityEvalRuns = make(map[string]*DataQualityEvaluationRun)
-	b.triggers = make(map[string]*Trigger)
-	b.workflows = make(map[string]*Workflow)
 	b.workflowRuns = make(map[string][]*WorkflowRun)
-	b.classifiers = make(map[string]*Classifier)
-	b.registries = make(map[string]*Registry)
-	b.schemas = make(map[string]*Schema)
 	b.schemaVersions = make(map[string][]*SchemaVersion)
-	b.udfs = make(map[string]*UserDefinedFunction)
-	b.securityConfigs = make(map[string]*SecurityConfiguration)
-	b.sessions = make(map[string]*Session)
 	b.sessionStatements = make(map[string][]*Statement)
-	b.tableOptimizers = make(map[string]*TableOptimizer)
 	b.tableColumnStats = make(map[string]*ColumnStatistics)
 	b.partitionColumnStats = make(map[string]*ColumnStatistics)
 	b.resourcePolicies = make(map[string]*resourcePolicyEntry)
-	b.mlTransforms = make(map[string]*MLTransform)
-	b.catalogs = make(map[string]*CatalogEntry)
 	b.catalogEncryptionSettings = make(map[string]*DataCatalogEncryptionSettings)
-	b.usageProfiles = make(map[string]*UsageProfile)
-	b.blueprintRuns = make(map[string]*BlueprintRun)
-	b.dqRecommendationRuns = make(map[string]*DQRuleRecommendationRun)
-	b.columnStatTaskSettings = make(map[string]*ColumnStatisticsTaskSettings)
-	b.columnStatTaskRuns = make(map[string]*ColumnStatisticsTaskRun)
-	b.materializedViewRuns = make(map[string]*MaterializedViewRefreshRun)
-	b.integrations = make(map[string]*Integration)
-	b.integrationResourceProps = make(map[string]*IntegrationResourceProperty)
-	b.integrationTableProps = make(map[string]*IntegrationTableProperties)
-	b.mlTaskRuns = make(map[string]*MLTaskRun)
 	b.catalogImports = make(map[string]*CatalogImportStatus)
 	b.schemaVersionMetadata = make(map[string]map[string]string)
 	b.resetStubFixState()
@@ -794,22 +734,19 @@ func (b *InMemoryBackend) Reset() {
 	b.resetLifecycleStateLocked()
 }
 
-// resetStubFixState clears the maps backing the de-stubbed operations (crawl
-// history, resource-policy timestamps' owning map, data-quality statistic
-// annotations). Kept separate from Reset to stay under the funlen limit. Must
-// be called with b.mu held.
+// resetStubFixState clears the raw map backing the de-stubbed crawl-history
+// feature. Kept separate from Reset to stay under the funlen limit. Must be
+// called with b.mu held.
 func (b *InMemoryBackend) resetStubFixState() {
 	b.crawlHistory = make(map[string][]*CrawlHistoryEntry)
-	b.dqStatisticAnnotations = make(map[string]*StatisticAnnotation)
 }
 
-// resetLifecycleStateLocked clears identity-center config, the connection-type
-// registry, and pending lifecycle transition timers. Clearing the timers ensures a
-// reset never resurrects a crawler/job-run state change scheduled against now-deleted
+// resetLifecycleStateLocked clears identity-center config and pending
+// lifecycle transition timers. Clearing the timers ensures a reset never
+// resurrects a crawler/job-run state change scheduled against now-deleted
 // resources. Must be called with b.mu held.
 func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.glueIdentityCenterConfig = nil
-	b.customConnectionTypes = make(map[string]*ConnectionTypeInfo)
 	b.jobRunReadyAt = make(map[string]map[string]time.Time)
 	b.jobRunDoneAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)
@@ -995,13 +932,6 @@ func tableVersionKey(dbName, tableName, versionID string) string {
 	return fmt.Sprintf("%s|%s|%s", dbName, tableName, versionID)
 }
 
-// sortedKeys returns the keys of a map in sorted order.
-func sortedKeys[V any](m map[string]V) []string {
-	keys := collections.SortedKeys(m)
-
-	return keys
-}
-
 // --- Database operations ---
 
 // CreateDatabase creates a new Glue database.
@@ -1020,7 +950,7 @@ func (b *InMemoryBackend) CreateDatabase(
 		return nil, err
 	}
 
-	if _, ok := b.databases[input.Name]; ok {
+	if b.databases.Has(input.Name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1032,7 +962,7 @@ func (b *InMemoryBackend) CreateDatabase(
 		Tags:        maps.Clone(tags),
 		CreateTime:  float64(time.Now().Unix()),
 	}
-	b.databases[input.Name] = db
+	b.databases.Put(db)
 
 	return db, nil
 }
@@ -1042,7 +972,7 @@ func (b *InMemoryBackend) GetDatabase(name string) (*Database, error) {
 	b.mu.RLock("GetDatabase")
 	defer b.mu.RUnlock()
 
-	db, ok := b.databases[name]
+	db, ok := b.databases.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1055,9 +985,10 @@ func (b *InMemoryBackend) GetDatabases() []*Database {
 	b.mu.RLock("GetDatabases")
 	defer b.mu.RUnlock()
 
-	out := make([]*Database, 0, len(b.databases))
-	for _, k := range sortedKeys(b.databases) {
-		out = append(out, cloneDatabase(b.databases[k]))
+	src := b.databases.Snapshot()
+	out := make([]*Database, 0, len(src))
+	for _, db := range src {
+		out = append(out, cloneDatabase(db))
 	}
 
 	return out
@@ -1068,28 +999,28 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	b.mu.Lock("DeleteDatabase")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[name]; !ok {
+	if !b.databases.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.databases, name)
+	b.databases.Delete(name)
 
 	prefix := name + "|"
-	for k := range b.tables {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			delete(b.tables, k)
+	for _, t := range b.tables.Snapshot() {
+		if k := tableKey(t.DatabaseName, t.Name); len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			b.tables.Delete(k)
 		}
 	}
 
-	for k := range b.partitions {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			delete(b.partitions, k)
+	for _, p := range b.partitions.Snapshot() {
+		if k := partitionKey(p.DatabaseName, p.TableName, p.Values); len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			b.partitions.Delete(k)
 		}
 	}
 
-	for k := range b.tableVersions {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			delete(b.tableVersions, k)
+	for _, tv := range b.tableVersions.Snapshot() {
+		if k := tableVersionEntryKeyFn(tv); len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			b.tableVersions.Delete(k)
 		}
 	}
 
@@ -1101,7 +1032,7 @@ func (b *InMemoryBackend) UpdateDatabase(name string, input DatabaseInput) error
 	b.mu.Lock("UpdateDatabase")
 	defer b.mu.Unlock()
 
-	db, ok := b.databases[name]
+	db, ok := b.databases.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1118,12 +1049,12 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, ErrNotFound
 	}
 
 	key := tableKey(dbName, input.Name)
-	if _, ok := b.tables[key]; ok {
+	if b.tables.Has(key) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1142,7 +1073,7 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		CreateTime:        now,
 		UpdateTime:        now,
 	}
-	b.tables[key] = t
+	b.tables.Put(t)
 
 	return t, nil
 }
@@ -1152,7 +1083,7 @@ func (b *InMemoryBackend) GetTable(dbName, tableName string) (*Table, error) {
 	b.mu.RLock("GetTable")
 	defer b.mu.RUnlock()
 
-	t, ok := b.tables[tableKey(dbName, tableName)]
+	t, ok := b.tables.Get(tableKey(dbName, tableName))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1165,20 +1096,21 @@ func (b *InMemoryBackend) GetTables(dbName string) ([]*Table, error) {
 	b.mu.RLock("GetTables")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, ErrNotFound
 	}
 
 	prefix := dbName + "|"
-	out := make([]*Table, 0, len(b.tables))
+	src := b.tables.Snapshot()
+	out := make([]*Table, 0, len(src))
 
-	for _, k := range sortedKeys(b.tables) {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, t := range src {
+		if k := tableKey(t.DatabaseName, t.Name); len(k) > len(prefix) && k[:len(prefix)] == prefix {
 			// Clone before returning: GetTable already clones, but GetTables was
 			// handing out the live backend pointer, letting a caller mutate
 			// (or a concurrent JSON marshal race against a writer mutating)
 			// catalog state without holding b.mu.
-			out = append(out, cloneTable(b.tables[k]))
+			out = append(out, cloneTable(t))
 		}
 	}
 
@@ -1192,7 +1124,7 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 
 	key := tableKey(dbName, input.Name)
 
-	t, ok := b.tables[key]
+	t, ok := b.tables.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1215,11 +1147,11 @@ func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 	defer b.mu.Unlock()
 
 	key := tableKey(dbName, tableName)
-	if _, ok := b.tables[key]; !ok {
+	if !b.tables.Has(key) {
 		return ErrNotFound
 	}
 
-	delete(b.tables, key)
+	b.tables.Delete(key)
 	b.deleteTablePartitionsLocked(dbName, tableName)
 
 	return nil
@@ -1229,9 +1161,10 @@ func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) {
 	prefix := dbName + "|" + tableName + "|"
-	for k := range b.partitions {
-		if strings.HasPrefix(k, prefix) {
-			delete(b.partitions, k)
+
+	for _, p := range b.partitions.Snapshot() {
+		if k := partitionKey(p.DatabaseName, p.TableName, p.Values); strings.HasPrefix(k, prefix) {
+			b.partitions.Delete(k)
 		}
 	}
 
@@ -1241,9 +1174,9 @@ func (b *InMemoryBackend) deleteTablePartitionsLocked(dbName, tableName string) 
 		}
 	}
 
-	for k := range b.tableVersions {
-		if strings.HasPrefix(k, prefix) {
-			delete(b.tableVersions, k)
+	for _, tv := range b.tableVersions.Snapshot() {
+		if k := tableVersionEntryKeyFn(tv); strings.HasPrefix(k, prefix) {
+			b.tableVersions.Delete(k)
 		}
 	}
 }
@@ -1295,12 +1228,12 @@ func (b *InMemoryBackend) CreateCrawlerWithOptions(
 	}
 
 	if dbName != "" {
-		if _, ok := b.databases[dbName]; !ok {
+		if !b.databases.Has(dbName) {
 			return nil, ErrNotFound
 		}
 	}
 
-	if _, ok := b.crawlers[name]; ok {
+	if b.crawlers.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1324,7 +1257,7 @@ func (b *InMemoryBackend) CreateCrawlerWithOptions(
 		c.Schedule = CrawlerSchedule{ScheduleExpression: opts.Schedule, State: stateScheduled}
 	}
 
-	b.crawlers[name] = c
+	b.crawlers.Put(c)
 
 	return c, nil
 }
@@ -1336,7 +1269,7 @@ func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
 	b.mu.RLock("GetCrawler")
 	defer b.mu.RUnlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1351,9 +1284,10 @@ func (b *InMemoryBackend) GetCrawlers() []*Crawler {
 	b.mu.RLock("GetCrawlers")
 	defer b.mu.RUnlock()
 
-	out := make([]*Crawler, 0, len(b.crawlers))
-	for _, k := range sortedKeys(b.crawlers) {
-		out = append(out, cloneCrawler(b.crawlers[k]))
+	src := b.crawlers.Snapshot()
+	out := make([]*Crawler, 0, len(src))
+	for _, c := range src {
+		out = append(out, cloneCrawler(c))
 	}
 
 	return out
@@ -1364,7 +1298,13 @@ func (b *InMemoryBackend) ListCrawlers() []string {
 	b.mu.RLock("ListCrawlers")
 	defer b.mu.RUnlock()
 
-	return sortedKeys(b.crawlers)
+	src := b.crawlers.Snapshot()
+	out := make([]string, len(src))
+	for i, c := range src {
+		out[i] = c.Name
+	}
+
+	return out
 }
 
 // UpdateCrawler updates an existing Glue crawler.
@@ -1385,7 +1325,7 @@ func (b *InMemoryBackend) UpdateCrawlerWithOptions(
 	b.mu.Lock("UpdateCrawler")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1430,7 +1370,7 @@ func (b *InMemoryBackend) DeleteCrawler(name string) error {
 	b.mu.Lock("DeleteCrawler")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1439,7 +1379,7 @@ func (b *InMemoryBackend) DeleteCrawler(name string) error {
 		return ErrCrawlerRunning
 	}
 
-	delete(b.crawlers, name)
+	b.crawlers.Delete(name)
 
 	return nil
 }
@@ -1475,7 +1415,7 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		return nil, err
 	}
 
-	if _, ok := b.jobs[input.Name]; ok {
+	if b.jobs.Has(input.Name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1500,7 +1440,7 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		CreatedOn:            now,
 		LastModifiedOn:       now,
 	}
-	b.jobs[input.Name] = j
+	b.jobs.Put(j)
 
 	return j, nil
 }
@@ -1524,7 +1464,7 @@ func (b *InMemoryBackend) GetJob(name string) (*Job, error) {
 	b.mu.RLock("GetJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.jobs[name]
+	j, ok := b.jobs.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1537,9 +1477,10 @@ func (b *InMemoryBackend) GetJobs() []*Job {
 	b.mu.RLock("GetJobs")
 	defer b.mu.RUnlock()
 
-	out := make([]*Job, 0, len(b.jobs))
-	for _, k := range sortedKeys(b.jobs) {
-		out = append(out, cloneJob(b.jobs[k]))
+	src := b.jobs.Snapshot()
+	out := make([]*Job, 0, len(src))
+	for _, j := range src {
+		out = append(out, cloneJob(j))
 	}
 
 	return out
@@ -1550,7 +1491,7 @@ func (b *InMemoryBackend) UpdateJob(name string, input Job) error {
 	b.mu.Lock("UpdateJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[name]
+	j, ok := b.jobs.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1592,7 +1533,7 @@ func (b *InMemoryBackend) UpdateJobFromSourceControl(jobName string, details Sou
 	b.mu.Lock("UpdateJobFromSourceControl")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobName]
+	j, ok := b.jobs.Get(jobName)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1614,7 +1555,7 @@ func (b *InMemoryBackend) UpdateSourceControlFromJob(jobName string, details Sou
 	b.mu.Lock("UpdateSourceControlFromJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobName]
+	j, ok := b.jobs.Get(jobName)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1630,13 +1571,13 @@ func (b *InMemoryBackend) DeleteJob(name string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[name]; !ok {
+	if !b.jobs.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.jobs, name)
+	b.jobs.Delete(name)
 	delete(b.jobRuns, name)
-	delete(b.jobBookmarks, name)
+	b.jobBookmarks.Delete(name)
 
 	return nil
 }
@@ -1813,7 +1754,7 @@ func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
 		return nil
 	}
 
-	db, ok := b.databases[name]
+	db, ok := b.databases.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1827,7 +1768,7 @@ func (b *InMemoryBackend) findCrawlerByARN(resourceARN string) *Crawler {
 		return nil
 	}
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1841,7 +1782,7 @@ func (b *InMemoryBackend) findJobByARN(resourceARN string) *Job {
 		return nil
 	}
 
-	j, ok := b.jobs[name]
+	j, ok := b.jobs.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1855,7 +1796,7 @@ func (b *InMemoryBackend) findDataQualityRulesetByARN(resourceARN string) *DataQ
 		return nil
 	}
 
-	r, ok := b.dataQualityRulesets[name]
+	r, ok := b.dataQualityRulesets.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1869,7 +1810,7 @@ func (b *InMemoryBackend) findConnectionByARN(resourceARN string) *Connection {
 		return nil
 	}
 
-	c, ok := b.connections[name]
+	c, ok := b.connections.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1883,7 +1824,7 @@ func (b *InMemoryBackend) findTriggerByARN(resourceARN string) *Trigger {
 		return nil
 	}
 
-	t, ok := b.triggers[name]
+	t, ok := b.triggers.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1897,7 +1838,7 @@ func (b *InMemoryBackend) findWorkflowByARN(resourceARN string) *Workflow {
 		return nil
 	}
 
-	w, ok := b.workflows[name]
+	w, ok := b.workflows.Get(name)
 	if !ok {
 		return nil
 	}
@@ -1924,7 +1865,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	// unchecked, so CreatePartition/BatchCreatePartition against a nonexistent
 	// database/table silently "succeeded" and stored orphaned partitions with no
 	// owning table — a disguised stub.
-	if _, ok := b.tables[tableKey(dbName, tableName)]; !ok {
+	if !b.tables.Has(tableKey(dbName, tableName)) {
 		for _, input := range inputs {
 			errs = append(errs, PartitionError{
 				PartitionValues: input.Values,
@@ -1942,7 +1883,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 
 	for _, input := range inputs {
 		key := partitionKey(dbName, tableName, input.Values)
-		if _, exists := b.partitions[key]; exists {
+		if b.partitions.Has(key) {
 			errs = append(errs, PartitionError{
 				PartitionValues: input.Values,
 				ErrorDetail: ErrorDetail{
@@ -1963,7 +1904,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 			Parameters:        maps.Clone(input.Parameters),
 			CreationTime:      now,
 		}
-		b.partitions[key] = p
+		b.partitions.Put(p)
 		created = append(created, p)
 	}
 
@@ -1982,7 +1923,7 @@ func (b *InMemoryBackend) BatchDeletePartition(
 
 	for _, pvl := range values {
 		key := partitionKey(dbName, tableName, pvl.Values)
-		if _, ok := b.partitions[key]; !ok {
+		if !b.partitions.Has(key) {
 			errs = append(errs, PartitionError{
 				PartitionValues: pvl.Values,
 				ErrorDetail: ErrorDetail{
@@ -1994,7 +1935,7 @@ func (b *InMemoryBackend) BatchDeletePartition(
 			continue
 		}
 
-		delete(b.partitions, key)
+		b.partitions.Delete(key)
 	}
 
 	return errs
@@ -2009,7 +1950,7 @@ func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) [
 
 	for _, name := range tableNames {
 		key := tableKey(dbName, name)
-		if _, ok := b.tables[key]; !ok {
+		if !b.tables.Has(key) {
 			errs = append(errs, TableError{
 				TableName: name,
 				ErrorDetail: ErrorDetail{
@@ -2021,7 +1962,7 @@ func (b *InMemoryBackend) BatchDeleteTable(dbName string, tableNames []string) [
 			continue
 		}
 
-		delete(b.tables, key)
+		b.tables.Delete(key)
 		b.deleteTablePartitionsLocked(dbName, name)
 	}
 
@@ -2040,7 +1981,7 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(
 
 	for _, vid := range versionIDs {
 		key := tableVersionKey(dbName, tableName, vid)
-		if _, ok := b.tableVersions[key]; !ok {
+		if !b.tableVersions.Has(key) {
 			errs = append(errs, TableVersionError{
 				TableName: tableName,
 				VersionID: vid,
@@ -2053,7 +1994,7 @@ func (b *InMemoryBackend) BatchDeleteTableVersion(
 			continue
 		}
 
-		delete(b.tableVersions, key)
+		b.tableVersions.Delete(key)
 	}
 
 	return errs
@@ -2068,7 +2009,7 @@ func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []Err
 	errs := make([]ErrorDetail, 0, len(names))
 
 	for _, name := range names {
-		if _, ok := b.connections[name]; !ok {
+		if !b.connections.Has(name) {
 			errs = append(errs, ErrorDetail{
 				ErrorCode:    errEntityNotFoundCode,
 				ErrorMessage: "connection not found: " + name,
@@ -2077,7 +2018,7 @@ func (b *InMemoryBackend) BatchDeleteConnection(names []string) ([]string, []Err
 			continue
 		}
 
-		delete(b.connections, name)
+		b.connections.Delete(name)
 		succeeded = append(succeeded, name)
 	}
 
@@ -2093,7 +2034,7 @@ func (b *InMemoryBackend) BatchGetBlueprints(names []string) ([]*Blueprint, []st
 	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
-		bp, ok := b.blueprints[name]
+		bp, ok := b.blueprints.Get(name)
 		if !ok {
 			missing = append(missing, name)
 
@@ -2116,7 +2057,7 @@ func (b *InMemoryBackend) BatchGetCrawlers(names []string) ([]*Crawler, []string
 	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
-		c, ok := b.crawlers[name]
+		c, ok := b.crawlers.Get(name)
 		if !ok {
 			missing = append(missing, name)
 
@@ -2140,7 +2081,7 @@ func (b *InMemoryBackend) BatchGetCustomEntityTypes(
 	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
-		cet, ok := b.customEntityTypes[name]
+		cet, ok := b.customEntityTypes.Get(name)
 		if !ok {
 			missing = append(missing, name)
 
@@ -2166,7 +2107,7 @@ func (b *InMemoryBackend) BatchGetDataQualityResult(
 	errs := make([]ErrorDetail, 0, len(resultIDs))
 
 	for _, id := range resultIDs {
-		dqr, ok := b.dataQualityResult[id]
+		dqr, ok := b.dataQualityResult.Get(id)
 		if !ok {
 			errs = append(errs, ErrorDetail{
 				ErrorCode:    "EntityNotFoundException",
@@ -2192,7 +2133,7 @@ func (b *InMemoryBackend) BatchGetDevEndpoints(names []string) ([]*DevEndpoint, 
 	missing := make([]string, 0, len(names))
 
 	for _, name := range names {
-		dep, ok := b.devEndpoints[name]
+		dep, ok := b.devEndpoints.Get(name)
 		if !ok {
 			missing = append(missing, name)
 
@@ -2213,7 +2154,7 @@ func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
 	b.mu.Lock("AddConnectionInternal")
 	defer b.mu.Unlock()
 
-	b.connections[conn.Name] = cloneConnection(conn)
+	b.connections.Put(cloneConnection(conn))
 }
 
 // connectionARN returns the ARN for a Glue connection.
@@ -2232,7 +2173,7 @@ func (b *InMemoryBackend) CreateConnection(
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.connections[name]; ok {
+	if b.connections.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -2246,7 +2187,7 @@ func (b *InMemoryBackend) CreateConnection(
 		CreationTime:         now,
 		LastUpdatedTime:      now,
 	}
-	b.connections[name] = c
+	b.connections.Put(c)
 
 	return cloneConnection(c), nil
 }
@@ -2256,7 +2197,7 @@ func (b *InMemoryBackend) GetConnection(name string) (*Connection, error) {
 	b.mu.RLock("GetConnection")
 	defer b.mu.RUnlock()
 
-	c, ok := b.connections[name]
+	c, ok := b.connections.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2269,9 +2210,10 @@ func (b *InMemoryBackend) GetConnections() []*Connection {
 	b.mu.RLock("GetConnections")
 	defer b.mu.RUnlock()
 
-	out := make([]*Connection, 0, len(b.connections))
-	for _, k := range sortedKeys(b.connections) {
-		out = append(out, cloneConnection(b.connections[k]))
+	src := b.connections.Snapshot()
+	out := make([]*Connection, 0, len(src))
+	for _, c := range src {
+		out = append(out, cloneConnection(c))
 	}
 
 	return out
@@ -2282,11 +2224,11 @@ func (b *InMemoryBackend) DeleteConnection(name string) error {
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connections[name]; !ok {
+	if !b.connections.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.connections, name)
+	b.connections.Delete(name)
 
 	return nil
 }
@@ -2297,7 +2239,7 @@ func (b *InMemoryBackend) AddBlueprintInternal(bp *Blueprint) {
 	defer b.mu.Unlock()
 
 	cp := *bp
-	b.blueprints[bp.Name] = &cp
+	b.blueprints.Put(&cp)
 }
 
 // AddCustomEntityTypeInternal adds a custom entity type directly to the backend without validation.
@@ -2307,7 +2249,7 @@ func (b *InMemoryBackend) AddCustomEntityTypeInternal(cet *CustomEntityType) {
 
 	cp := *cet
 	cp.ContextWords = append([]string(nil), cet.ContextWords...)
-	b.customEntityTypes[cet.Name] = &cp
+	b.customEntityTypes.Put(&cp)
 }
 
 // AddDataQualityResultInternal adds a data quality result directly to the backend without validation.
@@ -2316,7 +2258,7 @@ func (b *InMemoryBackend) AddDataQualityResultInternal(dqr *DataQualityResult) {
 	defer b.mu.Unlock()
 
 	cp := *dqr
-	b.dataQualityResult[dqr.ResultID] = &cp
+	b.dataQualityResult.Put(&cp)
 }
 
 // AddDevEndpointInternal adds a dev endpoint directly to the backend without validation.
@@ -2325,26 +2267,50 @@ func (b *InMemoryBackend) AddDevEndpointInternal(dep *DevEndpoint) {
 	defer b.mu.Unlock()
 
 	cp := *dep
-	b.devEndpoints[dep.EndpointName] = &cp
+	b.devEndpoints.Put(&cp)
 }
 
-// AddTableVersionInternal adds a table version directly to the backend without validation.
+// AddTableVersionInternal adds a table version directly to the backend without
+// validation. dbName/tableName are stamped onto the stored copy's nested Table
+// field (rather than trusted from the caller-supplied tv, which the existing
+// test-seed callers often leave zero-valued) so the store.Table key -- derived
+// purely from the value via tableVersionEntryKeyFn -- matches the
+// dbName/tableName this entry is filed under, exactly as the previous raw map
+// (keyed externally on the same two parameters) did.
 func (b *InMemoryBackend) AddTableVersionInternal(dbName, tableName string, tv *TableVersion) {
 	b.mu.Lock("AddTableVersionInternal")
 	defer b.mu.Unlock()
 
 	cp := *tv
-	b.tableVersions[tableVersionKey(dbName, tableName, tv.VersionID)] = &cp
+	if cp.Table == nil {
+		cp.Table = &Table{}
+	} else {
+		t := *cp.Table
+		cp.Table = &t
+	}
+
+	cp.Table.DatabaseName = dbName
+	cp.Table.Name = tableName
+
+	b.tableVersions.Put(&cp)
 }
 
-// AddPartitionInternal adds a partition directly to the backend without validation.
+// AddPartitionInternal adds a partition directly to the backend without
+// validation. dbName/tableName are stamped onto the stored copy (rather than
+// trusted from the caller-supplied p, which the existing test-seed callers
+// often leave zero-valued) so the store.Table key -- derived purely from the
+// value via partitionEntryKeyFn -- matches the dbName/tableName this entry is
+// filed under, exactly as the previous raw map (keyed externally on the same
+// two parameters) did.
 func (b *InMemoryBackend) AddPartitionInternal(dbName, tableName string, p *Partition) {
 	b.mu.Lock("AddPartitionInternal")
 	defer b.mu.Unlock()
 
 	cp := *p
+	cp.DatabaseName = dbName
+	cp.TableName = tableName
 	cp.Values = append([]string(nil), p.Values...)
-	b.partitions[partitionKey(dbName, tableName, p.Values)] = &cp
+	b.partitions.Put(&cp)
 }
 
 // --- Job run operations ---
@@ -2357,7 +2323,7 @@ func (b *InMemoryBackend) StartJobRun(
 	b.mu.Lock("StartJobRun")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobName]
+	j, ok := b.jobs.Get(jobName)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2405,10 +2371,10 @@ func (b *InMemoryBackend) StartJobRun(
 	b.jobRunReadyAt[jobName][run.ID] = now.Add(jobTransitionDelay)
 	b.jobRunDoneAt[jobName][run.ID] = now.Add(jobTransitionDelay + jobSucceededDelay)
 
-	bm := b.jobBookmarks[jobName]
-	if bm == nil {
+	bm, ok := b.jobBookmarks.Get(jobName)
+	if !ok {
 		bm = &JobBookmark{JobName: jobName}
-		b.jobBookmarks[jobName] = bm
+		b.jobBookmarks.Put(bm)
 	}
 	bm.ActiveRun = run.ID
 	bm.Attempt++
@@ -2442,7 +2408,7 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 	b.mu.RLock("GetJobRuns")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.jobs[jobName]; !ok {
+	if !b.jobs.Has(jobName) {
 		return nil, ErrNotFound
 	}
 
@@ -2507,11 +2473,11 @@ func (b *InMemoryBackend) GetJobBookmark(jobName string) (*JobBookmark, error) {
 	b.mu.RLock("GetJobBookmark")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.jobs[jobName]; !ok {
+	if !b.jobs.Has(jobName) {
 		return nil, ErrNotFound
 	}
 
-	bm, ok := b.jobBookmarks[jobName]
+	bm, ok := b.jobBookmarks.Get(jobName)
 	if !ok {
 		return &JobBookmark{JobName: jobName}, nil
 	}
@@ -2526,11 +2492,11 @@ func (b *InMemoryBackend) ResetJobBookmark(jobName string) error {
 	b.mu.Lock("ResetJobBookmark")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[jobName]; !ok {
+	if !b.jobs.Has(jobName) {
 		return ErrNotFound
 	}
 
-	delete(b.jobBookmarks, jobName)
+	b.jobBookmarks.Delete(jobName)
 
 	return nil
 }
@@ -2540,11 +2506,11 @@ func (b *InMemoryBackend) ResetJobBookmarkWithResult(jobName string) (*JobBookma
 	b.mu.Lock("ResetJobBookmarkWithResult")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[jobName]; !ok {
+	if !b.jobs.Has(jobName) {
 		return nil, ErrNotFound
 	}
 
-	delete(b.jobBookmarks, jobName)
+	b.jobBookmarks.Delete(jobName)
 
 	return &JobBookmark{JobName: jobName}, nil
 }
@@ -2558,7 +2524,7 @@ func (b *InMemoryBackend) StartCrawler(name string) error {
 	b.mu.Lock("StartCrawler")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2586,7 +2552,7 @@ func (b *InMemoryBackend) StopCrawler(name string) error {
 	b.mu.Lock("StopCrawler")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2610,7 +2576,7 @@ func (b *InMemoryBackend) UpdateCrawlerSchedule(name, scheduleExpression string)
 	b.mu.Lock("UpdateCrawlerSchedule")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2624,7 +2590,7 @@ func (b *InMemoryBackend) StartCrawlerSchedule(name string) error {
 	b.mu.Lock("StartCrawlerSchedule")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2644,7 +2610,7 @@ func (b *InMemoryBackend) StopCrawlerSchedule(name string) error {
 	b.mu.Lock("StopCrawlerSchedule")
 	defer b.mu.Unlock()
 
-	c, ok := b.crawlers[name]
+	c, ok := b.crawlers.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2684,7 +2650,7 @@ func (b *InMemoryBackend) ListCrawls(crawlerName string) ([]*CrawlHistoryEntry, 
 	b.mu.RLock("ListCrawls")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.crawlers[crawlerName]; !ok {
+	if !b.crawlers.Has(crawlerName) {
 		return nil, ErrNotFound
 	}
 
@@ -2718,7 +2684,7 @@ func (b *InMemoryBackend) CreateDataQualityRuleset(
 		return nil, ErrValidation
 	}
 
-	if _, ok := b.dataQualityRulesets[name]; ok {
+	if b.dataQualityRulesets.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -2731,7 +2697,7 @@ func (b *InMemoryBackend) CreateDataQualityRuleset(
 		CreatedOn:      now,
 		LastModifiedOn: now,
 	}
-	b.dataQualityRulesets[name] = r
+	b.dataQualityRulesets.Put(r)
 
 	return r, nil
 }
@@ -2741,7 +2707,7 @@ func (b *InMemoryBackend) GetDataQualityRuleset(name string) (*DataQualityRulese
 	b.mu.RLock("GetDataQualityRuleset")
 	defer b.mu.RUnlock()
 
-	r, ok := b.dataQualityRulesets[name]
+	r, ok := b.dataQualityRulesets.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2757,10 +2723,10 @@ func (b *InMemoryBackend) DeleteDataQualityRuleset(name string) error {
 	b.mu.Lock("DeleteDataQualityRuleset")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dataQualityRulesets[name]; !ok {
+	if !b.dataQualityRulesets.Has(name) {
 		return ErrNotFound
 	}
-	delete(b.dataQualityRulesets, name)
+	b.dataQualityRulesets.Delete(name)
 
 	return nil
 }
@@ -2770,7 +2736,7 @@ func (b *InMemoryBackend) UpdateDataQualityRuleset(name, ruleset string) error {
 	b.mu.Lock("UpdateDataQualityRuleset")
 	defer b.mu.Unlock()
 
-	r, ok := b.dataQualityRulesets[name]
+	r, ok := b.dataQualityRulesets.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2785,9 +2751,9 @@ func (b *InMemoryBackend) ListDataQualityRulesets() []*DataQualityRuleset {
 	b.mu.RLock("ListDataQualityRulesets")
 	defer b.mu.RUnlock()
 
-	out := make([]*DataQualityRuleset, 0, len(b.dataQualityRulesets))
-	for _, k := range sortedKeys(b.dataQualityRulesets) {
-		r := b.dataQualityRulesets[k]
+	src := b.dataQualityRulesets.Snapshot()
+	out := make([]*DataQualityRuleset, 0, len(src))
+	for _, r := range src {
 		cp := *r
 		cp.Tags = maps.Clone(r.Tags)
 		out = append(out, &cp)
@@ -2804,7 +2770,7 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 	defer b.mu.Unlock()
 
 	for _, name := range rulesetNames {
-		if _, ok := b.dataQualityRulesets[name]; !ok {
+		if !b.dataQualityRulesets.Has(name) {
 			return nil, ErrNotFound
 		}
 	}
@@ -2819,7 +2785,7 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 		Status:       stateRunning,
 		StartedOn:    float64(time.Now().Unix()),
 	}
-	b.dataQualityEvalRuns[run.RunID] = run
+	b.dataQualityEvalRuns.Put(run)
 
 	return run, nil
 }
@@ -2831,7 +2797,7 @@ func (b *InMemoryBackend) GetDataQualityRulesetEvaluationRun(
 	b.mu.RLock("GetDataQualityRulesetEvaluationRun")
 	defer b.mu.RUnlock()
 
-	run, ok := b.dataQualityEvalRuns[runID]
+	run, ok := b.dataQualityEvalRuns.Get(runID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2847,7 +2813,7 @@ func (b *InMemoryBackend) CancelDataQualityRulesetEvaluationRun(runID string) er
 	b.mu.Lock("CancelDataQualityRulesetEvaluationRun")
 	defer b.mu.Unlock()
 
-	run, ok := b.dataQualityEvalRuns[runID]
+	run, ok := b.dataQualityEvalRuns.Get(runID)
 	if !ok {
 		return ErrNotFound
 	}
@@ -2876,7 +2842,7 @@ func (b *InMemoryBackend) AddDataQualityRulesetInternal(r *DataQualityRuleset) {
 
 	cp := *r
 	cp.Tags = maps.Clone(r.Tags)
-	b.dataQualityRulesets[r.Name] = &cp
+	b.dataQualityRulesets.Put(&cp)
 }
 
 // AddDataQualityEvalRunInternal adds an evaluation run directly without validation.
@@ -2886,5 +2852,5 @@ func (b *InMemoryBackend) AddDataQualityEvalRunInternal(run *DataQualityEvaluati
 
 	cp := *run
 	cp.RulesetNames = append([]string(nil), run.RulesetNames...)
-	b.dataQualityEvalRuns[run.RunID] = &cp
+	b.dataQualityEvalRuns.Put(&cp)
 }

@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- New model types ---
@@ -101,11 +99,11 @@ func (b *InMemoryBackend) CreateBlueprint(name string) error {
 	b.mu.Lock("CreateBlueprint")
 	defer b.mu.Unlock()
 
-	if _, exists := b.blueprints[name]; exists {
+	if b.blueprints.Has(name) {
 		return fmt.Errorf("blueprint %q already exists: %w", name, ErrAlreadyExists)
 	}
 
-	b.blueprints[name] = &Blueprint{Name: name, Status: "ACTIVE"}
+	b.blueprints.Put(&Blueprint{Name: name, Status: "ACTIVE"})
 
 	return nil
 }
@@ -115,11 +113,11 @@ func (b *InMemoryBackend) DeleteBlueprint(name string) error {
 	b.mu.Lock("DeleteBlueprint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.blueprints[name]; !ok {
+	if !b.blueprints.Has(name) {
 		return fmt.Errorf("blueprint %q not found: %w", name, ErrNotFound)
 	}
 
-	delete(b.blueprints, name)
+	b.blueprints.Delete(name)
 
 	return nil
 }
@@ -129,7 +127,7 @@ func (b *InMemoryBackend) UpdateBlueprint(name string) (*Blueprint, error) {
 	b.mu.Lock("UpdateBlueprint")
 	defer b.mu.Unlock()
 
-	bp, ok := b.blueprints[name]
+	bp, ok := b.blueprints.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("blueprint %q not found: %w", name, ErrNotFound)
 	}
@@ -144,7 +142,11 @@ func (b *InMemoryBackend) ListBlueprints() []string {
 	b.mu.RLock("ListBlueprints")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.blueprints)
+	src := b.blueprints.Snapshot()
+	names := make([]string, len(src))
+	for i, bp := range src {
+		names[i] = bp.Name
+	}
 
 	return names
 }
@@ -156,7 +158,7 @@ func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun
 	b.mu.Lock("StartBlueprintRun")
 	defer b.mu.Unlock()
 
-	if _, ok := b.blueprints[blueprintName]; !ok {
+	if !b.blueprints.Has(blueprintName) {
 		return nil, fmt.Errorf("blueprint %q not found: %w", blueprintName, ErrNotFound)
 	}
 
@@ -168,7 +170,7 @@ func (b *InMemoryBackend) StartBlueprintRun(blueprintName string) (*BlueprintRun
 		State:         stateRunning,
 		StartedOn:     time.Now().UTC(),
 	}
-	b.blueprintRuns[runID] = run
+	b.blueprintRuns.Put(run)
 
 	cp := *run
 
@@ -180,7 +182,7 @@ func (b *InMemoryBackend) GetBlueprintRun(blueprintName, runID string) (*Bluepri
 	b.mu.RLock("GetBlueprintRun")
 	defer b.mu.RUnlock()
 
-	run, ok := b.blueprintRuns[runID]
+	run, ok := b.blueprintRuns.Get(runID)
 	if !ok || (blueprintName != "" && run.BlueprintName != blueprintName) {
 		return nil, ErrBlueprintRunNotFound
 	}
@@ -196,7 +198,7 @@ func (b *InMemoryBackend) GetBlueprintRuns(blueprintName string) []*BlueprintRun
 	defer b.mu.RUnlock()
 
 	var runs []*BlueprintRun
-	for _, r := range b.blueprintRuns {
+	for _, r := range b.blueprintRuns.All() {
 		if blueprintName == "" || r.BlueprintName == blueprintName {
 			cp := *r
 			runs = append(runs, &cp)
@@ -221,7 +223,7 @@ func (b *InMemoryBackend) CreateUsageProfile(name, description string, tags map[
 	b.mu.Lock("CreateUsageProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.usageProfiles[name]; exists {
+	if b.usageProfiles.Has(name) {
 		return nil, fmt.Errorf("usage profile %q already exists: %w", name, ErrAlreadyExists)
 	}
 
@@ -233,7 +235,7 @@ func (b *InMemoryBackend) CreateUsageProfile(name, description string, tags map[
 		CreatedOn:      now,
 		LastModifiedOn: now,
 	}
-	b.usageProfiles[name] = p
+	b.usageProfiles.Put(p)
 	cp := *p
 
 	return &cp, nil
@@ -244,7 +246,7 @@ func (b *InMemoryBackend) GetUsageProfile(name string) (*UsageProfile, error) {
 	b.mu.RLock("GetUsageProfile")
 	defer b.mu.RUnlock()
 
-	p, ok := b.usageProfiles[name]
+	p, ok := b.usageProfiles.Get(name)
 	if !ok {
 		return nil, ErrUsageProfileNotFound
 	}
@@ -259,11 +261,11 @@ func (b *InMemoryBackend) DeleteUsageProfile(name string) error {
 	b.mu.Lock("DeleteUsageProfile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.usageProfiles[name]; !ok {
+	if !b.usageProfiles.Has(name) {
 		return ErrUsageProfileNotFound
 	}
 
-	delete(b.usageProfiles, name)
+	b.usageProfiles.Delete(name)
 
 	return nil
 }
@@ -273,8 +275,9 @@ func (b *InMemoryBackend) ListUsageProfiles() []*UsageProfile {
 	b.mu.RLock("ListUsageProfiles")
 	defer b.mu.RUnlock()
 
-	profiles := make([]*UsageProfile, 0, len(b.usageProfiles))
-	for _, p := range b.usageProfiles {
+	src := b.usageProfiles.All()
+	profiles := make([]*UsageProfile, 0, len(src))
+	for _, p := range src {
 		cp := *p
 		profiles = append(profiles, &cp)
 	}
@@ -291,7 +294,7 @@ func (b *InMemoryBackend) UpdateUsageProfile(name, description string) (*UsagePr
 	b.mu.Lock("UpdateUsageProfile")
 	defer b.mu.Unlock()
 
-	p, ok := b.usageProfiles[name]
+	p, ok := b.usageProfiles.Get(name)
 	if !ok {
 		return nil, ErrUsageProfileNotFound
 	}
@@ -326,7 +329,7 @@ func (b *InMemoryBackend) CreateCustomEntityType(
 		RegexString:  regexString,
 		ContextWords: contextWords,
 	}
-	b.customEntityTypes[name] = cet
+	b.customEntityTypes.Put(cet)
 	cp := *cet
 
 	return &cp, nil
@@ -337,7 +340,7 @@ func (b *InMemoryBackend) GetCustomEntityType(name string) (*CustomEntityType, e
 	b.mu.RLock("GetCustomEntityType")
 	defer b.mu.RUnlock()
 
-	cet, ok := b.customEntityTypes[name]
+	cet, ok := b.customEntityTypes.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("custom entity type %q not found: %w", name, ErrNotFound)
 	}
@@ -352,11 +355,11 @@ func (b *InMemoryBackend) DeleteCustomEntityType(name string) error {
 	b.mu.Lock("DeleteCustomEntityType")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customEntityTypes[name]; !ok {
+	if !b.customEntityTypes.Has(name) {
 		return fmt.Errorf("custom entity type %q not found: %w", name, ErrNotFound)
 	}
 
-	delete(b.customEntityTypes, name)
+	b.customEntityTypes.Delete(name)
 
 	return nil
 }
@@ -366,8 +369,9 @@ func (b *InMemoryBackend) ListCustomEntityTypes() []*CustomEntityType {
 	b.mu.RLock("ListCustomEntityTypes")
 	defer b.mu.RUnlock()
 
-	list := make([]*CustomEntityType, 0, len(b.customEntityTypes))
-	for _, cet := range b.customEntityTypes {
+	src := b.customEntityTypes.All()
+	list := make([]*CustomEntityType, 0, len(src))
+	for _, cet := range src {
 		cp := *cet
 		list = append(list, &cp)
 	}
@@ -393,7 +397,7 @@ func (b *InMemoryBackend) StartDataQualityRuleRecommendationRun(s3Path string) (
 		Status:              stateRunning,
 		StartedOn:           time.Now().UTC(),
 	}
-	b.dqRecommendationRuns[runID] = run
+	b.dqRecommendationRuns.Put(run)
 	cp := *run
 
 	return &cp, nil
@@ -404,7 +408,7 @@ func (b *InMemoryBackend) GetDataQualityRuleRecommendationRun(runID string) (*DQ
 	b.mu.RLock("GetDataQualityRuleRecommendationRun")
 	defer b.mu.RUnlock()
 
-	run, ok := b.dqRecommendationRuns[runID]
+	run, ok := b.dqRecommendationRuns.Get(runID)
 	if !ok {
 		return nil, ErrDQRecommendationRunNotFound
 	}
@@ -419,7 +423,7 @@ func (b *InMemoryBackend) CancelDataQualityRuleRecommendationRun(runID string) e
 	b.mu.Lock("CancelDataQualityRuleRecommendationRun")
 	defer b.mu.Unlock()
 
-	run, ok := b.dqRecommendationRuns[runID]
+	run, ok := b.dqRecommendationRuns.Get(runID)
 	if !ok {
 		return ErrDQRecommendationRunNotFound
 	}
@@ -434,8 +438,9 @@ func (b *InMemoryBackend) ListDataQualityRuleRecommendationRuns() []*DQRuleRecom
 	b.mu.RLock("ListDataQualityRuleRecommendationRuns")
 	defer b.mu.RUnlock()
 
-	runs := make([]*DQRuleRecommendationRun, 0, len(b.dqRecommendationRuns))
-	for _, r := range b.dqRecommendationRuns {
+	src := b.dqRecommendationRuns.All()
+	runs := make([]*DQRuleRecommendationRun, 0, len(src))
+	for _, r := range src {
 		cp := *r
 		runs = append(runs, &cp)
 	}
@@ -462,14 +467,13 @@ func (b *InMemoryBackend) CreateColumnStatisticsTaskSettings(
 	b.mu.Lock("CreateColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
-	key := columnStatTaskKey(dbName, tableName)
 	settings := &ColumnStatisticsTaskSettings{
 		DatabaseName:   dbName,
 		TableName:      tableName,
 		ColumnNameList: columns,
 		RoleArn:        roleArn,
 	}
-	b.columnStatTaskSettings[key] = settings
+	b.columnStatTaskSettings.Put(settings)
 	cp := *settings
 
 	return &cp, nil
@@ -483,7 +487,7 @@ func (b *InMemoryBackend) GetColumnStatisticsTaskSettings(
 	defer b.mu.RUnlock()
 
 	key := columnStatTaskKey(dbName, tableName)
-	s, ok := b.columnStatTaskSettings[key]
+	s, ok := b.columnStatTaskSettings.Get(key)
 
 	if !ok {
 		return &ColumnStatisticsTaskSettings{DatabaseName: dbName, TableName: tableName}, nil
@@ -502,7 +506,7 @@ func (b *InMemoryBackend) UpdateColumnStatisticsTaskSettings(
 	defer b.mu.Unlock()
 
 	key := columnStatTaskKey(dbName, tableName)
-	if s, ok := b.columnStatTaskSettings[key]; ok {
+	if s, ok := b.columnStatTaskSettings.Get(key); ok {
 		s.RoleArn = roleArn
 	}
 
@@ -514,7 +518,7 @@ func (b *InMemoryBackend) DeleteColumnStatisticsTaskSettings(dbName, tableName s
 	b.mu.Lock("DeleteColumnStatisticsTaskSettings")
 	defer b.mu.Unlock()
 
-	delete(b.columnStatTaskSettings, columnStatTaskKey(dbName, tableName))
+	b.columnStatTaskSettings.Delete(columnStatTaskKey(dbName, tableName))
 
 	return nil
 }
@@ -531,7 +535,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRunSchedule(dbName, tableName
 	b.mu.Lock("StartColumnStatisticsTaskRunSchedule")
 	defer b.mu.Unlock()
 
-	s, ok := b.columnStatTaskSettings[columnStatTaskKey(dbName, tableName)]
+	s, ok := b.columnStatTaskSettings.Get(columnStatTaskKey(dbName, tableName))
 	if !ok {
 		return fmt.Errorf(
 			"column statistics task settings not found for %s.%s: %w", dbName, tableName, ErrNotFound,
@@ -553,7 +557,7 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRunSchedule(dbName, tableName 
 	b.mu.Lock("StopColumnStatisticsTaskRunSchedule")
 	defer b.mu.Unlock()
 
-	s, ok := b.columnStatTaskSettings[columnStatTaskKey(dbName, tableName)]
+	s, ok := b.columnStatTaskSettings.Get(columnStatTaskKey(dbName, tableName))
 	if !ok {
 		return fmt.Errorf(
 			"column statistics task settings not found for %s.%s: %w", dbName, tableName, ErrNotFound,
@@ -578,7 +582,7 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(dbName, tableName string)
 		Status:                    "STARTED",
 		StartedOn:                 time.Now().UTC(),
 	}
-	b.columnStatTaskRuns[runID] = run
+	b.columnStatTaskRuns.Put(run)
 	cp := *run
 
 	return &cp, nil
@@ -589,7 +593,7 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRun(runID string) error {
 	b.mu.Lock("StopColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
-	r, ok := b.columnStatTaskRuns[runID]
+	r, ok := b.columnStatTaskRuns.Get(runID)
 	if !ok {
 		return ErrColumnStatTaskRunNotFound
 	}
@@ -604,7 +608,7 @@ func (b *InMemoryBackend) GetColumnStatisticsTaskRun(runID string) (*ColumnStati
 	b.mu.RLock("GetColumnStatisticsTaskRun")
 	defer b.mu.RUnlock()
 
-	r, ok := b.columnStatTaskRuns[runID]
+	r, ok := b.columnStatTaskRuns.Get(runID)
 	if !ok {
 		return nil, ErrColumnStatTaskRunNotFound
 	}
@@ -619,8 +623,9 @@ func (b *InMemoryBackend) ListColumnStatisticsTaskRuns() []*ColumnStatisticsTask
 	b.mu.RLock("ListColumnStatisticsTaskRuns")
 	defer b.mu.RUnlock()
 
-	runs := make([]*ColumnStatisticsTaskRun, 0, len(b.columnStatTaskRuns))
-	for _, r := range b.columnStatTaskRuns {
+	src := b.columnStatTaskRuns.All()
+	runs := make([]*ColumnStatisticsTaskRun, 0, len(src))
+	for _, r := range src {
 		cp := *r
 		runs = append(runs, &cp)
 	}
@@ -654,7 +659,7 @@ func (b *InMemoryBackend) StartMaterializedViewRefreshTaskRun(
 		Status:       stateRunning,
 		StartedOn:    time.Now().UTC(),
 	}
-	b.materializedViewRuns[taskID] = run
+	b.materializedViewRuns.Put(run)
 	cp := *run
 
 	return &cp, nil
@@ -665,7 +670,7 @@ func (b *InMemoryBackend) StopMaterializedViewRefreshTaskRun(taskRunID string) e
 	b.mu.Lock("StopMaterializedViewRefreshTaskRun")
 	defer b.mu.Unlock()
 
-	r, ok := b.materializedViewRuns[taskRunID]
+	r, ok := b.materializedViewRuns.Get(taskRunID)
 	if !ok {
 		return ErrMaterializedViewRunNotFound
 	}
@@ -680,7 +685,7 @@ func (b *InMemoryBackend) GetMaterializedViewRefreshTaskRun(taskRunID string) (*
 	b.mu.RLock("GetMaterializedViewRefreshTaskRun")
 	defer b.mu.RUnlock()
 
-	r, ok := b.materializedViewRuns[taskRunID]
+	r, ok := b.materializedViewRuns.Get(taskRunID)
 	if !ok {
 		return nil, ErrMaterializedViewRunNotFound
 	}
@@ -695,8 +700,9 @@ func (b *InMemoryBackend) ListMaterializedViewRefreshTaskRuns() []*MaterializedV
 	b.mu.RLock("ListMaterializedViewRefreshTaskRuns")
 	defer b.mu.RUnlock()
 
-	runs := make([]*MaterializedViewRefreshRun, 0, len(b.materializedViewRuns))
-	for _, r := range b.materializedViewRuns {
+	src := b.materializedViewRuns.All()
+	runs := make([]*MaterializedViewRefreshRun, 0, len(src))
+	for _, r := range src {
 		cp := *r
 		runs = append(runs, &cp)
 	}
@@ -721,7 +727,7 @@ func (b *InMemoryBackend) CreateIntegration(name string, tags map[string]string)
 		Tags:            tags,
 		CreatedAt:       time.Now().UTC(),
 	}
-	b.integrations[name] = ig
+	b.integrations.Put(ig)
 	cp := *ig
 
 	return &cp, nil
@@ -732,11 +738,11 @@ func (b *InMemoryBackend) DeleteIntegration(name string) error {
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.integrations[name]; !ok {
+	if !b.integrations.Has(name) {
 		return fmt.Errorf("integration %q not found: %w", name, ErrNotFound)
 	}
 
-	delete(b.integrations, name)
+	b.integrations.Delete(name)
 
 	return nil
 }
@@ -746,8 +752,9 @@ func (b *InMemoryBackend) ListIntegrations() []*Integration {
 	b.mu.RLock("ListIntegrations")
 	defer b.mu.RUnlock()
 
-	list := make([]*Integration, 0, len(b.integrations))
-	for _, ig := range b.integrations {
+	src := b.integrations.All()
+	list := make([]*Integration, 0, len(src))
+	for _, ig := range src {
 		cp := *ig
 		list = append(list, &cp)
 	}
@@ -764,7 +771,7 @@ func (b *InMemoryBackend) ModifyIntegration(name string) error {
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.integrations[name]; !ok {
+	if !b.integrations.Has(name) {
 		return ErrIntegrationNotFound
 	}
 
@@ -852,7 +859,7 @@ func (b *InMemoryBackend) CreateIntegrationResourceProperty(
 		SourceProperties: sourceProps,
 		TargetProperties: targetProps,
 	}
-	b.integrationResourceProps[resourceArn] = prop
+	b.integrationResourceProps.Put(prop)
 
 	return prop, nil
 }
@@ -866,7 +873,7 @@ func (b *InMemoryBackend) GetIntegrationResourceProperty(resourceArn string) (*I
 	b.mu.RLock("GetIntegrationResourceProperty")
 	defer b.mu.RUnlock()
 
-	prop, ok := b.integrationResourceProps[resourceArn]
+	prop, ok := b.integrationResourceProps.Get(resourceArn)
 	if !ok {
 		return nil, fmt.Errorf("resource property for %q not found: %w", resourceArn, ErrNotFound)
 	}
@@ -886,7 +893,7 @@ func (b *InMemoryBackend) UpdateIntegrationResourceProperty(
 	b.mu.Lock("UpdateIntegrationResourceProperty")
 	defer b.mu.Unlock()
 
-	prop, ok := b.integrationResourceProps[resourceArn]
+	prop, ok := b.integrationResourceProps.Get(resourceArn)
 	if !ok {
 		return nil, fmt.Errorf("resource property for %q not found: %w", resourceArn, ErrNotFound)
 	}
@@ -908,14 +915,7 @@ func (b *InMemoryBackend) ListIntegrationResourceProperties() []*IntegrationReso
 	b.mu.RLock("ListIntegrationResourceProperties")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.integrationResourceProps)
-	out := make([]*IntegrationResourceProperty, 0, len(keys))
-
-	for _, k := range keys {
-		out = append(out, b.integrationResourceProps[k])
-	}
-
-	return out
+	return b.integrationResourceProps.Snapshot()
 }
 
 // --- IntegrationTableProperties ---
@@ -940,13 +940,12 @@ func (b *InMemoryBackend) CreateIntegrationTableProperties(
 	b.mu.Lock("CreateIntegrationTableProperties")
 	defer b.mu.Unlock()
 
-	key := resourceArn + "|" + tableName
-	b.integrationTableProps[key] = &IntegrationTableProperties{
+	b.integrationTableProps.Put(&IntegrationTableProperties{
 		ResourceArn:       resourceArn,
 		TableName:         tableName,
 		SourceTableConfig: sourceConfig,
 		TargetTableConfig: targetConfig,
-	}
+	})
 
 	return nil
 }
@@ -964,7 +963,7 @@ func (b *InMemoryBackend) GetIntegrationTableProperties(
 
 	key := resourceArn + "|" + tableName
 
-	prop, ok := b.integrationTableProps[key]
+	prop, ok := b.integrationTableProps.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("table property for %q/%q not found: %w", resourceArn, tableName, ErrNotFound)
 	}
@@ -986,7 +985,7 @@ func (b *InMemoryBackend) UpdateIntegrationTableProperties(
 
 	key := resourceArn + "|" + tableName
 
-	prop, ok := b.integrationTableProps[key]
+	prop, ok := b.integrationTableProps.Get(key)
 	if !ok {
 		return fmt.Errorf("table property for %q/%q not found: %w", resourceArn, tableName, ErrNotFound)
 	}
@@ -1029,17 +1028,17 @@ func (b *InMemoryBackend) PutDataQualityStatisticAnnotation(profileID, statistic
 	key := dqAnnotationKey(profileID, statisticID)
 
 	recordedOn := now
-	if existing, ok := b.dqStatisticAnnotations[key]; ok {
+	if existing, ok := b.dqStatisticAnnotations.Get(key); ok {
 		recordedOn = existing.RecordedOn
 	}
 
-	b.dqStatisticAnnotations[key] = &StatisticAnnotation{
+	b.dqStatisticAnnotations.Put(&StatisticAnnotation{
 		ProfileID:      profileID,
 		StatisticID:    statisticID,
 		Inclusion:      inclusion,
 		RecordedOn:     recordedOn,
 		LastModifiedOn: now,
-	}
+	})
 }
 
 // ListDataQualityStatisticAnnotations returns stored annotations, optionally
@@ -1049,11 +1048,10 @@ func (b *InMemoryBackend) ListDataQualityStatisticAnnotations(profileID, statist
 	b.mu.RLock("ListDataQualityStatisticAnnotations")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.dqStatisticAnnotations)
-	out := make([]*StatisticAnnotation, 0, len(keys))
+	src := b.dqStatisticAnnotations.Snapshot()
+	out := make([]*StatisticAnnotation, 0, len(src))
 
-	for _, k := range keys {
-		e := b.dqStatisticAnnotations[k]
+	for _, e := range src {
 		if profileID != "" && e.ProfileID != profileID {
 			continue
 		}
