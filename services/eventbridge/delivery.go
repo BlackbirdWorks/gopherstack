@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // inputPathsMapKeyRe validates InputPathsMap variable names per AWS spec.
@@ -136,7 +137,10 @@ func (b *InMemoryBackend) deliverScheduledRule(
 	const detail = `{"scheduled":true}`
 
 	b.mu.Lock("deliverScheduledRule")
-	storedTargets := b.targets[region][b.targetKey(busName, rule.Name)]
+	var storedTargets *store.Table[Target]
+	if regionTargets := b.targets[region]; regionTargets != nil {
+		storedTargets = regionTargets[b.targetKey(busName, rule.Name)]
+	}
 	snapped := snapshotTargets(storedTargets)
 	accountID := b.accountID
 	dt := *b.deliveryTargets
@@ -249,7 +253,7 @@ func (b *InMemoryBackend) buildDeliveryPlan(region string, entries []EventEntry)
 			}
 
 			storedTargets := targetsStore[b.targetKey(busName, rule.Name)]
-			if len(storedTargets) == 0 {
+			if storedTargets == nil || storedTargets.Len() == 0 {
 				continue
 			}
 
@@ -266,10 +270,16 @@ func (b *InMemoryBackend) buildDeliveryPlan(region string, entries []EventEntry)
 }
 
 // snapshotTargets returns copies of the stored target structs so delivery cannot
-// race a concurrent PutTargets/RemoveTargets mutating the stored values.
-func snapshotTargets(stored map[string]*Target) []*Target {
-	out := make([]*Target, 0, len(stored))
-	for _, t := range stored {
+// race a concurrent PutTargets/RemoveTargets mutating the stored values. A nil
+// stored table (region/rule never touched) yields an empty, non-nil slice.
+func snapshotTargets(stored *store.Table[Target]) []*Target {
+	if stored == nil {
+		return nil
+	}
+
+	all := stored.All()
+	out := make([]*Target, 0, len(all))
+	for _, t := range all {
 		targetCopy := *t
 		out = append(out, &targetCopy)
 	}

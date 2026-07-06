@@ -88,6 +88,159 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_FullStateSnapshotRestore exercises a Snapshot->Restore
+// round trip across every *store.Table-backed resource from the Phase 3.3
+// datalayer conversion (buses, rules, targets, event sources, replays, API
+// destinations, archives, connections, endpoints, partner sources), plus the
+// derived indexes (ruleIndex pattern matching, targetsByARN) that Restore
+// rebuilds from the restored tables rather than persisting directly.
+func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	original := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Custom event bus.
+	_, err := original.CreateEventBus(ctx, "custom-bus", "a custom bus")
+	require.NoError(t, err)
+
+	// Rule with an event pattern (exercises ruleIndex rebuild + pattern
+	// matching) on the custom bus.
+	_, err = original.PutRule(ctx, eventbridge.PutRuleInput{
+		Name:         "custom-rule",
+		EventBusName: "custom-bus",
+		EventPattern: `{"source":["my.app"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	// Target on that rule (exercises targets table + targetsByARN rebuild).
+	failed, err := original.PutTargets(ctx, "custom-rule", "custom-bus", []eventbridge.Target{
+		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:123456789012:my-queue"},
+	})
+	require.NoError(t, err)
+	require.Empty(t, failed)
+
+	// Connection + API destination (connection referenced by ARN).
+	conn, err := original.CreateConnection(ctx, eventbridge.CreateConnectionInput{
+		Name:              "my-conn",
+		AuthorizationType: "API_KEY",
+		AuthParameters: &eventbridge.ConnectionAuthParameters{
+			APIKeyAuthParameters: &eventbridge.ConnectionAPIKeyAuthParameters{
+				APIKeyName:  "x-api-key",
+				APIKeyValue: "secret-value",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = original.CreateAPIDestination(ctx, eventbridge.CreateAPIDestinationInput{
+		Name:               "my-dest",
+		ConnectionArn:      conn.ConnectionArn,
+		InvocationEndpoint: "https://example.com/webhook",
+		HTTPMethod:         "POST",
+	})
+	require.NoError(t, err)
+
+	// Archive.
+	_, err = original.CreateArchive(ctx, eventbridge.CreateArchiveInput{
+		ArchiveName:    "my-archive",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:event-bus/custom-bus",
+	})
+	require.NoError(t, err)
+
+	// Endpoint.
+	_, err = original.CreateEndpoint(ctx, eventbridge.CreateEndpointInput{
+		Name:    "my-endpoint",
+		RoleArn: "arn:aws:iam::123456789012:role/endpoint-role",
+	})
+	require.NoError(t, err)
+
+	// Partner event source (also creates a mirrored, activatable EventSource).
+	_, err = original.CreatePartnerEventSource(ctx, "aws.partner/example.com/orders", "999999999999")
+	require.NoError(t, err)
+	require.NoError(t, original.ActivateEventSource(ctx, "aws.partner/example.com/orders"))
+
+	// Replay.
+	_, err = original.StartReplay(ctx, eventbridge.StartReplayInput{
+		ReplayName:     "my-replay",
+		EventSourceArn: "arn:aws:events:us-east-1:123456789012:archive/my-archive",
+	})
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// Bus.
+	bus, err := fresh.DescribeEventBus(ctx, "custom-bus")
+	require.NoError(t, err)
+	assert.Equal(t, "a custom bus", bus.Description)
+
+	// Rule + pattern (TestEventPattern proves compiledPattern survived).
+	rule, err := fresh.DescribeRule(ctx, "custom-rule", "custom-bus")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"source":["my.app"]}`, rule.EventPattern)
+
+	// Target + targetsByARN index rebuild.
+	targets, _, err := fresh.ListTargetsByRule(ctx, "custom-rule", "custom-bus", "", 0)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, "arn:aws:sqs:us-east-1:123456789012:my-queue", targets[0].Arn)
+
+	ruleNames, _, err := fresh.ListRuleNamesByTarget(
+		ctx, "arn:aws:sqs:us-east-1:123456789012:my-queue", "custom-bus", "",
+	)
+	require.NoError(t, err)
+	assert.Contains(t, ruleNames, "custom-rule")
+
+	// Connection (auth is masked on Describe either way).
+	restoredConn, err := fresh.DescribeConnection(ctx, "my-conn")
+	require.NoError(t, err)
+	assert.Equal(t, "API_KEY", restoredConn.AuthorizationType)
+
+	// API destination + connection lookup round trip. Connection.authSecret
+	// is unexported by design (never returned from Describe/List, see
+	// models.go) so, exactly as before this conversion, plain encoding/json
+	// never serializes it -- it does NOT survive Snapshot/Restore either via
+	// the old raw map or the new *store.Table. ResolveAPIDestination still
+	// resolves the destination/connection pair; only the secret itself is
+	// empty post-restore, matching pre-conversion behavior byte-for-byte.
+	dest, err := fresh.DescribeAPIDestination(ctx, "my-dest")
+	require.NoError(t, err)
+	resolvedDest, ok := fresh.ResolveAPIDestination(dest.APIDestinationArn)
+	require.True(t, ok)
+	assert.Equal(t, "API_KEY", resolvedDest.AuthType)
+	assert.Empty(t, resolvedDest.APIKeyValue,
+		"authSecret is unexported and never round-trips through JSON, pre- or post-conversion")
+
+	// Archive.
+	archive, err := fresh.DescribeArchive(ctx, "my-archive")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:events:us-east-1:123456789012:event-bus/custom-bus", archive.EventSourceArn)
+
+	// Endpoint.
+	endpoint, err := fresh.DescribeEndpoint(ctx, "my-endpoint")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/endpoint-role", endpoint.RoleArn)
+
+	// Partner event source + its mirrored, activated EventSource.
+	partnerSrc, err := fresh.DescribePartnerEventSource(ctx, "aws.partner/example.com/orders")
+	require.NoError(t, err)
+	assert.Equal(t, "999999999999", partnerSrc.Account)
+
+	eventSrc, err := fresh.DescribeEventSource(ctx, "aws.partner/example.com/orders")
+	require.NoError(t, err)
+	assert.Equal(t, "ACTIVE", eventSrc.State)
+
+	// Replay.
+	replay, err := fresh.DescribeReplay(ctx, "my-replay")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:events:us-east-1:123456789012:archive/my-archive", replay.EventSourceArn)
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
