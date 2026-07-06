@@ -32,6 +32,12 @@ type ExportedCopySnapshotRequest = copySnapshotRequest
 // ExportedCreateMultiRegionClusterRequest aliases createMultiRegionClusterRequest for testing.
 type ExportedCreateMultiRegionClusterRequest = createMultiRegionClusterRequest
 
+// ExportedPurchaseReservedNodesOfferingRequest aliases purchaseReservedNodesOfferingRequest for testing.
+type ExportedPurchaseReservedNodesOfferingRequest = purchaseReservedNodesOfferingRequest
+
+// ExportedDescribeReservedNodesRequest aliases describeReservedNodesRequest for testing.
+type ExportedDescribeReservedNodesRequest = describeReservedNodesRequest
+
 // ExportedDescribeEngineVersionsRequest aliases describeEngineVersionsRequest for testing.
 type ExportedDescribeEngineVersionsRequest = describeEngineVersionsRequest
 
@@ -54,8 +60,8 @@ func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	total := 0
-	for _, m := range b.clusters {
-		total += len(m)
+	for _, t := range b.clusters {
+		total += t.Len()
 	}
 
 	return total
@@ -66,8 +72,8 @@ func ACLCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	total := 0
-	for _, m := range b.acls {
-		total += len(m)
+	for _, t := range b.acls {
+		total += t.Len()
 	}
 
 	return total
@@ -78,8 +84,8 @@ func SnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	total := 0
-	for _, m := range b.snapshots {
-		total += len(m)
+	for _, t := range b.snapshots {
+		total += t.Len()
 	}
 
 	return total
@@ -91,8 +97,8 @@ func UserCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 	total := 0
 
-	for _, m := range b.users {
-		total += len(m)
+	for _, t := range b.users {
+		total += t.Len()
 	}
 
 	return total
@@ -104,8 +110,8 @@ func SubnetGroupCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	total := 0
-	for _, m := range b.subnetGroups {
-		total += len(m)
+	for _, t := range b.subnetGroups {
+		total += t.Len()
 	}
 
 	return total
@@ -117,8 +123,8 @@ func ParameterGroupCount(b *InMemoryBackend) int {
 
 	defer b.mu.RUnlock()
 	total := 0
-	for _, m := range b.parameterGroups {
-		total += len(m)
+	for _, t := range b.parameterGroups {
+		total += t.Len()
 	}
 
 	return total
@@ -141,7 +147,7 @@ func MultiRegionClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.multiRegionClusters)
+	return b.multiRegionClusters.Len()
 }
 
 // ARNIndexSize returns the number of entries in the ARN-to-resource index.
