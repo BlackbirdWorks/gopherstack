@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ----------------------------------------
@@ -232,37 +233,60 @@ func (b *InMemoryBackend) markTransitionLocked(pending *string, until *time.Time
 // pruneRegionLocked reaps resources whose "deleting" deadline has elapsed,
 // releasing their engines/ports/tags/DNS registrations. Must hold b.mu.
 // This keeps tombstones from accumulating without any background goroutine.
+// pruneTable removes every reaped entry from t (a nil t, i.e. a region never
+// touched yet, is a documented no-op). lifecycle extracts a value's pending
+// status/deadline, release performs any resource-specific cleanup (closing
+// tags/engines/etc.), and keyOf extracts the table key so the entry can be
+// deleted.
+func pruneTable[T any](
+	now time.Time,
+	t *store.Table[T],
+	lifecycle func(*T) (pending string, until time.Time),
+	release func(*T),
+	keyOf func(*T) string,
+) {
+	if t == nil {
+		return
+	}
+
+	for _, v := range t.All() {
+		pending, until := lifecycle(v)
+		if !isReaped(now, pending, until) {
+			continue
+		}
+
+		release(v)
+		t.Delete(keyOf(v))
+	}
+}
+
 func (b *InMemoryBackend) pruneRegionLocked(region string) {
 	now := b.now()
 
-	for id, c := range b.clusters[region] {
-		if isReaped(now, c.PendingStatus, c.AvailableAt) {
-			b.releaseClusterLocked(c)
-			delete(b.clusters[region], id)
-		}
-	}
-	for id, rg := range b.replicationGroups[region] {
-		if isReaped(now, rg.PendingStatus, rg.AvailableAt) {
-			rg.Tags.Close()
-			delete(b.replicationGroups[region], id)
-		}
-	}
-	for id, sc := range b.serverlessCaches[region] {
-		if isReaped(now, sc.PendingStatus, sc.AvailableAt) {
-			sc.Tags.Close()
-			delete(b.serverlessCaches[region], id)
-		}
-	}
-	for id, snap := range b.snapshots[region] {
-		if isReaped(now, snap.PendingStatus, snap.AvailableAt) {
-			snap.Tags.Close()
-			delete(b.snapshots[region], id)
-		}
-	}
-	for id, grg := range b.globalReplicationGroups {
+	pruneTable(now, b.clusters[region],
+		func(c *Cluster) (string, time.Time) { return c.PendingStatus, c.AvailableAt },
+		b.releaseClusterLocked,
+		func(c *Cluster) string { return c.ClusterID })
+
+	pruneTable(now, b.replicationGroups[region],
+		func(rg *ReplicationGroup) (string, time.Time) { return rg.PendingStatus, rg.AvailableAt },
+		func(rg *ReplicationGroup) { rg.Tags.Close() },
+		func(rg *ReplicationGroup) string { return rg.ReplicationGroupID })
+
+	pruneTable(now, b.serverlessCaches[region],
+		func(sc *ServerlessCache) (string, time.Time) { return sc.PendingStatus, sc.AvailableAt },
+		func(sc *ServerlessCache) { sc.Tags.Close() },
+		func(sc *ServerlessCache) string { return sc.Name })
+
+	pruneTable(now, b.snapshots[region],
+		func(snap *CacheSnapshot) (string, time.Time) { return snap.PendingStatus, snap.AvailableAt },
+		func(snap *CacheSnapshot) { snap.Tags.Close() },
+		func(snap *CacheSnapshot) string { return snap.SnapshotName })
+
+	for _, grg := range b.globalReplicationGroups.All() {
 		if isReaped(now, grg.PendingStatus, grg.AvailableAt) {
 			grg.Tags.Close()
-			b.deleteGlobalReplicationGroup(id)
+			b.deleteGlobalReplicationGroup(grg.GlobalReplicationGroupID)
 		}
 	}
 }
