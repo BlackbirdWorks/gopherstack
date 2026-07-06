@@ -8,6 +8,7 @@ import (
 	"net"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -424,40 +426,47 @@ type vpcAssociation struct {
 }
 
 // InMemoryBackend stores Route 53 state in memory.
+//
+// Most resource collections are *store.Table[T], registered once on registry
+// at construction time (see store_setup.go); registry.ResetAll() then
+// collapses their runtime reset to one call in Reset below. A handful of
+// fields are deliberately left as plain maps -- see the doc comment atop
+// store_setup.go for the full list and why.
 type InMemoryBackend struct {
-	dns                    DNSRegistrar
-	zones                  map[string]*zoneData                     // key: zone ID
-	healthChecks           map[string]*HealthCheck                  // key: health check ID
-	keySigningKeys         map[string]*KeySigningKey                // key: "hostedZoneId|name"
-	cidrCollections        map[string]*CidrCollection               // key: collection ID
-	queryLoggingConfigs    map[string]*QueryLoggingConfig           // key: config ID
-	reusableDelegationSets map[string]*ReusableDelegationSet        // key: delegation set ID
-	trafficPolicies        map[string][]*TrafficPolicy              // key: policy ID, value: versions
-	trafficPolicyInstances map[string]*TrafficPolicyInstance        // key: instance ID
-	vpcAssociations        map[string][]vpcAssociation              // key: zone ID
-	vpcAssocAuthorizations map[string][]VPCAssociationAuthorization // key: zone ID
-	changes                map[string]*ChangeInfo                   // key: change ID
-	tags                   map[string]*svcTags.Tags
-	mu                     *lockmetrics.RWMutex
+	dns                          DNSRegistrar
+	registry                     *store.Registry
+	zones                        *store.Table[zoneData]
+	healthChecks                 *store.Table[HealthCheck]
+	keySigningKeys               *store.Table[KeySigningKey]
+	keySigningKeysByZone         *store.Index[KeySigningKey]
+	cidrCollections              *store.Table[CidrCollection]
+	queryLoggingConfigs          *store.Table[QueryLoggingConfig]
+	queryLoggingConfigsByZone    *store.Index[QueryLoggingConfig]
+	reusableDelegationSets       *store.Table[ReusableDelegationSet]
+	trafficPolicies              map[string][]*TrafficPolicy // key: policy ID, value: versions
+	trafficPolicyInstances       *store.Table[TrafficPolicyInstance]
+	trafficPolicyInstancesByZone *store.Index[TrafficPolicyInstance]
+	vpcAssociations              map[string][]vpcAssociation              // key: zone ID
+	vpcAssocAuthorizations       map[string][]VPCAssociationAuthorization // key: zone ID
+	changes                      *store.Table[ChangeInfo]
+	tags                         map[string]*svcTags.Tags
+	mu                           *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		zones:                  make(map[string]*zoneData),
-		healthChecks:           make(map[string]*HealthCheck),
-		keySigningKeys:         make(map[string]*KeySigningKey),
-		cidrCollections:        make(map[string]*CidrCollection),
-		queryLoggingConfigs:    make(map[string]*QueryLoggingConfig),
-		reusableDelegationSets: make(map[string]*ReusableDelegationSet),
+	b := &InMemoryBackend{
+		registry:               store.NewRegistry(),
 		trafficPolicies:        make(map[string][]*TrafficPolicy),
-		trafficPolicyInstances: make(map[string]*TrafficPolicyInstance),
 		vpcAssociations:        make(map[string][]vpcAssociation),
 		vpcAssocAuthorizations: make(map[string][]VPCAssociationAuthorization),
-		changes:                make(map[string]*ChangeInfo),
 		tags:                   make(map[string]*svcTags.Tags),
 		mu:                     lockmetrics.New("route53"),
 	}
+
+	b.registerTables()
+
+	return b
 }
 
 // SetDNSRegistrar wires a DNS server so A/CNAME records are auto-registered.
@@ -526,7 +535,7 @@ func (b *InMemoryBackend) CreateHostedZone(
 	// zone. Reusing it with any different parameter is rejected — real AWS
 	// returns HostedZoneAlreadyExists (409) rather than silently returning
 	// (or silently creating a second zone for) mismatched input.
-	for _, zd := range b.zones {
+	for _, zd := range b.zones.All() {
 		if zd.zone.CallerReference != callerRef {
 			continue
 		}
@@ -559,7 +568,7 @@ func (b *InMemoryBackend) CreateHostedZone(
 		zone:    hz,
 		records: make(map[string]*ResourceRecordSet),
 	}
-	b.zones[id] = zd
+	b.zones.Put(zd)
 
 	// Seed the zone with the default NS and SOA records that AWS auto-creates.
 	nsKey := recordSetKey(name, "NS", "")
@@ -585,11 +594,11 @@ func (b *InMemoryBackend) CreateHostedZone(
 	// Register a synthetic INSYNC change so that GetChange on the zone-creation
 	// change ID (used by Terraform's waiter) returns INSYNC immediately.
 	syntheticChangeID := "C" + id
-	b.changes[syntheticChangeID] = &ChangeInfo{
+	b.changes.Put(&ChangeInfo{
 		ID:          "/change/" + syntheticChangeID,
 		Status:      "INSYNC",
 		SubmittedAt: time.Now(),
-	}
+	})
 
 	cp := hz
 
@@ -616,7 +625,7 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 	b.mu.Lock("DeleteHostedZone")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -643,20 +652,19 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 
 	// Cascade: delete VPC associations for this zone.
 	delete(b.vpcAssociations, zoneID)
-	// Cascade: delete query logging configs for this zone.
-	for id, cfg := range b.queryLoggingConfigs {
-		if cfg.HostedZoneID == zoneID {
-			delete(b.queryLoggingConfigs, id)
-		}
+	// Cascade: delete query logging configs for this zone. The index's
+	// backing slice is cloned before the loop because deleting from the
+	// table mutates the very index groups the slice is a view over.
+	for _, cfg := range slices.Clone(b.queryLoggingConfigsByZone.Get(zoneID)) {
+		b.queryLoggingConfigs.Delete(cfg.ID)
 	}
-	// Cascade: delete key signing keys for this zone.
-	for k, ksk := range b.keySigningKeys {
-		if ksk.HostedZoneID == zoneID {
-			delete(b.keySigningKeys, k)
-		}
+	// Cascade: delete key signing keys for this zone. Same clone-before-delete
+	// reasoning as above.
+	for _, ksk := range slices.Clone(b.keySigningKeysByZone.Get(zoneID)) {
+		b.keySigningKeys.Delete(kskKey(ksk.HostedZoneID, ksk.Name))
 	}
 
-	delete(b.zones, zoneID)
+	b.zones.Delete(zoneID)
 	delete(b.tags, zoneID)
 
 	return nil
@@ -667,7 +675,7 @@ func (b *InMemoryBackend) GetHostedZone(zoneID string) (*HostedZone, error) {
 	b.mu.RLock("GetHostedZone")
 	defer b.mu.RUnlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -688,8 +696,9 @@ func (b *InMemoryBackend) ListHostedZones(
 	b.mu.RLock("ListHostedZones")
 	defer b.mu.RUnlock()
 
-	result := make([]HostedZone, 0, len(b.zones))
-	for _, zd := range b.zones {
+	all := b.zones.All()
+	result := make([]HostedZone, 0, len(all))
+	for _, zd := range all {
 		cp := zd.zone
 		cp.ResourceRecordSetCount = len(zd.records)
 		result = append(result, cp)
@@ -708,8 +717,9 @@ func (b *InMemoryBackend) ListHostedZonesByName(
 	b.mu.RLock("ListHostedZonesByName")
 	defer b.mu.RUnlock()
 
-	result := make([]HostedZone, 0, len(b.zones))
-	for _, zd := range b.zones {
+	all := b.zones.All()
+	result := make([]HostedZone, 0, len(all))
+	for _, zd := range all {
 		cp := zd.zone
 		cp.ResourceRecordSetCount = len(zd.records)
 		result = append(result, cp)
@@ -1329,7 +1339,7 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(
 	b.mu.Lock("ChangeResourceRecordSets")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return "", fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -1378,7 +1388,7 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(
 		Status:      "INSYNC",
 		SubmittedAt: time.Now(),
 	}
-	b.changes[changeID] = ci
+	b.changes.Put(ci)
 
 	return ci.ID, nil
 }
@@ -1388,7 +1398,7 @@ func (b *InMemoryBackend) GetChange(changeID string) (*ChangeInfo, error) {
 	b.mu.RLock("GetChange")
 	defer b.mu.RUnlock()
 
-	ci, ok := b.changes[changeID]
+	ci, ok := b.changes.Get(changeID)
 	if !ok {
 		return nil, fmt.Errorf("%w: change %s not found", ErrChangeNotFound, changeID)
 	}
@@ -1419,7 +1429,7 @@ func (b *InMemoryBackend) ListResourceRecordSets(
 	b.mu.RLock("ListResourceRecordSets")
 	defer b.mu.RUnlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return RRSetPage{}, fmt.Errorf(
 			"%w: hosted zone %s not found",
@@ -1519,7 +1529,7 @@ func (b *InMemoryBackend) CreateHealthCheck(
 	// check. Reusing it with a different config is rejected — real AWS returns
 	// HealthCheckAlreadyExists (409) rather than silently returning (or
 	// silently creating a second check for) mismatched input.
-	for _, existing := range b.healthChecks {
+	for _, existing := range b.healthChecks.All() {
 		if existing.CallerReference != callerRef {
 			continue
 		}
@@ -1545,7 +1555,7 @@ func (b *InMemoryBackend) CreateHealthCheck(
 		CreatedAt:       time.Now(),
 	}
 
-	b.healthChecks[hc.ID] = hc
+	b.healthChecks.Put(hc)
 
 	cp := *hc
 
@@ -1557,7 +1567,7 @@ func (b *InMemoryBackend) GetHealthCheck(id string) (*HealthCheck, error) {
 	b.mu.RLock("GetHealthCheck")
 	defer b.mu.RUnlock()
 
-	hc, ok := b.healthChecks[id]
+	hc, ok := b.healthChecks.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
@@ -1575,8 +1585,9 @@ func (b *InMemoryBackend) ListHealthChecks(
 	b.mu.RLock("ListHealthChecks")
 	defer b.mu.RUnlock()
 
-	result := make([]HealthCheck, 0, len(b.healthChecks))
-	for _, hc := range b.healthChecks {
+	all := b.healthChecks.All()
+	result := make([]HealthCheck, 0, len(all))
+	for _, hc := range all {
 		cp := *hc
 		result = append(result, cp)
 	}
@@ -1591,11 +1602,11 @@ func (b *InMemoryBackend) DeleteHealthCheck(id string) error {
 	b.mu.Lock("DeleteHealthCheck")
 	defer b.mu.Unlock()
 
-	if _, ok := b.healthChecks[id]; !ok {
+	if !b.healthChecks.Has(id) {
 		return fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
 
-	delete(b.healthChecks, id)
+	b.healthChecks.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -1609,7 +1620,7 @@ func (b *InMemoryBackend) UpdateHealthCheck(
 	b.mu.Lock("UpdateHealthCheck")
 	defer b.mu.Unlock()
 
-	hc, ok := b.healthChecks[id]
+	hc, ok := b.healthChecks.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
@@ -1626,7 +1637,7 @@ func (b *InMemoryBackend) GetHealthCheckStatus(id string) (string, error) {
 	b.mu.RLock("GetHealthCheckStatus")
 	defer b.mu.RUnlock()
 
-	hc, ok := b.healthChecks[id]
+	hc, ok := b.healthChecks.Get(id)
 	if !ok {
 		return "", fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
@@ -1640,7 +1651,7 @@ func (b *InMemoryBackend) SetHealthCheckStatus(id, status string) error {
 	b.mu.Lock("SetHealthCheckStatus")
 	defer b.mu.Unlock()
 
-	hc, ok := b.healthChecks[id]
+	hc, ok := b.healthChecks.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
@@ -1671,17 +1682,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.zones = make(map[string]*zoneData)
-	b.healthChecks = make(map[string]*HealthCheck)
-	b.keySigningKeys = make(map[string]*KeySigningKey)
-	b.cidrCollections = make(map[string]*CidrCollection)
-	b.queryLoggingConfigs = make(map[string]*QueryLoggingConfig)
-	b.reusableDelegationSets = make(map[string]*ReusableDelegationSet)
+	b.registry.ResetAll()
 	b.trafficPolicies = make(map[string][]*TrafficPolicy)
-	b.trafficPolicyInstances = make(map[string]*TrafficPolicyInstance)
 	b.vpcAssociations = make(map[string][]vpcAssociation)
 	b.vpcAssocAuthorizations = make(map[string][]VPCAssociationAuthorization)
-	b.changes = make(map[string]*ChangeInfo)
 	b.tags = make(map[string]*svcTags.Tags)
 }
 
@@ -1703,11 +1707,11 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 	b.mu.Lock("CreateKeySigningKey")
 	defer b.mu.Unlock()
 
-	if _, ok := b.zones[hostedZoneID]; !ok {
+	if _, ok := b.zones.Get(hostedZoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
 	}
 
-	if _, exists := b.keySigningKeys[kskKey(hostedZoneID, name)]; exists {
+	if b.keySigningKeys.Has(kskKey(hostedZoneID, name)) {
 		return nil, fmt.Errorf(
 			"%w: key signing key %s already exists in zone %s",
 			ErrKeySigningKeyAlreadyExists,
@@ -1758,7 +1762,7 @@ func (b *InMemoryBackend) CreateKeySigningKey(
 		DSRecord:                 dsRecord,
 	}
 
-	b.keySigningKeys[kskKey(hostedZoneID, name)] = ksk
+	b.keySigningKeys.Put(ksk)
 
 	cp := *ksk
 
@@ -1772,7 +1776,7 @@ func (b *InMemoryBackend) ActivateKeySigningKey(hostedZoneID, name string) (*Key
 
 	key := kskKey(hostedZoneID, name)
 
-	ksk, ok := b.keySigningKeys[key]
+	ksk, ok := b.keySigningKeys.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: key signing key %s not found in zone %s",
@@ -1797,7 +1801,7 @@ func (b *InMemoryBackend) DeactivateKeySigningKey(
 	defer b.mu.Unlock()
 
 	key := kskKey(hostedZoneID, name)
-	ksk, ok := b.keySigningKeys[key]
+	ksk, ok := b.keySigningKeys.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: key signing key %s not found in zone %s",
@@ -1821,7 +1825,7 @@ func (b *InMemoryBackend) DeleteKeySigningKey(hostedZoneID, name string) error {
 	defer b.mu.Unlock()
 
 	key := kskKey(hostedZoneID, name)
-	ksk, ok := b.keySigningKeys[key]
+	ksk, ok := b.keySigningKeys.Get(key)
 	if !ok {
 		return fmt.Errorf(
 			"%w: key signing key %s not found in zone %s",
@@ -1839,7 +1843,7 @@ func (b *InMemoryBackend) DeleteKeySigningKey(hostedZoneID, name string) error {
 		)
 	}
 
-	delete(b.keySigningKeys, key)
+	b.keySigningKeys.Delete(key)
 
 	return nil
 }
@@ -1850,15 +1854,15 @@ func (b *InMemoryBackend) EnableHostedZoneDNSSEC(zoneID string) error {
 	b.mu.Lock("EnableHostedZoneDNSSEC")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
 	hasActiveKSK := false
 
-	for _, ksk := range b.keySigningKeys {
-		if ksk.HostedZoneID == zoneID && ksk.Status == kskStatusActive {
+	for _, ksk := range b.keySigningKeysByZone.Get(zoneID) {
+		if ksk.Status == kskStatusActive {
 			hasActiveKSK = true
 
 			break
@@ -1882,7 +1886,7 @@ func (b *InMemoryBackend) DisableHostedZoneDNSSEC(zoneID string) error {
 	b.mu.Lock("DisableHostedZoneDNSSEC")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -1897,17 +1901,15 @@ func (b *InMemoryBackend) GetDNSSEC(zoneID string) (bool, []KeySigningKey, error
 	b.mu.RLock("GetDNSSEC")
 	defer b.mu.RUnlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return false, nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
 	var ksks []KeySigningKey
-	for _, ksk := range b.keySigningKeys {
-		if ksk.HostedZoneID == zoneID {
-			cp := *ksk
-			ksks = append(ksks, cp)
-		}
+	for _, ksk := range b.keySigningKeysByZone.Get(zoneID) {
+		cp := *ksk
+		ksks = append(ksks, cp)
 	}
 
 	sort.Slice(ksks, func(i, j int) bool { return ksks[i].Name < ksks[j].Name })
@@ -1925,7 +1927,7 @@ func (b *InMemoryBackend) AssociateVPCWithHostedZone(zoneID, vpcID, vpcRegion st
 	b.mu.Lock("AssociateVPCWithHostedZone")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -1962,7 +1964,7 @@ func (b *InMemoryBackend) DisassociateVPCFromHostedZone(zoneID, vpcID string) er
 	b.mu.Lock("DisassociateVPCFromHostedZone")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -2008,7 +2010,7 @@ func (b *InMemoryBackend) ListVPCAssociations(zoneID string) ([]vpcAssociation, 
 	b.mu.RLock("ListVPCAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.zones[zoneID]; !ok {
+	if _, ok := b.zones.Get(zoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
@@ -2026,7 +2028,7 @@ func (b *InMemoryBackend) CreateVPCAssociationAuthorization(
 	b.mu.Lock("CreateVPCAssociationAuthorization")
 	defer b.mu.Unlock()
 
-	if _, ok := b.zones[zoneID]; !ok {
+	if _, ok := b.zones.Get(zoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
@@ -2054,7 +2056,7 @@ func (b *InMemoryBackend) DeleteVPCAssociationAuthorization(zoneID, vpcID string
 	b.mu.Lock("DeleteVPCAssociationAuthorization")
 	defer b.mu.Unlock()
 
-	if _, ok := b.zones[zoneID]; !ok {
+	if _, ok := b.zones.Get(zoneID); !ok {
 		return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
@@ -2092,7 +2094,7 @@ func (b *InMemoryBackend) ListVPCAssociationAuthorizations(
 	b.mu.RLock("ListVPCAssociationAuthorizations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.zones[zoneID]; !ok {
+	if _, ok := b.zones.Get(zoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
@@ -2112,8 +2114,7 @@ func (b *InMemoryBackend) ListHostedZonesByVPC(vpcID, vpcRegion string) ([]Hoste
 	for zoneID, assocs := range b.vpcAssociations {
 		for _, a := range assocs {
 			if a.VPCID == vpcID && (vpcRegion == "" || a.VPCRegion == vpcRegion) {
-				zd := b.zones[zoneID]
-				if zd != nil {
+				if zd, ok := b.zones.Get(zoneID); ok {
 					cp := zd.zone
 					cp.ResourceRecordSetCount = len(zd.records)
 					result = append(result, cp)
@@ -2140,7 +2141,7 @@ func (b *InMemoryBackend) CreateCidrCollection(
 	b.mu.Lock("CreateCidrCollection")
 	defer b.mu.Unlock()
 
-	for _, existing := range b.cidrCollections {
+	for _, existing := range b.cidrCollections.All() {
 		if existing.Name == name {
 			return nil, fmt.Errorf(
 				"%w: a CIDR collection named %s already exists",
@@ -2159,7 +2160,7 @@ func (b *InMemoryBackend) CreateCidrCollection(
 		Locations: make(map[string][]string),
 	}
 
-	b.cidrCollections[id] = col
+	b.cidrCollections.Put(col)
 
 	cp := *col
 	cp.Locations = copyLocations(col.Locations)
@@ -2188,7 +2189,7 @@ func (b *InMemoryBackend) ChangeCidrCollection(
 	b.mu.Lock("ChangeCidrCollection")
 	defer b.mu.Unlock()
 
-	col, ok := b.cidrCollections[collectionID]
+	col, ok := b.cidrCollections.Get(collectionID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: CIDR collection %s not found",
@@ -2254,7 +2255,7 @@ func (b *InMemoryBackend) ListCidrLocations(collectionID string) ([]string, erro
 	b.mu.RLock("ListCidrLocations")
 	defer b.mu.RUnlock()
 
-	col, ok := b.cidrCollections[collectionID]
+	col, ok := b.cidrCollections.Get(collectionID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: CIDR collection %s not found",
@@ -2273,7 +2274,7 @@ func (b *InMemoryBackend) ListCidrBlocks(collectionID, locationName string) ([]s
 	b.mu.RLock("ListCidrBlocks")
 	defer b.mu.RUnlock()
 
-	col, ok := b.cidrCollections[collectionID]
+	col, ok := b.cidrCollections.Get(collectionID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: CIDR collection %s not found",
@@ -2305,17 +2306,15 @@ func (b *InMemoryBackend) CreateQueryLoggingConfig(
 	b.mu.Lock("CreateQueryLoggingConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.zones[hostedZoneID]; !ok {
+	if _, ok := b.zones.Get(hostedZoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
 	}
 
-	for _, cfg := range b.queryLoggingConfigs {
-		if cfg.HostedZoneID == hostedZoneID {
-			return nil, fmt.Errorf(
-				"%w: a query logging config already exists for hosted zone %s",
-				ErrQueryLoggingConfigAlreadyExists, hostedZoneID,
-			)
-		}
+	if len(b.queryLoggingConfigsByZone.Get(hostedZoneID)) > 0 {
+		return nil, fmt.Errorf(
+			"%w: a query logging config already exists for hosted zone %s",
+			ErrQueryLoggingConfigAlreadyExists, hostedZoneID,
+		)
 	}
 
 	id := "Z" + randomZoneID()
@@ -2326,7 +2325,7 @@ func (b *InMemoryBackend) CreateQueryLoggingConfig(
 		CreatedAt:                 time.Now(),
 	}
 
-	b.queryLoggingConfigs[id] = cfg
+	b.queryLoggingConfigs.Put(cfg)
 
 	cp := *cfg
 
@@ -2338,7 +2337,7 @@ func (b *InMemoryBackend) GetQueryLoggingConfig(id string) (*QueryLoggingConfig,
 	b.mu.RLock("GetQueryLoggingConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.queryLoggingConfigs[id]
+	cfg, ok := b.queryLoggingConfigs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: query logging config %s not found",
@@ -2357,7 +2356,7 @@ func (b *InMemoryBackend) DeleteQueryLoggingConfig(id string) error {
 	b.mu.Lock("DeleteQueryLoggingConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.queryLoggingConfigs[id]; !ok {
+	if !b.queryLoggingConfigs.Has(id) {
 		return fmt.Errorf(
 			"%w: query logging config %s not found",
 			ErrQueryLoggingConfigNotFound,
@@ -2365,7 +2364,7 @@ func (b *InMemoryBackend) DeleteQueryLoggingConfig(id string) error {
 		)
 	}
 
-	delete(b.queryLoggingConfigs, id)
+	b.queryLoggingConfigs.Delete(id)
 
 	return nil
 }
@@ -2377,13 +2376,18 @@ func (b *InMemoryBackend) ListQueryLoggingConfigs(
 	b.mu.RLock("ListQueryLoggingConfigs")
 	defer b.mu.RUnlock()
 
-	var result []*QueryLoggingConfig
+	var candidates []*QueryLoggingConfig
+	if hostedZoneID == "" {
+		candidates = b.queryLoggingConfigs.All()
+	} else {
+		candidates = b.queryLoggingConfigsByZone.Get(hostedZoneID)
+	}
 
-	for _, cfg := range b.queryLoggingConfigs {
-		if hostedZoneID == "" || cfg.HostedZoneID == hostedZoneID {
-			cp := *cfg
-			result = append(result, &cp)
-		}
+	result := make([]*QueryLoggingConfig, 0, len(candidates))
+
+	for _, cfg := range candidates {
+		cp := *cfg
+		result = append(result, &cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
@@ -2419,7 +2423,7 @@ func (b *InMemoryBackend) CreateReusableDelegationSet(
 		CreatedAt:       time.Now(),
 	}
 
-	b.reusableDelegationSets[id] = ds
+	b.reusableDelegationSets.Put(ds)
 
 	cp := *ds
 
@@ -2542,7 +2546,7 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 	b.mu.Lock("CreateTrafficPolicyInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.zones[hostedZoneID]; !ok {
+	if _, ok := b.zones.Get(hostedZoneID); !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, hostedZoneID)
 	}
 
@@ -2566,9 +2570,8 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 	// a second CreateTrafficPolicyInstance for the same pair returns
 	// TrafficPolicyInstanceAlreadyExists (409) rather than creating a
 	// duplicate or silently overwriting the existing instance.
-	for _, existing := range b.trafficPolicyInstances {
-		if existing.HostedZoneID == hostedZoneID &&
-			strings.EqualFold(existing.Name, normalisedName) {
+	for _, existing := range b.trafficPolicyInstancesByZone.Get(hostedZoneID) {
+		if strings.EqualFold(existing.Name, normalisedName) {
 			return nil, fmt.Errorf(
 				"%w: a traffic policy instance already exists for name %s in zone %s",
 				ErrTrafficPolicyInstanceAlreadyExists,
@@ -2590,7 +2593,7 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 		State:                tpiStateApplied,
 	}
 
-	b.trafficPolicyInstances[id] = inst
+	b.trafficPolicyInstances.Put(inst)
 
 	cp := *inst
 
@@ -2601,7 +2604,7 @@ func (b *InMemoryBackend) CreateTrafficPolicyInstance(
 func (b *InMemoryBackend) AddZoneInternal(hz HostedZone) {
 	b.mu.Lock("AddZoneInternal")
 	defer b.mu.Unlock()
-	b.zones[hz.ID] = &zoneData{zone: hz, records: make(map[string]*ResourceRecordSet)}
+	b.zones.Put(&zoneData{zone: hz, records: make(map[string]*ResourceRecordSet)})
 }
 
 // DeleteTrafficPolicy deletes a specific version of a traffic policy.
@@ -2633,7 +2636,7 @@ func (b *InMemoryBackend) DeleteTrafficPolicy(id string, version int32) error {
 		)
 	}
 
-	for _, inst := range b.trafficPolicyInstances {
+	for _, inst := range b.trafficPolicyInstances.All() {
 		if inst.TrafficPolicyID == id && inst.TrafficPolicyVersion == version {
 			return fmt.Errorf(
 				"%w: traffic policy %s version %d is still in use by instance %s",
@@ -2687,7 +2690,7 @@ func (b *InMemoryBackend) DeleteTrafficPolicyInstance(id string) error {
 	b.mu.Lock("DeleteTrafficPolicyInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trafficPolicyInstances[id]; !ok {
+	if !b.trafficPolicyInstances.Has(id) {
 		return fmt.Errorf(
 			"%w: traffic policy instance %s not found",
 			ErrTrafficPolicyInstNotFound,
@@ -2695,7 +2698,7 @@ func (b *InMemoryBackend) DeleteTrafficPolicyInstance(id string) error {
 		)
 	}
 
-	delete(b.trafficPolicyInstances, id)
+	b.trafficPolicyInstances.Delete(id)
 
 	return nil
 }
@@ -2705,7 +2708,7 @@ func (b *InMemoryBackend) GetTrafficPolicyInstance(id string) (*TrafficPolicyIns
 	b.mu.RLock("GetTrafficPolicyInstance")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.trafficPolicyInstances[id]
+	inst, ok := b.trafficPolicyInstances.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: traffic policy instance %s not found",
@@ -2796,8 +2799,9 @@ func (b *InMemoryBackend) ListTrafficPolicyInstances() ([]*TrafficPolicyInstance
 	b.mu.RLock("ListTrafficPolicyInstances")
 	defer b.mu.RUnlock()
 
-	result := make([]*TrafficPolicyInstance, 0, len(b.trafficPolicyInstances))
-	for _, inst := range b.trafficPolicyInstances {
+	all := b.trafficPolicyInstances.All()
+	result := make([]*TrafficPolicyInstance, 0, len(all))
+	for _, inst := range all {
 		cp := *inst
 		result = append(result, &cp)
 	}
@@ -2812,11 +2816,11 @@ func (b *InMemoryBackend) DeleteCidrCollection(id string) error {
 	b.mu.Lock("DeleteCidrCollection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cidrCollections[id]; !ok {
+	if _, ok := b.cidrCollections.Get(id); !ok {
 		return fmt.Errorf("%w: CIDR collection %s not found", ErrCidrCollectionNotFound, id)
 	}
 
-	delete(b.cidrCollections, id)
+	b.cidrCollections.Delete(id)
 
 	return nil
 }
@@ -2826,8 +2830,9 @@ func (b *InMemoryBackend) ListCidrCollections() ([]*CidrCollection, error) {
 	b.mu.RLock("ListCidrCollections")
 	defer b.mu.RUnlock()
 
-	result := make([]*CidrCollection, 0, len(b.cidrCollections))
-	for _, col := range b.cidrCollections {
+	all := b.cidrCollections.All()
+	result := make([]*CidrCollection, 0, len(all))
+	for _, col := range all {
 		cp := *col
 		result = append(result, &cp)
 	}
@@ -2842,7 +2847,7 @@ func (b *InMemoryBackend) UpdateHostedZoneComment(zoneID, comment string) (*Host
 	b.mu.Lock("UpdateHostedZoneComment")
 	defer b.mu.Unlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -2862,7 +2867,7 @@ func (b *InMemoryBackend) GetReusableDelegationSet(id string) (*ReusableDelegati
 	b.mu.RLock("GetReusableDelegationSet")
 	defer b.mu.RUnlock()
 
-	ds, ok := b.reusableDelegationSets[id]
+	ds, ok := b.reusableDelegationSets.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
 	}
@@ -2877,11 +2882,11 @@ func (b *InMemoryBackend) DeleteReusableDelegationSet(id string) error {
 	b.mu.Lock("DeleteReusableDelegationSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.reusableDelegationSets[id]; !ok {
+	if !b.reusableDelegationSets.Has(id) {
 		return fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
 	}
 
-	delete(b.reusableDelegationSets, id)
+	b.reusableDelegationSets.Delete(id)
 
 	return nil
 }
@@ -2891,8 +2896,9 @@ func (b *InMemoryBackend) ListReusableDelegationSets() ([]*ReusableDelegationSet
 	b.mu.RLock("ListReusableDelegationSets")
 	defer b.mu.RUnlock()
 
-	result := make([]*ReusableDelegationSet, 0, len(b.reusableDelegationSets))
-	for _, ds := range b.reusableDelegationSets {
+	all := b.reusableDelegationSets.All()
+	result := make([]*ReusableDelegationSet, 0, len(all))
+	for _, ds := range all {
 		cp := *ds
 		result = append(result, &cp)
 	}
@@ -2911,7 +2917,7 @@ func (b *InMemoryBackend) UpdateTrafficPolicyInstance(
 	b.mu.Lock("UpdateTrafficPolicyInstance")
 	defer b.mu.Unlock()
 
-	inst, ok := b.trafficPolicyInstances[id]
+	inst, ok := b.trafficPolicyInstances.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: traffic policy instance %s not found",
@@ -2920,6 +2926,9 @@ func (b *InMemoryBackend) UpdateTrafficPolicyInstance(
 		)
 	}
 
+	// inst.HostedZoneID (the only field trafficPolicyInstancesByZone indexes
+	// on) is never modified here, so the index stays consistent without a
+	// Put — see trafficPolicyInstanceZoneKeyFn's doc comment.
 	if tpID != "" {
 		inst.TrafficPolicyID = tpID
 		inst.TrafficPolicyVersion = tpVersion
@@ -2941,13 +2950,12 @@ func (b *InMemoryBackend) ListTrafficPolicyInstancesByHostedZone(
 	b.mu.RLock("ListTrafficPolicyInstancesByHostedZone")
 	defer b.mu.RUnlock()
 
-	var result []*TrafficPolicyInstance
+	zoneInstances := b.trafficPolicyInstancesByZone.Get(hostedZoneID)
+	result := make([]*TrafficPolicyInstance, 0, len(zoneInstances))
 
-	for _, inst := range b.trafficPolicyInstances {
-		if inst.HostedZoneID == hostedZoneID {
-			cp := *inst
-			result = append(result, &cp)
-		}
+	for _, inst := range zoneInstances {
+		cp := *inst
+		result = append(result, &cp)
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
@@ -2965,7 +2973,11 @@ func (b *InMemoryBackend) ListTrafficPolicyInstancesByPolicy(
 
 	var result []*TrafficPolicyInstance
 
-	for _, inst := range b.trafficPolicyInstances {
+	// No secondary index on TrafficPolicyID: UpdateTrafficPolicyInstance can
+	// change it in place above, which would make such an index stale (see
+	// store.Index.AddIndex's doc comment on mutable index keys). A linear
+	// scan matches the original map-iteration behaviour exactly.
+	for _, inst := range b.trafficPolicyInstances.All() {
 		if inst.TrafficPolicyID == tpID &&
 			(tpVersion == 0 || inst.TrafficPolicyVersion == tpVersion) {
 			cp := *inst
@@ -2983,7 +2995,7 @@ func (b *InMemoryBackend) AddHealthCheckInternal(hc HealthCheck) {
 	b.mu.Lock("AddHealthCheckInternal")
 	defer b.mu.Unlock()
 	cp := hc
-	b.healthChecks[hc.ID] = &cp
+	b.healthChecks.Put(&cp)
 }
 
 // AddKeySigningKeyInternal adds a KSK directly into the backend for testing.
@@ -2991,7 +3003,7 @@ func (b *InMemoryBackend) AddKeySigningKeyInternal(ksk KeySigningKey) {
 	b.mu.Lock("AddKeySigningKeyInternal")
 	defer b.mu.Unlock()
 	cp := ksk
-	b.keySigningKeys[kskKey(ksk.HostedZoneID, ksk.Name)] = &cp
+	b.keySigningKeys.Put(&cp)
 }
 
 // AddTrafficPolicyInternal adds a traffic policy directly into the backend for testing.
@@ -3160,7 +3172,7 @@ func (b *InMemoryBackend) TestDNSAnswer(
 	b.mu.RLock("TestDNSAnswer")
 	defer b.mu.RUnlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return nil, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -3185,7 +3197,7 @@ func (b *InMemoryBackend) GetHostedZoneCount() int {
 	b.mu.RLock("GetHostedZoneCount")
 	defer b.mu.RUnlock()
 
-	return len(b.zones)
+	return b.zones.Len()
 }
 
 // GetHealthCheckCount returns the total number of health checks.
@@ -3193,7 +3205,7 @@ func (b *InMemoryBackend) GetHealthCheckCount() int {
 	b.mu.RLock("GetHealthCheckCount")
 	defer b.mu.RUnlock()
 
-	return len(b.healthChecks)
+	return b.healthChecks.Len()
 }
 
 // CountResourceRecordSets returns the number of resource record sets in the
@@ -3202,7 +3214,7 @@ func (b *InMemoryBackend) CountResourceRecordSets(zoneID string) (int, error) {
 	b.mu.RLock("CountResourceRecordSets")
 	defer b.mu.RUnlock()
 
-	zd, ok := b.zones[zoneID]
+	zd, ok := b.zones.Get(zoneID)
 	if !ok {
 		return 0, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
@@ -3216,7 +3228,7 @@ func (b *InMemoryBackend) CountAssociatedVPCs(zoneID string) (int, error) {
 	b.mu.RLock("CountAssociatedVPCs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.zones[zoneID]; !ok {
+	if _, ok := b.zones.Get(zoneID); !ok {
 		return 0, fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, zoneID)
 	}
 
@@ -3230,7 +3242,7 @@ func (b *InMemoryBackend) CountZonesByReusableDelegationSet(id string) (int, err
 	b.mu.RLock("CountZonesByReusableDelegationSet")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.reusableDelegationSets[id]; !ok {
+	if !b.reusableDelegationSets.Has(id) {
 		return 0, fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
 	}
 
@@ -3254,11 +3266,11 @@ const (
 func (b *InMemoryBackend) checkTagResourceExists(resourceType, resourceID string) error {
 	switch resourceType {
 	case tagResourceTypeHostedZone:
-		if _, ok := b.zones[resourceID]; !ok {
+		if _, ok := b.zones.Get(resourceID); !ok {
 			return fmt.Errorf("%w: hosted zone %s not found", ErrHostedZoneNotFound, resourceID)
 		}
 	case tagResourceTypeHealthCheck:
-		if _, ok := b.healthChecks[resourceID]; !ok {
+		if !b.healthChecks.Has(resourceID) {
 			return fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, resourceID)
 		}
 	default:
