@@ -76,7 +76,6 @@ type IpamPolicy struct {
 // resetIpamPolicyMapsLocked re-initialises all maps owned by this file. Must be called with
 // b.mu held.
 func (b *InMemoryBackend) resetIpamPolicyMapsLocked() {
-	b.ipamPolicies = make(map[string]*IpamPolicy)
 	b.ipamPolicyEnabledTargets = make(map[string]string)
 	b.ipamOrgAdminAccountID = ""
 }
@@ -111,7 +110,7 @@ func (b *InMemoryBackend) CreateIpamPolicy(ipamID string) (*IpamPolicy, error) {
 	b.mu.Lock("CreateIpamPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipams[ipamID]; !ok {
+	if _, ok := b.ipams.Get(ipamID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
@@ -125,7 +124,7 @@ func (b *InMemoryBackend) CreateIpamPolicy(ipamID string) (*IpamPolicy, error) {
 		State:            ipamStateCreateComplete,
 		AllocationDocs:   make(map[string]*IpamPolicyDocument),
 	}
-	b.ipamPolicies[id] = policy
+	b.ipamPolicies.Put(policy)
 
 	return copyIpamPolicy(policy), nil
 }
@@ -139,12 +138,11 @@ func (b *InMemoryBackend) DeleteIpamPolicy(id string) (*IpamPolicy, error) {
 	b.mu.Lock("DeleteIpamPolicy")
 	defer b.mu.Unlock()
 
-	policy, ok := b.ipamPolicies[id]
+	policy, ok := b.ipamPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
-
-	delete(b.ipamPolicies, id)
+	b.ipamPolicies.Delete(id)
 
 	for target, enabledID := range b.ipamPolicyEnabledTargets {
 		if enabledID == id {
@@ -168,9 +166,9 @@ func (b *InMemoryBackend) DescribeIpamPolicies(ids []string) []*IpamPolicy {
 		idSet[id] = true
 	}
 
-	out := make([]*IpamPolicy, 0, len(b.ipamPolicies))
+	out := make([]*IpamPolicy, 0, b.ipamPolicies.Len())
 
-	for _, p := range b.ipamPolicies {
+	for _, p := range b.ipamPolicies.All() {
 		if len(idSet) > 0 && !idSet[p.IpamPolicyID] {
 			continue
 		}
@@ -197,7 +195,7 @@ func (b *InMemoryBackend) EnableIpamPolicy(id, orgTargetID string) error {
 	b.mu.Lock("EnableIpamPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipamPolicies[id]; !ok {
+	if _, ok := b.ipamPolicies.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
 
@@ -222,7 +220,7 @@ func (b *InMemoryBackend) DisableIpamPolicy(id, orgTargetID string) error {
 	b.mu.Lock("DisableIpamPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipamPolicies[id]; !ok {
+	if _, ok := b.ipamPolicies.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
 
@@ -262,7 +260,7 @@ func (b *InMemoryBackend) GetIpamPolicyOrganizationTargets(id string) ([]string,
 	b.mu.RLock("GetIpamPolicyOrganizationTargets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.ipamPolicies[id]; !ok {
+	if _, ok := b.ipamPolicies.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
 
@@ -293,7 +291,7 @@ func (b *InMemoryBackend) GetIpamPolicyAllocationRules(
 	b.mu.RLock("GetIpamPolicyAllocationRules")
 	defer b.mu.RUnlock()
 
-	policy, ok := b.ipamPolicies[id]
+	policy, ok := b.ipamPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
@@ -345,7 +343,7 @@ func (b *InMemoryBackend) ModifyIpamPolicyAllocationRules(
 	b.mu.Lock("ModifyIpamPolicyAllocationRules")
 	defer b.mu.Unlock()
 
-	policy, ok := b.ipamPolicies[id]
+	policy, ok := b.ipamPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPolicyNotFound, id)
 	}
@@ -424,12 +422,12 @@ func (b *InMemoryBackend) MoveByoipCidrToIpam(cidr, poolID, poolOwner string) (*
 	b.mu.Lock("MoveByoipCidrToIpam")
 	defer b.mu.Unlock()
 
-	entry, ok := b.byoipCidrs[cidr]
+	entry, ok := b.byoipCidrs.Get(cidr)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrByoipCidrNotFound, cidr)
 	}
 
-	if _, poolOK := b.ipamPools[poolID]; !poolOK {
+	if _, poolOK := b.ipamPools.Get(poolID); !poolOK {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, poolID)
 	}
 

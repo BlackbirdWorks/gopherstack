@@ -91,7 +91,7 @@ func (b *InMemoryBackend) StartDeclarativePoliciesReport(
 		StartTime: time.Now().UTC(),
 		Tags:      maps.Clone(tags),
 	}
-	b.declarativePoliciesReports[report.ReportID] = report
+	b.declarativePoliciesReports.Put(report)
 
 	return cloneDeclarativePoliciesReport(report), nil
 }
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) CancelDeclarativePoliciesReport(reportID string) (bool
 	b.mu.Lock("CancelDeclarativePoliciesReport")
 	defer b.mu.Unlock()
 
-	report, ok := b.declarativePoliciesReports[reportID]
+	report, ok := b.declarativePoliciesReports.Get(reportID)
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrDeclarativePoliciesReportNotFound, reportID)
 	}
@@ -134,9 +134,9 @@ func (b *InMemoryBackend) DescribeDeclarativePoliciesReports(ids []string) []*De
 		idSet[id] = true
 	}
 
-	out := make([]*DeclarativePoliciesReport, 0, len(b.declarativePoliciesReports))
+	out := make([]*DeclarativePoliciesReport, 0, b.declarativePoliciesReports.Len())
 
-	for _, r := range b.declarativePoliciesReports {
+	for _, r := range b.declarativePoliciesReports.All() {
 		if len(idSet) > 0 && !idSet[r.ReportID] {
 			continue
 		}
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) GetDeclarativePoliciesReportSummary(
 	b.mu.Lock("GetDeclarativePoliciesReportSummary")
 	defer b.mu.Unlock()
 
-	report, ok := b.declarativePoliciesReports[reportID]
+	report, ok := b.declarativePoliciesReports.Get(reportID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrDeclarativePoliciesReportNotFound, reportID)
 	}

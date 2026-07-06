@@ -113,7 +113,7 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 		CreateTime:             time.Now().UTC(),
 		OwnedBy:                b.AccountID,
 	}
-	b.capacityReservations[cr.CapacityReservationID] = cr
+	b.capacityReservations.Put(cr)
 
 	return cr, nil
 }
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) CancelCapacityReservation(reservationID string) error 
 	b.mu.Lock("CancelCapacityReservation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[reservationID]
+	cr, ok := b.capacityReservations.Get(reservationID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
 	}
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) ModifyCapacityReservation(reservationID string, instan
 	b.mu.Lock("ModifyCapacityReservation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[reservationID]
+	cr, ok := b.capacityReservations.Get(reservationID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
 	}
@@ -165,7 +165,7 @@ func (b *InMemoryBackend) GetGroupsForCapacityReservation(reservationID string) 
 	b.mu.RLock("GetGroupsForCapacityReservation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.capacityReservations[reservationID]; !ok {
+	if _, ok := b.capacityReservations.Get(reservationID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, reservationID)
 	}
 
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 	b.mu.Lock("CreateInstanceConnectEndpoint")
 	defer b.mu.Unlock()
 
-	subnet, ok := b.subnets[subnetID]
+	subnet, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
@@ -203,7 +203,7 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 		PreserveClientIP:           preserveClientIP,
 		CreateTime:                 time.Now().UTC(),
 	}
-	b.instanceConnectEndpoints[id] = ep
+	b.instanceConnectEndpoints.Put(ep)
 
 	return ep, nil
 }
@@ -217,10 +217,10 @@ func (b *InMemoryBackend) DeleteInstanceConnectEndpoint(id string) error {
 	b.mu.Lock("DeleteInstanceConnectEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instanceConnectEndpoints[id]; !ok {
+	if _, ok := b.instanceConnectEndpoints.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceConnectEndpointNotFound, id)
 	}
-	delete(b.instanceConnectEndpoints, id)
+	b.instanceConnectEndpoints.Delete(id)
 
 	return nil
 }
@@ -238,7 +238,7 @@ func (b *InMemoryBackend) DescribeInstanceConnectEndpoints(
 	}
 
 	var out []*InstanceConnectEndpoint
-	for _, ep := range b.instanceConnectEndpoints {
+	for _, ep := range b.instanceConnectEndpoints.All() {
 		if len(filter) > 0 && !filter[ep.InstanceConnectEndpointID] {
 			continue
 		}
@@ -261,7 +261,7 @@ func (b *InMemoryBackend) ModifyInstanceConnectEndpoint(id string, preserveClien
 	b.mu.Lock("ModifyInstanceConnectEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.instanceConnectEndpoints[id]
+	ep, ok := b.instanceConnectEndpoints.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceConnectEndpointNotFound, id)
 	}
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) CreateInstanceEventWindow(
 		CronExpression:        cronExpression,
 		State:                 stateActive,
 	}
-	b.instanceEventWindows[ew.InstanceEventWindowID] = ew
+	b.instanceEventWindows.Put(ew)
 
 	return ew, nil
 }
@@ -299,10 +299,10 @@ func (b *InMemoryBackend) DeleteInstanceEventWindow(id string) error {
 	b.mu.Lock("DeleteInstanceEventWindow")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instanceEventWindows[id]; !ok {
+	if _, ok := b.instanceEventWindows.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
 	}
-	delete(b.instanceEventWindows, id)
+	b.instanceEventWindows.Delete(id)
 
 	return nil
 }
@@ -318,7 +318,7 @@ func (b *InMemoryBackend) DescribeInstanceEventWindows(ids []string) []*Instance
 	}
 
 	var out []*InstanceEventWindow
-	for _, ew := range b.instanceEventWindows {
+	for _, ew := range b.instanceEventWindows.All() {
 		if len(filter) > 0 && !filter[ew.InstanceEventWindowID] {
 			continue
 		}
@@ -341,7 +341,7 @@ func (b *InMemoryBackend) ModifyInstanceEventWindow(id, name, cronExpression str
 	b.mu.Lock("ModifyInstanceEventWindow")
 	defer b.mu.Unlock()
 
-	ew, ok := b.instanceEventWindows[id]
+	ew, ok := b.instanceEventWindows.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, id)
 	}
@@ -414,7 +414,7 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 	if img.Architecture == "" {
 		img.Architecture = archX8664
 	}
-	b.images[img.ImageID] = img
+	b.images.Put(img)
 
 	return img, nil
 }
@@ -433,7 +433,7 @@ func (b *InMemoryBackend) ImportImage(
 		Platform:     platform,
 		Status:       stateTaskCompleted,
 	}
-	b.imageImportTasks[task.ImportTaskID] = task
+	b.imageImportTasks.Put(task)
 
 	return task, nil
 }
@@ -449,7 +449,7 @@ func (b *InMemoryBackend) DescribeImportImageTasks(taskIDs []string) []*ImageImp
 	}
 
 	var out []*ImageImportTask
-	for _, t := range b.imageImportTasks {
+	for _, t := range b.imageImportTasks.All() {
 		if len(filter) > 0 && !filter[t.ImportTaskID] {
 			continue
 		}
@@ -476,7 +476,7 @@ func (b *InMemoryBackend) ExportImage(
 	defer b.mu.Unlock()
 
 	if description == "" {
-		if img, ok := b.images[imageID]; ok {
+		if img, ok := b.images.Get(imageID); ok {
 			description = img.Description
 		}
 	}
@@ -506,7 +506,7 @@ func (b *InMemoryBackend) ExportImage(
 		S3Prefix:          s3Prefix,
 		RoleName:          roleName,
 	}
-	b.exportImageTasks[id] = task
+	b.exportImageTasks.Put(task)
 
 	cp := *task
 
@@ -524,7 +524,7 @@ func (b *InMemoryBackend) ListImagesInRecycleBin(imageIDs []string) []*RecycleBi
 	}
 
 	var out []*RecycleBinImage
-	for _, img := range b.recycleBinImages {
+	for _, img := range b.recycleBinImages.All() {
 		if len(filter) > 0 && !filter[img.ImageID] {
 			continue
 		}
@@ -544,8 +544,7 @@ func (b *InMemoryBackend) RestoreImageFromRecycleBin(imageID string) error {
 
 	b.mu.Lock("RestoreImageFromRecycleBin")
 	defer b.mu.Unlock()
-
-	delete(b.recycleBinImages, imageID)
+	b.recycleBinImages.Delete(imageID)
 
 	return nil
 }
@@ -563,7 +562,7 @@ func (b *InMemoryBackend) ListSnapshotsInRecycleBin(snapshotIDs []string) []*Sna
 	}
 
 	var out []*Snapshot
-	for _, snap := range b.recycleBinSnapshots {
+	for _, snap := range b.recycleBinSnapshots.All() {
 		if len(filter) > 0 && !filter[snap.SnapshotID] {
 			continue
 		}
@@ -584,12 +583,12 @@ func (b *InMemoryBackend) RestoreSnapshotFromRecycleBin(snapshotID string) error
 	b.mu.Lock("RestoreSnapshotFromRecycleBin")
 	defer b.mu.Unlock()
 
-	snap, ok := b.recycleBinSnapshots[snapshotID]
+	snap, ok := b.recycleBinSnapshots.Get(snapshotID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	b.snapshots[snapshotID] = snap
-	delete(b.recycleBinSnapshots, snapshotID)
+	b.snapshots.Put(snap)
+	b.recycleBinSnapshots.Delete(snapshotID)
 
 	return nil
 }
@@ -603,7 +602,7 @@ func (b *InMemoryBackend) RestoreSnapshotTier(snapshotID string) error {
 	b.mu.Lock("RestoreSnapshotTier")
 	defer b.mu.Unlock()
 
-	if _, ok := b.snapshots[snapshotID]; !ok {
+	if _, ok := b.snapshots.Get(snapshotID); !ok {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
 	b.snapshotTiers[snapshotID] = stateDefaultCredit
@@ -623,7 +622,7 @@ func (b *InMemoryBackend) ImportSnapshot(description string) (*SnapshotImportTas
 		Description:  description,
 		Status:       stateTaskCompleted,
 	}
-	b.snapshotImportTasks[task.ImportTaskID] = task
+	b.snapshotImportTasks.Put(task)
 
 	return task, nil
 }
@@ -639,7 +638,7 @@ func (b *InMemoryBackend) DescribeImportSnapshotTasks(taskIDs []string) []*Snaps
 	}
 
 	var out []*SnapshotImportTask
-	for _, t := range b.snapshotImportTasks {
+	for _, t := range b.snapshotImportTasks.All() {
 		if len(filter) > 0 && !filter[t.ImportTaskID] {
 			continue
 		}
@@ -798,7 +797,7 @@ func (b *InMemoryBackend) GetPasswordData(instanceID string) (string, time.Time,
 	b.mu.RLock("GetPasswordData")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return "", time.Time{}, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -816,7 +815,7 @@ func (b *InMemoryBackend) GetConsoleScreenshot(instanceID string) (string, error
 	b.mu.RLock("GetConsoleScreenshot")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -877,7 +876,7 @@ func (b *InMemoryBackend) GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroup
 	defer b.mu.RUnlock()
 
 	var out []SecurityGroupForVpcItem
-	for _, sg := range b.securityGroups {
+	for _, sg := range b.securityGroups.All() {
 		if sg.VPCID == vpcID {
 			out = append(out, SecurityGroupForVpcItem{
 				GroupID:     sg.ID,
@@ -906,7 +905,7 @@ func (b *InMemoryBackend) ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID s
 	b.mu.Lock("ReplaceRoute")
 	defer b.mu.Unlock()
 
-	rt, ok := b.routeTables[rtID]
+	rt, ok := b.routeTables.Get(rtID)
 	if !ok {
 		return fmt.Errorf("%w: route table %s not found", ErrInvalidParameter, rtID)
 	}
@@ -963,7 +962,7 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsIngress(
 	b.mu.Lock("UpdateSecurityGroupRuleDescriptionsIngress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -985,7 +984,7 @@ func (b *InMemoryBackend) UpdateSecurityGroupRuleDescriptionsEgress(
 	b.mu.Lock("UpdateSecurityGroupRuleDescriptionsEgress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -1023,7 +1022,7 @@ func (b *InMemoryBackend) ListVolumesInRecycleBin(volumeIDs []string) []*Recycle
 	}
 
 	var out []*RecycleBinVolume
-	for _, vol := range b.recycleBinVolumes {
+	for _, vol := range b.recycleBinVolumes.All() {
 		if len(filter) > 0 && !filter[vol.VolumeID] {
 			continue
 		}
@@ -1044,10 +1043,10 @@ func (b *InMemoryBackend) RestoreVolumeFromRecycleBin(volumeID string) error {
 	b.mu.Lock("RestoreVolumeFromRecycleBin")
 	defer b.mu.Unlock()
 
-	if _, ok := b.recycleBinVolumes[volumeID]; !ok {
+	if _, ok := b.recycleBinVolumes.Get(volumeID); !ok {
 		return fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
-	delete(b.recycleBinVolumes, volumeID)
+	b.recycleBinVolumes.Delete(volumeID)
 
 	return nil
 }
@@ -1074,7 +1073,7 @@ func (b *InMemoryBackend) ReportInstanceStatus(instanceID string, _ string, _ st
 	b.mu.RLock("ReportInstanceStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -1093,13 +1092,13 @@ func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID stri
 	b.mu.Lock("ModifyVpnConnection")
 	defer b.mu.Unlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
 
 	if vpnGatewayID != "" {
-		if _, exists := b.vpnGateways[vpnGatewayID]; !exists {
+		if _, exists := b.vpnGateways.Get(vpnGatewayID); !exists {
 			return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vpnGatewayID)
 		}
 
@@ -1131,7 +1130,7 @@ func (b *InMemoryBackend) CreateVpnConnectionRoute(
 	b.mu.Lock("CreateVpnConnectionRoute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpnConnections[vpnConnectionID]; !ok {
+	if _, ok := b.vpnConnections.Get(vpnConnectionID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, vpnConnectionID)
 	}
 
@@ -1140,7 +1139,7 @@ func (b *InMemoryBackend) CreateVpnConnectionRoute(
 		DestinationCIDR: destinationCIDR,
 		State:           stateActive,
 	}
-	b.vpnConnectionRoutes[vpnConnectionID+":"+destinationCIDR] = route
+	b.vpnConnectionRoutes.Put(route)
 
 	return route, nil
 }
@@ -1158,10 +1157,10 @@ func (b *InMemoryBackend) DeleteVpnConnectionRoute(vpnConnectionID, destinationC
 	defer b.mu.Unlock()
 
 	key := vpnConnectionID + ":" + destinationCIDR
-	if _, ok := b.vpnConnectionRoutes[key]; !ok {
+	if _, ok := b.vpnConnectionRoutes.Get(key); !ok {
 		return fmt.Errorf("%w: route %s not found", ErrInvalidParameter, destinationCIDR)
 	}
-	delete(b.vpnConnectionRoutes, key)
+	b.vpnConnectionRoutes.Delete(key)
 
 	return nil
 }
@@ -1177,7 +1176,7 @@ func (b *InMemoryBackend) ModifyTransitGateway(tgwID, description string) error 
 	b.mu.Lock("ModifyTransitGateway")
 	defer b.mu.Unlock()
 
-	tgw, ok := b.transitGateways[tgwID]
+	tgw, ok := b.transitGateways.Get(tgwID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, tgwID)
 	}

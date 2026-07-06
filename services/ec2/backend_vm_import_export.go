@@ -126,10 +126,6 @@ type ExportImageTaskRec struct {
 // resetVMImportExportMapsLocked re-initialises all maps owned by this file. Must be called
 // with b.mu held.
 func (b *InMemoryBackend) resetVMImportExportMapsLocked() {
-	b.bundleTasks = make(map[string]*BundleTask)
-	b.conversionTasks = make(map[string]*ConversionTask)
-	b.exportTasks = make(map[string]*ExportTask)
-	b.exportImageTasks = make(map[string]*ExportImageTaskRec)
 }
 
 // ---- Bundle tasks ----
@@ -147,7 +143,7 @@ func (b *InMemoryBackend) BundleInstance(instanceID, s3Bucket, s3Prefix string) 
 	b.mu.Lock("BundleInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -162,7 +158,7 @@ func (b *InMemoryBackend) BundleInstance(instanceID, s3Bucket, s3Prefix string) 
 		StartTime:  now,
 		UpdateTime: now,
 	}
-	b.bundleTasks[task.BundleID] = task
+	b.bundleTasks.Put(task)
 
 	cp := *task
 
@@ -178,7 +174,7 @@ func (b *InMemoryBackend) CancelBundleTask(bundleID string) (*BundleTask, error)
 	b.mu.Lock("CancelBundleTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.bundleTasks[bundleID]
+	task, ok := b.bundleTasks.Get(bundleID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrBundleTaskNotFound, bundleID)
 	}
@@ -208,9 +204,9 @@ func (b *InMemoryBackend) DescribeBundleTasks(ids []string) []*BundleTask {
 		filter[id] = true
 	}
 
-	out := make([]*BundleTask, 0, len(b.bundleTasks))
+	out := make([]*BundleTask, 0, b.bundleTasks.Len())
 
-	for _, t := range b.bundleTasks {
+	for _, t := range b.bundleTasks.All() {
 		if len(filter) > 0 && !filter[t.BundleID] {
 			continue
 		}
@@ -271,7 +267,7 @@ func (b *InMemoryBackend) ImportInstance(
 		ImageBytes:       diskBytes,
 		ExpirationTime:   now.Add(conversionTaskExpiryWindow),
 	}
-	b.conversionTasks[task.ConversionTaskID] = task
+	b.conversionTasks.Put(task)
 
 	cp := *task
 
@@ -307,7 +303,7 @@ func (b *InMemoryBackend) ImportVolume(
 		ImageBytes:       diskBytes,
 		ExpirationTime:   now.Add(conversionTaskExpiryWindow),
 	}
-	b.conversionTasks[task.ConversionTaskID] = task
+	b.conversionTasks.Put(task)
 
 	cp := *task
 
@@ -326,9 +322,9 @@ func (b *InMemoryBackend) DescribeConversionTasks(ids []string) []*ConversionTas
 		filter[id] = true
 	}
 
-	out := make([]*ConversionTask, 0, len(b.conversionTasks))
+	out := make([]*ConversionTask, 0, b.conversionTasks.Len())
 
-	for _, t := range b.conversionTasks {
+	for _, t := range b.conversionTasks.All() {
 		if len(filter) > 0 && !filter[t.ConversionTaskID] {
 			continue
 		}
@@ -352,7 +348,7 @@ func (b *InMemoryBackend) CancelConversionTask(conversionTaskID string) (*Conver
 	b.mu.Lock("CancelConversionTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.conversionTasks[conversionTaskID]
+	task, ok := b.conversionTasks.Get(conversionTaskID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrConversionTaskNotFound, conversionTaskID)
 	}
@@ -397,7 +393,7 @@ func (b *InMemoryBackend) CreateInstanceExportTask(
 	b.mu.Lock("CreateInstanceExportTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -418,7 +414,7 @@ func (b *InMemoryBackend) CreateInstanceExportTask(
 		S3Bucket:          s3Bucket,
 		S3Key:             s3Prefix + id + "." + strings.ToLower(diskImageFormat),
 	}
-	b.exportTasks[id] = task
+	b.exportTasks.Put(task)
 
 	cp := *task
 
@@ -435,7 +431,7 @@ func (b *InMemoryBackend) CancelExportTask(exportTaskID string) error {
 	b.mu.Lock("CancelExportTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.exportTasks[exportTaskID]
+	task, ok := b.exportTasks.Get(exportTaskID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrExportTaskNotFound, exportTaskID)
 	}
@@ -462,9 +458,9 @@ func (b *InMemoryBackend) DescribeExportTasks(ids []string) []*ExportTask {
 		filter[id] = true
 	}
 
-	out := make([]*ExportTask, 0, len(b.exportTasks))
+	out := make([]*ExportTask, 0, b.exportTasks.Len())
 
-	for _, t := range b.exportTasks {
+	for _, t := range b.exportTasks.All() {
 		if len(filter) > 0 && !filter[t.ExportTaskID] {
 			continue
 		}
@@ -505,9 +501,9 @@ func (b *InMemoryBackend) DescribeExportImageTasks(ids []string) []*ExportImageT
 		filter[id] = true
 	}
 
-	out := make([]*ExportImageTaskRec, 0, len(b.exportImageTasks))
+	out := make([]*ExportImageTaskRec, 0, b.exportImageTasks.Len())
 
-	for _, t := range b.exportImageTasks {
+	for _, t := range b.exportImageTasks.All() {
 		if len(filter) > 0 && !filter[t.ExportImageTaskID] {
 			continue
 		}
@@ -540,11 +536,11 @@ func (b *InMemoryBackend) CancelImportTask(importTaskID string) (string, string,
 	b.mu.Lock("CancelImportTask")
 	defer b.mu.Unlock()
 
-	if task, ok := b.imageImportTasks[importTaskID]; ok {
+	if task, ok := b.imageImportTasks.Get(importTaskID); ok {
 		return cancelImportTaskStatus(importTaskID, &task.Status)
 	}
 
-	if task, ok := b.snapshotImportTasks[importTaskID]; ok {
+	if task, ok := b.snapshotImportTasks.Get(importTaskID); ok {
 		return cancelImportTaskStatus(importTaskID, &task.Status)
 	}
 

@@ -141,7 +141,6 @@ const storeImageTaskProgressComplete = 100
 // resetImageTasksLocked re-initialises the store image task map. Must be called with b.mu
 // held.
 func (b *InMemoryBackend) resetImageTasksLocked() {
-	b.storeImageTasks = make(map[string]*StoreImageTask)
 }
 
 // CreateStoreImageTask stores an existing AMI's contents in an S3 bucket, returning the
@@ -155,7 +154,7 @@ func (b *InMemoryBackend) CreateStoreImageTask(imageID, bucket string) (*StoreIm
 	b.mu.Lock("CreateStoreImageTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageID]; !ok {
+	if _, ok := b.images.Get(imageID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
 	}
 
@@ -167,7 +166,7 @@ func (b *InMemoryBackend) CreateStoreImageTask(imageID, bucket string) (*StoreIm
 		ProgressPercentage: storeImageTaskProgressComplete,
 		TaskStartTime:      time.Now().UTC(),
 	}
-	b.storeImageTasks[imageID] = task
+	b.storeImageTasks.Put(task)
 
 	cp := *task
 
@@ -184,9 +183,9 @@ func (b *InMemoryBackend) DescribeStoreImageTasks(imageIDs []string) []*StoreIma
 		filter[id] = true
 	}
 
-	out := make([]*StoreImageTask, 0, len(b.storeImageTasks))
+	out := make([]*StoreImageTask, 0, b.storeImageTasks.Len())
 
-	for _, t := range b.storeImageTasks {
+	for _, t := range b.storeImageTasks.All() {
 		if len(filter) > 0 && !filter[t.AmiID] {
 			continue
 		}
@@ -212,7 +211,7 @@ func (b *InMemoryBackend) CreateRestoreImageTask(bucket, objectKey, name string)
 
 	var source *StoreImageTask
 
-	for _, t := range b.storeImageTasks {
+	for _, t := range b.storeImageTasks.All() {
 		if t.Bucket == bucket && t.S3ObjectKey == objectKey {
 			source = t
 
@@ -225,7 +224,7 @@ func (b *InMemoryBackend) CreateRestoreImageTask(bucket, objectKey, name string)
 	}
 
 	if name == "" {
-		if orig, ok := b.images[source.AmiID]; ok {
+		if orig, ok := b.images.Get(source.AmiID); ok {
 			name = orig.Name
 		}
 	}
@@ -236,7 +235,7 @@ func (b *InMemoryBackend) CreateRestoreImageTask(bucket, objectKey, name string)
 		Architecture: archX8664,
 		State:        stateAvailable,
 	}
-	b.images[img.ImageID] = img
+	b.images.Put(img)
 
 	cp := *img
 
@@ -266,7 +265,6 @@ type UsageReport struct {
 // resetUsageReportMapsLocked re-initialises the usage report state maps. Must be called with
 // b.mu held.
 func (b *InMemoryBackend) resetUsageReportMapsLocked() {
-	b.usageReports = make(map[string]*UsageReport)
 	b.usageReportEntries = make(map[string][]*UsageReportEntry)
 }
 
@@ -283,7 +281,7 @@ func (b *InMemoryBackend) CreateImageUsageReport(
 	b.mu.Lock("CreateImageUsageReport")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageID]; !ok {
+	if _, ok := b.images.Get(imageID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
 	}
 
@@ -300,7 +298,7 @@ func (b *InMemoryBackend) CreateImageUsageReport(
 	now := time.Now().UTC()
 	reportID := "imgusgrpt-" + uuid.New().String()[:8]
 	report := &UsageReport{ReportID: reportID, ImageID: imageID, CreatedAt: now}
-	b.usageReports[reportID] = report
+	b.usageReports.Put(report)
 
 	accountWanted := len(wantAccounts) == 0 || wantAccounts[b.AccountID]
 
@@ -335,7 +333,7 @@ func (b *InMemoryBackend) CreateImageUsageReport(
 func (b *InMemoryBackend) countInstancesUsingImageLocked(imageID string) int64 {
 	var count int64
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		if inst.ImageID == imageID {
 			count++
 		}
@@ -349,7 +347,7 @@ func (b *InMemoryBackend) countInstancesUsingImageLocked(imageID string) int64 {
 func (b *InMemoryBackend) countLaunchTemplatesUsingImageLocked(imageID string) int64 {
 	var count int64
 
-	for _, lt := range b.launchTemplates {
+	for _, lt := range b.launchTemplates.All() {
 		if lt.ImageID == imageID {
 			count++
 		}
@@ -367,11 +365,10 @@ func (b *InMemoryBackend) DeleteImageUsageReport(reportID string) error {
 	b.mu.Lock("DeleteImageUsageReport")
 	defer b.mu.Unlock()
 
-	if _, ok := b.usageReports[reportID]; !ok {
+	if _, ok := b.usageReports.Get(reportID); !ok {
 		return fmt.Errorf("%w: %s", ErrUsageReportNotFound, reportID)
 	}
-
-	delete(b.usageReports, reportID)
+	b.usageReports.Delete(reportID)
 	delete(b.usageReportEntries, reportID)
 
 	return nil
@@ -436,7 +433,7 @@ func (b *InMemoryBackend) ConfirmProductInstance(instanceID, productCode string)
 	b.mu.RLock("ConfirmProductInstance")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return false, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 

@@ -203,7 +203,7 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 		Version:        1,
 		OwnerID:        b.AccountID,
 	}
-	b.managedPrefixLists[id] = pl
+	b.managedPrefixLists.Put(pl)
 
 	return pl, nil
 }
@@ -217,10 +217,10 @@ func (b *InMemoryBackend) DeleteManagedPrefixList(id string) error {
 	b.mu.Lock("DeleteManagedPrefixList")
 	defer b.mu.Unlock()
 
-	if _, ok := b.managedPrefixLists[id]; !ok {
+	if _, ok := b.managedPrefixLists.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
-	delete(b.managedPrefixLists, id)
+	b.managedPrefixLists.Delete(id)
 
 	return nil
 }
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) DescribeManagedPrefixLists(ids []string) []*ManagedPre
 	}
 
 	var out []*ManagedPrefixList
-	for _, pl := range b.managedPrefixLists {
+	for _, pl := range b.managedPrefixLists.All() {
 		if len(filter) > 0 && !filter[pl.PrefixListID] {
 			continue
 		}
@@ -257,7 +257,7 @@ func (b *InMemoryBackend) GetManagedPrefixListEntries(id string) ([]PrefixListEn
 	b.mu.RLock("GetManagedPrefixListEntries")
 	defer b.mu.RUnlock()
 
-	pl, ok := b.managedPrefixLists[id]
+	pl, ok := b.managedPrefixLists.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
@@ -280,7 +280,7 @@ func (b *InMemoryBackend) ModifyManagedPrefixList(
 	b.mu.Lock("ModifyManagedPrefixList")
 	defer b.mu.Unlock()
 
-	pl, ok := b.managedPrefixLists[id]
+	pl, ok := b.managedPrefixLists.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
@@ -317,7 +317,7 @@ func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int
 	b.mu.Lock("RestoreManagedPrefixListVersion")
 	defer b.mu.Unlock()
 
-	pl, ok := b.managedPrefixLists[id]
+	pl, ok := b.managedPrefixLists.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrManagedPrefixListNotFound, id)
 	}
@@ -399,7 +399,7 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 		SelfServicePortalURL: opts.SelfServicePortalURL,
 		CreationTime:         time.Now().UTC().Format(time.RFC3339),
 	}
-	b.clientVpnEndpoints[id] = ep
+	b.clientVpnEndpoints.Put(ep)
 
 	return ep, nil
 }
@@ -413,10 +413,10 @@ func (b *InMemoryBackend) DeleteClientVpnEndpoint(id string) error {
 	b.mu.Lock("DeleteClientVpnEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clientVpnEndpoints[id]; !ok {
+	if _, ok := b.clientVpnEndpoints.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, id)
 	}
-	delete(b.clientVpnEndpoints, id)
+	b.clientVpnEndpoints.Delete(id)
 
 	return nil
 }
@@ -432,7 +432,7 @@ func (b *InMemoryBackend) DescribeClientVpnEndpoints(ids []string) []*ClientVpnE
 	}
 
 	var out []*ClientVpnEndpoint
-	for _, ep := range b.clientVpnEndpoints {
+	for _, ep := range b.clientVpnEndpoints.All() {
 		if len(filter) > 0 && !filter[ep.ClientVpnEndpointID] {
 			continue
 		}
@@ -456,7 +456,7 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 	b.mu.Lock("AssociateClientVpnTargetNetwork")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -475,7 +475,7 @@ func (b *InMemoryBackend) AssociateClientVpnTargetNetwork(
 		Status:              stateAssociated,
 		SecurityGroups:      ep.SecurityGroupIDs,
 	}
-	if subnet, subnetFound := b.subnets[subnetID]; subnetFound {
+	if subnet, subnetFound := b.subnets.Get(subnetID); subnetFound {
 		tn.VPCID = subnet.VPCID
 		if ep.VPCID == "" {
 			ep.VPCID = subnet.VPCID
@@ -497,7 +497,7 @@ func (b *InMemoryBackend) DisassociateClientVpnTargetNetwork(
 	b.mu.Lock("DisassociateClientVpnTargetNetwork")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -533,7 +533,7 @@ func (b *InMemoryBackend) DescribeClientVpnTargetNetworks(endpointID string) ([]
 	b.mu.RLock("DescribeClientVpnTargetNetworks")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -558,7 +558,7 @@ func (b *InMemoryBackend) CreateClientVpnRoute(
 	b.mu.Lock("CreateClientVpnRoute")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -582,7 +582,7 @@ func (b *InMemoryBackend) DeleteClientVpnRoute(endpointID, destinationCidr strin
 	b.mu.Lock("DeleteClientVpnRoute")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -607,7 +607,7 @@ func (b *InMemoryBackend) DescribeClientVpnRoutes(endpointID string) ([]ClientVp
 	b.mu.RLock("DescribeClientVpnRoutes")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -629,7 +629,7 @@ func (b *InMemoryBackend) AuthorizeClientVpnIngress(
 	b.mu.Lock("AuthorizeClientVpnIngress")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -653,7 +653,7 @@ func (b *InMemoryBackend) RevokeClientVpnIngress(endpointID, cidr string) error 
 	b.mu.Lock("RevokeClientVpnIngress")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -680,7 +680,7 @@ func (b *InMemoryBackend) DescribeClientVpnAuthorizationRules(
 	b.mu.RLock("DescribeClientVpnAuthorizationRules")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -713,7 +713,7 @@ func (b *InMemoryBackend) ModifyClientVpnEndpointWithOptions(
 	b.mu.Lock("ModifyClientVpnEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -758,7 +758,7 @@ func (b *InMemoryBackend) ApplySecurityGroupsToClientVpnTargetNetwork(endpointID
 	b.mu.Lock("ApplySecurityGroupsToClientVpnTargetNetwork")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -780,7 +780,7 @@ func (b *InMemoryBackend) DescribeClientVpnConnections(endpointID string) ([]str
 	b.mu.RLock("DescribeClientVpnConnections")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clientVpnEndpoints[endpointID]; !ok {
+	if _, ok := b.clientVpnEndpoints.Get(endpointID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
@@ -796,7 +796,7 @@ func (b *InMemoryBackend) TerminateClientVpnConnections(endpointID string) error
 	b.mu.RLock("TerminateClientVpnConnections")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clientVpnEndpoints[endpointID]; !ok {
+	if _, ok := b.clientVpnEndpoints.Get(endpointID); !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
 
@@ -813,7 +813,7 @@ func (b *InMemoryBackend) ExportClientVpnClientConfiguration(endpointID string) 
 	b.mu.RLock("ExportClientVpnClientConfiguration")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -838,7 +838,7 @@ func (b *InMemoryBackend) ExportClientVpnClientCertificateRevocationList(endpoin
 	b.mu.RLock("ExportClientVpnClientCertificateRevocationList")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -862,7 +862,7 @@ func (b *InMemoryBackend) ImportClientVpnClientCertificateRevocationList(endpoin
 	b.mu.Lock("ImportClientVpnClientCertificateRevocationList")
 	defer b.mu.Unlock()
 
-	ep, ok := b.clientVpnEndpoints[endpointID]
+	ep, ok := b.clientVpnEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrClientVpnEndpointNotFound, endpointID)
 	}
@@ -895,7 +895,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPeeringAttachment(
 		AccepterTransitGatewayID:   peerTransitGatewayID,
 		State:                      "pendingAcceptance",
 	}
-	b.tgwPeeringAttachments[id] = att
+	b.tgwPeeringAttachments.Put(att)
 
 	return att, nil
 }
@@ -909,10 +909,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayPeeringAttachment(id string) error
 	b.mu.Lock("DeleteTransitGatewayPeeringAttachment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwPeeringAttachments[id]; !ok {
+	if _, ok := b.tgwPeeringAttachments.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, id)
 	}
-	delete(b.tgwPeeringAttachments, id)
+	b.tgwPeeringAttachments.Delete(id)
 
 	return nil
 }
@@ -930,7 +930,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayPeeringAttachments(
 	}
 
 	var out []*TransitGatewayPeeringAttachment
-	for _, att := range b.tgwPeeringAttachments {
+	for _, att := range b.tgwPeeringAttachments.All() {
 		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
 			continue
 		}
@@ -967,7 +967,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnect(
 		TransitGatewayID:                    transitGatewayID,
 		State:                               stateAvailable,
 	}
-	b.tgwConnects[id] = conn
+	b.tgwConnects.Put(conn)
 
 	return conn, nil
 }
@@ -981,10 +981,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayConnect(id string) error {
 	b.mu.Lock("DeleteTransitGatewayConnect")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwConnects[id]; !ok {
+	if _, ok := b.tgwConnects.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTransitGatewayConnectNotFound, id)
 	}
-	delete(b.tgwConnects, id)
+	b.tgwConnects.Delete(id)
 
 	return nil
 }
@@ -1000,7 +1000,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnects(ids []string) []*Transi
 	}
 
 	var out []*TransitGatewayConnect
-	for _, conn := range b.tgwConnects {
+	for _, conn := range b.tgwConnects.All() {
 		if len(filter) > 0 && !filter[conn.TransitGatewayAttachmentID] {
 			continue
 		}
@@ -1029,7 +1029,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	b.mu.Lock("CreateTransitGatewayConnectPeer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwConnects[connectAttachmentID]; !ok {
+	if _, ok := b.tgwConnects.Get(connectAttachmentID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayConnectNotFound, connectAttachmentID)
 	}
 
@@ -1041,7 +1041,7 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 		InsideCidrBlocks:            insideCidrBlocks,
 		PeerAddress:                 peerAddress,
 	}
-	b.tgwConnectPeers[id] = peer
+	b.tgwConnectPeers.Put(peer)
 
 	return peer, nil
 }
@@ -1055,10 +1055,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayConnectPeer(id string) error {
 	b.mu.Lock("DeleteTransitGatewayConnectPeer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwConnectPeers[id]; !ok {
+	if _, ok := b.tgwConnectPeers.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTransitGatewayConnectPeerNotFound, id)
 	}
-	delete(b.tgwConnectPeers, id)
+	b.tgwConnectPeers.Delete(id)
 
 	return nil
 }
@@ -1076,7 +1076,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnectPeers(
 	}
 
 	var out []*TransitGatewayConnectPeer
-	for _, peer := range b.tgwConnectPeers {
+	for _, peer := range b.tgwConnectPeers.All() {
 		if len(filter) > 0 && !filter[peer.TransitGatewayConnectPeerID] {
 			continue
 		}
@@ -1107,14 +1107,13 @@ func (b *InMemoryBackend) CreateTransitGatewayPrefixListReference(
 	b.mu.Lock("CreateTransitGatewayPrefixListReference")
 	defer b.mu.Unlock()
 
-	key := routeTableID + "/" + prefixListID
 	ref := &TransitGatewayPrefixListReference{
 		PrefixListID:               prefixListID,
 		TransitGatewayRouteTableID: routeTableID,
 		State:                      stateAvailable,
 		Blackhole:                  blackhole,
 	}
-	b.tgwPrefixListRefs[key] = ref
+	b.tgwPrefixListRefs.Put(ref)
 
 	return ref, nil
 }
@@ -1134,10 +1133,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayPrefixListReference(
 	defer b.mu.Unlock()
 
 	key := routeTableID + "/" + prefixListID
-	if _, ok := b.tgwPrefixListRefs[key]; !ok {
+	if _, ok := b.tgwPrefixListRefs.Get(key); !ok {
 		return fmt.Errorf("%w: %s/%s", ErrTGWPrefixListRefNotFound, routeTableID, prefixListID)
 	}
-	delete(b.tgwPrefixListRefs, key)
+	b.tgwPrefixListRefs.Delete(key)
 
 	return nil
 }
@@ -1154,7 +1153,7 @@ func (b *InMemoryBackend) GetTransitGatewayPrefixListReferences(
 	defer b.mu.RUnlock()
 
 	var out []*TransitGatewayPrefixListReference
-	for _, ref := range b.tgwPrefixListRefs {
+	for _, ref := range b.tgwPrefixListRefs.All() {
 		if ref.TransitGatewayRouteTableID == routeTableID {
 			cp := *ref
 			out = append(out, &cp)
@@ -1182,8 +1181,7 @@ func (b *InMemoryBackend) ModifyTransitGatewayPrefixListReference(
 	defer b.mu.Unlock()
 
 	key := routeTableID + "/" + prefixListID
-
-	ref, ok := b.tgwPrefixListRefs[key]
+	ref, ok := b.tgwPrefixListRefs.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s/%s", ErrTGWPrefixListRefNotFound, routeTableID, prefixListID)
 	}
@@ -1219,7 +1217,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessEndpoint(
 		Description:              description,
 		EndpointType:             endpointType,
 	}
-	b.verifiedAccessEndpoints[id] = ep
+	b.verifiedAccessEndpoints.Put(ep)
 
 	return ep, nil
 }
@@ -1233,10 +1231,10 @@ func (b *InMemoryBackend) DeleteVerifiedAccessEndpoint(id string) error {
 	b.mu.Lock("DeleteVerifiedAccessEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessEndpoints[id]; !ok {
+	if _, ok := b.verifiedAccessEndpoints.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
-	delete(b.verifiedAccessEndpoints, id)
+	b.verifiedAccessEndpoints.Delete(id)
 
 	return nil
 }
@@ -1252,7 +1250,7 @@ func (b *InMemoryBackend) DescribeVerifiedAccessEndpoints(ids []string) []*Verif
 	}
 
 	var out []*VerifiedAccessEndpoint
-	for _, ep := range b.verifiedAccessEndpoints {
+	for _, ep := range b.verifiedAccessEndpoints.All() {
 		if len(filter) > 0 && !filter[ep.VerifiedAccessEndpointID] {
 			continue
 		}
@@ -1275,7 +1273,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessEndpoint(id, description string) e
 	b.mu.Lock("ModifyVerifiedAccessEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.verifiedAccessEndpoints[id]
+	ep, ok := b.verifiedAccessEndpoints.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
@@ -1304,7 +1302,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessGroup(
 		Status:                   stateActive,
 		Description:              description,
 	}
-	b.verifiedAccessGroups[id] = grp
+	b.verifiedAccessGroups.Put(grp)
 
 	return grp, nil
 }
@@ -1318,10 +1316,10 @@ func (b *InMemoryBackend) DeleteVerifiedAccessGroup(id string) error {
 	b.mu.Lock("DeleteVerifiedAccessGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessGroups[id]; !ok {
+	if _, ok := b.verifiedAccessGroups.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
 	}
-	delete(b.verifiedAccessGroups, id)
+	b.verifiedAccessGroups.Delete(id)
 
 	return nil
 }
@@ -1337,7 +1335,7 @@ func (b *InMemoryBackend) DescribeVerifiedAccessGroups(ids []string) []*Verified
 	}
 
 	var out []*VerifiedAccessGroup
-	for _, grp := range b.verifiedAccessGroups {
+	for _, grp := range b.verifiedAccessGroups.All() {
 		if len(filter) > 0 && !filter[grp.VerifiedAccessGroupID] {
 			continue
 		}
@@ -1362,7 +1360,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessInstance(description string) (*Ver
 		Status:                   stateActive,
 		Description:              description,
 	}
-	b.verifiedAccessInstances[id] = inst
+	b.verifiedAccessInstances.Put(inst)
 
 	return inst, nil
 }
@@ -1376,10 +1374,10 @@ func (b *InMemoryBackend) DeleteVerifiedAccessInstance(id string) error {
 	b.mu.Lock("DeleteVerifiedAccessInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessInstances[id]; !ok {
+	if _, ok := b.verifiedAccessInstances.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, id)
 	}
-	delete(b.verifiedAccessInstances, id)
+	b.verifiedAccessInstances.Delete(id)
 
 	return nil
 }
@@ -1395,7 +1393,7 @@ func (b *InMemoryBackend) DescribeVerifiedAccessInstances(ids []string) []*Verif
 	}
 
 	var out []*VerifiedAccessInstance
-	for _, inst := range b.verifiedAccessInstances {
+	for _, inst := range b.verifiedAccessInstances.All() {
 		if len(filter) > 0 && !filter[inst.VerifiedAccessInstanceID] {
 			continue
 		}
@@ -1427,7 +1425,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessTrustProvider(
 		Status:                        stateActive,
 		Description:                   description,
 	}
-	b.verifiedAccessTrustProviders[id] = tp
+	b.verifiedAccessTrustProviders.Put(tp)
 
 	return tp, nil
 }
@@ -1441,10 +1439,10 @@ func (b *InMemoryBackend) DeleteVerifiedAccessTrustProvider(id string) error {
 	b.mu.Lock("DeleteVerifiedAccessTrustProvider")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessTrustProviders[id]; !ok {
+	if _, ok := b.verifiedAccessTrustProviders.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, id)
 	}
-	delete(b.verifiedAccessTrustProviders, id)
+	b.verifiedAccessTrustProviders.Delete(id)
 
 	return nil
 }
@@ -1462,7 +1460,7 @@ func (b *InMemoryBackend) DescribeVerifiedAccessTrustProviders(
 	}
 
 	var out []*VerifiedAccessTrustProvider
-	for _, tp := range b.verifiedAccessTrustProviders {
+	for _, tp := range b.verifiedAccessTrustProviders.All() {
 		if len(filter) > 0 && !filter[tp.VerifiedAccessTrustProviderID] {
 			continue
 		}
@@ -1488,11 +1486,11 @@ func (b *InMemoryBackend) AttachVerifiedAccessTrustProvider(instanceID, trustPro
 	b.mu.Lock("AttachVerifiedAccessTrustProvider")
 	defer b.mu.Unlock()
 
-	inst, ok := b.verifiedAccessInstances[instanceID]
+	inst, ok := b.verifiedAccessInstances.Get(instanceID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, instanceID)
 	}
-	if _, exists := b.verifiedAccessTrustProviders[trustProviderID]; !exists {
+	if _, exists := b.verifiedAccessTrustProviders.Get(trustProviderID); !exists {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, trustProviderID)
 	}
 
@@ -1516,7 +1514,7 @@ func (b *InMemoryBackend) DetachVerifiedAccessTrustProvider(instanceID, trustPro
 	b.mu.Lock("DetachVerifiedAccessTrustProvider")
 	defer b.mu.Unlock()
 
-	inst, ok := b.verifiedAccessInstances[instanceID]
+	inst, ok := b.verifiedAccessInstances.Get(instanceID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, instanceID)
 	}

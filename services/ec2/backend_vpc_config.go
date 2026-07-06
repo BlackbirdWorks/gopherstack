@@ -97,11 +97,11 @@ func (b *InMemoryBackend) AttachClassicLinkVpc(instanceID, vpcID string, groups 
 	b.mu.Lock("AttachClassicLinkVpc")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
-	vpc, ok := b.vpcs[vpcID]
+	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
@@ -111,16 +111,15 @@ func (b *InMemoryBackend) AttachClassicLinkVpc(instanceID, vpcID string, groups 
 	}
 
 	for _, groupID := range groups {
-		if _, sgOK := b.securityGroups[groupID]; !sgOK {
+		if _, sgOK := b.securityGroups.Get(groupID); !sgOK {
 			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 		}
 	}
-
-	b.classicLinkInstances[instanceID] = &ClassicLinkInstance{
+	b.classicLinkInstances.Put(&ClassicLinkInstance{
 		InstanceID: instanceID,
 		VpcID:      vpcID,
 		Groups:     append([]string(nil), groups...),
-	}
+	})
 
 	return nil
 }
@@ -138,12 +137,11 @@ func (b *InMemoryBackend) DetachClassicLinkVpc(instanceID, vpcID string) error {
 	b.mu.Lock("DetachClassicLinkVpc")
 	defer b.mu.Unlock()
 
-	link, ok := b.classicLinkInstances[instanceID]
+	link, ok := b.classicLinkInstances.Get(instanceID)
 	if !ok || link.VpcID != vpcID {
 		return fmt.Errorf("%w: %s", ErrClassicLinkInstanceNotFound, instanceID)
 	}
-
-	delete(b.classicLinkInstances, instanceID)
+	b.classicLinkInstances.Delete(instanceID)
 
 	return nil
 }
@@ -158,9 +156,9 @@ func (b *InMemoryBackend) DescribeClassicLinkInstances(instanceIDs []string) []*
 		idSet[id] = true
 	}
 
-	out := make([]*ClassicLinkInstance, 0, len(b.classicLinkInstances))
+	out := make([]*ClassicLinkInstance, 0, b.classicLinkInstances.Len())
 
-	for _, link := range b.classicLinkInstances {
+	for _, link := range b.classicLinkInstances.All() {
 		if len(idSet) > 0 && !idSet[link.InstanceID] {
 			continue
 		}
@@ -184,7 +182,7 @@ func (b *InMemoryBackend) EnableVpcClassicLink(vpcID string) error {
 	b.mu.Lock("EnableVpcClassicLink")
 	defer b.mu.Unlock()
 
-	vpc, ok := b.vpcs[vpcID]
+	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
@@ -204,12 +202,12 @@ func (b *InMemoryBackend) DisableVpcClassicLink(vpcID string) error {
 	b.mu.Lock("DisableVpcClassicLink")
 	defer b.mu.Unlock()
 
-	vpc, ok := b.vpcs[vpcID]
+	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	for _, link := range b.classicLinkInstances {
+	for _, link := range b.classicLinkInstances.All() {
 		if link.VpcID == vpcID {
 			return fmt.Errorf("%w: %s has linked EC2-Classic instances", ErrDependencyViolation, vpcID)
 		}
@@ -224,8 +222,8 @@ func (b *InMemoryBackend) DisableVpcClassicLink(vpcID string) error {
 // ids is empty). Must be called with b.mu held for reading.
 func (b *InMemoryBackend) describeVpcsByIDsLocked(ids []string) ([]*VPC, error) {
 	if len(ids) == 0 {
-		out := make([]*VPC, 0, len(b.vpcs))
-		for _, vpc := range b.vpcs {
+		out := make([]*VPC, 0, b.vpcs.Len())
+		for _, vpc := range b.vpcs.All() {
 			cp := *vpc
 			out = append(out, &cp)
 		}
@@ -238,7 +236,7 @@ func (b *InMemoryBackend) describeVpcsByIDsLocked(ids []string) ([]*VPC, error) 
 	out := make([]*VPC, 0, len(ids))
 
 	for _, id := range ids {
-		vpc, ok := b.vpcs[id]
+		vpc, ok := b.vpcs.Get(id)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, id)
 		}
@@ -267,7 +265,7 @@ func (b *InMemoryBackend) EnableVpcClassicLinkDNSSupport(vpcID string) error {
 	b.mu.Lock("EnableVpcClassicLinkDnsSupport")
 	defer b.mu.Unlock()
 
-	vpc, ok := b.vpcs[vpcID]
+	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
@@ -286,7 +284,7 @@ func (b *InMemoryBackend) DisableVpcClassicLinkDNSSupport(vpcID string) error {
 	b.mu.Lock("DisableVpcClassicLinkDnsSupport")
 	defer b.mu.Unlock()
 
-	vpc, ok := b.vpcs[vpcID]
+	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
@@ -357,13 +355,13 @@ func (b *InMemoryBackend) CreateVpcBlockPublicAccessExclusion(
 	defer b.mu.Unlock()
 
 	if vpcID != "" {
-		if _, ok := b.vpcs[vpcID]; !ok {
+		if _, ok := b.vpcs.Get(vpcID); !ok {
 			return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 		}
 	}
 
 	if subnetID != "" {
-		if _, ok := b.subnets[subnetID]; !ok {
+		if _, ok := b.subnets.Get(subnetID); !ok {
 			return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 		}
 	}
@@ -383,7 +381,7 @@ func (b *InMemoryBackend) CreateVpcBlockPublicAccessExclusion(
 		LastUpdateTimestamp:          now,
 		Tags:                         maps.Clone(tags),
 	}
-	b.vpcBlockPublicAccessExclusions[id] = excl
+	b.vpcBlockPublicAccessExclusions.Put(excl)
 
 	return cloneVpcBPAExclusion(excl), nil
 }
@@ -403,7 +401,7 @@ func (b *InMemoryBackend) ModifyVpcBlockPublicAccessExclusion(
 	b.mu.Lock("ModifyVpcBlockPublicAccessExclusion")
 	defer b.mu.Unlock()
 
-	excl, ok := b.vpcBlockPublicAccessExclusions[exclusionID]
+	excl, ok := b.vpcBlockPublicAccessExclusions.Get(exclusionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpcBlockPublicAccessExclusionNotFound, exclusionID)
 	}
@@ -426,7 +424,7 @@ func (b *InMemoryBackend) DeleteVpcBlockPublicAccessExclusion(
 	b.mu.Lock("DeleteVpcBlockPublicAccessExclusion")
 	defer b.mu.Unlock()
 
-	excl, ok := b.vpcBlockPublicAccessExclusions[exclusionID]
+	excl, ok := b.vpcBlockPublicAccessExclusions.Get(exclusionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpcBlockPublicAccessExclusionNotFound, exclusionID)
 	}
@@ -434,8 +432,7 @@ func (b *InMemoryBackend) DeleteVpcBlockPublicAccessExclusion(
 	excl.State = vpcBPAExclusionDeleteComplete
 	excl.LastUpdateTimestamp = time.Now().UTC()
 	out := cloneVpcBPAExclusion(excl)
-
-	delete(b.vpcBlockPublicAccessExclusions, exclusionID)
+	b.vpcBlockPublicAccessExclusions.Delete(exclusionID)
 
 	return out, nil
 }
@@ -450,9 +447,9 @@ func (b *InMemoryBackend) DescribeVpcBlockPublicAccessExclusions(ids []string) [
 		idSet[id] = true
 	}
 
-	out := make([]*VpcBlockPublicAccessExclusion, 0, len(b.vpcBlockPublicAccessExclusions))
+	out := make([]*VpcBlockPublicAccessExclusion, 0, b.vpcBlockPublicAccessExclusions.Len())
 
-	for _, excl := range b.vpcBlockPublicAccessExclusions {
+	for _, excl := range b.vpcBlockPublicAccessExclusions.All() {
 		if len(idSet) > 0 && !idSet[excl.ExclusionID] {
 			continue
 		}

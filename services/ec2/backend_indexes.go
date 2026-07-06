@@ -75,7 +75,7 @@ func (b *InMemoryBackend) primaryNetworkInterfaceLocked(instanceID string) *Netw
 	var fallback *NetworkInterface
 
 	for eniID := range b.eniIDsByInstance[instanceID] {
-		eni, ok := b.networkInterfaces[eniID]
+		eni, ok := b.networkInterfaces.Get(eniID)
 		if !ok {
 			continue
 		}
@@ -250,28 +250,32 @@ func initSecondaryIndexMaps(b *InMemoryBackend) {
 func (b *InMemoryBackend) rebuildSecondaryIndexesLocked() {
 	initSecondaryIndexMaps(b)
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		b.indexInstanceLocked(inst)
 	}
 
-	for eniID, eni := range b.networkInterfaces {
+	for _, eni := range b.networkInterfaces.All() {
+		eniID := networkInterfacesKeyFn(eni)
 		b.indexENILocked(eniID, eni)
 		b.indexENIByVPCLocked(eniID, eni)
 	}
 
-	for _, ngw := range b.natGateways {
+	for _, ngw := range b.natGateways.All() {
 		b.indexNatGatewayLocked(ngw)
 	}
 
-	for id, subnet := range b.subnets {
+	for _, subnet := range b.subnets.All() {
+		id := subnetsKeyFn(subnet)
 		b.indexSubnetLocked(id, subnet.VPCID)
 	}
 
-	for id, rt := range b.routeTables {
+	for _, rt := range b.routeTables.All() {
+		id := routeTablesKeyFn(rt)
 		b.indexRouteTableLocked(id, rt.VPCID)
 	}
 
-	for id, sg := range b.securityGroups {
+	for _, sg := range b.securityGroups.All() {
+		id := securityGroupsKeyFn(sg)
 		b.indexSGLocked(id, sg.VPCID)
 	}
 }

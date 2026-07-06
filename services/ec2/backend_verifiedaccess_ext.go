@@ -71,7 +71,7 @@ func (b *InMemoryBackend) GetVerifiedAccessEndpointPolicy(id string) (*VerifiedA
 	b.mu.RLock("GetVerifiedAccessEndpointPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.verifiedAccessEndpoints[id]; !ok {
+	if _, ok := b.verifiedAccessEndpoints.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
 
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessEndpointPolicy(
 	b.mu.Lock("ModifyVerifiedAccessEndpointPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessEndpoints[id]; !ok {
+	if _, ok := b.verifiedAccessEndpoints.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
 
@@ -120,7 +120,7 @@ func (b *InMemoryBackend) GetVerifiedAccessGroupPolicy(id string) (*VerifiedAcce
 	b.mu.RLock("GetVerifiedAccessGroupPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.verifiedAccessGroups[id]; !ok {
+	if _, ok := b.verifiedAccessGroups.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
 	}
 
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessGroupPolicy(
 	b.mu.Lock("ModifyVerifiedAccessGroupPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessGroups[id]; !ok {
+	if _, ok := b.verifiedAccessGroups.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
 	}
 
@@ -175,12 +175,13 @@ func (b *InMemoryBackend) DescribeVerifiedAccessInstanceLoggingConfigurations(
 
 	var out []*VerifiedAccessInstanceLoggingConfig
 
-	for instanceID := range b.verifiedAccessInstances {
+	for _, vai := range b.verifiedAccessInstances.All() {
+		instanceID := verifiedAccessInstancesKeyFn(vai)
 		if len(filter) > 0 && !filter[instanceID] {
 			continue
 		}
 
-		if cfg, ok := b.verifiedAccessInstanceLoggingConfigs[instanceID]; ok {
+		if cfg, ok := b.verifiedAccessInstanceLoggingConfigs.Get(instanceID); ok {
 			cp := *cfg
 			out = append(out, &cp)
 
@@ -207,7 +208,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessInstanceLoggingConfiguration(
 	b.mu.Lock("ModifyVerifiedAccessInstanceLoggingConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.verifiedAccessInstances[instanceID]; !ok {
+	if _, ok := b.verifiedAccessInstances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, instanceID)
 	}
 
@@ -215,7 +216,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessInstanceLoggingConfiguration(
 		VerifiedAccessInstanceID: instanceID,
 		AccessLogs:               accessLogs,
 	}
-	b.verifiedAccessInstanceLoggingConfigs[instanceID] = cfg
+	b.verifiedAccessInstanceLoggingConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp, nil
@@ -233,7 +234,7 @@ func (b *InMemoryBackend) GetVerifiedAccessEndpointTargets(id string) ([]*Verifi
 	b.mu.RLock("GetVerifiedAccessEndpointTargets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.verifiedAccessEndpoints[id]; !ok {
+	if _, ok := b.verifiedAccessEndpoints.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessEndpointNotFound, id)
 	}
 
@@ -264,7 +265,7 @@ func (b *InMemoryBackend) ExportVerifiedAccessInstanceClientConfiguration(
 	b.mu.RLock("ExportVerifiedAccessInstanceClientConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.verifiedAccessInstances[instanceID]; !ok {
+	if _, ok := b.verifiedAccessInstances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, instanceID)
 	}
 

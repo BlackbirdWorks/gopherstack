@@ -66,7 +66,7 @@ func (b *InMemoryBackend) CreateVpnConcentrator(
 	var attachmentID string
 
 	if transitGatewayID != "" {
-		if _, ok := b.transitGateways[transitGatewayID]; !ok {
+		if _, ok := b.transitGateways.Get(transitGatewayID); !ok {
 			return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, transitGatewayID)
 		}
 
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) CreateVpnConcentrator(
 		TransitGatewayAttachmentID: attachmentID,
 		Tags:                       maps.Clone(tags),
 	}
-	b.vpnConcentrators[vc.VpnConcentratorID] = vc
+	b.vpnConcentrators.Put(vc)
 
 	return cloneVpnConcentrator(vc), nil
 }
@@ -95,15 +95,14 @@ func (b *InMemoryBackend) DeleteVpnConcentrator(id string) (*VpnConcentrator, er
 	b.mu.Lock("DeleteVpnConcentrator")
 	defer b.mu.Unlock()
 
-	vc, ok := b.vpnConcentrators[id]
+	vc, ok := b.vpnConcentrators.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnConcentratorNotFound, id)
 	}
 
 	vc.State = vpnConcentratorStateDeleted
 	out := cloneVpnConcentrator(vc)
-
-	delete(b.vpnConcentrators, id)
+	b.vpnConcentrators.Delete(id)
 
 	return out, nil
 }
@@ -118,9 +117,9 @@ func (b *InMemoryBackend) DescribeVpnConcentrators(ids []string) []*VpnConcentra
 		idSet[id] = true
 	}
 
-	out := make([]*VpnConcentrator, 0, len(b.vpnConcentrators))
+	out := make([]*VpnConcentrator, 0, b.vpnConcentrators.Len())
 
-	for _, vc := range b.vpnConcentrators {
+	for _, vc := range b.vpnConcentrators.All() {
 		if len(idSet) > 0 && !idSet[vc.VpnConcentratorID] {
 			continue
 		}
@@ -150,7 +149,7 @@ func (b *InMemoryBackend) GetActiveVpnTunnelStatus(
 	b.mu.RLock("GetActiveVpnTunnelStatus")
 	defer b.mu.RUnlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
@@ -208,7 +207,7 @@ func (b *InMemoryBackend) ReplaceVpnTunnel(vpnConnectionID, outsideIPAddress str
 	b.mu.Lock("ReplaceVpnTunnel")
 	defer b.mu.Unlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}

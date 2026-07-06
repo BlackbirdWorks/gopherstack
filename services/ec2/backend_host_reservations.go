@@ -188,7 +188,7 @@ func (b *InMemoryBackend) requireHostsExist(hostIDs []string) error {
 	}
 
 	for _, id := range hostIDs {
-		if _, ok := b.dedicatedHosts[id]; !ok {
+		if _, ok := b.dedicatedHosts.Get(id); !ok {
 			return fmt.Errorf("%w: %s", ErrHostNotFound, id)
 		}
 	}
@@ -279,7 +279,7 @@ func (b *InMemoryBackend) PurchaseHostReservation(
 		End:               now.Add(time.Duration(offering.Duration) * time.Second),
 		Tags:              maps.Clone(tags),
 	}
-	b.hostReservations[hr.HostReservationID] = hr
+	b.hostReservations.Put(hr)
 
 	return &HostReservationPurchasePreview{
 		CurrencyCode:      offering.CurrencyCode,
@@ -311,9 +311,9 @@ func (b *InMemoryBackend) DescribeHostReservations(ids []string) []*HostReservat
 		idSet[id] = true
 	}
 
-	out := make([]*HostReservation, 0, len(b.hostReservations))
+	out := make([]*HostReservation, 0, b.hostReservations.Len())
 
-	for _, hr := range b.hostReservations {
+	for _, hr := range b.hostReservations.All() {
 		if len(idSet) > 0 && !idSet[hr.HostReservationID] {
 			continue
 		}
@@ -345,7 +345,7 @@ func (b *InMemoryBackend) ReleaseHosts(hostIDs []string) ([]string, []HostReleas
 	var unsuccessful []HostReleaseResult
 
 	for _, id := range hostIDs {
-		if _, ok := b.dedicatedHosts[id]; !ok {
+		if _, ok := b.dedicatedHosts.Get(id); !ok {
 			unsuccessful = append(unsuccessful, HostReleaseResult{
 				HostID:  id,
 				Code:    ErrHostNotFound.Error(),
@@ -354,8 +354,7 @@ func (b *InMemoryBackend) ReleaseHosts(hostIDs []string) ([]string, []HostReleas
 
 			continue
 		}
-
-		delete(b.dedicatedHosts, id)
+		b.dedicatedHosts.Delete(id)
 		successful = append(successful, id)
 	}
 

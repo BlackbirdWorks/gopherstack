@@ -32,7 +32,6 @@ type RegisteredSQLHaInstance struct {
 // resetSQLHaMapsLocked re-initialises the SQL HA registration/history maps.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) resetSQLHaMapsLocked() {
-	b.sqlHaRegistrations = make(map[string]*RegisteredSQLHaInstance)
 	b.sqlHaHistory = make(map[string][]*RegisteredSQLHaInstance)
 }
 
@@ -56,7 +55,7 @@ func (b *InMemoryBackend) EnableInstanceSQLHaStandbyDetections(
 	defer b.mu.Unlock()
 
 	for _, id := range instanceIDs {
-		if _, ok := b.instances[id]; !ok {
+		if _, ok := b.instances.Get(id); !ok {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 	}
@@ -72,7 +71,7 @@ func (b *InMemoryBackend) EnableInstanceSQLHaStandbyDetections(
 			SQLServerCredentials:  sqlServerCredentials,
 			SQLServerLicenseUsage: "full",
 		}
-		b.sqlHaRegistrations[id] = reg
+		b.sqlHaRegistrations.Put(reg)
 		b.recordSQLHaHistoryLocked(reg)
 
 		cp := *reg
@@ -97,7 +96,7 @@ func (b *InMemoryBackend) DisableInstanceSQLHaStandbyDetections(
 	out := make([]*RegisteredSQLHaInstance, 0, len(instanceIDs))
 
 	for _, id := range instanceIDs {
-		reg, ok := b.sqlHaRegistrations[id]
+		reg, ok := b.sqlHaRegistrations.Get(id)
 		if !ok {
 			continue
 		}
@@ -106,7 +105,7 @@ func (b *InMemoryBackend) DisableInstanceSQLHaStandbyDetections(
 		cp.ProcessingStatus = "Disabled from SQL Server High Availability standby detection monitoring"
 		cp.LastUpdatedTime = time.Now().UTC()
 		b.recordSQLHaHistoryLocked(&cp)
-		delete(b.sqlHaRegistrations, id)
+		b.sqlHaRegistrations.Delete(id)
 
 		out = append(out, &cp)
 	}
@@ -127,9 +126,9 @@ func (b *InMemoryBackend) DescribeInstanceSQLHaStates(ids []string) []*Registere
 		idSet[id] = true
 	}
 
-	out := make([]*RegisteredSQLHaInstance, 0, len(b.sqlHaRegistrations))
+	out := make([]*RegisteredSQLHaInstance, 0, b.sqlHaRegistrations.Len())
 
-	for _, reg := range b.sqlHaRegistrations {
+	for _, reg := range b.sqlHaRegistrations.All() {
 		if len(idSet) > 0 && !idSet[reg.InstanceID] {
 			continue
 		}

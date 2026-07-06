@@ -94,7 +94,7 @@ func (b *InMemoryBackend) CreateEgressOnlyInternetGateway(
 	b.mu.Lock("CreateEgressOnlyInternetGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) CreateEgressOnlyInternetGateway(
 		State:      stateAvailable,
 		CreateTime: time.Now(),
 	}
-	b.egressOnlyIGWs[igw.ID] = igw
+	b.egressOnlyIGWs.Put(igw)
 
 	cp := *igw
 
@@ -123,9 +123,9 @@ func (b *InMemoryBackend) DescribeEgressOnlyInternetGateways(
 		idSet[id] = true
 	}
 
-	out := make([]*EgressOnlyInternetGateway, 0, len(b.egressOnlyIGWs))
+	out := make([]*EgressOnlyInternetGateway, 0, b.egressOnlyIGWs.Len())
 
-	for _, igw := range b.egressOnlyIGWs {
+	for _, igw := range b.egressOnlyIGWs.All() {
 		if len(idSet) > 0 && !idSet[igw.ID] {
 			continue
 		}
@@ -150,11 +150,10 @@ func (b *InMemoryBackend) DeleteEgressOnlyInternetGateway(id string) error {
 	b.mu.Lock("DeleteEgressOnlyInternetGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.egressOnlyIGWs[id]; !ok {
+	if _, ok := b.egressOnlyIGWs.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrEgressOnlyIGWNotFound, id)
 	}
-
-	delete(b.egressOnlyIGWs, id)
+	b.egressOnlyIGWs.Delete(id)
 
 	return nil
 }
@@ -172,7 +171,7 @@ func (b *InMemoryBackend) AssociateIamInstanceProfile(
 	b.mu.Lock("AssociateIamInstanceProfile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -183,7 +182,7 @@ func (b *InMemoryBackend) AssociateIamInstanceProfile(
 		State:              stateAvailable,
 		Timestamp:          time.Now(),
 	}
-	b.iamAssociations[assoc.AssociationID] = assoc
+	b.iamAssociations.Put(assoc)
 
 	cp := *assoc
 
@@ -201,12 +200,11 @@ func (b *InMemoryBackend) DisassociateIamInstanceProfile(
 	b.mu.Lock("DisassociateIamInstanceProfile")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.iamAssociations[associationID]
+	assoc, ok := b.iamAssociations.Get(associationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIAMAssociationNotFound, associationID)
 	}
-
-	delete(b.iamAssociations, associationID)
+	b.iamAssociations.Delete(associationID)
 
 	cp := *assoc
 
@@ -227,9 +225,9 @@ func (b *InMemoryBackend) DescribeIamInstanceProfileAssociations(
 		idSet[id] = true
 	}
 
-	out := make([]*IamInstanceProfileAssociation, 0, len(b.iamAssociations))
+	out := make([]*IamInstanceProfileAssociation, 0, b.iamAssociations.Len())
 
-	for _, assoc := range b.iamAssociations {
+	for _, assoc := range b.iamAssociations.All() {
 		if len(idSet) > 0 && !idSet[assoc.AssociationID] {
 			continue
 		}
@@ -260,7 +258,7 @@ func (b *InMemoryBackend) ReplaceIamInstanceProfileAssociation(
 	b.mu.Lock("ReplaceIamInstanceProfileAssociation")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.iamAssociations[associationID]
+	assoc, ok := b.iamAssociations.Get(associationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIAMAssociationNotFound, associationID)
 	}
@@ -291,7 +289,7 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 	b.mu.Lock("ReplaceRouteTableAssociation")
 	defer b.mu.Unlock()
 
-	newRT, ok := b.routeTables[newRouteTableID]
+	newRT, ok := b.routeTables.Get(newRouteTableID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrRouteTableNotFound, newRouteTableID)
 	}
@@ -299,7 +297,7 @@ func (b *InMemoryBackend) ReplaceRouteTableAssociation(
 	// Find the old association.
 	var subnetID string
 
-	for _, rt := range b.routeTables {
+	for _, rt := range b.routeTables.All() {
 		for i, assoc := range rt.Associations {
 			if assoc.ID == associationID {
 				subnetID = assoc.SubnetID
@@ -341,7 +339,7 @@ func (b *InMemoryBackend) AssociateVpcCidrBlock(
 	b.mu.Lock("AssociateVpcCidrBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -370,7 +368,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTable(
 	b.mu.Lock("CreateTransitGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways[tgwID]; !ok {
+	if _, ok := b.transitGateways.Get(tgwID); !ok {
 		return nil, fmt.Errorf("%w: transit gateway %s not found", ErrInvalidParameter, tgwID)
 	}
 
@@ -380,7 +378,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTable(
 		State:            stateAvailable,
 		CreateTime:       time.Now(),
 	}
-	b.tgwRouteTables[rt.RouteTableID] = rt
+	b.tgwRouteTables.Put(rt)
 
 	cp := *rt
 
@@ -399,9 +397,9 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTables(
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGatewayRouteTable, 0, len(b.tgwRouteTables))
+	out := make([]*TransitGatewayRouteTable, 0, b.tgwRouteTables.Len())
 
-	for _, rt := range b.tgwRouteTables {
+	for _, rt := range b.tgwRouteTables.All() {
 		if len(idSet) > 0 && !idSet[rt.RouteTableID] {
 			continue
 		}
@@ -426,11 +424,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTable(id string) error {
 	b.mu.Lock("DeleteTransitGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables[id]; !ok {
+	if _, ok := b.tgwRouteTables.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, id)
 	}
-
-	delete(b.tgwRouteTables, id)
+	b.tgwRouteTables.Delete(id)
 
 	return nil
 }
@@ -452,7 +449,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRoute(
 	b.mu.Lock("CreateTransitGatewayRoute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
@@ -463,8 +460,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRoute(
 		State:                      stateActive,
 		Type:                       tgwRouteTypeStatic,
 	}
-	key := routeTableID + ":" + destinationCIDR
-	b.tgwRoutes[key] = route
+	b.tgwRoutes.Put(route)
 
 	cp := *route
 
@@ -481,7 +477,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRoute(routeTableID, destinationCID
 	defer b.mu.Unlock()
 
 	key := routeTableID + ":" + destinationCIDR
-	if _, ok := b.tgwRoutes[key]; !ok {
+	if _, ok := b.tgwRoutes.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: route %s in %s not found",
 			ErrInvalidParameter,
@@ -489,8 +485,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayRoute(routeTableID, destinationCID
 			routeTableID,
 		)
 	}
-
-	delete(b.tgwRoutes, key)
+	b.tgwRoutes.Delete(key)
 
 	return nil
 }
@@ -510,11 +505,10 @@ func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
 	b.mu.Lock("ReplaceTransitGatewayRoute")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
-	key := routeTableID + ":" + destinationCIDR
 	route := &TransitGatewayRoute{
 		DestinationCidrBlock:       destinationCIDR,
 		TransitGatewayAttachmentID: attachmentID,
@@ -522,7 +516,7 @@ func (b *InMemoryBackend) ReplaceTransitGatewayRoute(
 		State:                      stateActive,
 		Type:                       tgwRouteTypeStatic,
 	}
-	b.tgwRoutes[key] = route
+	b.tgwRoutes.Put(route)
 
 	cp := *route
 
@@ -546,7 +540,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 	b.mu.Lock("AssociateTransitGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
@@ -556,8 +550,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayRouteTable(
 		ResourceType:               "vpc",
 		State:                      stateAvailable,
 	}
-	key := routeTableID + ":" + attachmentID
-	b.tgwRTAssociations[key] = assoc
+	b.tgwRTAssociations.Put(assoc)
 
 	cp := *assoc
 
@@ -580,7 +573,7 @@ func (b *InMemoryBackend) DisassociateTransitGatewayRouteTable(
 	defer b.mu.Unlock()
 
 	key := routeTableID + ":" + attachmentID
-	if _, ok := b.tgwRTAssociations[key]; !ok {
+	if _, ok := b.tgwRTAssociations.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: association between %s and %s not found",
 			ErrInvalidParameter,
@@ -588,8 +581,7 @@ func (b *InMemoryBackend) DisassociateTransitGatewayRouteTable(
 			attachmentID,
 		)
 	}
-
-	delete(b.tgwRTAssociations, key)
+	b.tgwRTAssociations.Delete(key)
 
 	return nil
 }

@@ -66,7 +66,7 @@ func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value stri
 	b.mu.Lock("SetInstanceAttribute")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -142,7 +142,7 @@ func (b *InMemoryBackend) SetVolumeEncryption(
 	b.mu.Lock("SetVolumeEncryption")
 	defer b.mu.Unlock()
 
-	vol, ok := b.volumes[volumeID]
+	vol, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
@@ -168,7 +168,7 @@ func (b *InMemoryBackend) SetVolumePerformance(volumeID string, iops, throughput
 	b.mu.Lock("SetVolumePerformance")
 	defer b.mu.Unlock()
 
-	vol, ok := b.volumes[volumeID]
+	vol, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}

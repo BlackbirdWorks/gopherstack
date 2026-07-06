@@ -154,8 +154,6 @@ type ElasticGpuStub struct {
 // (split out to keep newInMemoryBackendMaps under the funlen limit).
 func initParityFinalMaps(b *InMemoryBackend) {
 	b.tgwRTPropagations = make(map[string]map[string]*TransitGatewayRouteTablePropagation)
-	b.interruptibleCRAllocations = make(map[string]*InterruptibleCapacityReservationAllocation)
-	b.movingAddresses = make(map[string]*MovingAddressStatus)
 	b.reachabilityAnalyzerOrgSharing = false
 }
 
@@ -174,13 +172,13 @@ func (b *InMemoryBackend) ModifyVerifiedAccessGroup(
 	b.mu.Lock("ModifyVerifiedAccessGroup")
 	defer b.mu.Unlock()
 
-	grp, ok := b.verifiedAccessGroups[id]
+	grp, ok := b.verifiedAccessGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessGroupNotFound, id)
 	}
 
 	if instanceID != "" {
-		if _, exists := b.verifiedAccessInstances[instanceID]; !exists {
+		if _, exists := b.verifiedAccessInstances.Get(instanceID); !exists {
 			return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, instanceID)
 		}
 
@@ -207,7 +205,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessInstance(id, description string) (
 	b.mu.Lock("ModifyVerifiedAccessInstance")
 	defer b.mu.Unlock()
 
-	inst, ok := b.verifiedAccessInstances[id]
+	inst, ok := b.verifiedAccessInstances.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessInstanceNotFound, id)
 	}
@@ -234,7 +232,7 @@ func (b *InMemoryBackend) ModifyVerifiedAccessTrustProvider(
 	b.mu.Lock("ModifyVerifiedAccessTrustProvider")
 	defer b.mu.Unlock()
 
-	tp, ok := b.verifiedAccessTrustProviders[id]
+	tp, ok := b.verifiedAccessTrustProviders.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVerifiedAccessTrustProviderNF, id)
 	}
@@ -254,15 +252,15 @@ func (b *InMemoryBackend) ModifyVerifiedAccessTrustProvider(
 // attachment, scanning the existing per-type attachment maps. Must be called
 // with b.mu held.
 func (b *InMemoryBackend) tgwAttachmentResourceLocked(attachmentID string) (string, string) {
-	if att, ok := b.tgwVpcAttachments[attachmentID]; ok {
+	if att, ok := b.tgwVpcAttachments.Get(attachmentID); ok {
 		return att.VpcID, tgwResourceTypeVPC
 	}
 
-	if att, ok := b.tgwPeeringAttachments[attachmentID]; ok {
+	if att, ok := b.tgwPeeringAttachments.Get(attachmentID); ok {
 		return att.AccepterTransitGatewayID, "peering"
 	}
 
-	if att, ok := b.tgwConnects[attachmentID]; ok {
+	if att, ok := b.tgwConnects.Get(attachmentID); ok {
 		return att.TransportTransitGatewayAttachmentID, "connect"
 	}
 
@@ -285,7 +283,7 @@ func (b *InMemoryBackend) EnableTransitGatewayRouteTablePropagation(
 	b.mu.Lock("EnableTransitGatewayRouteTablePropagation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
@@ -359,7 +357,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayAttachments(ids []string) []*Tra
 
 	out := make([]*TransitGatewayAttachmentSummary, 0)
 
-	for _, att := range b.tgwVpcAttachments {
+	for _, att := range b.tgwVpcAttachments.All() {
 		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
 			continue
 		}
@@ -373,7 +371,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayAttachments(ids []string) []*Tra
 		})
 	}
 
-	for _, att := range b.tgwPeeringAttachments {
+	for _, att := range b.tgwPeeringAttachments.All() {
 		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
 			continue
 		}
@@ -387,7 +385,7 @@ func (b *InMemoryBackend) DescribeTransitGatewayAttachments(ids []string) []*Tra
 		})
 	}
 
-	for _, att := range b.tgwConnects {
+	for _, att := range b.tgwConnects.All() {
 		if len(filter) > 0 && !filter[att.TransitGatewayAttachmentID] {
 			continue
 		}
@@ -427,7 +425,7 @@ func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
 	b.mu.Lock("CreateInterruptibleCapacityReservationAllocation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[sourceCapacityReservationID]
+	cr, ok := b.capacityReservations.Get(sourceCapacityReservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, sourceCapacityReservationID)
 	}
@@ -446,7 +444,7 @@ func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
 		Status:                      interruptibleAllocStatusActive,
 		TargetInstanceCount:         instanceCount,
 	}
-	b.interruptibleCRAllocations[sourceCapacityReservationID] = alloc
+	b.interruptibleCRAllocations.Put(alloc)
 
 	cp := *alloc
 
@@ -470,12 +468,12 @@ func (b *InMemoryBackend) UpdateInterruptibleCapacityReservationAllocation(
 	b.mu.Lock("UpdateInterruptibleCapacityReservationAllocation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[sourceCapacityReservationID]
+	cr, ok := b.capacityReservations.Get(sourceCapacityReservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, sourceCapacityReservationID)
 	}
 
-	alloc, ok := b.interruptibleCRAllocations[sourceCapacityReservationID]
+	alloc, ok := b.interruptibleCRAllocations.Get(sourceCapacityReservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInterruptibleAllocationNotFound, sourceCapacityReservationID)
 	}
@@ -508,14 +506,14 @@ func (b *InMemoryBackend) GetCapacityReservationUsage(id string) (*CapacityReser
 	b.mu.RLock("GetCapacityReservationUsage")
 	defer b.mu.RUnlock()
 
-	cr, ok := b.capacityReservations[id]
+	cr, ok := b.capacityReservations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, id)
 	}
 
 	var usedCount int32
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		if inst.CapacityReservationSpec.CapacityReservationID == id {
 			usedCount++
 		}
@@ -535,7 +533,7 @@ func (b *InMemoryBackend) GetCapacityReservationUsage(id string) (*CapacityReser
 		InstanceUsages:         usages,
 	}
 
-	if alloc, hasAlloc := b.interruptibleCRAllocations[id]; hasAlloc {
+	if alloc, hasAlloc := b.interruptibleCRAllocations.Get(id); hasAlloc {
 		usage.Interruptible = true
 		allocCopy := *alloc
 		usage.InterruptibleAllocation = &allocCopy
@@ -555,9 +553,9 @@ func (b *InMemoryBackend) DescribeCapacityReservationTopology(ids []string) []*C
 		filter[id] = true
 	}
 
-	out := make([]*CapacityReservationTopologyEntry, 0, len(b.capacityReservations))
+	out := make([]*CapacityReservationTopologyEntry, 0, b.capacityReservations.Len())
 
-	for _, cr := range b.capacityReservations {
+	for _, cr := range b.capacityReservations.All() {
 		if len(filter) > 0 && !filter[cr.CapacityReservationID] {
 			continue
 		}
@@ -581,7 +579,7 @@ func (b *InMemoryBackend) DescribeCapacityReservationTopology(ids []string) []*C
 // findAddressByPublicIPLocked scans the addresses map for an EIP by public IP
 // address. Must be called with b.mu held.
 func (b *InMemoryBackend) findAddressByPublicIPLocked(publicIP string) *Address {
-	for _, addr := range b.addresses {
+	for _, addr := range b.addresses.All() {
 		if addr.PublicIP == publicIP {
 			return addr
 		}
@@ -605,11 +603,10 @@ func (b *InMemoryBackend) MoveAddressToVpc(publicIP string) (*Address, error) {
 	if addr == nil {
 		return nil, fmt.Errorf("%w: %s", ErrPublicIPNotFound, publicIP)
 	}
-
-	b.movingAddresses[publicIP] = &MovingAddressStatus{
+	b.movingAddresses.Put(&MovingAddressStatus{
 		PublicIP:   publicIP,
 		MoveStatus: moveStatusMovingToVpc,
-	}
+	})
 
 	cp := *addr
 
@@ -627,9 +624,9 @@ func (b *InMemoryBackend) DescribeMovingAddresses(publicIPs []string) []*MovingA
 		filter[ip] = true
 	}
 
-	out := make([]*MovingAddressStatus, 0, len(b.movingAddresses))
+	out := make([]*MovingAddressStatus, 0, b.movingAddresses.Len())
 
-	for _, st := range b.movingAddresses {
+	for _, st := range b.movingAddresses.All() {
 		if len(filter) > 0 && !filter[st.PublicIP] {
 			continue
 		}
@@ -665,7 +662,7 @@ func (b *InMemoryBackend) RejectVpcEndpointConnections(serviceID string, vpcEndp
 	for _, epID := range vpcEndpointIDs {
 		key := serviceID + ":" + epID
 
-		conn, ok := b.vpcEndpointConnections[key]
+		conn, ok := b.vpcEndpointConnections.Get(key)
 		if !ok {
 			unsuccessful = append(unsuccessful, epID)
 
@@ -695,7 +692,7 @@ func (b *InMemoryBackend) UnassignPrivateNatGatewayAddress(
 	b.mu.Lock("UnassignPrivateNatGatewayAddress")
 	defer b.mu.Unlock()
 
-	ngw, ok := b.natGateways[natGatewayID]
+	ngw, ok := b.natGateways.Get(natGatewayID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNatGatewayNotFound, natGatewayID)
 	}
@@ -728,7 +725,7 @@ func (b *InMemoryBackend) UnassignPrivateNatGatewayAddress(
 // GetImageAncestry, and DescribeImageReferences so all three agree on what
 // counts as a known image.
 func (b *InMemoryBackend) lookupImageLocked(imageID string) *AMIStub {
-	if existing, ok := b.images[imageID]; ok {
+	if existing, ok := b.images.Get(imageID); ok {
 		return existing
 	}
 
@@ -774,7 +771,7 @@ func (b *InMemoryBackend) DescribeImageReferences(imageIDs []string) []*ImageRef
 
 	out := make([]*ImageReferenceEntry, 0)
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		if inst.ImageID == "" || (len(filter) > 0 && !filter[inst.ImageID]) {
 			continue
 		}
@@ -786,7 +783,7 @@ func (b *InMemoryBackend) DescribeImageReferences(imageIDs []string) []*ImageRef
 		})
 	}
 
-	for _, lt := range b.launchTemplates {
+	for _, lt := range b.launchTemplates.All() {
 		if lt.ImageID == "" || (len(filter) > 0 && !filter[lt.ImageID]) {
 			continue
 		}
@@ -865,7 +862,7 @@ func (b *InMemoryBackend) GetFlowLogsIntegrationTemplate(flowLogID, s3Destinatio
 	b.mu.RLock("GetFlowLogsIntegrationTemplate")
 	defer b.mu.RUnlock()
 
-	fl, ok := b.flowLogs[flowLogID]
+	fl, ok := b.flowLogs.Get(flowLogID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrFlowLogNotFound, flowLogID)
 	}
@@ -968,7 +965,7 @@ func (b *InMemoryBackend) SendDiagnosticInterrupt(instanceID string) error {
 	b.mu.RLock("SendDiagnosticInterrupt")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 

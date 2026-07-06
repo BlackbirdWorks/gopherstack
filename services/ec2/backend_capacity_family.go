@@ -331,8 +331,7 @@ func (b *InMemoryBackend) CreateCapacityReservationFleet(
 
 		instanceCount := int32(math.Ceil(remaining / weight))
 		crID := "cr-" + uuid.New().String()[:8]
-
-		b.capacityReservations[crID] = &CapacityReservation{
+		b.capacityReservations.Put(&CapacityReservation{
 			CapacityReservationID:  crID,
 			InstanceType:           resolved[i].InstanceType,
 			AvailabilityZone:       resolved[i].AvailabilityZone,
@@ -341,7 +340,7 @@ func (b *InMemoryBackend) CreateCapacityReservationFleet(
 			State:                  stateActive,
 			CreateTime:             now,
 			OwnedBy:                b.AccountID,
-		}
+		})
 
 		resolved[i].CapacityReservationID = crID
 		resolved[i].TotalInstanceCount = instanceCount
@@ -369,7 +368,7 @@ func (b *InMemoryBackend) CreateCapacityReservationFleet(
 		InstanceTypeSpecifications: resolved,
 		Tags:                       tags,
 	}
-	b.capacityReservationFleets[fleet.CapacityReservationFleetID] = fleet
+	b.capacityReservationFleets.Put(fleet)
 
 	cp := *fleet
 
@@ -390,7 +389,7 @@ func (b *InMemoryBackend) DescribeCapacityReservationFleets(
 
 	var result []*CapacityReservationFleet
 
-	for _, fleet := range b.capacityReservationFleets {
+	for _, fleet := range b.capacityReservationFleets.All() {
 		matched := idAndFiltersMatch(idSet, fleet.CapacityReservationFleetID,
 			matchesCapacityFilter(filters, "state", fleet.State),
 			matchesCapacityFilter(filters, "tenancy", fleet.Tenancy),
@@ -429,7 +428,7 @@ func (b *InMemoryBackend) ModifyCapacityReservationFleet(
 	b.mu.Lock("ModifyCapacityReservationFleet")
 	defer b.mu.Unlock()
 
-	fleet, ok := b.capacityReservationFleets[fleetID]
+	fleet, ok := b.capacityReservationFleets.Get(fleetID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrCapacityReservationFleetNotFound, fleetID)
 	}
@@ -467,7 +466,7 @@ func (b *InMemoryBackend) resizeFleetPrimarySpecLocked(fleet *CapacityReservatio
 
 	primary.TotalInstanceCount = int32(math.Ceil(float64(totalTargetCapacity) / weight))
 
-	cr, found := b.capacityReservations[primary.CapacityReservationID]
+	cr, found := b.capacityReservations.Get(primary.CapacityReservationID)
 	if !found {
 		return
 	}
@@ -492,7 +491,7 @@ func (b *InMemoryBackend) CancelCapacityReservationFleets(
 	)
 
 	for _, id := range fleetIDs {
-		fleet, ok := b.capacityReservationFleets[id]
+		fleet, ok := b.capacityReservationFleets.Get(id)
 		if !ok {
 			failed = append(failed, FailedCapacityReservationFleetCancellation{
 				CapacityReservationFleetID: id,
@@ -507,7 +506,7 @@ func (b *InMemoryBackend) CancelCapacityReservationFleets(
 		fleet.State = stateCancelled
 
 		for _, spec := range fleet.InstanceTypeSpecifications {
-			if cr, found := b.capacityReservations[spec.CapacityReservationID]; found {
+			if cr, found := b.capacityReservations.Get(spec.CapacityReservationID); found {
 				cr.State = stateCancelled
 			}
 		}
@@ -586,7 +585,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockOfferings(
 			StartDate:                  start,
 			EndDate:                    start.Add(time.Duration(durationHours) * time.Hour),
 		}
-		b.capacityBlockOfferings[offering.CapacityBlockOfferingID] = offering
+		b.capacityBlockOfferings.Put(offering)
 		offerings = append(offerings, offering)
 	}
 
@@ -606,7 +605,7 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 	b.mu.Lock("PurchaseCapacityBlock")
 	defer b.mu.Unlock()
 
-	offering, ok := b.capacityBlockOfferings[offeringID]
+	offering, ok := b.capacityBlockOfferings.Get(offeringID)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %s", ErrCapacityBlockOfferingNotFound, offeringID)
 	}
@@ -628,7 +627,7 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 		CreateTime:             now,
 		OwnedBy:                b.AccountID,
 	}
-	b.capacityReservations[crID] = cr
+	b.capacityReservations.Put(cr)
 
 	block := &CapacityBlock{
 		CapacityBlockID:        "cb-" + uuid.New().String()[:8],
@@ -640,9 +639,8 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 		Tags:                   tags,
 		CapacityReservationIDs: []string{crID},
 	}
-	b.capacityBlocks[block.CapacityBlockID] = block
-
-	delete(b.capacityBlockOfferings, offeringID)
+	b.capacityBlocks.Put(block)
+	b.capacityBlockOfferings.Delete(offeringID)
 
 	blockCopy := *block
 	crCopy := *cr
@@ -653,7 +651,7 @@ func (b *InMemoryBackend) PurchaseCapacityBlock(
 // findCapacityBlockByReservationIDLocked returns the CapacityBlock backing the
 // given CapacityReservation, if any. Must be called with b.mu held.
 func (b *InMemoryBackend) findCapacityBlockByReservationIDLocked(reservationID string) *CapacityBlock {
-	for _, block := range b.capacityBlocks {
+	for _, block := range b.capacityBlocks.All() {
 		if slices.Contains(block.CapacityReservationIDs, reservationID) {
 			return block
 		}
@@ -683,7 +681,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockExtensionOfferings(
 	b.mu.Lock("DescribeCapacityBlockExtensionOfferings")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[reservationID]
+	cr, ok := b.capacityReservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, reservationID)
 	}
@@ -710,7 +708,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockExtensionOfferings(
 		CapacityBlockExtensionStartDate:     extStart,
 		CapacityBlockExtensionEndDate:       extStart.Add(time.Duration(durationHours) * time.Hour),
 	}
-	b.capacityBlockExtensionOfferings[offering.CapacityBlockExtensionOfferingID] = offering
+	b.capacityBlockExtensionOfferings.Put(offering)
 
 	return []*CapacityBlockExtensionOffering{offering}, nil
 }
@@ -727,7 +725,7 @@ func (b *InMemoryBackend) PurchaseCapacityBlockExtension(
 	b.mu.Lock("PurchaseCapacityBlockExtension")
 	defer b.mu.Unlock()
 
-	offering, ok := b.capacityBlockExtensionOfferings[extensionOfferingID]
+	offering, ok := b.capacityBlockExtensionOfferings.Get(extensionOfferingID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityBlockExtensionOfferingNotFound, extensionOfferingID)
 	}
@@ -750,13 +748,12 @@ func (b *InMemoryBackend) PurchaseCapacityBlockExtension(
 		CapacityBlockExtensionEndDate:       offering.CapacityBlockExtensionEndDate,
 		CapacityBlockExtensionPurchaseDate:  now,
 	}
-	b.capacityBlockExtensions[ext.CapacityBlockExtensionOfferingID] = ext
+	b.capacityBlockExtensions.Put(ext)
 
 	if block := b.findCapacityBlockByReservationIDLocked(offering.CapacityReservationID); block != nil {
 		block.EndDate = offering.CapacityBlockExtensionEndDate
 	}
-
-	delete(b.capacityBlockExtensionOfferings, extensionOfferingID)
+	b.capacityBlockExtensionOfferings.Delete(extensionOfferingID)
 
 	return ext, nil
 }
@@ -774,7 +771,7 @@ func (b *InMemoryBackend) DescribeCapacityBlocks(
 
 	var result []*CapacityBlock
 
-	for _, block := range b.capacityBlocks {
+	for _, block := range b.capacityBlocks.All() {
 		matched := idAndFiltersMatch(idSet, block.CapacityBlockID,
 			matchesCapacityFilter(filters, "capacity-block-id", block.CapacityBlockID),
 			matchesCapacityFilter(filters, "availability-zone", block.AvailabilityZone),
@@ -808,7 +805,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockStatus(
 
 	const interconnectOK = "ok"
 
-	for _, block := range b.capacityBlocks {
+	for _, block := range b.capacityBlocks.All() {
 		matched := idAndFiltersMatch(idSet, block.CapacityBlockID,
 			matchesCapacityFilter(filters, "interconnect-status", interconnectOK),
 		)
@@ -822,7 +819,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockStatus(
 		}
 
 		for _, crID := range block.CapacityReservationIDs {
-			cr, ok := b.capacityReservations[crID]
+			cr, ok := b.capacityReservations.Get(crID)
 			if !ok {
 				continue
 			}
@@ -863,7 +860,7 @@ func (b *InMemoryBackend) DescribeCapacityBlockExtensionHistory(
 
 	var result []*CapacityBlockExtension
 
-	for _, ext := range b.capacityBlockExtensions {
+	for _, ext := range b.capacityBlockExtensions.All() {
 		matched := idAndFiltersMatch(idSet, ext.CapacityReservationID,
 			matchesCapacityFilter(filters, "capacity-reservation-id", ext.CapacityReservationID),
 			matchesCapacityFilter(filters, "availability-zone", ext.AvailabilityZone),
@@ -905,7 +902,7 @@ func (b *InMemoryBackend) CreateCapacityReservationBySplitting(
 	b.mu.Lock("CreateCapacityReservationBySplitting")
 	defer b.mu.Unlock()
 
-	src, ok := b.capacityReservations[sourceID]
+	src, ok := b.capacityReservations.Get(sourceID)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, sourceID)
 	}
@@ -931,7 +928,7 @@ func (b *InMemoryBackend) CreateCapacityReservationBySplitting(
 		CreateTime:             time.Now().UTC(),
 		OwnedBy:                b.AccountID,
 	}
-	b.capacityReservations[dst.CapacityReservationID] = dst
+	b.capacityReservations.Put(dst)
 
 	if len(tags) > 0 {
 		b.tags[dst.CapacityReservationID] = tags
@@ -964,12 +961,12 @@ func (b *InMemoryBackend) MoveCapacityReservationInstances(
 	b.mu.Lock("MoveCapacityReservationInstances")
 	defer b.mu.Unlock()
 
-	src, ok := b.capacityReservations[sourceID]
+	src, ok := b.capacityReservations.Get(sourceID)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, sourceID)
 	}
 
-	dst, ok := b.capacityReservations[destinationID]
+	dst, ok := b.capacityReservations.Get(destinationID)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, destinationID)
 	}
@@ -1010,17 +1007,16 @@ func (b *InMemoryBackend) AssociateCapacityReservationBillingOwner(
 	b.mu.Lock("AssociateCapacityReservationBillingOwner")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityReservations[reservationID]; !ok {
+	if _, ok := b.capacityReservations.Get(reservationID); !ok {
 		return fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, reservationID)
 	}
-
-	b.capacityReservationBillingRequests[reservationID] = &CapacityReservationBillingRequest{
+	b.capacityReservationBillingRequests.Put(&CapacityReservationBillingRequest{
 		CapacityReservationID:           reservationID,
 		RequestedBy:                     b.AccountID,
 		UnusedReservationBillingOwnerID: billingOwnerID,
 		Status:                          billingRequestPending,
 		LastUpdateTime:                  time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -1040,7 +1036,7 @@ func (b *InMemoryBackend) DisassociateCapacityReservationBillingOwner(
 	b.mu.Lock("DisassociateCapacityReservationBillingOwner")
 	defer b.mu.Unlock()
 
-	req, ok := b.capacityReservationBillingRequests[reservationID]
+	req, ok := b.capacityReservationBillingRequests.Get(reservationID)
 	if !ok || req.UnusedReservationBillingOwnerID != billingOwnerID {
 		return fmt.Errorf("%w: %s", ErrCapacityReservationBillingRequestNotFound, reservationID)
 	}
@@ -1063,7 +1059,7 @@ func (b *InMemoryBackend) RejectCapacityReservationBillingOwnership(
 	b.mu.Lock("RejectCapacityReservationBillingOwnership")
 	defer b.mu.Unlock()
 
-	req, ok := b.capacityReservationBillingRequests[reservationID]
+	req, ok := b.capacityReservationBillingRequests.Get(reservationID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrCapacityReservationBillingRequestNotFound, reservationID)
 	}
@@ -1088,7 +1084,7 @@ func (b *InMemoryBackend) DescribeCapacityReservationBillingRequests(
 
 	var result []*CapacityReservationBillingRequest
 
-	for _, req := range b.capacityReservationBillingRequests {
+	for _, req := range b.capacityReservationBillingRequests.All() {
 		if len(idSet) > 0 && !idSet[req.CapacityReservationID] {
 			continue
 		}
@@ -1166,7 +1162,7 @@ func (b *InMemoryBackend) GetCapacityManagerAttributes() *CapacityManagerAttribu
 	attrs := &CapacityManagerAttributes{
 		Status:              b.capacityManagerState.Status,
 		OrganizationsAccess: b.capacityManagerState.OrganizationsAccess,
-		DataExportCount:     toInt32Clamped(len(b.capacityManagerDataExports)),
+		DataExportCount:     toInt32Clamped(b.capacityManagerDataExports.Len()),
 	}
 
 	if attrs.Status == capacityManagerStatusEnabled {
@@ -1231,7 +1227,7 @@ func (b *InMemoryBackend) CreateCapacityManagerDataExport(
 		CreateTime:                  time.Now().UTC(),
 		Tags:                        tags,
 	}
-	b.capacityManagerDataExports[export.CapacityManagerDataExportID] = export
+	b.capacityManagerDataExports.Put(export)
 
 	return export, nil
 }
@@ -1248,7 +1244,7 @@ func (b *InMemoryBackend) DescribeCapacityManagerDataExports(
 
 	var result []*CapacityManagerDataExport
 
-	for _, export := range b.capacityManagerDataExports {
+	for _, export := range b.capacityManagerDataExports.All() {
 		if len(idSet) > 0 && !idSet[export.CapacityManagerDataExportID] {
 			continue
 		}
@@ -1274,11 +1270,10 @@ func (b *InMemoryBackend) DeleteCapacityManagerDataExport(id string) (string, er
 	b.mu.Lock("DeleteCapacityManagerDataExport")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityManagerDataExports[id]; !ok {
+	if _, ok := b.capacityManagerDataExports.Get(id); !ok {
 		return "", fmt.Errorf("%w: %s", ErrCapacityManagerDataExportNotFound, id)
 	}
-
-	delete(b.capacityManagerDataExports, id)
+	b.capacityManagerDataExports.Delete(id)
 
 	return id, nil
 }

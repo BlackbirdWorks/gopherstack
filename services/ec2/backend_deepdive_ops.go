@@ -17,7 +17,7 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 	b.mu.Lock("CreateImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -34,12 +34,12 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 		RootDeviceName: "/dev/xvda",
 		State:          stateAvailable,
 	}
-	b.images[imageID] = image
-	b.imageUsageReports[imageID] = &ImageUsageReport{
+	b.images.Put(image)
+	b.imageUsageReports.Put(&ImageUsageReport{
 		ImageID:        imageID,
 		State:          stateAvailable,
 		GenerationDate: time.Now().UTC().Format(time.RFC3339),
-	}
+	})
 
 	cp := *image
 
@@ -51,8 +51,8 @@ func (b *InMemoryBackend) DescribeImageUsageReports() []*ImageUsageReport {
 	b.mu.RLock("DescribeImageUsageReports")
 	defer b.mu.RUnlock()
 
-	reports := make([]*ImageUsageReport, 0, len(b.imageUsageReports))
-	for _, report := range b.imageUsageReports {
+	reports := make([]*ImageUsageReport, 0, b.imageUsageReports.Len())
+	for _, report := range b.imageUsageReports.All() {
 		cp := *report
 		reports = append(reports, &cp)
 	}
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) CreateLaunchTemplate(
 	b.mu.Lock("CreateLaunchTemplate")
 	defer b.mu.Unlock()
 
-	for _, lt := range b.launchTemplates {
+	for _, lt := range b.launchTemplates.All() {
 		if lt.Name == name {
 			return nil, fmt.Errorf(
 				"%w: duplicate launch template name %s",
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) CreateLaunchTemplate(
 		DefaultVersionNumber: 1,
 		LatestVersionNumber:  1,
 	}
-	b.launchTemplates[template.ID] = template
+	b.launchTemplates.Put(template)
 	cp := *template
 
 	return &cp, nil
@@ -110,8 +110,8 @@ func (b *InMemoryBackend) DescribeLaunchTemplates(names []string) []*LaunchTempl
 	b.mu.RLock("DescribeLaunchTemplates")
 	defer b.mu.RUnlock()
 
-	templates := make([]*LaunchTemplate, 0, len(b.launchTemplates))
-	for _, lt := range b.launchTemplates {
+	templates := make([]*LaunchTemplate, 0, b.launchTemplates.Len())
+	for _, lt := range b.launchTemplates.All() {
 		if len(names) > 0 && !slices.Contains(names, lt.Name) {
 			continue
 		}
@@ -133,14 +133,14 @@ func (b *InMemoryBackend) DescribeNetworkAcls(vpcIDs []string) []*NetworkACL {
 		allowed[id] = true
 	}
 
-	networkACLs := make([]*NetworkACL, 0, len(b.vpcs))
-	for _, vpc := range b.vpcs {
+	networkACLs := make([]*NetworkACL, 0, b.vpcs.Len())
+	for _, vpc := range b.vpcs.All() {
 		if len(allowed) > 0 && !allowed[vpc.ID] {
 			continue
 		}
 
-		assocIDs := make([]string, 0, len(b.subnets))
-		for _, subnet := range b.subnets {
+		assocIDs := make([]string, 0, b.subnets.Len())
+		for _, subnet := range b.subnets.All() {
 			if subnet.VPCID == vpc.ID {
 				assocIDs = append(assocIDs, "aclassoc-"+subnet.ID)
 			}
@@ -185,12 +185,12 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 	b.mu.Lock("CreateVpcEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
 	for _, subnetID := range subnetIDs {
-		subnet, ok := b.subnets[subnetID]
+		subnet, ok := b.subnets.Get(subnetID)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 		}
@@ -206,7 +206,7 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 	}
 
 	for _, rtID := range routeTableIDs {
-		if _, ok := b.routeTables[rtID]; !ok {
+		if _, ok := b.routeTables.Get(rtID); !ok {
 			return nil, fmt.Errorf("%w: route table %s not found", ErrRouteTableNotFound, rtID)
 		}
 	}
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 		RouteTableIDs:   append([]string(nil), routeTableIDs...),
 		CreateTime:      time.Now().UTC(),
 	}
-	b.vpcEndpoints[endpoint.ID] = endpoint
+	b.vpcEndpoints.Put(endpoint)
 	cp := *endpoint
 	cp.SubnetIDs = append([]string(nil), endpoint.SubnetIDs...)
 	cp.RouteTableIDs = append([]string(nil), endpoint.RouteTableIDs...)
@@ -239,8 +239,8 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) []*VpcEndpoint {
 		allowed[id] = true
 	}
 
-	endpoints := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
-	for _, ep := range b.vpcEndpoints {
+	endpoints := make([]*VpcEndpoint, 0, b.vpcEndpoints.Len())
+	for _, ep := range b.vpcEndpoints.All() {
 		if len(allowed) > 0 && !allowed[ep.ID] {
 			continue
 		}

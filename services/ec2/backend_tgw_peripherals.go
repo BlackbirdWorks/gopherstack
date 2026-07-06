@@ -94,7 +94,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPolicyTable(
 	b.mu.Lock("CreateTransitGatewayPolicyTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways[tgwID]; !ok {
+	if _, ok := b.transitGateways.Get(tgwID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, tgwID)
 	}
 
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) CreateTransitGatewayPolicyTable(
 		State:                       stateAvailable,
 		CreationTime:                time.Now().UTC(),
 	}
-	b.tgwPolicyTables[pt.TransitGatewayPolicyTableID] = pt
+	b.tgwPolicyTables.Put(pt)
 
 	cp := *pt
 
@@ -124,9 +124,9 @@ func (b *InMemoryBackend) DescribeTransitGatewayPolicyTables(
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGatewayPolicyTable, 0, len(b.tgwPolicyTables))
+	out := make([]*TransitGatewayPolicyTable, 0, b.tgwPolicyTables.Len())
 
-	for _, pt := range b.tgwPolicyTables {
+	for _, pt := range b.tgwPolicyTables.All() {
 		if len(idSet) > 0 && !idSet[pt.TransitGatewayPolicyTableID] {
 			continue
 		}
@@ -152,15 +152,15 @@ func (b *InMemoryBackend) DeleteTransitGatewayPolicyTable(id string) error {
 	b.mu.Lock("DeleteTransitGatewayPolicyTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwPolicyTables[id]; !ok {
+	if _, ok := b.tgwPolicyTables.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, id)
 	}
+	b.tgwPolicyTables.Delete(id)
 
-	delete(b.tgwPolicyTables, id)
-
-	for key, assoc := range b.tgwPolicyTableAssociations {
+	for _, assoc := range b.tgwPolicyTableAssociations.All() {
+		key := tgwPolicyTableAssociationsKeyFn(assoc)
 		if assoc.TransitGatewayPolicyTableID == id {
-			delete(b.tgwPolicyTableAssociations, key)
+			b.tgwPolicyTableAssociations.Delete(key)
 		}
 	}
 
@@ -185,7 +185,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayPolicyTable(
 	b.mu.Lock("AssociateTransitGatewayPolicyTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwPolicyTables[policyTableID]; !ok {
+	if _, ok := b.tgwPolicyTables.Get(policyTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
 	}
 
@@ -195,8 +195,7 @@ func (b *InMemoryBackend) AssociateTransitGatewayPolicyTable(
 		ResourceType:                tgwResourceTypeVPC,
 		State:                       tgwAssocStateAssociated,
 	}
-	key := policyTableID + ":" + attachmentID
-	b.tgwPolicyTableAssociations[key] = assoc
+	b.tgwPolicyTableAssociations.Put(assoc)
 
 	cp := *assoc
 
@@ -220,8 +219,7 @@ func (b *InMemoryBackend) DisassociateTransitGatewayPolicyTable(
 	defer b.mu.Unlock()
 
 	key := policyTableID + ":" + attachmentID
-
-	assoc, ok := b.tgwPolicyTableAssociations[key]
+	assoc, ok := b.tgwPolicyTableAssociations.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: association between %s and %s not found",
@@ -230,8 +228,7 @@ func (b *InMemoryBackend) DisassociateTransitGatewayPolicyTable(
 			attachmentID,
 		)
 	}
-
-	delete(b.tgwPolicyTableAssociations, key)
+	b.tgwPolicyTableAssociations.Delete(key)
 
 	cp := *assoc
 	cp.State = tgwAssocStateDisassociated
@@ -249,7 +246,7 @@ func (b *InMemoryBackend) GetTransitGatewayPolicyTableAssociations(
 
 	out := make([]*TransitGatewayPolicyTableAssociation, 0)
 
-	for _, assoc := range b.tgwPolicyTableAssociations {
+	for _, assoc := range b.tgwPolicyTableAssociations.All() {
 		if policyTableID != "" && assoc.TransitGatewayPolicyTableID != policyTableID {
 			continue
 		}
@@ -277,7 +274,7 @@ func (b *InMemoryBackend) GetTransitGatewayPolicyTableEntries(policyTableID stri
 	b.mu.RLock("GetTransitGatewayPolicyTableEntries")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tgwPolicyTables[policyTableID]; !ok {
+	if _, ok := b.tgwPolicyTables.Get(policyTableID); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
 	}
 
@@ -302,12 +299,12 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAnnouncement(
 	b.mu.Lock("CreateTransitGatewayRouteTableAnnouncement")
 	defer b.mu.Unlock()
 
-	rt, ok := b.tgwRouteTables[routeTableID]
+	rt, ok := b.tgwRouteTables.Get(routeTableID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
-	if _, attExists := b.tgwPeeringAttachments[peeringAttachmentID]; !attExists {
+	if _, attExists := b.tgwPeeringAttachments.Get(peeringAttachmentID); !attExists {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, peeringAttachmentID)
 	}
 
@@ -320,7 +317,7 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAnnouncement(
 		State:                                  stateAvailable,
 		CreationTime:                           time.Now().UTC(),
 	}
-	b.tgwRouteTableAnnouncements[ann.TransitGatewayRouteTableAnnouncementID] = ann
+	b.tgwRouteTableAnnouncements.Put(ann)
 
 	cp := *ann
 
@@ -340,9 +337,9 @@ func (b *InMemoryBackend) DescribeTransitGatewayRouteTableAnnouncements(
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGatewayRouteTableAnnouncement, 0, len(b.tgwRouteTableAnnouncements))
+	out := make([]*TransitGatewayRouteTableAnnouncement, 0, b.tgwRouteTableAnnouncements.Len())
 
-	for _, ann := range b.tgwRouteTableAnnouncements {
+	for _, ann := range b.tgwRouteTableAnnouncements.All() {
 		if len(idSet) > 0 && !idSet[ann.TransitGatewayRouteTableAnnouncementID] {
 			continue
 		}
@@ -372,11 +369,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayRouteTableAnnouncement(id string) 
 	b.mu.Lock("DeleteTransitGatewayRouteTableAnnouncement")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwRouteTableAnnouncements[id]; !ok {
+	if _, ok := b.tgwRouteTableAnnouncements.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWRouteTableAnnouncementNotFound, id)
 	}
-
-	delete(b.tgwRouteTableAnnouncements, id)
+	b.tgwRouteTableAnnouncements.Delete(id)
 
 	return nil
 }
@@ -396,13 +392,13 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTableAssociations(
 	b.mu.RLock("GetTransitGatewayRouteTableAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
 	out := make([]*TransitGatewayRouteTableAssociation, 0)
 
-	for _, a := range b.tgwRTAssociations {
+	for _, a := range b.tgwRTAssociations.All() {
 		if a.TransitGatewayRouteTableID != routeTableID {
 			continue
 		}
@@ -432,7 +428,7 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTablePropagations(
 	b.mu.RLock("GetTransitGatewayRouteTablePropagations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
@@ -453,15 +449,15 @@ func (b *InMemoryBackend) GetTransitGatewayRouteTablePropagations(
 // exists in any of the known TGW attachment maps. Must be called with b.mu
 // held (for reading or writing).
 func (b *InMemoryBackend) transitGatewayAttachmentExistsLocked(id string) bool {
-	if _, ok := b.tgwVpcAttachments[id]; ok {
+	if _, ok := b.tgwVpcAttachments.Get(id); ok {
 		return true
 	}
 
-	if _, ok := b.tgwPeeringAttachments[id]; ok {
+	if _, ok := b.tgwPeeringAttachments.Get(id); ok {
 		return true
 	}
 
-	if _, ok := b.tgwConnects[id]; ok {
+	if _, ok := b.tgwConnects.Get(id); ok {
 		return true
 	}
 
@@ -546,13 +542,13 @@ func (b *InMemoryBackend) SearchTransitGatewayRoutes(
 	b.mu.RLock("SearchTransitGatewayRoutes")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
 	out := make([]*TransitGatewayRoute, 0)
 
-	for _, r := range b.tgwRoutes {
+	for _, r := range b.tgwRoutes.All() {
 		if r.TransitGatewayRouteTableID != routeTableID {
 			continue
 		}
@@ -586,7 +582,7 @@ func (b *InMemoryBackend) ExportTransitGatewayRoutes(routeTableID, s3Bucket stri
 	b.mu.RLock("ExportTransitGatewayRoutes")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tgwRouteTables[routeTableID]; !ok {
+	if _, ok := b.tgwRouteTables.Get(routeTableID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, routeTableID)
 	}
 
@@ -612,7 +608,7 @@ func (b *InMemoryBackend) ModifyTransitGatewayVpcAttachment(
 	b.mu.Lock("ModifyTransitGatewayVpcAttachment")
 	defer b.mu.Unlock()
 
-	att, ok := b.tgwVpcAttachments[attachmentID]
+	att, ok := b.tgwVpcAttachments.Get(attachmentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, attachmentID)
 	}
@@ -670,7 +666,7 @@ func (b *InMemoryBackend) ModifyTransitGatewayMeteringPolicy(
 	b.mu.Lock("ModifyTransitGatewayMeteringPolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.tgwMeteringPolicies[policyID]
+	p, ok := b.tgwMeteringPolicies.Get(policyID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWMeteringPolicyNotFound, policyID)
 	}
@@ -698,13 +694,13 @@ func (b *InMemoryBackend) GetTransitGatewayMeteringPolicyEntries(
 	b.mu.RLock("GetTransitGatewayMeteringPolicyEntries")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tgwMeteringPolicies[policyID]; !ok {
+	if _, ok := b.tgwMeteringPolicies.Get(policyID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWMeteringPolicyNotFound, policyID)
 	}
 
 	out := make([]*TransitGatewayMeteringPolicyEntry, 0)
 
-	for _, e := range b.tgwMeteringPolicyEntries {
+	for _, e := range b.tgwMeteringPolicyEntries.All() {
 		if e.TransitGatewayMeteringPolicyID != policyID {
 			continue
 		}
@@ -734,7 +730,7 @@ func (b *InMemoryBackend) RejectTransitGatewayVpcAttachment(
 	b.mu.Lock("RejectTransitGatewayVpcAttachment")
 	defer b.mu.Unlock()
 
-	att, ok := b.tgwVpcAttachments[attachmentID]
+	att, ok := b.tgwVpcAttachments.Get(attachmentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, attachmentID)
 	}
@@ -757,7 +753,7 @@ func (b *InMemoryBackend) RejectTransitGatewayPeeringAttachment(
 	b.mu.Lock("RejectTransitGatewayPeeringAttachment")
 	defer b.mu.Unlock()
 
-	att, ok := b.tgwPeeringAttachments[attachmentID]
+	att, ok := b.tgwPeeringAttachments.Get(attachmentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayAttachmentNotFound, attachmentID)
 	}
@@ -794,9 +790,9 @@ func (b *InMemoryBackend) RejectTransitGatewayMulticastDomainAssociations(
 	for _, subnetID := range subnetIDs {
 		key := domainID + ":" + subnetID
 
-		existing, ok := b.tgwMulticastDomainAssociations[key]
+		existing, ok := b.tgwMulticastDomainAssociations.Get(key)
 		if ok {
-			delete(b.tgwMulticastDomainAssociations, key)
+			b.tgwMulticastDomainAssociations.Delete(key)
 		} else {
 			existing = &TransitGatewayMulticastDomainAssociation{
 				TransitGatewayMulticastDomainID: domainID,

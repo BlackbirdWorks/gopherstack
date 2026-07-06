@@ -99,7 +99,7 @@ func (b *InMemoryBackend) CreateVpcEndpointConnectionNotification(
 		ConnectionNotificationType:  "Topic",
 		ConnectionNotificationState: "Enabled",
 	}
-	b.endpointConnectionNotifs[notif.ConnectionNotificationID] = notif
+	b.endpointConnectionNotifs.Put(notif)
 
 	return notif, nil
 }
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DescribeVpcEndpointConnectionNotifications(
 	}
 
 	var out []*VpcEndpointConnectionNotification
-	for _, n := range b.endpointConnectionNotifs {
+	for _, n := range b.endpointConnectionNotifs.All() {
 		if len(filter) > 0 && !filter[n.ConnectionNotificationID] {
 			continue
 		}
@@ -137,12 +137,12 @@ func (b *InMemoryBackend) DeleteVpcEndpointConnectionNotifications(ids []string)
 	defer b.mu.Unlock()
 
 	for _, id := range ids {
-		if _, ok := b.endpointConnectionNotifs[id]; !ok {
+		if _, ok := b.endpointConnectionNotifs.Get(id); !ok {
 			return fmt.Errorf("%w: %s", ErrEndpointConnectionNotificationNotFound, id)
 		}
 	}
 	for _, id := range ids {
-		delete(b.endpointConnectionNotifs, id)
+		b.endpointConnectionNotifs.Delete(id)
 	}
 
 	return nil
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) ModifyVpcEndpointConnectionNotification(
 	b.mu.Lock("ModifyVpcEndpointConnectionNotification")
 	defer b.mu.Unlock()
 
-	notif, ok := b.endpointConnectionNotifs[id]
+	notif, ok := b.endpointConnectionNotifs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrEndpointConnectionNotificationNotFound, id)
 	}
@@ -190,7 +190,7 @@ func (b *InMemoryBackend) DescribeVpcEndpointConnections(
 	}
 
 	var out []*VpcEndpointConnection
-	for _, conn := range b.vpcEndpointConnections {
+	for _, conn := range b.vpcEndpointConnections.All() {
 		if len(filter) > 0 && !filter[conn.ServiceID] {
 			continue
 		}
@@ -215,7 +215,7 @@ func (b *InMemoryBackend) DescribeVpcEndpointAssociations(endpointIDs []string) 
 	}
 
 	var out []*VpcEndpoint
-	for _, ep := range b.vpcEndpoints {
+	for _, ep := range b.vpcEndpoints.All() {
 		if len(filter) > 0 && !filter[ep.ID] {
 			continue
 		}
@@ -240,7 +240,7 @@ func (b *InMemoryBackend) ModifyVpcEndpointServicePayerResponsibility(
 	b.mu.Lock("ModifyVpcEndpointServicePayerResponsibility")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcEndpointServiceConfigs[serviceID]; !ok {
+	if _, ok := b.vpcEndpointServiceConfigs.Get(serviceID); !ok {
 		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, serviceID)
 	}
 
@@ -267,7 +267,7 @@ func (b *InMemoryBackend) ModifyVpcEndpointServicePermissions(
 	b.mu.Lock("ModifyVpcEndpointServicePermissions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcEndpointServiceConfigs[serviceID]; !ok {
+	if _, ok := b.vpcEndpointServiceConfigs.Get(serviceID); !ok {
 		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, serviceID)
 	}
 
@@ -302,7 +302,7 @@ func (b *InMemoryBackend) ModifyVpcEndpoint(
 	b.mu.Lock("ModifyVpcEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.vpcEndpoints[endpointID]
+	ep, ok := b.vpcEndpoints.Get(endpointID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpcEndpointNotFound, endpointID)
 	}
@@ -387,7 +387,7 @@ func (b *InMemoryBackend) EnableVolumeIO(volumeID string) error {
 	b.mu.Lock("EnableVolumeIO")
 	defer b.mu.Unlock()
 
-	if _, ok := b.volumes[volumeID]; !ok {
+	if _, ok := b.volumes.Get(volumeID); !ok {
 		return fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
 
@@ -408,10 +408,10 @@ func (b *InMemoryBackend) LockSnapshot(
 	b.mu.Lock("LockSnapshot")
 	defer b.mu.Unlock()
 
-	if _, ok := b.snapshots[snapshotID]; !ok {
+	if _, ok := b.snapshots.Get(snapshotID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if _, locked := b.snapshotLocks[snapshotID]; locked {
+	if _, locked := b.snapshotLocks.Get(snapshotID); locked {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotAlreadyLocked, snapshotID)
 	}
 
@@ -425,7 +425,7 @@ func (b *InMemoryBackend) LockSnapshot(
 	if durationDays > 0 {
 		lock.LockExpiresOn = now.AddDate(0, 0, durationDays)
 	}
-	b.snapshotLocks[snapshotID] = lock
+	b.snapshotLocks.Put(lock)
 
 	return lock, nil
 }
@@ -439,13 +439,13 @@ func (b *InMemoryBackend) UnlockSnapshot(snapshotID string) error {
 	b.mu.Lock("UnlockSnapshot")
 	defer b.mu.Unlock()
 
-	if _, ok := b.snapshots[snapshotID]; !ok {
+	if _, ok := b.snapshots.Get(snapshotID); !ok {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if _, locked := b.snapshotLocks[snapshotID]; !locked {
+	if _, locked := b.snapshotLocks.Get(snapshotID); !locked {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotLocked, snapshotID)
 	}
-	delete(b.snapshotLocks, snapshotID)
+	b.snapshotLocks.Delete(snapshotID)
 
 	return nil
 }
@@ -461,7 +461,7 @@ func (b *InMemoryBackend) DescribeLockedSnapshots(ids []string) []*SnapshotLock 
 	}
 
 	var out []*SnapshotLock
-	for _, lock := range b.snapshotLocks {
+	for _, lock := range b.snapshotLocks.All() {
 		if len(filter) > 0 && !filter[lock.SnapshotID] {
 			continue
 		}
@@ -494,14 +494,14 @@ func (b *InMemoryBackend) CopyVolumes(
 	defer b.mu.Unlock()
 
 	for _, id := range volumeIDs {
-		if _, ok := b.volumes[id]; !ok {
+		if _, ok := b.volumes.Get(id); !ok {
 			return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, id)
 		}
 	}
 
 	results := make([]CopyVolumesResult, 0, len(volumeIDs))
 	for _, id := range volumeIDs {
-		src := b.volumes[id]
+		src, _ := b.volumes.Get(id)
 		newVol := &Volume{
 			ID:         "vol-" + uuid.New().String()[:17],
 			AZ:         src.AZ,
@@ -512,7 +512,7 @@ func (b *InMemoryBackend) CopyVolumes(
 			KmsKeyID:   src.KmsKeyID,
 			CreateTime: time.Now().UTC(),
 		}
-		b.volumes[newVol.ID] = newVol
+		b.volumes.Put(newVol)
 		results = append(results, CopyVolumesResult{SourceVolumeID: id, DestVolumeID: newVol.ID})
 	}
 
@@ -553,7 +553,7 @@ func (b *InMemoryBackend) DisassociateNatGatewayAddress(natGatewayID string) err
 	b.mu.RLock("DisassociateNatGatewayAddress")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.natGateways[natGatewayID]; !ok {
+	if _, ok := b.natGateways.Get(natGatewayID); !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
 	}
 
@@ -569,7 +569,7 @@ func (b *InMemoryBackend) AssociateNatGatewayAddress(natGatewayID, _ string) err
 	b.mu.RLock("AssociateNatGatewayAddress")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.natGateways[natGatewayID]; !ok {
+	if _, ok := b.natGateways.Get(natGatewayID); !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
 	}
 
@@ -587,7 +587,7 @@ func (b *InMemoryBackend) AssignPrivateNatGatewayAddress(natGatewayID string) er
 	b.mu.Lock("AssignPrivateNatGatewayAddress")
 	defer b.mu.Unlock()
 
-	ngw, ok := b.natGateways[natGatewayID]
+	ngw, ok := b.natGateways.Get(natGatewayID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, natGatewayID)
 	}
@@ -766,7 +766,7 @@ func (b *InMemoryBackend) DescribeInstanceImageMetadata(
 	}
 
 	var out []InstanceImageMetadataItem
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		if len(filter) > 0 && !filter[inst.ID] {
 			continue
 		}
@@ -884,7 +884,7 @@ func (b *InMemoryBackend) CreateReplaceRootVolumeTask(
 	b.mu.Lock("CreateReplaceRootVolumeTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -896,7 +896,7 @@ func (b *InMemoryBackend) CreateReplaceRootVolumeTask(
 		StartTime:               time.Now().UTC(),
 	}
 	task.CompleteTime = task.StartTime
-	b.replaceRootVolumeTasks[task.ReplaceRootVolumeTaskID] = task
+	b.replaceRootVolumeTasks.Put(task)
 
 	return task, nil
 }
@@ -912,7 +912,7 @@ func (b *InMemoryBackend) DescribeReplaceRootVolumeTasks(ids []string) []*Replac
 	}
 
 	var out []*ReplaceRootVolumeTask
-	for _, task := range b.replaceRootVolumeTasks {
+	for _, task := range b.replaceRootVolumeTasks.All() {
 		if len(filter) > 0 && !filter[task.ReplaceRootVolumeTaskID] {
 			continue
 		}
@@ -939,7 +939,7 @@ func (b *InMemoryBackend) EnableAddressTransfer(
 	b.mu.Lock("EnableAddressTransfer")
 	defer b.mu.Unlock()
 
-	addr, ok := b.addresses[allocationID]
+	addr, ok := b.addresses.Get(allocationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
@@ -965,7 +965,7 @@ func (b *InMemoryBackend) DisableAddressTransfer(allocationID string) error {
 	b.mu.Lock("DisableAddressTransfer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.addresses[allocationID]; !ok {
+	if _, ok := b.addresses.Get(allocationID); !ok {
 		return fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
 	delete(b.addressTransfers, allocationID)
@@ -1009,7 +1009,7 @@ func (b *InMemoryBackend) CreateSubnetCidrReservation(
 	b.mu.Lock("CreateSubnetCidrReservation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	if _, ok := b.subnets.Get(subnetID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 

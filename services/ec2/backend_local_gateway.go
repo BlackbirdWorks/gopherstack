@@ -163,7 +163,7 @@ func (b *InMemoryBackend) SeedLocalGateway(lg LocalGateway) (*LocalGateway, erro
 	}
 
 	cp := stored
-	b.localGateways[stored.LocalGatewayID] = &cp
+	b.localGateways.Put(&cp)
 
 	out := cp
 
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) SeedLocalGatewayVirtualInterface(
 	}
 
 	cp := stored
-	b.localGatewayVirtualInterfaces[stored.LocalGatewayVirtualInterfaceID] = &cp
+	b.localGatewayVirtualInterfaces.Put(&cp)
 
 	out := cp
 
@@ -223,7 +223,7 @@ func (b *InMemoryBackend) SeedLocalGatewayVirtualInterfaceGroup(
 	}
 
 	cp := stored
-	b.localGatewayVirtualInterfaceGroups[stored.LocalGatewayVirtualInterfaceGroupID] = &cp
+	b.localGatewayVirtualInterfaceGroups.Put(&cp)
 
 	out := cp
 
@@ -251,7 +251,7 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterfaceGroup(
 	b.mu.Lock("CreateLocalGatewayVirtualInterfaceGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.localGateways[localGatewayID]; !ok {
+	if _, ok := b.localGateways.Get(localGatewayID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, localGatewayID)
 	}
 
@@ -265,7 +265,7 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterfaceGroup(
 		Tags:                                maps.Clone(tags),
 	}
 	group.LocalGatewayVirtualInterfaceGroupArn = localGatewayVifGroupArn(b, group.LocalGatewayVirtualInterfaceGroupID)
-	b.localGatewayVirtualInterfaceGroups[group.LocalGatewayVirtualInterfaceGroupID] = group
+	b.localGatewayVirtualInterfaceGroups.Put(group)
 
 	cp := *group
 	cp.Tags = maps.Clone(group.Tags)
@@ -286,12 +286,12 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterfaceGroup(
 	b.mu.Lock("DeleteLocalGatewayVirtualInterfaceGroup")
 	defer b.mu.Unlock()
 
-	group, ok := b.localGatewayVirtualInterfaceGroups[id]
+	group, ok := b.localGatewayVirtualInterfaceGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLocalGatewayVifGroupNotFound, id)
 	}
 
-	for _, vif := range b.localGatewayVirtualInterfaces {
+	for _, vif := range b.localGatewayVirtualInterfaces.All() {
 		if vif.LocalGatewayVirtualInterfaceGroupID == id {
 			return nil, fmt.Errorf(
 				"%w: %s has associated local gateway virtual interfaces", ErrDependencyViolation, id,
@@ -302,7 +302,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterfaceGroup(
 	deleted := *group
 	deleted.Tags = maps.Clone(group.Tags)
 	deleted.ConfigurationState = localGatewayRouteStateDeleted
-	delete(b.localGatewayVirtualInterfaceGroups, id)
+	b.localGatewayVirtualInterfaceGroups.Delete(id)
 
 	return &deleted, nil
 }
@@ -350,7 +350,7 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterface(
 	b.mu.Lock("CreateLocalGatewayVirtualInterface")
 	defer b.mu.Unlock()
 
-	group, ok := b.localGatewayVirtualInterfaceGroups[p.LocalGatewayVirtualInterfaceGroupID]
+	group, ok := b.localGatewayVirtualInterfaceGroups.Get(p.LocalGatewayVirtualInterfaceGroupID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLocalGatewayVifGroupNotFound, p.LocalGatewayVirtualInterfaceGroupID)
 	}
@@ -371,7 +371,7 @@ func (b *InMemoryBackend) CreateLocalGatewayVirtualInterface(
 		Tags:                                maps.Clone(p.Tags),
 	}
 	vif.LocalGatewayVirtualInterfaceArn = localGatewayVifArn(b, vif.LocalGatewayVirtualInterfaceID)
-	b.localGatewayVirtualInterfaces[vif.LocalGatewayVirtualInterfaceID] = vif
+	b.localGatewayVirtualInterfaces.Put(vif)
 
 	group.LocalGatewayVirtualInterfaceIDs = append(
 		group.LocalGatewayVirtualInterfaceIDs, vif.LocalGatewayVirtualInterfaceID,
@@ -395,12 +395,12 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterface(
 	b.mu.Lock("DeleteLocalGatewayVirtualInterface")
 	defer b.mu.Unlock()
 
-	vif, ok := b.localGatewayVirtualInterfaces[id]
+	vif, ok := b.localGatewayVirtualInterfaces.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLocalGatewayVifNotFound, id)
 	}
 
-	if group, groupOK := b.localGatewayVirtualInterfaceGroups[vif.LocalGatewayVirtualInterfaceGroupID]; groupOK {
+	if group, groupOK := b.localGatewayVirtualInterfaceGroups.Get(vif.LocalGatewayVirtualInterfaceGroupID); groupOK {
 		group.LocalGatewayVirtualInterfaceIDs = removeString(
 			group.LocalGatewayVirtualInterfaceIDs, id,
 		)
@@ -409,7 +409,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayVirtualInterface(
 	deleted := *vif
 	deleted.Tags = maps.Clone(vif.Tags)
 	deleted.ConfigurationState = localGatewayRouteStateDeleted
-	delete(b.localGatewayVirtualInterfaces, id)
+	b.localGatewayVirtualInterfaces.Delete(id)
 
 	return &deleted, nil
 }
@@ -426,9 +426,9 @@ func (b *InMemoryBackend) DescribeLocalGateways(ids []string) []*LocalGateway {
 		idSet[id] = true
 	}
 
-	out := make([]*LocalGateway, 0, len(b.localGateways))
+	out := make([]*LocalGateway, 0, b.localGateways.Len())
 
-	for _, lg := range b.localGateways {
+	for _, lg := range b.localGateways.All() {
 		if len(idSet) > 0 && !idSet[lg.LocalGatewayID] {
 			continue
 		}
@@ -455,9 +455,9 @@ func (b *InMemoryBackend) DescribeLocalGatewayVirtualInterfaces(
 		idSet[id] = true
 	}
 
-	out := make([]*LocalGatewayVirtualInterface, 0, len(b.localGatewayVirtualInterfaces))
+	out := make([]*LocalGatewayVirtualInterface, 0, b.localGatewayVirtualInterfaces.Len())
 
-	for _, vif := range b.localGatewayVirtualInterfaces {
+	for _, vif := range b.localGatewayVirtualInterfaces.All() {
 		if len(idSet) > 0 && !idSet[vif.LocalGatewayVirtualInterfaceID] {
 			continue
 		}
@@ -486,9 +486,9 @@ func (b *InMemoryBackend) DescribeLocalGatewayVirtualInterfaceGroups(
 		idSet[id] = true
 	}
 
-	out := make([]*LocalGatewayVirtualInterfaceGroup, 0, len(b.localGatewayVirtualInterfaceGroups))
+	out := make([]*LocalGatewayVirtualInterfaceGroup, 0, b.localGatewayVirtualInterfaceGroups.Len())
 
-	for _, group := range b.localGatewayVirtualInterfaceGroups {
+	for _, group := range b.localGatewayVirtualInterfaceGroups.All() {
 		if len(idSet) > 0 && !idSet[group.LocalGatewayVirtualInterfaceGroupID] {
 			continue
 		}
@@ -521,7 +521,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTable(
 	b.mu.Lock("CreateLocalGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	lg, ok := b.localGateways[localGatewayID]
+	lg, ok := b.localGateways.Get(localGatewayID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, localGatewayID)
 	}
@@ -535,7 +535,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTable(
 		OwnerID:                  b.AccountID,
 	}
 	rt.LocalGatewayRouteTableArn = localGatewayRouteTableArn(b, rt.LocalGatewayRouteTableID)
-	b.localGatewayRouteTables[rt.LocalGatewayRouteTableID] = rt
+	b.localGatewayRouteTables.Put(rt)
 
 	cp := *rt
 
@@ -553,9 +553,9 @@ func (b *InMemoryBackend) DescribeLocalGatewayRouteTables(ids []string) []*Local
 		idSet[id] = true
 	}
 
-	out := make([]*LocalGatewayRouteTable, 0, len(b.localGatewayRouteTables))
+	out := make([]*LocalGatewayRouteTable, 0, b.localGatewayRouteTables.Len())
 
-	for _, rt := range b.localGatewayRouteTables {
+	for _, rt := range b.localGatewayRouteTables.All() {
 		if len(idSet) > 0 && !idSet[rt.LocalGatewayRouteTableID] {
 			continue
 		}
@@ -580,11 +580,10 @@ func (b *InMemoryBackend) DeleteLocalGatewayRouteTable(id string) error {
 	b.mu.Lock("DeleteLocalGatewayRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.localGatewayRouteTables[id]; !ok {
+	if _, ok := b.localGatewayRouteTables.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrLocalGatewayRouteTableNotFound, id)
 	}
-
-	delete(b.localGatewayRouteTables, id)
+	b.localGatewayRouteTables.Delete(id)
 
 	return nil
 }
@@ -602,7 +601,7 @@ func localGatewayRouteKey(routeTableID, destinationCIDR, destinationPrefixListID
 // requireLocalGatewayRouteTable looks up a local gateway route table by ID, returning
 // ErrLocalGatewayRouteTableNotFound if it does not exist. Must be called with b.mu held.
 func (b *InMemoryBackend) requireLocalGatewayRouteTable(routeTableID string) (*LocalGatewayRouteTable, error) {
-	rt, ok := b.localGatewayRouteTables[routeTableID]
+	rt, ok := b.localGatewayRouteTables.Get(routeTableID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLocalGatewayRouteTableNotFound, routeTableID)
 	}
@@ -634,7 +633,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRoute(
 	}
 
 	key := localGatewayRouteKey(routeTableID, destinationCIDR, destinationPrefixListID)
-	if _, exists := b.localGatewayRoutes[key]; exists {
+	if _, exists := b.localGatewayRoutes.Get(key); exists {
 		return nil, fmt.Errorf("%w: route already exists in %s", ErrInvalidParameter, routeTableID)
 	}
 
@@ -649,7 +648,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRoute(
 		State:                               localGatewayRouteStateActive,
 		OwnerID:                             b.AccountID,
 	}
-	b.localGatewayRoutes[key] = route
+	b.localGatewayRoutes.Put(route)
 
 	cp := *route
 
@@ -669,7 +668,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayRoute(
 
 	key := localGatewayRouteKey(routeTableID, destinationCIDR, destinationPrefixListID)
 
-	route, ok := b.localGatewayRoutes[key]
+	route, ok := b.localGatewayRoutes.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: route %s in %s not found",
@@ -681,7 +680,7 @@ func (b *InMemoryBackend) DeleteLocalGatewayRoute(
 
 	deleted := *route
 	deleted.State = localGatewayRouteStateDeleted
-	delete(b.localGatewayRoutes, key)
+	b.localGatewayRoutes.Delete(key)
 
 	return &deleted, nil
 }
@@ -699,7 +698,7 @@ func (b *InMemoryBackend) ModifyLocalGatewayRoute(
 
 	key := localGatewayRouteKey(routeTableID, destinationCIDR, destinationPrefixListID)
 
-	existing, ok := b.localGatewayRoutes[key]
+	existing, ok := b.localGatewayRoutes.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: route %s in %s not found",
@@ -719,8 +718,7 @@ func (b *InMemoryBackend) ModifyLocalGatewayRoute(
 		updated.NetworkInterfaceID = eniID
 		updated.LocalGatewayVirtualInterfaceGroupID = ""
 	}
-
-	b.localGatewayRoutes[key] = &updated
+	b.localGatewayRoutes.Put(&updated)
 
 	cp := updated
 
@@ -751,7 +749,7 @@ func (b *InMemoryBackend) SearchLocalGatewayRoutes(
 
 	out := make([]*LocalGatewayRoute, 0)
 
-	for _, r := range b.localGatewayRoutes {
+	for _, r := range b.localGatewayRoutes.All() {
 		if r.LocalGatewayRouteTableID != routeTableID {
 			continue
 		}
@@ -810,7 +808,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTableVpcAssociation(
 		"CreateLocalGatewayRouteTableVpcAssociation",
 		routeTableID,
 		func(rt *LocalGatewayRouteTable) (*LocalGatewayRouteTableVpcAssociation, error) {
-			if _, vpcExists := b.vpcs[vpcID]; !vpcExists {
+			if _, vpcExists := b.vpcs.Get(vpcID); !vpcExists {
 				return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 			}
 
@@ -823,7 +821,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTableVpcAssociation(
 				State:                                  localGatewayAssocStateAssoc,
 				OwnerID:                                b.AccountID,
 			}
-			b.localGatewayRouteTableVpcAssociations[assoc.LocalGatewayRouteTableVpcAssociationID] = assoc
+			b.localGatewayRouteTableVpcAssociations.Put(assoc)
 
 			cp := *assoc
 
@@ -847,14 +845,14 @@ func (b *InMemoryBackend) DeleteLocalGatewayRouteTableVpcAssociation(
 	b.mu.Lock("DeleteLocalGatewayRouteTableVpcAssociation")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.localGatewayRouteTableVpcAssociations[id]
+	assoc, ok := b.localGatewayRouteTableVpcAssociations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLocalGatewayVpcAssociationNotFound, id)
 	}
 
 	deleted := *assoc
 	deleted.State = localGatewayAssocStateDisassoc
-	delete(b.localGatewayRouteTableVpcAssociations, id)
+	b.localGatewayRouteTableVpcAssociations.Delete(id)
 
 	return &deleted, nil
 }
@@ -872,9 +870,9 @@ func (b *InMemoryBackend) DescribeLocalGatewayRouteTableVpcAssociations(
 		idSet[id] = true
 	}
 
-	out := make([]*LocalGatewayRouteTableVpcAssociation, 0, len(b.localGatewayRouteTableVpcAssociations))
+	out := make([]*LocalGatewayRouteTableVpcAssociation, 0, b.localGatewayRouteTableVpcAssociations.Len())
 
-	for _, a := range b.localGatewayRouteTableVpcAssociations {
+	for _, a := range b.localGatewayRouteTableVpcAssociations.All() {
 		if len(idSet) > 0 && !idSet[a.LocalGatewayRouteTableVpcAssociationID] {
 			continue
 		}
@@ -909,7 +907,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTableVirtualInterfaceGroupAssoc
 		"CreateLocalGatewayRouteTableVirtualInterfaceGroupAssociation",
 		routeTableID,
 		func(rt *LocalGatewayRouteTable) (*LocalGatewayRouteTableVirtualInterfaceGroupAssociation, error) {
-			if _, groupExists := b.localGatewayVirtualInterfaceGroups[vifGroupID]; !groupExists {
+			if _, groupExists := b.localGatewayVirtualInterfaceGroups.Get(vifGroupID); !groupExists {
 				return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, vifGroupID)
 			}
 
@@ -923,7 +921,7 @@ func (b *InMemoryBackend) CreateLocalGatewayRouteTableVirtualInterfaceGroupAssoc
 				State:                               localGatewayAssocStateAssoc,
 				OwnerID:                             b.AccountID,
 			}
-			b.localGatewayRouteTableVifGroupAssociations[assoc.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID] = assoc
+			b.localGatewayRouteTableVifGroupAssociations.Put(assoc)
 
 			cp := *assoc
 
@@ -947,14 +945,14 @@ func (b *InMemoryBackend) DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssoc
 	b.mu.Lock("DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.localGatewayRouteTableVifGroupAssociations[id]
+	assoc, ok := b.localGatewayRouteTableVifGroupAssociations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLocalGatewayVifGroupAssociationNotFound, id)
 	}
 
 	deleted := *assoc
 	deleted.State = localGatewayAssocStateDisassoc
-	delete(b.localGatewayRouteTableVifGroupAssociations, id)
+	b.localGatewayRouteTableVifGroupAssociations.Delete(id)
 
 	return &deleted, nil
 }
@@ -974,11 +972,10 @@ func (b *InMemoryBackend) DescribeLocalGatewayRouteTableVirtualInterfaceGroupAss
 
 	out := make(
 		[]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation,
-		0,
-		len(b.localGatewayRouteTableVifGroupAssociations),
+		0, b.localGatewayRouteTableVifGroupAssociations.Len(),
 	)
 
-	for _, a := range b.localGatewayRouteTableVifGroupAssociations {
+	for _, a := range b.localGatewayRouteTableVifGroupAssociations.All() {
 		if len(idSet) > 0 && !idSet[a.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID] {
 			continue
 		}

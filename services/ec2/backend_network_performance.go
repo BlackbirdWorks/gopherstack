@@ -96,14 +96,13 @@ func (b *InMemoryBackend) EnableAwsNetworkPerformanceMetricSubscription(
 	b.mu.Lock("EnableAwsNetworkPerformanceMetricSubscription")
 	defer b.mu.Unlock()
 
-	key := networkPerformanceSubscriptionKey(source, destination, metric, statistic)
-	b.networkPerformanceSubscriptions[key] = &NetworkPerformanceSubscription{
+	b.networkPerformanceSubscriptions.Put(&NetworkPerformanceSubscription{
 		Source:      source,
 		Destination: destination,
 		Metric:      metric,
 		Statistic:   statistic,
 		Period:      networkPerformanceDefaultPeriod,
-	}
+	})
 
 	return true, nil
 }
@@ -128,8 +127,7 @@ func (b *InMemoryBackend) DisableAwsNetworkPerformanceMetricSubscription(
 
 	b.mu.Lock("DisableAwsNetworkPerformanceMetricSubscription")
 	defer b.mu.Unlock()
-
-	delete(b.networkPerformanceSubscriptions, networkPerformanceSubscriptionKey(source, destination, metric, statistic))
+	b.networkPerformanceSubscriptions.Delete(networkPerformanceSubscriptionKey(source, destination, metric, statistic))
 
 	return true, nil
 }
@@ -140,8 +138,8 @@ func (b *InMemoryBackend) DescribeAwsNetworkPerformanceMetricSubscriptions() []*
 	b.mu.RLock("DescribeAwsNetworkPerformanceMetricSubscriptions")
 	defer b.mu.RUnlock()
 
-	out := make([]*NetworkPerformanceSubscription, 0, len(b.networkPerformanceSubscriptions))
-	for _, s := range b.networkPerformanceSubscriptions {
+	out := make([]*NetworkPerformanceSubscription, 0, b.networkPerformanceSubscriptions.Len())
+	for _, s := range b.networkPerformanceSubscriptions.All() {
 		cp := *s
 		out = append(out, &cp)
 	}

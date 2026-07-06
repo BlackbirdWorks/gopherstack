@@ -193,20 +193,20 @@ func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
 // resourceExistsCoreLocked checks the original core resource maps (instances,
 // security groups, VPC/subnet, storage, networking primitives).
 func (b *InMemoryBackend) resourceExistsCoreLocked(id string) bool {
-	_, ok := b.instances[id]
-	ok = ok || mapHas(b.securityGroups, id)
-	ok = ok || mapHas(b.vpcs, id)
-	ok = ok || mapHas(b.subnets, id)
-	ok = ok || mapHas(b.keyPairs, id)
-	ok = ok || mapHas(b.volumes, id)
-	ok = ok || mapHas(b.addresses, id)
-	ok = ok || mapHas(b.internetGateways, id)
-	ok = ok || mapHas(b.routeTables, id)
-	ok = ok || mapHas(b.natGateways, id)
-	ok = ok || mapHas(b.networkInterfaces, id)
-	ok = ok || mapHas(b.spotRequests, id)
-	ok = ok || mapHas(b.placementGroups, id)
-	ok = ok || mapHas(b.spotFleets, id)
+	_, ok := b.instances.Get(id)
+	ok = ok || b.securityGroups.Has(id)
+	ok = ok || b.vpcs.Has(id)
+	ok = ok || b.subnets.Has(id)
+	ok = ok || b.keyPairs.Has(id)
+	ok = ok || b.volumes.Has(id)
+	ok = ok || b.addresses.Has(id)
+	ok = ok || b.internetGateways.Has(id)
+	ok = ok || b.routeTables.Has(id)
+	ok = ok || b.natGateways.Has(id)
+	ok = ok || b.networkInterfaces.Has(id)
+	ok = ok || b.spotRequests.Has(id)
+	ok = ok || b.placementGroups.Has(id)
+	ok = ok || b.spotFleets.Has(id)
 
 	return ok
 }
@@ -214,15 +214,15 @@ func (b *InMemoryBackend) resourceExistsCoreLocked(id string) bool {
 // resourceExistsImagesLocked checks AMIs, snapshots, launch templates, and
 // their import/export tasks.
 func (b *InMemoryBackend) resourceExistsImagesLocked(id string) bool {
-	ok := mapHas(b.images, id)
-	ok = ok || mapHas(b.imageUsageReports, id)
-	ok = ok || mapHas(b.snapshots, id)
-	ok = ok || mapHas(b.recycleBinSnapshots, id)
-	ok = ok || mapHas(b.launchTemplates, id)
-	ok = ok || mapHas(b.imageImportTasks, id)
-	ok = ok || mapHas(b.snapshotImportTasks, id)
-	ok = ok || mapHas(b.exportImageTasks, id)
-	ok = ok || mapHas(b.exportTasks, id)
+	ok := b.images.Has(id)
+	ok = ok || b.imageUsageReports.Has(id)
+	ok = ok || b.snapshots.Has(id)
+	ok = ok || b.recycleBinSnapshots.Has(id)
+	ok = ok || b.launchTemplates.Has(id)
+	ok = ok || b.imageImportTasks.Has(id)
+	ok = ok || b.snapshotImportTasks.Has(id)
+	ok = ok || b.exportImageTasks.Has(id)
+	ok = ok || b.exportTasks.Has(id)
 
 	return ok
 }
@@ -230,18 +230,18 @@ func (b *InMemoryBackend) resourceExistsImagesLocked(id string) bool {
 // resourceExistsVpcAuxLocked checks VPC-adjacent networking resources
 // (endpoints, peering, ACLs, DHCP options, flow logs, prefix lists).
 func (b *InMemoryBackend) resourceExistsVpcAuxLocked(id string) bool {
-	ok := mapHas(b.networkACLs, id)
-	ok = ok || mapHas(b.dhcpOptionSets, id)
-	ok = ok || mapHas(b.egressOnlyIGWs, id)
-	ok = ok || mapHas(b.vpcPeeringConnections, id)
-	ok = ok || mapHas(b.vpcEndpoints, id)
-	ok = ok || mapHas(b.vpcEndpointServiceConfigs, id)
-	ok = ok || mapHas(b.managedPrefixLists, id)
-	ok = ok || mapHas(b.flowLogs, id)
-	ok = ok || mapHas(b.vpcBlockPublicAccessExclusions, id)
-	ok = ok || mapHas(b.instanceConnectEndpoints, id)
-	ok = ok || mapHas(b.carrierGateways, id)
-	ok = ok || mapHas(b.vpcEncryptionControls, id)
+	ok := b.networkACLs.Has(id)
+	ok = ok || b.dhcpOptionSets.Has(id)
+	ok = ok || b.egressOnlyIGWs.Has(id)
+	ok = ok || b.vpcPeeringConnections.Has(id)
+	ok = ok || b.vpcEndpoints.Has(id)
+	ok = ok || b.vpcEndpointServiceConfigs.Has(id)
+	ok = ok || b.managedPrefixLists.Has(id)
+	ok = ok || b.flowLogs.Has(id)
+	ok = ok || b.vpcBlockPublicAccessExclusions.Has(id)
+	ok = ok || b.instanceConnectEndpoints.Has(id)
+	ok = ok || b.carrierGateways.Has(id)
+	ok = ok || b.vpcEncryptionControls.Has(id)
 
 	return ok
 }
@@ -249,64 +249,64 @@ func (b *InMemoryBackend) resourceExistsVpcAuxLocked(id string) bool {
 // resourceExistsGatewayLocked checks VPN/customer gateways, capacity
 // reservations/hosts, fleets, and reserved instances.
 func (b *InMemoryBackend) resourceExistsGatewayLocked(id string) bool {
-	ok := mapHas(b.vpnGateways, id)
-	ok = ok || mapHas(b.customerGateways, id)
-	ok = ok || mapHas(b.vpnConnections, id)
-	ok = ok || mapHas(b.vpnConcentrators, id)
-	ok = ok || mapHas(b.capacityReservations, id)
-	ok = ok || mapHas(b.capacityReservationFleets, id)
-	ok = ok || mapHas(b.capacityBlocks, id)
-	ok = ok || mapHas(b.capacityManagerDataExports, id)
-	ok = ok || mapHas(b.hostReservations, id)
-	ok = ok || mapHas(b.dedicatedHosts, id)
-	ok = ok || mapHas(b.fleets, id)
-	ok = ok || mapHas(b.reservedInstances, id)
+	ok := b.vpnGateways.Has(id)
+	ok = ok || b.customerGateways.Has(id)
+	ok = ok || b.vpnConnections.Has(id)
+	ok = ok || b.vpnConcentrators.Has(id)
+	ok = ok || b.capacityReservations.Has(id)
+	ok = ok || b.capacityReservationFleets.Has(id)
+	ok = ok || b.capacityBlocks.Has(id)
+	ok = ok || b.capacityManagerDataExports.Has(id)
+	ok = ok || b.hostReservations.Has(id)
+	ok = ok || b.dedicatedHosts.Has(id)
+	ok = ok || b.fleets.Has(id)
+	ok = ok || b.reservedInstances.Has(id)
 
 	return ok
 }
 
 // resourceExistsTGWLocked checks the transit-gateway resource family.
 func (b *InMemoryBackend) resourceExistsTGWLocked(id string) bool {
-	ok := mapHas(b.transitGateways, id)
-	ok = ok || mapHas(b.tgwRouteTables, id)
-	ok = ok || mapHas(b.tgwPolicyTables, id)
-	ok = ok || mapHas(b.tgwRouteTableAnnouncements, id)
-	ok = ok || mapHas(b.tgwMeteringPolicies, id)
-	ok = ok || mapHas(b.tgwMulticastDomains, id)
-	ok = ok || mapHas(b.tgwConnectPeers, id)
-	ok = ok || mapHas(b.tgwConnects, id)
-	ok = ok || mapHas(b.tgwVpcAttachments, id)
-	ok = ok || mapHas(b.tgwPeeringAttachments, id)
+	ok := b.transitGateways.Has(id)
+	ok = ok || b.tgwRouteTables.Has(id)
+	ok = ok || b.tgwPolicyTables.Has(id)
+	ok = ok || b.tgwRouteTableAnnouncements.Has(id)
+	ok = ok || b.tgwMeteringPolicies.Has(id)
+	ok = ok || b.tgwMulticastDomains.Has(id)
+	ok = ok || b.tgwConnectPeers.Has(id)
+	ok = ok || b.tgwConnects.Has(id)
+	ok = ok || b.tgwVpcAttachments.Has(id)
+	ok = ok || b.tgwPeeringAttachments.Has(id)
 
 	return ok
 }
 
 // resourceExistsLGWLocked checks the local-gateway resource family.
 func (b *InMemoryBackend) resourceExistsLGWLocked(id string) bool {
-	ok := mapHas(b.localGateways, id)
-	ok = ok || mapHas(b.localGatewayVirtualInterfaces, id)
-	ok = ok || mapHas(b.localGatewayVirtualInterfaceGroups, id)
-	ok = ok || mapHas(b.localGatewayRouteTables, id)
-	ok = ok || mapHas(b.localGatewayRouteTableVpcAssociations, id)
-	ok = ok || mapHas(b.localGatewayRouteTableVifGroupAssociations, id)
+	ok := b.localGateways.Has(id)
+	ok = ok || b.localGatewayVirtualInterfaces.Has(id)
+	ok = ok || b.localGatewayVirtualInterfaceGroups.Has(id)
+	ok = ok || b.localGatewayRouteTables.Has(id)
+	ok = ok || b.localGatewayRouteTableVpcAssociations.Has(id)
+	ok = ok || b.localGatewayRouteTableVifGroupAssociations.Has(id)
 
 	return ok
 }
 
 // resourceExistsIpamLocked checks the IPAM resource family.
 func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
-	ok := mapHas(b.ipams, id)
-	ok = ok || mapHas(b.ipamPools, id)
-	ok = ok || mapHas(b.ipamScopes, id)
-	ok = ok || mapHas(b.ipamResourceDiscoveries, id)
-	ok = ok || mapHas(b.ipamResourceDiscoveryAssocs, id)
-	ok = ok || mapHas(b.ipamVerificationTokens, id)
-	ok = ok || mapHas(b.ipamPolicies, id)
-	ok = ok || mapHas(b.ipamPrefixListResolvers, id)
-	ok = ok || mapHas(b.ipamPrefixListResolverTargets, id)
-	ok = ok || mapHas(b.ipv4Pools, id)
-	ok = ok || mapHas(b.ipv6Pools, id)
-	ok = ok || mapHas(b.coipPools, id)
+	ok := b.ipams.Has(id)
+	ok = ok || b.ipamPools.Has(id)
+	ok = ok || b.ipamScopes.Has(id)
+	ok = ok || b.ipamResourceDiscoveries.Has(id)
+	ok = ok || b.ipamResourceDiscoveryAssocs.Has(id)
+	ok = ok || b.ipamVerificationTokens.Has(id)
+	ok = ok || b.ipamPolicies.Has(id)
+	ok = ok || b.ipamPrefixListResolvers.Has(id)
+	ok = ok || b.ipamPrefixListResolverTargets.Has(id)
+	ok = ok || b.ipv4Pools.Has(id)
+	ok = ok || b.ipv6Pools.Has(id)
+	ok = ok || b.coipPools.Has(id)
 
 	return ok
 }
@@ -314,14 +314,14 @@ func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
 // resourceExistsVerifiedAccessAndMirrorLocked checks Verified Access and
 // traffic-mirroring resources.
 func (b *InMemoryBackend) resourceExistsVerifiedAccessAndMirrorLocked(id string) bool {
-	ok := mapHas(b.verifiedAccessEndpoints, id)
-	ok = ok || mapHas(b.verifiedAccessGroups, id)
-	ok = ok || mapHas(b.verifiedAccessInstances, id)
-	ok = ok || mapHas(b.verifiedAccessTrustProviders, id)
-	ok = ok || mapHas(b.trafficMirrorFilters, id)
-	ok = ok || mapHas(b.trafficMirrorFilterRules, id)
-	ok = ok || mapHas(b.trafficMirrorSessions, id)
-	ok = ok || mapHas(b.trafficMirrorTargets, id)
+	ok := b.verifiedAccessEndpoints.Has(id)
+	ok = ok || b.verifiedAccessGroups.Has(id)
+	ok = ok || b.verifiedAccessInstances.Has(id)
+	ok = ok || b.verifiedAccessTrustProviders.Has(id)
+	ok = ok || b.trafficMirrorFilters.Has(id)
+	ok = ok || b.trafficMirrorFilterRules.Has(id)
+	ok = ok || b.trafficMirrorSessions.Has(id)
+	ok = ok || b.trafficMirrorTargets.Has(id)
 
 	return ok
 }
@@ -329,14 +329,14 @@ func (b *InMemoryBackend) resourceExistsVerifiedAccessAndMirrorLocked(id string)
 // resourceExistsInsightsAndRouteServerLocked checks Network Insights, Route
 // Server, and Client VPN resources.
 func (b *InMemoryBackend) resourceExistsInsightsAndRouteServerLocked(id string) bool {
-	ok := mapHas(b.networkInsightsPaths, id)
-	ok = ok || mapHas(b.networkInsightsAnalyses, id)
-	ok = ok || mapHas(b.networkInsightsAccessScopes, id)
-	ok = ok || mapHas(b.networkInsightsAccessScopeAnalyses, id)
-	ok = ok || mapHas(b.routeServers, id)
-	ok = ok || mapHas(b.routeServerEndpoints, id)
-	ok = ok || mapHas(b.routeServerPeers, id)
-	ok = ok || mapHas(b.clientVpnEndpoints, id)
+	ok := b.networkInsightsPaths.Has(id)
+	ok = ok || b.networkInsightsAnalyses.Has(id)
+	ok = ok || b.networkInsightsAccessScopes.Has(id)
+	ok = ok || b.networkInsightsAccessScopeAnalyses.Has(id)
+	ok = ok || b.routeServers.Has(id)
+	ok = ok || b.routeServerEndpoints.Has(id)
+	ok = ok || b.routeServerPeers.Has(id)
+	ok = ok || b.clientVpnEndpoints.Has(id)
 
 	return ok
 }
@@ -345,24 +345,15 @@ func (b *InMemoryBackend) resourceExistsInsightsAndRouteServerLocked(id string) 
 // tasks, Outpost LAGs, instance event windows, declarative policy reports,
 // and secondary-networking resources.
 func (b *InMemoryBackend) resourceExistsSecondaryAndMiscLocked(id string) bool {
-	ok := mapHas(b.fpgaImages, id)
-	ok = ok || mapHas(b.macModificationTasks, id)
-	ok = ok || mapHas(b.outpostLags, id)
-	ok = ok || mapHas(b.instanceEventWindows, id)
-	ok = ok || mapHas(b.declarativePoliciesReports, id)
-	ok = ok || mapHas(b.secondaryNetworks, id)
-	ok = ok || mapHas(b.secondarySubnets, id)
-	ok = ok || mapHas(b.secondaryInterfaces, id)
-	ok = ok || mapHas(b.serviceLinkVirtualInterfaces, id)
-
-	return ok
-}
-
-// mapHas reports whether key is present in m. A tiny generic helper so the
-// resourceExists* helpers above read as a flat list of map checks instead of
-// repeated `if _, ok := m[k]; ok { return true }` blocks.
-func mapHas[V any](m map[string]V, key string) bool {
-	_, ok := m[key]
+	ok := b.fpgaImages.Has(id)
+	ok = ok || b.macModificationTasks.Has(id)
+	ok = ok || b.outpostLags.Has(id)
+	ok = ok || b.instanceEventWindows.Has(id)
+	ok = ok || b.declarativePoliciesReports.Has(id)
+	ok = ok || b.secondaryNetworks.Has(id)
+	ok = ok || b.secondarySubnets.Has(id)
+	ok = ok || b.secondaryInterfaces.Has(id)
+	ok = ok || b.serviceLinkVirtualInterfaces.Has(id)
 
 	return ok
 }
