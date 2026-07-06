@@ -7,7 +7,7 @@ func (b *InMemoryBackend) UserPoolCount() int {
 	b.mu.RLock("UserPoolCount")
 	defer b.mu.RUnlock()
 
-	return len(b.pools)
+	return b.pools.Len()
 }
 
 // UserCount returns the total number of users across all pools. For testing only.
@@ -15,12 +15,7 @@ func (b *InMemoryBackend) UserCount() int {
 	b.mu.RLock("UserCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, poolUsers := range b.users {
-		total += len(poolUsers)
-	}
-
-	return total
+	return b.users.Len()
 }
 
 // ClientCount returns the number of user pool clients. For testing only.
@@ -28,7 +23,7 @@ func (b *InMemoryBackend) ClientCount() int {
 	b.mu.RLock("ClientCount")
 	defer b.mu.RUnlock()
 
-	return len(b.clients)
+	return b.clients.Len()
 }
 
 // RefreshTokenCount returns the number of refresh tokens in the backend. For testing only.
@@ -69,11 +64,9 @@ func (b *InMemoryBackend) ClearConfirmCodeForTest(poolID, username string) {
 	b.mu.Lock("ClearConfirmCodeForTest")
 	defer b.mu.Unlock()
 
-	if users, ok := b.users[poolID]; ok {
-		if u, ok2 := users[username]; ok2 {
-			u.ConfirmCode = ""
-			u.ConfirmCodeExpiresAt = time.Time{}
-		}
+	if u, ok := b.users.Get(userKey(poolID, username)); ok {
+		u.ConfirmCode = ""
+		u.ConfirmCodeExpiresAt = time.Time{}
 	}
 }
 
@@ -82,10 +75,8 @@ func (b *InMemoryBackend) ExpireConfirmCodeForTest(poolID, username string) {
 	b.mu.Lock("ExpireConfirmCodeForTest")
 	defer b.mu.Unlock()
 
-	if users, ok := b.users[poolID]; ok {
-		if u, ok2 := users[username]; ok2 {
-			u.ConfirmCodeExpiresAt = time.Now().Add(-time.Hour)
-		}
+	if u, ok := b.users.Get(userKey(poolID, username)); ok {
+		u.ConfirmCodeExpiresAt = time.Now().Add(-time.Hour)
 	}
 }
 
@@ -94,7 +85,7 @@ func (b *InMemoryBackend) UserPoolID(clientID string) string {
 	b.mu.RLock("UserPoolID")
 	defer b.mu.RUnlock()
 
-	if c, ok := b.clients[clientID]; ok {
+	if c, ok := b.clients.Get(clientID); ok {
 		return c.UserPoolID
 	}
 

@@ -12,12 +12,22 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
 	errDecodePEM = errors.New("failed to decode RSA private key PEM block")
 	errNotRSAKey = errors.New("private key is not *rsa.PrivateKey")
 )
+
+// cognitoidpSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change to a DTO or to backendSnapshot itself would make
+// an older snapshot unsafe to decode as the current shape. Restore compares
+// this against the persisted value and discards (rather than attempts to
+// partially decode) any mismatch — see Restore below. There was no version
+// guard prior to Phase 3.3's pkgs/store conversion, so any pre-existing
+// snapshot decodes with Version 0 and is treated as incompatible.
+const cognitoidpSnapshotVersion = 1
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
 type userPoolSnapshot struct {
@@ -34,7 +44,18 @@ type userPoolSnapshot struct {
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
 }
 
+// poolSnapshotKeyFn is the [store.Table] key function for the ephemeral pool
+// DTO table, mirroring poolsKeyFn.
+func poolSnapshotKeyFn(v *userPoolSnapshot) string { return v.ID }
+
 // userSnapshot is a copy of User safe for JSON serialization.
+//
+// NOTE: this DTO does not carry TOTPSecret, TOTPVerified, PreferredMfaSetting,
+// UserMFASettingList, or LastAuthTime -- that gap predates the Phase 3.3
+// store conversion (see services/cognitoidp/PARITY.md / bd history) and is
+// preserved as-is here rather than silently fixed, per the mechanical-swap
+// scope of this conversion. PasswordHash and every other field below were
+// already persisted and remain persisted unchanged.
 type userSnapshot struct {
 	CreatedAt            string            `json:"createdAt,omitempty"`
 	UpdatedAt            string            `json:"updatedAt,omitempty"`
@@ -51,32 +72,41 @@ type userSnapshot struct {
 	Enabled              bool              `json:"enabled,omitempty"`
 }
 
+// userSnapshotKeyFn is the [store.Table] key function for the ephemeral user
+// DTO table, mirroring usersKeyFn.
+func userSnapshotKeyFn(v *userSnapshot) string { return userKey(v.UserPoolID, v.Username) }
+
+// backendSnapshot is the top-level on-disk shape for the cognitoidp backend.
+//
+// Tables holds one JSON-encoded array per registered table, produced by
+// [store.Registry.SnapshotAll]: "pools" and "users" go through a DTO
+// transform (UserPool/User carry unexported/derived fields that cannot
+// round-trip through JSON directly -- see buildPoolSnapshot/buildUserSnapshot),
+// while every other converted table (clients, groups, resourceServers,
+// identityProviders, domains, terms, userImportJobs, managedLoginBrandings,
+// uiCustomizations, typedRiskConfigurations) is clean enough to register
+// directly, with no DTO needed.
+//
+// Every field below the Tables map is a resource left as a plain map on
+// InMemoryBackend (see store_setup.go's registerAllTables doc for why each
+// one can't be a store.Table) and is persisted exactly as it was before this
+// conversion.
 type backendSnapshot struct {
-	Pools                   map[string]*userPoolSnapshot                `json:"pools,omitempty"`
-	Clients                 map[string]*UserPoolClient                  `json:"clients,omitempty"`
-	Users                   map[string]map[string]*userSnapshot         `json:"users,omitempty"`
-	RefreshTokens           map[string]*refreshTokenEntry               `json:"refreshTokens,omitempty"`
-	Groups                  map[string]map[string]*Group                `json:"groups,omitempty"`
-	GroupMembers            map[string]map[string]map[string]struct{}   `json:"groupMembers,omitempty"`
-	ResourceServers         map[string]map[string]*ResourceServer       `json:"resourceServers,omitempty"`
-	TokenRevokedBefore      map[string]time.Time                        `json:"tokenRevokedBefore,omitempty"`
-	Domains                 map[string]*UserPoolDomain                  `json:"domains,omitempty"`
-	ResourceTags            map[string]map[string]string                `json:"resourceTags,omitempty"`
-	RiskConfigurations      map[string]*RiskConfiguration               `json:"riskConfigurations,omitempty"`
-	LogDeliveryConfigs      map[string]*LogDeliveryConfig               `json:"logDeliveryConfigs,omitempty"`
-	UICustomizations        map[string]*UICustomization                 `json:"uiCustomizations,omitempty"`
-	ManagedLoginBrandings   map[string]map[string]*ManagedLoginBranding `json:"managedLoginBrandings,omitempty"`
-	Terms                   map[string]*Terms                           `json:"terms,omitempty"`
-	UserImportJobs          map[string]map[string]*UserImportJob        `json:"userImportJobs,omitempty"`
-	PoolMfaConfigs          map[string]*UserPoolMfaFullConfig           `json:"poolMfaConfigs,omitempty"`
-	TypedRiskConfigurations map[string]*TypedRiskConfiguration          `json:"typedRiskConfigurations,omitempty"`
-	IdentityProviders       map[string]map[string]*IdentityProvider     `json:"identityProviders,omitempty"`
-	Devices                 map[string]map[string]*Device               `json:"devices,omitempty"`
-	WebAuthnCredentials     map[string]map[string]*WebAuthnCredential   `json:"webauthnCredentials,omitempty"`
-	AuthEvents              map[string]map[string]*AuthEvent            `json:"authEvents,omitempty"`
-	AccountID               string                                      `json:"accountId,omitempty"`
-	Region                  string                                      `json:"region,omitempty"`
-	Endpoint                string                                      `json:"endpoint,omitempty"`
+	Tables              map[string]json.RawMessage                `json:"tables,omitempty"`
+	RefreshTokens       map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
+	GroupMembers        map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
+	TokenRevokedBefore  map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
+	ResourceTags        map[string]map[string]string              `json:"resourceTags,omitempty"`
+	RiskConfigurations  map[string]*RiskConfiguration             `json:"riskConfigurations,omitempty"`
+	LogDeliveryConfigs  map[string]*LogDeliveryConfig             `json:"logDeliveryConfigs,omitempty"`
+	PoolMfaConfigs      map[string]*UserPoolMfaFullConfig         `json:"poolMfaConfigs,omitempty"`
+	Devices             map[string]map[string]*Device             `json:"devices,omitempty"`
+	WebAuthnCredentials map[string]map[string]*WebAuthnCredential `json:"webauthnCredentials,omitempty"`
+	AuthEvents          map[string]map[string]*AuthEvent          `json:"authEvents,omitempty"`
+	AccountID           string                                    `json:"accountId,omitempty"`
+	Region              string                                    `json:"region,omitempty"`
+	Endpoint            string                                    `json:"endpoint,omitempty"`
+	Version             int                                       `json:"version"`
 }
 
 func marshalRSAKey(key *rsa.PrivateKey) (string, error) {
@@ -115,82 +145,64 @@ func unmarshalRSAKey(pemStr string) (*rsa.PrivateKey, error) {
 	return rsaKey, nil
 }
 
-// buildPoolSnapshots converts live UserPools into their serializable form.
-func buildPoolSnapshots(ctx context.Context, pools map[string]*UserPool) map[string]*userPoolSnapshot {
-	poolSnaps := make(map[string]*userPoolSnapshot, len(pools))
-
-	for id, p := range pools {
-		pem, err := marshalRSAKey(p.issuer.privateKey)
-		if err != nil {
-			logger.Load(ctx).
-				WarnContext(ctx, "cognitoidp: failed to marshal RSA key for pool snapshot", "poolId", id, "error", err)
-			pem = ""
-		}
-
-		var ppSnap *PasswordPolicy
-		if p.PasswordPolicy != nil {
-			pp := *p.PasswordPolicy
-			ppSnap = &pp
-		}
-
-		var avAttrs []string
-		if len(p.AutoVerifiedAttributes) > 0 {
-			avAttrs = make([]string, len(p.AutoVerifiedAttributes))
-			copy(avAttrs, p.AutoVerifiedAttributes)
-		}
-
-		poolSnaps[id] = &userPoolSnapshot{
-			CreatedAt:              p.CreatedAt.Format("2006-01-02T15:04:05Z"),
-			ID:                     p.ID,
-			Name:                   p.Name,
-			ARN:                    p.ARN,
-			IssuerURL:              p.issuer.issuerURL,
-			KeyID:                  p.issuer.keyID,
-			PrivKeyPEM:             pem,
-			CustomAttributes:       p.CustomAttributes,
-			MfaConfiguration:       p.MfaConfiguration,
-			PasswordPolicy:         ppSnap,
-			AutoVerifiedAttributes: avAttrs,
-		}
+// buildPoolSnapshot converts a live UserPool into its serializable form.
+func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
+	pem, err := marshalRSAKey(p.issuer.privateKey)
+	if err != nil {
+		logger.Load(ctx).
+			WarnContext(ctx, "cognitoidp: failed to marshal RSA key for pool snapshot", "poolId", p.ID, "error", err)
+		pem = ""
 	}
 
-	return poolSnaps
+	var ppSnap *PasswordPolicy
+	if p.PasswordPolicy != nil {
+		pp := *p.PasswordPolicy
+		ppSnap = &pp
+	}
+
+	var avAttrs []string
+	if len(p.AutoVerifiedAttributes) > 0 {
+		avAttrs = make([]string, len(p.AutoVerifiedAttributes))
+		copy(avAttrs, p.AutoVerifiedAttributes)
+	}
+
+	return &userPoolSnapshot{
+		CreatedAt:              p.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		ID:                     p.ID,
+		Name:                   p.Name,
+		ARN:                    p.ARN,
+		IssuerURL:              p.issuer.issuerURL,
+		KeyID:                  p.issuer.keyID,
+		PrivKeyPEM:             pem,
+		CustomAttributes:       p.CustomAttributes,
+		MfaConfiguration:       p.MfaConfiguration,
+		PasswordPolicy:         ppSnap,
+		AutoVerifiedAttributes: avAttrs,
+	}
 }
 
-// buildUserSnapshots converts live Users into their serializable form.
-func buildUserSnapshots(users map[string]map[string]*User) map[string]map[string]*userSnapshot {
-	userSnaps := make(map[string]map[string]*userSnapshot, len(users))
-
-	for poolID, poolUsers := range users {
-		snaps := make(map[string]*userSnapshot, len(poolUsers))
-
-		for username, u := range poolUsers {
-			var codeExpiry string
-			if !u.ConfirmCodeExpiresAt.IsZero() {
-				codeExpiry = u.ConfirmCodeExpiresAt.Format("2006-01-02T15:04:05Z")
-			}
-
-			snaps[username] = &userSnapshot{
-				CreatedAt:            u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-				UpdatedAt:            u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-				ConfirmCodeExpiresAt: codeExpiry,
-				Attributes:           u.Attributes,
-				Sub:                  u.Sub,
-				Username:             u.Username,
-				UserPoolID:           u.UserPoolID,
-				PasswordHash:         u.PasswordHash,
-				Status:               u.Status,
-				ConfirmCode:          u.ConfirmCode,
-				MFAOptions:           u.MFAOptions,
-				LinkedProviders:      u.LinkedProviders,
-				Enabled:              u.Enabled,
-			}
-		}
-
-		userSnaps[poolID] = snaps
+// buildUserSnapshot converts a live User into its serializable form.
+func buildUserSnapshot(u *User) *userSnapshot {
+	var codeExpiry string
+	if !u.ConfirmCodeExpiresAt.IsZero() {
+		codeExpiry = u.ConfirmCodeExpiresAt.Format("2006-01-02T15:04:05Z")
 	}
 
-	return userSnaps
+	return &userSnapshot{
+		CreatedAt:            u.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:            u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		ConfirmCodeExpiresAt: codeExpiry,
+		Attributes:           u.Attributes,
+		Sub:                  u.Sub,
+		Username:             u.Username,
+		UserPoolID:           u.UserPoolID,
+		PasswordHash:         u.PasswordHash,
+		Status:               u.Status,
+		ConfirmCode:          u.ConfirmCode,
+		MFAOptions:           u.MFAOptions,
+		LinkedProviders:      u.LinkedProviders,
+		Enabled:              u.Enabled,
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -198,35 +210,59 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	poolSnaps := buildPoolSnapshots(ctx, b.pools)
-	userSnaps := buildUserSnapshots(b.users)
+	// Build a throwaway DTO registry purely to reuse store's deterministic,
+	// type-erased JSON encoding (store.Registry.SnapshotAll) instead of
+	// hand-rolling the marshal step. pools/users need a DTO transform (see
+	// buildPoolSnapshot/buildUserSnapshot); every other converted table is
+	// already cleanly serializable, so its live *store.Table is registered
+	// directly -- Register only stores a reference, so this does not disturb
+	// b.registry.
+	dtoReg := store.NewRegistry()
+
+	poolDTOs := store.Register(dtoReg, "pools", store.New(poolSnapshotKeyFn))
+	for _, p := range b.pools.All() {
+		poolDTOs.Put(buildPoolSnapshot(ctx, p))
+	}
+
+	userDTOs := store.Register(dtoReg, "users", store.New(userSnapshotKeyFn))
+	for _, u := range b.users.All() {
+		userDTOs.Put(buildUserSnapshot(u))
+	}
+
+	store.Register(dtoReg, "clients", b.clients)
+	store.Register(dtoReg, "groups", b.groups)
+	store.Register(dtoReg, "resourceServers", b.resourceServers)
+	store.Register(dtoReg, "identityProviders", b.identityProviders)
+	store.Register(dtoReg, "domains", b.domains)
+	store.Register(dtoReg, "terms", b.terms)
+	store.Register(dtoReg, "userImportJobs", b.userImportJobs)
+	store.Register(dtoReg, "managedLoginBrandings", b.managedLoginBrandings)
+	store.Register(dtoReg, "uiCustomizations", b.uiCustomizations)
+	store.Register(dtoReg, "typedRiskConfigurations", b.typedRiskConfigurations)
+
+	tables, err := dtoReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "cognitoidp: failed to marshal backend snapshot", "error", err)
+
+		return nil
+	}
 
 	snap := backendSnapshot{
-		Pools:                   poolSnaps,
-		Clients:                 b.clients,
-		Users:                   userSnaps,
-		RefreshTokens:           b.refreshTokens,
-		Groups:                  b.groups,
-		GroupMembers:            b.groupMembers,
-		ResourceServers:         b.resourceServers,
-		TokenRevokedBefore:      b.tokenRevokedBefore,
-		Domains:                 b.domains,
-		ResourceTags:            b.resourceTags,
-		RiskConfigurations:      b.riskConfigurations,
-		LogDeliveryConfigs:      b.logDeliveryConfigs,
-		UICustomizations:        b.uiCustomizations,
-		ManagedLoginBrandings:   b.managedLoginBrandings,
-		Terms:                   b.terms,
-		UserImportJobs:          b.userImportJobs,
-		PoolMfaConfigs:          b.poolMfaConfigs,
-		TypedRiskConfigurations: b.typedRiskConfigurations,
-		IdentityProviders:       b.identityProviders,
-		Devices:                 b.devices,
-		WebAuthnCredentials:     b.webauthnCredentials,
-		AuthEvents:              b.authEvents,
-		AccountID:               b.accountID,
-		Region:                  b.region,
-		Endpoint:                b.endpoint,
+		Version:             cognitoidpSnapshotVersion,
+		Tables:              tables,
+		RefreshTokens:       b.refreshTokens,
+		GroupMembers:        b.groupMembers,
+		TokenRevokedBefore:  b.tokenRevokedBefore,
+		ResourceTags:        b.resourceTags,
+		RiskConfigurations:  b.riskConfigurations,
+		LogDeliveryConfigs:  b.logDeliveryConfigs,
+		PoolMfaConfigs:      b.poolMfaConfigs,
+		Devices:             b.devices,
+		WebAuthnCredentials: b.webauthnCredentials,
+		AuthEvents:          b.authEvents,
+		AccountID:           b.accountID,
+		Region:              b.region,
+		Endpoint:            b.endpoint,
 	}
 
 	data, err := json.Marshal(snap)
@@ -247,76 +283,111 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
+
+	if snap.Version != cognitoidpSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"cognitoidp: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", cognitoidpSnapshotVersion)
+
+		b.resetForIncompatibleSnapshotLocked()
+
+		return nil
+	}
+
 	normalizeBackendSnapshot(&snap)
 
-	pools, poolsByName, err := restorePoolsFromSnapshot(snap.Pools)
+	if err := b.restoreTablesLocked(snap.Tables); err != nil {
+		return err
+	}
+
+	b.restoreRawMapsLocked(&snap)
+
+	return nil
+}
+
+// resetForIncompatibleSnapshotLocked clears every table and raw map to the
+// empty state a fresh NewInMemoryBackend would have. Caller must hold b.mu in
+// write mode.
+func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
+	b.registry.ResetAll()
+	b.refreshTokens = make(map[string]*refreshTokenEntry)
+	b.refreshTokensByClient = make(map[string]map[string]struct{})
+	b.refreshTokensByUser = make(map[string]map[string]struct{})
+	b.groupMembers = make(map[string]map[string]map[string]struct{})
+	b.tokenRevokedBefore = make(map[string]time.Time)
+	b.resourceTags = make(map[string]map[string]string)
+	b.riskConfigurations = make(map[string]*RiskConfiguration)
+	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)
+	b.devices = make(map[string]map[string]*Device)
+	b.webauthnCredentials = make(map[string]map[string]*WebAuthnCredential)
+	b.authEvents = make(map[string]map[string]*AuthEvent)
+}
+
+// restoreTablesLocked decodes tables into every store.Table-backed resource.
+// pools/users go through a DTO transform (see restorePoolsFromSnapshot/
+// restoreUsersFromSnapshot); every other converted table restores straight
+// into its live *store.Table (Restore rebuilds the table's primary map AND
+// every secondary index registered on it, e.g. clientsByPool/groupsByPool, so
+// no separate index rebuild step is needed for these). Caller must hold b.mu
+// in write mode.
+func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage) error {
+	dtoReg := store.NewRegistry()
+
+	poolDTOs := store.Register(dtoReg, "pools", store.New(poolSnapshotKeyFn))
+	userDTOs := store.Register(dtoReg, "users", store.New(userSnapshotKeyFn))
+	store.Register(dtoReg, "clients", b.clients)
+	store.Register(dtoReg, "groups", b.groups)
+	store.Register(dtoReg, "resourceServers", b.resourceServers)
+	store.Register(dtoReg, "identityProviders", b.identityProviders)
+	store.Register(dtoReg, "domains", b.domains)
+	store.Register(dtoReg, "terms", b.terms)
+	store.Register(dtoReg, "userImportJobs", b.userImportJobs)
+	store.Register(dtoReg, "managedLoginBrandings", b.managedLoginBrandings)
+	store.Register(dtoReg, "uiCustomizations", b.uiCustomizations)
+	store.Register(dtoReg, "typedRiskConfigurations", b.typedRiskConfigurations)
+
+	if err := dtoReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("cognitoidp: restore snapshot tables: %w", err)
+	}
+
+	pools, err := restorePoolsFromSnapshot(poolDTOs.All())
 	if err != nil {
 		return err
 	}
 
-	users := restoreUsersFromSnapshot(snap.Users)
+	b.pools.Restore(pools)
+	b.users.Restore(restoreUsersFromSnapshot(userDTOs.All()))
 
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
+	return nil
+}
 
-	b.pools = pools
-	b.poolsByName = poolsByName
-	b.users = users
-	b.usersBySub = buildUsersBySubIndex(users)
-	b.clients = snap.Clients
-	b.clientsByPool = buildClientsByPoolIndex(b.clients)
+// restoreRawMapsLocked loads every resource left as a plain map (see
+// store_setup.go's registerAllTables doc for why) plus top-level backend
+// scalars from snap. Caller must hold b.mu in write mode.
+func (b *InMemoryBackend) restoreRawMapsLocked(snap *backendSnapshot) {
 	b.refreshTokens = snap.RefreshTokens
 	b.refreshTokensByClient = buildRefreshTokensByClientIndex(b.refreshTokens)
 	b.refreshTokensByUser = buildRefreshTokensByUserIndex(b.refreshTokens)
-	b.groups = snap.Groups
 	b.groupMembers = snap.GroupMembers
-	b.resourceServers = snap.ResourceServers
 	b.tokenRevokedBefore = snap.TokenRevokedBefore
-	b.domains = snap.Domains
 	b.resourceTags = snap.ResourceTags
 	b.riskConfigurations = snap.RiskConfigurations
 	b.logDeliveryConfigs = snap.LogDeliveryConfigs
-	b.uiCustomizations = snap.UICustomizations
-	b.managedLoginBrandings = snap.ManagedLoginBrandings
-	b.terms = snap.Terms
-	b.userImportJobs = snap.UserImportJobs
 	b.poolMfaConfigs = snap.PoolMfaConfigs
-	b.typedRiskConfigurations = snap.TypedRiskConfigurations
-	b.identityProviders = snap.IdentityProviders
 	b.devices = snap.Devices
 	b.webauthnCredentials = snap.WebAuthnCredentials
 	b.authEvents = snap.AuthEvents
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.endpoint = snap.Endpoint
-
-	return nil
-}
-
-func buildUsersBySubIndex(users map[string]map[string]*User) map[string]string {
-	index := make(map[string]string)
-	for poolID, poolUsers := range users {
-		for _, u := range poolUsers {
-			if u.Sub != "" {
-				index[poolID+":"+u.Sub] = u.Username
-			}
-		}
-	}
-
-	return index
-}
-
-func buildClientsByPoolIndex(clients map[string]*UserPoolClient) map[string]map[string]*UserPoolClient {
-	index := make(map[string]map[string]*UserPoolClient)
-	for _, client := range clients {
-		if index[client.UserPoolID] == nil {
-			index[client.UserPoolID] = make(map[string]*UserPoolClient)
-		}
-
-		index[client.UserPoolID][client.ClientID] = client
-	}
-
-	return index
 }
 
 func buildRefreshTokensByClientIndex(
@@ -339,22 +410,18 @@ func buildRefreshTokensByUserIndex(
 ) map[string]map[string]struct{} {
 	index := make(map[string]map[string]struct{})
 	for token, entry := range refreshTokens {
-		userKey := entry.PoolID + ":" + entry.Username
-		if index[userKey] == nil {
-			index[userKey] = make(map[string]struct{})
+		key := entry.PoolID + ":" + entry.Username
+		if index[key] == nil {
+			index[key] = make(map[string]struct{})
 		}
 
-		index[userKey][token] = struct{}{}
+		index[key][token] = struct{}{}
 	}
 
 	return index
 }
 
 func normalizeBackendSnapshot(snap *backendSnapshot) {
-	if snap.Clients == nil {
-		snap.Clients = make(map[string]*UserPoolClient)
-	}
-
 	if snap.RefreshTokens == nil {
 		snap.RefreshTokens = make(map[string]*refreshTokenEntry)
 	}
@@ -366,16 +433,8 @@ func normalizeBackendSnapshot(snap *backendSnapshot) {
 		}
 	}
 
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]map[string]*Group)
-	}
-
 	if snap.GroupMembers == nil {
 		snap.GroupMembers = make(map[string]map[string]map[string]struct{})
-	}
-
-	if snap.ResourceServers == nil {
-		snap.ResourceServers = make(map[string]map[string]*ResourceServer)
 	}
 
 	if snap.TokenRevokedBefore == nil {
@@ -395,16 +454,15 @@ func normalizeBackendSnapshot(snap *backendSnapshot) {
 	}
 }
 
-func restorePoolsFromSnapshot(
-	poolSnapshots map[string]*userPoolSnapshot,
-) (map[string]*UserPool, map[string]*UserPool, error) {
-	pools := make(map[string]*UserPool, len(poolSnapshots))
-	poolsByName := make(map[string]*UserPool, len(poolSnapshots))
+// restorePoolsFromSnapshot rebuilds live UserPools (including their RSA token
+// issuers) from persisted DTOs.
+func restorePoolsFromSnapshot(poolSnapshots []*userPoolSnapshot) ([]*UserPool, error) {
+	pools := make([]*UserPool, 0, len(poolSnapshots))
 
-	for id, ps := range poolSnapshots {
+	for _, ps := range poolSnapshots {
 		rsaKey, err := unmarshalRSAKey(ps.PrivKeyPEM)
 		if err != nil {
-			return nil, nil, fmt.Errorf("restoring user pool %q: %w", id, err)
+			return nil, fmt.Errorf("restoring user pool %q: %w", ps.ID, err)
 		}
 
 		createdAt, _ := time.Parse("2006-01-02T15:04:05Z", ps.CreatedAt)
@@ -424,44 +482,40 @@ func restorePoolsFromSnapshot(
 			pool.issuer = newTokenIssuerFromKey(rsaKey, ps.KeyID, ps.IssuerURL)
 		}
 
-		pools[id] = pool
-		poolsByName[ps.Name] = pool
+		pools = append(pools, pool)
 	}
 
-	return pools, poolsByName, nil
+	return pools, nil
 }
 
-func restoreUsersFromSnapshot(poolUsers map[string]map[string]*userSnapshot) map[string]map[string]*User {
-	users := make(map[string]map[string]*User, len(poolUsers))
-	for poolID, usersByName := range poolUsers {
-		restored := make(map[string]*User, len(usersByName))
-		for username, us := range usersByName {
-			createdAt, _ := time.Parse("2006-01-02T15:04:05Z", us.CreatedAt)
-			updatedAt, _ := time.Parse("2006-01-02T15:04:05Z", us.UpdatedAt)
-			codeExpiry, _ := time.Parse("2006-01-02T15:04:05Z", us.ConfirmCodeExpiresAt)
+// restoreUsersFromSnapshot rebuilds live Users from persisted DTOs.
+func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
+	users := make([]*User, 0, len(userSnapshots))
 
-			if updatedAt.IsZero() {
-				updatedAt = createdAt
-			}
+	for _, us := range userSnapshots {
+		createdAt, _ := time.Parse("2006-01-02T15:04:05Z", us.CreatedAt)
+		updatedAt, _ := time.Parse("2006-01-02T15:04:05Z", us.UpdatedAt)
+		codeExpiry, _ := time.Parse("2006-01-02T15:04:05Z", us.ConfirmCodeExpiresAt)
 
-			restored[username] = &User{
-				CreatedAt:            createdAt,
-				UpdatedAt:            updatedAt,
-				ConfirmCodeExpiresAt: codeExpiry,
-				Attributes:           us.Attributes,
-				Sub:                  us.Sub,
-				Username:             us.Username,
-				UserPoolID:           us.UserPoolID,
-				PasswordHash:         us.PasswordHash,
-				Status:               us.Status,
-				ConfirmCode:          us.ConfirmCode,
-				MFAOptions:           us.MFAOptions,
-				LinkedProviders:      us.LinkedProviders,
-				Enabled:              us.Enabled,
-			}
+		if updatedAt.IsZero() {
+			updatedAt = createdAt
 		}
 
-		users[poolID] = restored
+		users = append(users, &User{
+			CreatedAt:            createdAt,
+			UpdatedAt:            updatedAt,
+			ConfirmCodeExpiresAt: codeExpiry,
+			Attributes:           us.Attributes,
+			Sub:                  us.Sub,
+			Username:             us.Username,
+			UserPoolID:           us.UserPoolID,
+			PasswordHash:         us.PasswordHash,
+			Status:               us.Status,
+			ConfirmCode:          us.ConfirmCode,
+			MFAOptions:           us.MFAOptions,
+			LinkedProviders:      us.LinkedProviders,
+			Enabled:              us.Enabled,
+		})
 	}
 
 	return users

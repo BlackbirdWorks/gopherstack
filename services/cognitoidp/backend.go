@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -155,16 +156,29 @@ type Group struct {
 }
 
 // InMemoryBackend is the in-memory store for Cognito IDP resources.
+//
+// Most resource collections are *store.Table[T] registered on b.registry (see
+// store_setup.go for keyFns/composite keys and the full per-field rationale).
+// A handful of fields remain plain maps because their value carries no pure
+// identity for a store.Table key; store_setup.go's registerAllTables doc
+// comment lists each one and why.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	pools       map[string]*UserPool
-	poolsByName map[string]*UserPool
-	clients     map[string]*UserPoolClient
-	// clientsByPool maps userPoolID -> clientID -> client for efficient per-pool listing and deletes.
-	clientsByPool map[string]map[string]*UserPoolClient
-	users         map[string]map[string]*User
-	// usersBySub maps poolID+":"+sub -> username for O(1) access token resolution.
-	usersBySub map[string]string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+	pools    *store.Table[UserPool]
+	// poolsByName is a secondary index on pools keyed by Name.
+	poolsByName *store.Index[UserPool]
+	clients     *store.Table[UserPoolClient]
+	// clientsByPool is a secondary index on clients keyed by UserPoolID, for
+	// efficient per-pool listing and deletes.
+	clientsByPool *store.Index[UserPoolClient]
+	// users is keyed by the composite userKey(poolID, username).
+	users *store.Table[User]
+	// usersByPool is a secondary index on users keyed by UserPoolID.
+	usersByPool *store.Index[User]
+	// usersBySub is a secondary index on users keyed by userSubKey(poolID,
+	// sub), for O(1) access token resolution.
+	usersBySub *store.Index[User]
 	// refreshTokens maps refresh token → poolID/username for REFRESH_TOKEN_AUTH flow.
 	refreshTokens map[string]*refreshTokenEntry
 	// refreshTokensByClient maps clientID -> refreshToken set for efficient client cleanup.
@@ -173,39 +187,49 @@ type InMemoryBackend struct {
 	refreshTokensByUser map[string]map[string]struct{}
 	// mfaSessions maps session token → pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 	mfaSessions map[string]*mfaSessionEntry
-	// groups maps poolID → groupName → Group
-	groups map[string]map[string]*Group
+	// groups is keyed by the composite groupKey(poolID, groupName).
+	groups *store.Table[Group]
+	// groupsByPool is a secondary index on groups keyed by UserPoolID.
+	groupsByPool *store.Index[Group]
 	// groupMembers maps poolID → groupName → set of usernames
 	groupMembers map[string]map[string]map[string]struct{}
-	// resourceServers maps poolID → identifier → ResourceServer
-	resourceServers map[string]map[string]*ResourceServer
+	// resourceServers is keyed by the composite resourceServerKey(poolID, identifier).
+	resourceServers *store.Table[ResourceServer]
+	// resourceServersByPool is a secondary index on resourceServers keyed by UserPoolID.
+	resourceServersByPool *store.Index[ResourceServer]
 	// tokenRevokedBefore maps poolID+":"+username → revocation time for GlobalSignOut.
 	// Access tokens with auth_time before this timestamp are rejected.
 	tokenRevokedBefore map[string]time.Time
-	// identityProviders maps poolID → providerName → IdentityProvider
-	identityProviders map[string]map[string]*IdentityProvider
+	// identityProviders is keyed by the composite identityProviderKey(poolID, providerName).
+	identityProviders *store.Table[IdentityProvider]
+	// identityProvidersByPool is a secondary index on identityProviders keyed by UserPoolID.
+	identityProvidersByPool *store.Index[IdentityProvider]
 	// domains maps domain → UserPoolDomain (domain names are globally unique in Cognito)
-	domains map[string]*UserPoolDomain
+	domains *store.Table[UserPoolDomain]
 	// resourceTags maps ARN → tag key → tag value
 	resourceTags map[string]map[string]string
 	// riskConfigurations maps poolID+":"+clientID → RiskConfiguration (clientID="" for pool-level)
 	riskConfigurations map[string]*RiskConfiguration
 	// logDeliveryConfigs maps poolID → LogDeliveryConfig
 	logDeliveryConfigs map[string]*LogDeliveryConfig
-	// uiCustomizations maps poolID+":"+clientID → UICustomization
-	uiCustomizations map[string]*UICustomization
-	// managedLoginBrandings maps poolID → brandingID → ManagedLoginBranding
-	managedLoginBrandings map[string]map[string]*ManagedLoginBranding
+	// uiCustomizations is keyed by the composite uiKey(poolID, clientID).
+	uiCustomizations *store.Table[UICustomization]
+	// managedLoginBrandings is keyed by the composite managedLoginBrandingKey(poolID, brandingID).
+	managedLoginBrandings *store.Table[ManagedLoginBranding]
+	// managedLoginBrandingsByPool is a secondary index on managedLoginBrandings keyed by UserPoolID.
+	managedLoginBrandingsByPool *store.Index[ManagedLoginBranding]
 	// terms maps poolID → Terms
-	terms map[string]*Terms
-	// userImportJobs maps poolID → jobID → UserImportJob
-	userImportJobs map[string]map[string]*UserImportJob
+	terms *store.Table[Terms]
+	// userImportJobs is keyed by the composite userImportJobKey(poolID, jobID).
+	userImportJobs *store.Table[UserImportJob]
+	// userImportJobsByPool is a secondary index on userImportJobs keyed by UserPoolID.
+	userImportJobsByPool *store.Index[UserImportJob]
 	// poolMfaConfigs maps poolID → full MFA config (SMS/TOTP/Email sub-configs)
 	poolMfaConfigs map[string]*UserPoolMfaFullConfig
 	// attrVerificationCodes maps poolID+":"+username+":"+attrName → pending verification entry
 	attrVerificationCodes map[string]*attrVerificationEntry
 	// typedRiskConfigurations maps poolID+":"+clientID → typed risk configuration
-	typedRiskConfigurations map[string]*TypedRiskConfiguration
+	typedRiskConfigurations *store.Table[TypedRiskConfiguration]
 	// devices maps poolID+":"+username → deviceKey → *Device (device tracking / "remember this device").
 	devices map[string]map[string]*Device
 	// webauthnCredentials maps poolID+":"+username → credentialID → *WebAuthnCredential.
@@ -267,41 +291,31 @@ const totpCodeLen = 6
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                      lockmetrics.New("cognitoidp"),
-		pools:                   make(map[string]*UserPool),
-		poolsByName:             make(map[string]*UserPool),
-		clients:                 make(map[string]*UserPoolClient),
-		clientsByPool:           make(map[string]map[string]*UserPoolClient),
-		users:                   make(map[string]map[string]*User),
-		usersBySub:              make(map[string]string),
-		refreshTokens:           make(map[string]*refreshTokenEntry),
-		refreshTokensByClient:   make(map[string]map[string]struct{}),
-		refreshTokensByUser:     make(map[string]map[string]struct{}),
-		mfaSessions:             make(map[string]*mfaSessionEntry),
-		groups:                  make(map[string]map[string]*Group),
-		groupMembers:            make(map[string]map[string]map[string]struct{}),
-		resourceServers:         make(map[string]map[string]*ResourceServer),
-		tokenRevokedBefore:      make(map[string]time.Time),
-		identityProviders:       make(map[string]map[string]*IdentityProvider),
-		domains:                 make(map[string]*UserPoolDomain),
-		resourceTags:            make(map[string]map[string]string),
-		riskConfigurations:      make(map[string]*RiskConfiguration),
-		logDeliveryConfigs:      make(map[string]*LogDeliveryConfig),
-		uiCustomizations:        make(map[string]*UICustomization),
-		managedLoginBrandings:   make(map[string]map[string]*ManagedLoginBranding),
-		terms:                   make(map[string]*Terms),
-		userImportJobs:          make(map[string]map[string]*UserImportJob),
-		poolMfaConfigs:          make(map[string]*UserPoolMfaFullConfig),
-		attrVerificationCodes:   make(map[string]*attrVerificationEntry),
-		typedRiskConfigurations: make(map[string]*TypedRiskConfiguration),
-		devices:                 make(map[string]map[string]*Device),
-		webauthnCredentials:     make(map[string]map[string]*WebAuthnCredential),
-		authEvents:              make(map[string]map[string]*AuthEvent),
-		accountID:               accountID,
-		region:                  region,
-		endpoint:                endpoint,
+	b := &InMemoryBackend{
+		mu:                    lockmetrics.New("cognitoidp"),
+		registry:              store.NewRegistry(),
+		refreshTokens:         make(map[string]*refreshTokenEntry),
+		refreshTokensByClient: make(map[string]map[string]struct{}),
+		refreshTokensByUser:   make(map[string]map[string]struct{}),
+		mfaSessions:           make(map[string]*mfaSessionEntry),
+		groupMembers:          make(map[string]map[string]map[string]struct{}),
+		tokenRevokedBefore:    make(map[string]time.Time),
+		resourceTags:          make(map[string]map[string]string),
+		riskConfigurations:    make(map[string]*RiskConfiguration),
+		logDeliveryConfigs:    make(map[string]*LogDeliveryConfig),
+		poolMfaConfigs:        make(map[string]*UserPoolMfaFullConfig),
+		attrVerificationCodes: make(map[string]*attrVerificationEntry),
+		devices:               make(map[string]map[string]*Device),
+		webauthnCredentials:   make(map[string]map[string]*WebAuthnCredential),
+		authEvents:            make(map[string]map[string]*AuthEvent),
+		accountID:             accountID,
+		region:                region,
+		endpoint:              endpoint,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // CreateUserPool creates a new user pool with the given name.
@@ -309,7 +323,7 @@ func (b *InMemoryBackend) CreateUserPool(name string) (*UserPool, error) {
 	b.mu.Lock("CreateUserPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsByName[name]; ok {
+	if b.poolNameExists(name) {
 		return nil, fmt.Errorf("%w: pool %q already exists", ErrUserPoolAlreadyExists, name)
 	}
 
@@ -329,9 +343,7 @@ func (b *InMemoryBackend) CreateUserPool(name string) (*UserPool, error) {
 		issuer:    issuer,
 	}
 
-	b.pools[poolID] = pool
-	b.poolsByName[name] = pool
-	b.users[poolID] = make(map[string]*User)
+	b.pools.Put(pool)
 
 	cp := *pool
 
@@ -343,7 +355,7 @@ func (b *InMemoryBackend) DescribeUserPool(userPoolID string) (*UserPool, error)
 	b.mu.RLock("DescribeUserPool")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -358,7 +370,7 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	b.mu.Lock("DeleteUserPool")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -373,27 +385,25 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 		)
 	}
 
-	delete(b.poolsByName, pool.Name)
-	delete(b.pools, userPoolID)
+	b.pools.Delete(userPoolID)
 
-	// Clean up usersBySub entries for all users in this pool before deleting users.
-	for _, u := range b.users[userPoolID] {
-		delete(b.usersBySub, userPoolID+":"+u.Sub)
+	// Copy the index result before deleting: Delete mutates the byPool index's
+	// backing slice in place, so ranging directly over it while deleting would
+	// skip entries.
+	for _, u := range slices.Clone(b.usersByPool.Get(userPoolID)) {
+		b.users.Delete(userKey(userPoolID, u.Username))
 	}
 
-	delete(b.users, userPoolID)
-
-	if poolClients, found := b.clientsByPool[userPoolID]; found {
-		for clientID := range poolClients {
-			delete(b.clients, clientID)
-			b.deleteRefreshTokensForClientAndUserIndexLocked(clientID)
-		}
+	for _, client := range slices.Clone(b.clientsByPool.Get(userPoolID)) {
+		b.clients.Delete(client.ClientID)
+		b.deleteRefreshTokensForClientAndUserIndexLocked(client.ClientID)
 	}
-
-	delete(b.clientsByPool, userPoolID)
 
 	// Clean up groups and group memberships for this pool.
-	delete(b.groups, userPoolID)
+	for _, g := range slices.Clone(b.groupsByPool.Get(userPoolID)) {
+		b.groups.Delete(groupKey(userPoolID, g.GroupName))
+	}
+
 	delete(b.groupMembers, userPoolID)
 
 	return nil
@@ -405,7 +415,7 @@ func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) erro
 	b.mu.Lock("DeleteUserPoolClient")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
@@ -414,13 +424,7 @@ func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) erro
 		return fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
-	delete(b.clients, clientID)
-	if poolClients, found := b.clientsByPool[client.UserPoolID]; found {
-		delete(poolClients, clientID)
-		if len(poolClients) == 0 {
-			delete(b.clientsByPool, client.UserPoolID)
-		}
-	}
+	b.clients.Delete(clientID)
 
 	// Clean up any refresh tokens issued by this client to prevent leaks.
 	b.deleteRefreshTokensForClientAndUserIndexLocked(clientID)
@@ -433,8 +437,10 @@ func (b *InMemoryBackend) ListUserPools() []*UserPool {
 	b.mu.RLock("ListUserPools")
 	defer b.mu.RUnlock()
 
-	out := make([]*UserPool, 0, len(b.pools))
-	for _, p := range b.pools {
+	pools := b.pools.All()
+	out := make([]*UserPool, 0, len(pools))
+
+	for _, p := range pools {
 		cp := *p
 		out = append(out, &cp)
 	}
@@ -449,11 +455,11 @@ func (b *InMemoryBackend) ListUserPoolClients(userPoolID string) ([]*UserPoolCli
 	b.mu.RLock("ListUserPoolClients")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolClients := b.clientsByPool[userPoolID]
+	poolClients := b.clientsByPool.Get(userPoolID)
 	out := make([]*UserPoolClient, 0, len(poolClients))
 
 	for _, c := range poolClients {
@@ -471,7 +477,7 @@ func (b *InMemoryBackend) CreateUserPoolClient(userPoolID, clientName string) (*
 	b.mu.Lock("CreateUserPoolClient")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
@@ -482,11 +488,7 @@ func (b *InMemoryBackend) CreateUserPoolClient(userPoolID, clientName string) (*
 		CreatedAt:  time.Now(),
 	}
 
-	b.clients[client.ClientID] = client
-	if b.clientsByPool[userPoolID] == nil {
-		b.clientsByPool[userPoolID] = make(map[string]*UserPoolClient)
-	}
-	b.clientsByPool[userPoolID][client.ClientID] = client
+	b.clients.Put(client)
 
 	cp := *client
 
@@ -498,7 +500,7 @@ func (b *InMemoryBackend) DescribeUserPoolClient(userPoolID, clientID string) (*
 	b.mu.RLock("DescribeUserPoolClient")
 	defer b.mu.RUnlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
@@ -517,17 +519,16 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 	b.mu.Lock("SignUp")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	poolUsers, ok := b.users[client.UserPoolID]
-	if !ok {
+	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	if _, exists := poolUsers[username]; exists {
+	if _, exists := b.users.Get(userKey(client.UserPoolID, username)); exists {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
@@ -554,8 +555,7 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		ConfirmCodeExpiresAt: time.Now().Add(confirmCodeTTL),
 	}
 
-	poolUsers[username] = user
-	b.usersBySub[client.UserPoolID+":"+user.Sub] = username
+	b.users.Put(user)
 
 	cp := *user
 
@@ -567,17 +567,16 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 	b.mu.Lock("ConfirmSignUp")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	poolUsers, ok := b.users[client.UserPoolID]
-	if !ok {
+	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -633,22 +632,17 @@ func (b *InMemoryBackend) AdminInitiateAuth(
 	b.mu.Lock("AdminInitiateAuth")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok || client.UserPoolID != userPoolID {
 		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
 	}
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -664,16 +658,11 @@ func (b *InMemoryBackend) AdminCreateUser(
 	b.mu.Lock("AdminCreateUser")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	if _, exists := poolUsers[username]; exists {
+	if _, exists := b.users.Get(userKey(userPoolID, username)); exists {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, username)
 	}
 
@@ -703,8 +692,7 @@ func (b *InMemoryBackend) AdminCreateUser(
 		Enabled:      true,
 	}
 
-	poolUsers[username] = user
-	b.usersBySub[userPoolID+":"+user.Sub] = username
+	b.users.Put(user)
 
 	cp := *user
 
@@ -716,17 +704,12 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	b.mu.Lock("AdminSetUserPassword")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
-		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -759,12 +742,11 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 	b.mu.Lock("AdminConfirmSignUp")
 	defer b.mu.Unlock()
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -780,12 +762,11 @@ func (b *InMemoryBackend) AdminGetUser(userPoolID, username string) (*User, erro
 	b.mu.RLock("AdminGetUser")
 	defer b.mu.RUnlock()
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -800,18 +781,15 @@ func (b *InMemoryBackend) AdminDeleteUser(userPoolID, username string) error {
 	b.mu.Lock("AdminDeleteUser")
 	defer b.mu.Unlock()
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok2 := poolUsers[username]; !ok2 {
+	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	u := poolUsers[username]
-	delete(b.usersBySub, userPoolID+":"+u.Sub)
-	delete(poolUsers, username)
+	b.users.Delete(userKey(userPoolID, username))
 
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
 
@@ -823,11 +801,11 @@ func (b *InMemoryBackend) ListUsers(userPoolID string) ([]*User, error) {
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	poolUsers := b.usersByPool.Get(userPoolID)
 	out := make([]*User, 0, len(poolUsers))
 
 	for _, u := range poolUsers {
@@ -847,17 +825,16 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 	b.mu.Lock("ForgotPassword")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	poolUsers, ok := b.users[client.UserPoolID]
-	if !ok {
+	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -886,17 +863,16 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 	b.mu.Lock("ConfirmForgotPassword")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	poolUsers, ok := b.users[client.UserPoolID]
-	if !ok {
+	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -909,7 +885,7 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 		return fmt.Errorf("%w: invalid reset code", ErrCodeMismatch)
 	}
 
-	pool, ok2 := b.pools[client.UserPoolID]
+	pool, ok2 := b.pools.Get(client.UserPoolID)
 	if ok2 {
 		if err2 := validatePassword(pool.PasswordPolicy, newPassword); err2 != nil {
 			return err2
@@ -960,7 +936,7 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 		return fmt.Errorf("%w: previous password is incorrect", ErrNotAuthorized)
 	}
 
-	if pool, ok := b.pools[u.UserPoolID]; ok {
+	if pool, ok := b.pools.Get(u.UserPoolID); ok {
 		if err3 := validatePassword(pool.PasswordPolicy, proposedPassword); err3 != nil {
 			return err3
 		}
@@ -980,7 +956,7 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 // It uses the usersBySub secondary index for O(1) lookup after JWT parsing.
 // The caller must hold b.mu (either read or write lock).
 func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User, error) {
-	for _, pool := range b.pools {
+	for _, pool := range b.pools.All() {
 		claims, err := pool.issuer.ParseAccessToken(accessToken)
 		if err != nil {
 			continue
@@ -992,22 +968,17 @@ func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User
 		}
 
 		// O(1) lookup via secondary index.
-		username, found := b.usersBySub[pool.ID+":"+sub]
+		u, found := b.userBySub(pool.ID, sub)
 		if !found {
 			continue
 		}
 
 		// Check per-user token revocation: reject tokens issued before GlobalSignOut.
-		if revokedBefore, ok2 := b.tokenRevokedBefore[pool.ID+":"+username]; ok2 {
+		if revokedBefore, ok2 := b.tokenRevokedBefore[pool.ID+":"+u.Username]; ok2 {
 			authTime, _ := claims["auth_time"].(float64)
 			if time.Unix(int64(authTime), 0).Before(revokedBefore) {
 				continue
 			}
-		}
-
-		u, ok := b.users[pool.ID][username]
-		if !ok {
-			continue
 		}
 
 		return u, nil
@@ -1023,7 +994,7 @@ func (b *InMemoryBackend) GetSigningCertificate(userPoolID string) (string, erro
 	b.mu.RLock("GetSigningCertificate")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -1041,7 +1012,7 @@ func (b *InMemoryBackend) GetUserPoolJWKS(userPoolID string) (*JWKSResponse, err
 	b.mu.RLock("GetUserPoolJWKS")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -1064,7 +1035,7 @@ func (b *InMemoryBackend) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey
 	b.mu.RLock("GetJWTPublicKey")
 	defer b.mu.RUnlock()
 
-	for _, pool := range b.pools {
+	for _, pool := range b.pools.All() {
 		if pool.issuer == nil || pool.issuer.issuerURL != issuerURL {
 			continue
 		}
@@ -1087,22 +1058,17 @@ func (b *InMemoryBackend) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey
 // matching AWS (existence-error masking only applies to the non-admin, unauthenticated API).
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findUserByClientID(clientID, username string) (*User, *UserPool, error) {
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	pool, ok := b.pools[client.UserPoolID]
+	pool, ok := b.pools.Get(client.UserPoolID)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	poolUsers, ok := b.users[client.UserPoolID]
-	if !ok {
-		return nil, nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
-	}
-
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return nil, nil, unknownUserAuthError(client, username)
 	}
@@ -1132,7 +1098,7 @@ const challengePasswordVerifier = "PASSWORD_VERIFIER"
 // isAuthFlowAllowed checks whether the given flow is permitted by the client's ExplicitAuthFlows list.
 // Returns true when no restriction is configured.
 func (b *InMemoryBackend) isAuthFlowAllowed(clientID, authFlow string) bool {
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok || len(client.ExplicitAuthFlows) == 0 {
 		return true
 	}
@@ -1248,7 +1214,7 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 	var scopes []string
 	refreshTTL := defaultRefreshTokenTTL
 	var accessExpiry, idExpiry time.Duration
-	if client, ok := b.clients[clientID]; ok {
+	if client, ok := b.clients.Get(clientID); ok {
 		scopes = client.AllowedOAuthScopes
 		if d := tokenExpiryFor(client, "AccessToken"); d > 0 {
 			accessExpiry = d
@@ -1311,13 +1277,12 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		return nil, fmt.Errorf("%w: refresh token was issued for a different client", ErrNotAuthorized)
 	}
 
-	pool, ok := b.pools[entry.PoolID]
+	pool, ok := b.pools.Get(entry.PoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
 	}
 
-	// A missing pool entry yields a nil map, whose lookup safely reports !ok.
-	user, ok := b.users[entry.PoolID][entry.Username]
+	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
@@ -1332,7 +1297,7 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 	var scopes []string
 	refreshTTL := defaultRefreshTokenTTL
 	var accessExpiry, idExpiry time.Duration
-	if c, cok := b.clients[clientID]; cok {
+	if c, cok := b.clients.Get(clientID); cok {
 		scopes = c.AllowedOAuthScopes
 		if d := tokenExpiryFor(c, "AccessToken"); d > 0 {
 			accessExpiry = d
@@ -1431,17 +1396,12 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) 
 		return nil, fmt.Errorf("%w: MFA session was issued for a different client", ErrNotAuthorized)
 	}
 
-	pool, ok := b.pools[entry.PoolID]
+	pool, ok := b.pools.Get(entry.PoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
 	}
 
-	poolUsers, ok := b.users[entry.PoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, entry.PoolID)
-	}
-
-	user, ok := poolUsers[entry.Username]
+	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
@@ -1496,15 +1456,11 @@ func (b *InMemoryBackend) CreateGroup(userPoolID, groupName, description string,
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if b.groups[userPoolID] == nil {
-		b.groups[userPoolID] = make(map[string]*Group)
-	}
-
-	if _, exists := b.groups[userPoolID][groupName]; exists {
+	if _, exists := b.groups.Get(groupKey(userPoolID, groupName)); exists {
 		return nil, fmt.Errorf("%w: group %q already exists in pool %q", ErrAlreadyExists, groupName, userPoolID)
 	}
 
@@ -1515,7 +1471,7 @@ func (b *InMemoryBackend) CreateGroup(userPoolID, groupName, description string,
 		Precedence:  precedence,
 		CreatedAt:   time.Now().UTC(),
 	}
-	b.groups[userPoolID][groupName] = g
+	b.groups.Put(g)
 
 	cp := *g
 
@@ -1527,15 +1483,15 @@ func (b *InMemoryBackend) DeleteGroup(userPoolID, groupName string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.groups[userPoolID][groupName]; !ok {
+	if _, ok := b.groups.Get(groupKey(userPoolID, groupName)); !ok {
 		return fmt.Errorf("%w: group %q not found in pool %q", ErrGroupNotFound, groupName, userPoolID)
 	}
 
-	delete(b.groups[userPoolID], groupName)
+	b.groups.Delete(groupKey(userPoolID, groupName))
 
 	if b.groupMembers[userPoolID] != nil {
 		delete(b.groupMembers[userPoolID], groupName)
@@ -1549,11 +1505,11 @@ func (b *InMemoryBackend) ListGroups(userPoolID string) ([]*Group, error) {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolGroups := b.groups[userPoolID]
+	poolGroups := b.groupsByPool.Get(userPoolID)
 	out := make([]*Group, 0, len(poolGroups))
 
 	for _, g := range poolGroups {
@@ -1571,16 +1527,15 @@ func (b *InMemoryBackend) AdminAddUserToGroup(userPoolID, username, groupName st
 	b.mu.Lock("AdminAddUserToGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.groups[userPoolID][groupName]; !ok {
+	if _, ok := b.groups.Get(groupKey(userPoolID, groupName)); !ok {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
-	poolUsers := b.users[userPoolID]
-	if _, ok := poolUsers[username]; !ok {
+	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
@@ -1602,11 +1557,11 @@ func (b *InMemoryBackend) AdminRemoveUserFromGroup(userPoolID, username, groupNa
 	b.mu.Lock("AdminRemoveUserFromGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.groups[userPoolID][groupName]; !ok {
+	if _, ok := b.groups.Get(groupKey(userPoolID, groupName)); !ok {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1622,11 +1577,11 @@ func (b *InMemoryBackend) AdminListGroupsForUser(userPoolID, username string) ([
 	b.mu.RLock("AdminListGroupsForUser")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.users[userPoolID][username]; !ok {
+	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
@@ -1637,7 +1592,7 @@ func (b *InMemoryBackend) AdminListGroupsForUser(userPoolID, username string) ([
 			continue
 		}
 
-		if g, ok := b.groups[userPoolID][groupName]; ok {
+		if g, ok := b.groups.Get(groupKey(userPoolID, groupName)); ok {
 			cp := *g
 			out = append(out, &cp)
 		}
@@ -1673,11 +1628,11 @@ func (b *InMemoryBackend) AdminUpdateUserAttributes(userPoolID, username string,
 	b.mu.Lock("AdminUpdateUserAttributes")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	u, ok := b.users[userPoolID][username]
+	u, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -1698,7 +1653,7 @@ func (b *InMemoryBackend) AddCustomAttributes(userPoolID string, attrs []SchemaA
 	b.mu.Lock("AddCustomAttributes")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -1723,11 +1678,11 @@ func (b *InMemoryBackend) AddUserPoolClientSecret(userPoolID, clientID string) (
 	b.mu.Lock("AddUserPoolClientSecret")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
@@ -1747,11 +1702,11 @@ func (b *InMemoryBackend) AdminDeleteUserAttributes(userPoolID, username string,
 	b.mu.Lock("AdminDeleteUserAttributes")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	u, ok := b.users[userPoolID][username]
+	u, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -1770,7 +1725,7 @@ func (b *InMemoryBackend) AdminDisableProviderForUser(userPoolID string) error {
 	b.mu.RLock("AdminDisableProviderForUser")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
@@ -1782,11 +1737,11 @@ func (b *InMemoryBackend) AdminDisableUser(userPoolID, username string) error {
 	b.mu.Lock("AdminDisableUser")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	u, ok := b.users[userPoolID][username]
+	u, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -1801,11 +1756,11 @@ func (b *InMemoryBackend) AdminEnableUser(userPoolID, username string) error {
 	b.mu.Lock("AdminEnableUser")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	u, ok := b.users[userPoolID][username]
+	u, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -1826,11 +1781,11 @@ func (b *InMemoryBackend) AdminForgetDevice(userPoolID, username, deviceKey stri
 	b.mu.Lock("AdminForgetDevice")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.users[userPoolID][username]; !ok {
+	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
@@ -1862,11 +1817,11 @@ func (b *InMemoryBackend) ValidatePoolUser(userPoolID, username string) error {
 	b.mu.RLock("ValidatePoolUser")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.users[userPoolID][username]; !ok {
+	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
@@ -1878,20 +1833,19 @@ func (b *InMemoryBackend) ListUsersInGroup(userPoolID, groupName string) ([]*Use
 	b.mu.RLock("ListUsersInGroup")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.groups[userPoolID][groupName]; !ok {
+	if _, ok := b.groups.Get(groupKey(userPoolID, groupName)); !ok {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
 	members := b.groupMembers[userPoolID][groupName]
-	poolUsers := b.users[userPoolID]
 	out := make([]*User, 0, len(members))
 
 	for username := range members {
-		u, ok := poolUsers[username]
+		u, ok := b.users.Get(userKey(userPoolID, username))
 		if !ok {
 			continue
 		}
@@ -1911,11 +1865,11 @@ func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) er
 	b.mu.Lock("AdminUserGlobalSignOut")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.users[userPoolID][username]; !ok {
+	if _, ok := b.users.Get(userKey(userPoolID, username)); !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
@@ -1947,17 +1901,16 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 	b.mu.Lock("ResendConfirmationCode")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return "", fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	poolUsers, ok := b.users[client.UserPoolID]
-	if !ok {
+	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
-	user, ok := poolUsers[username]
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
 		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -1978,7 +1931,7 @@ func (b *InMemoryBackend) SetUserPoolMfaConfig(userPoolID, mfaConfig string) err
 	b.mu.Lock("SetUserPoolMfaConfig")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -1993,11 +1946,11 @@ func (b *InMemoryBackend) UpdateGroup(userPoolID, groupName, description string,
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	g, ok := b.groups[userPoolID][groupName]
+	g, ok := b.groups.Get(groupKey(userPoolID, groupName))
 	if !ok {
 		return nil, fmt.Errorf("%w: group %q not found in pool %q", ErrGroupNotFound, groupName, userPoolID)
 	}
@@ -2015,28 +1968,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.pools = make(map[string]*UserPool)
-	b.poolsByName = make(map[string]*UserPool)
-	b.clients = make(map[string]*UserPoolClient)
-	b.clientsByPool = make(map[string]map[string]*UserPoolClient)
-	b.users = make(map[string]map[string]*User)
-	b.usersBySub = make(map[string]string)
+	b.registry.ResetAll()
+
 	b.refreshTokens = make(map[string]*refreshTokenEntry)
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
-	b.groups = make(map[string]map[string]*Group)
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
-	b.resourceServers = make(map[string]map[string]*ResourceServer)
 	b.tokenRevokedBefore = make(map[string]time.Time)
-	b.identityProviders = make(map[string]map[string]*IdentityProvider)
-	b.domains = make(map[string]*UserPoolDomain)
 	b.resourceTags = make(map[string]map[string]string)
 	b.riskConfigurations = make(map[string]*RiskConfiguration)
 	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)
-	b.uiCustomizations = make(map[string]*UICustomization)
-	b.managedLoginBrandings = make(map[string]map[string]*ManagedLoginBranding)
-	b.terms = make(map[string]*Terms)
-	b.userImportJobs = make(map[string]map[string]*UserImportJob)
 	b.devices = make(map[string]map[string]*Device)
 	b.webauthnCredentials = make(map[string]map[string]*WebAuthnCredential)
 	b.authEvents = make(map[string]map[string]*AuthEvent)
@@ -2047,7 +1988,7 @@ func (b *InMemoryBackend) UpdateUserPool(userPoolID, mfaConfiguration string) er
 	b.mu.Lock("UpdateUserPool")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -2066,11 +2007,11 @@ func (b *InMemoryBackend) UpdateUserPoolClient(userPoolID, clientID, clientName 
 	b.mu.Lock("UpdateUserPoolClient")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
@@ -2095,11 +2036,11 @@ func (b *InMemoryBackend) AdminResetUserPassword(userPoolID, username string) er
 	b.mu.Lock("AdminResetUserPassword")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	u, ok := b.users[userPoolID][username]
+	u, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -2118,11 +2059,11 @@ func (b *InMemoryBackend) GetGroup(userPoolID, groupName string) (*Group, error)
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	g, ok := b.groups[userPoolID][groupName]
+	g, ok := b.groups.Get(groupKey(userPoolID, groupName))
 	if !ok {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
@@ -2145,8 +2086,7 @@ func (b *InMemoryBackend) DeleteUser(accessToken string) error {
 	poolID := u.UserPoolID
 	username := u.Username
 
-	delete(b.usersBySub, poolID+":"+u.Sub)
-	delete(b.users[poolID], username)
+	b.users.Delete(userKey(poolID, username))
 	b.deleteRefreshTokensForUserLocked(poolID, username)
 
 	return nil
@@ -2199,11 +2139,11 @@ func (b *InMemoryBackend) ListUsersFiltered(userPoolID, filter string) ([]*User,
 	b.mu.RLock("ListUsersFiltered")
 	defer b.mu.RUnlock()
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	poolUsers := b.usersByPool.Get(userPoolID)
 	prefix, attrFilter := parseListUsersFilter(filter)
 
 	out := make([]*User, 0, len(poolUsers))
@@ -2285,12 +2225,7 @@ func (b *InMemoryBackend) AddUserPoolInternal(pool *UserPool) {
 	b.mu.Lock("AddUserPoolInternal")
 	defer b.mu.Unlock()
 
-	b.pools[pool.ID] = pool
-	b.poolsByName[pool.Name] = pool
-
-	if _, ok := b.users[pool.ID]; !ok {
-		b.users[pool.ID] = make(map[string]*User)
-	}
+	b.pools.Put(pool)
 }
 
 // AddUserPoolClientInternal seeds a user pool client directly into the backend.
@@ -2299,11 +2234,7 @@ func (b *InMemoryBackend) AddUserPoolClientInternal(client *UserPoolClient) {
 	b.mu.Lock("AddUserPoolClientInternal")
 	defer b.mu.Unlock()
 
-	b.clients[client.ClientID] = client
-	if b.clientsByPool[client.UserPoolID] == nil {
-		b.clientsByPool[client.UserPoolID] = make(map[string]*UserPoolClient)
-	}
-	b.clientsByPool[client.UserPoolID][client.ClientID] = client
+	b.clients.Put(client)
 }
 
 // deleteRefreshTokenLocked deletes a refresh token and updates secondary indexes.
@@ -2416,12 +2347,7 @@ func (b *InMemoryBackend) AddUserInternal(user *User) {
 	b.mu.Lock("AddUserInternal")
 	defer b.mu.Unlock()
 
-	if b.users[user.UserPoolID] == nil {
-		b.users[user.UserPoolID] = make(map[string]*User)
-	}
-
-	b.users[user.UserPoolID][user.Username] = user
-	b.usersBySub[user.UserPoolID+":"+user.Sub] = user.Username
+	b.users.Put(user)
 }
 
 // GetPoolMetrics returns aggregate statistics for a user pool.
@@ -2429,7 +2355,7 @@ func (b *InMemoryBackend) GetPoolMetrics(userPoolID string) (*PoolMetrics, error
 	b.mu.RLock("GetPoolMetrics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
@@ -2442,9 +2368,9 @@ func (b *InMemoryBackend) GetPoolMetrics(userPoolID string) (*PoolMetrics, error
 	}
 
 	return &PoolMetrics{
-		UserCount:        len(b.users[userPoolID]),
-		ClientCount:      len(b.clientsByPool[userPoolID]),
-		GroupCount:       len(b.groups[userPoolID]),
+		UserCount:        len(b.usersByPool.Get(userPoolID)),
+		ClientCount:      len(b.clientsByPool.Get(userPoolID)),
+		GroupCount:       len(b.groupsByPool.Get(userPoolID)),
 		ActiveTokenCount: tokenCount,
 	}, nil
 }

@@ -136,7 +136,7 @@ func (b *InMemoryBackend) userGroupsLocked(poolID, username string) []string {
 		if _, isMember := members[username]; !isMember {
 			continue
 		}
-		if g, ok := b.groups[poolID][groupName]; ok {
+		if g, ok := b.groups.Get(groupKey(poolID, groupName)); ok {
 			matched = append(matched, gp{name: groupName, precedence: g.Precedence})
 		}
 	}
@@ -239,7 +239,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 	b.mu.Lock("CreateUserPoolWithOpts")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsByName[name]; ok {
+	if b.poolNameExists(name) {
 		return nil, fmt.Errorf("%w: pool %q already exists", ErrUserPoolAlreadyExists, name)
 	}
 
@@ -268,9 +268,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		DeletionProtection:     opts.DeletionProtection,
 	}
 
-	b.pools[poolID] = pool
-	b.poolsByName[name] = pool
-	b.users[poolID] = make(map[string]*User)
+	b.pools.Put(pool)
 
 	cp := *pool
 
@@ -285,7 +283,7 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 	b.mu.Lock("CreateUserPoolClientWithOpts")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
@@ -337,11 +335,7 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		client.ClientSecret = randomAlphanumeric(clientSecretLen)
 	}
 
-	b.clients[client.ClientID] = client
-	if b.clientsByPool[userPoolID] == nil {
-		b.clientsByPool[userPoolID] = make(map[string]*UserPoolClient)
-	}
-	b.clientsByPool[userPoolID][client.ClientID] = client
+	b.clients.Put(client)
 
 	cp := *client
 
@@ -434,11 +428,11 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 	b.mu.Lock("UpdateUserPoolClientWithOpts")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
@@ -485,7 +479,7 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 	b.mu.Lock("UpdateUserPoolWithOpts")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -535,12 +529,12 @@ func (b *InMemoryBackend) SignUpWithValidation(
 	b.mu.Lock("SignUpWithValidation")
 	defer b.mu.Unlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	pool, ok := b.pools[client.UserPoolID]
+	pool, ok := b.pools.Get(client.UserPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
@@ -549,8 +543,7 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		return nil, err
 	}
 
-	poolUsers := b.users[client.UserPoolID]
-	if _, exists := poolUsers[username]; exists {
+	if _, exists := b.users.Get(userKey(client.UserPoolID, username)); exists {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
@@ -597,8 +590,7 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		ConfirmCodeExpiresAt: confirmExpiry,
 	}
 
-	poolUsers[username] = user
-	b.usersBySub[client.UserPoolID+":"+user.Sub] = username
+	b.users.Put(user)
 
 	cp := *user
 
@@ -626,7 +618,7 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 		return nil, fmt.Errorf("%w: session was issued for a different client", ErrNotAuthorized)
 	}
 
-	pool, ok := b.pools[entry.PoolID]
+	pool, ok := b.pools.Get(entry.PoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
 	}
@@ -635,7 +627,7 @@ func (b *InMemoryBackend) RespondToNewPasswordRequired(
 		return nil, err
 	}
 
-	user, ok := b.users[entry.PoolID][entry.Username]
+	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
@@ -743,11 +735,11 @@ func (b *InMemoryBackend) AdminSetUserMFASetting(
 	b.mu.Lock("AdminSetUserMFASetting")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	user, ok := b.users[userPoolID][username]
+	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -809,14 +801,13 @@ func (b *InMemoryBackend) EvictExpiredMFASessions() {
 			continue
 		}
 
-		poolUsers, poolExists := b.users[entry.PoolID]
-		if !poolExists {
+		if _, poolExists := b.pools.Get(entry.PoolID); !poolExists {
 			delete(b.mfaSessions, token)
 
 			continue
 		}
 
-		if _, userExists := poolUsers[entry.Username]; !userExists {
+		if _, userExists := b.users.Get(userKey(entry.PoolID, entry.Username)); !userExists {
 			delete(b.mfaSessions, token)
 		}
 	}
@@ -832,15 +823,11 @@ func (b *InMemoryBackend) CreateResourceServer(
 	b.mu.Lock("CreateResourceServer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if b.resourceServers[userPoolID] == nil {
-		b.resourceServers[userPoolID] = make(map[string]*ResourceServer)
-	}
-
-	if _, exists := b.resourceServers[userPoolID][identifier]; exists {
+	if _, exists := b.resourceServers.Get(resourceServerKey(userPoolID, identifier)); exists {
 		return nil, fmt.Errorf(
 			"%w: resource server %q already exists in pool %q",
 			ErrAlreadyExists,
@@ -858,7 +845,7 @@ func (b *InMemoryBackend) CreateResourceServer(
 		Name:       name,
 		Scopes:     scopesCopy,
 	}
-	b.resourceServers[userPoolID][identifier] = rs
+	b.resourceServers.Put(rs)
 
 	cp := *rs
 
@@ -870,11 +857,11 @@ func (b *InMemoryBackend) DescribeResourceServer(userPoolID, identifier string) 
 	b.mu.RLock("DescribeResourceServer")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	rs, ok := b.resourceServers[userPoolID][identifier]
+	rs, ok := b.resourceServers.Get(resourceServerKey(userPoolID, identifier))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: resource server %q not found in pool %q",
@@ -894,11 +881,11 @@ func (b *InMemoryBackend) ListResourceServers(userPoolID string) ([]*ResourceSer
 	b.mu.RLock("ListResourceServers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolServers := b.resourceServers[userPoolID]
+	poolServers := b.resourceServersByPool.Get(userPoolID)
 	out := make([]*ResourceServer, 0, len(poolServers))
 
 	for _, rs := range poolServers {
@@ -919,11 +906,11 @@ func (b *InMemoryBackend) UpdateResourceServer(
 	b.mu.Lock("UpdateResourceServer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	rs, ok := b.resourceServers[userPoolID][identifier]
+	rs, ok := b.resourceServers.Get(resourceServerKey(userPoolID, identifier))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: resource server %q not found in pool %q",
@@ -953,11 +940,11 @@ func (b *InMemoryBackend) DeleteResourceServer(userPoolID, identifier string) er
 	b.mu.Lock("DeleteResourceServer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.resourceServers[userPoolID][identifier]; !ok {
+	if _, ok := b.resourceServers.Get(resourceServerKey(userPoolID, identifier)); !ok {
 		return fmt.Errorf(
 			"%w: resource server %q not found in pool %q",
 			ErrUserPoolNotFound,
@@ -966,7 +953,7 @@ func (b *InMemoryBackend) DeleteResourceServer(userPoolID, identifier string) er
 		)
 	}
 
-	delete(b.resourceServers[userPoolID], identifier)
+	b.resourceServers.Delete(resourceServerKey(userPoolID, identifier))
 
 	return nil
 }
@@ -996,12 +983,12 @@ func (b *InMemoryBackend) RespondToSRPChallenge(clientID, session string) (*Toke
 		return nil, fmt.Errorf("%w: session was issued for a different client", ErrNotAuthorized)
 	}
 
-	pool, ok := b.pools[entry.PoolID]
+	pool, ok := b.pools.Get(entry.PoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
 	}
 
-	user, ok := b.users[entry.PoolID][entry.Username]
+	user, ok := b.users.Get(userKey(entry.PoolID, entry.Username))
 	if !ok {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
 	}
@@ -1025,17 +1012,12 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 	b.mu.Lock("AdminCreateUserWithPolicy")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	if _, exists := poolUsers[username]; exists {
+	if _, exists := b.users.Get(userKey(userPoolID, username)); exists {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, username)
 	}
 
@@ -1069,8 +1051,7 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 		Enabled:      true,
 	}
 
-	poolUsers[username] = user
-	b.usersBySub[userPoolID+":"+user.Sub] = username
+	b.users.Put(user)
 
 	cp := *user
 
@@ -1085,7 +1066,7 @@ func (b *InMemoryBackend) ValidateSecretHash(clientID, username, providedHash st
 	b.mu.RLock("ValidateSecretHash")
 	defer b.mu.RUnlock()
 
-	client, ok := b.clients[clientID]
+	client, ok := b.clients.Get(clientID)
 	if !ok {
 		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
