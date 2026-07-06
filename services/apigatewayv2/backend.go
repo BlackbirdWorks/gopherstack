@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // defaultRegion is used for ARNs and execute-api endpoints when the request
@@ -466,49 +468,59 @@ type StorageBackend interface {
 	DeleteRouteRequestParameter(apiID, routeID, requestParameterKey string) error
 }
 
-// apiData holds per-API state.
-type apiData struct {
-	stages               map[string]*Stage
-	routes               map[string]*Route
-	integrations         map[string]*Integration
-	deployments          map[string]*Deployment
-	authorizers          map[string]*Authorizer
-	integrationResponses map[string]map[string]*IntegrationResponse
-	models               map[string]*Model
-	routeResponses       map[string]map[string]*RouteResponse
-	api                  API
-}
-
-// InMemoryBackend implements StorageBackend using in-memory maps.
+// InMemoryBackend implements StorageBackend using pkgs/store tables. Every
+// resource family nested under an API/domain name/portal product (formerly a
+// per-parent nested map -- see apiData in the pre-Phase-3.3 history) is now a
+// single flat table keyed by a composite "<parentID>#<childID>" string, with
+// a secondary [store.Index] grouping by parent ID. See store_setup.go's doc
+// comment for the full clean/dirty table split.
 type InMemoryBackend struct {
-	apis                         map[string]*apiData
-	domainNames                  map[string]*DomainName
-	apiMappings                  map[string]map[string]*APIMapping
-	portals                      map[string]*Portal
-	portalProducts               map[string]*PortalProduct
-	portalProductSharingPolicies map[string]string
-	productPages                 map[string][]*ProductPage             // key: portalProductID
-	productREPages               map[string][]*ProductRestEndpointPage // key: portalProductID
-	vpcLinks                     map[string]*VpcLink
-	routingRules                 map[string]map[string]*RoutingRule
-	mu                           *lockmetrics.RWMutex
+	apis                              *store.Table[API]
+	stages                            *store.Table[Stage]
+	stagesByAPI                       *store.Index[Stage]
+	routes                            *store.Table[Route]
+	routesByAPI                       *store.Index[Route]
+	integrations                      *store.Table[Integration]
+	integrationsByAPI                 *store.Index[Integration]
+	deployments                       *store.Table[Deployment]
+	deploymentsByAPI                  *store.Index[Deployment]
+	authorizers                       *store.Table[Authorizer]
+	authorizersByAPI                  *store.Index[Authorizer]
+	models                            *store.Table[Model]
+	modelsByAPI                       *store.Index[Model]
+	integrationResponses              *store.Table[IntegrationResponse]
+	integrationResponsesByIntegration *store.Index[IntegrationResponse]
+	routeResponses                    *store.Table[RouteResponse]
+	routeResponsesByRoute             *store.Index[RouteResponse]
+	domainNames                       *store.Table[DomainName]
+	apiMappings                       *store.Table[APIMapping]
+	apiMappingsByDomain               *store.Index[APIMapping]
+	portals                           *store.Table[Portal]
+	portalProducts                    *store.Table[PortalProduct]
+	// portalProductSharingPolicies (portalProductID -> policy document) is a
+	// plain map, not a store.Table -- see store_setup.go's doc comment for why.
+	portalProductSharingPolicies  map[string]string
+	productPages                  *store.Table[ProductPage]
+	productPagesByPortalProduct   *store.Index[ProductPage]
+	productREPages                *store.Table[ProductRestEndpointPage]
+	productREPagesByPortalProduct *store.Index[ProductRestEndpointPage]
+	vpcLinks                      *store.Table[VpcLink]
+	routingRules                  *store.Table[RoutingRule]
+	routingRulesByDomain          *store.Index[RoutingRule]
+	registry                      *store.Registry
+	mu                            *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		apis:                         make(map[string]*apiData),
-		domainNames:                  make(map[string]*DomainName),
-		apiMappings:                  make(map[string]map[string]*APIMapping),
-		portals:                      make(map[string]*Portal),
-		portalProducts:               make(map[string]*PortalProduct),
+	b := &InMemoryBackend{
 		portalProductSharingPolicies: make(map[string]string),
-		productPages:                 make(map[string][]*ProductPage),
-		productREPages:               make(map[string][]*ProductRestEndpointPage),
-		vpcLinks:                     make(map[string]*VpcLink),
-		routingRules:                 make(map[string]map[string]*RoutingRule),
+		registry:                     store.NewRegistry(),
 		mu:                           lockmetrics.New("apigatewayv2"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // copyTags returns a deep copy of a tags map, guarding against nil.
@@ -520,21 +532,28 @@ func copyTags(src map[string]string) map[string]string {
 	return maps.Clone(src)
 }
 
-// Reset clears all backend state, reinitialising all maps.
+// Reset clears all backend state, reinitialising all tables.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.apis = make(map[string]*apiData)
-	b.domainNames = make(map[string]*DomainName)
-	b.apiMappings = make(map[string]map[string]*APIMapping)
-	b.portals = make(map[string]*Portal)
-	b.portalProducts = make(map[string]*PortalProduct)
+	b.registry.ResetAll()
+	// The "dirty" tables (see store_setup.go's registerAllTables doc) are
+	// deliberately NOT on b.registry, so each needs its own Reset() call here.
+	b.stages.Reset()
+	b.routes.Reset()
+	b.integrations.Reset()
+	b.deployments.Reset()
+	b.authorizers.Reset()
+	b.models.Reset()
+	b.integrationResponses.Reset()
+	b.routeResponses.Reset()
+	b.apiMappings.Reset()
+	b.productPages.Reset()
+	b.productREPages.Reset()
+	b.routingRules.Reset()
+
 	b.portalProductSharingPolicies = make(map[string]string)
-	b.productPages = make(map[string][]*ProductPage)
-	b.productREPages = make(map[string][]*ProductRestEndpointPage)
-	b.vpcLinks = make(map[string]*VpcLink)
-	b.routingRules = make(map[string]map[string]*RoutingRule)
 }
 
 // randomID generates a cryptographically random 10-character alphanumeric ID.
@@ -609,19 +628,11 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 		api.CorsConfiguration = &clone
 	}
 
-	b.apis[id] = &apiData{
-		api:                  api,
-		stages:               make(map[string]*Stage),
-		routes:               make(map[string]*Route),
-		integrations:         make(map[string]*Integration),
-		deployments:          make(map[string]*Deployment),
-		authorizers:          make(map[string]*Authorizer),
-		integrationResponses: make(map[string]map[string]*IntegrationResponse),
-		models:               make(map[string]*Model),
-		routeResponses:       make(map[string]map[string]*RouteResponse),
-	}
+	b.apis.Put(&api)
 
-	return &api, nil
+	cp := api
+
+	return &cp, nil
 }
 
 // GetAPI retrieves an API by ID.
@@ -629,12 +640,12 @@ func (b *InMemoryBackend) GetAPI(apiID string) (*API, error) {
 	b.mu.RLock("GetAPI")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
 
-	cp := d.api
+	cp := *api
 
 	return &cp, nil
 }
@@ -644,9 +655,11 @@ func (b *InMemoryBackend) GetAPIs() ([]API, error) {
 	b.mu.RLock("GetAPIs")
 	defer b.mu.RUnlock()
 
-	result := make([]API, 0, len(b.apis))
-	for _, d := range b.apis {
-		result = append(result, d.api)
+	all := b.apis.All()
+	result := make([]API, 0, len(all))
+
+	for _, api := range all {
+		result = append(result, *api)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -656,23 +669,61 @@ func (b *InMemoryBackend) GetAPIs() ([]API, error) {
 	return result, nil
 }
 
+// deleteAPIChildrenLocked removes every child resource (stages, routes,
+// integrations, deployments, authorizers, models, and their nested
+// responses) belonging to apiID. It mirrors the implicit cascade that
+// deleting the pre-Phase-3.3 nested apiData map provided. Callers must
+// already hold b.mu.Lock.
+func (b *InMemoryBackend) deleteAPIChildrenLocked(apiID string) {
+	for _, s := range slices.Clone(b.stagesByAPI.Get(apiID)) {
+		b.stages.Delete(stageKey(apiID, s.StageName))
+	}
+
+	for _, r := range slices.Clone(b.routesByAPI.Get(apiID)) {
+		for _, rr := range slices.Clone(b.routeResponsesByRoute.Get(routeKey(apiID, r.RouteID))) {
+			b.routeResponses.Delete(routeResponseKey(apiID, r.RouteID, rr.RouteResponseID))
+		}
+
+		b.routes.Delete(routeKey(apiID, r.RouteID))
+	}
+
+	for _, i := range slices.Clone(b.integrationsByAPI.Get(apiID)) {
+		for _, ir := range slices.Clone(b.integrationResponsesByIntegration.Get(integrationKey(apiID, i.IntegrationID))) {
+			b.integrationResponses.Delete(integrationResponseKey(apiID, i.IntegrationID, ir.IntegrationResponseID))
+		}
+
+		b.integrations.Delete(integrationKey(apiID, i.IntegrationID))
+	}
+
+	for _, dep := range slices.Clone(b.deploymentsByAPI.Get(apiID)) {
+		b.deployments.Delete(deploymentKey(apiID, dep.DeploymentID))
+	}
+
+	for _, a := range slices.Clone(b.authorizersByAPI.Get(apiID)) {
+		b.authorizers.Delete(authorizerKey(apiID, a.AuthorizerID))
+	}
+
+	for _, m := range slices.Clone(b.modelsByAPI.Get(apiID)) {
+		b.models.Delete(modelKey(apiID, m.ModelID))
+	}
+}
+
 // DeleteAPI removes an API by ID.
 func (b *InMemoryBackend) DeleteAPI(apiID string) error {
 	b.mu.Lock("DeleteAPI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	delete(b.apis, apiID)
+	b.deleteAPIChildrenLocked(apiID)
+	b.apis.Delete(apiID)
 
 	// Clean up stale API mappings pointing to this API.
-	for _, mappings := range b.apiMappings {
-		for id, m := range mappings {
-			if m.APIID == apiID {
-				delete(mappings, id)
-			}
+	for _, m := range b.apiMappings.All() {
+		if m.APIID == apiID {
+			b.apiMappings.Delete(apiMappingKey(m.DomainName, m.APIMappingID))
 		}
 	}
 
@@ -684,49 +735,49 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 	b.mu.Lock("UpdateAPI")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
 
 	if input.Name != "" {
-		d.api.Name = input.Name
+		api.Name = input.Name
 	}
 
 	if input.Description != "" {
-		d.api.Description = input.Description
+		api.Description = input.Description
 	}
 
 	if input.RouteSelectionExpression != "" {
-		d.api.RouteSelectionExpression = input.RouteSelectionExpression
+		api.RouteSelectionExpression = input.RouteSelectionExpression
 	}
 
 	if input.Version != "" {
-		d.api.Version = input.Version
+		api.Version = input.Version
 	}
 
 	if input.Tags != nil {
-		d.api.Tags = copyTags(input.Tags)
+		api.Tags = copyTags(input.Tags)
 	}
 
 	if input.APIKeySelectionExpression != "" {
-		d.api.APIKeySelectionExpression = input.APIKeySelectionExpression
+		api.APIKeySelectionExpression = input.APIKeySelectionExpression
 	}
 
 	if input.CorsConfiguration != nil {
 		clone := *input.CorsConfiguration
-		d.api.CorsConfiguration = &clone
+		api.CorsConfiguration = &clone
 	}
 
 	if input.DisableSchemaValidation != nil {
-		d.api.DisableSchemaValidation = *input.DisableSchemaValidation
+		api.DisableSchemaValidation = *input.DisableSchemaValidation
 	}
 
 	if input.DisableExecuteAPIEndpoint != nil {
-		d.api.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
+		api.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
 	}
 
-	cp := d.api
+	cp := *api
 
 	return &cp, nil
 }
@@ -738,8 +789,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 	b.mu.Lock("CreateStage")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
@@ -747,7 +797,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		return nil, fmt.Errorf("%w: stageName is required", ErrBadRequest)
 	}
 
-	if _, exists := d.stages[input.StageName]; exists {
+	if b.stages.Has(stageKey(apiID, input.StageName)) {
 		return nil, fmt.Errorf("%w: stage %q already exists", ErrAlreadyExists, input.StageName)
 	}
 
@@ -767,7 +817,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		RouteSettings:        input.RouteSettings,
 	}
 
-	d.stages[input.StageName] = stage
+	b.stages.Put(stage)
 
 	cp := *stage
 
@@ -779,12 +829,11 @@ func (b *InMemoryBackend) GetStage(apiID, stageName string) (*Stage, error) {
 	b.mu.RLock("GetStage")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	s, ok := d.stages[stageName]
+	s, ok := b.stages.Get(stageKey(apiID, stageName))
 	if !ok {
 		return nil, ErrStageNotFound
 	}
@@ -799,13 +848,14 @@ func (b *InMemoryBackend) GetStages(apiID string) ([]Stage, error) {
 	b.mu.RLock("GetStages")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	result := make([]Stage, 0, len(d.stages))
-	for _, s := range d.stages {
+	stages := b.stagesByAPI.Get(apiID)
+	result := make([]Stage, 0, len(stages))
+
+	for _, s := range stages {
 		result = append(result, *s)
 	}
 
@@ -821,16 +871,13 @@ func (b *InMemoryBackend) DeleteStage(apiID, stageName string) error {
 	b.mu.Lock("DeleteStage")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.stages[stageName]; !exists {
+	if !b.stages.Delete(stageKey(apiID, stageName)) {
 		return ErrStageNotFound
 	}
-
-	delete(d.stages, stageName)
 
 	return nil
 }
@@ -840,12 +887,11 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 	b.mu.Lock("UpdateStage")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	s, ok := d.stages[stageName]
+	s, ok := b.stages.Get(stageKey(apiID, stageName))
 	if !ok {
 		return nil, ErrStageNotFound
 	}
@@ -898,7 +944,7 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 	b.mu.Lock("CreateRoute")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
@@ -907,13 +953,13 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		return nil, fmt.Errorf("%w: routeKey is required", ErrBadRequest)
 	}
 
-	if d.api.ProtocolType == protocolTypeHTTP {
+	if api.ProtocolType == protocolTypeHTTP {
 		if err := validateHTTPRouteKey(input.RouteKey); err != nil {
 			return nil, err
 		}
 	}
 
-	for _, existing := range d.routes {
+	for _, existing := range b.routesByAPI.Get(apiID) {
 		if existing.RouteKey == input.RouteKey {
 			return nil, fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
 		}
@@ -955,8 +1001,8 @@ func (b *InMemoryBackend) CreateRoute(apiID string, input CreateRouteInput) (*Ro
 		APIKeyRequired:           input.APIKeyRequired,
 	}
 
-	d.routes[id] = route
-	b.autoDeployLocked(d)
+	b.routes.Put(route)
+	b.autoDeployLocked(apiID)
 
 	cp := *route
 
@@ -968,12 +1014,11 @@ func (b *InMemoryBackend) GetRoute(apiID, routeID string) (*Route, error) {
 	b.mu.RLock("GetRoute")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	r, ok := d.routes[routeID]
+	r, ok := b.routes.Get(routeKey(apiID, routeID))
 	if !ok {
 		return nil, ErrRouteNotFound
 	}
@@ -988,13 +1033,14 @@ func (b *InMemoryBackend) GetRoutes(apiID string) ([]Route, error) {
 	b.mu.RLock("GetRoutes")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	result := make([]Route, 0, len(d.routes))
-	for _, r := range d.routes {
+	routes := b.routesByAPI.Get(apiID)
+	result := make([]Route, 0, len(routes))
+
+	for _, r := range routes {
 		result = append(result, *r)
 	}
 
@@ -1010,33 +1056,34 @@ func (b *InMemoryBackend) DeleteRoute(apiID, routeID string) error {
 	b.mu.Lock("DeleteRoute")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.routes[routeID]; !exists {
+	if !b.routes.Delete(routeKey(apiID, routeID)) {
 		return ErrRouteNotFound
 	}
 
-	delete(d.routes, routeID)
-	delete(d.routeResponses, routeID)
-	b.autoDeployLocked(d)
+	for _, rr := range slices.Clone(b.routeResponsesByRoute.Get(routeKey(apiID, routeID))) {
+		b.routeResponses.Delete(routeResponseKey(apiID, routeID, rr.RouteResponseID))
+	}
+
+	b.autoDeployLocked(apiID)
 
 	return nil
 }
 
 // setRouteKey validates newKey for protocolType and ensures it is not a duplicate
 // among routes (excluding the route being updated), then sets r.RouteKey.
-func setRouteKey(r *Route, routes map[string]*Route, routeID, newKey, protocolType string) error {
+func setRouteKey(r *Route, routes []*Route, routeID, newKey, protocolType string) error {
 	if protocolType == protocolTypeHTTP {
 		if err := validateHTTPRouteKey(newKey); err != nil {
 			return err
 		}
 	}
 
-	for id, existing := range routes {
-		if id != routeID && existing.RouteKey == newKey {
+	for _, existing := range routes {
+		if existing.RouteID != routeID && existing.RouteKey == newKey {
 			return fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, newKey)
 		}
 	}
@@ -1074,18 +1121,18 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 	b.mu.Lock("UpdateRoute")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
 
-	r, ok := d.routes[routeID]
+	r, ok := b.routes.Get(routeKey(apiID, routeID))
 	if !ok {
 		return nil, ErrRouteNotFound
 	}
 
 	if input.RouteKey != "" {
-		if err := setRouteKey(r, d.routes, routeID, input.RouteKey, d.api.ProtocolType); err != nil {
+		if err := setRouteKey(r, b.routesByAPI.Get(apiID), routeID, input.RouteKey, api.ProtocolType); err != nil {
 			return nil, err
 		}
 	}
@@ -1122,7 +1169,7 @@ func (b *InMemoryBackend) UpdateRoute(apiID, routeID string, input UpdateRouteIn
 		r.APIKeyRequired = *input.APIKeyRequired
 	}
 
-	b.autoDeployLocked(d)
+	b.autoDeployLocked(apiID)
 
 	cp := *r
 
@@ -1136,7 +1183,7 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 	b.mu.Lock("CreateIntegration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
@@ -1177,8 +1224,8 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 
 	timeoutMs := input.TimeoutInMillis
 	if timeoutMs == 0 {
-		timeoutMs = integrationTimeoutMaxFor(d.api.ProtocolType)
-	} else if err := validateTimeoutInMillis(timeoutMs, d.api.ProtocolType); err != nil {
+		timeoutMs = integrationTimeoutMaxFor(api.ProtocolType)
+	} else if err := validateTimeoutInMillis(timeoutMs, api.ProtocolType); err != nil {
 		return nil, err
 	}
 
@@ -1202,8 +1249,8 @@ func (b *InMemoryBackend) CreateIntegration(apiID string, input CreateIntegratio
 		TLSConfig:                   cloneIntegrationTLSConfig(input.TLSConfig),
 	}
 
-	d.integrations[id] = integration
-	b.autoDeployLocked(d)
+	b.integrations.Put(integration)
+	b.autoDeployLocked(apiID)
 
 	cp := *integration
 
@@ -1215,12 +1262,11 @@ func (b *InMemoryBackend) GetIntegration(apiID, integrationID string) (*Integrat
 	b.mu.RLock("GetIntegration")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	i, ok := d.integrations[integrationID]
+	i, ok := b.integrations.Get(integrationKey(apiID, integrationID))
 	if !ok {
 		return nil, ErrIntegrationNotFound
 	}
@@ -1235,13 +1281,14 @@ func (b *InMemoryBackend) GetIntegrations(apiID string) ([]Integration, error) {
 	b.mu.RLock("GetIntegrations")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	result := make([]Integration, 0, len(d.integrations))
-	for _, i := range d.integrations {
+	integrations := b.integrationsByAPI.Get(apiID)
+	result := make([]Integration, 0, len(integrations))
+
+	for _, i := range integrations {
 		result = append(result, *i)
 	}
 
@@ -1257,18 +1304,19 @@ func (b *InMemoryBackend) DeleteIntegration(apiID, integrationID string) error {
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.integrations[integrationID]; !exists {
+	if !b.integrations.Delete(integrationKey(apiID, integrationID)) {
 		return ErrIntegrationNotFound
 	}
 
-	delete(d.integrations, integrationID)
-	delete(d.integrationResponses, integrationID)
-	b.autoDeployLocked(d)
+	for _, ir := range slices.Clone(b.integrationResponsesByIntegration.Get(integrationKey(apiID, integrationID))) {
+		b.integrationResponses.Delete(integrationResponseKey(apiID, integrationID, ir.IntegrationResponseID))
+	}
+
+	b.autoDeployLocked(apiID)
 
 	return nil
 }
@@ -1341,18 +1389,18 @@ func (b *InMemoryBackend) UpdateIntegration(
 	b.mu.Lock("UpdateIntegration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
 
-	i, ok := d.integrations[integrationID]
+	i, ok := b.integrations.Get(integrationKey(apiID, integrationID))
 	if !ok {
 		return nil, ErrIntegrationNotFound
 	}
 
 	if input.TimeoutInMillis != 0 {
-		if err := validateTimeoutInMillis(input.TimeoutInMillis, d.api.ProtocolType); err != nil {
+		if err := validateTimeoutInMillis(input.TimeoutInMillis, api.ProtocolType); err != nil {
 			return nil, err
 		}
 	}
@@ -1374,7 +1422,7 @@ func (b *InMemoryBackend) UpdateIntegration(
 	}
 
 	applyIntegrationUpdate(i, input)
-	b.autoDeployLocked(d)
+	b.autoDeployLocked(apiID)
 
 	cp := *i
 
@@ -1388,8 +1436,7 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
@@ -1402,11 +1449,11 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 		CreatedDate:      isoTime{time.Now()},
 	}
 
-	d.deployments[id] = deployment
+	b.deployments.Put(deployment)
 
 	// When a stage name is provided, link the deployment to that stage (AWS behaviour).
 	if input.StageName != "" {
-		s, stageExists := d.stages[input.StageName]
+		s, stageExists := b.stages.Get(stageKey(apiID, input.StageName))
 		if !stageExists {
 			return nil, ErrStageNotFound
 		}
@@ -1424,23 +1471,23 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 // and repoints the stage at it whenever a route, integration, or other routing
 // configuration changes on an auto-deploy-enabled stage. The caller must hold
 // b.mu.Lock.
-func (b *InMemoryBackend) autoDeployLocked(d *apiData) {
+func (b *InMemoryBackend) autoDeployLocked(apiID string) {
 	now := isoTime{time.Now()}
 
-	for _, s := range d.stages {
+	for _, s := range b.stagesByAPI.Get(apiID) {
 		if !s.AutoDeploy {
 			continue
 		}
 
 		id := randomID()
-		d.deployments[id] = &Deployment{
+		b.deployments.Put(&Deployment{
 			DeploymentID:     id,
-			APIID:            d.api.APIID,
+			APIID:            apiID,
 			Description:      "Automatic deployment triggered by changes to the Api configuration",
 			DeploymentStatus: "DEPLOYED",
 			AutoDeployed:     true,
 			CreatedDate:      now,
-		}
+		})
 		s.DeploymentID = id
 		s.LastUpdatedDate = now
 	}
@@ -1451,12 +1498,11 @@ func (b *InMemoryBackend) GetDeployment(apiID, deploymentID string) (*Deployment
 	b.mu.RLock("GetDeployment")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	dep, ok := d.deployments[deploymentID]
+	dep, ok := b.deployments.Get(deploymentKey(apiID, deploymentID))
 	if !ok {
 		return nil, ErrDeploymentNotFound
 	}
@@ -1471,13 +1517,14 @@ func (b *InMemoryBackend) GetDeployments(apiID string) ([]Deployment, error) {
 	b.mu.RLock("GetDeployments")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	result := make([]Deployment, 0, len(d.deployments))
-	for _, dep := range d.deployments {
+	deployments := b.deploymentsByAPI.Get(apiID)
+	result := make([]Deployment, 0, len(deployments))
+
+	for _, dep := range deployments {
 		result = append(result, *dep)
 	}
 
@@ -1493,16 +1540,13 @@ func (b *InMemoryBackend) DeleteDeployment(apiID, deploymentID string) error {
 	b.mu.Lock("DeleteDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.deployments[deploymentID]; !exists {
+	if !b.deployments.Delete(deploymentKey(apiID, deploymentID)) {
 		return ErrDeploymentNotFound
 	}
-
-	delete(d.deployments, deploymentID)
 
 	return nil
 }
@@ -1514,8 +1558,7 @@ func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerI
 	b.mu.Lock("CreateAuthorizer")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
@@ -1558,7 +1601,7 @@ func (b *InMemoryBackend) CreateAuthorizer(apiID string, input CreateAuthorizerI
 		authorizer.JwtConfiguration = &clone
 	}
 
-	d.authorizers[id] = authorizer
+	b.authorizers.Put(authorizer)
 
 	cp := *authorizer
 
@@ -1570,12 +1613,11 @@ func (b *InMemoryBackend) GetAuthorizer(apiID, authorizerID string) (*Authorizer
 	b.mu.RLock("GetAuthorizer")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	a, ok := d.authorizers[authorizerID]
+	a, ok := b.authorizers.Get(authorizerKey(apiID, authorizerID))
 	if !ok {
 		return nil, ErrAuthorizerNotFound
 	}
@@ -1590,13 +1632,14 @@ func (b *InMemoryBackend) GetAuthorizers(apiID string) ([]Authorizer, error) {
 	b.mu.RLock("GetAuthorizers")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	result := make([]Authorizer, 0, len(d.authorizers))
-	for _, a := range d.authorizers {
+	authorizers := b.authorizersByAPI.Get(apiID)
+	result := make([]Authorizer, 0, len(authorizers))
+
+	for _, a := range authorizers {
 		result = append(result, *a)
 	}
 
@@ -1612,16 +1655,13 @@ func (b *InMemoryBackend) DeleteAuthorizer(apiID, authorizerID string) error {
 	b.mu.Lock("DeleteAuthorizer")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.authorizers[authorizerID]; !exists {
+	if !b.authorizers.Delete(authorizerKey(apiID, authorizerID)) {
 		return ErrAuthorizerNotFound
 	}
-
-	delete(d.authorizers, authorizerID)
 
 	return nil
 }
@@ -1634,12 +1674,11 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 	b.mu.Lock("UpdateAuthorizer")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	a, ok := d.authorizers[authorizerID]
+	a, ok := b.authorizers.Get(authorizerKey(apiID, authorizerID))
 	if !ok {
 		return nil, ErrAuthorizerNotFound
 	}
@@ -1700,7 +1739,7 @@ func (b *InMemoryBackend) CreateDomainName(
 	b.mu.Lock("CreateDomainName")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domainNames[input.DomainNameValue]; exists {
+	if b.domainNames.Has(input.DomainNameValue) {
 		return nil, fmt.Errorf("%w: domain name %q already exists", ErrAlreadyExists, input.DomainNameValue)
 	}
 
@@ -1720,8 +1759,7 @@ func (b *InMemoryBackend) CreateDomainName(
 		MutualTLSAuthentication:  cloneMutualTLSAuthentication(input.MutualTLSAuthentication),
 	}
 
-	b.domainNames[input.DomainNameValue] = dn
-	b.apiMappings[input.DomainNameValue] = make(map[string]*APIMapping)
+	b.domainNames.Put(dn)
 
 	cp := *dn
 
@@ -1743,23 +1781,22 @@ func (b *InMemoryBackend) CreateAPIMapping(domainName string, input CreateAPIMap
 	b.mu.Lock("CreateAPIMapping")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
 
-	d, ok := b.apis[input.APIID]
-	if !ok {
+	if !b.apis.Has(input.APIID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, stageExists := d.stages[input.Stage]; !stageExists {
+	if !b.stages.Has(stageKey(input.APIID, input.Stage)) {
 		return nil, ErrStageNotFound
 	}
 
 	// AWS allows only one mapping per (domain, apiMappingKey). The empty key is
 	// the domain's default (base-path) mapping and is itself unique. Reject a
 	// duplicate key with a ConflictException, matching real API Gateway v2.
-	for _, existing := range b.apiMappings[domainName] {
+	for _, existing := range b.apiMappingsByDomain.Get(domainName) {
 		if existing.APIMappingKey == input.APIMappingKey {
 			return nil, fmt.Errorf(
 				"%w: an api mapping already exists for the mapping key %q on domain %q",
@@ -1777,7 +1814,7 @@ func (b *InMemoryBackend) CreateAPIMapping(domainName string, input CreateAPIMap
 		APIMappingKey: input.APIMappingKey,
 	}
 
-	b.apiMappings[domainName][id] = mapping
+	b.apiMappings.Put(mapping)
 
 	cp := *mapping
 
@@ -1798,20 +1835,15 @@ func (b *InMemoryBackend) CreateIntegrationResponse(
 	b.mu.Lock("CreateIntegrationResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.integrations[integrationID]; !exists {
+	if !b.integrations.Has(integrationKey(apiID, integrationID)) {
 		return nil, ErrIntegrationNotFound
 	}
 
-	if _, exists := d.integrationResponses[integrationID]; !exists {
-		d.integrationResponses[integrationID] = make(map[string]*IntegrationResponse)
-	}
-
-	for _, existing := range d.integrationResponses[integrationID] {
+	for _, existing := range b.integrationResponsesByIntegration.Get(integrationKey(apiID, integrationID)) {
 		if existing.IntegrationResponseKey == input.IntegrationResponseKey {
 			return nil, fmt.Errorf(
 				"%w: integration response key %q already exists",
@@ -1833,7 +1865,7 @@ func (b *InMemoryBackend) CreateIntegrationResponse(
 		ResponseTemplates:           input.ResponseTemplates,
 	}
 
-	d.integrationResponses[integrationID][id] = ir
+	b.integrationResponses.Put(ir)
 
 	cp := *ir
 
@@ -1851,12 +1883,11 @@ func (b *InMemoryBackend) CreateModel(apiID string, input CreateModelInput) (*Mo
 	b.mu.Lock("CreateModel")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	for _, existing := range d.models {
+	for _, existing := range b.modelsByAPI.Get(apiID) {
 		if existing.Name == input.Name {
 			return nil, fmt.Errorf("%w: model name %q already exists", ErrAlreadyExists, input.Name)
 		}
@@ -1872,7 +1903,7 @@ func (b *InMemoryBackend) CreateModel(apiID string, input CreateModelInput) (*Mo
 		Description: input.Description,
 	}
 
-	d.models[id] = model
+	b.models.Put(model)
 
 	cp := *model
 
@@ -1893,20 +1924,15 @@ func (b *InMemoryBackend) CreateRouteResponse(
 	b.mu.Lock("CreateRouteResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.routes[routeID]; !exists {
+	if !b.routes.Has(routeKey(apiID, routeID)) {
 		return nil, ErrRouteNotFound
 	}
 
-	if _, exists := d.routeResponses[routeID]; !exists {
-		d.routeResponses[routeID] = make(map[string]*RouteResponse)
-	}
-
-	for _, existing := range d.routeResponses[routeID] {
+	for _, existing := range b.routeResponsesByRoute.Get(routeKey(apiID, routeID)) {
 		if existing.RouteResponseKey == input.RouteResponseKey {
 			return nil, fmt.Errorf("%w: route response key %q already exists", ErrAlreadyExists, input.RouteResponseKey)
 		}
@@ -1922,7 +1948,7 @@ func (b *InMemoryBackend) CreateRouteResponse(
 		ResponseModels:           input.ResponseModels,
 	}
 
-	d.routeResponses[routeID][id] = rr
+	b.routeResponses.Put(rr)
 
 	cp := *rr
 
@@ -1944,7 +1970,7 @@ func (b *InMemoryBackend) CreatePortal(input CreatePortalInput) (*Portal, error)
 		Status:   "ACTIVE",
 	}
 
-	b.portals[id] = portal
+	b.portals.Put(portal)
 
 	cp := *portal
 
@@ -1970,7 +1996,7 @@ func (b *InMemoryBackend) CreatePortalProduct(input CreatePortalProductInput) (*
 		Tags:            copyTags(input.Tags),
 	}
 
-	b.portalProducts[id] = product
+	b.portalProducts.Put(product)
 
 	cp := *product
 
@@ -1987,7 +2013,7 @@ func (b *InMemoryBackend) CreateProductPage(
 	b.mu.Lock("CreateProductPage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
@@ -1999,7 +2025,7 @@ func (b *InMemoryBackend) CreateProductPage(
 		LastModified:    &now,
 	}
 
-	b.productPages[portalProductID] = append(b.productPages[portalProductID], page)
+	b.productPages.Put(page)
 
 	cp := *page
 
@@ -2016,7 +2042,7 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 	b.mu.Lock("CreateProductRestEndpointPage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
@@ -2028,7 +2054,7 @@ func (b *InMemoryBackend) CreateProductRestEndpointPage(
 		LastModified:              &now,
 	}
 
-	b.productREPages[portalProductID] = append(b.productREPages[portalProductID], page)
+	b.productREPages.Put(page)
 
 	cp := *page
 
@@ -2066,7 +2092,7 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 		Tags:             copyTags(input.Tags),
 		VpcLinkStatus:    "AVAILABLE",
 	}
-	b.vpcLinks[id] = vpcLink
+	b.vpcLinks.Put(vpcLink)
 
 	cp := *vpcLink
 
@@ -2078,7 +2104,7 @@ func (b *InMemoryBackend) GetVpcLink(vpcLinkID string) (*VpcLink, error) {
 	b.mu.RLock("GetVpcLink")
 	defer b.mu.RUnlock()
 
-	vpcLink, ok := b.vpcLinks[vpcLinkID]
+	vpcLink, ok := b.vpcLinks.Get(vpcLinkID)
 	if !ok {
 		return nil, ErrVpcLinkNotFound
 	}
@@ -2093,8 +2119,10 @@ func (b *InMemoryBackend) GetVpcLinks() ([]VpcLink, error) {
 	b.mu.RLock("GetVpcLinks")
 	defer b.mu.RUnlock()
 
-	out := make([]VpcLink, 0, len(b.vpcLinks))
-	for _, item := range b.vpcLinks {
+	all := b.vpcLinks.All()
+	out := make([]VpcLink, 0, len(all))
+
+	for _, item := range all {
 		out = append(out, *item)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].VpcLinkID < out[j].VpcLinkID })
@@ -2107,7 +2135,7 @@ func (b *InMemoryBackend) UpdateVpcLink(vpcLinkID string, input UpdateVpcLinkInp
 	b.mu.Lock("UpdateVpcLink")
 	defer b.mu.Unlock()
 
-	vpcLink, ok := b.vpcLinks[vpcLinkID]
+	vpcLink, ok := b.vpcLinks.Get(vpcLinkID)
 	if !ok {
 		return nil, ErrVpcLinkNotFound
 	}
@@ -2125,10 +2153,9 @@ func (b *InMemoryBackend) DeleteVpcLink(vpcLinkID string) error {
 	b.mu.Lock("DeleteVpcLink")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcLinks[vpcLinkID]; !ok {
+	if !b.vpcLinks.Delete(vpcLinkID) {
 		return ErrVpcLinkNotFound
 	}
-	delete(b.vpcLinks, vpcLinkID)
 
 	return nil
 }
@@ -2144,12 +2171,10 @@ func (b *InMemoryBackend) CreateRoutingRule(
 	b.mu.Lock("CreateRoutingRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
-	if _, ok := b.routingRules[domainName]; !ok {
-		b.routingRules[domainName] = make(map[string]*RoutingRule)
-	}
+
 	id := randomID()
 	rule := &RoutingRule{
 		RoutingRuleID: id,
@@ -2160,7 +2185,7 @@ func (b *InMemoryBackend) CreateRoutingRule(
 		Actions:    input.Actions,
 		Conditions: input.Conditions,
 	}
-	b.routingRules[domainName][id] = rule
+	b.routingRules.Put(rule)
 
 	cp := *rule
 
@@ -2172,11 +2197,11 @@ func (b *InMemoryBackend) GetRoutingRule(domainName, routingRuleID string) (*Rou
 	b.mu.RLock("GetRoutingRule")
 	defer b.mu.RUnlock()
 
-	rules, ok := b.routingRules[domainName]
-	if !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
-	rule, ok := rules[routingRuleID]
+
+	rule, ok := b.routingRules.Get(routingRuleKey(domainName, routingRuleID))
 	if !ok {
 		return nil, ErrRoutingRuleNotFound
 	}
@@ -2191,11 +2216,13 @@ func (b *InMemoryBackend) ListRoutingRules(domainName string) ([]RoutingRule, er
 	b.mu.RLock("ListRoutingRules")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
-	rules := b.routingRules[domainName]
+
+	rules := b.routingRulesByDomain.Get(domainName)
 	out := make([]RoutingRule, 0, len(rules))
+
 	for _, rule := range rules {
 		out = append(out, *rule)
 	}
@@ -2212,11 +2239,11 @@ func (b *InMemoryBackend) PutRoutingRule(
 	b.mu.Lock("PutRoutingRule")
 	defer b.mu.Unlock()
 
-	rules, ok := b.routingRules[domainName]
-	if !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
-	rule, ok := rules[routingRuleID]
+
+	rule, ok := b.routingRules.Get(routingRuleKey(domainName, routingRuleID))
 	if !ok {
 		return nil, ErrRoutingRuleNotFound
 	}
@@ -2234,14 +2261,13 @@ func (b *InMemoryBackend) DeleteRoutingRule(domainName, routingRuleID string) er
 	b.mu.Lock("DeleteRoutingRule")
 	defer b.mu.Unlock()
 
-	rules, ok := b.routingRules[domainName]
-	if !ok {
+	if !b.domainNames.Has(domainName) {
 		return ErrDomainNameNotFound
 	}
-	if _, exists := rules[routingRuleID]; !exists {
+
+	if !b.routingRules.Delete(routingRuleKey(domainName, routingRuleID)) {
 		return ErrRoutingRuleNotFound
 	}
-	delete(rules, routingRuleID)
 
 	return nil
 }
@@ -2253,7 +2279,7 @@ func (b *InMemoryBackend) GetPortalProductSharingPolicy(portalProductID string) 
 	b.mu.RLock("GetPortalProductSharingPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
@@ -2267,7 +2293,7 @@ func (b *InMemoryBackend) PutPortalProductSharingPolicy(
 	b.mu.Lock("PutPortalProductSharingPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 	b.portalProductSharingPolicies[portalProductID] = policyDocument
@@ -2280,7 +2306,7 @@ func (b *InMemoryBackend) DeletePortalProductSharingPolicy(portalProductID strin
 	b.mu.Lock("DeletePortalProductSharingPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return ErrPortalProductNotFound
 	}
 	delete(b.portalProductSharingPolicies, portalProductID)
@@ -2295,7 +2321,7 @@ func (b *InMemoryBackend) GetDomainName(domainName string) (*DomainName, error) 
 	b.mu.RLock("GetDomainName")
 	defer b.mu.RUnlock()
 
-	dn, ok := b.domainNames[domainName]
+	dn, ok := b.domainNames.Get(domainName)
 	if !ok {
 		return nil, ErrDomainNameNotFound
 	}
@@ -2310,8 +2336,10 @@ func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
 	b.mu.RLock("GetDomainNames")
 	defer b.mu.RUnlock()
 
-	result := make([]DomainName, 0, len(b.domainNames))
-	for _, dn := range b.domainNames {
+	all := b.domainNames.All()
+	result := make([]DomainName, 0, len(all))
+
+	for _, dn := range all {
 		result = append(result, *dn)
 	}
 
@@ -2327,13 +2355,17 @@ func (b *InMemoryBackend) DeleteDomainName(domainName string) error {
 	b.mu.Lock("DeleteDomainName")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Delete(domainName) {
 		return ErrDomainNameNotFound
 	}
 
-	delete(b.domainNames, domainName)
-	delete(b.apiMappings, domainName)
-	delete(b.routingRules, domainName)
+	for _, m := range slices.Clone(b.apiMappingsByDomain.Get(domainName)) {
+		b.apiMappings.Delete(apiMappingKey(domainName, m.APIMappingID))
+	}
+
+	for _, r := range slices.Clone(b.routingRulesByDomain.Get(domainName)) {
+		b.routingRules.Delete(routingRuleKey(domainName, r.RoutingRuleID))
+	}
 
 	return nil
 }
@@ -2345,12 +2377,11 @@ func (b *InMemoryBackend) GetAPIMapping(domainName, mappingID string) (*APIMappi
 	b.mu.RLock("GetAPIMapping")
 	defer b.mu.RUnlock()
 
-	mappings, ok := b.apiMappings[domainName]
-	if !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
 
-	m, ok := mappings[mappingID]
+	m, ok := b.apiMappings.Get(apiMappingKey(domainName, mappingID))
 	if !ok {
 		return nil, ErrAPIMappingNotFound
 	}
@@ -2365,12 +2396,13 @@ func (b *InMemoryBackend) GetAPIMappings(domainName string) ([]APIMapping, error
 	b.mu.RLock("GetAPIMappings")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
 
-	mappings := b.apiMappings[domainName]
+	mappings := b.apiMappingsByDomain.Get(domainName)
 	result := make([]APIMapping, 0, len(mappings))
+
 	for _, m := range mappings {
 		result = append(result, *m)
 	}
@@ -2387,16 +2419,13 @@ func (b *InMemoryBackend) DeleteAPIMapping(domainName, mappingID string) error {
 	b.mu.Lock("DeleteAPIMapping")
 	defer b.mu.Unlock()
 
-	mappings, ok := b.apiMappings[domainName]
-	if !ok {
+	if !b.domainNames.Has(domainName) {
 		return ErrDomainNameNotFound
 	}
 
-	if _, exists := mappings[mappingID]; !exists {
+	if !b.apiMappings.Delete(apiMappingKey(domainName, mappingID)) {
 		return ErrAPIMappingNotFound
 	}
-
-	delete(b.apiMappings[domainName], mappingID)
 
 	return nil
 }
@@ -2410,22 +2439,16 @@ func (b *InMemoryBackend) GetIntegrationResponse(
 	b.mu.RLock("GetIntegrationResponse")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.integrations[integrationID]; !exists {
+	if !b.integrations.Has(integrationKey(apiID, integrationID)) {
 		return nil, ErrIntegrationNotFound
 	}
 
-	responses, hasResponses := d.integrationResponses[integrationID]
-	if !hasResponses {
-		return nil, ErrIntegrationResponseNotFound
-	}
-
-	ir, exists := responses[responseID]
-	if !exists {
+	ir, ok := b.integrationResponses.Get(integrationResponseKey(apiID, integrationID, responseID))
+	if !ok {
 		return nil, ErrIntegrationResponseNotFound
 	}
 
@@ -2439,16 +2462,15 @@ func (b *InMemoryBackend) GetIntegrationResponses(apiID, integrationID string) (
 	b.mu.RLock("GetIntegrationResponses")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.integrations[integrationID]; !exists {
+	if !b.integrations.Has(integrationKey(apiID, integrationID)) {
 		return nil, ErrIntegrationNotFound
 	}
 
-	responses := d.integrationResponses[integrationID]
+	responses := b.integrationResponsesByIntegration.Get(integrationKey(apiID, integrationID))
 	result := make([]IntegrationResponse, 0, len(responses))
 
 	for _, ir := range responses {
@@ -2467,25 +2489,17 @@ func (b *InMemoryBackend) DeleteIntegrationResponse(apiID, integrationID, respon
 	b.mu.Lock("DeleteIntegrationResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.integrations[integrationID]; !exists {
+	if !b.integrations.Has(integrationKey(apiID, integrationID)) {
 		return ErrIntegrationNotFound
 	}
 
-	responses, hasResponses := d.integrationResponses[integrationID]
-	if !hasResponses {
+	if !b.integrationResponses.Delete(integrationResponseKey(apiID, integrationID, responseID)) {
 		return ErrIntegrationResponseNotFound
 	}
-
-	if _, exists := responses[responseID]; !exists {
-		return ErrIntegrationResponseNotFound
-	}
-
-	delete(d.integrationResponses[integrationID], responseID)
 
 	return nil
 }
@@ -2497,12 +2511,11 @@ func (b *InMemoryBackend) GetModel(apiID, modelID string) (*Model, error) {
 	b.mu.RLock("GetModel")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	m, ok := d.models[modelID]
+	m, ok := b.models.Get(modelKey(apiID, modelID))
 	if !ok {
 		return nil, ErrModelNotFound
 	}
@@ -2517,13 +2530,14 @@ func (b *InMemoryBackend) GetModels(apiID string) ([]Model, error) {
 	b.mu.RLock("GetModels")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	result := make([]Model, 0, len(d.models))
-	for _, m := range d.models {
+	models := b.modelsByAPI.Get(apiID)
+	result := make([]Model, 0, len(models))
+
+	for _, m := range models {
 		result = append(result, *m)
 	}
 
@@ -2539,16 +2553,13 @@ func (b *InMemoryBackend) DeleteModel(apiID, modelID string) error {
 	b.mu.Lock("DeleteModel")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.models[modelID]; !exists {
+	if !b.models.Delete(modelKey(apiID, modelID)) {
 		return ErrModelNotFound
 	}
-
-	delete(d.models, modelID)
 
 	return nil
 }
@@ -2560,22 +2571,16 @@ func (b *InMemoryBackend) GetRouteResponse(apiID, routeID, responseID string) (*
 	b.mu.RLock("GetRouteResponse")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.routes[routeID]; !exists {
+	if !b.routes.Has(routeKey(apiID, routeID)) {
 		return nil, ErrRouteNotFound
 	}
 
-	responses, hasResponses := d.routeResponses[routeID]
-	if !hasResponses {
-		return nil, ErrRouteResponseNotFound
-	}
-
-	rr, exists := responses[responseID]
-	if !exists {
+	rr, ok := b.routeResponses.Get(routeResponseKey(apiID, routeID, responseID))
+	if !ok {
 		return nil, ErrRouteResponseNotFound
 	}
 
@@ -2589,16 +2594,15 @@ func (b *InMemoryBackend) GetRouteResponses(apiID, routeID string) ([]RouteRespo
 	b.mu.RLock("GetRouteResponses")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.routes[routeID]; !exists {
+	if !b.routes.Has(routeKey(apiID, routeID)) {
 		return nil, ErrRouteNotFound
 	}
 
-	responses := d.routeResponses[routeID]
+	responses := b.routeResponsesByRoute.Get(routeKey(apiID, routeID))
 	result := make([]RouteResponse, 0, len(responses))
 
 	for _, rr := range responses {
@@ -2617,25 +2621,17 @@ func (b *InMemoryBackend) DeleteRouteResponse(apiID, routeID, responseID string)
 	b.mu.Lock("DeleteRouteResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.routes[routeID]; !exists {
+	if !b.routes.Has(routeKey(apiID, routeID)) {
 		return ErrRouteNotFound
 	}
 
-	responses, hasResponses := d.routeResponses[routeID]
-	if !hasResponses {
+	if !b.routeResponses.Delete(routeResponseKey(apiID, routeID, responseID)) {
 		return ErrRouteResponseNotFound
 	}
-
-	if _, exists := responses[responseID]; !exists {
-		return ErrRouteResponseNotFound
-	}
-
-	delete(d.routeResponses[routeID], responseID)
 
 	return nil
 }
@@ -2647,7 +2643,7 @@ func (b *InMemoryBackend) GetPortal(portalID string) (*Portal, error) {
 	b.mu.RLock("GetPortal")
 	defer b.mu.RUnlock()
 
-	p, ok := b.portals[portalID]
+	p, ok := b.portals.Get(portalID)
 	if !ok {
 		return nil, ErrPortalNotFound
 	}
@@ -2662,8 +2658,10 @@ func (b *InMemoryBackend) ListPortals() ([]Portal, error) {
 	b.mu.RLock("ListPortals")
 	defer b.mu.RUnlock()
 
-	result := make([]Portal, 0, len(b.portals))
-	for _, p := range b.portals {
+	all := b.portals.All()
+	result := make([]Portal, 0, len(all))
+
+	for _, p := range all {
 		result = append(result, *p)
 	}
 
@@ -2681,7 +2679,7 @@ func (b *InMemoryBackend) GetPortalProduct(portalProductID string) (*PortalProdu
 	b.mu.RLock("GetPortalProduct")
 	defer b.mu.RUnlock()
 
-	pp, ok := b.portalProducts[portalProductID]
+	pp, ok := b.portalProducts.Get(portalProductID)
 	if !ok {
 		return nil, ErrPortalProductNotFound
 	}
@@ -2696,8 +2694,10 @@ func (b *InMemoryBackend) ListPortalProducts() ([]PortalProduct, error) {
 	b.mu.RLock("ListPortalProducts")
 	defer b.mu.RUnlock()
 
-	result := make([]PortalProduct, 0, len(b.portalProducts))
-	for _, pp := range b.portalProducts {
+	all := b.portalProducts.All()
+	result := make([]PortalProduct, 0, len(all))
+
+	for _, pp := range all {
 		result = append(result, *pp)
 	}
 
@@ -2715,11 +2715,11 @@ func (b *InMemoryBackend) ListProductPages(portalProductID string) ([]ProductPag
 	b.mu.RLock("ListProductPages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
-	pages := b.productPages[portalProductID]
+	pages := b.productPagesByPortalProduct.Get(portalProductID)
 	result := make([]ProductPage, 0, len(pages))
 
 	for _, p := range pages {
@@ -2736,11 +2736,11 @@ func (b *InMemoryBackend) ListProductRestEndpointPages(portalProductID string) (
 	b.mu.RLock("ListProductRestEndpointPages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
-	pages := b.productREPages[portalProductID]
+	pages := b.productREPagesByPortalProduct.Get(portalProductID)
 	result := make([]ProductRestEndpointPage, 0, len(pages))
 
 	for _, p := range pages {
@@ -2789,12 +2789,11 @@ func parseStageARN(arn string) (string, string, bool) {
 // lookupStageLocked resolves a Stage by API ID and stage name. Callers must
 // already hold b.mu (read or write).
 func (b *InMemoryBackend) lookupStageLocked(apiID, stageName string) (*Stage, error) {
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	s, ok := d.stages[stageName]
+	s, ok := b.stages.Get(stageKey(apiID, stageName))
 	if !ok {
 		return nil, ErrStageNotFound
 	}
@@ -2841,18 +2840,18 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 	switch resourceType {
 	case arnResourceTypeAPIs:
-		d, ok := b.apis[resourceID]
+		api, ok := b.apis.Get(resourceID)
 		if !ok {
 			return ErrAPINotFound
 		}
 
-		if d.api.Tags == nil {
-			d.api.Tags = make(map[string]string)
+		if api.Tags == nil {
+			api.Tags = make(map[string]string)
 		}
 
-		maps.Copy(d.api.Tags, tags)
+		maps.Copy(api.Tags, tags)
 	case arnResourceTypeVpcLinks:
-		v, ok := b.vpcLinks[resourceID]
+		v, ok := b.vpcLinks.Get(resourceID)
 		if !ok {
 			return ErrVpcLinkNotFound
 		}
@@ -2863,7 +2862,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 		maps.Copy(v.Tags, tags)
 	case arnResourceTypeDomainNames:
-		dn, ok := b.domainNames[resourceID]
+		dn, ok := b.domainNames.Get(resourceID)
 		if !ok {
 			return ErrDomainNameNotFound
 		}
@@ -2903,16 +2902,16 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	switch resourceType {
 	case arnResourceTypeAPIs:
-		d, ok := b.apis[resourceID]
+		api, ok := b.apis.Get(resourceID)
 		if !ok {
 			return ErrAPINotFound
 		}
 
 		for _, k := range tagKeys {
-			delete(d.api.Tags, k)
+			delete(api.Tags, k)
 		}
 	case arnResourceTypeVpcLinks:
-		v, ok := b.vpcLinks[resourceID]
+		v, ok := b.vpcLinks.Get(resourceID)
 		if !ok {
 			return ErrVpcLinkNotFound
 		}
@@ -2921,7 +2920,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 			delete(v.Tags, k)
 		}
 	case arnResourceTypeDomainNames:
-		dn, ok := b.domainNames[resourceID]
+		dn, ok := b.domainNames.Get(resourceID)
 		if !ok {
 			return ErrDomainNameNotFound
 		}
@@ -2955,21 +2954,21 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 
 	switch resourceType {
 	case arnResourceTypeAPIs:
-		d, ok := b.apis[resourceID]
+		api, ok := b.apis.Get(resourceID)
 		if !ok {
 			return nil, ErrAPINotFound
 		}
 
-		return copyTags(d.api.Tags), nil
+		return copyTags(api.Tags), nil
 	case arnResourceTypeVpcLinks:
-		v, ok := b.vpcLinks[resourceID]
+		v, ok := b.vpcLinks.Get(resourceID)
 		if !ok {
 			return nil, ErrVpcLinkNotFound
 		}
 
 		return copyTags(v.Tags), nil
 	case arnResourceTypeDomainNames:
-		dn, ok := b.domainNames[resourceID]
+		dn, ok := b.domainNames.Get(resourceID)
 		if !ok {
 			return nil, ErrDomainNameNotFound
 		}
@@ -2988,30 +2987,24 @@ func (b *InMemoryBackend) UpdateAPIMapping(
 	b.mu.Lock("UpdateAPIMapping")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNames[domainName]; !ok {
+	if !b.domainNames.Has(domainName) {
 		return nil, ErrDomainNameNotFound
 	}
 
-	mappings, ok := b.apiMappings[domainName]
-	if !ok {
-		return nil, ErrDomainNameNotFound
-	}
-
-	m, ok := mappings[mappingID]
+	m, ok := b.apiMappings.Get(apiMappingKey(domainName, mappingID))
 	if !ok {
 		return nil, ErrAPIMappingNotFound
 	}
 
 	if input.APIID != "" {
-		d, apiExists := b.apis[input.APIID]
-		if !apiExists {
+		if !b.apis.Has(input.APIID) {
 			return nil, ErrAPINotFound
 		}
 		stageToCheck := m.Stage
 		if input.Stage != "" {
 			stageToCheck = input.Stage
 		}
-		if _, exists := d.stages[stageToCheck]; !exists {
+		if !b.stages.Has(stageKey(input.APIID, stageToCheck)) {
 			return nil, ErrStageNotFound
 		}
 		m.APIID = input.APIID
@@ -3038,12 +3031,11 @@ func (b *InMemoryBackend) UpdateDeployment(
 	b.mu.Lock("UpdateDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	dep, ok := d.deployments[deploymentID]
+	dep, ok := b.deployments.Get(deploymentKey(apiID, deploymentID))
 	if !ok {
 		return nil, ErrDeploymentNotFound
 	}
@@ -3062,7 +3054,7 @@ func (b *InMemoryBackend) UpdateDomainName(domainName string, input UpdateDomain
 	b.mu.Lock("UpdateDomainName")
 	defer b.mu.Unlock()
 
-	dn, ok := b.domainNames[domainName]
+	dn, ok := b.domainNames.Get(domainName)
 	if !ok {
 		return nil, ErrDomainNameNotFound
 	}
@@ -3097,22 +3089,16 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 	b.mu.Lock("UpdateIntegrationResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.integrations[integrationID]; !exists {
+	if !b.integrations.Has(integrationKey(apiID, integrationID)) {
 		return nil, ErrIntegrationNotFound
 	}
 
-	responses, hasResponses := d.integrationResponses[integrationID]
-	if !hasResponses {
-		return nil, ErrIntegrationResponseNotFound
-	}
-
-	ir, exists := responses[responseID]
-	if !exists {
+	ir, ok := b.integrationResponses.Get(integrationResponseKey(apiID, integrationID, responseID))
+	if !ok {
 		return nil, ErrIntegrationResponseNotFound
 	}
 
@@ -3146,12 +3132,11 @@ func (b *InMemoryBackend) UpdateModel(apiID, modelID string, input UpdateModelIn
 	b.mu.Lock("UpdateModel")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	m, ok := d.models[modelID]
+	m, ok := b.models.Get(modelKey(apiID, modelID))
 	if !ok {
 		return nil, ErrModelNotFound
 	}
@@ -3185,22 +3170,16 @@ func (b *InMemoryBackend) UpdateRouteResponse(
 	b.mu.Lock("UpdateRouteResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return nil, ErrAPINotFound
 	}
 
-	if _, exists := d.routes[routeID]; !exists {
+	if !b.routes.Has(routeKey(apiID, routeID)) {
 		return nil, ErrRouteNotFound
 	}
 
-	responses, hasResponses := d.routeResponses[routeID]
-	if !hasResponses {
-		return nil, ErrRouteResponseNotFound
-	}
-
-	rr, exists := responses[responseID]
-	if !exists {
+	rr, ok := b.routeResponses.Get(routeResponseKey(apiID, routeID, responseID))
+	if !ok {
 		return nil, ErrRouteResponseNotFound
 	}
 
@@ -3226,7 +3205,7 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 	b.mu.Lock("UpdatePortal")
 	defer b.mu.Unlock()
 
-	p, ok := b.portals[portalID]
+	p, ok := b.portals.Get(portalID)
 	if !ok {
 		return nil, ErrPortalNotFound
 	}
@@ -3258,7 +3237,7 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 	b.mu.Lock("UpdatePortalProduct")
 	defer b.mu.Unlock()
 
-	pp, ok := b.portalProducts[portalProductID]
+	pp, ok := b.portalProducts.Get(portalProductID)
 	if !ok {
 		return nil, ErrPortalProductNotFound
 	}
@@ -3291,23 +3270,24 @@ func (b *InMemoryBackend) UpdateProductPage(
 	b.mu.Lock("UpdateProductPage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
-	for _, page := range b.productPages[portalProductID] {
-		if page.ProductPageID == pageID {
-			now := isoTime{time.Now()}
-			if input.DisplayContent != nil {
-				page.DisplayContent = input.DisplayContent
-			}
-			page.LastModified = &now
-			cp := *page
 
-			return &cp, nil
-		}
+	page, ok := b.productPages.Get(productPageKey(portalProductID, pageID))
+	if !ok {
+		return nil, ErrProductPageNotFound
 	}
 
-	return nil, ErrProductPageNotFound
+	now := isoTime{time.Now()}
+	if input.DisplayContent != nil {
+		page.DisplayContent = input.DisplayContent
+	}
+	page.LastModified = &now
+
+	cp := *page
+
+	return &cp, nil
 }
 
 // UpdateProductRestEndpointPage updates a product REST endpoint page.
@@ -3318,23 +3298,24 @@ func (b *InMemoryBackend) UpdateProductRestEndpointPage(
 	b.mu.Lock("UpdateProductRestEndpointPage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
-	for _, page := range b.productREPages[portalProductID] {
-		if page.ProductRestEndpointPageID == pageID {
-			now := isoTime{time.Now()}
-			if input.DisplayContent != nil {
-				page.DisplayContent = input.DisplayContent
-			}
-			page.LastModified = &now
-			cp := *page
 
-			return &cp, nil
-		}
+	page, ok := b.productREPages.Get(productREPageKey(portalProductID, pageID))
+	if !ok {
+		return nil, ErrProductREPageNotFound
 	}
 
-	return nil, ErrProductREPageNotFound
+	now := isoTime{time.Now()}
+	if input.DisplayContent != nil {
+		page.DisplayContent = input.DisplayContent
+	}
+	page.LastModified = &now
+
+	cp := *page
+
+	return &cp, nil
 }
 
 // DeletePortal removes a portal by ID.
@@ -3342,11 +3323,9 @@ func (b *InMemoryBackend) DeletePortal(portalID string) error {
 	b.mu.Lock("DeletePortal")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portals[portalID]; !ok {
+	if !b.portals.Delete(portalID) {
 		return ErrPortalNotFound
 	}
-
-	delete(b.portals, portalID)
 
 	return nil
 }
@@ -3356,13 +3335,18 @@ func (b *InMemoryBackend) DeletePortalProduct(portalProductID string) error {
 	b.mu.Lock("DeletePortalProduct")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Delete(portalProductID) {
 		return ErrPortalProductNotFound
 	}
 
-	delete(b.portalProducts, portalProductID)
-	delete(b.productPages, portalProductID)
-	delete(b.productREPages, portalProductID)
+	for _, p := range slices.Clone(b.productPagesByPortalProduct.Get(portalProductID)) {
+		b.productPages.Delete(productPageKey(portalProductID, p.ProductPageID))
+	}
+
+	for _, p := range slices.Clone(b.productREPagesByPortalProduct.Get(portalProductID)) {
+		b.productREPages.Delete(productREPageKey(portalProductID, p.ProductRestEndpointPageID))
+	}
+
 	// Clean up the sharing policy entry so deleting a product does not leak its
 	// policy document (AWS removes the associated sharing policy on delete).
 	delete(b.portalProductSharingPolicies, portalProductID)
@@ -3375,19 +3359,18 @@ func (b *InMemoryBackend) GetProductPage(portalProductID, pageID string) (*Produ
 	b.mu.RLock("GetProductPage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
-	for _, p := range b.productPages[portalProductID] {
-		if p.ProductPageID == pageID {
-			cp := *p
-
-			return &cp, nil
-		}
+	p, ok := b.productPages.Get(productPageKey(portalProductID, pageID))
+	if !ok {
+		return nil, ErrProductPageNotFound
 	}
 
-	return nil, ErrProductPageNotFound
+	cp := *p
+
+	return &cp, nil
 }
 
 // GetProductRestEndpointPage retrieves a specific product REST endpoint page.
@@ -3395,19 +3378,18 @@ func (b *InMemoryBackend) GetProductRestEndpointPage(portalProductID, pageID str
 	b.mu.RLock("GetProductRestEndpointPage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return nil, ErrPortalProductNotFound
 	}
 
-	for _, p := range b.productREPages[portalProductID] {
-		if p.ProductRestEndpointPageID == pageID {
-			cp := *p
-
-			return &cp, nil
-		}
+	p, ok := b.productREPages.Get(productREPageKey(portalProductID, pageID))
+	if !ok {
+		return nil, ErrProductREPageNotFound
 	}
 
-	return nil, ErrProductREPageNotFound
+	cp := *p
+
+	return &cp, nil
 }
 
 // DeleteProductPage removes a product page from a portal product.
@@ -3415,20 +3397,15 @@ func (b *InMemoryBackend) DeleteProductPage(portalProductID, pageID string) erro
 	b.mu.Lock("DeleteProductPage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return ErrPortalProductNotFound
 	}
 
-	pages := b.productPages[portalProductID]
-	for i, p := range pages {
-		if p.ProductPageID == pageID {
-			b.productPages[portalProductID] = append(pages[:i], pages[i+1:]...)
-
-			return nil
-		}
+	if !b.productPages.Delete(productPageKey(portalProductID, pageID)) {
+		return ErrProductPageNotFound
 	}
 
-	return ErrProductPageNotFound
+	return nil
 }
 
 // DeleteProductRestEndpointPage removes a product REST endpoint page from a portal product.
@@ -3436,20 +3413,15 @@ func (b *InMemoryBackend) DeleteProductRestEndpointPage(portalProductID, pageID 
 	b.mu.Lock("DeleteProductRestEndpointPage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.portalProducts[portalProductID]; !ok {
+	if !b.portalProducts.Has(portalProductID) {
 		return ErrPortalProductNotFound
 	}
 
-	pages := b.productREPages[portalProductID]
-	for i, p := range pages {
-		if p.ProductRestEndpointPageID == pageID {
-			b.productREPages[portalProductID] = append(pages[:i], pages[i+1:]...)
-
-			return nil
-		}
+	if !b.productREPages.Delete(productREPageKey(portalProductID, pageID)) {
+		return ErrProductREPageNotFound
 	}
 
-	return ErrProductREPageNotFound
+	return nil
 }
 
 // ResetAuthorizersCache is a no-op for the in-memory backend (caching is not simulated).
@@ -3457,12 +3429,11 @@ func (b *InMemoryBackend) ResetAuthorizersCache(apiID, stageName string) error {
 	b.mu.RLock("ResetAuthorizersCache")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	if _, exists := d.stages[stageName]; !exists {
+	if !b.stages.Has(stageKey(apiID, stageName)) {
 		return ErrStageNotFound
 	}
 
@@ -3474,12 +3445,12 @@ func (b *InMemoryBackend) DeleteCorsConfiguration(apiID string) error {
 	b.mu.Lock("DeleteCorsConfiguration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return ErrAPINotFound
 	}
 
-	d.api.CorsConfiguration = nil
+	api.CorsConfiguration = nil
 
 	return nil
 }
@@ -3489,12 +3460,11 @@ func (b *InMemoryBackend) DeleteAccessLogSettings(apiID, stageName string) error
 	b.mu.Lock("DeleteAccessLogSettings")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	s, ok := d.stages[stageName]
+	s, ok := b.stages.Get(stageKey(apiID, stageName))
 	if !ok {
 		return ErrStageNotFound
 	}
@@ -3510,12 +3480,11 @@ func (b *InMemoryBackend) DeleteRouteSettings(apiID, stageName, routeKey string)
 	b.mu.Lock("DeleteRouteSettings")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	s, ok := d.stages[stageName]
+	s, ok := b.stages.Get(stageKey(apiID, stageName))
 	if !ok {
 		return ErrStageNotFound
 	}
@@ -3534,7 +3503,7 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 	b.mu.RLock("ExportAPI")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[apiID]
+	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
 	}
@@ -3543,7 +3512,7 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 
 	paths := map[string]any{}
 
-	for _, route := range d.routes {
+	for _, route := range b.routesByAPI.Get(apiID) {
 		// Parse route key: e.g. "GET /items" or "$connect" (WebSocket)
 		parts := strings.SplitN(route.RouteKey, " ", routeKeyParts)
 
@@ -3573,7 +3542,7 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 			op["summary"] = route.OperationName
 		}
 
-		if secName := exportRouteSecurityName(d, route); secName != "" {
+		if secName := b.exportRouteSecurityName(apiID, route); secName != "" {
 			scopes := route.AuthorizationScopes
 			if scopes == nil {
 				scopes = []string{}
@@ -3586,12 +3555,12 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 	}
 
 	info := map[string]any{
-		"title":   d.api.Name,
-		"version": d.api.Version,
+		"title":   api.Name,
+		"version": api.Version,
 	}
 
-	if d.api.Description != "" {
-		info["description"] = d.api.Description
+	if api.Description != "" {
+		info["description"] = api.Description
 	}
 
 	spec := map[string]any{
@@ -3600,7 +3569,7 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 		"paths":   paths,
 	}
 
-	if schemes := exportSecuritySchemes(d); len(schemes) > 0 {
+	if schemes := b.exportSecuritySchemes(apiID); len(schemes) > 0 {
 		spec["components"] = map[string]any{"securitySchemes": schemes}
 	}
 
@@ -3610,12 +3579,12 @@ func (b *InMemoryBackend) ExportAPI(apiID string) (map[string]any, error) {
 // exportRouteSecurityName returns the OpenAPI security-scheme name that a route
 // references, or "" when the route requires no authorization. JWT/CUSTOM routes
 // reference their authorizer by name; AWS_IAM references the "sigv4" scheme.
-func exportRouteSecurityName(d *apiData, route *Route) string {
+func (b *InMemoryBackend) exportRouteSecurityName(apiID string, route *Route) string {
 	switch route.AuthorizationType {
 	case authorizationTypeAWSIAM:
 		return "sigv4"
 	case authorizerTypeJWT, authorizationTypeCustom:
-		if a, ok := d.authorizers[route.AuthorizerID]; ok {
+		if a, ok := b.authorizers.Get(authorizerKey(apiID, route.AuthorizerID)); ok {
 			return a.Name
 		}
 
@@ -3632,10 +3601,10 @@ func exportRouteSecurityName(d *apiData, route *Route) string {
 // security schemes.
 const openAPIKeyType = "type"
 
-func exportSecuritySchemes(d *apiData) map[string]any {
+func (b *InMemoryBackend) exportSecuritySchemes(apiID string) map[string]any {
 	schemes := map[string]any{}
 
-	for _, a := range d.authorizers {
+	for _, a := range b.authorizersByAPI.Get(apiID) {
 		if a.AuthorizerType != authorizerTypeJWT {
 			continue
 		}
@@ -3644,7 +3613,7 @@ func exportSecuritySchemes(d *apiData) map[string]any {
 	}
 
 	// Emit a sigv4 scheme when any route uses AWS_IAM authorization.
-	for _, route := range d.routes {
+	for _, route := range b.routesByAPI.Get(apiID) {
 		if route.AuthorizationType == authorizationTypeAWSIAM {
 			schemes["sigv4"] = map[string]any{
 				openAPIKeyType:                 "apiKey",
@@ -3693,12 +3662,11 @@ func (b *InMemoryBackend) DeleteRouteRequestParameter(apiID, routeID, requestPar
 	b.mu.Lock("DeleteRouteRequestParameter")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[apiID]
-	if !ok {
+	if !b.apis.Has(apiID) {
 		return ErrAPINotFound
 	}
 
-	r, ok := d.routes[routeID]
+	r, ok := b.routes.Get(routeKey(apiID, routeID))
 	if !ok {
 		return ErrRouteNotFound
 	}
