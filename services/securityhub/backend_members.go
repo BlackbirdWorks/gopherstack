@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateMembers(accounts []map[string]any) ([]*Member, [
 			continue
 		}
 
-		if _, exists := b.members[accountID]; exists {
+		if b.members.Has(accountID) {
 			unprocessed = append(unprocessed, map[string]any{
 				"AccountId":     accountID,
 				keyErrorCode:    "ResourceConflictException",
@@ -90,7 +90,7 @@ func (b *InMemoryBackend) CreateMembers(accounts []map[string]any) ([]*Member, [
 			MemberStatus:    "Created",
 			UpdatedAt:       now,
 		}
-		b.members[accountID] = m
+		b.members.Put(m)
 		created = append(created, m)
 	}
 
@@ -105,8 +105,7 @@ func (b *InMemoryBackend) DeleteMembers(accountIDs []string) ([]string, []map[st
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if _, ok := b.members[id]; ok {
-			delete(b.members, id)
+		if b.members.Delete(id) {
 			deleted = append(deleted, id)
 		} else {
 			unprocessed = append(unprocessed, map[string]any{
@@ -128,7 +127,7 @@ func (b *InMemoryBackend) GetMembers(accountIDs []string) ([]*Member, []map[stri
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if m, ok := b.members[id]; ok {
+		if m, ok := b.members.Get(id); ok {
 			cp := *m
 			found = append(found, &cp)
 		} else {
@@ -161,9 +160,9 @@ func (b *InMemoryBackend) InviteMembers(accountIDs []string) []map[string]any {
 			InvitedAt:    now,
 			MemberStatus: "Invited",
 		}
-		b.invitations[invitationID] = inv
+		b.invitations.Put(inv)
 
-		if m, ok := b.members[id]; ok {
+		if m, ok := b.members.Get(id); ok {
 			m.MemberStatus = "Invited"
 			m.InvitedAt = now
 		}
@@ -178,7 +177,7 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool, nextToken string, max
 
 	var all []*Member
 
-	for _, m := range b.members {
+	for _, m := range b.members.All() {
 		if onlyAssociated && m.MemberStatus != "Enabled" {
 			continue
 		}
@@ -195,7 +194,7 @@ func (b *InMemoryBackend) DisassociateMembers(accountIDs []string) error {
 	defer b.mu.Unlock()
 
 	for _, id := range accountIDs {
-		if m, ok := b.members[id]; ok {
+		if m, ok := b.members.Get(id); ok {
 			m.MemberStatus = "Removed"
 		}
 	}
@@ -230,14 +229,14 @@ func (b *InMemoryBackend) DeclineInvitations(accountIDs []string) ([]map[string]
 	var declined []map[string]any
 	var unprocessed []map[string]any
 
-	for invID, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		if slices.Contains(accountIDs, inv.AccountId) {
 			inv.MemberStatus = "Resigned"
 			declined = append(declined, map[string]any{
 				"AccountId":        inv.AccountId,
 				"ProcessingResult": "SUCCESS", //nolint:goconst // existing issue.
 			})
-			delete(b.invitations, invID)
+			b.invitations.Delete(inv.InvitationId)
 		}
 	}
 
@@ -271,13 +270,13 @@ func (b *InMemoryBackend) DeleteInvitations(accountIDs []string) ([]map[string]a
 	var deleted []map[string]any
 	var unprocessed []map[string]any
 
-	for invID, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		if slices.Contains(accountIDs, inv.AccountId) {
 			deleted = append(deleted, map[string]any{
 				"AccountId":        inv.AccountId,
 				"ProcessingResult": "SUCCESS",
 			})
-			delete(b.invitations, invID)
+			b.invitations.Delete(inv.InvitationId)
 		}
 	}
 
@@ -308,16 +307,17 @@ func (b *InMemoryBackend) GetInvitationsCount() int {
 	b.mu.RLock("GetInvitationsCount")
 	defer b.mu.RUnlock()
 
-	return len(b.invitations)
+	return b.invitations.Len()
 }
 
 func (b *InMemoryBackend) ListInvitations(nextToken string, maxResults int) ([]*Invitation, string) {
 	b.mu.RLock("ListInvitations")
 	defer b.mu.RUnlock()
 
-	var all []*Invitation //nolint:prealloc // existing issue.
+	snap := b.invitations.All()
+	all := make([]*Invitation, 0, len(snap))
 
-	for _, inv := range b.invitations {
+	for _, inv := range snap {
 		cp := *inv
 		all = append(all, &cp)
 	}

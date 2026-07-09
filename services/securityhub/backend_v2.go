@@ -158,7 +158,7 @@ func (b *InMemoryBackend) CreateAggregatorV2(regionLinkingMode string, regions [
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	b.aggregatorsV2[arn] = agg
+	b.aggregatorsV2.Put(agg)
 
 	return agg, nil
 }
@@ -167,7 +167,7 @@ func (b *InMemoryBackend) GetAggregatorV2(arn string) (*AggregatorV2, error) {
 	b.mu.RLock("GetAggregatorV2")
 	defer b.mu.RUnlock()
 
-	agg, ok := b.aggregatorsV2[arn]
+	agg, ok := b.aggregatorsV2.Get(arn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -181,9 +181,10 @@ func (b *InMemoryBackend) ListAggregatorsV2(nextToken string, maxResults int) ([
 	b.mu.RLock("ListAggregatorsV2")
 	defer b.mu.RUnlock()
 
-	var all []*AggregatorV2 //nolint:prealloc // existing issue.
+	snap := b.aggregatorsV2.All()
+	all := make([]*AggregatorV2, 0, len(snap))
 
-	for _, agg := range b.aggregatorsV2 {
+	for _, agg := range snap {
 		cp := *agg
 		all = append(all, &cp)
 	}
@@ -195,7 +196,7 @@ func (b *InMemoryBackend) UpdateAggregatorV2(arn, regionLinkingMode string, regi
 	b.mu.Lock("UpdateAggregatorV2")
 	defer b.mu.Unlock()
 
-	agg, ok := b.aggregatorsV2[arn]
+	agg, ok := b.aggregatorsV2.Get(arn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -214,11 +215,9 @@ func (b *InMemoryBackend) DeleteAggregatorV2(arn string) error {
 	b.mu.Lock("DeleteAggregatorV2")
 	defer b.mu.Unlock()
 
-	if _, ok := b.aggregatorsV2[arn]; !ok {
+	if !b.aggregatorsV2.Delete(arn) {
 		return ErrNotFound
 	}
-
-	delete(b.aggregatorsV2, arn)
 
 	return nil
 }
@@ -254,7 +253,7 @@ func (b *InMemoryBackend) CreateAutomationRuleV2(
 		RuleOrder:   ruleOrder,
 		IsTerminal:  isTerminal,
 	}
-	b.automationRulesV2[id] = rule
+	b.automationRulesV2.Put(rule)
 
 	if len(tags) > 0 {
 		b.tags[arn] = tags
@@ -267,9 +266,9 @@ func (b *InMemoryBackend) GetAutomationRuleV2(identifier string) (*AutomationRul
 	b.mu.RLock("GetAutomationRuleV2")
 	defer b.mu.RUnlock()
 
-	rule, ok := b.automationRulesV2[identifier]
+	rule, ok := b.automationRulesV2.Get(identifier)
 	if !ok {
-		for _, r := range b.automationRulesV2 {
+		for _, r := range b.automationRulesV2.All() {
 			if r.RuleArn == identifier {
 				cp := *r
 
@@ -289,9 +288,10 @@ func (b *InMemoryBackend) ListAutomationRulesV2(nextToken string, maxResults int
 	b.mu.RLock("ListAutomationRulesV2")
 	defer b.mu.RUnlock()
 
-	var all []*AutomationRuleV2 //nolint:prealloc // existing issue.
+	snap := b.automationRulesV2.All()
+	all := make([]*AutomationRuleV2, 0, len(snap))
 
-	for _, rule := range b.automationRulesV2 {
+	for _, rule := range snap {
 		cp := *rule
 		all = append(all, &cp)
 	}
@@ -308,10 +308,10 @@ func (b *InMemoryBackend) UpdateAutomationRuleV2(
 
 	var target *AutomationRuleV2
 
-	if rule, ok := b.automationRulesV2[identifier]; ok {
+	if rule, ok := b.automationRulesV2.Get(identifier); ok {
 		target = rule
 	} else {
-		for _, r := range b.automationRulesV2 {
+		for _, r := range b.automationRulesV2.All() {
 			if r.RuleArn == identifier {
 				target = r
 
@@ -364,15 +364,13 @@ func (b *InMemoryBackend) DeleteAutomationRuleV2(identifier string) error {
 	b.mu.Lock("DeleteAutomationRuleV2")
 	defer b.mu.Unlock()
 
-	if _, ok := b.automationRulesV2[identifier]; ok {
-		delete(b.automationRulesV2, identifier)
-
+	if b.automationRulesV2.Delete(identifier) {
 		return nil
 	}
 
-	for id, r := range b.automationRulesV2 {
+	for _, r := range b.automationRulesV2.All() {
 		if r.RuleArn == identifier {
-			delete(b.automationRulesV2, id)
+			b.automationRulesV2.Delete(r.Identifier)
 
 			return nil
 		}
@@ -407,7 +405,7 @@ func (b *InMemoryBackend) CreateConnectorV2(
 		Provider:        provider,
 		Tags:            tags,
 	}
-	b.connectorsV2[id] = c
+	b.connectorsV2.Put(c)
 
 	if len(tags) > 0 {
 		b.tags[arn] = tags
@@ -420,9 +418,9 @@ func (b *InMemoryBackend) GetConnectorV2(connectorID string) (*ConnectorV2, erro
 	b.mu.RLock("GetConnectorV2")
 	defer b.mu.RUnlock()
 
-	c, ok := b.connectorsV2[connectorID]
+	c, ok := b.connectorsV2.Get(connectorID)
 	if !ok {
-		for _, conn := range b.connectorsV2 {
+		for _, conn := range b.connectorsV2.All() {
 			if conn.ConnectorArn == connectorID {
 				cp := *conn
 
@@ -442,9 +440,10 @@ func (b *InMemoryBackend) ListConnectorsV2(nextToken string, maxResults int) ([]
 	b.mu.RLock("ListConnectorsV2")
 	defer b.mu.RUnlock()
 
-	var all []*ConnectorV2 //nolint:prealloc // existing issue.
+	snap := b.connectorsV2.All()
+	all := make([]*ConnectorV2, 0, len(snap))
 
-	for _, c := range b.connectorsV2 {
+	for _, c := range snap {
 		cp := *c
 		all = append(all, &cp)
 	}
@@ -461,10 +460,10 @@ func (b *InMemoryBackend) UpdateConnectorV2(
 
 	var target *ConnectorV2
 
-	if c, ok := b.connectorsV2[connectorID]; ok {
+	if c, ok := b.connectorsV2.Get(connectorID); ok {
 		target = c
 	} else {
-		for _, conn := range b.connectorsV2 {
+		for _, conn := range b.connectorsV2.All() {
 			if conn.ConnectorArn == connectorID {
 				target = conn
 
@@ -501,15 +500,13 @@ func (b *InMemoryBackend) DeleteConnectorV2(connectorID string) error {
 	b.mu.Lock("DeleteConnectorV2")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connectorsV2[connectorID]; ok {
-		delete(b.connectorsV2, connectorID)
-
+	if b.connectorsV2.Delete(connectorID) {
 		return nil
 	}
 
-	for id, c := range b.connectorsV2 {
+	for _, c := range b.connectorsV2.All() {
 		if c.ConnectorArn == connectorID {
-			delete(b.connectorsV2, id)
+			b.connectorsV2.Delete(c.ConnectorId)
 
 			return nil
 		}
@@ -524,10 +521,10 @@ func (b *InMemoryBackend) RegisterConnectorV2(connectorID string, provider map[s
 
 	var target *ConnectorV2
 
-	if c, ok := b.connectorsV2[connectorID]; ok {
+	if c, ok := b.connectorsV2.Get(connectorID); ok {
 		target = c
 	} else {
-		for _, conn := range b.connectorsV2 {
+		for _, conn := range b.connectorsV2.All() {
 			if conn.ConnectorArn == connectorID {
 				target = conn
 
@@ -570,7 +567,7 @@ func (b *InMemoryBackend) CreateTicketV2(
 		TicketConfigurationArn: arn,
 		CreatedAt:              now,
 	}
-	b.ticketsV2[arn] = t
+	b.ticketsV2.Put(t)
 
 	if len(tags) > 0 {
 		b.tags[arn] = tags
@@ -765,7 +762,7 @@ func (b *InMemoryBackend) GenerateRecommendedPolicyV2(metadataUID string) (*Reco
 		Policy:         `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"securityhub:*","Resource":"*"}]}`,
 		GenerationTime: now,
 	}
-	b.recommendedPoliciesV2[metadataUID] = rec
+	b.recommendedPoliciesV2.Put(rec)
 
 	return rec, nil
 }
@@ -774,7 +771,7 @@ func (b *InMemoryBackend) GetRecommendedPolicyV2(metadataUID string) (*Recommend
 	b.mu.RLock("GetRecommendedPolicyV2")
 	defer b.mu.RUnlock()
 
-	rec, ok := b.recommendedPoliciesV2[metadataUID]
+	rec, ok := b.recommendedPoliciesV2.Get(metadataUID)
 	if !ok {
 		return nil, ErrNotFound
 	}
