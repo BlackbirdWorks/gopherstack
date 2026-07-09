@@ -3,56 +3,78 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-// backendSnapshot is the persisted form of the backend state. All resource maps
-// are nested by region (outer key = region) to mirror the in-memory layout and
-// keep same-named resources in different regions fully isolated across restarts.
+// kafkaSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to backendSnapshot (or the shape of any table it
+// carries) would make an older snapshot unsafe to decode as the current
+// shape. Restore compares this against the persisted value and discards
+// (ResetAll, not a partial decode) any mismatch -- see Restore. The
+// pre-Phase-3.3 snapshot format had no version field at all, so an old
+// snapshot decodes with Version == 0, which is guaranteed to mismatch
+// kafkaSnapshotVersion and is discarded the same way any other incompatible
+// snapshot is.
+const kafkaSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the kafka (MSK) backend.
+//
+// Tables holds one JSON-encoded array per store.Table registered on
+// b.registry (clusters, configurations, replicators, topics, vpcConnections,
+// clusterOperations -- see store_setup.go), produced by
+// b.registry.SnapshotAll(). Every kafka resource's identity field already
+// carries a normal JSON tag, so none of these need a DTO layer to round-trip
+// (contrast services/ses's "dirty" tables).
+//
+// ScramSecrets and ClusterPolicies persist the two fields left as plain maps
+// (their values are not *T, so they don't fit store.Table) alongside Tables.
 type backendSnapshot struct {
-	Clusters          map[string]map[string]*Cluster          `json:"clusters"`
-	Configurations    map[string]map[string]*Configuration    `json:"configurations"`
-	ScramSecrets      map[string]map[string][]string          `json:"scramSecrets"`
-	Replicators       map[string]map[string]*Replicator       `json:"replicators"`
-	Topics            map[string]map[string]*Topic            `json:"topics"`
-	VpcConnections    map[string]map[string]*VpcConnection    `json:"vpcConnections"`
-	ClusterPolicies   map[string]map[string]string            `json:"clusterPolicies"`
-	ClusterOperations map[string]map[string]*ClusterOperation `json:"clusterOperations"`
-	AccountID         string                                  `json:"accountID"`
-	Region            string                                  `json:"region"`
+	Tables          map[string]json.RawMessage `json:"tables"`
+	ScramSecrets    map[string][]string        `json:"scramSecrets"`
+	ClusterPolicies map[string]string          `json:"clusterPolicies"`
+	AccountID       string                     `json:"accountID"`
+	Region          string                     `json:"region"`
+	Version         int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
+// It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Clusters:          b.clusters,
-		Configurations:    b.configurations,
-		ScramSecrets:      b.scramSecrets,
-		Replicators:       b.replicators,
-		Topics:            b.topics,
-		VpcConnections:    b.vpcConnections,
-		ClusterPolicies:   b.clusterPolicies,
-		ClusterOperations: b.clusterOperations,
-		AccountID:         b.accountID,
-		Region:            b.region,
-	}
-
-	data, err := json.Marshal(snap)
+	tables, err := b.registry.SnapshotAll()
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "kafka: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "kafka: snapshot table marshal failed", "error", err)
 
 		return nil
 	}
 
-	return data
+	scramSecrets := make(map[string][]string, len(b.scramSecrets))
+	for clusterArn, secrets := range b.scramSecrets {
+		scramSecrets[clusterArn] = append([]string(nil), secrets...)
+	}
+
+	clusterPolicies := make(map[string]string, len(b.clusterPolicies))
+	maps.Copy(clusterPolicies, b.clusterPolicies)
+
+	snap := backendSnapshot{
+		Version:         kafkaSnapshotVersion,
+		Tables:          tables,
+		ScramSecrets:    scramSecrets,
+		ClusterPolicies: clusterPolicies,
+		AccountID:       b.accountID,
+		Region:          b.region,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "kafka", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
+// It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
@@ -60,87 +82,89 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	ensureNonNilMaps(&snap)
-	fixNilTags(&snap)
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.clusters = snap.Clusters
-	b.configurations = snap.Configurations
-	b.scramSecrets = snap.ScramSecrets
-	b.replicators = snap.Replicators
-	b.topics = snap.Topics
-	b.vpcConnections = snap.VpcConnections
-	b.clusterPolicies = snap.ClusterPolicies
-	b.clusterOperations = snap.ClusterOperations
+	if snap.Version != kafkaSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"kafka: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", kafkaSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.scramSecrets = make(map[string][]string)
+		b.clusterPolicies = make(map[string]string)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return err
+	}
+
+	b.scramSecrets = ensureNonNilScramSecrets(snap.ScramSecrets)
+	b.clusterPolicies = ensureNonNilClusterPolicies(snap.ClusterPolicies)
+	fixNilTags(b)
 	b.accountID = snap.AccountID
 	b.region = snap.Region
-
-	// Rebuild the clusterNames index from restored cluster data.
-	b.clusterNames = make(map[string]map[string]string)
-	for region, regionClusters := range b.clusters {
-		b.clusterNames[region] = make(map[string]string, len(regionClusters))
-		for clusterArn, c := range regionClusters {
-			b.clusterNames[region][c.ClusterName] = clusterArn
-		}
-	}
 
 	return nil
 }
 
-// ensureNonNilMaps initialises nil region maps in the snapshot to empty maps.
-func ensureNonNilMaps(snap *backendSnapshot) {
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]map[string]*Cluster)
+// ensureNonNilScramSecrets returns m unchanged if non-nil, else an empty map,
+// so a restored backend never carries a nil scramSecrets field.
+func ensureNonNilScramSecrets(m map[string][]string) map[string][]string {
+	if m == nil {
+		return make(map[string][]string)
 	}
 
-	if snap.Configurations == nil {
-		snap.Configurations = make(map[string]map[string]*Configuration)
-	}
-
-	if snap.ScramSecrets == nil {
-		snap.ScramSecrets = make(map[string]map[string][]string)
-	}
-
-	if snap.Replicators == nil {
-		snap.Replicators = make(map[string]map[string]*Replicator)
-	}
-
-	if snap.Topics == nil {
-		snap.Topics = make(map[string]map[string]*Topic)
-	}
-
-	if snap.VpcConnections == nil {
-		snap.VpcConnections = make(map[string]map[string]*VpcConnection)
-	}
-
-	if snap.ClusterPolicies == nil {
-		snap.ClusterPolicies = make(map[string]map[string]string)
-	}
-
-	if snap.ClusterOperations == nil {
-		snap.ClusterOperations = make(map[string]map[string]*ClusterOperation)
-	}
+	return m
 }
 
-// fixNilTags ensures restored resources have non-nil tag maps, across every region.
-func fixNilTags(snap *backendSnapshot) {
-	fixRegionTags(snap.Clusters, func(c *Cluster) *map[string]string { return &c.Tags })
-	fixRegionTags(snap.Configurations, func(c *Configuration) *map[string]string { return &c.Tags })
-	fixRegionTags(snap.Replicators, func(r *Replicator) *map[string]string { return &r.Tags })
-	fixRegionTags(snap.VpcConnections, func(v *VpcConnection) *map[string]string { return &v.Tags })
+// ensureNonNilClusterPolicies returns m unchanged if non-nil, else an empty
+// map, so a restored backend never carries a nil clusterPolicies field.
+func ensureNonNilClusterPolicies(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+
+	return m
 }
 
-// fixRegionTags walks a region-nested resource map and replaces any nil tag map
-// (located via tagsOf) with an empty map so restored resources are tag-safe.
-func fixRegionTags[T any](byRegion map[string]map[string]*T, tagsOf func(*T) *map[string]string) {
-	for _, byKey := range byRegion {
-		for _, item := range byKey {
-			tags := tagsOf(item)
-			if *tags == nil {
-				*tags = make(map[string]string)
-			}
+// fixNilTags ensures every restored Cluster/Configuration/Replicator/
+// VpcConnection has a non-nil Tags map. Tags is tagged json:"-" on all four
+// (the AWS wire response never embeds tags in the resource body -- they are
+// fetched separately via ListTagsForResource/GetTags), so it is never
+// populated by the JSON unmarshal that store.Table.Restore performs and
+// always comes back as the zero value (nil) here, exactly as it did before
+// Phase 3.3 when these same structs were unmarshalled directly.
+func fixNilTags(b *InMemoryBackend) {
+	for _, c := range b.clusters.All() {
+		if c.Tags == nil {
+			c.Tags = make(map[string]string)
+		}
+	}
+
+	for _, c := range b.configurations.All() {
+		if c.Tags == nil {
+			c.Tags = make(map[string]string)
+		}
+	}
+
+	for _, r := range b.replicators.All() {
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+	}
+
+	for _, v := range b.vpcConnections.All() {
+		if v.Tags == nil {
+			v.Tags = make(map[string]string)
 		}
 	}
 }
