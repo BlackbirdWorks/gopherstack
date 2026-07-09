@@ -130,15 +130,11 @@ func (b *InMemoryBackend) CreateAccessEntry(
 	b.mu.Lock("CreateAccessEntry")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if b.accessEntries[clusterName] == nil {
-		b.accessEntries[clusterName] = make(map[string]*AccessEntry)
-	}
-
-	if _, ok := b.accessEntries[clusterName][principalARN]; ok {
+	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); ok {
 		return nil, fmt.Errorf(
 			"%w: access entry for %s already exists in cluster %s",
 			ErrAlreadyExists,
@@ -173,7 +169,7 @@ func (b *InMemoryBackend) CreateAccessEntry(
 		CreatedAt:        time.Now().UTC(),
 		Tags:             t,
 	}
-	b.accessEntries[clusterName][principalARN] = entry
+	b.accessEntries.Put(entry)
 	cp := *entry
 
 	return &cp, nil
@@ -184,15 +180,11 @@ func (b *InMemoryBackend) DeleteAccessEntry(clusterName, principalARN string) er
 	b.mu.Lock("DeleteAccessEntry")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if b.accessEntries[clusterName] == nil {
-		return fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
-	}
-
-	entry, ok := b.accessEntries[clusterName][principalARN]
+	entry, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN))
 	if !ok {
 		return fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
 	}
@@ -201,7 +193,7 @@ func (b *InMemoryBackend) DeleteAccessEntry(clusterName, principalARN string) er
 		entry.Tags.Close()
 	}
 
-	delete(b.accessEntries[clusterName], principalARN)
+	b.accessEntries.Delete(accessEntryKey(clusterName, principalARN))
 	delete(b.accessPolicies[clusterName], principalARN)
 
 	return nil
@@ -216,11 +208,11 @@ func (b *InMemoryBackend) AssociateAccessPolicy(
 	b.mu.Lock("AssociateAccessPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if b.accessEntries[clusterName] == nil || b.accessEntries[clusterName][principalARN] == nil {
+	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); !ok {
 		return nil, fmt.Errorf(
 			"%w: access entry for %s not found in cluster %s",
 			ErrNotFound,
@@ -271,12 +263,13 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 	b.mu.Lock("AssociateEncryptionConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	c, ok := b.clusters.Get(clusterName)
+	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
 	for _, cfg := range configs {
-		if keyARN, ok := cfg.Provider["keyArn"]; ok && keyARN != "" {
+		if keyARN, hasKey := cfg.Provider["keyArn"]; hasKey && keyARN != "" {
 			if !isKMSARN(keyARN) {
 				return nil, fmt.Errorf("%w: provider.keyArn %q is not a valid KMS key ARN", ErrValidation, keyARN)
 			}
@@ -286,7 +279,7 @@ func (b *InMemoryBackend) AssociateEncryptionConfig(
 	stored := make([]EncryptionConfig, len(configs))
 	copy(stored, configs)
 	b.encryptionConfigs[clusterName] = stored
-	b.clusters[clusterName].EncryptionConfig = stored
+	c.EncryptionConfig = stored
 
 	result := make([]EncryptionConfig, len(stored))
 	copy(result, stored)
@@ -307,15 +300,11 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 	b.mu.Lock("AssociateIdentityProviderConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if b.identityProviderConfigs[clusterName] == nil {
-		b.identityProviderConfigs[clusterName] = make(map[string]*IdentityProviderConfig)
-	}
-
-	if _, ok := b.identityProviderConfigs[clusterName][name]; ok {
+	if _, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name)); ok {
 		return nil, fmt.Errorf(
 			"%w: identity provider config %s already exists in cluster %s",
 			ErrAlreadyExists,
@@ -338,7 +327,7 @@ func (b *InMemoryBackend) AssociateIdentityProviderConfig(
 		CreatedAt:   time.Now().UTC(),
 		Tags:        t,
 	}
-	b.identityProviderConfigs[clusterName][name] = cfg
+	b.identityProviderConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp, nil
@@ -383,15 +372,11 @@ func (b *InMemoryBackend) CreateAddon(
 	b.mu.Lock("CreateAddon")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if b.addons[clusterName] == nil {
-		b.addons[clusterName] = make(map[string]*Addon)
-	}
-
-	if _, ok := b.addons[clusterName][addonName]; ok {
+	if _, ok := b.addons.Get(addonKey(clusterName, addonName)); ok {
 		return nil, fmt.Errorf("%w: addon %s already exists in cluster %s", ErrAlreadyExists, addonName, clusterName)
 	}
 
@@ -434,13 +419,13 @@ func (b *InMemoryBackend) CreateAddon(
 		Configuration:         configuration,
 		ResolveConflicts:      resolveConflicts,
 	}
-	b.addons[clusterName][addonName] = addon
+	b.addons.Put(addon)
 
 	b.work.After("AddonTransition", addonTransitionDelay, func() {
 		b.mu.Lock("CreateAddon-async")
 		defer b.mu.Unlock()
 
-		if a, ok := b.addons[clusterName][addonName]; ok && a.Status == statusCreating {
+		if a, ok := b.addons.Get(addonKey(clusterName, addonName)); ok && a.Status == statusCreating {
 			a.Status = statusActive
 		}
 	})
@@ -455,7 +440,7 @@ func (b *InMemoryBackend) CreateCapability(name, version string) (*Capability, e
 	b.mu.Lock("CreateCapability")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capabilities[name]; ok {
+	if _, ok := b.capabilities.Get(name); ok {
 		return nil, fmt.Errorf("%w: capability %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -464,7 +449,7 @@ func (b *InMemoryBackend) CreateCapability(name, version string) (*Capability, e
 		Version: version,
 		Status:  statusActive,
 	}
-	b.capabilities[name] = capa
+	b.capabilities.Put(capa)
 	cp := *capa
 
 	return &cp, nil
@@ -498,7 +483,7 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 		CreatedAt:       time.Now().UTC(),
 		Tags:            t,
 	}
-	b.subscriptions[id] = sub
+	b.subscriptions.Put(sub)
 	cp := *sub
 
 	return &cp, nil
@@ -514,15 +499,11 @@ func (b *InMemoryBackend) CreateFargateProfile(
 	b.mu.Lock("CreateFargateProfile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	if b.fargateProfiles[clusterName] == nil {
-		b.fargateProfiles[clusterName] = make(map[string]*FargateProfile)
-	}
-
-	if _, ok := b.fargateProfiles[clusterName][profileName]; ok {
+	if _, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName)); ok {
 		return nil, fmt.Errorf(
 			"%w: fargate profile %s already exists in cluster %s",
 			ErrAlreadyExists,
@@ -557,13 +538,14 @@ func (b *InMemoryBackend) CreateFargateProfile(
 		CreatedAt:           time.Now().UTC(),
 		Tags:                t,
 	}
-	b.fargateProfiles[clusterName][profileName] = profile
+	b.fargateProfiles.Put(profile)
 
 	b.work.After("FargateProfileTransition", fargateProfileTransitionDelay, func() {
 		b.mu.Lock("CreateFargateProfile-async")
 		defer b.mu.Unlock()
 
-		if fp, ok := b.fargateProfiles[clusterName][profileName]; ok && fp.Status == statusCreating {
+		if fp, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName)); ok &&
+			fp.Status == statusCreating {
 			fp.Status = statusActive
 		}
 	})
@@ -584,12 +566,8 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 	b.mu.Lock("CreatePodIdentityAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
-	}
-
-	if b.podIdentityAssociations[clusterName] == nil {
-		b.podIdentityAssociations[clusterName] = make(map[string]*PodIdentityAssociation)
 	}
 
 	assocID := uuid.NewString()
@@ -610,7 +588,7 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 		CreatedAt:      time.Now().UTC(),
 		Tags:           t,
 	}
-	b.podIdentityAssociations[clusterName][assocID] = assoc
+	b.podIdentityAssociations.Put(assoc)
 	cp := *assoc
 
 	return &cp, nil

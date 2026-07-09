@@ -2,6 +2,7 @@ package eks
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -90,16 +91,11 @@ func (b *InMemoryBackend) DeleteAddon(clusterName, addonName string) (*Addon, er
 	b.mu.Lock("DeleteAddon")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	addons := b.addons[clusterName]
-	if addons == nil {
-		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
-	}
-
-	addon, ok := addons[addonName]
+	addon, ok := b.addons.Get(addonKey(clusterName, addonName))
 	if !ok {
 		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
 	}
@@ -109,7 +105,7 @@ func (b *InMemoryBackend) DeleteAddon(clusterName, addonName string) (*Addon, er
 		addon.Tags.Close()
 	}
 
-	delete(addons, addonName)
+	b.addons.Delete(addonKey(clusterName, addonName))
 
 	cp.Status = statusDeleting
 
@@ -121,16 +117,11 @@ func (b *InMemoryBackend) DescribeAddon(clusterName, addonName string) (*Addon, 
 	b.mu.RLock("DescribeAddon")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	addons := b.addons[clusterName]
-	if addons == nil {
-		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
-	}
-
-	addon, ok := addons[addonName]
+	addon, ok := b.addons.Get(addonKey(clusterName, addonName))
 	if !ok {
 		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
 	}
@@ -145,12 +136,18 @@ func (b *InMemoryBackend) ListAddons(clusterName string) ([]string, error) {
 	b.mu.RLock("ListAddons")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	addons := b.addons[clusterName]
-	names := collections.SortedKeys(addons)
+	items := b.addonsByCluster.Get(clusterName)
+	names := make([]string, len(items))
+
+	for i, a := range items {
+		names[i] = a.AddonName
+	}
+
+	slices.Sort(names)
 
 	return names, nil
 }
@@ -162,16 +159,11 @@ func (b *InMemoryBackend) UpdateAddon(
 	b.mu.Lock("UpdateAddon")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	addons := b.addons[clusterName]
-	if addons == nil {
-		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
-	}
-
-	addon, ok := addons[addonName]
+	addon, ok := b.addons.Get(addonKey(clusterName, addonName))
 	if !ok {
 		return nil, fmt.Errorf("%w: addon %s not found in cluster %s", ErrNotFound, addonName, clusterName)
 	}
@@ -299,13 +291,13 @@ func (b *InMemoryBackend) DeleteCapability(name string) (*Capability, error) {
 	b.mu.Lock("DeleteCapability")
 	defer b.mu.Unlock()
 
-	capa, ok := b.capabilities[name]
+	capa, ok := b.capabilities.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: capability %s not found", ErrNotFound, name)
 	}
 
 	cp := *capa
-	delete(b.capabilities, name)
+	b.capabilities.Delete(name)
 
 	cp.Status = statusDeleting
 
@@ -317,7 +309,7 @@ func (b *InMemoryBackend) DescribeCapability(name string) (*Capability, error) {
 	b.mu.RLock("DescribeCapability")
 	defer b.mu.RUnlock()
 
-	capa, ok := b.capabilities[name]
+	capa, ok := b.capabilities.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: capability %s not found", ErrNotFound, name)
 	}
@@ -332,7 +324,14 @@ func (b *InMemoryBackend) ListCapabilities() []string {
 	b.mu.RLock("ListCapabilities")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.capabilities)
+	// Capability's key IS its Name, so Snapshot's key-sorted order is already
+	// name-sorted order.
+	items := b.capabilities.Snapshot()
+	names := make([]string, len(items))
+
+	for i, c := range items {
+		names[i] = c.Name
+	}
 
 	return names
 }
@@ -342,7 +341,7 @@ func (b *InMemoryBackend) UpdateCapability(name, version string) (*Capability, e
 	b.mu.Lock("UpdateCapability")
 	defer b.mu.Unlock()
 
-	capa, ok := b.capabilities[name]
+	capa, ok := b.capabilities.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: capability %s not found", ErrNotFound, name)
 	}
@@ -363,7 +362,7 @@ func (b *InMemoryBackend) DeleteEksAnywhereSubscription(id string) (*AnywhereSub
 	b.mu.Lock("DeleteEksAnywhereSubscription")
 	defer b.mu.Unlock()
 
-	sub, ok := b.subscriptions[id]
+	sub, ok := b.subscriptions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrNotFound, id)
 	}
@@ -374,7 +373,7 @@ func (b *InMemoryBackend) DeleteEksAnywhereSubscription(id string) (*AnywhereSub
 		sub.Tags.Close()
 	}
 
-	delete(b.subscriptions, id)
+	b.subscriptions.Delete(id)
 
 	cp.Status = statusDeleting
 
@@ -386,7 +385,7 @@ func (b *InMemoryBackend) DescribeEksAnywhereSubscription(id string) (*AnywhereS
 	b.mu.RLock("DescribeEksAnywhereSubscription")
 	defer b.mu.RUnlock()
 
-	sub, ok := b.subscriptions[id]
+	sub, ok := b.subscriptions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrNotFound, id)
 	}
@@ -401,8 +400,10 @@ func (b *InMemoryBackend) ListEksAnywhereSubscriptions() []*AnywhereSubscription
 	b.mu.RLock("ListEksAnywhereSubscriptions")
 	defer b.mu.RUnlock()
 
-	list := make([]*AnywhereSubscription, 0, len(b.subscriptions))
-	for _, sub := range b.subscriptions {
+	items := b.subscriptions.All()
+	list := make([]*AnywhereSubscription, 0, len(items))
+
+	for _, sub := range items {
 		cp := *sub
 		list = append(list, &cp)
 	}
@@ -419,7 +420,7 @@ func (b *InMemoryBackend) UpdateEksAnywhereSubscription(
 	b.mu.Lock("UpdateEksAnywhereSubscription")
 	defer b.mu.Unlock()
 
-	sub, ok := b.subscriptions[id]
+	sub, ok := b.subscriptions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrNotFound, id)
 	}
@@ -446,21 +447,11 @@ func (b *InMemoryBackend) DeletePodIdentityAssociation(
 	b.mu.Lock("DeletePodIdentityAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	assocs := b.podIdentityAssociations[clusterName]
-	if assocs == nil {
-		return nil, fmt.Errorf(
-			"%w: pod identity association %s not found in cluster %s",
-			ErrNotFound,
-			associationID,
-			clusterName,
-		)
-	}
-
-	assoc, ok := assocs[associationID]
+	assoc, ok := b.podIdentityAssociations.Get(podIdentityAssociationKey(clusterName, associationID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pod identity association %s not found in cluster %s",
@@ -476,7 +467,7 @@ func (b *InMemoryBackend) DeletePodIdentityAssociation(
 		assoc.Tags.Close()
 	}
 
-	delete(assocs, associationID)
+	b.podIdentityAssociations.Delete(podIdentityAssociationKey(clusterName, associationID))
 
 	return &cp, nil
 }
@@ -488,21 +479,11 @@ func (b *InMemoryBackend) DescribePodIdentityAssociation(
 	b.mu.RLock("DescribePodIdentityAssociation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	assocs := b.podIdentityAssociations[clusterName]
-	if assocs == nil {
-		return nil, fmt.Errorf(
-			"%w: pod identity association %s not found in cluster %s",
-			ErrNotFound,
-			associationID,
-			clusterName,
-		)
-	}
-
-	assoc, ok := assocs[associationID]
+	assoc, ok := b.podIdentityAssociations.Get(podIdentityAssociationKey(clusterName, associationID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pod identity association %s not found in cluster %s",
@@ -522,16 +503,16 @@ func (b *InMemoryBackend) ListPodIdentityAssociations(clusterName string) ([]*Po
 	b.mu.RLock("ListPodIdentityAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	assocs := b.podIdentityAssociations[clusterName]
-	list := make([]*PodIdentityAssociation, 0, len(assocs))
+	items := b.podIdentityAssociationsByCluster.Get(clusterName)
+	list := make([]*PodIdentityAssociation, len(items))
 
-	for _, a := range assocs {
+	for i, a := range items {
 		cp := *a
-		list = append(list, &cp)
+		list[i] = &cp
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].AssociationID < list[j].AssociationID })
@@ -546,21 +527,11 @@ func (b *InMemoryBackend) UpdatePodIdentityAssociation(
 	b.mu.Lock("UpdatePodIdentityAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	assocs := b.podIdentityAssociations[clusterName]
-	if assocs == nil {
-		return nil, fmt.Errorf(
-			"%w: pod identity association %s not found in cluster %s",
-			ErrNotFound,
-			associationID,
-			clusterName,
-		)
-	}
-
-	assoc, ok := assocs[associationID]
+	assoc, ok := b.podIdentityAssociations.Get(podIdentityAssociationKey(clusterName, associationID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pod identity association %s not found in cluster %s",
@@ -596,16 +567,11 @@ func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) 
 	b.mu.Lock("DeleteFargateProfile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	profiles := b.fargateProfiles[clusterName]
-	if profiles == nil {
-		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
-	}
-
-	profile, ok := profiles[profileName]
+	profile, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName))
 	if !ok {
 		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
 	}
@@ -616,7 +582,7 @@ func (b *InMemoryBackend) DeleteFargateProfile(clusterName, profileName string) 
 		profile.Tags.Close()
 	}
 
-	delete(profiles, profileName)
+	b.fargateProfiles.Delete(fargateProfileKey(clusterName, profileName))
 
 	cp.Status = statusDeleting
 
@@ -628,16 +594,11 @@ func (b *InMemoryBackend) DescribeFargateProfile(clusterName, profileName string
 	b.mu.RLock("DescribeFargateProfile")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	profiles := b.fargateProfiles[clusterName]
-	if profiles == nil {
-		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
-	}
-
-	profile, ok := profiles[profileName]
+	profile, ok := b.fargateProfiles.Get(fargateProfileKey(clusterName, profileName))
 	if !ok {
 		return nil, fmt.Errorf("%w: fargate profile %s not found in cluster %s", ErrNotFound, profileName, clusterName)
 	}
@@ -650,12 +611,18 @@ func (b *InMemoryBackend) ListFargateProfiles(clusterName string) ([]string, err
 	b.mu.RLock("ListFargateProfiles")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	profiles := b.fargateProfiles[clusterName]
-	names := collections.SortedKeys(profiles)
+	items := b.fargateProfilesByCluster.Get(clusterName)
+	names := make([]string, len(items))
+
+	for i, p := range items {
+		names[i] = p.FargateProfileName
+	}
+
+	slices.Sort(names)
 
 	return names, nil
 }
@@ -667,21 +634,11 @@ func (b *InMemoryBackend) DescribeAccessEntry(clusterName, principalARN string) 
 	b.mu.RLock("DescribeAccessEntry")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	entries := b.accessEntries[clusterName]
-	if entries == nil {
-		return nil, fmt.Errorf(
-			"%w: access entry for %s not found in cluster %s",
-			ErrNotFound,
-			principalARN,
-			clusterName,
-		)
-	}
-
-	entry, ok := entries[principalARN]
+	entry, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: access entry for %s not found in cluster %s",
@@ -701,12 +658,18 @@ func (b *InMemoryBackend) ListAccessEntries(clusterName string) ([]string, error
 	b.mu.RLock("ListAccessEntries")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	entries := b.accessEntries[clusterName]
-	arns := collections.SortedKeys(entries)
+	items := b.accessEntriesByCluster.Get(clusterName)
+	arns := make([]string, len(items))
+
+	for i, e := range items {
+		arns[i] = e.PrincipalARN
+	}
+
+	slices.Sort(arns)
 
 	return arns, nil
 }
@@ -725,21 +688,11 @@ func (b *InMemoryBackend) UpdateAccessEntry(
 	b.mu.Lock("UpdateAccessEntry")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	entries := b.accessEntries[clusterName]
-	if entries == nil {
-		return nil, fmt.Errorf(
-			"%w: access entry for %s not found in cluster %s",
-			ErrNotFound,
-			principalARN,
-			clusterName,
-		)
-	}
-
-	entry, ok := entries[principalARN]
+	entry, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: access entry for %s not found in cluster %s",
@@ -786,12 +739,11 @@ func (b *InMemoryBackend) ListAssociatedAccessPolicies(
 	b.mu.RLock("ListAssociatedAccessPolicies")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	entries := b.accessEntries[clusterName]
-	if entries == nil || entries[principalARN] == nil {
+	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); !ok {
 		return nil, fmt.Errorf(
 			"%w: access entry for %s not found in cluster %s",
 			ErrNotFound,
@@ -816,12 +768,11 @@ func (b *InMemoryBackend) DisassociateAccessPolicy(clusterName, principalARN, po
 	b.mu.Lock("DisassociateAccessPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	entries := b.accessEntries[clusterName]
-	if entries == nil || entries[principalARN] == nil {
+	if _, ok := b.accessEntries.Get(accessEntryKey(clusterName, principalARN)); !ok {
 		return fmt.Errorf("%w: access entry for %s not found in cluster %s", ErrNotFound, principalARN, clusterName)
 	}
 
@@ -857,21 +808,11 @@ func (b *InMemoryBackend) DescribeIdentityProviderConfig(clusterName, name strin
 	b.mu.RLock("DescribeIdentityProviderConfig")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	configs := b.identityProviderConfigs[clusterName]
-	if configs == nil {
-		return nil, fmt.Errorf(
-			"%w: identity provider config %s not found in cluster %s",
-			ErrNotFound,
-			name,
-			clusterName,
-		)
-	}
-
-	cfg, ok := configs[name]
+	cfg, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: identity provider config %s not found in cluster %s",
@@ -891,11 +832,11 @@ func (b *InMemoryBackend) ListIdentityProviderConfigs(clusterName string) ([]map
 	b.mu.RLock("ListIdentityProviderConfigs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	configs := b.identityProviderConfigs[clusterName]
+	configs := b.identityProviderConfigsByCluster.Get(clusterName)
 	result := make([]map[string]string, 0, len(configs))
 
 	for _, cfg := range configs {
@@ -915,16 +856,11 @@ func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name s
 	b.mu.Lock("DisassociateIdentityProviderConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	configs := b.identityProviderConfigs[clusterName]
-	if configs == nil {
-		return fmt.Errorf("%w: identity provider config %s not found in cluster %s", ErrNotFound, name, clusterName)
-	}
-
-	cfg, ok := configs[name]
+	cfg, ok := b.identityProviderConfigs.Get(identityProviderConfigKey(clusterName, name))
 	if !ok {
 		return fmt.Errorf("%w: identity provider config %s not found in cluster %s", ErrNotFound, name, clusterName)
 	}
@@ -933,7 +869,7 @@ func (b *InMemoryBackend) DisassociateIdentityProviderConfig(clusterName, name s
 		cfg.Tags.Close()
 	}
 
-	delete(configs, name)
+	b.identityProviderConfigs.Delete(identityProviderConfigKey(clusterName, name))
 
 	return nil
 }
@@ -945,7 +881,7 @@ func (b *InMemoryBackend) DescribeInsight(clusterName, insightID string) (*Insig
 	b.mu.RLock("DescribeInsight")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
@@ -968,7 +904,7 @@ func (b *InMemoryBackend) ListInsights(clusterName string) ([]*Insight, error) {
 	b.mu.RLock("ListInsights")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
@@ -1001,7 +937,7 @@ func (b *InMemoryBackend) StartInsightsRefresh(clusterName string) (*InsightsRef
 	b.mu.RLock("StartInsightsRefresh")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
@@ -1018,7 +954,7 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string)
 	b.mu.RLock("DescribeInsightsRefresh")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
@@ -1046,7 +982,7 @@ func (b *InMemoryBackend) UpdateClusterConfig(clusterName string, upd ClusterCon
 	b.mu.Lock("UpdateClusterConfig")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterName]
+	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
@@ -1108,7 +1044,7 @@ func (b *InMemoryBackend) UpdateClusterVpcEndpoint(clusterName string, upd VpcEn
 	b.mu.Lock("UpdateClusterVpcEndpoint")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterName]
+	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
@@ -1189,7 +1125,7 @@ func (b *InMemoryBackend) UpdateClusterVersion(clusterName, version string) (*Up
 	b.mu.Lock("UpdateClusterVersion")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterName]
+	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
@@ -1218,11 +1154,11 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	b.mu.Lock("UpdateNodegroupVersion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	ng, ok := b.nodegroups[clusterName][nodegroupName]
+	ng, ok := b.nodegroups.Get(nodegroupKey(clusterName, nodegroupName))
 	if !ok {
 		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
 	}
@@ -1246,11 +1182,7 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 
 // storeUpdateLocked stores an update record. Must be called with b.mu held.
 func (b *InMemoryBackend) storeUpdateLocked(u *Update) {
-	if b.updates[u.ClusterName] == nil {
-		b.updates[u.ClusterName] = make(map[string]*Update)
-	}
-
-	b.updates[u.ClusterName][u.ID] = u
+	b.updates.Put(u)
 }
 
 // StoreUpdate stores an update record created outside the backend (e.g. by a handler).
@@ -1266,11 +1198,11 @@ func (b *InMemoryBackend) DescribeUpdate(clusterName, updateID string) (*Update,
 	b.mu.RLock("DescribeUpdate")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	u, ok := b.updates[clusterName][updateID]
+	u, ok := b.updates.Get(updateKey(clusterName, updateID))
 	if !ok {
 		return nil, fmt.Errorf("%w: update %s not found in cluster %s", ErrNotFound, updateID, clusterName)
 	}
@@ -1285,12 +1217,18 @@ func (b *InMemoryBackend) ListUpdates(clusterName string) ([]string, error) {
 	b.mu.RLock("ListUpdates")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterName]; !ok {
+	if _, ok := b.clusters.Get(clusterName); !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
-	clusterUpdates := b.updates[clusterName]
-	ids := collections.SortedKeys(clusterUpdates)
+	items := b.updatesByCluster.Get(clusterName)
+	ids := make([]string, len(items))
+
+	for i, u := range items {
+		ids[i] = u.ID
+	}
+
+	slices.Sort(ids)
 
 	return ids, nil
 }
@@ -1305,7 +1243,7 @@ func (b *InMemoryBackend) RegisterCluster(
 	b.mu.Lock("RegisterCluster")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[name]; ok {
+	if _, ok := b.clusters.Get(name); ok {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1335,15 +1273,9 @@ func (b *InMemoryBackend) RegisterCluster(
 			ActivationExpiry: time.Now().Add(connectorActivationWindow).UTC().Format(time.RFC3339),
 		},
 	}
-	b.clusters[name] = c
-	b.nodegroups[name] = make(map[string]*Nodegroup)
-	b.accessEntries[name] = make(map[string]*AccessEntry)
+	b.clusters.Put(c)
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs[name] = nil
-	b.identityProviderConfigs[name] = make(map[string]*IdentityProviderConfig)
-	b.addons[name] = make(map[string]*Addon)
-	b.fargateProfiles[name] = make(map[string]*FargateProfile)
-	b.podIdentityAssociations[name] = make(map[string]*PodIdentityAssociation)
 
 	cp := *c
 
@@ -1392,13 +1324,12 @@ func (b *InMemoryBackend) ListAllAddons() []*Addon {
 	b.mu.RLock("ListAllAddons")
 	defer b.mu.RUnlock()
 
-	var list []*Addon
+	items := b.addons.All()
+	list := make([]*Addon, 0, len(items))
 
-	for _, addons := range b.addons {
-		for _, a := range addons {
-			cp := *a
-			list = append(list, &cp)
-		}
+	for _, a := range items {
+		cp := *a
+		list = append(list, &cp)
 	}
 
 	return list
@@ -1409,15 +1340,14 @@ func (b *InMemoryBackend) ListAllFargateProfiles() []*FargateProfile {
 	b.mu.RLock("ListAllFargateProfiles")
 	defer b.mu.RUnlock()
 
-	var list []*FargateProfile
+	items := b.fargateProfiles.All()
+	list := make([]*FargateProfile, 0, len(items))
 
-	for _, profiles := range b.fargateProfiles {
-		for _, p := range profiles {
-			cp := *p
-			cp.Selectors = make([]FargateProfileSelector, len(p.Selectors))
-			copy(cp.Selectors, p.Selectors)
-			list = append(list, &cp)
-		}
+	for _, p := range items {
+		cp := *p
+		cp.Selectors = make([]FargateProfileSelector, len(p.Selectors))
+		copy(cp.Selectors, p.Selectors)
+		list = append(list, &cp)
 	}
 
 	return list
@@ -1428,13 +1358,12 @@ func (b *InMemoryBackend) ListAllPodIdentityAssociations() []*PodIdentityAssocia
 	b.mu.RLock("ListAllPodIdentityAssociations")
 	defer b.mu.RUnlock()
 
-	var list []*PodIdentityAssociation
+	items := b.podIdentityAssociations.All()
+	list := make([]*PodIdentityAssociation, 0, len(items))
 
-	for _, assocs := range b.podIdentityAssociations {
-		for _, a := range assocs {
-			cp := *a
-			list = append(list, &cp)
-		}
+	for _, a := range items {
+		cp := *a
+		list = append(list, &cp)
 	}
 
 	return list
@@ -1445,13 +1374,12 @@ func (b *InMemoryBackend) ListAllAccessEntries() []*AccessEntry {
 	b.mu.RLock("ListAllAccessEntries")
 	defer b.mu.RUnlock()
 
-	var list []*AccessEntry
+	items := b.accessEntries.All()
+	list := make([]*AccessEntry, 0, len(items))
 
-	for _, entries := range b.accessEntries {
-		for _, e := range entries {
-			cp := *e
-			list = append(list, &cp)
-		}
+	for _, e := range items {
+		cp := *e
+		list = append(list, &cp)
 	}
 
 	return list
@@ -1462,9 +1390,10 @@ func (b *InMemoryBackend) ListAllCapabilities() []*Capability {
 	b.mu.RLock("ListAllCapabilities")
 	defer b.mu.RUnlock()
 
-	list := make([]*Capability, 0, len(b.capabilities))
+	items := b.capabilities.All()
+	list := make([]*Capability, 0, len(items))
 
-	for _, c := range b.capabilities {
+	for _, c := range items {
 		cp := *c
 		list = append(list, &cp)
 	}
@@ -1477,9 +1406,10 @@ func (b *InMemoryBackend) ListAllSubscriptions() []*AnywhereSubscription {
 	b.mu.RLock("ListAllSubscriptions")
 	defer b.mu.RUnlock()
 
-	list := make([]*AnywhereSubscription, 0, len(b.subscriptions))
+	items := b.subscriptions.All()
+	list := make([]*AnywhereSubscription, 0, len(items))
 
-	for _, s := range b.subscriptions {
+	for _, s := range items {
 		cp := *s
 		list = append(list, &cp)
 	}
@@ -1497,9 +1427,5 @@ func (b *InMemoryBackend) AddPodIdentityAssociationInternal(a *PodIdentityAssoci
 		a.Tags = tags.New("eks.podidentity." + a.ClusterName + "." + a.AssociationID + ".tags")
 	}
 
-	if b.podIdentityAssociations[a.ClusterName] == nil {
-		b.podIdentityAssociations[a.ClusterName] = make(map[string]*PodIdentityAssociation)
-	}
-
-	b.podIdentityAssociations[a.ClusterName][a.AssociationID] = a
+	b.podIdentityAssociations.Put(a)
 }
