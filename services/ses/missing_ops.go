@@ -146,7 +146,7 @@ func (b *InMemoryBackend) GetIdentityDkimAttributes(identities []string) map[str
 	out := make(map[string]DkimAttributes, len(identities))
 
 	for _, id := range identities {
-		rec, ok := b.identities[id]
+		rec, ok := b.identities.Get(id)
 		if !ok {
 			out[id] = DkimAttributes{DkimVerificationStatus: identityStatusNotStarted}
 
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) GetIdentityMailFromDomainAttributes(identities []strin
 	out := make(map[string]MailFromDomainAttributes, len(identities))
 
 	for _, id := range identities {
-		rec, ok := b.identities[id]
+		rec, ok := b.identities.Get(id)
 		if !ok {
 			out[id] = MailFromDomainAttributes{}
 
@@ -227,7 +227,7 @@ func (b *InMemoryBackend) GetIdentityNotificationAttributes(identities []string)
 	out := make(map[string]NotificationAttributes, len(identities))
 
 	for _, id := range identities {
-		rec, ok := b.identities[id]
+		rec, ok := b.identities.Get(id)
 		if !ok {
 			out[id] = NotificationAttributes{ForwardingEnabled: true}
 
@@ -391,10 +391,10 @@ func (b *InMemoryBackend) VerifyDomainIdentity(domain string) (string, error) {
 	b.mu.Lock("VerifyDomainIdentity")
 	defer b.mu.Unlock()
 
-	if rec, ok := b.identities[domain]; ok {
+	if rec, ok := b.identities.Get(domain); ok {
 		rec.Verified = true
 	} else {
-		b.identities[domain] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+		b.identities.Put(&IdentityRecord{Identity: domain, Verified: true, ForwardingEnabled: true})
 	}
 
 	h := sha256.Sum256([]byte("domain-token:" + domain))
@@ -413,11 +413,13 @@ func (b *InMemoryBackend) VerifyDomainDkim(domain string) ([]string, error) {
 
 	tokens := dkimTokensForIdentity(domain)
 
-	if rec, ok := b.identities[domain]; ok {
+	if rec, ok := b.identities.Get(domain); ok {
 		rec.Verified = true
 		rec.DkimTokens = tokens
 	} else {
-		b.identities[domain] = &IdentityRecord{Verified: true, ForwardingEnabled: true, DkimTokens: tokens}
+		b.identities.Put(&IdentityRecord{
+			Identity: domain, Verified: true, ForwardingEnabled: true, DkimTokens: tokens,
+		})
 	}
 
 	return tokens, nil
@@ -440,9 +442,9 @@ func (b *InMemoryBackend) ListVerifiedEmailAddresses() []string {
 
 	var out []string
 
-	for id, rec := range b.identities {
-		if rec.Verified && strings.Contains(id, "@") {
-			out = append(out, id)
+	for _, rec := range b.identities.All() {
+		if rec.Verified && strings.Contains(rec.Identity, "@") {
+			out = append(out, rec.Identity)
 		}
 	}
 
@@ -535,7 +537,7 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 	// and SendTemplatedEmail.
 	if configurationSetName != "" {
 		b.mu.RLock("SendBulkTemplatedEmail")
-		_, exists := b.configSets[configurationSetName]
+		exists := b.configSets.Has(configurationSetName)
 		b.mu.RUnlock()
 
 		if !exists {
@@ -606,7 +608,7 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(
 
 	if configurationSetName != "" {
 		b.mu.RLock("SendCustomVerificationEmail")
-		_, exists := b.configSets[configurationSetName]
+		exists := b.configSets.Has(configurationSetName)
 		b.mu.RUnlock()
 
 		if !exists {
@@ -615,10 +617,10 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(
 	}
 
 	b.mu.Lock("SendCustomVerificationEmail")
-	if rec, ok := b.identities[email]; ok {
+	if rec, ok := b.identities.Get(email); ok {
 		rec.Verified = true
 	} else {
-		b.identities[email] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+		b.identities.Put(&IdentityRecord{Identity: email, Verified: true, ForwardingEnabled: true})
 	}
 	b.mu.Unlock()
 
@@ -709,12 +711,12 @@ func (b *InMemoryBackend) UpdateCustomVerificationEmailTemplate(tmpl CustomVerif
 	b.mu.Lock("UpdateCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.customVerifTemplates[tmpl.TemplateName]; !exists {
+	if !b.customVerifTemplates.Has(tmpl.TemplateName) {
 		return fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, tmpl.TemplateName)
 	}
 
 	t := tmpl
-	b.customVerifTemplates[tmpl.TemplateName] = &t
+	b.customVerifTemplates.Put(&t)
 
 	return nil
 }
@@ -734,7 +736,7 @@ func (b *InMemoryBackend) DescribeReceiptRule(ruleSetName, ruleName string) (Rec
 	b.mu.RLock("DescribeReceiptRule")
 	defer b.mu.RUnlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return ReceiptRule{}, fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -769,7 +771,7 @@ func (b *InMemoryBackend) UpdateReceiptRule(ruleSetName string, rule ReceiptRule
 	b.mu.Lock("UpdateReceiptRule")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -793,7 +795,7 @@ func (b *InMemoryBackend) ReorderReceiptRuleSet(ruleSetName string, ruleNames []
 	b.mu.Lock("ReorderReceiptRuleSet")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -841,7 +843,7 @@ func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName string, p
 	b.mu.Lock("SetReceiptRulePosition")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -896,7 +898,7 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 	b.mu.RLock("DescribeConfigurationSet")
 	defer b.mu.RUnlock()
 
-	cs, exists := b.configSets[name]
+	cs, exists := b.configSets.Get(name)
 	if !exists {
 		return ConfigurationSetDescription{}, fmt.Errorf("%w: %s", ErrConfigSetNotFound, name)
 	}
@@ -911,7 +913,7 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 		desc.DeliveryOptions = &DeliveryOptions{TLSPolicy: cs.TLSPolicy}
 	}
 
-	if dests := b.eventDestinations[name]; dests != nil {
+	if dests := b.eventDestinationsByConfigSet.Get(name); len(dests) > 0 {
 		for _, d := range dests {
 			dc := *d
 			desc.EventDestinations = append(desc.EventDestinations, dc)
@@ -922,7 +924,7 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 		})
 	}
 
-	if to := b.trackingOptions[name]; to != nil {
+	if to, ok := b.trackingOptions.Get(name); ok {
 		tc := *to
 		desc.TrackingOptions = &tc
 	}
@@ -939,7 +941,7 @@ func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(configSetName, tlsP
 	b.mu.Lock("PutConfigurationSetDeliveryOptions")
 	defer b.mu.Unlock()
 
-	cs, exists := b.configSets[configSetName]
+	cs, exists := b.configSets.Get(configSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
@@ -962,21 +964,18 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(configSetName s
 	b.mu.Lock("UpdateConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	dests := b.eventDestinations[configSetName]
-	if dests == nil {
-		return fmt.Errorf("%w: %s", ErrEventDestinationNotFound, dest.Name)
-	}
-
-	if _, exists := dests[dest.Name]; !exists {
+	key := eventDestinationKey(configSetName, dest.Name)
+	if !b.eventDestinations.Has(key) {
 		return fmt.Errorf("%w: %s", ErrEventDestinationNotFound, dest.Name)
 	}
 
 	d := dest
-	dests[dest.Name] = &d
+	d.ConfigSetName = configSetName
+	b.eventDestinations.Put(&d)
 
 	return nil
 }
@@ -990,7 +989,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetReputationMetricsEnabled(configS
 	b.mu.Lock("UpdateConfigurationSetReputationMetricsEnabled")
 	defer b.mu.Unlock()
 
-	cs, exists := b.configSets[configSetName]
+	cs, exists := b.configSets.Get(configSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
@@ -1009,7 +1008,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetSendingEnabled(configSetName str
 	b.mu.Lock("UpdateConfigurationSetSendingEnabled")
 	defer b.mu.Unlock()
 
-	cs, exists := b.configSets[configSetName]
+	cs, exists := b.configSets.Get(configSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
@@ -1028,11 +1027,11 @@ func (b *InMemoryBackend) UpdateConfigurationSetTrackingOptions(configSetName, c
 	b.mu.Lock("UpdateConfigurationSetTrackingOptions")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	if _, exists := b.trackingOptions[configSetName]; !exists {
+	if !b.trackingOptions.Has(configSetName) {
 		return fmt.Errorf(
 			"%w: tracking options do not exist for configuration set %s",
 			ErrTrackingOptionsNotFound,
@@ -1040,7 +1039,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetTrackingOptions(configSetName, c
 		)
 	}
 
-	b.trackingOptions[configSetName] = &TrackingOptions{CustomRedirectDomain: customRedirectDomain}
+	b.trackingOptions.Put(&TrackingOptions{ConfigSetName: configSetName, CustomRedirectDomain: customRedirectDomain})
 
 	return nil
 }
