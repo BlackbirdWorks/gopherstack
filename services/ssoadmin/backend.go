@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -215,12 +216,24 @@ type PortalOptions struct {
 
 // PermissionsBoundary is a union: either ManagedPolicyArn or CustomerManagedPolicyReference.
 type PermissionsBoundary struct {
+	// PermissionSetArn is the permission set this boundary is keyed by in the
+	// permissionBoundaries Table (see store_setup.go). It is tagged json:"-"
+	// because permissionBoundaries is a "dirty" table -- persistence.go
+	// instead round-trips it through a dedicated permissionsBoundarySnapshot
+	// DTO that carries the identity as a real JSON field, so it survives the
+	// round trip despite being excluded here. It must never change after the
+	// value is stored (store.Table's keyFn purity requirement).
+	PermissionSetArn               string                          `json:"-"`
 	CustomerManagedPolicyReference *CustomerManagedPolicyReference `json:"CustomerManagedPolicyReference,omitempty"`
 	ManagedPolicyArn               string                          `json:"ManagedPolicyArn,omitempty"`
 }
 
 // ABACConfig holds ABAC configuration for an SSO instance with lifecycle status.
 type ABACConfig struct {
+	// InstanceArn is the instance this configuration is keyed by in the
+	// instanceACAs Table (see store_setup.go). Tagged json:"-" for the same
+	// reason as PermissionsBoundary.PermissionSetArn -- see its doc comment.
+	InstanceArn             string                   `json:"-"`
 	StatusReason            string                   `json:"StatusReason"`
 	Status                  string                   `json:"Status"`
 	AccessControlAttributes []AccessControlAttribute `json:"AccessControlAttributes"`
@@ -307,31 +320,35 @@ type TrustedTokenIssuer struct {
 
 // InMemoryBackend is the in-memory backend for the SSO Admin service.
 type InMemoryBackend struct {
-	instances      map[string]*Instance
-	permissionSets map[string]*PermissionSet
-	assignments    map[string][]*AccountAssignment
+	registry                 *store.Registry
+	instances                *store.Table[Instance]
+	permissionSets           *store.Table[PermissionSet]
+	permissionSetsByInstance *store.Index[PermissionSet]
+	assignments              map[string][]*AccountAssignment
 	// assignmentCreationIDs maps assignmentKey|accountID|principalType|principalID → requestID for idempotency.
 	assignmentCreationIDs   map[string]string
-	creationStatuses        map[string]*ProvisioningStatus
-	deletionStatuses        map[string]*ProvisioningStatus
-	provisioningStatuses    map[string]*ProvisioningStatus
+	creationStatuses        *store.Table[ProvisioningStatus]
+	deletionStatuses        *store.Table[ProvisioningStatus]
+	provisioningStatuses    *store.Table[ProvisioningStatus]
 	instanceRegions         map[string][]RegionMetadata
 	customerManagedPolicies map[string][]CustomerManagedPolicyReference
-	applications            map[string]*Application
+	applications            *store.Table[Application]
+	applicationsByInstance  *store.Index[Application]
 	applicationAssignments  map[string][]*ApplicationAssignment
 	applicationScopes       map[string][]string
 	// applicationAuthMethods stores per-app authentication methods: appArn → methodType → full JSON body.
 	applicationAuthMethods map[string]map[string]json.RawMessage
 	// applicationGrants stores per-app grants: appArn → grantType → full JSON body.
-	applicationGrants       map[string]map[string]json.RawMessage
-	applicationAssignConfig map[string]bool
-	applicationSessions     map[string]string
-	instanceACAs            map[string]*ABACConfig
-	trustedTokenIssuers     map[string]*TrustedTokenIssuer
-	permissionBoundaries    map[string]*PermissionsBoundary
-	mu                      *lockmetrics.RWMutex
-	accountID               string
-	region                  string
+	applicationGrants             map[string]map[string]json.RawMessage
+	applicationAssignConfig       map[string]bool
+	applicationSessions           map[string]string
+	instanceACAs                  *store.Table[ABACConfig]
+	trustedTokenIssuers           *store.Table[TrustedTokenIssuer]
+	trustedTokenIssuersByInstance *store.Index[TrustedTokenIssuer]
+	permissionBoundaries          *store.Table[PermissionsBoundary]
+	mu                            *lockmetrics.RWMutex
+	accountID                     string
+	region                        string
 }
 
 // seedDefaultInstance adds the default pre-seeded instance. Must be called before concurrent use.
@@ -342,10 +359,10 @@ func (b *InMemoryBackend) seedDefaultInstance() {
 		identityStoreID = identityStoreID[:identityStoreIDMaxLen]
 	}
 	defaultArn := "arn:aws:sso:::instance/ssoins-" + defaultID
-	if b.instances[defaultArn] != nil {
+	if b.instances.Has(defaultArn) {
 		return
 	}
-	b.instances[defaultArn] = &Instance{
+	b.instances.Put(&Instance{
 		InstanceArn:     defaultArn,
 		Name:            "default",
 		OwnerAccountID:  b.accountID,
@@ -353,35 +370,29 @@ func (b *InMemoryBackend) seedDefaultInstance() {
 		Status:          instanceStatusActive,
 		CreatedDate:     time.Now().UTC(),
 		Tags:            make(map[string]string),
-	}
+	})
 }
 
 // NewInMemoryBackend creates a new in-memory SSO Admin backend with a default instance.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		instances:               make(map[string]*Instance),
-		permissionSets:          make(map[string]*PermissionSet),
+		registry:                store.NewRegistry(),
 		assignments:             make(map[string][]*AccountAssignment),
 		assignmentCreationIDs:   make(map[string]string),
-		creationStatuses:        make(map[string]*ProvisioningStatus),
-		deletionStatuses:        make(map[string]*ProvisioningStatus),
-		provisioningStatuses:    make(map[string]*ProvisioningStatus),
 		instanceRegions:         make(map[string][]RegionMetadata),
 		customerManagedPolicies: make(map[string][]CustomerManagedPolicyReference),
-		applications:            make(map[string]*Application),
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
 		applicationScopes:       make(map[string][]string),
 		applicationAuthMethods:  make(map[string]map[string]json.RawMessage),
 		applicationGrants:       make(map[string]map[string]json.RawMessage),
 		applicationAssignConfig: make(map[string]bool),
 		applicationSessions:     make(map[string]string),
-		instanceACAs:            make(map[string]*ABACConfig),
-		trustedTokenIssuers:     make(map[string]*TrustedTokenIssuer),
-		permissionBoundaries:    make(map[string]*PermissionsBoundary),
 		mu:                      lockmetrics.New("ssoadmin"),
 		accountID:               accountID,
 		region:                  region,
 	}
+
+	registerAllTables(b)
 
 	// Pre-seed a default instance to mimic AWS SSO behaviour where an instance
 	// is always present once SSO is enabled.
@@ -395,25 +406,20 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.instances = make(map[string]*Instance)
-	b.permissionSets = make(map[string]*PermissionSet)
+	b.registry.ResetAll()
+	b.instanceACAs.Reset()
+	b.permissionBoundaries.Reset()
+
 	b.assignments = make(map[string][]*AccountAssignment)
-	b.creationStatuses = make(map[string]*ProvisioningStatus)
-	b.deletionStatuses = make(map[string]*ProvisioningStatus)
-	b.provisioningStatuses = make(map[string]*ProvisioningStatus)
 	b.instanceRegions = make(map[string][]RegionMetadata)
 	b.assignmentCreationIDs = make(map[string]string)
 	b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
-	b.applications = make(map[string]*Application)
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
 	b.applicationScopes = make(map[string][]string)
 	b.applicationAuthMethods = make(map[string]map[string]json.RawMessage)
 	b.applicationGrants = make(map[string]map[string]json.RawMessage)
 	b.applicationAssignConfig = make(map[string]bool)
 	b.applicationSessions = make(map[string]string)
-	b.instanceACAs = make(map[string]*ABACConfig)
-	b.trustedTokenIssuers = make(map[string]*TrustedTokenIssuer)
-	b.permissionBoundaries = make(map[string]*PermissionsBoundary)
 	// Re-seed the default instance.
 	b.seedDefaultInstance()
 }
@@ -456,7 +462,7 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 		CreatedDate:     time.Now().UTC(),
 		Tags:            make(map[string]string),
 	}
-	b.instances[instanceArn] = inst
+	b.instances.Put(inst)
 
 	cp := *inst
 	cp.Tags = make(map[string]string)
@@ -469,12 +475,12 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 	b.mu.Lock("ListInstances")
 	defer b.mu.Unlock()
 
-	list := make([]*Instance, 0, len(b.instances))
-	for arn, inst := range b.instances {
+	list := make([]*Instance, 0, b.instances.Len())
+	for _, inst := range b.instances.All() {
 		if inst.Status == instanceStatusDeleteInProgress {
 			// Prune resources then remove instance entry.
-			b.cascadeDeleteInstance(arn)
-			delete(b.instances, arn)
+			b.cascadeDeleteInstance(inst.InstanceArn)
+			b.instances.Delete(inst.InstanceArn)
 
 			continue
 		}
@@ -498,7 +504,7 @@ func (b *InMemoryBackend) DescribeInstance(instanceArn string) (*Instance, error
 	b.mu.Lock("DescribeInstance")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceArn]
+	inst, ok := b.instances.Get(instanceArn)
 	if !ok {
 		return nil, ErrInstanceNotFound
 	}
@@ -519,7 +525,7 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceArn]
+	inst, ok := b.instances.Get(instanceArn)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -530,33 +536,31 @@ func (b *InMemoryBackend) DeleteInstance(instanceArn string) error {
 }
 
 // cascadeDeleteInstance removes all resources belonging to instanceArn. Must be called with mu held.
+// Index lookups are cloned before deleting in the loop since Table.Delete mutates the
+// same index group slice the lookup returned.
 func (b *InMemoryBackend) cascadeDeleteInstance(instanceArn string) {
-	for psArn, ps := range b.permissionSets {
-		if ps.InstanceArn == instanceArn {
-			key := assignmentKey(instanceArn, psArn)
-			delete(b.assignments, key)
-			delete(b.customerManagedPolicies, psArn)
-			delete(b.permissionBoundaries, psArn)
-			delete(b.permissionSets, psArn)
-		}
+	for _, ps := range slices.Clone(b.permissionSetsByInstance.Get(instanceArn)) {
+		psArn := ps.PermissionSetArn
+		key := assignmentKey(instanceArn, psArn)
+		delete(b.assignments, key)
+		delete(b.customerManagedPolicies, psArn)
+		b.permissionBoundaries.Delete(psArn)
+		b.permissionSets.Delete(psArn)
 	}
-	delete(b.instanceACAs, instanceArn)
+	b.instanceACAs.Delete(instanceArn)
 	delete(b.instanceRegions, instanceArn)
-	for appArn, app := range b.applications {
-		if app.InstanceArn == instanceArn {
-			delete(b.applicationAssignments, appArn)
-			delete(b.applicationScopes, appArn)
-			delete(b.applicationAuthMethods, appArn)
-			delete(b.applicationGrants, appArn)
-			delete(b.applicationAssignConfig, appArn)
-			delete(b.applicationSessions, appArn)
-			delete(b.applications, appArn)
-		}
+	for _, app := range slices.Clone(b.applicationsByInstance.Get(instanceArn)) {
+		appArn := app.ApplicationArn
+		delete(b.applicationAssignments, appArn)
+		delete(b.applicationScopes, appArn)
+		delete(b.applicationAuthMethods, appArn)
+		delete(b.applicationGrants, appArn)
+		delete(b.applicationAssignConfig, appArn)
+		delete(b.applicationSessions, appArn)
+		b.applications.Delete(appArn)
 	}
-	for ttiArn, tti := range b.trustedTokenIssuers {
-		if tti.InstanceArn == instanceArn {
-			delete(b.trustedTokenIssuers, ttiArn)
-		}
+	for _, tti := range slices.Clone(b.trustedTokenIssuersByInstance.Get(instanceArn)) {
+		b.trustedTokenIssuers.Delete(tti.TrustedTokenIssuerArn)
 	}
 }
 
@@ -568,7 +572,7 @@ func (b *InMemoryBackend) CreatePermissionSet(
 	b.mu.Lock("CreatePermissionSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
 
@@ -586,8 +590,8 @@ func (b *InMemoryBackend) CreatePermissionSet(
 		}
 	}
 
-	for _, ps := range b.permissionSets {
-		if ps.InstanceArn == instanceArn && ps.Name == name {
+	for _, ps := range b.permissionSetsByInstance.Get(instanceArn) {
+		if ps.Name == name {
 			return nil, ErrPermissionSetAlreadyExists
 		}
 	}
@@ -611,7 +615,7 @@ func (b *InMemoryBackend) CreatePermissionSet(
 		Tags:             make(map[string]string),
 	}
 	maps.Copy(ps.Tags, tags)
-	b.permissionSets[psArn] = ps
+	b.permissionSets.Put(ps)
 
 	cp := b.copyPermissionSet(ps)
 
@@ -623,7 +627,7 @@ func (b *InMemoryBackend) DescribePermissionSet(instanceArn, permissionSetArn st
 	b.mu.RLock("DescribePermissionSet")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return nil, ErrPermissionSetNotFound
 	}
@@ -636,11 +640,11 @@ func (b *InMemoryBackend) ListPermissionSets(instanceArn string) []*PermissionSe
 	b.mu.RLock("ListPermissionSets")
 	defer b.mu.RUnlock()
 
-	var list []*PermissionSet
-	for _, ps := range b.permissionSets {
-		if ps.InstanceArn == instanceArn {
-			list = append(list, b.copyPermissionSet(ps))
-		}
+	grouped := b.permissionSetsByInstance.Get(instanceArn)
+	list := make([]*PermissionSet, 0, len(grouped))
+
+	for _, ps := range grouped {
+		list = append(list, b.copyPermissionSet(ps))
 	}
 
 	return list
@@ -652,7 +656,7 @@ func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn stri
 	b.mu.Lock("DeletePermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -663,8 +667,8 @@ func (b *InMemoryBackend) DeletePermissionSet(instanceArn, permissionSetArn stri
 		return ErrPermissionSetHasAssignments
 	}
 
-	delete(b.permissionSets, permissionSetArn)
-	delete(b.permissionBoundaries, permissionSetArn)
+	b.permissionSets.Delete(permissionSetArn)
+	b.permissionBoundaries.Delete(permissionSetArn)
 	delete(b.customerManagedPolicies, permissionSetArn)
 	delete(b.assignments, key)
 
@@ -678,7 +682,7 @@ func (b *InMemoryBackend) UpdatePermissionSet(
 	b.mu.Lock("UpdatePermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -700,25 +704,23 @@ func (b *InMemoryBackend) UpdatePermissionSet(
 	return nil
 }
 
-// pruneOldestStatus removes the oldest entry from m when it has reached maxStatusEntries.
+// pruneOldestStatus removes the oldest entry from t when it has reached maxStatusEntries.
 // Must be called with b.mu held for writing.
-func pruneOldestStatus(m map[string]*ProvisioningStatus) {
-	if len(m) < maxStatusEntries {
+func pruneOldestStatus(t *store.Table[ProvisioningStatus]) {
+	if t.Len() < maxStatusEntries {
 		return
 	}
 
-	var oldestKey string
-	var oldestTime time.Time
+	var oldest *ProvisioningStatus
 
-	for k, v := range m {
-		if oldestKey == "" || v.CreatedDate.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = v.CreatedDate
+	for _, v := range t.All() {
+		if oldest == nil || v.CreatedDate.Before(oldest.CreatedDate) {
+			oldest = v
 		}
 	}
 
-	if oldestKey != "" {
-		delete(m, oldestKey)
+	if oldest != nil {
+		t.Delete(oldest.RequestID)
 	}
 }
 
@@ -729,10 +731,10 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 	b.mu.Lock("CreateAccountAssignment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return "", ErrInstanceNotFound
 	}
-	if _, ok := b.permissionSets[permissionSetArn]; !ok {
+	if !b.permissionSets.Has(permissionSetArn) {
 		return "", ErrPermissionSetNotFound
 	}
 
@@ -756,7 +758,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 
 	requestID := uuid.NewString()
 	pruneOldestStatus(b.creationStatuses)
-	b.creationStatuses[requestID] = &ProvisioningStatus{
+	b.creationStatuses.Put(&ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
 		CreatedDate:      time.Now().UTC(),
@@ -765,7 +767,7 @@ func (b *InMemoryBackend) CreateAccountAssignment(
 		PrincipalID:      principalID,
 		PrincipalType:    principalType,
 		TargetType:       targetTypeAWSAccount,
-	}
+	})
 	b.assignmentCreationIDs[idempotencyKey] = requestID
 
 	return requestID, nil
@@ -780,7 +782,7 @@ func (b *InMemoryBackend) DescribeAccountAssignmentCreationStatus(
 	b.mu.Lock("DescribeAccountAssignmentCreationStatus")
 	defer b.mu.Unlock()
 
-	status, ok := b.creationStatuses[requestID]
+	status, ok := b.creationStatuses.Get(requestID)
 	if !ok {
 		return nil, ErrRequestNotFound
 	}
@@ -799,8 +801,8 @@ func (b *InMemoryBackend) ListAccountAssignmentCreationStatus(_, filterStatus st
 	b.mu.RLock("ListAccountAssignmentCreationStatus")
 	defer b.mu.RUnlock()
 
-	result := make([]*ProvisioningStatus, 0, len(b.creationStatuses))
-	for _, status := range b.creationStatuses {
+	result := make([]*ProvisioningStatus, 0, b.creationStatuses.Len())
+	for _, status := range b.creationStatuses.All() {
 		if filterStatus != "" && status.Status != filterStatus {
 			continue
 		}
@@ -860,13 +862,13 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 	// Remove the idempotency index entry and associated creation status to prevent unbounded growth.
 	idempotencyKey := key + "|" + accountID + "|" + principalType + "|" + principalID
 	if oldRequestID, exists := b.assignmentCreationIDs[idempotencyKey]; exists {
-		delete(b.creationStatuses, oldRequestID)
+		b.creationStatuses.Delete(oldRequestID)
 	}
 	delete(b.assignmentCreationIDs, idempotencyKey)
 
 	requestID := uuid.NewString()
 	pruneOldestStatus(b.deletionStatuses)
-	b.deletionStatuses[requestID] = &ProvisioningStatus{
+	b.deletionStatuses.Put(&ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
 		AccountID:        accountID,
@@ -875,7 +877,7 @@ func (b *InMemoryBackend) DeleteAccountAssignment(
 		PrincipalType:    principalType,
 		TargetType:       targetTypeAWSAccount,
 		CreatedDate:      time.Now().UTC(),
-	}
+	})
 
 	return requestID, nil
 }
@@ -889,7 +891,7 @@ func (b *InMemoryBackend) DescribeAccountAssignmentDeletionStatus(
 	b.mu.Lock("DescribeAccountAssignmentDeletionStatus")
 	defer b.mu.Unlock()
 
-	status, ok := b.deletionStatuses[requestID]
+	status, ok := b.deletionStatuses.Get(requestID)
 	if !ok {
 		return nil, ErrRequestNotFound
 	}
@@ -908,8 +910,8 @@ func (b *InMemoryBackend) ListAccountAssignmentDeletionStatus(_, filterStatus st
 	b.mu.RLock("ListAccountAssignmentDeletionStatus")
 	defer b.mu.RUnlock()
 
-	result := make([]*ProvisioningStatus, 0, len(b.deletionStatuses))
-	for _, status := range b.deletionStatuses {
+	result := make([]*ProvisioningStatus, 0, b.deletionStatuses.Len())
+	for _, status := range b.deletionStatuses.All() {
 		if filterStatus != "" && status.Status != filterStatus {
 			continue
 		}
@@ -930,7 +932,7 @@ func (b *InMemoryBackend) AttachManagedPolicyToPermissionSet(
 	b.mu.Lock("AttachManagedPolicyToPermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -952,7 +954,7 @@ func (b *InMemoryBackend) DetachManagedPolicyFromPermissionSet(
 	b.mu.Lock("DetachManagedPolicyFromPermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -980,7 +982,7 @@ func (b *InMemoryBackend) ListManagedPoliciesInPermissionSet(
 	b.mu.RLock("ListManagedPoliciesInPermissionSet")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return nil, ErrPermissionSetNotFound
 	}
@@ -995,7 +997,7 @@ func (b *InMemoryBackend) PutInlinePolicyToPermissionSet(instanceArn, permission
 	b.mu.Lock("PutInlinePolicyToPermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -1009,7 +1011,7 @@ func (b *InMemoryBackend) GetInlinePolicyForPermissionSet(instanceArn, permissio
 	b.mu.RLock("GetInlinePolicyForPermissionSet")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return "", ErrPermissionSetNotFound
 	}
@@ -1022,7 +1024,7 @@ func (b *InMemoryBackend) DeleteInlinePolicyFromPermissionSet(instanceArn, permi
 	b.mu.Lock("DeleteInlinePolicyFromPermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -1059,11 +1061,17 @@ func (b *InMemoryBackend) PutPermissionsBoundaryToPermissionSet(
 		}
 	}
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
-	b.permissionBoundaries[permissionSetArn] = boundary
+	// boundary is stored by the same pointer the caller supplied, matching the
+	// pre-store.Table aliasing semantics of the raw map this replaces. The
+	// identity field is set here rather than by the caller since it is
+	// internal bookkeeping for the permissionBoundaries Table's keyFn (see
+	// store_setup.go) and is excluded from JSON via its json:"-" tag.
+	boundary.PermissionSetArn = permissionSetArn
+	b.permissionBoundaries.Put(boundary)
 
 	return nil
 }
@@ -1076,12 +1084,12 @@ func (b *InMemoryBackend) GetPermissionsBoundaryForPermissionSet(
 	b.mu.RLock("GetPermissionsBoundaryForPermissionSet")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return nil, ErrPermissionSetNotFound
 	}
 
-	boundary, ok := b.permissionBoundaries[permissionSetArn]
+	boundary, ok := b.permissionBoundaries.Get(permissionSetArn)
 	if !ok {
 		return nil, ErrRequestNotFound
 	}
@@ -1097,23 +1105,23 @@ func (b *InMemoryBackend) ProvisionPermissionSet(
 	b.mu.Lock("ProvisionPermissionSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return "", ErrInstanceNotFound
 	}
-	if _, ok := b.permissionSets[permissionSetArn]; !ok {
+	if _, ok := b.permissionSets.Get(permissionSetArn); !ok {
 		return "", ErrPermissionSetNotFound
 	}
 
 	requestID := uuid.NewString()
 	pruneOldestStatus(b.provisioningStatuses)
-	b.provisioningStatuses[requestID] = &ProvisioningStatus{
+	b.provisioningStatuses.Put(&ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
 		CreatedDate:      time.Now().UTC(),
 		PermissionSetArn: permissionSetArn,
 		TargetType:       targetType,
 		AccountID:        targetID,
-	}
+	})
 
 	return requestID, nil
 }
@@ -1127,7 +1135,7 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 	b.mu.Lock("DescribePermissionSetProvisioningStatus")
 	defer b.mu.Unlock()
 
-	status, ok := b.provisioningStatuses[provisioningRequestID]
+	status, ok := b.provisioningStatuses.Get(provisioningRequestID)
 	if !ok {
 		return nil, ErrRequestNotFound
 	}
@@ -1146,8 +1154,8 @@ func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_, filterStatus st
 	b.mu.RLock("ListPermissionSetProvisioningStatus")
 	defer b.mu.RUnlock()
 
-	result := make([]*ProvisioningStatus, 0, len(b.provisioningStatuses))
-	for _, status := range b.provisioningStatuses {
+	result := make([]*ProvisioningStatus, 0, b.provisioningStatuses.Len())
+	for _, status := range b.provisioningStatuses.All() {
 		if filterStatus != "" && status.Status != filterStatus {
 			continue
 		}
@@ -1363,7 +1371,7 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if ps, ok := b.permissionSets[resourceArn]; ok && ps.InstanceArn == instanceArn {
+	if ps, ok := b.permissionSets.Get(resourceArn); ok && ps.InstanceArn == instanceArn {
 		if ps.Tags == nil {
 			ps.Tags = make(map[string]string)
 		}
@@ -1371,7 +1379,7 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 		return applyTagsWithLimit(ps.Tags, tags)
 	}
 
-	if inst, ok := b.instances[resourceArn]; ok {
+	if inst, ok := b.instances.Get(resourceArn); ok {
 		if inst.Tags == nil {
 			inst.Tags = make(map[string]string)
 		}
@@ -1379,7 +1387,7 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 		return applyTagsWithLimit(inst.Tags, tags)
 	}
 
-	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
+	if app, ok := b.applications.Get(resourceArn); ok && app.InstanceArn == instanceArn {
 		if app.Tags == nil {
 			app.Tags = make(map[string]string)
 		}
@@ -1387,7 +1395,7 @@ func (b *InMemoryBackend) TagResource(instanceArn, resourceArn string, tags map[
 		return applyTagsWithLimit(app.Tags, tags)
 	}
 
-	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
+	if tti, ok := b.trustedTokenIssuers.Get(resourceArn); ok && tti.InstanceArn == instanceArn {
 		if tti.Tags == nil {
 			tti.Tags = make(map[string]string)
 		}
@@ -1403,7 +1411,7 @@ func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if ps, ok := b.permissionSets[resourceArn]; ok && ps.InstanceArn == instanceArn {
+	if ps, ok := b.permissionSets.Get(resourceArn); ok && ps.InstanceArn == instanceArn {
 		for _, k := range tagKeys {
 			delete(ps.Tags, k)
 		}
@@ -1411,7 +1419,7 @@ func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys
 		return nil
 	}
 
-	if inst, ok := b.instances[resourceArn]; ok {
+	if inst, ok := b.instances.Get(resourceArn); ok {
 		for _, k := range tagKeys {
 			delete(inst.Tags, k)
 		}
@@ -1419,7 +1427,7 @@ func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys
 		return nil
 	}
 
-	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
+	if app, ok := b.applications.Get(resourceArn); ok && app.InstanceArn == instanceArn {
 		for _, k := range tagKeys {
 			delete(app.Tags, k)
 		}
@@ -1427,7 +1435,7 @@ func (b *InMemoryBackend) UntagResource(instanceArn, resourceArn string, tagKeys
 		return nil
 	}
 
-	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
+	if tti, ok := b.trustedTokenIssuers.Get(resourceArn); ok && tti.InstanceArn == instanceArn {
 		for _, k := range tagKeys {
 			delete(tti.Tags, k)
 		}
@@ -1443,28 +1451,28 @@ func (b *InMemoryBackend) ListTagsForResource(instanceArn, resourceArn string) (
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if ps, ok := b.permissionSets[resourceArn]; ok && ps.InstanceArn == instanceArn {
+	if ps, ok := b.permissionSets.Get(resourceArn); ok && ps.InstanceArn == instanceArn {
 		result := make(map[string]string, len(ps.Tags))
 		maps.Copy(result, ps.Tags)
 
 		return result, nil
 	}
 
-	if inst, ok := b.instances[resourceArn]; ok {
+	if inst, ok := b.instances.Get(resourceArn); ok {
 		result := make(map[string]string, len(inst.Tags))
 		maps.Copy(result, inst.Tags)
 
 		return result, nil
 	}
 
-	if app, ok := b.applications[resourceArn]; ok && app.InstanceArn == instanceArn {
+	if app, ok := b.applications.Get(resourceArn); ok && app.InstanceArn == instanceArn {
 		result := make(map[string]string, len(app.Tags))
 		maps.Copy(result, app.Tags)
 
 		return result, nil
 	}
 
-	if tti, ok := b.trustedTokenIssuers[resourceArn]; ok && tti.InstanceArn == instanceArn {
+	if tti, ok := b.trustedTokenIssuers.Get(resourceArn); ok && tti.InstanceArn == instanceArn {
 		result := make(map[string]string, len(tti.Tags))
 		maps.Copy(result, tti.Tags)
 
@@ -1571,7 +1579,7 @@ func (b *InMemoryBackend) AddInstanceInternal(name string) *Instance {
 		CreatedDate:     time.Now().UTC(),
 		Tags:            make(map[string]string),
 	}
-	b.instances[arn] = inst
+	b.instances.Put(inst)
 	cp := *inst
 	cp.Tags = make(map[string]string)
 
@@ -1594,7 +1602,7 @@ func (b *InMemoryBackend) AddPermissionSetInternal(instanceArn, name string) *Pe
 		CreatedDate:      time.Now().UTC(),
 		Tags:             make(map[string]string),
 	}
-	b.permissionSets[psArn] = ps
+	b.permissionSets.Put(ps)
 
 	return b.copyPermissionSet(ps)
 }
@@ -1616,7 +1624,7 @@ func (b *InMemoryBackend) AddApplicationInternal(instanceArn, name string) *Appl
 		CreatedDate:            time.Now().UTC(),
 		Tags:                   make(map[string]string),
 	}
-	b.applications[appArn] = app
+	b.applications.Put(app)
 
 	return copyApplication(app)
 }
@@ -1626,7 +1634,7 @@ func (b *InMemoryBackend) AddRegion(instanceArn, regionName string) error {
 	b.mu.Lock("AddRegion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return ErrInstanceNotFound
 	}
 	for _, r := range b.instanceRegions[instanceArn] {
@@ -1653,7 +1661,7 @@ func (b *InMemoryBackend) AttachCustomerManagedPolicyReferenceToPermissionSet(
 		return err
 	}
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -1683,11 +1691,11 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, err
 	}
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
-	for _, app := range b.applications {
-		if app.InstanceArn == instanceArn && app.Name == name {
+	for _, app := range b.applicationsByInstance.Get(instanceArn) {
+		if app.Name == name {
 			return nil, ErrApplicationAlreadyExists
 		}
 	}
@@ -1729,7 +1737,7 @@ func (b *InMemoryBackend) CreateApplication(
 		PortalOptions:          portalOptions,
 	}
 	maps.Copy(app.Tags, tags)
-	b.applications[appArn] = app
+	b.applications.Put(app)
 
 	return copyApplication(app), nil
 }
@@ -1739,7 +1747,7 @@ func (b *InMemoryBackend) DescribeApplication(applicationArn string) (*Applicati
 	b.mu.RLock("DescribeApplication")
 	defer b.mu.RUnlock()
 
-	app, ok := b.applications[applicationArn]
+	app, ok := b.applications.Get(applicationArn)
 	if !ok {
 		return nil, ErrApplicationNotFound
 	}
@@ -1752,11 +1760,18 @@ func (b *InMemoryBackend) ListApplications(instanceArn string) []*Application {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	result := make([]*Application, 0, len(b.applications))
-	for _, app := range b.applications {
-		if instanceArn != "" && app.InstanceArn != instanceArn {
-			continue
+	if instanceArn != "" {
+		grouped := b.applicationsByInstance.Get(instanceArn)
+		result := make([]*Application, 0, len(grouped))
+		for _, app := range grouped {
+			result = append(result, copyApplication(app))
 		}
+
+		return result
+	}
+
+	result := make([]*Application, 0, b.applications.Len())
+	for _, app := range b.applications.All() {
 		result = append(result, copyApplication(app))
 	}
 
@@ -1775,7 +1790,7 @@ func (b *InMemoryBackend) UpdateApplication(
 		return nil, fmt.Errorf("%w: Application Status must be ENABLED or DISABLED", awserr.ErrInvalidParameter)
 	}
 
-	app, ok := b.applications[applicationArn]
+	app, ok := b.applications.Get(applicationArn)
 	if !ok {
 		return nil, ErrApplicationNotFound
 	}
@@ -1800,10 +1815,10 @@ func (b *InMemoryBackend) DeleteApplication(applicationArn string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
-	delete(b.applications, applicationArn)
+	b.applications.Delete(applicationArn)
 	delete(b.applicationAssignments, applicationArn)
 	delete(b.applicationScopes, applicationArn)
 	delete(b.applicationAuthMethods, applicationArn)
@@ -1819,7 +1834,7 @@ func (b *InMemoryBackend) CreateApplicationAssignment(applicationArn, principalI
 	b.mu.Lock("CreateApplicationAssignment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	for _, a := range b.applicationAssignments[applicationArn] {
@@ -1848,7 +1863,7 @@ func (b *InMemoryBackend) DescribeApplicationAssignment(
 	b.mu.RLock("DescribeApplicationAssignment")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 	for _, assignment := range b.applicationAssignments[applicationArn] {
@@ -1867,7 +1882,7 @@ func (b *InMemoryBackend) ListApplicationAssignments(applicationArn string) ([]*
 	b.mu.RLock("ListApplicationAssignments")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 
@@ -1886,7 +1901,7 @@ func (b *InMemoryBackend) DeleteApplicationAssignment(applicationArn, principalI
 	b.mu.Lock("DeleteApplicationAssignment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	all := b.applicationAssignments[applicationArn]
@@ -1912,7 +1927,7 @@ func (b *InMemoryBackend) PutApplicationAssignmentConfiguration(applicationArn s
 	b.mu.Lock("PutApplicationAssignmentConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	b.applicationAssignConfig[applicationArn] = assignmentRequired
@@ -1925,7 +1940,7 @@ func (b *InMemoryBackend) DeleteApplicationAccessScope(applicationArn, scope str
 	b.mu.Lock("DeleteApplicationAccessScope")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	all := b.applicationScopes[applicationArn]
@@ -1951,7 +1966,7 @@ func (b *InMemoryBackend) PutApplicationAccessScope(applicationArn, scope string
 	b.mu.Lock("PutApplicationAccessScope")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	if slices.Contains(b.applicationScopes[applicationArn], scope) {
@@ -1967,7 +1982,7 @@ func (b *InMemoryBackend) ListApplicationAccessScopes(applicationArn string) ([]
 	b.mu.RLock("ListApplicationAccessScopes")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 
@@ -1985,7 +2000,7 @@ func (b *InMemoryBackend) DeleteApplicationAuthenticationMethod(applicationArn, 
 	b.mu.Lock("DeleteApplicationAuthenticationMethod")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	methods := b.applicationAuthMethods[applicationArn]
@@ -2013,7 +2028,7 @@ func (b *InMemoryBackend) PutApplicationAuthenticationMethod(
 		return fmt.Errorf("%w: AuthenticationMethodType must be IAM", awserr.ErrInvalidParameter)
 	}
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	if b.applicationAuthMethods[applicationArn] == nil {
@@ -2032,7 +2047,7 @@ func (b *InMemoryBackend) ListApplicationAuthenticationMethods(applicationArn st
 	b.mu.RLock("ListApplicationAuthenticationMethods")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 	methods := b.applicationAuthMethods[applicationArn]
@@ -2054,7 +2069,7 @@ func (b *InMemoryBackend) GetApplicationAuthenticationMethod(
 	b.mu.RLock("GetApplicationAuthenticationMethod")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 	methods := b.applicationAuthMethods[applicationArn]
@@ -2100,7 +2115,7 @@ func (b *InMemoryBackend) PutApplicationGrant(applicationArn, grantType string, 
 			awserr.ErrInvalidParameter)
 	}
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	if b.applicationGrants[applicationArn] == nil {
@@ -2119,7 +2134,7 @@ func (b *InMemoryBackend) DeleteApplicationGrant(applicationArn, grantType strin
 	b.mu.Lock("DeleteApplicationGrant")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	grants := b.applicationGrants[applicationArn]
@@ -2139,7 +2154,7 @@ func (b *InMemoryBackend) ListApplicationGrants(applicationArn string) ([]Applic
 	b.mu.RLock("ListApplicationGrants")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 	grants := b.applicationGrants[applicationArn]
@@ -2159,7 +2174,7 @@ func (b *InMemoryBackend) GetApplicationGrant(applicationArn, grantType string) 
 	b.mu.RLock("GetApplicationGrant")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return nil, ErrApplicationNotFound
 	}
 	grants := b.applicationGrants[applicationArn]
@@ -2181,7 +2196,7 @@ func (b *InMemoryBackend) PutApplicationSessionConfiguration(applicationArn, ses
 	b.mu.Lock("PutApplicationSessionConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return ErrApplicationNotFound
 	}
 	b.applicationSessions[applicationArn] = sessionDuration
@@ -2202,16 +2217,17 @@ func (b *InMemoryBackend) CreateInstanceAccessControlAttributeConfiguration(
 		return err
 	}
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return ErrInstanceNotFound
 	}
-	if _, exists := b.instanceACAs[instanceArn]; exists {
+	if b.instanceACAs.Has(instanceArn) {
 		return ErrACAAlreadyExists
 	}
-	b.instanceACAs[instanceArn] = &ABACConfig{
+	b.instanceACAs.Put(&ABACConfig{
+		InstanceArn:             instanceArn,
 		AccessControlAttributes: copyAccessControlAttributes(attributes),
 		Status:                  abacStatusCreationInProgress,
-	}
+	})
 
 	return nil
 }
@@ -2223,10 +2239,10 @@ func (b *InMemoryBackend) DescribeInstanceAccessControlAttributeConfiguration(
 	b.mu.Lock("DescribeInstanceAccessControlAttributeConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
-	cfg, ok := b.instanceACAs[instanceArn]
+	cfg, ok := b.instanceACAs.Get(instanceArn)
 	if !ok {
 		return nil, ErrRequestNotFound
 	}
@@ -2247,13 +2263,13 @@ func (b *InMemoryBackend) DeleteInstanceAccessControlAttributeConfiguration(inst
 	b.mu.Lock("DeleteInstanceAccessControlAttributeConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return ErrInstanceNotFound
 	}
-	if _, ok := b.instanceACAs[instanceArn]; !ok {
+	if !b.instanceACAs.Has(instanceArn) {
 		return ErrRequestNotFound
 	}
-	delete(b.instanceACAs, instanceArn)
+	b.instanceACAs.Delete(instanceArn)
 
 	return nil
 }
@@ -2392,11 +2408,11 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 		return nil, err
 	}
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
-	for _, ti := range b.trustedTokenIssuers {
-		if ti.InstanceArn == instanceArn && ti.Name == name {
+	for _, ti := range b.trustedTokenIssuersByInstance.Get(instanceArn) {
+		if ti.Name == name {
 			return nil, ErrTrustedTokenIssuerAlreadyExists
 		}
 	}
@@ -2421,7 +2437,7 @@ func (b *InMemoryBackend) CreateTrustedTokenIssuer(
 	if tags != nil {
 		maps.Copy(ti.Tags, tags)
 	}
-	b.trustedTokenIssuers[arnStr] = ti
+	b.trustedTokenIssuers.Put(ti)
 
 	return copyTrustedTokenIssuer(ti), nil
 }
@@ -2431,10 +2447,10 @@ func (b *InMemoryBackend) DeleteTrustedTokenIssuer(trustedTokenIssuerArn string)
 	b.mu.Lock("DeleteTrustedTokenIssuer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]; !ok {
+	if !b.trustedTokenIssuers.Has(trustedTokenIssuerArn) {
 		return ErrTrustedTokenIssuerNotFound
 	}
-	delete(b.trustedTokenIssuers, trustedTokenIssuerArn)
+	b.trustedTokenIssuers.Delete(trustedTokenIssuerArn)
 
 	return nil
 }
@@ -2446,7 +2462,7 @@ func (b *InMemoryBackend) DescribeTrustedTokenIssuer(
 	b.mu.RLock("DescribeTrustedTokenIssuer")
 	defer b.mu.RUnlock()
 
-	issuer, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]
+	issuer, ok := b.trustedTokenIssuers.Get(trustedTokenIssuerArn)
 	if !ok {
 		return nil, ErrTrustedTokenIssuerNotFound
 	}
@@ -2459,11 +2475,18 @@ func (b *InMemoryBackend) ListTrustedTokenIssuers(instanceArn string) []*Trusted
 	b.mu.RLock("ListTrustedTokenIssuers")
 	defer b.mu.RUnlock()
 
-	result := make([]*TrustedTokenIssuer, 0, len(b.trustedTokenIssuers))
-	for _, issuer := range b.trustedTokenIssuers {
-		if instanceArn != "" && issuer.InstanceArn != instanceArn {
-			continue
+	if instanceArn != "" {
+		grouped := b.trustedTokenIssuersByInstance.Get(instanceArn)
+		result := make([]*TrustedTokenIssuer, 0, len(grouped))
+		for _, issuer := range grouped {
+			result = append(result, copyTrustedTokenIssuer(issuer))
 		}
+
+		return result
+	}
+
+	result := make([]*TrustedTokenIssuer, 0, b.trustedTokenIssuers.Len())
+	for _, issuer := range b.trustedTokenIssuers.All() {
 		result = append(result, copyTrustedTokenIssuer(issuer))
 	}
 
@@ -2491,7 +2514,7 @@ func (b *InMemoryBackend) UpdateTrustedTokenIssuer(
 		}
 	}
 
-	issuer, ok := b.trustedTokenIssuers[trustedTokenIssuerArn]
+	issuer, ok := b.trustedTokenIssuers.Get(trustedTokenIssuerArn)
 	if !ok {
 		return nil, ErrTrustedTokenIssuerNotFound
 	}
@@ -2513,7 +2536,7 @@ func (b *InMemoryBackend) GetApplicationAssignmentConfiguration(applicationArn s
 	b.mu.RLock("GetApplicationAssignmentConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return false, ErrApplicationNotFound
 	}
 	required := b.applicationAssignConfig[applicationArn]
@@ -2526,7 +2549,7 @@ func (b *InMemoryBackend) GetApplicationSessionConfiguration(applicationArn stri
 	b.mu.RLock("GetApplicationSessionConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return "", ErrApplicationNotFound
 	}
 	dur := b.applicationSessions[applicationArn]
@@ -2539,14 +2562,14 @@ func (b *InMemoryBackend) DeletePermissionsBoundaryFromPermissionSet(instanceArn
 	b.mu.Lock("DeletePermissionsBoundaryFromPermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
-	if _, hasBoundary := b.permissionBoundaries[permissionSetArn]; !hasBoundary {
+	if !b.permissionBoundaries.Has(permissionSetArn) {
 		return ErrRequestNotFound
 	}
-	delete(b.permissionBoundaries, permissionSetArn)
+	b.permissionBoundaries.Delete(permissionSetArn)
 
 	return nil
 }
@@ -2559,7 +2582,7 @@ func (b *InMemoryBackend) ListCustomerManagedPolicyReferencesInPermissionSet(
 	b.mu.RLock("ListCustomerManagedPolicyReferencesInPermissionSet")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return nil, ErrPermissionSetNotFound
 	}
@@ -2575,7 +2598,7 @@ func (b *InMemoryBackend) RemoveRegion(instanceArn, regionName string) error {
 	b.mu.Lock("RemoveRegion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return ErrInstanceNotFound
 	}
 	regions := b.instanceRegions[instanceArn]
@@ -2601,7 +2624,7 @@ func (b *InMemoryBackend) ListRegions(instanceArn string) ([]RegionMetadata, err
 	b.mu.RLock("ListRegions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
 	regions := b.instanceRegions[instanceArn]
@@ -2616,7 +2639,7 @@ func (b *InMemoryBackend) UpdateInstance(instanceArn, name string) error {
 	b.mu.Lock("UpdateInstance")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceArn]
+	inst, ok := b.instances.Get(instanceArn)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -2639,18 +2662,19 @@ func (b *InMemoryBackend) UpdateInstanceAccessControlAttributeConfiguration(
 		return err
 	}
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return ErrInstanceNotFound
 	}
-	existing := b.instanceACAs[instanceArn]
+	existing, _ := b.instanceACAs.Get(instanceArn)
 	status := abacStatusEnabled
 	if existing != nil {
 		status = existing.Status
 	}
-	b.instanceACAs[instanceArn] = &ABACConfig{
+	b.instanceACAs.Put(&ABACConfig{
+		InstanceArn:             instanceArn,
 		AccessControlAttributes: copyAccessControlAttributes(attributes),
 		Status:                  status,
-	}
+	})
 
 	return nil
 }
@@ -2662,7 +2686,7 @@ func (b *InMemoryBackend) DetachCustomerManagedPolicyReferenceFromPermissionSet(
 	b.mu.Lock("DetachCustomerManagedPolicyReferenceFromPermissionSet")
 	defer b.mu.Unlock()
 
-	ps, ok := b.permissionSets[permissionSetArn]
+	ps, ok := b.permissionSets.Get(permissionSetArn)
 	if !ok || ps.InstanceArn != instanceArn {
 		return ErrPermissionSetNotFound
 	}
@@ -2742,7 +2766,7 @@ func (b *InMemoryBackend) GetApplicationAccessScope(applicationArn, scope string
 	b.mu.RLock("GetApplicationAccessScope")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationArn]; !ok {
+	if !b.applications.Has(applicationArn) {
 		return "", ErrApplicationNotFound
 	}
 	if slices.Contains(b.applicationScopes[applicationArn], scope) {
@@ -2762,10 +2786,10 @@ func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(
 	b.mu.RLock("ListAccountsForProvisionedPermissionSet")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceArn]; !ok {
+	if !b.instances.Has(instanceArn) {
 		return nil, ErrInstanceNotFound
 	}
-	if _, ok := b.permissionSets[permissionSetArn]; !ok {
+	if _, ok := b.permissionSets.Get(permissionSetArn); !ok {
 		return nil, ErrPermissionSetNotFound
 	}
 
@@ -2788,11 +2812,8 @@ func (b *InMemoryBackend) ListApplicationAssignmentsForPrincipal(
 	defer b.mu.RUnlock()
 
 	var result []*ApplicationAssignment
-	for appArn, app := range b.applications {
-		if app.InstanceArn != instanceArn {
-			continue
-		}
-		for _, a := range b.applicationAssignments[appArn] {
+	for _, app := range b.applicationsByInstance.Get(instanceArn) {
+		for _, a := range b.applicationAssignments[app.ApplicationArn] {
 			if a.PrincipalID == principalID && a.PrincipalType == principalType {
 				cp := *a
 				result = append(result, &cp)

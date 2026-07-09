@@ -5,7 +5,7 @@ func InstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("InstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.instances)
+	return b.instances.Len()
 }
 
 // PermissionSetCount returns the number of permission sets in the backend.
@@ -13,7 +13,7 @@ func PermissionSetCount(b *InMemoryBackend) int {
 	b.mu.RLock("PermissionSetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.permissionSets)
+	return b.permissionSets.Len()
 }
 
 // ApplicationCount returns the number of applications in the backend.
@@ -21,7 +21,7 @@ func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.applications)
+	return b.applications.Len()
 }
 
 // TrustedTokenIssuerCount returns the number of trusted token issuers in the backend.
@@ -29,7 +29,7 @@ func TrustedTokenIssuerCount(b *InMemoryBackend) int {
 	b.mu.RLock("TrustedTokenIssuerCount")
 	defer b.mu.RUnlock()
 
-	return len(b.trustedTokenIssuers)
+	return b.trustedTokenIssuers.Len()
 }
 
 // HandlerOpsLen returns the number of operations in GetSupportedOperations.
@@ -42,7 +42,7 @@ func CreationStatusCount(b *InMemoryBackend) int {
 	b.mu.RLock("CreationStatusCount")
 	defer b.mu.RUnlock()
 
-	return len(b.creationStatuses)
+	return b.creationStatuses.Len()
 }
 
 // DeletionStatusCount returns the number of entries in the deletion status map.
@@ -50,5 +50,5 @@ func DeletionStatusCount(b *InMemoryBackend) int {
 	b.mu.RLock("DeletionStatusCount")
 	defer b.mu.RUnlock()
 
-	return len(b.deletionStatuses)
+	return b.deletionStatuses.Len()
 }
