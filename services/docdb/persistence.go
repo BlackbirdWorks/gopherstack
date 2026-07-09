@@ -3,96 +3,167 @@ package docdb
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// backendSnapshot persists the backend state. Regional resource maps are nested by
-// region (outer key = region). GlobalClusters are partition-scoped and stay flat.
+// docdbSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to regionalDTO/backendSnapshot itself would make an
+// older snapshot unsafe to decode as the current shape (e.g. a field's
+// meaning or type changes). Restore compares this against the persisted value
+// and discards (rather than attempts to partially decode) any mismatch -- see
+// Restore below. This is the first version: earlier (pre-Phase-3.3) snapshots
+// carried no version field at all, so they also fail this check and are
+// discarded rather than misread, which is the safe behaviour across any
+// snapshot-format change.
+const docdbSnapshotVersion = 1
+
+// regionalDTO wraps a region-nested resource for JSON round-tripping through
+// store.Registry. Table[V].Snapshot's plain json.Marshal(V) cannot see the
+// unexported `region` field each of DBCluster/DBInstance/DBSubnetGroup/
+// DBClusterParameterGroup/DBClusterSnapshot/EventSubscription/
+// DBClusterSnapshotAttributesResult carries (used only for the live table's
+// composite key -- see store_setup.go), so it is carried alongside Value here
+// instead. ID mirrors the resource's own identifier so the DTO table itself
+// has a stable composite key ("Region|ID") independent of which concrete V it
+// wraps, without needing a per-type identifier accessor.
+type regionalDTO[V any] struct {
+	Value  *V     `json:"value"`
+	Region string `json:"region"`
+	ID     string `json:"id"`
+}
+
+// regionalDTOKeyFn is the shared [store.Table] key function for every
+// regionalDTO[V] table below; it mirrors the "region|id" composite key each
+// live table uses (see regionKey in backend.go).
+func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Region, d.ID) }
+
+// backendSnapshot is the top-level on-disk shape for the DocDB backend.
+//
+// Tables holds one JSON-encoded array per registered DTO table, produced by
+// [store.Registry.SnapshotAll] -- the seven region-qualified resource tables
+// (each wrapped in a regionalDTO to carry its region field through) plus
+// globalClusters (registered directly: GlobalCluster has no hidden field).
+// Tags is still a region-nested plain map (see store_setup.go for why it was
+// not converted to store.Table) and is persisted directly, as before. Version
+// guards against decoding a snapshot from an incompatible (older or newer)
+// build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Clusters               map[string]map[string]*DBCluster                         `json:"clusters"`
-	Instances              map[string]map[string]*DBInstance                        `json:"instances"`
-	SubnetGroups           map[string]map[string]*DBSubnetGroup                     `json:"subnetGroups"`
-	ClusterParameterGroups map[string]map[string]*DBClusterParameterGroup           `json:"clusterParameterGroups"`
-	ClusterSnapshots       map[string]map[string]*DBClusterSnapshot                 `json:"clusterSnapshots"`
-	SnapshotAttributes     map[string]map[string]*DBClusterSnapshotAttributesResult `json:"snapshotAttributes"`
-	EventSubscriptions     map[string]map[string]*EventSubscription                 `json:"eventSubscriptions"`
-	GlobalClusters         map[string]*GlobalCluster                                `json:"globalClusters"`
-	Tags                   map[string]map[string][]Tag                              `json:"tags"`
-	AccountID              string                                                   `json:"accountID"`
-	Region                 string                                                   `json:"region"`
+	Tables    map[string]json.RawMessage  `json:"tables"`
+	Tags      map[string]map[string][]Tag `json:"tags"`
+	AccountID string                      `json:"accountID"`
+	Region    string                      `json:"region"`
+	Version   int                         `json:"version"`
 }
 
-// ensureNonNilMaps initialises nil maps in the snapshot to empty maps.
-func ensureNonNilMaps(snap *backendSnapshot) {
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]map[string]*DBCluster)
-	}
+// buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
+// both Snapshot and Restore. It is built fresh on every call (rather than
+// reusing b.registry) because the DTO value types differ from the live table
+// value types (regionalDTO[V] vs V for the seven region-qualified tables).
+func buildPersistenceDTORegistry() (
+	*store.Registry,
+	*store.Table[regionalDTO[DBCluster]],
+	*store.Table[regionalDTO[DBInstance]],
+	*store.Table[regionalDTO[DBSubnetGroup]],
+	*store.Table[regionalDTO[DBClusterParameterGroup]],
+	*store.Table[regionalDTO[DBClusterSnapshot]],
+	*store.Table[regionalDTO[EventSubscription]],
+	*store.Table[regionalDTO[DBClusterSnapshotAttributesResult]],
+	*store.Table[GlobalCluster],
+) {
+	dtoReg := store.NewRegistry()
+	clusterDTOs := store.Register(dtoReg, "clusters", store.New(regionalDTOKeyFn[DBCluster]))
+	instanceDTOs := store.Register(dtoReg, "instances", store.New(regionalDTOKeyFn[DBInstance]))
+	subnetGroupDTOs := store.Register(dtoReg, "subnetGroups", store.New(regionalDTOKeyFn[DBSubnetGroup]))
+	clusterParameterGroupDTOs := store.Register(
+		dtoReg, "clusterParameterGroups", store.New(regionalDTOKeyFn[DBClusterParameterGroup]),
+	)
+	clusterSnapshotDTOs := store.Register(
+		dtoReg, "clusterSnapshots", store.New(regionalDTOKeyFn[DBClusterSnapshot]),
+	)
+	eventSubscriptionDTOs := store.Register(
+		dtoReg, "eventSubscriptions", store.New(regionalDTOKeyFn[EventSubscription]),
+	)
+	snapshotAttributesDTOs := store.Register(
+		dtoReg, "snapshotAttributes", store.New(regionalDTOKeyFn[DBClusterSnapshotAttributesResult]),
+	)
+	globalClusterDTOs := store.Register(dtoReg, "globalClusters", store.New(globalClusterKeyFn))
 
-	if snap.Instances == nil {
-		snap.Instances = make(map[string]map[string]*DBInstance)
-	}
-
-	if snap.SubnetGroups == nil {
-		snap.SubnetGroups = make(map[string]map[string]*DBSubnetGroup)
-	}
-
-	if snap.ClusterParameterGroups == nil {
-		snap.ClusterParameterGroups = make(map[string]map[string]*DBClusterParameterGroup)
-	}
-
-	if snap.ClusterSnapshots == nil {
-		snap.ClusterSnapshots = make(map[string]map[string]*DBClusterSnapshot)
-	}
-
-	if snap.SnapshotAttributes == nil {
-		snap.SnapshotAttributes = make(map[string]map[string]*DBClusterSnapshotAttributesResult)
-	}
-
-	if snap.EventSubscriptions == nil {
-		snap.EventSubscriptions = make(map[string]map[string]*EventSubscription)
-	}
-
-	if snap.GlobalClusters == nil {
-		snap.GlobalClusters = make(map[string]*GlobalCluster)
-	}
-
-	if snap.Tags == nil {
-		snap.Tags = make(map[string]map[string][]Tag)
-	}
+	return dtoReg, clusterDTOs, instanceDTOs, subnetGroupDTOs, clusterParameterGroupDTOs,
+		clusterSnapshotDTOs, eventSubscriptionDTOs, snapshotAttributesDTOs, globalClusterDTOs
 }
 
-// Snapshot serialises the backend state to JSON. Returns nil on marshal failure.
+// Snapshot serialises the backend state to JSON. It implements
+// persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Clusters:               b.clusters,
-		Instances:              b.instances,
-		SubnetGroups:           b.subnetGroups,
-		ClusterParameterGroups: b.clusterParameterGroups,
-		ClusterSnapshots:       b.clusterSnapshots,
-		SnapshotAttributes:     b.snapshotAttributes,
-		EventSubscriptions:     b.eventSubscriptions,
-		GlobalClusters:         b.globalClusters,
-		Tags:                   b.tags,
-		AccountID:              b.accountID,
-		Region:                 b.region,
+	dtoReg, clusterDTOs, instanceDTOs, subnetGroupDTOs, clusterParameterGroupDTOs,
+		clusterSnapshotDTOs, eventSubscriptionDTOs, snapshotAttributesDTOs,
+		globalClusterDTOs := buildPersistenceDTORegistry()
+
+	for _, v := range b.clusters.Snapshot() {
+		clusterDTOs.Put(&regionalDTO[DBCluster]{Region: v.region, ID: v.DBClusterIdentifier, Value: v})
+	}
+	for _, v := range b.instances.Snapshot() {
+		instanceDTOs.Put(&regionalDTO[DBInstance]{Region: v.region, ID: v.DBInstanceIdentifier, Value: v})
+	}
+	for _, v := range b.subnetGroups.Snapshot() {
+		subnetGroupDTOs.Put(&regionalDTO[DBSubnetGroup]{Region: v.region, ID: v.DBSubnetGroupName, Value: v})
+	}
+	for _, v := range b.clusterParameterGroups.Snapshot() {
+		clusterParameterGroupDTOs.Put(&regionalDTO[DBClusterParameterGroup]{
+			Region: v.region, ID: v.DBClusterParameterGroupName, Value: v,
+		})
+	}
+	for _, v := range b.clusterSnapshots.Snapshot() {
+		clusterSnapshotDTOs.Put(&regionalDTO[DBClusterSnapshot]{
+			Region: v.region, ID: v.DBClusterSnapshotIdentifier, Value: v,
+		})
+	}
+	for _, v := range b.eventSubscriptions.Snapshot() {
+		eventSubscriptionDTOs.Put(&regionalDTO[EventSubscription]{
+			Region: v.region, ID: v.SubscriptionName, Value: v,
+		})
+	}
+	for _, v := range b.snapshotAttributes.Snapshot() {
+		snapshotAttributesDTOs.Put(&regionalDTO[DBClusterSnapshotAttributesResult]{
+			Region: v.region, ID: v.DBClusterSnapshotIdentifier, Value: v,
+		})
+	}
+	for _, v := range b.globalClusters.Snapshot() {
+		globalClusterDTOs.Put(v)
 	}
 
-	data, err := json.Marshal(snap)
+	tables, err := dtoReg.SnapshotAll()
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "docdb: failed to marshal snapshot", "error", err)
+		// The DTOs above are plain JSON-friendly structs, so a marshal failure
+		// here would indicate a programming error rather than bad input data.
+		// Log and skip the snapshot rather than panic, matching the
+		// persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx,
+			"docdb: snapshot table marshal failed", "error", err)
 
 		return nil
 	}
 
-	return data
+	snap := backendSnapshot{
+		Version:   docdbSnapshotVersion,
+		Tables:    tables,
+		Tags:      b.tags,
+		AccountID: b.accountID,
+		Region:    b.region,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "docdb", snap)
 }
 
-// Restore loads backend state from a JSON snapshot produced by Snapshot.
+// Restore loads backend state from a JSON snapshot. It implements
+// persistence.Persistable.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
@@ -100,22 +171,93 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	ensureNonNilMaps(&snap)
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.clusters = snap.Clusters
-	b.instances = snap.Instances
-	b.subnetGroups = snap.SubnetGroups
-	b.clusterParameterGroups = snap.ClusterParameterGroups
-	b.clusterSnapshots = snap.ClusterSnapshots
-	b.snapshotAttributes = snap.SnapshotAttributes
-	b.eventSubscriptions = snap.EventSubscriptions
-	b.globalClusters = snap.GlobalClusters
+	if snap.Version != docdbSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"docdb: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", docdbSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.tags = make(map[string]map[string][]Tag)
+		b.accountID = snap.AccountID
+		b.region = snap.Region
+
+		return nil
+	}
+
+	if err := b.restoreResourceTables(snap.Tables); err != nil {
+		return err
+	}
+
+	if snap.Tags == nil {
+		snap.Tags = make(map[string]map[string][]Tag)
+	}
 	b.tags = snap.Tags
+
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	return nil
+}
+
+// unwrapRegionalDTOs converts every regionalDTO[V] in dtos into its live *V,
+// restoring the unexported region field each carries via setRegion (a plain
+// generic type parameter V has no field access, so the region assignment --
+// e.g. `func(v *DBCluster, r string) { v.region = r }` -- is supplied by the
+// caller, one per concrete V; see restoreResourceTables). A DTO whose Value is
+// nil -- not producible by Snapshot, but a defensive guard against a
+// hand-edited or corrupted snapshot -- is skipped rather than dereferenced.
+func unwrapRegionalDTOs[V any](dtos *store.Table[regionalDTO[V]], setRegion func(*V, string)) []*V {
+	items := make([]*V, 0, dtos.Len())
+
+	for _, d := range dtos.All() {
+		if d.Value == nil {
+			continue
+		}
+
+		setRegion(d.Value, d.Region)
+		items = append(items, d.Value)
+	}
+
+	return items
+}
+
+// restoreResourceTables rebuilds every store.Table on b from snap's
+// per-table JSON, factored out of Restore to keep Restore's own cognitive
+// complexity low. Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+	dtoReg, clusterDTOs, instanceDTOs, subnetGroupDTOs, clusterParameterGroupDTOs,
+		clusterSnapshotDTOs, eventSubscriptionDTOs, snapshotAttributesDTOs,
+		globalClusterDTOs := buildPersistenceDTORegistry()
+
+	if err := dtoReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("docdb: restore snapshot tables: %w", err)
+	}
+
+	b.clusters.Restore(unwrapRegionalDTOs(clusterDTOs, func(v *DBCluster, r string) { v.region = r }))
+	b.instances.Restore(unwrapRegionalDTOs(instanceDTOs, func(v *DBInstance, r string) { v.region = r }))
+	b.subnetGroups.Restore(unwrapRegionalDTOs(subnetGroupDTOs, func(v *DBSubnetGroup, r string) { v.region = r }))
+	b.clusterParameterGroups.Restore(unwrapRegionalDTOs(
+		clusterParameterGroupDTOs, func(v *DBClusterParameterGroup, r string) { v.region = r },
+	))
+	b.clusterSnapshots.Restore(unwrapRegionalDTOs(
+		clusterSnapshotDTOs, func(v *DBClusterSnapshot, r string) { v.region = r },
+	))
+	b.eventSubscriptions.Restore(unwrapRegionalDTOs(
+		eventSubscriptionDTOs, func(v *EventSubscription, r string) { v.region = r },
+	))
+	b.snapshotAttributes.Restore(unwrapRegionalDTOs(
+		snapshotAttributesDTOs, func(v *DBClusterSnapshotAttributesResult, r string) { v.region = r },
+	))
+	b.globalClusters.Restore(globalClusterDTOs.Snapshot())
 
 	return nil
 }
