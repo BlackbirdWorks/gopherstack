@@ -47,19 +47,31 @@ type CloudWatchLogsLogGroup struct {
 }
 
 // Execution represents a state machine execution.
+//
+// history holds the execution's history events inline (Phase 3.3: this
+// replaces the backend's former separate `map[string]*HistoryEvent` history
+// map). It is deliberately unexported: *Execution is returned directly as
+// the wire body for DescribeExecution/StartExecution/etc., and AWS's real
+// DescribeExecution response has no "history" field -- history is only ever
+// retrieved via GetExecutionHistory. Being unexported also means it is
+// skipped by every encoding/json.Marshal of *Execution, including the one
+// [store.Table.Snapshot] would otherwise perform; persistence.go's
+// executionSnapshot DTO adds it back as an ordinary exported field solely for
+// the on-disk snapshot round trip. See persistence.go for details.
 type Execution struct {
-	StopDate        *float64 `json:"stopDate,omitempty"`
-	RedriveDate     *float64 `json:"redriveDate,omitempty"`
-	ExecutionArn    string   `json:"executionArn"`
-	StateMachineArn string   `json:"stateMachineArn"`
-	Name            string   `json:"name"`
-	Status          string   `json:"status"`
-	Input           string   `json:"input,omitempty"`
-	Output          string   `json:"output,omitempty"`
-	Error           string   `json:"error,omitempty"`
-	Cause           string   `json:"cause,omitempty"`
-	StartDate       float64  `json:"startDate"`
-	RedriveCount    int      `json:"redriveCount,omitempty"`
+	RedriveDate     *float64        `json:"redriveDate,omitempty"`
+	StopDate        *float64        `json:"stopDate,omitempty"`
+	Status          string          `json:"status"`
+	ExecutionArn    string          `json:"executionArn"`
+	StateMachineArn string          `json:"stateMachineArn"`
+	Name            string          `json:"name"`
+	Input           string          `json:"input,omitempty"`
+	Output          string          `json:"output,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	Cause           string          `json:"cause,omitempty"`
+	history         []*HistoryEvent `json:"-"`
+	StartDate       float64         `json:"startDate"`
+	RedriveCount    int             `json:"redriveCount,omitempty"`
 }
 
 // HistoryEvent represents a single event in execution history.
