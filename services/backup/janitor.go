@@ -77,10 +77,10 @@ func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 
 	var swept []string
 
-	for id, job := range j.Backend.jobs {
+	for _, job := range j.Backend.jobs.All() {
 		if isTerminalJob(job.State) && job.CompletionTime != nil && job.CompletionTime.Before(cutoff) {
-			swept = append(swept, id)
-			delete(j.Backend.jobs, id)
+			swept = append(swept, job.BackupJobID)
+			j.Backend.jobs.Delete(job.BackupJobID)
 		}
 	}
 
