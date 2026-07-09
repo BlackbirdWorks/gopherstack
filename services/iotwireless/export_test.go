@@ -1,20 +1,29 @@
 package iotwireless
 
+// countScoped counts entries in a store.Table-backed resource whose
+// AccountID/Region match the given scope. It is generic over the 8
+// account/region-scoped ("dirty") table value types -- see store_setup.go.
+func countScoped[T any](all []*T, accountID, region string, scope func(*T) (string, string)) int {
+	count := 0
+
+	for _, v := range all {
+		if a, r := scope(v); a == accountID && r == region {
+			count++
+		}
+	}
+
+	return count
+}
+
 // DeviceCount returns the number of wireless devices in the backend for the given account and region.
 // Intended for test assertions only.
 func DeviceCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.devices {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.devices.All(), accountID, region, func(v *WirelessDevice) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // GatewayCount returns the number of wireless gateways in the backend for the given account and region.
@@ -23,15 +32,9 @@ func GatewayCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.gateways {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.gateways.All(), accountID, region, func(v *WirelessGateway) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // ServiceProfileCount returns the number of service profiles in the backend for the given account and region.
@@ -40,15 +43,9 @@ func ServiceProfileCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.serviceProfiles {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.serviceProfiles.All(), accountID, region, func(v *ServiceProfile) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // DestinationCount returns the number of destinations in the backend for the given account and region.
@@ -57,15 +54,9 @@ func DestinationCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.destinations {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.destinations.All(), accountID, region, func(v *Destination) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // DeviceProfileCount returns the number of device profiles in the backend for the given account and region.
@@ -74,15 +65,9 @@ func DeviceProfileCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.deviceProfiles {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.deviceProfiles.All(), accountID, region, func(v *DeviceProfile) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // FuotaTaskCount returns the number of FUOTA tasks in the backend for the given account and region.
@@ -91,15 +76,9 @@ func FuotaTaskCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.fuotaTasks {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.fuotaTasks.All(), accountID, region, func(v *FuotaTask) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // MulticastGroupCount returns the number of multicast groups in the backend for the given account and region.
@@ -108,15 +87,9 @@ func MulticastGroupCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.multicastGroups {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(b.multicastGroups.All(), accountID, region, func(v *MulticastGroup) (string, string) {
+		return v.AccountID, v.Region
+	})
 }
 
 // NetworkAnalyzerConfigCount returns the number of network analyzer configs in the backend.
@@ -125,15 +98,10 @@ func NetworkAnalyzerConfigCount(b *InMemoryBackend, accountID, region string) in
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for k := range b.networkAnalyzerConfigs {
-		if k.AccountID == accountID && k.Region == region {
-			count++
-		}
-	}
-
-	return count
+	return countScoped(
+		b.networkAnalyzerConfigs.All(), accountID, region,
+		func(v *NetworkAnalyzerConfig) (string, string) { return v.AccountID, v.Region },
+	)
 }
 
 // ImportTaskCount returns the number of import tasks in the backend.
@@ -142,5 +110,5 @@ func ImportTaskCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.importTasks)
+	return b.importTasks.Len()
 }

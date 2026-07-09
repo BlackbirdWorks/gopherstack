@@ -13,6 +13,14 @@ type WirelessDevice struct {
 	Description          string            `json:"description,omitempty"`
 	Type                 string            `json:"type"`
 	DestinationName      string            `json:"destinationName,omitempty"`
+	// AccountID and Region are not part of the AWS wire shape for this
+	// resource; they exist purely so store.Table's keyFn (store_setup.go) can
+	// derive the account+region-scoped composite key this backend requires.
+	// Tagged json:"-" so they never leak into an API response; Snapshot/
+	// Restore round-trips them via the deviceSnapshot DTO instead (see
+	// persistence.go).
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // WirelessGateway represents a LoRaWAN gateway.
@@ -28,6 +36,10 @@ type WirelessGateway struct {
 	FirmwareVersion      string            `json:"firmwareVersion,omitempty"`
 	FirmwareModel        string            `json:"firmwareModel,omitempty"`
 	FirmwareStation      string            `json:"firmwareStation,omitempty"`
+	// AccountID and Region exist purely for store.Table's keyFn; see the
+	// identical comment on WirelessDevice above.
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // ServiceProfile contains settings for a LoRaWAN service profile.
@@ -37,6 +49,10 @@ type ServiceProfile struct {
 	Name      string            `json:"name"`
 	ID        string            `json:"id"`
 	ARN       string            `json:"arn"`
+	// AccountID and Region exist purely for store.Table's keyFn; see the
+	// identical comment on WirelessDevice above.
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // Destination routes messages from a device to AWS services.
@@ -49,6 +65,10 @@ type Destination struct {
 	ExpressionType string            `json:"expressionType,omitempty"`
 	RoleArn        string            `json:"roleArn,omitempty"`
 	Description    string            `json:"description,omitempty"`
+	// AccountID and Region exist purely for store.Table's keyFn; see the
+	// identical comment on WirelessDevice above.
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // DeviceProfile contains LoRaWAN device profile settings.
@@ -58,6 +78,10 @@ type DeviceProfile struct {
 	Name      string            `json:"name"`
 	ID        string            `json:"id"`
 	ARN       string            `json:"arn"`
+	// AccountID and Region exist purely for store.Table's keyFn; see the
+	// identical comment on WirelessDevice above.
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // FuotaTask represents a Firmware Update Over the Air (FUOTA) task.
@@ -70,6 +94,10 @@ type FuotaTask struct {
 	Description         string            `json:"description,omitempty"`
 	FirmwareUpdateImage string            `json:"firmwareUpdateImage,omitempty"`
 	FirmwareUpdateRole  string            `json:"firmwareUpdateRole,omitempty"`
+	// AccountID and Region exist purely for store.Table's keyFn; see the
+	// identical comment on WirelessDevice above.
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // MulticastGroup represents an IoT Wireless multicast group.
@@ -81,6 +109,10 @@ type MulticastGroup struct {
 	ARN         string            `json:"arn"`
 	Description string            `json:"description,omitempty"`
 	Status      string            `json:"status"`
+	// AccountID and Region exist purely for store.Table's keyFn; see the
+	// identical comment on WirelessDevice above.
+	AccountID string `json:"-"`
+	Region    string `json:"-"`
 }
 
 // NetworkAnalyzerConfig represents an IoT Wireless network analyzer configuration.
@@ -89,6 +121,8 @@ type NetworkAnalyzerConfig struct {
 	Name             string            `json:"name"`
 	ARN              string            `json:"arn"`
 	Description      string            `json:"description,omitempty"`
+	AccountID        string            `json:"-"`
+	Region           string            `json:"-"`
 	WirelessDevices  []string          `json:"wirelessDevices,omitempty"`
 	WirelessGateways []string          `json:"wirelessGateways,omitempty"`
 }
