@@ -42,28 +42,23 @@ type tagPair struct {
 
 // backendSnapshot is the top-level JSON structure for Snapshot/Restore.
 //
-// Version 2 added IsVPC to lbSnapshot. Version 3 nests LoadBalancers and
+// Version 2 added IsVPC to lbSnapshot. Version 3 nested LoadBalancers and
 // Policies by region (outer key = region) so that region-isolated state
-// round-trips correctly.
-const snapshotVersion = 3
+// round-tripped correctly. Version 4 (Phase 3.3, the pkgs/store datalayer
+// conversion -- see store_setup.go) replaced that nesting with flat lists:
+// both b.lbs and b.policies are now [store.Table]s keyed by a composite
+// "region|..." key (lbTableKey / policyTableKey), so region-scoping lives in
+// each element (lbSnapshot.Region / LoadBalancerPolicy.Region) rather than in
+// an outer map layer. This is an incompatible shape change from Version 3 --
+// see the Version guard in Restore.
+const snapshotVersion = 4
 
 type backendSnapshot struct {
-	// LoadBalancers and Policies are nested by region (outer key = region).
-	LoadBalancers map[string]map[string]*lbSnapshot         `json:"loadBalancers"`
-	Policies      map[string]map[string]*LoadBalancerPolicy `json:"policies"`
-	AccountID     string                                    `json:"accountId"`
-	Region        string                                    `json:"region"`
-	Version       int                                       `json:"version,omitempty"`
-}
-
-func (s *backendSnapshot) ensureNonNil() {
-	if s.LoadBalancers == nil {
-		s.LoadBalancers = make(map[string]map[string]*lbSnapshot)
-	}
-
-	if s.Policies == nil {
-		s.Policies = make(map[string]map[string]*LoadBalancerPolicy)
-	}
+	AccountID     string                `json:"accountId"`
+	Region        string                `json:"region"`
+	LoadBalancers []*lbSnapshot         `json:"loadBalancers"`
+	Policies      []*LoadBalancerPolicy `json:"policies"`
+	Version       int                   `json:"version,omitempty"`
 }
 
 // toLBSnapshot converts an in-memory LoadBalancer to its serialisable form.
@@ -159,22 +154,27 @@ func fromLBSnapshot(s *lbSnapshot) *LoadBalancer {
 }
 
 // Snapshot serialises the backend state to JSON.
+//
+// LoadBalancers is populated from a hand-built DTO list (lbSnapshot), not via
+// b.registry.SnapshotAll(), because LoadBalancer carries a live *tags.Tags
+// pointer whose zero-value JSON round-trip would reattach it to a generic
+// "json.tags" Prometheus label instead of the per-resource "elb.<name>" label
+// every other Tags-creation path in this backend uses (see fromLBSnapshot).
+// Policies has no such live state, so it round-trips directly as a plain
+// b.policies.Snapshot() -- a "clean" table in Phase 3.3 terms.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	lbSnaps := make(map[string]map[string]*lbSnapshot, len(b.lbs))
-	for region, regionLBs := range b.lbs {
-		regionMap := make(map[string]*lbSnapshot, len(regionLBs))
-		for k, lb := range regionLBs {
-			regionMap[k] = toLBSnapshot(lb)
-		}
-		lbSnaps[region] = regionMap
+	lbs := b.lbs.Snapshot()
+	lbSnaps := make([]*lbSnapshot, len(lbs))
+	for i, lb := range lbs {
+		lbSnaps[i] = toLBSnapshot(lb)
 	}
 
 	snap := backendSnapshot{
 		LoadBalancers: lbSnaps,
-		Policies:      b.policies,
+		Policies:      b.policies.Snapshot(),
 		AccountID:     b.accountID,
 		Region:        b.region,
 		Version:       snapshotVersion,
@@ -198,36 +198,49 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	snap.ensureNonNil()
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	// Close tags of any existing LBs before overwriting.
-	for _, regionLBs := range b.lbs {
-		for _, lb := range regionLBs {
+	if snap.Version != snapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- Version 3 and earlier
+		// nested LoadBalancers/Policies by region, a structurally different
+		// (and, for LoadBalancers, no longer even type-compatible) shape from
+		// the flat, composite-keyed lists Version 4 introduced. Discard
+		// cleanly and start empty instead of erroring, since this is an
+		// expected, recoverable condition (e.g. upgrading gopherstack across a
+		// snapshot-format change), not data corruption. Mirrors the
+		// services/ec2, services/sqs, and services/elbv2 pilots.
+		logger.Load(ctx).WarnContext(ctx,
+			"elb: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
+
+		for _, lb := range b.lbs.All() {
 			if lb.Tags != nil {
 				lb.Tags.Close()
 			}
 		}
+
+		b.registry.ResetAll()
+
+		return nil
 	}
 
-	newLBs := make(map[string]map[string]*LoadBalancer, len(snap.LoadBalancers))
-	for region, regionLBs := range snap.LoadBalancers {
-		regionMap := make(map[string]*LoadBalancer, len(regionLBs))
-		for k, s := range regionLBs {
-			regionMap[k] = fromLBSnapshot(s)
+	// Close tags of any existing LBs before overwriting.
+	for _, lb := range b.lbs.All() {
+		if lb.Tags != nil {
+			lb.Tags.Close()
 		}
-		newLBs[region] = regionMap
 	}
 
-	b.lbs = newLBs
-	b.policies = snap.Policies
+	newLBs := make([]*LoadBalancer, len(snap.LoadBalancers))
+	for i, s := range snap.LoadBalancers {
+		newLBs[i] = fromLBSnapshot(s)
+	}
+
+	b.lbs.Restore(newLBs)
+	b.policies.Restore(snap.Policies)
 	b.accountID = snap.AccountID
-
-	if b.policies == nil {
-		b.policies = make(map[string]map[string]*LoadBalancerPolicy)
-	}
 
 	// Only adopt the persisted region when the backend has no region set yet,
 	// preventing region drift when a snapshot from a different region is loaded
