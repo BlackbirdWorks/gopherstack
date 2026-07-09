@@ -3,17 +3,28 @@ package glacier
 import "time"
 
 // Vault stores all metadata and state for a single Glacier vault.
+//
+// AccountID and Region are not part of any AWS wire response (those are built
+// from explicit response DTOs in handler.go) but are needed, alongside
+// VaultARN, to key and index Vault in the *store.Table[Vault]/[store.Index]
+// pkgs/store conversion -- see store_setup.go. Archives is nested state kept
+// INLINE on Vault (rather than its own store.Table) because every access site
+// scopes archives by vault and Archive itself carries no natural
+// cross-vault identity field to key a flat table by.
 type Vault struct {
-	Tags                 map[string]string `json:"tags,omitempty"`
-	AccessPolicy         string            `json:"accessPolicy,omitempty"`
-	NotificationSNSTopic string            `json:"notificationSNSTopic,omitempty"`
-	VaultARN             string            `json:"vaultARN"`
-	VaultName            string            `json:"vaultName"`
-	CreationDate         string            `json:"creationDate"`
-	LastInventoryDate    string            `json:"lastInventoryDate,omitempty"`
-	NotificationEvents   []string          `json:"notificationEvents,omitempty"`
-	NumberOfArchives     int64             `json:"numberOfArchives"`
-	SizeInBytes          int64             `json:"sizeInBytes"`
+	Tags                 map[string]string   `json:"tags,omitempty"`
+	Archives             map[string]*Archive `json:"archives,omitempty"`
+	AccessPolicy         string              `json:"accessPolicy,omitempty"`
+	NotificationSNSTopic string              `json:"notificationSNSTopic,omitempty"`
+	VaultARN             string              `json:"vaultARN"`
+	VaultName            string              `json:"vaultName"`
+	AccountID            string              `json:"accountID"`
+	Region               string              `json:"region"`
+	CreationDate         string              `json:"creationDate"`
+	LastInventoryDate    string              `json:"lastInventoryDate,omitempty"`
+	NotificationEvents   []string            `json:"notificationEvents,omitempty"`
+	NumberOfArchives     int64               `json:"numberOfArchives"`
+	SizeInBytes          int64               `json:"sizeInBytes"`
 }
 
 // Archive stores metadata for a single archive uploaded to a vault.
@@ -182,7 +193,12 @@ type MultipartPart struct {
 }
 
 // VaultLock holds the state of a vault lock policy.
+//
+// VaultARN is not part of any AWS wire response (getVaultLockResponse is a
+// separate, explicit DTO in handler.go) but is needed to key VaultLock in the
+// *store.Table[VaultLock] pkgs/store conversion -- see store_setup.go.
 type VaultLock struct {
+	VaultARN       string `json:"vaultARN"`
 	Policy         string `json:"Policy"`
 	LockID         string `json:"LockId,omitempty"`
 	State          string `json:"State"`

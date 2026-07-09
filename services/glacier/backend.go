@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // Sentinel errors for Glacier backend operations.
@@ -149,14 +151,9 @@ type StorageBackend interface {
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// vaultKey uniquely identifies a vault within an account and region.
-type vaultKey struct {
-	AccountID string `json:"accountID"`
-	Region    string `json:"region"`
-	VaultName string `json:"vaultName"`
-}
-
-// uploadKey uniquely identifies a multipart upload.
+// uploadKey uniquely identifies a multipart upload, and remains the key type
+// for the (still-raw) multipartParts map -- see store_setup.go's package doc
+// for why multipartParts wasn't converted to a *store.Table.
 type uploadKey struct {
 	AccountID string `json:"accountID"`
 	Region    string `json:"region"`
@@ -165,19 +162,27 @@ type uploadKey struct {
 }
 
 // InMemoryBackend is the in-memory backend for Glacier.
+//
+// vaults, jobs, multipartUploads, and vaultLocks are *store.Table[T],
+// registered once on registry -- see store_setup.go for the Phase 3.3
+// pkgs/store conversion this follows. Archives stay nested inline on Vault
+// rather than their own table (see the Vault doc comment in models.go).
+// multipartParts, provisionedCapacity, dataRetrievalPolicies, and
+// archiveData remain plain maps because their values are slice/string-typed
+// (not *T) with no identity field of their own to key a Table by.
 type InMemoryBackend struct {
-	vaults                map[vaultKey]*Vault
-	archives              map[vaultKey]map[string]*Archive
-	jobs                  map[vaultKey]map[string]*Job
-	multipartUploads      map[vaultKey]map[string]*MultipartUpload
-	multipartParts        map[uploadKey][]MultipartPart
-	vaultLocks            map[vaultKey]*VaultLock
-	provisionedCapacity   map[string][]*ProvisionedCapacity
-	dataRetrievalPolicies map[string]string
-	// vaultsByAccountRegion indexes vault names by accountID+region for O(1) ListVaults
-	// instead of a full scan of all vaults across every account and region.
-	vaultsByAccountRegion map[string]map[string]map[string]struct{} // accountID -> region -> vaultName -> {}
-	archiveData           map[string][]byte
+	registry                *store.Registry
+	vaults                  *store.Table[Vault]
+	vaultsByAccountRegion   *store.Index[Vault]
+	jobs                    *store.Table[Job]
+	jobsByVault             *store.Index[Job]
+	multipartUploads        *store.Table[MultipartUpload]
+	multipartUploadsByVault *store.Index[MultipartUpload]
+	vaultLocks              *store.Table[VaultLock]
+	multipartParts          map[uploadKey][]MultipartPart
+	provisionedCapacity     map[string][]*ProvisionedCapacity
+	dataRetrievalPolicies   map[string]string
+	archiveData             map[string][]byte
 	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
 	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
 	// AWS, which does not make archive/inventory output available immediately.
@@ -187,19 +192,18 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory Glacier backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		vaults:                make(map[vaultKey]*Vault),
-		archives:              make(map[vaultKey]map[string]*Archive),
-		jobs:                  make(map[vaultKey]map[string]*Job),
-		multipartUploads:      make(map[vaultKey]map[string]*MultipartUpload),
+	b := &InMemoryBackend{
+		registry:              store.NewRegistry(),
 		multipartParts:        make(map[uploadKey][]MultipartPart),
-		vaultLocks:            make(map[vaultKey]*VaultLock),
 		provisionedCapacity:   make(map[string][]*ProvisionedCapacity),
 		dataRetrievalPolicies: make(map[string]string),
-		vaultsByAccountRegion: make(map[string]map[string]map[string]struct{}),
 		archiveData:           make(map[string][]byte),
 		retrievalDelay:        defaultRetrievalDelay,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // defaultRetrievalDelay is the simulated asynchronous retrieval window applied to
@@ -298,30 +302,22 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 		return nil, ErrValidation
 	}
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; ok {
+	if b.vaults.Has(vArn) {
 		return nil, ErrResourceInUse
 	}
 
 	v := &Vault{
 		VaultName:    vaultName,
-		VaultARN:     vaultARN(accountID, region, vaultName),
+		VaultARN:     vArn,
+		AccountID:    accountID,
+		Region:       region,
 		CreationDate: formatDate(time.Now()),
 		Tags:         make(map[string]string),
+		Archives:     make(map[string]*Archive),
 	}
-	b.vaults[key] = v
-	b.archives[key] = make(map[string]*Archive)
-	b.jobs[key] = make(map[string]*Job)
-	b.multipartUploads[key] = make(map[string]*MultipartUpload)
-
-	if b.vaultsByAccountRegion[accountID] == nil {
-		b.vaultsByAccountRegion[accountID] = make(map[string]map[string]struct{})
-	}
-	if b.vaultsByAccountRegion[accountID][region] == nil {
-		b.vaultsByAccountRegion[accountID][region] = make(map[string]struct{})
-	}
-	b.vaultsByAccountRegion[accountID][region][vaultName] = struct{}{}
+	b.vaults.Put(v)
 
 	return v, nil
 }
@@ -331,9 +327,7 @@ func (b *InMemoryBackend) DescribeVault(accountID, region, vaultName string) (*V
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-	v, ok := b.vaults[key]
-
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return nil, ErrVaultNotFound
 	}
@@ -346,25 +340,30 @@ func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	v, ok := b.vaults.Get(vArn)
+	if !ok {
 		return ErrVaultNotFound
 	}
 
-	if len(b.archives[key]) > 0 {
+	if len(v.Archives) > 0 {
 		return ErrVaultNotEmpty
 	}
 
-	delete(b.vaults, key)
-	delete(b.archives, key)
-	delete(b.jobs, key)
-	delete(b.multipartUploads, key)
-	delete(b.vaultLocks, key)
-
-	if regionMap, ok := b.vaultsByAccountRegion[accountID]; ok {
-		delete(regionMap[region], vaultName)
+	// Cascade-delete jobs and multipart uploads scoped to this vault. The
+	// index results must be cloned before deleting in the loop: Table.Delete
+	// mutates the very index slice Get returned.
+	for _, j := range slices.Clone(b.jobsByVault.Get(vArn)) {
+		b.jobs.Delete(jobKey(vArn, j.JobID))
 	}
+
+	for _, up := range slices.Clone(b.multipartUploadsByVault.Get(vArn)) {
+		b.multipartUploads.Delete(multipartUploadKey(vArn, up.MultipartUploadID))
+	}
+
+	b.vaultLocks.Delete(vArn)
+	b.vaults.Delete(vArn)
 
 	return nil
 }
@@ -385,14 +384,11 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := b.vaultsByAccountRegion[accountID][region]
-	result := make([]*Vault, 0, len(names))
+	group := b.vaultsByAccountRegion.Get(acctRegionKey(accountID, region))
+	result := make([]*Vault, 0, len(group))
 
-	for name := range names {
-		key := vaultKey{AccountID: accountID, Region: region, VaultName: name}
-		if v, ok := b.vaults[key]; ok {
-			result = append(result, cloneVault(v))
-		}
+	for _, v := range group {
+		result = append(result, cloneVault(v))
 	}
 
 	return sortedVaultNames(result)
@@ -406,9 +402,8 @@ func (b *InMemoryBackend) UploadArchive(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if _, ok := b.vaults[key]; !ok {
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
+	if !ok {
 		return nil, ErrVaultNotFound
 	}
 
@@ -421,10 +416,14 @@ func (b *InMemoryBackend) UploadArchive(
 		SHA256TreeHash: checksum,
 	}
 
-	b.archives[key][archiveID] = a
+	if v.Archives == nil {
+		v.Archives = make(map[string]*Archive)
+	}
+
+	v.Archives[archiveID] = a
 	b.archiveData[archiveID] = append([]byte(nil), data...)
-	b.vaults[key].NumberOfArchives++
-	b.vaults[key].SizeInBytes += size
+	v.NumberOfArchives++
+	v.SizeInBytes += size
 
 	return a, nil
 }
@@ -434,28 +433,27 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if _, ok := b.vaults[key]; !ok {
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
+	if !ok {
 		return ErrVaultNotFound
 	}
 
-	a, ok := b.archives[key][archiveID]
+	a, ok := v.Archives[archiveID]
 	if !ok {
 		return ErrArchiveNotFound
 	}
 
-	if b.vaults[key].NumberOfArchives > 0 {
-		b.vaults[key].NumberOfArchives--
+	if v.NumberOfArchives > 0 {
+		v.NumberOfArchives--
 	}
 
-	if b.vaults[key].SizeInBytes >= a.Size {
-		b.vaults[key].SizeInBytes -= a.Size
+	if v.SizeInBytes >= a.Size {
+		v.SizeInBytes -= a.Size
 	} else {
-		b.vaults[key].SizeInBytes = 0
+		v.SizeInBytes = 0
 	}
 
-	delete(b.archives[key], archiveID)
+	delete(v.Archives, archiveID)
 	delete(b.archiveData, archiveID)
 
 	return nil
@@ -466,16 +464,14 @@ func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if _, ok := b.vaults[key]; !ok {
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
+	if !ok {
 		return nil, ErrVaultNotFound
 	}
 
-	archives := b.archives[key]
-	result := make([]*Archive, 0, len(archives))
+	result := make([]*Archive, 0, len(v.Archives))
 
-	for _, a := range archives {
+	for _, a := range v.Archives {
 		result = append(result, cloneArchive(a))
 	}
 
@@ -515,9 +511,7 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 		return nil, ErrValidation
 	}
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, vaultExists := b.vaults[key]
+	v, vaultExists := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !vaultExists {
 		return nil, ErrVaultNotFound
 	}
@@ -527,7 +521,7 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 			return nil, ErrValidation
 		}
 
-		if _, archiveExists := b.archives[key][req.ArchiveID]; !archiveExists {
+		if _, archiveExists := v.Archives[req.ArchiveID]; !archiveExists {
 			return nil, ErrArchiveNotFound
 		}
 	}
@@ -583,17 +577,17 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 	}
 
 	if action == jobTypeArchiveRetrieval {
-		if a, archiveFound := b.archives[key][req.ArchiveID]; archiveFound {
+		if a, archiveFound := v.Archives[req.ArchiveID]; archiveFound {
 			j.ArchiveSizeInBytes = a.Size
 			j.SHA256TreeHash = a.SHA256TreeHash
 		}
 	}
 
 	if action == jobTypeInventoryRetrieval {
-		b.vaults[key].LastInventoryDate = formatDate(now)
+		v.LastInventoryDate = formatDate(now)
 	}
 
-	b.jobs[key][j.JobID] = j
+	b.jobs.Put(j)
 
 	return j, nil
 }
@@ -603,13 +597,13 @@ func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return nil, ErrVaultNotFound
 	}
 
-	j, ok := b.jobs[key][jobID]
+	j, ok := b.jobs.Get(jobKey(vArn, jobID))
 	if !ok {
 		return nil, ErrJobNotFound
 	}
@@ -642,17 +636,13 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job,
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return nil, ErrVaultNotFound
 	}
 
-	jobs := b.jobs[key]
-	if jobs == nil {
-		return []*Job{}, nil
-	}
-
+	jobs := b.jobsByVault.Get(vArn)
 	result := make([]*Job, 0, len(jobs))
 
 	for _, j := range jobs {
@@ -676,9 +666,7 @@ func (b *InMemoryBackend) SetVaultNotifications(accountID, region, vaultName, sn
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -703,9 +691,7 @@ func (b *InMemoryBackend) GetVaultNotifications(accountID, region, vaultName str
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return "", nil, ErrVaultNotFound
 	}
@@ -718,9 +704,7 @@ func (b *InMemoryBackend) DeleteVaultNotifications(accountID, region, vaultName 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -736,9 +720,7 @@ func (b *InMemoryBackend) SetVaultAccessPolicy(accountID, region, vaultName, pol
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -753,9 +735,7 @@ func (b *InMemoryBackend) GetVaultAccessPolicy(accountID, region, vaultName stri
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return "", ErrVaultNotFound
 	}
@@ -768,9 +748,7 @@ func (b *InMemoryBackend) DeleteVaultAccessPolicy(accountID, region, vaultName s
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -843,9 +821,7 @@ func (b *InMemoryBackend) AddTagsToVault(accountID, region, vaultName string, ta
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -888,9 +864,7 @@ func (b *InMemoryBackend) ListTagsForVault(accountID, region, vaultName string) 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return nil, ErrVaultNotFound
 	}
@@ -907,9 +881,7 @@ func (b *InMemoryBackend) RemoveTagsFromVault(accountID, region, vaultName strin
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ErrVaultNotFound
 	}
@@ -922,19 +894,18 @@ func (b *InMemoryBackend) RemoveTagsFromVault(accountID, region, vaultName strin
 }
 
 // Reset clears all backend state, resetting to an empty store.
+//
+// archiveData is deliberately NOT cleared here, matching the pre-conversion
+// behaviour: raw archive bytes have always leaked across Reset() calls (they
+// were never part of any of the maps this method used to reinitialise).
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.vaults = make(map[vaultKey]*Vault)
-	b.archives = make(map[vaultKey]map[string]*Archive)
-	b.jobs = make(map[vaultKey]map[string]*Job)
-	b.multipartUploads = make(map[vaultKey]map[string]*MultipartUpload)
+	b.registry.ResetAll()
 	b.multipartParts = make(map[uploadKey][]MultipartPart)
-	b.vaultLocks = make(map[vaultKey]*VaultLock)
 	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
 	b.dataRetrievalPolicies = make(map[string]string)
-	b.vaultsByAccountRegion = make(map[string]map[string]map[string]struct{})
 }
 
 // ----------------------------------------
@@ -954,9 +925,7 @@ func (b *InMemoryBackend) InitiateMultipartUpload(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return nil, ErrVaultNotFound
 	}
@@ -976,11 +945,7 @@ func (b *InMemoryBackend) InitiateMultipartUpload(
 		CreationDate:       formatDate(time.Now()),
 	}
 
-	if b.multipartUploads[key] == nil {
-		b.multipartUploads[key] = make(map[string]*MultipartUpload)
-	}
-
-	b.multipartUploads[key][uploadID] = up
+	b.multipartUploads.Put(up)
 
 	return up, nil
 }
@@ -992,13 +957,13 @@ func (b *InMemoryBackend) UploadMultipartPart(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return ErrVaultNotFound
 	}
 
-	if b.multipartUploads[key] == nil || b.multipartUploads[key][uploadID] == nil {
+	if !b.multipartUploads.Has(multipartUploadKey(vArn, uploadID)) {
 		return ErrUploadNotFound
 	}
 
@@ -1019,17 +984,20 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	v, ok := b.vaults.Get(vArn)
+	if !ok {
 		return nil, ErrVaultNotFound
 	}
 
-	if b.multipartUploads[key] == nil || b.multipartUploads[key][uploadID] == nil {
+	upKey := multipartUploadKey(vArn, uploadID)
+
+	up, ok := b.multipartUploads.Get(upKey)
+	if !ok {
 		return nil, ErrUploadNotFound
 	}
 
-	up := b.multipartUploads[key][uploadID]
 	archiveID := generateID(archiveIDLength)
 	a := &Archive{
 		ArchiveID:      archiveID,
@@ -1039,12 +1007,17 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		SHA256TreeHash: checksum,
 	}
 
-	b.archives[key][archiveID] = a
-	b.vaults[key].NumberOfArchives++
-	b.vaults[key].SizeInBytes += archiveSize
+	if v.Archives == nil {
+		v.Archives = make(map[string]*Archive)
+	}
+
+	v.Archives[archiveID] = a
+	v.NumberOfArchives++
+	v.SizeInBytes += archiveSize
+
+	b.multipartUploads.Delete(upKey)
 
 	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
-	delete(b.multipartUploads[key], uploadID)
 	delete(b.multipartParts, uKey)
 
 	return a, nil
@@ -1055,18 +1028,21 @@ func (b *InMemoryBackend) AbortMultipartUpload(accountID, region, vaultName, upl
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return ErrVaultNotFound
 	}
 
-	if b.multipartUploads[key] == nil || b.multipartUploads[key][uploadID] == nil {
+	upKey := multipartUploadKey(vArn, uploadID)
+
+	if !b.multipartUploads.Has(upKey) {
 		return ErrUploadNotFound
 	}
 
+	b.multipartUploads.Delete(upKey)
+
 	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}
-	delete(b.multipartUploads[key], uploadID)
 	delete(b.multipartParts, uKey)
 
 	return nil
@@ -1077,12 +1053,7 @@ func (b *InMemoryBackend) ListMultipartUploads(accountID, region, vaultName stri
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-	ups := b.multipartUploads[key]
-
-	if ups == nil {
-		return []*MultipartUpload{}
-	}
+	ups := b.multipartUploadsByVault.Get(vaultARN(accountID, region, vaultName))
 
 	result := make([]*MultipartUpload, 0, len(ups))
 	for _, up := range ups {
@@ -1104,13 +1075,13 @@ func (b *InMemoryBackend) ListParts(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return nil, ErrVaultNotFound
 	}
 
-	up, ok := b.multipartUploads[key][uploadID]
+	up, ok := b.multipartUploads.Get(multipartUploadKey(vArn, uploadID))
 	if !ok {
 		return nil, ErrUploadNotFound
 	}
@@ -1162,15 +1133,15 @@ func rangeStart(rangeHeader string) int64 {
 
 // expireLockIfStale removes an InProgress vault lock that has passed its 24-hour window.
 // Caller must hold b.mu.
-func (b *InMemoryBackend) expireLockIfStale(key vaultKey) {
-	lock, ok := b.vaultLocks[key]
+func (b *InMemoryBackend) expireLockIfStale(vArn string) {
+	lock, ok := b.vaultLocks.Get(vArn)
 	if !ok || lock.State != lockStateInProgress {
 		return
 	}
 
 	exp, err := time.Parse("2006-01-02T15:04:05.000Z", lock.ExpirationDate)
 	if err == nil && time.Now().UTC().After(exp) {
-		delete(b.vaultLocks, key)
+		b.vaultLocks.Delete(vArn)
 	}
 }
 
@@ -1180,15 +1151,15 @@ func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*Va
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return nil, ErrVaultNotFound
 	}
 
-	b.expireLockIfStale(key)
+	b.expireLockIfStale(vArn)
 
-	lock, ok := b.vaultLocks[key]
+	lock, ok := b.vaultLocks.Get(vArn)
 	if !ok {
 		return &VaultLock{State: lockStateUnlocked}, nil
 	}
@@ -1203,16 +1174,16 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return ErrVaultNotFound
 	}
 
 	// Expire stale InProgress lock before checking state.
-	b.expireLockIfStale(key)
+	b.expireLockIfStale(vArn)
 
-	if existing, ok := b.vaultLocks[key]; ok {
+	if existing, ok := b.vaultLocks.Get(vArn); ok {
 		if existing.State == lockStateInProgress {
 			return ErrLockConflict
 		}
@@ -1223,13 +1194,14 @@ func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, loc
 	}
 
 	now := time.Now().UTC()
-	b.vaultLocks[key] = &VaultLock{
+	b.vaultLocks.Put(&VaultLock{
+		VaultARN:       vArn,
 		Policy:         policy,
 		LockID:         lockID,
 		State:          lockStateInProgress,
 		CreationDate:   formatDate(now),
 		ExpirationDate: formatDate(now.Add(vaultLockExpirationHours * time.Hour)),
-	}
+	})
 
 	return nil
 }
@@ -1300,70 +1272,70 @@ func (b *InMemoryBackend) PurchaseProvisionedCapacity(accountID string) (*Provis
 }
 
 // AddVaultInternal adds a vault directly to the backend for testing.
+//
+// VaultARN, AccountID, and Region are always (re)computed from the accountID
+// and region parameters rather than trusted from v, mirroring how
+// CreateVault derives them: they are what key and index the vault in the
+// vaults *store.Table, so an untrusted/stale value here would silently
+// misfile (or collide with) the entry -- see the "Watch mutating-key" note
+// in store_setup.go's package doc.
 func (b *InMemoryBackend) AddVaultInternal(accountID, region string, v *Vault) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: v.VaultName}
 	cp := *v
+	cp.VaultARN = vaultARN(accountID, region, v.VaultName)
+	cp.AccountID = accountID
+	cp.Region = region
 
 	if cp.Tags == nil {
 		cp.Tags = make(map[string]string)
 	}
 
-	b.vaults[key] = &cp
-
-	if b.vaultsByAccountRegion[accountID] == nil {
-		b.vaultsByAccountRegion[accountID] = make(map[string]map[string]struct{})
-	}
-	if b.vaultsByAccountRegion[accountID][region] == nil {
-		b.vaultsByAccountRegion[accountID][region] = make(map[string]struct{})
-	}
-	b.vaultsByAccountRegion[accountID][region][v.VaultName] = struct{}{}
-
-	if b.archives[key] == nil {
-		b.archives[key] = make(map[string]*Archive)
+	if cp.Archives == nil {
+		cp.Archives = make(map[string]*Archive)
 	}
 
-	if b.jobs[key] == nil {
-		b.jobs[key] = make(map[string]*Job)
-	}
-
-	if b.multipartUploads[key] == nil {
-		b.multipartUploads[key] = make(map[string]*MultipartUpload)
-	}
+	b.vaults.Put(&cp)
 }
 
 // AddArchiveInternal adds an archive directly to the backend for testing.
 // It does not update the vault's NumberOfArchives or SizeInBytes counters;
 // callers that need accounting to be correct should update the vault via AddVaultInternal.
+//
+// It is a no-op if the vault does not already exist: Archives is stored
+// inline on Vault (see models.go), so there is no vault-less orphan slot to
+// write into -- and, just as before this conversion, every other archive-
+// reading path (ListArchives, DeleteArchive, InitiateJob, ...) already
+// requires the vault to exist first, so a pre-conversion "orphan" archive
+// entry was equally unreachable.
 func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string, a *Archive) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if b.archives[key] == nil {
-		b.archives[key] = make(map[string]*Archive)
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
+	if !ok {
+		return
 	}
 
-	b.archives[key][a.ArchiveID] = cloneArchive(a)
+	if v.Archives == nil {
+		v.Archives = make(map[string]*Archive)
+	}
+
+	v.Archives[a.ArchiveID] = cloneArchive(a)
 	b.archiveData[a.ArchiveID] = make([]byte, a.Size)
 }
 
 // AddMultipartUploadInternal adds an in-progress multipart upload directly to the backend for testing.
+// VaultARN is always recomputed from the accountID/region/vaultName parameters -- see the
+// AddVaultInternal doc comment for why.
 func (b *InMemoryBackend) AddMultipartUploadInternal(accountID, region, vaultName string, up *MultipartUpload) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if b.multipartUploads[key] == nil {
-		b.multipartUploads[key] = make(map[string]*MultipartUpload)
-	}
-
 	cp := *up
-	b.multipartUploads[key][up.MultipartUploadID] = &cp
+	cp.VaultARN = vaultARN(accountID, region, vaultName)
+	b.multipartUploads.Put(&cp)
 }
 
 // AbortVaultLock removes an in-progress vault lock.
@@ -1371,13 +1343,13 @@ func (b *InMemoryBackend) AbortVaultLock(accountID, region, vaultName string) er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return ErrVaultNotFound
 	}
 
-	delete(b.vaultLocks, key)
+	b.vaultLocks.Delete(vArn)
 
 	return nil
 }
@@ -1387,15 +1359,15 @@ func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if _, ok := b.vaults[key]; !ok {
+	if !b.vaults.Has(vArn) {
 		return ErrVaultNotFound
 	}
 
-	b.expireLockIfStale(key)
+	b.expireLockIfStale(vArn)
 
-	lock, ok := b.vaultLocks[key]
+	lock, ok := b.vaultLocks.Get(vArn)
 	if !ok || lock.State != lockStateInProgress {
 		return ErrValidation
 	}
@@ -1432,26 +1404,21 @@ func (b *InMemoryBackend) SetJobInventorySize(accountID, region, vaultName, jobI
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
+	vArn := vaultARN(accountID, region, vaultName)
 
-	if jobs, ok := b.jobs[key]; ok {
-		if j, jOK := jobs[jobID]; jOK {
-			j.InventorySizeInBytes = size
-		}
+	if j, ok := b.jobs.Get(jobKey(vArn, jobID)); ok {
+		j.InventorySizeInBytes = size
 	}
 }
 
-// AddJobInternal adds a job directly to the backend for testing.
+// AddJobInternal adds a job directly to the backend for testing. VaultARN is
+// always recomputed from the accountID/region/vaultName parameters -- see
+// the AddVaultInternal doc comment for why.
 func (b *InMemoryBackend) AddJobInternal(accountID, region, vaultName string, j *Job) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if b.jobs[key] == nil {
-		b.jobs[key] = make(map[string]*Job)
-	}
-
 	cp := *j
-	b.jobs[key][j.JobID] = &cp
+	cp.VaultARN = vaultARN(accountID, region, vaultName)
+	b.jobs.Put(&cp)
 }

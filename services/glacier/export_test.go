@@ -45,9 +45,7 @@ func GetVaultLastInventoryDate(b *InMemoryBackend, accountID, region, vaultName 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	v, ok := b.vaults[key]
+	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return ""
 	}
@@ -61,9 +59,7 @@ func GetVaultLockState(b *InMemoryBackend, accountID, region, vaultName string) 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-	lock, ok := b.vaultLocks[key]
-
+	lock, ok := b.vaultLocks.Get(vaultARN(accountID, region, vaultName))
 	if !ok {
 		return "Unlocked"
 	}
@@ -77,9 +73,7 @@ func SetVaultLockExpired(b *InMemoryBackend, accountID, region, vaultName string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := vaultKey{AccountID: accountID, Region: region, VaultName: vaultName}
-
-	if lock, ok := b.vaultLocks[key]; ok {
+	if lock, ok := b.vaultLocks.Get(vaultARN(accountID, region, vaultName)); ok {
 		lock.ExpirationDate = "2000-01-01T00:00:00.000Z"
 	}
 }
@@ -89,7 +83,7 @@ func VaultCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.vaults)
+	return b.vaults.Len()
 }
 
 // ArchiveCount returns the total number of archives across all vaults (for testing only).
@@ -99,8 +93,8 @@ func ArchiveCount(b *InMemoryBackend) int {
 
 	total := 0
 
-	for _, m := range b.archives {
-		total += len(m)
+	for _, v := range b.vaults.All() {
+		total += len(v.Archives)
 	}
 
 	return total
@@ -111,13 +105,7 @@ func MultipartUploadCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, m := range b.multipartUploads {
-		total += len(m)
-	}
-
-	return total
+	return b.multipartUploads.Len()
 }
 
 // ProvisionedCapacityCount returns the total number of provisioned capacity units (for testing only).
@@ -139,7 +127,7 @@ func VaultLockCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.vaultLocks)
+	return b.vaultLocks.Len()
 }
 
 // JobCount returns the total number of jobs across all vaults (for testing only).
@@ -147,13 +135,7 @@ func JobCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, m := range b.jobs {
-		total += len(m)
-	}
-
-	return total
+	return b.jobs.Len()
 }
 
 // VaultIndexCount returns the number of entries in the vaultsByAccountRegion index
@@ -162,5 +144,5 @@ func VaultIndexCount(b *InMemoryBackend, accountID, region string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.vaultsByAccountRegion[accountID][region])
+	return len(b.vaultsByAccountRegion.Get(acctRegionKey(accountID, region)))
 }

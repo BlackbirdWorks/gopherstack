@@ -3,56 +3,57 @@ package glacier
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-type vaultSnapshot struct {
-	Vault *Vault   `json:"vault"`
-	Key   vaultKey `json:"key"`
-}
+// glacierSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change to the registered tables (vaults, jobs,
+// multipartUploads, vaultLocks -- see store_setup.go) or to the raw-map
+// fields captured directly on backendSnapshot would make an older snapshot
+// unsafe to decode as the current shape. Restore compares this against the
+// persisted value and discards (rather than attempts to partially decode)
+// any mismatch -- see Restore below. This guard, and the value itself
+// (starting at 1), is new as of the Phase 3.3 pkgs/store conversion: no
+// prior glacier snapshot carried a version field, so any snapshot taken
+// before this conversion is -- correctly -- treated as incompatible on
+// restore.
+const glacierSnapshotVersion = 1
 
-type archiveSnapshot struct {
-	Archives map[string]*Archive `json:"archives"`
-	Key      vaultKey            `json:"key"`
-}
-
-type jobSnapshot struct {
-	Jobs map[string]*Job `json:"jobs"`
-	Key  vaultKey        `json:"key"`
-}
-
-type multipartUploadSnapshot struct {
-	Uploads map[string]*MultipartUpload `json:"uploads"`
-	Key     vaultKey                    `json:"key"`
-}
-
+// multipartPartSnapshot captures the (still-raw) multipartParts map -- see
+// store_setup.go's package doc for why it wasn't converted to a store.Table.
 type multipartPartSnapshot struct {
 	Key   uploadKey       `json:"key"`
 	Parts []MultipartPart `json:"parts"`
 }
 
+// provisionedCapacitySnapshot captures the (still-raw) provisionedCapacity map.
 type provisionedCapacitySnapshot struct {
 	AccountID string                 `json:"accountID"`
 	Caps      []*ProvisionedCapacity `json:"caps"`
 }
 
-type vaultLockSnapshot struct {
-	Lock *VaultLock `json:"lock"`
-	Key  vaultKey   `json:"key"`
-}
-
+// backendSnapshot is the top-level on-disk shape for the Glacier backend.
+//
+// Tables holds one JSON-encoded array per registered [store.Table] --
+// "vaults", "jobs", "multipartUploads", "vaultLocks" -- produced directly by
+// [store.Registry.SnapshotAll]. Every registered table's value type
+// (Vault/Job/MultipartUpload/VaultLock) is fully JSON round-trippable with
+// no non-serialisable live fields, so unlike services/sqs's DTO-registry
+// pilot no separate ephemeral DTO registry is needed here: b.registry IS the
+// table set persisted. MultipartParts, ProvisionedCapacity, and
+// DataRetrievalPolicies remain plain maps (see store_setup.go) and are
+// persisted directly alongside Tables, exactly as they were before this
+// conversion.
 type backendSnapshot struct {
+	Tables                map[string]json.RawMessage    `json:"tables"`
 	DataRetrievalPolicies map[string]string             `json:"dataRetrievalPolicies,omitempty"`
-	Vaults                []vaultSnapshot               `json:"vaults"`
-	Archives              []archiveSnapshot             `json:"archives"`
-	Jobs                  []jobSnapshot                 `json:"jobs"`
-	MultipartUploads      []multipartUploadSnapshot     `json:"multipartUploads"`
 	MultipartParts        []multipartPartSnapshot       `json:"multipartParts"`
-	VaultLocks            []vaultLockSnapshot           `json:"vaultLocks,omitempty"`
 	ProvisionedCapacity   []provisionedCapacitySnapshot `json:"provisionedCapacity"`
+	Version               int                           `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -60,28 +61,22 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "glacier: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Vaults:           make([]vaultSnapshot, 0, len(b.vaults)),
-		Archives:         make([]archiveSnapshot, 0, len(b.archives)),
-		Jobs:             make([]jobSnapshot, 0, len(b.jobs)),
-		MultipartUploads: make([]multipartUploadSnapshot, 0, len(b.multipartUploads)),
-		MultipartParts:   make([]multipartPartSnapshot, 0, len(b.multipartParts)),
-	}
-
-	for k, v := range b.vaults {
-		snap.Vaults = append(snap.Vaults, vaultSnapshot{Key: k, Vault: v})
-	}
-
-	for k, archives := range b.archives {
-		snap.Archives = append(snap.Archives, archiveSnapshot{Key: k, Archives: archives})
-	}
-
-	for k, jobs := range b.jobs {
-		snap.Jobs = append(snap.Jobs, jobSnapshot{Key: k, Jobs: jobs})
-	}
-
-	for k, uploads := range b.multipartUploads {
-		snap.MultipartUploads = append(snap.MultipartUploads, multipartUploadSnapshot{Key: k, Uploads: uploads})
+		Version:             glacierSnapshotVersion,
+		Tables:              tables,
+		MultipartParts:      make([]multipartPartSnapshot, 0, len(b.multipartParts)),
+		ProvisionedCapacity: make([]provisionedCapacitySnapshot, 0, len(b.provisionedCapacity)),
 	}
 
 	for k, parts := range b.multipartParts {
@@ -95,21 +90,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		})
 	}
 
-	for k, lock := range b.vaultLocks {
-		snap.VaultLocks = append(snap.VaultLocks, vaultLockSnapshot{Key: k, Lock: lock})
-	}
-
 	snap.DataRetrievalPolicies = make(map[string]string, len(b.dataRetrievalPolicies))
 	maps.Copy(snap.DataRetrievalPolicies, b.dataRetrievalPolicies)
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "glacier: failed to marshal snapshot", "error", err)
-
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "glacier", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -123,67 +107,43 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.vaults = make(map[vaultKey]*Vault)
-	b.archives = make(map[vaultKey]map[string]*Archive)
-	b.jobs = make(map[vaultKey]map[string]*Job)
-	b.multipartUploads = make(map[vaultKey]map[string]*MultipartUpload)
-	b.multipartParts = make(map[uploadKey][]MultipartPart)
-	b.vaultLocks = make(map[vaultKey]*VaultLock)
-	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
+	if snap.Version != glacierSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"glacier: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", glacierSnapshotVersion)
 
-	b.vaultsByAccountRegion = make(map[string]map[string]map[string]struct{})
+		b.registry.ResetAll()
+		b.multipartParts = make(map[uploadKey][]MultipartPart)
+		b.provisionedCapacity = make(map[string][]*ProvisionedCapacity)
+		b.dataRetrievalPolicies = make(map[string]string)
 
-	for _, vs := range snap.Vaults {
-		b.vaults[vs.Key] = vs.Vault
-
-		acct, region, name := vs.Key.AccountID, vs.Key.Region, vs.Key.VaultName
-		if b.vaultsByAccountRegion[acct] == nil {
-			b.vaultsByAccountRegion[acct] = make(map[string]map[string]struct{})
-		}
-		if b.vaultsByAccountRegion[acct][region] == nil {
-			b.vaultsByAccountRegion[acct][region] = make(map[string]struct{})
-		}
-		b.vaultsByAccountRegion[acct][region][name] = struct{}{}
+		return nil
 	}
 
-	for _, as := range snap.Archives {
-		if as.Archives == nil {
-			as.Archives = make(map[string]*Archive)
-		}
-
-		b.archives[as.Key] = as.Archives
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("glacier: restore snapshot tables: %w", err)
 	}
 
-	for _, js := range snap.Jobs {
-		if js.Jobs == nil {
-			js.Jobs = make(map[string]*Job)
-		}
-
-		b.jobs[js.Key] = js.Jobs
-	}
-
-	for _, us := range snap.MultipartUploads {
-		if us.Uploads == nil {
-			us.Uploads = make(map[string]*MultipartUpload)
-		}
-
-		b.multipartUploads[us.Key] = us.Uploads
-	}
-
+	b.multipartParts = make(map[uploadKey][]MultipartPart, len(snap.MultipartParts))
 	for _, ps := range snap.MultipartParts {
 		b.multipartParts[ps.Key] = ps.Parts
 	}
 
+	b.provisionedCapacity = make(map[string][]*ProvisionedCapacity, len(snap.ProvisionedCapacity))
 	for _, cs := range snap.ProvisionedCapacity {
 		b.provisionedCapacity[cs.AccountID] = cs.Caps
 	}
 
-	for _, ls := range snap.VaultLocks {
-		b.vaultLocks[ls.Key] = ls.Lock
-	}
-
 	if snap.DataRetrievalPolicies != nil {
 		b.dataRetrievalPolicies = snap.DataRetrievalPolicies
+	} else {
+		b.dataRetrievalPolicies = make(map[string]string)
 	}
 
 	return nil
