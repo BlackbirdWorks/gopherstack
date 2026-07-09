@@ -3,102 +3,47 @@ package sesv2
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// sesv2SnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to backendSnapshot (or a value type held by one of
+// the registered tables) would make an older snapshot unsafe to decode as the
+// current shape. Restore compares this against the persisted value and
+// discards (ResetAll, not a partial decode) any mismatch -- see Restore. The
+// pre-Phase-3.3 snapshot format had no version field at all, so an old
+// snapshot decodes with Version == 0, which is guaranteed to mismatch
+// sesv2SnapshotVersion and is discarded the same way any other incompatible
+// snapshot is.
+const sesv2SnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the SES v2 backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// b.registry.SnapshotAll() -- every store.Table-backed resource field is a
+// "clean" table (see store_setup.go's file doc comment), so no ephemeral
+// DTO registry is needed here, unlike services/ses. Version guards against
+// decoding a snapshot from an incompatible (older or newer) build of this
+// backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	DedicatedIPPools            map[string]*DedicatedIPPool                 `json:"dedicatedIPPools"`
-	DedicatedIPs                map[string]*DedicatedIP                     `json:"dedicatedIPs"`
-	ReputationEntities          map[string]*ReputationEntity                `json:"reputationEntities"`
-	EmailIdentityPolicies       map[string]map[string]string                `json:"emailIdentityPolicies"`
-	EventDestinations           map[string]map[string]*EventDestination     `json:"eventDestinations"`
-	ContactLists                map[string]*ContactList                     `json:"contactLists"`
-	Contacts                    map[string]map[string]*Contact              `json:"contacts"`
-	CustomVerificationTemplates map[string]*CustomVerificationEmailTemplate `json:"customVerificationTemplates"`
-	EmailTemplates              map[string]*EmailTemplate                   `json:"emailTemplates"`
-	DeliverabilityTestReports   map[string]*DeliverabilityTestReport        `json:"deliverabilityTestReports"`
-	ConfigurationSets           map[string]*ConfigurationSet                `json:"configurationSets"`
-	ExportJobs                  map[string]*ExportJob                       `json:"exportJobs"`
-	ImportJobs                  map[string]*ImportJob                       `json:"importJobs,omitempty"`
-	SuppressedDestinations      map[string]*SuppressedDestination           `json:"suppressedDestinations,omitempty"`
-	AccountDetails              *AccountDetails                             `json:"accountDetails,omitempty"`
-	Identities                  map[string]*EmailIdentity                   `json:"identities"`
-	ResourceTags                map[string]map[string]string                `json:"resourceTags"`
-	MultiRegionEndpoints        map[string]map[string]any                   `json:"multiRegionEndpoints"`
-	Tenants                     map[string]map[string]any                   `json:"tenants"`
-	TenantResources             map[string][]string                         `json:"tenantResources"`
-	ResourceTenants             map[string][]string                         `json:"resourceTenants"`
-	AccountID                   string                                      `json:"accountID"`
-	Region                      string                                      `json:"region"`
-	Emails                      []Email                                     `json:"emails"`
+	Tables                map[string]json.RawMessage   `json:"tables"`
+	EmailIdentityPolicies map[string]map[string]string `json:"emailIdentityPolicies"`
+	ResourceTags          map[string]map[string]string `json:"resourceTags"`
+	MultiRegionEndpoints  map[string]map[string]any    `json:"multiRegionEndpoints"`
+	Tenants               map[string]map[string]any    `json:"tenants"`
+	TenantResources       map[string][]string          `json:"tenantResources"`
+	ResourceTenants       map[string][]string          `json:"resourceTenants"`
+	AccountDetails        *AccountDetails              `json:"accountDetails,omitempty"`
+	AccountID             string                       `json:"accountID"`
+	Region                string                       `json:"region"`
+	Emails                []Email                      `json:"emails"`
+	Version               int                          `json:"version"`
 }
 
 func ensureNonNilMaps(s *backendSnapshot) {
-	ensureCoreMaps(s)
-	ensureExtendedMaps(s)
-}
-
-func ensureCoreMaps(s *backendSnapshot) {
-	if s.Identities == nil {
-		s.Identities = make(map[string]*EmailIdentity)
-	}
-
-	if s.ConfigurationSets == nil {
-		s.ConfigurationSets = make(map[string]*ConfigurationSet)
-	}
-
-	if s.EventDestinations == nil {
-		s.EventDestinations = make(map[string]map[string]*EventDestination)
-	}
-
-	if s.ContactLists == nil {
-		s.ContactLists = make(map[string]*ContactList)
-	}
-
-	if s.Contacts == nil {
-		s.Contacts = make(map[string]map[string]*Contact)
-	}
-
-	if s.CustomVerificationTemplates == nil {
-		s.CustomVerificationTemplates = make(map[string]*CustomVerificationEmailTemplate)
-	}
-
-	if s.DedicatedIPPools == nil {
-		s.DedicatedIPPools = make(map[string]*DedicatedIPPool)
-	}
-
-	if s.DedicatedIPs == nil {
-		s.DedicatedIPs = make(map[string]*DedicatedIP)
-	}
-
-	if s.ReputationEntities == nil {
-		s.ReputationEntities = make(map[string]*ReputationEntity)
-	}
-
-	if s.DeliverabilityTestReports == nil {
-		s.DeliverabilityTestReports = make(map[string]*DeliverabilityTestReport)
-	}
-}
-
-func ensureExtendedMaps(s *backendSnapshot) {
-	if s.EmailTemplates == nil {
-		s.EmailTemplates = make(map[string]*EmailTemplate)
-	}
-
-	if s.ExportJobs == nil {
-		s.ExportJobs = make(map[string]*ExportJob)
-	}
-
-	if s.ImportJobs == nil {
-		s.ImportJobs = make(map[string]*ImportJob)
-	}
-
-	if s.SuppressedDestinations == nil {
-		s.SuppressedDestinations = make(map[string]*SuppressedDestination)
-	}
-
 	if s.EmailIdentityPolicies == nil {
 		s.EmailIdentityPolicies = make(map[string]map[string]string)
 	}
@@ -130,31 +75,26 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "sesv2: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Identities:                  b.identities,
-		ConfigurationSets:           b.configurationSets,
-		EventDestinations:           b.eventDestinations,
-		ContactLists:                b.contactLists,
-		Contacts:                    b.contacts,
-		CustomVerificationTemplates: b.customVerificationTemplates,
-		DedicatedIPPools:            b.dedicatedIPPools,
-		DedicatedIPs:                b.dedicatedIPs,
-		ReputationEntities:          b.reputationEntities,
-		DeliverabilityTestReports:   b.deliverabilityTestReports,
-		EmailTemplates:              b.emailTemplates,
-		ExportJobs:                  b.exportJobs,
-		ImportJobs:                  b.importJobs,
-		SuppressedDestinations:      b.suppressedDestinations,
-		AccountDetails:              b.accountDetails,
-		EmailIdentityPolicies:       b.emailIdentityPolicies,
-		Emails:                      b.emails,
-		AccountID:                   b.accountID,
-		Region:                      b.region,
-		ResourceTags:                b.resourceTags,
-		MultiRegionEndpoints:        b.multiRegionEndpoints,
-		Tenants:                     b.tenants,
-		TenantResources:             b.tenantResources,
-		ResourceTenants:             b.resourceTenants,
+		Version:               sesv2SnapshotVersion,
+		Tables:                tables,
+		AccountDetails:        b.accountDetails,
+		EmailIdentityPolicies: b.emailIdentityPolicies,
+		Emails:                b.emails,
+		AccountID:             b.accountID,
+		Region:                b.region,
+		ResourceTags:          b.resourceTags,
+		MultiRegionEndpoints:  b.multiRegionEndpoints,
+		Tenants:               b.tenants,
+		TenantResources:       b.tenantResources,
+		ResourceTenants:       b.resourceTenants,
 	}
 
 	data, err := json.Marshal(snap)
@@ -176,27 +116,41 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	ensureNonNilMaps(&snap)
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.identities = snap.Identities
-	b.configurationSets = snap.ConfigurationSets
-	b.eventDestinations = snap.EventDestinations
-	b.contactLists = snap.ContactLists
-	b.contacts = snap.Contacts
-	b.customVerificationTemplates = snap.CustomVerificationTemplates
-	b.dedicatedIPPools = snap.DedicatedIPPools
-	b.dedicatedIPs = snap.DedicatedIPs
-	b.reputationEntities = snap.ReputationEntities
-	b.deliverabilityTestReports = snap.DeliverabilityTestReports
-	b.emailTemplates = snap.EmailTemplates
-	b.exportJobs = snap.ExportJobs
-	b.importJobs = snap.ImportJobs
-	b.suppressedDestinations = snap.SuppressedDestinations
-	b.accountDetails = snap.AccountDetails
+	if snap.Version != sesv2SnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"sesv2: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", sesv2SnapshotVersion)
+
+		b.registry.ResetAll()
+		b.emailIdentityPolicies = make(map[string]map[string]string)
+		b.resourceTags = make(map[string]map[string]string)
+		b.multiRegionEndpoints = make(map[string]map[string]any)
+		b.tenants = make(map[string]map[string]any)
+		b.tenantResources = make(map[string][]string)
+		b.resourceTenants = make(map[string][]string)
+		b.accountDetails = nil
+		b.emails = nil
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("sesv2: restore snapshot tables: %w", err)
+	}
+
+	ensureNonNilMaps(&snap)
+
 	b.emailIdentityPolicies = snap.EmailIdentityPolicies
+	b.accountDetails = snap.AccountDetails
 	b.emails = snap.Emails
 	b.accountID = snap.AccountID
 	b.region = snap.Region

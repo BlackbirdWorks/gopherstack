@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // Errors returned by the SES v2 backend.
@@ -223,20 +225,34 @@ type MetricDataResult struct {
 
 // InMemoryBackend is an in-memory store for SES v2 email identities, emails, and configuration sets.
 type InMemoryBackend struct {
-	identities                  map[string]*EmailIdentity
-	configurationSets           map[string]*ConfigurationSet
-	eventDestinations           map[string]map[string]*EventDestination
-	contactLists                map[string]*ContactList
-	contacts                    map[string]map[string]*Contact
-	customVerificationTemplates map[string]*CustomVerificationEmailTemplate
-	dedicatedIPPools            map[string]*DedicatedIPPool
-	dedicatedIPs                map[string]*DedicatedIP
-	reputationEntities          map[string]*ReputationEntity
-	deliverabilityTestReports   map[string]*DeliverabilityTestReport
-	emailTemplates              map[string]*EmailTemplate
-	exportJobs                  map[string]*ExportJob
-	importJobs                  map[string]*ImportJob
-	suppressedDestinations      map[string]*SuppressedDestination
+	// registry holds every store.Table-backed resource field so their
+	// Reset/Snapshot/Restore collapse to one call each -- see
+	// store_setup.go's file doc comment for why every table here is
+	// "clean" (registered directly, no DTO-registry needed).
+	registry          *store.Registry
+	identities        *store.Table[EmailIdentity]
+	configurationSets *store.Table[ConfigurationSet]
+	eventDestinations *store.Table[EventDestination]
+	// eventDestinationsByConfigSet is a secondary index over
+	// eventDestinations grouping by ConfigurationSetName, answering the "all
+	// event destinations of configuration set X" lookups the previous
+	// nested map[string]map[string]*EventDestination answered directly.
+	eventDestinationsByConfigSet *store.Index[EventDestination]
+	contactLists                 *store.Table[ContactList]
+	contacts                     *store.Table[Contact]
+	// contactsByList is a secondary index over contacts grouping by
+	// ContactListName, answering the "all contacts of list X" lookups the
+	// previous nested map[string]map[string]*Contact answered directly.
+	contactsByList              *store.Index[Contact]
+	customVerificationTemplates *store.Table[CustomVerificationEmailTemplate]
+	dedicatedIPPools            *store.Table[DedicatedIPPool]
+	dedicatedIPs                *store.Table[DedicatedIP]
+	reputationEntities          *store.Table[ReputationEntity]
+	deliverabilityTestReports   *store.Table[DeliverabilityTestReport]
+	emailTemplates              *store.Table[EmailTemplate]
+	exportJobs                  *store.Table[ExportJob]
+	importJobs                  *store.Table[ImportJob]
+	suppressedDestinations      *store.Table[SuppressedDestination]
 	emailIdentityPolicies       map[string]map[string]string
 	resourceTags                map[string]map[string]string
 	multiRegionEndpoints        map[string]map[string]any
@@ -252,31 +268,21 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		identities:                  make(map[string]*EmailIdentity),
-		configurationSets:           make(map[string]*ConfigurationSet),
-		eventDestinations:           make(map[string]map[string]*EventDestination),
-		contactLists:                make(map[string]*ContactList),
-		contacts:                    make(map[string]map[string]*Contact),
-		customVerificationTemplates: make(map[string]*CustomVerificationEmailTemplate),
-		dedicatedIPPools:            make(map[string]*DedicatedIPPool),
-		dedicatedIPs:                make(map[string]*DedicatedIP),
-		reputationEntities:          make(map[string]*ReputationEntity),
-		deliverabilityTestReports:   make(map[string]*DeliverabilityTestReport),
-		emailTemplates:              make(map[string]*EmailTemplate),
-		exportJobs:                  make(map[string]*ExportJob),
-		emailIdentityPolicies:       make(map[string]map[string]string),
-		importJobs:                  make(map[string]*ImportJob),
-		suppressedDestinations:      make(map[string]*SuppressedDestination),
-		resourceTags:                make(map[string]map[string]string),
-		multiRegionEndpoints:        make(map[string]map[string]any),
-		tenants:                     make(map[string]map[string]any),
-		tenantResources:             make(map[string][]string),
-		resourceTenants:             make(map[string][]string),
-		mu:                          lockmetrics.New("sesv2"),
-		region:                      config.DefaultRegion,
-		accountID:                   config.DefaultAccountID,
+	b := &InMemoryBackend{
+		registry:              store.NewRegistry(),
+		emailIdentityPolicies: make(map[string]map[string]string),
+		resourceTags:          make(map[string]map[string]string),
+		multiRegionEndpoints:  make(map[string]map[string]any),
+		tenants:               make(map[string]map[string]any),
+		tenantResources:       make(map[string][]string),
+		resourceTenants:       make(map[string][]string),
+		mu:                    lockmetrics.New("sesv2"),
+		region:                config.DefaultRegion,
+		accountID:             config.DefaultAccountID,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given config.
@@ -303,20 +309,7 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Reset() {
 	b.mu.Close()
 	b.mu = lockmetrics.New("sesv2")
-	b.identities = make(map[string]*EmailIdentity)
-	b.configurationSets = make(map[string]*ConfigurationSet)
-	b.eventDestinations = make(map[string]map[string]*EventDestination)
-	b.contactLists = make(map[string]*ContactList)
-	b.contacts = make(map[string]map[string]*Contact)
-	b.customVerificationTemplates = make(map[string]*CustomVerificationEmailTemplate)
-	b.dedicatedIPPools = make(map[string]*DedicatedIPPool)
-	b.dedicatedIPs = make(map[string]*DedicatedIP)
-	b.reputationEntities = make(map[string]*ReputationEntity)
-	b.deliverabilityTestReports = make(map[string]*DeliverabilityTestReport)
-	b.emailTemplates = make(map[string]*EmailTemplate)
-	b.exportJobs = make(map[string]*ExportJob)
-	b.importJobs = make(map[string]*ImportJob)
-	b.suppressedDestinations = make(map[string]*SuppressedDestination)
+	b.registry.ResetAll()
 	b.emailIdentityPolicies = make(map[string]map[string]string)
 	b.resourceTags = make(map[string]map[string]string)
 	b.multiRegionEndpoints = make(map[string]map[string]any)
@@ -348,7 +341,7 @@ func (b *InMemoryBackend) CreateEmailIdentity(
 	b.mu.Lock("CreateEmailIdentity")
 	defer b.mu.Unlock()
 
-	if _, exists := b.identities[identity]; exists {
+	if b.identities.Has(identity) {
 		return nil, fmt.Errorf("%w: identity %s already exists", ErrAlreadyExists, identity)
 	}
 
@@ -370,7 +363,7 @@ func (b *InMemoryBackend) CreateEmailIdentity(
 		ei.DkimTokens = generateDkimTokens()
 	}
 
-	b.identities[identity] = ei
+	b.identities.Put(ei)
 
 	cp := *ei
 
@@ -398,7 +391,7 @@ func (b *InMemoryBackend) GetEmailIdentity(identity string) (*EmailIdentity, err
 	b.mu.RLock("GetEmailIdentity")
 	defer b.mu.RUnlock()
 
-	ei, ok := b.identities[identity]
+	ei, ok := b.identities.Get(identity)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
@@ -415,8 +408,10 @@ func (b *InMemoryBackend) ListEmailIdentities(
 ) page.Page[*EmailIdentity] {
 	b.mu.RLock("ListEmailIdentities")
 
-	out := make([]*EmailIdentity, 0, len(b.identities))
-	for _, ei := range b.identities {
+	snap := b.identities.Snapshot()
+	out := make([]*EmailIdentity, 0, len(snap))
+
+	for _, ei := range snap {
 		cp := *ei
 		out = append(out, &cp)
 	}
@@ -435,11 +430,11 @@ func (b *InMemoryBackend) DeleteEmailIdentity(identity string) error {
 	b.mu.Lock("DeleteEmailIdentity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.identities[identity]; !ok {
+	if !b.identities.Has(identity) {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
-	delete(b.identities, identity)
+	b.identities.Delete(identity)
 
 	return nil
 }
@@ -453,7 +448,7 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) (*ConfigurationSet
 	b.mu.Lock("CreateConfigurationSet")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configurationSets[name]; exists {
+	if b.configurationSets.Has(name) {
 		return nil, fmt.Errorf("%w: configuration set %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -462,7 +457,7 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) (*ConfigurationSet
 		CreatedAt:      time.Now(),
 		SendingEnabled: true,
 	}
-	b.configurationSets[name] = cs
+	b.configurationSets.Put(cs)
 
 	cp := *cs
 
@@ -474,7 +469,7 @@ func (b *InMemoryBackend) GetConfigurationSet(name string) (*ConfigurationSet, e
 	b.mu.RLock("GetConfigurationSet")
 	defer b.mu.RUnlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -492,8 +487,10 @@ func (b *InMemoryBackend) ListConfigurationSets(
 	b.mu.RLock("ListConfigurationSets")
 	defer b.mu.RUnlock()
 
-	out := make([]*ConfigurationSet, 0, len(b.configurationSets))
-	for _, cs := range b.configurationSets {
+	snap := b.configurationSets.Snapshot()
+	out := make([]*ConfigurationSet, 0, len(snap))
+
+	for _, cs := range snap {
 		cp := *cs
 		out = append(out, &cp)
 	}
@@ -510,12 +507,19 @@ func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
 	b.mu.Lock("DeleteConfigurationSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configurationSets[name]; !ok {
+	if !b.configurationSets.Has(name) {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
 
-	delete(b.configurationSets, name)
-	delete(b.eventDestinations, name)
+	b.configurationSets.Delete(name)
+
+	// Cascade-delete every event destination of this configuration set.
+	// slices.Clone the index results first: deleting from b.eventDestinations
+	// mutates eventDestinationsByConfigSet's backing slice in place, which
+	// would otherwise corrupt this very loop.
+	for _, d := range slices.Clone(b.eventDestinationsByConfigSet.Get(name)) {
+		b.eventDestinations.Delete(eventDestinationKey(name, d.Name))
+	}
 
 	return nil
 }
@@ -570,12 +574,12 @@ func (b *InMemoryBackend) SendEmail(
 // It checks exact email match first, then the domain portion as a fallback.
 // Must be called with b.mu held for writing or reading.
 func (b *InMemoryBackend) checkFromIdentityLocked(from string) error {
-	if id, ok := b.identities[from]; ok && id.VerifiedForSending {
+	if id, ok := b.identities.Get(from); ok && id.VerifiedForSending {
 		return nil
 	}
 	if at := strings.LastIndex(from, "@"); at >= 0 {
 		domain := from[at+1:]
-		if id, ok := b.identities[domain]; ok && id.VerifiedForSending {
+		if id, ok := b.identities.Get(domain); ok && id.VerifiedForSending {
 			return nil
 		}
 	}
@@ -619,7 +623,7 @@ func (b *InMemoryBackend) CancelExportJob(jobID string) error {
 	b.mu.Lock("CancelExportJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.exportJobs[jobID]
+	job, ok := b.exportJobs.Get(jobID)
 	if !ok {
 		return fmt.Errorf("%w: export job %s not found", ErrNotFound, jobID)
 	}
@@ -638,15 +642,12 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(
 	b.mu.Lock("CreateConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configurationSets[configSetName]; !ok {
+	if !b.configurationSets.Has(configSetName) {
 		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
 	}
 
-	if _, ok := b.eventDestinations[configSetName]; !ok {
-		b.eventDestinations[configSetName] = make(map[string]*EventDestination)
-	}
-
-	if _, exists := b.eventDestinations[configSetName][destName]; exists {
+	key := eventDestinationKey(configSetName, destName)
+	if b.eventDestinations.Has(key) {
 		return nil, fmt.Errorf(
 			"%w: event destination %s already exists in config set %s",
 			ErrAlreadyExists, destName, configSetName,
@@ -663,7 +664,7 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(
 		MatchingEventTypes:   types,
 		CreatedAt:            time.Now(),
 	}
-	b.eventDestinations[configSetName][destName] = dest
+	b.eventDestinations.Put(dest)
 
 	cp := *dest
 
@@ -678,15 +679,12 @@ func (b *InMemoryBackend) CreateContact(
 	b.mu.Lock("CreateContact")
 	defer b.mu.Unlock()
 
-	if _, ok := b.contactLists[contactListName]; !ok {
+	if !b.contactLists.Has(contactListName) {
 		return nil, fmt.Errorf("%w: contact list %s not found", ErrNotFound, contactListName)
 	}
 
-	if _, ok := b.contacts[contactListName]; !ok {
-		b.contacts[contactListName] = make(map[string]*Contact)
-	}
-
-	if _, exists := b.contacts[contactListName][emailAddress]; exists {
+	key := contactKey(contactListName, emailAddress)
+	if b.contacts.Has(key) {
 		return nil, fmt.Errorf(
 			"%w: contact %s already exists in list %s",
 			ErrAlreadyExists, emailAddress, contactListName,
@@ -704,7 +702,7 @@ func (b *InMemoryBackend) CreateContact(
 		CreatedAt:        now,
 		LastUpdatedAt:    now,
 	}
-	b.contacts[contactListName][emailAddress] = c
+	b.contacts.Put(c)
 
 	cp := *c
 
@@ -720,7 +718,7 @@ func (b *InMemoryBackend) CreateContactList(name, description string) (*ContactL
 	b.mu.Lock("CreateContactList")
 	defer b.mu.Unlock()
 
-	if _, exists := b.contactLists[name]; exists {
+	if b.contactLists.Has(name) {
 		return nil, fmt.Errorf("%w: contact list %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -732,7 +730,7 @@ func (b *InMemoryBackend) CreateContactList(name, description string) (*ContactL
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
-	b.contactLists[name] = cl
+	b.contactLists.Put(cl)
 
 	cp := *cl
 
@@ -746,7 +744,7 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(
 	b.mu.Lock("CreateCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.customVerificationTemplates[in.TemplateName]; exists {
+	if b.customVerificationTemplates.Has(in.TemplateName) {
 		return nil, fmt.Errorf(
 			"%w: custom verification template %s already exists",
 			ErrAlreadyExists, in.TemplateName,
@@ -754,7 +752,7 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(
 	}
 
 	cp := *in
-	b.customVerificationTemplates[in.TemplateName] = &cp
+	b.customVerificationTemplates.Put(&cp)
 
 	out := *in
 
@@ -783,7 +781,7 @@ func (b *InMemoryBackend) CreateDedicatedIPPool(
 	b.mu.Lock("CreateDedicatedIPPool")
 	defer b.mu.Unlock()
 
-	if _, exists := b.dedicatedIPPools[poolName]; exists {
+	if b.dedicatedIPPools.Has(poolName) {
 		return nil, fmt.Errorf(
 			"%w: dedicated IP pool %s already exists",
 			ErrAlreadyExists,
@@ -795,7 +793,7 @@ func (b *InMemoryBackend) CreateDedicatedIPPool(
 		PoolName:    poolName,
 		ScalingMode: scalingMode,
 	}
-	b.dedicatedIPPools[poolName] = pool
+	b.dedicatedIPPools.Put(pool)
 
 	cp := *pool
 
@@ -817,7 +815,7 @@ func (b *InMemoryBackend) CreateDeliverabilityTestReport(
 	}
 
 	b.mu.Lock("CreateDeliverabilityTestReport")
-	b.deliverabilityTestReports[reportID] = report
+	b.deliverabilityTestReports.Put(report)
 	b.mu.Unlock()
 
 	cp := *report
@@ -830,7 +828,7 @@ func (b *InMemoryBackend) CreateEmailIdentityPolicy(identity, policyName, policy
 	b.mu.Lock("CreateEmailIdentityPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.identities[identity]; !ok {
+	if !b.identities.Has(identity) {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
@@ -864,7 +862,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 	b.mu.Lock("CreateEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.emailTemplates[templateName]; exists {
+	if b.emailTemplates.Has(templateName) {
 		return nil, fmt.Errorf(
 			"%w: email template %s already exists",
 			ErrAlreadyExists,
@@ -883,7 +881,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 		TemplateContent: contentCopy,
 		CreatedAt:       time.Now(),
 	}
-	b.emailTemplates[templateName] = t
+	b.emailTemplates.Put(t)
 
 	cp := *t
 
@@ -902,7 +900,7 @@ func (b *InMemoryBackend) AddContactListInternal(name string) *ContactList {
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
-	b.contactLists[name] = cl
+	b.contactLists.Put(cl)
 
 	return cl
 }
@@ -917,7 +915,7 @@ func (b *InMemoryBackend) AddExportJobInternal(jobID, status string) *ExportJob 
 		JobStatus: status,
 		CreatedAt: time.Now(),
 	}
-	b.exportJobs[jobID] = job
+	b.exportJobs.Put(job)
 
 	return job
 }

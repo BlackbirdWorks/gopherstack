@@ -5,7 +5,7 @@ func IdentityCount(b *InMemoryBackend) int {
 	b.mu.RLock("IdentityCount")
 	defer b.mu.RUnlock()
 
-	return len(b.identities)
+	return b.identities.Len()
 }
 
 // ConfigSetCount returns the number of stored configuration sets.
@@ -13,7 +13,7 @@ func ConfigSetCount(b *InMemoryBackend) int {
 	b.mu.RLock("ConfigSetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.configurationSets)
+	return b.configurationSets.Len()
 }
 
 // ContactListCount returns the number of stored contact lists.
@@ -21,7 +21,7 @@ func ContactListCount(b *InMemoryBackend) int {
 	b.mu.RLock("ContactListCount")
 	defer b.mu.RUnlock()
 
-	return len(b.contactLists)
+	return b.contactLists.Len()
 }
 
 // ContactCount returns the number of contacts in a given contact list.
@@ -29,7 +29,7 @@ func ContactCount(b *InMemoryBackend, listName string) int {
 	b.mu.RLock("ContactCount")
 	defer b.mu.RUnlock()
 
-	return len(b.contacts[listName])
+	return len(b.contactsByList.Get(listName))
 }
 
 // EmailTemplateCount returns the number of stored email templates.
@@ -37,7 +37,7 @@ func EmailTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("EmailTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.emailTemplates)
+	return b.emailTemplates.Len()
 }
 
 // DedicatedIPPoolCount returns the number of stored dedicated IP pools.
@@ -45,7 +45,7 @@ func DedicatedIPPoolCount(b *InMemoryBackend) int {
 	b.mu.RLock("DedicatedIPPoolCount")
 	defer b.mu.RUnlock()
 
-	return len(b.dedicatedIPPools)
+	return b.dedicatedIPPools.Len()
 }
 
 // ExportJobCount returns the number of stored export jobs.
@@ -53,7 +53,7 @@ func ExportJobCount(b *InMemoryBackend) int {
 	b.mu.RLock("ExportJobCount")
 	defer b.mu.RUnlock()
 
-	return len(b.exportJobs)
+	return b.exportJobs.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
