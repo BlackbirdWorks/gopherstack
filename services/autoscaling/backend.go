@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // completedProgress is the progress value for a successfully completed scaling activity.
@@ -277,16 +278,22 @@ type CreateLaunchConfigurationInput struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	groups               map[string]*AutoScalingGroup
-	launchConfigurations map[string]*LaunchConfiguration
-	activities           map[string][]ScalingActivity
-	scheduledActions     map[string]map[string]*ScheduledAction
-	instanceRefreshes    map[string][]*InstanceRefresh
-	lifecycleHooks       map[string]map[string]*LifecycleHook
-	scalingPolicies      map[string]map[string]*ScalingPolicy
-	notificationConfigs  map[string][]*NotificationConfiguration
-	warmPools            map[string]*WarmPool
-	pendingHookTokens    map[string]*pendingHookAction
+	groups                  *store.Table[AutoScalingGroup]
+	launchConfigurations    *store.Table[LaunchConfiguration]
+	activities              map[string][]ScalingActivity
+	scheduledActions        *store.Table[ScheduledAction]
+	scheduledActionsByGroup *store.Index[ScheduledAction]
+	instanceRefreshes       map[string][]*InstanceRefresh
+	lifecycleHooks          *store.Table[LifecycleHook]
+	lifecycleHooksByGroup   *store.Index[LifecycleHook]
+	scalingPolicies         *store.Table[ScalingPolicy]
+	scalingPoliciesByGroup  *store.Index[ScalingPolicy]
+	notificationConfigs     map[string][]*NotificationConfiguration
+	warmPools               *store.Table[WarmPool]
+	// pendingHookTokens is a *store.Table for Get/Put/Delete/Range convenience
+	// but is deliberately NOT registered on registry — see registerAllTables.
+	pendingHookTokens *store.Table[pendingHookAction]
+	registry          *store.Registry
 	// instanceIndex maps instanceID → groupName for O(1) lookup.
 	instanceIndex map[string]string
 	mu            *lockmetrics.RWMutex
@@ -294,20 +301,17 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		groups:               make(map[string]*AutoScalingGroup),
-		launchConfigurations: make(map[string]*LaunchConfiguration),
-		activities:           make(map[string][]ScalingActivity),
-		scheduledActions:     make(map[string]map[string]*ScheduledAction),
-		instanceRefreshes:    make(map[string][]*InstanceRefresh),
-		lifecycleHooks:       make(map[string]map[string]*LifecycleHook),
-		scalingPolicies:      make(map[string]map[string]*ScalingPolicy),
-		notificationConfigs:  make(map[string][]*NotificationConfiguration),
-		warmPools:            make(map[string]*WarmPool),
-		pendingHookTokens:    make(map[string]*pendingHookAction),
-		instanceIndex:        make(map[string]string),
-		mu:                   lockmetrics.New("autoscaling"),
+	b := &InMemoryBackend{
+		activities:          make(map[string][]ScalingActivity),
+		instanceRefreshes:   make(map[string][]*InstanceRefresh),
+		notificationConfigs: make(map[string][]*NotificationConfiguration),
+		instanceIndex:       make(map[string]string),
+		registry:            store.NewRegistry(),
+		mu:                  lockmetrics.New("autoscaling"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Close stops any in-flight lifecycle-hook expiry timers so their goroutines do
@@ -316,16 +320,18 @@ func (b *InMemoryBackend) Close() {
 	b.mu.Lock("Close")
 	defer b.mu.Unlock()
 
-	for token, action := range b.pendingHookTokens {
+	b.pendingHookTokens.Range(func(action *pendingHookAction) bool {
 		action.timer.Stop()
-		delete(b.pendingHookTokens, token)
-	}
+
+		return true
+	})
+	b.pendingHookTokens.Reset()
 }
 
 // lcInstanceType returns the InstanceType from the named launch configuration, or
 // "t2.micro" if the launch configuration is not found (preserving previous default).
-func lcInstanceType(lcs map[string]*LaunchConfiguration, lcName string) string {
-	if lc, ok := lcs[lcName]; ok && lc.InstanceType != "" {
+func lcInstanceType(lcs *store.Table[LaunchConfiguration], lcName string) string {
+	if lc, ok := lcs.Get(lcName); ok && lc.InstanceType != "" {
 		return lc.InstanceType
 	}
 
@@ -404,7 +410,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		return nil, fmt.Errorf("%w: AutoScalingGroupName is required", ErrInvalidParameter)
 	}
 
-	if _, exists := b.groups[input.AutoScalingGroupName]; exists {
+	if b.groups.Has(input.AutoScalingGroupName) {
 		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, input.AutoScalingGroupName)
 	}
 
@@ -496,16 +502,13 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		}
 	}
 
-	b.groups[input.AutoScalingGroupName] = group
+	b.groups.Put(group)
 
 	// Register any initial lifecycle hooks BEFORE gating instances so a launch hook
 	// specified at creation time applies to the group's own initial instances too.
-	if len(normalizedHooks) > 0 {
-		b.lifecycleHooks[input.AutoScalingGroupName] = make(map[string]*LifecycleHook, len(normalizedHooks))
-		for _, hook := range normalizedHooks {
-			cp := hook
-			b.lifecycleHooks[input.AutoScalingGroupName][cp.LifecycleHookName] = &cp
-		}
+	for _, hook := range normalizedHooks {
+		cp := hook
+		b.lifecycleHooks.Put(&cp)
 	}
 
 	b.gateNewLaunchInstances(group, 0)
@@ -538,32 +541,9 @@ func (b *InMemoryBackend) DescribeAutoScalingGroups(names []string) ([]AutoScali
 	b.mu.RLock("DescribeAutoScalingGroups")
 	defer b.mu.RUnlock()
 
-	if len(names) > 0 {
-		result := make([]AutoScalingGroup, 0, len(names))
-
-		for _, name := range names {
-			g, ok := b.groups[name]
-			if !ok {
-				return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, name)
-			}
-
-			cp := *g
-			result = append(result, cp)
-		}
-
-		return result, nil
-	}
-
-	result := make([]AutoScalingGroup, 0, len(b.groups))
-	for _, g := range b.groups {
-		result = append(result, *g)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].AutoScalingGroupName < result[j].AutoScalingGroupName
+	return describeByNames(b.groups, names, ErrGroupNotFound, func(a, c *AutoScalingGroup) bool {
+		return a.AutoScalingGroupName < c.AutoScalingGroupName
 	})
-
-	return result, nil
 }
 
 // isValidHealthCheckType checks if the type is AWS-supported.
@@ -638,7 +618,7 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	b.mu.Lock("UpdateAutoScalingGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[input.AutoScalingGroupName]
+	g, ok := b.groups.Get(input.AutoScalingGroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
@@ -755,7 +735,7 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 	b.mu.Lock("DeleteAutoScalingGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[name]
+	g, ok := b.groups.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, name)
 	}
@@ -771,14 +751,14 @@ func (b *InMemoryBackend) DeleteAutoScalingGroup(name string, forceDelete bool) 
 		delete(b.instanceIndex, inst.InstanceID)
 	}
 
-	delete(b.groups, name)
+	b.groups.Delete(name)
 	delete(b.activities, name)
-	delete(b.scheduledActions, name)
+	b.deleteScheduledActionsForGroupLocked(name)
 	delete(b.instanceRefreshes, name)
-	delete(b.lifecycleHooks, name)
-	delete(b.scalingPolicies, name)
+	b.deleteLifecycleHooksForGroupLocked(name)
+	b.deleteScalingPoliciesForGroupLocked(name)
 	delete(b.notificationConfigs, name)
-	delete(b.warmPools, name)
+	b.warmPools.Delete(name)
 
 	return nil
 }
@@ -790,7 +770,7 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 	b.mu.Lock("CreateLaunchConfiguration")
 	defer b.mu.Unlock()
 
-	if _, exists := b.launchConfigurations[input.LaunchConfigurationName]; exists {
+	if b.launchConfigurations.Has(input.LaunchConfigurationName) {
 		return nil, fmt.Errorf(
 			"%w: launch configuration %q already exists",
 			ErrLaunchConfigurationAlreadyExists,
@@ -827,7 +807,7 @@ func (b *InMemoryBackend) CreateLaunchConfiguration(
 		CreatedTime:                  time.Now(),
 	}
 
-	b.launchConfigurations[input.LaunchConfigurationName] = lc
+	b.launchConfigurations.Put(lc)
 
 	cp := *lc
 
@@ -839,32 +819,10 @@ func (b *InMemoryBackend) DescribeLaunchConfigurations(names []string) ([]Launch
 	b.mu.RLock("DescribeLaunchConfigurations")
 	defer b.mu.RUnlock()
 
-	if len(names) > 0 {
-		result := make([]LaunchConfiguration, 0, len(names))
-
-		for _, name := range names {
-			lc, ok := b.launchConfigurations[name]
-			if !ok {
-				return nil, fmt.Errorf("%w: %q", ErrLaunchConfigurationNotFound, name)
-			}
-
-			cp := *lc
-			result = append(result, cp)
-		}
-
-		return result, nil
-	}
-
-	result := make([]LaunchConfiguration, 0, len(b.launchConfigurations))
-	for _, lc := range b.launchConfigurations {
-		result = append(result, *lc)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].LaunchConfigurationName < result[j].LaunchConfigurationName
-	})
-
-	return result, nil
+	return describeByNames(b.launchConfigurations, names, ErrLaunchConfigurationNotFound,
+		func(a, c *LaunchConfiguration) bool {
+			return a.LaunchConfigurationName < c.LaunchConfigurationName
+		})
 }
 
 // DeleteLaunchConfiguration removes a launch configuration by name.
@@ -872,11 +830,11 @@ func (b *InMemoryBackend) DeleteLaunchConfiguration(name string) error {
 	b.mu.Lock("DeleteLaunchConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.launchConfigurations[name]; !ok {
+	if !b.launchConfigurations.Has(name) {
 		return fmt.Errorf("%w: %q", ErrLaunchConfigurationNotFound, name)
 	}
 
-	delete(b.launchConfigurations, name)
+	b.launchConfigurations.Delete(name)
 
 	return nil
 }
@@ -887,7 +845,7 @@ func (b *InMemoryBackend) DescribeScalingActivities(groupName string) ([]Scaling
 	defer b.mu.RUnlock()
 
 	if groupName != "" {
-		if _, ok := b.groups[groupName]; !ok {
+		if !b.groups.Has(groupName) {
 			return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 		}
 
@@ -920,30 +878,31 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	defer b.mu.Unlock()
 
 	// 1. Purge groups
-	for name, g := range b.groups {
+	for _, g := range b.groups.All() {
 		if ctx.Err() != nil {
 			return
 		}
 		if g.CreatedTime.Before(cutoff) {
+			name := g.AutoScalingGroupName
 			b.cleanupHookTimers(name, "")
-			delete(b.groups, name)
+			b.groups.Delete(name)
 			delete(b.activities, name)
-			delete(b.scheduledActions, name)
+			b.deleteScheduledActionsForGroupLocked(name)
 			delete(b.instanceRefreshes, name)
-			delete(b.lifecycleHooks, name)
-			delete(b.scalingPolicies, name)
+			b.deleteLifecycleHooksForGroupLocked(name)
+			b.deleteScalingPoliciesForGroupLocked(name)
 			delete(b.notificationConfigs, name)
-			delete(b.warmPools, name)
+			b.warmPools.Delete(name)
 		}
 	}
 
 	// 2. Purge launch configurations
-	for name, lc := range b.launchConfigurations {
+	for _, lc := range b.launchConfigurations.All() {
 		if ctx.Err() != nil {
 			return
 		}
 		if lc.CreatedTime.Before(cutoff) {
-			delete(b.launchConfigurations, name)
+			b.launchConfigurations.Delete(lc.LaunchConfigurationName)
 		}
 	}
 }
@@ -953,7 +912,7 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 	b.mu.Lock("AttachInstances")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -991,7 +950,7 @@ func (b *InMemoryBackend) AttachLoadBalancerTargetGroups(groupName string, targe
 	b.mu.Lock("AttachLoadBalancerTargetGroups")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -1015,7 +974,7 @@ func (b *InMemoryBackend) AttachLoadBalancers(groupName string, loadBalancerName
 	b.mu.Lock("AttachLoadBalancers")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -1039,7 +998,7 @@ func (b *InMemoryBackend) AttachTrafficSources(groupName string, trafficSources 
 	b.mu.Lock("AttachTrafficSources")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -1070,16 +1029,15 @@ func (b *InMemoryBackend) BatchDeleteScheduledAction(
 	b.mu.Lock("BatchDeleteScheduledAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
-
-	actions := b.scheduledActions[groupName]
 
 	failed := make([]FailedScheduledAction, 0, len(scheduledActionNames))
 
 	for _, name := range scheduledActionNames {
-		if actions == nil || actions[name] == nil {
+		key := scopedKey(groupName, name)
+		if !b.scheduledActions.Has(key) {
 			failed = append(failed, FailedScheduledAction{
 				ScheduledActionName: name,
 				ErrorCode:           errValidationError,
@@ -1089,7 +1047,7 @@ func (b *InMemoryBackend) BatchDeleteScheduledAction(
 			continue
 		}
 
-		delete(actions, name)
+		b.scheduledActions.Delete(key)
 	}
 
 	return failed, nil
@@ -1103,12 +1061,8 @@ func (b *InMemoryBackend) BatchPutScheduledUpdateGroupAction(
 	b.mu.Lock("BatchPutScheduledUpdateGroupAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
-	}
-
-	if b.scheduledActions[groupName] == nil {
-		b.scheduledActions[groupName] = make(map[string]*ScheduledAction)
 	}
 
 	failed := make([]FailedScheduledAction, 0, len(actions))
@@ -1124,7 +1078,7 @@ func (b *InMemoryBackend) BatchPutScheduledUpdateGroupAction(
 			continue
 		}
 
-		b.scheduledActions[groupName][a.ScheduledActionName] = &ScheduledAction{
+		b.scheduledActions.Put(&ScheduledAction{
 			ScheduledActionName:  a.ScheduledActionName,
 			AutoScalingGroupName: groupName,
 			Recurrence:           a.Recurrence,
@@ -1134,7 +1088,7 @@ func (b *InMemoryBackend) BatchPutScheduledUpdateGroupAction(
 			DesiredCapacity:      a.DesiredCapacity,
 			MinSize:              a.MinSize,
 			MaxSize:              a.MaxSize,
-		}
+		})
 	}
 
 	return failed, nil
@@ -1146,7 +1100,7 @@ func (b *InMemoryBackend) CancelInstanceRefresh(groupName string) (string, error
 	b.mu.Lock("CancelInstanceRefresh")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return "", fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
@@ -1167,7 +1121,7 @@ func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionI
 	b.mu.Lock("CompleteLifecycleAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(input.AutoScalingGroupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
@@ -1191,7 +1145,7 @@ func (b *InMemoryBackend) CompleteLifecycleAction(input CompleteLifecycleActionI
 	)
 	if action != nil {
 		action.timer.Stop()
-		delete(b.pendingHookTokens, action.Token)
+		b.pendingHookTokens.Delete(action.Token)
 		b.applyLifecycleResult(action, upper)
 	}
 
@@ -1209,7 +1163,7 @@ func (b *InMemoryBackend) CreateOrUpdateTags(tags []ResourceTag) error {
 			continue
 		}
 
-		g, ok := b.groups[tag.ResourceID]
+		g, ok := b.groups.Get(tag.ResourceID)
 		if !ok {
 			return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, tag.ResourceID)
 		}
@@ -1238,21 +1192,17 @@ func (b *InMemoryBackend) DeleteLifecycleHook(groupName, hookName string) error 
 	b.mu.Lock("DeleteLifecycleHook")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	hooks := b.lifecycleHooks[groupName]
-	if hooks == nil {
-		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, hookName)
-	}
-
-	if _, exists := hooks[hookName]; !exists {
+	key := scopedKey(groupName, hookName)
+	if !b.lifecycleHooks.Has(key) {
 		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, hookName)
 	}
 
 	b.cleanupHookTimers(groupName, hookName)
-	delete(hooks, hookName)
+	b.lifecycleHooks.Delete(key)
 
 	return nil
 }
@@ -1263,16 +1213,12 @@ func (b *InMemoryBackend) AddLifecycleHook(hook LifecycleHook) error {
 	b.mu.Lock("AddLifecycleHook")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[hook.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(hook.AutoScalingGroupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
 	}
 
-	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
-		b.lifecycleHooks[hook.AutoScalingGroupName] = make(map[string]*LifecycleHook)
-	}
-
 	cp := hook
-	b.lifecycleHooks[hook.AutoScalingGroupName][hook.LifecycleHookName] = &cp
+	b.lifecycleHooks.Put(&cp)
 
 	return nil
 }
@@ -1282,7 +1228,7 @@ func (b *InMemoryBackend) AddInstanceRefresh(refresh InstanceRefresh) error {
 	b.mu.Lock("AddInstanceRefresh")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[refresh.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(refresh.AutoScalingGroupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, refresh.AutoScalingGroupName)
 	}
 
@@ -1382,7 +1328,7 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 	b.mu.Lock("SetDesiredCapacity")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -1417,7 +1363,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 		return nil, fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
 	}
 
-	targetGroup := b.groups[groupName]
+	targetGroup, _ := b.groups.Get(groupName)
 	if targetGroup == nil {
 		return nil, fmt.Errorf("%w: instance %q not found in any auto scaling group", ErrInstanceNotFound, instanceID)
 	}
@@ -1427,7 +1373,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	// HeartbeatTimeout elapses; the actual removal/replacement is deferred to
 	// finishTermination. This mirrors real AWS behavior instead of terminating
 	// instantly regardless of configured hooks.
-	if hook := findHookForTransition(b.lifecycleHooks[groupName], transitionTerminating); hook != nil {
+	if hook := findHookForTransition(b.lifecycleHooksByGroup.Get(groupName), transitionTerminating); hook != nil {
 		for i := range targetGroup.Instances {
 			if targetGroup.Instances[i].InstanceID == instanceID {
 				b.armLifecycleWait(targetGroup, hook, &targetGroup.Instances[i], transitionTerminating, shouldDecrement)
@@ -1518,7 +1464,7 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 		return fmt.Errorf("%w: LifecycleHookName is required", ErrInvalidParameter)
 	}
 
-	if _, ok := b.groups[hook.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(hook.AutoScalingGroupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, hook.AutoScalingGroupName)
 	}
 
@@ -1526,12 +1472,8 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 		return err
 	}
 
-	if b.lifecycleHooks[hook.AutoScalingGroupName] == nil {
-		b.lifecycleHooks[hook.AutoScalingGroupName] = make(map[string]*LifecycleHook)
-	}
-
 	cp := hook
-	b.lifecycleHooks[hook.AutoScalingGroupName][hook.LifecycleHookName] = &cp
+	b.lifecycleHooks.Put(&cp)
 
 	return nil
 }
@@ -1591,18 +1533,18 @@ func (b *InMemoryBackend) DescribeLifecycleHooks(groupName string, hookNames []s
 	b.mu.RLock("DescribeLifecycleHooks")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	hooks := b.lifecycleHooks[groupName]
+	hooks := b.lifecycleHooksByGroup.Get(groupName)
 
 	if len(hookNames) > 0 {
 		result := make([]LifecycleHook, 0, len(hookNames))
 
 		for _, name := range hookNames {
-			h, exists := hooks[name]
-			if !exists {
+			h, ok := b.lifecycleHooks.Get(scopedKey(groupName, name))
+			if !ok {
 				return nil, fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, name)
 			}
 
@@ -1634,17 +1576,16 @@ func (b *InMemoryBackend) DescribeScheduledActions(
 	defer b.mu.RUnlock()
 
 	if groupName != "" {
-		if _, ok := b.groups[groupName]; !ok {
+		if !b.groups.Has(groupName) {
 			return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 		}
 	}
 
 	if len(actionNames) > 0 && groupName != "" {
-		actions := b.scheduledActions[groupName]
 		result := make([]ScheduledAction, 0, len(actionNames))
 
 		for _, name := range actionNames {
-			a, exists := actions[name]
+			a, exists := b.scheduledActions.Get(scopedKey(groupName, name))
 			if !exists {
 				continue
 			}
@@ -1658,14 +1599,12 @@ func (b *InMemoryBackend) DescribeScheduledActions(
 	var result []ScheduledAction
 
 	if groupName != "" {
-		for _, a := range b.scheduledActions[groupName] {
+		for _, a := range b.scheduledActionsByGroup.Get(groupName) {
 			result = append(result, *a)
 		}
 	} else {
-		for _, groupActions := range b.scheduledActions {
-			for _, a := range groupActions {
-				result = append(result, *a)
-			}
+		for _, a := range b.scheduledActions.All() {
+			result = append(result, *a)
 		}
 	}
 
@@ -1687,7 +1626,7 @@ func (b *InMemoryBackend) DeleteTags(tags []ResourceTag) error {
 			continue
 		}
 
-		g, ok := b.groups[tag.ResourceID]
+		g, ok := b.groups.Get(tag.ResourceID)
 		if !ok {
 			return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, tag.ResourceID)
 		}
@@ -1753,7 +1692,7 @@ func (b *InMemoryBackend) DescribeTags(filters []TagFilter) ([]ResourceTag, erro
 
 	var result []ResourceTag
 
-	for _, g := range b.groups {
+	for _, g := range b.groups.All() {
 		for _, t := range g.Tags {
 			if tagMatchesFilters(filterMap, g.AutoScalingGroupName, t.Key, t.Value) {
 				result = append(result, ResourceTag{
@@ -1790,7 +1729,7 @@ func (b *InMemoryBackend) DescribeAutoScalingInstances(instanceIDs []string) ([]
 
 	var result []InstanceDetails
 
-	for _, g := range b.groups {
+	for _, g := range b.groups.All() {
 		for _, inst := range g.Instances {
 			if len(idFilter) > 0 && !idFilter[inst.InstanceID] {
 				continue
@@ -1820,11 +1759,19 @@ func (b *InMemoryBackend) DescribeAutoScalingInstances(instanceIDs []string) ([]
 // If hookName is empty, all pending actions for the group are cancelled.
 // Must be called with b.mu held (write lock).
 func (b *InMemoryBackend) cleanupHookTimers(groupName, hookName string) {
-	for token, action := range b.pendingHookTokens {
+	var toRemove []string
+
+	b.pendingHookTokens.Range(func(action *pendingHookAction) bool {
 		if action.GroupName == groupName && (hookName == "" || action.HookName == hookName) {
 			action.timer.Stop()
-			delete(b.pendingHookTokens, token)
+			toRemove = append(toRemove, action.Token)
 		}
+
+		return true
+	})
+
+	for _, token := range toRemove {
+		b.pendingHookTokens.Delete(token)
 	}
 }
 
@@ -1833,7 +1780,7 @@ func (b *InMemoryBackend) cleanupHookTimers(groupName, hookName string) {
 // AWS allows multiple hooks per transition (each must complete independently); this
 // simulation supports one active hook per transition per group, which covers the
 // overwhelming majority of real configurations. Must be called with b.mu held.
-func findHookForTransition(hooks map[string]*LifecycleHook, transition string) *LifecycleHook {
+func findHookForTransition(hooks []*LifecycleHook, transition string) *LifecycleHook {
 	var found *LifecycleHook
 
 	for _, h := range hooks {
@@ -1853,7 +1800,7 @@ func findHookForTransition(hooks map[string]*LifecycleHook, transition string) *
 // callers can invoke it unconditionally after adding instances. Must be called with
 // b.mu held (write lock).
 func (b *InMemoryBackend) gateNewLaunchInstances(g *AutoScalingGroup, startIdx int) {
-	hook := findHookForTransition(b.lifecycleHooks[g.AutoScalingGroupName], transitionLaunching)
+	hook := findHookForTransition(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transitionLaunching)
 	if hook == nil {
 		return
 	}
@@ -1892,7 +1839,7 @@ func (b *InMemoryBackend) armLifecycleWait(
 	action.timer = time.AfterFunc(timeout, func() {
 		b.resolveLifecycleWait(token, action.DefaultResult)
 	})
-	b.pendingHookTokens[token] = action
+	b.pendingHookTokens.Put(action)
 }
 
 // resolveLifecycleWait applies result (CONTINUE/ABANDON) to the pending action
@@ -1903,12 +1850,12 @@ func (b *InMemoryBackend) resolveLifecycleWait(token, result string) {
 	b.mu.Lock("resolveLifecycleWait")
 	defer b.mu.Unlock()
 
-	action, ok := b.pendingHookTokens[token]
+	action, ok := b.pendingHookTokens.Get(token)
 	if !ok {
 		return // already resolved (race between timer and an explicit Complete call)
 	}
 
-	delete(b.pendingHookTokens, token)
+	b.pendingHookTokens.Delete(token)
 	b.applyLifecycleResult(action, result)
 }
 
@@ -1916,7 +1863,7 @@ func (b *InMemoryBackend) resolveLifecycleWait(token, result string) {
 // resolves (either explicitly via CompleteLifecycleAction or via heartbeat timeout).
 // Must be called with b.mu held (write lock).
 func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result string) {
-	g, ok := b.groups[action.GroupName]
+	g, ok := b.groups.Get(action.GroupName)
 	if !ok {
 		return // group was deleted while the action was pending
 	}
@@ -2017,7 +1964,7 @@ func (b *InMemoryBackend) finishTermination(g *AutoScalingGroup, action *pending
 // would be stuck in Pending:Wait/Terminating:Wait forever. Must be called with b.mu
 // held (write lock); intended to run once, right after Restore repopulates b.groups.
 func (b *InMemoryBackend) rearmPendingWaits() {
-	for _, g := range b.groups {
+	for _, g := range b.groups.All() {
 		for i := range g.Instances {
 			inst := &g.Instances[i]
 
@@ -2032,7 +1979,7 @@ func (b *InMemoryBackend) rearmPendingWaits() {
 				continue
 			}
 
-			hook := findHookForTransition(b.lifecycleHooks[g.AutoScalingGroupName], transition)
+			hook := findHookForTransition(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transition)
 
 			heartbeat := defaultHeartbeatTimeout
 			defaultResult := lifecycleActionAbandon
@@ -2057,7 +2004,7 @@ func (b *InMemoryBackend) rearmPendingWaits() {
 			action.timer = time.AfterFunc(action.timeout, func() {
 				b.resolveLifecycleWait(token, action.DefaultResult)
 			})
-			b.pendingHookTokens[token] = action
+			b.pendingHookTokens.Put(action)
 		}
 	}
 }
@@ -2068,16 +2015,24 @@ func (b *InMemoryBackend) rearmPendingWaits() {
 // a token or an instance ID. Must be called with b.mu held.
 func (b *InMemoryBackend) findPendingHookAction(token, groupName, hookName, instanceID string) *pendingHookAction {
 	if token != "" {
-		return b.pendingHookTokens[token]
+		action, _ := b.pendingHookTokens.Get(token)
+
+		return action
 	}
 
-	for _, action := range b.pendingHookTokens {
+	var found *pendingHookAction
+
+	b.pendingHookTokens.Range(func(action *pendingHookAction) bool {
 		if action.GroupName == groupName && action.HookName == hookName && action.InstanceID == instanceID {
-			return action
-		}
-	}
+			found = action
 
-	return nil
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // DescribeAccountLimits returns account limits for Auto Scaling.
@@ -2089,9 +2044,9 @@ func (b *InMemoryBackend) DescribeAccountLimits() (*AccountLimits, error) {
 		MaxNumberOfAutoScalingGroups:    maxAccountASGs,
 		MaxNumberOfLaunchConfigurations: maxAccountLaunchConfigs,
 		//nolint:gosec,G115 // bounded by maxAccountASGs
-		NumberOfAutoScalingGroups: int32(len(b.groups)),
+		NumberOfAutoScalingGroups: int32(b.groups.Len()),
 		//nolint:gosec,G115 // bounded by maxAccountLaunchConfigs
-		NumberOfLaunchConfigurations: int32(len(b.launchConfigurations)),
+		NumberOfLaunchConfigurations: int32(b.launchConfigurations.Len()),
 	}, nil
 }
 
@@ -2177,7 +2132,7 @@ func (b *InMemoryBackend) StartInstanceRefreshWithInput(input StartInstanceRefre
 	b.mu.Lock("StartInstanceRefresh")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(input.AutoScalingGroupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
@@ -2212,7 +2167,7 @@ func (b *InMemoryBackend) RollbackInstanceRefresh(groupName string) (string, err
 	b.mu.Lock("RollbackInstanceRefresh")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return "", fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
@@ -2234,7 +2189,7 @@ func (b *InMemoryBackend) DescribeInstanceRefreshes(groupName string, refreshIDs
 	defer b.mu.RUnlock()
 
 	if groupName != "" {
-		if _, ok := b.groups[groupName]; !ok {
+		if !b.groups.Has(groupName) {
 			return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 		}
 	}
@@ -2268,7 +2223,7 @@ func (b *InMemoryBackend) DescribeLoadBalancers(groupName string) ([]LoadBalance
 	b.mu.RLock("DescribeLoadBalancers")
 	defer b.mu.RUnlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2286,7 +2241,7 @@ func (b *InMemoryBackend) DescribeLoadBalancerTargetGroups(groupName string) ([]
 	b.mu.RLock("DescribeLoadBalancerTargetGroups")
 	defer b.mu.RUnlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2304,7 +2259,7 @@ func (b *InMemoryBackend) DescribeTrafficSources(groupName string) ([]TrafficSou
 	b.mu.RLock("DescribeTrafficSources")
 	defer b.mu.RUnlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2324,7 +2279,7 @@ func (b *InMemoryBackend) DetachInstances(
 	b.mu.Lock("DetachInstances")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2376,7 +2331,7 @@ func (b *InMemoryBackend) DetachLoadBalancerTargetGroups(groupName string, targe
 	b.mu.Lock("DetachLoadBalancerTargetGroups")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2403,7 +2358,7 @@ func (b *InMemoryBackend) DetachLoadBalancers(groupName string, lbNames []string
 	b.mu.Lock("DetachLoadBalancers")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2430,7 +2385,7 @@ func (b *InMemoryBackend) DetachTrafficSources(groupName string, trafficSources 
 	b.mu.Lock("DetachTrafficSources")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2469,7 +2424,7 @@ func (b *InMemoryBackend) EnableMetricsCollection(groupName string, metrics []st
 	b.mu.Lock("EnableMetricsCollection")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2502,7 +2457,7 @@ func (b *InMemoryBackend) DisableMetricsCollection(groupName string, metrics []s
 	b.mu.Lock("DisableMetricsCollection")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2535,7 +2490,7 @@ func (b *InMemoryBackend) SuspendProcesses(groupName string, processes []string)
 	b.mu.Lock("SuspendProcesses")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2565,7 +2520,7 @@ func (b *InMemoryBackend) ResumeProcesses(groupName string, processes []string) 
 	b.mu.Lock("ResumeProcesses")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2602,7 +2557,7 @@ func (b *InMemoryBackend) EnterStandby(
 	b.mu.Lock("EnterStandby")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2652,7 +2607,7 @@ func (b *InMemoryBackend) ExitStandby(groupName string, instanceIDs []string) ([
 	b.mu.Lock("ExitStandby")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2704,7 +2659,7 @@ func (b *InMemoryBackend) SetInstanceHealth(
 			ErrInvalidParameter, healthStatus)
 	}
 
-	for _, g := range b.groups {
+	for _, g := range b.groups.All() {
 		for i := range g.Instances {
 			if g.Instances[i].InstanceID != instanceID {
 				continue
@@ -2738,7 +2693,7 @@ func (b *InMemoryBackend) SetInstanceProtection(
 	b.mu.Lock("SetInstanceProtection")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2762,7 +2717,7 @@ func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleAc
 	b.mu.Lock("RecordLifecycleActionHeartbeat")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(input.AutoScalingGroupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
@@ -2780,12 +2735,7 @@ func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleAc
 	}
 
 	// Validate hook exists
-	hooks := b.lifecycleHooks[input.AutoScalingGroupName]
-	if hooks == nil {
-		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, input.LifecycleHookName)
-	}
-
-	if _, exists := hooks[input.LifecycleHookName]; !exists {
+	if !b.lifecycleHooks.Has(scopedKey(input.AutoScalingGroupName, input.LifecycleHookName)) {
 		return fmt.Errorf("%w: lifecycle hook %q not found", ErrLifecycleHookNotFound, input.LifecycleHookName)
 	}
 
@@ -2793,23 +2743,16 @@ func (b *InMemoryBackend) RecordLifecycleActionHeartbeat(input RecordLifecycleAc
 }
 
 // ExecutePolicy executes a scaling policy on the ASG.
-//
-//nolint:cyclop // StepScaling metric-interval matching adds branching; not worth splitting further.
 func (b *InMemoryBackend) ExecutePolicy(input ExecutePolicyInput) error {
 	b.mu.Lock("ExecutePolicy")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[input.AutoScalingGroupName]
+	g, ok := b.groups.Get(input.AutoScalingGroupName)
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
-	policies := b.scalingPolicies[input.AutoScalingGroupName]
-	if policies == nil {
-		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, input.PolicyName)
-	}
-
-	policy, ok := policies[input.PolicyName]
+	policy, ok := b.scalingPolicies.Get(scopedKey(input.AutoScalingGroupName, input.PolicyName))
 	if !ok {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, input.PolicyName)
 	}
@@ -2896,7 +2839,7 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 	b.mu.Lock("LaunchInstances")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[groupName]
+	g, ok := b.groups.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
@@ -2928,7 +2871,7 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(groupName string) error {
 	b.mu.RLock("GetPredictiveScalingForecast")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
@@ -2940,7 +2883,7 @@ func (b *InMemoryBackend) PutNotificationConfiguration(groupName, topicARN strin
 	b.mu.Lock("PutNotificationConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
@@ -2981,7 +2924,7 @@ func (b *InMemoryBackend) DeleteNotificationConfiguration(groupName, topicARN st
 	b.mu.Lock("DeleteNotificationConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
@@ -3028,19 +2971,15 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 	b.mu.Lock("PutScalingPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(input.AutoScalingGroupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
-	}
-
-	if b.scalingPolicies[input.AutoScalingGroupName] == nil {
-		b.scalingPolicies[input.AutoScalingGroupName] = make(map[string]*ScalingPolicy)
 	}
 
 	arn := "arn:aws:autoscaling:" + config.DefaultRegion + ":" + config.DefaultAccountID + ":scalingPolicy:" +
 		uuid.NewString() + ":autoScalingGroupName/" + input.AutoScalingGroupName + ":policyName/" + input.PolicyName
 
 	// Preserve ARN if policy already exists
-	if existing, ok := b.scalingPolicies[input.AutoScalingGroupName][input.PolicyName]; ok {
+	if existing, ok := b.scalingPolicies.Get(scopedKey(input.AutoScalingGroupName, input.PolicyName)); ok {
 		arn = existing.PolicyARN
 	}
 
@@ -3063,7 +3002,7 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		StepAdjustments:               input.StepAdjustments,
 	}
 
-	b.scalingPolicies[input.AutoScalingGroupName][input.PolicyName] = policy
+	b.scalingPolicies.Put(policy)
 
 	cp := *policy
 
@@ -3075,35 +3014,33 @@ func (b *InMemoryBackend) DeletePolicy(groupName, policyNameOrARN string) error 
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
-	policies := b.scalingPolicies[groupName]
-	if policies != nil {
+	if groupName != "" {
 		// Try by name first
-		if _, ok := policies[policyNameOrARN]; ok {
-			delete(policies, policyNameOrARN)
+		key := scopedKey(groupName, policyNameOrARN)
+		if b.scalingPolicies.Has(key) {
+			b.scalingPolicies.Delete(key)
 
 			return nil
 		}
 
 		// Try by ARN
-		for name, p := range policies {
+		for _, p := range b.scalingPoliciesInGroupLocked(groupName) {
 			if p.PolicyARN == policyNameOrARN {
-				delete(policies, name)
+				b.scalingPolicies.Delete(scalingPoliciesKeyFn(p))
 
 				return nil
 			}
 		}
+
+		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyNameOrARN)
 	}
 
 	// Check across all groups if groupName is empty
-	if groupName == "" {
-		for _, gpolicies := range b.scalingPolicies {
-			for name, p := range gpolicies {
-				if p.PolicyName == policyNameOrARN || p.PolicyARN == policyNameOrARN {
-					delete(gpolicies, name)
+	for _, p := range b.scalingPolicies.All() {
+		if p.PolicyName == policyNameOrARN || p.PolicyARN == policyNameOrARN {
+			b.scalingPolicies.Delete(scalingPoliciesKeyFn(p))
 
-					return nil
-				}
-			}
+			return nil
 		}
 	}
 
@@ -3123,17 +3060,15 @@ func (b *InMemoryBackend) DescribePolicies(groupName string, policyNames []strin
 	var result []ScalingPolicy
 
 	if groupName != "" {
-		for _, p := range b.scalingPolicies[groupName] {
+		for _, p := range b.scalingPoliciesByGroup.Get(groupName) {
 			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
 				result = append(result, *p)
 			}
 		}
 	} else {
-		for _, policies := range b.scalingPolicies {
-			for _, p := range policies {
-				if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
-					result = append(result, *p)
-				}
+		for _, p := range b.scalingPolicies.All() {
+			if len(nameFilter) == 0 || nameFilter[p.PolicyName] {
+				result = append(result, *p)
 			}
 		}
 	}
@@ -3150,12 +3085,8 @@ func (b *InMemoryBackend) PutScheduledUpdateGroupAction(groupName string, action
 	b.mu.Lock("PutScheduledUpdateGroupAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
-	}
-
-	if b.scheduledActions[groupName] == nil {
-		b.scheduledActions[groupName] = make(map[string]*ScheduledAction)
 	}
 
 	scheduledARN := fmt.Sprintf(
@@ -3163,7 +3094,7 @@ func (b *InMemoryBackend) PutScheduledUpdateGroupAction(groupName string, action
 		config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), groupName, action.ScheduledActionName,
 	)
 
-	b.scheduledActions[groupName][action.ScheduledActionName] = &ScheduledAction{
+	b.scheduledActions.Put(&ScheduledAction{
 		ScheduledActionName:  action.ScheduledActionName,
 		ScheduledActionARN:   scheduledARN,
 		AutoScalingGroupName: groupName,
@@ -3174,7 +3105,7 @@ func (b *InMemoryBackend) PutScheduledUpdateGroupAction(groupName string, action
 		DesiredCapacity:      action.DesiredCapacity,
 		MinSize:              action.MinSize,
 		MaxSize:              action.MaxSize,
-	}
+	})
 
 	return nil
 }
@@ -3184,16 +3115,16 @@ func (b *InMemoryBackend) DeleteScheduledAction(groupName, scheduledActionName s
 	b.mu.Lock("DeleteScheduledAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	actions := b.scheduledActions[groupName]
-	if actions == nil || actions[scheduledActionName] == nil {
+	key := scopedKey(groupName, scheduledActionName)
+	if !b.scheduledActions.Has(key) {
 		return fmt.Errorf("%w: scheduled action %q not found", ErrInvalidParameter, scheduledActionName)
 	}
 
-	delete(actions, scheduledActionName)
+	b.scheduledActions.Delete(key)
 
 	return nil
 }
@@ -3203,7 +3134,7 @@ func (b *InMemoryBackend) PutWarmPool(input WarmPoolInput) error {
 	b.mu.Lock("PutWarmPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[input.AutoScalingGroupName]; !ok {
+	if !b.groups.Has(input.AutoScalingGroupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, input.AutoScalingGroupName)
 	}
 
@@ -3215,13 +3146,13 @@ func (b *InMemoryBackend) PutWarmPool(input WarmPoolInput) error {
 			ErrInvalidParameter, poolState)
 	}
 
-	b.warmPools[input.AutoScalingGroupName] = &WarmPool{
+	b.warmPools.Put(&WarmPool{
 		AutoScalingGroupName:     input.AutoScalingGroupName,
 		PoolState:                poolState,
 		MinSize:                  input.MinSize,
 		MaxGroupPreparedCapacity: input.MaxGroupPreparedCapacity,
 		InstanceReusePolicy:      input.InstanceReusePolicy,
-	}
+	})
 
 	return nil
 }
@@ -3231,11 +3162,11 @@ func (b *InMemoryBackend) DeleteWarmPool(groupName string) error {
 	b.mu.Lock("DeleteWarmPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	delete(b.warmPools, groupName)
+	b.warmPools.Delete(groupName)
 
 	return nil
 }
@@ -3245,11 +3176,11 @@ func (b *InMemoryBackend) DescribeWarmPool(groupName string) (*WarmPool, error) 
 	b.mu.RLock("DescribeWarmPool")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.groups[groupName]; !ok {
+	if !b.groups.Has(groupName) {
 		return nil, fmt.Errorf("%w: %q", ErrGroupNotFound, groupName)
 	}
 
-	wp, ok := b.warmPools[groupName]
+	wp, ok := b.warmPools.Get(groupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: no warm pool found for group %q", ErrWarmPoolNotFound, groupName)
 	}
