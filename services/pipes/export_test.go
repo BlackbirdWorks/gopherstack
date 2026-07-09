@@ -88,8 +88,8 @@ func (b *InMemoryBackend) EnrichmentIndexSizeForTest() int {
 	b.mu.RLock("EnrichmentIndexSizeForTest")
 	defer b.mu.RUnlock()
 
-	if m := b.enrichmentCallCount[b.region]; m != nil {
-		return len(m)
+	if t, ok := b.enrichmentCounts[b.region]; ok {
+		return t.Len()
 	}
 
 	return 0

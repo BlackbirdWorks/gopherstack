@@ -13,7 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -835,20 +835,33 @@ func clonePipe(p *Pipe) *Pipe {
 
 // InMemoryBackend is the in-memory store for pipes.
 //
-// All resource maps are nested by region (outer key = region) so that
-// same-named pipes are isolated across regions. The per-region inner maps
-// are created lazily via the *Store helpers. Callers must hold b.mu while
-// accessing the inner maps.
+// All resource collections are nested by region (outer key = region) so that
+// same-named pipes are isolated across regions. The per-region *store.Table /
+// *store.Index values are created lazily via the pipesTable /
+// pipesByARNIndex / enrichmentCountsTable accessors in store_setup.go —
+// mirroring the lazy map creation the hand-rolled code did before Phase 3.3's
+// pkgs/store conversion. Callers must hold b.mu while accessing them.
 type InMemoryBackend struct {
-	svcCtx              context.Context
-	pipes               map[string]map[string]*Pipe  // region → name → pipe
-	pipeARNIndex        map[string]map[string]string // region → arn → name
-	enrichmentCallCount map[string]map[string]int64  // region → name → count
-	mu                  *lockmetrics.RWMutex
-	cancel              context.CancelFunc
-	accountID           string
-	region              string
-	wg                  sync.WaitGroup
+	svcCtx context.Context
+	// registry is the lifecycle registry for every *store.Table this backend
+	// owns; Reset/Snapshot/Restore drive it via ResetAll/SnapshotAll/RestoreAll
+	// instead of hand-written per-map boilerplate. See store_setup.go.
+	registry *store.Registry
+	// pipes holds one *store.Table[Pipe] per region, keyed by pipe name.
+	pipes map[string]*store.Table[Pipe]
+	// pipesByARN is a secondary index on pipes, keyed by ARN, one per region.
+	// It replaces the hand-rolled pipeARNIndex map and is kept consistent
+	// automatically by store.Table.Put/Delete/Restore.
+	pipesByARN map[string]*store.Index[Pipe]
+	// enrichmentCounts holds one *store.Table[enrichmentCounter] per region,
+	// keyed by pipe name. enrichmentCounter is an identity-less DTO (a plain
+	// int64 counter) wrapped so it can be keyed by store.Table.
+	enrichmentCounts map[string]*store.Table[enrichmentCounter]
+	mu               *lockmetrics.RWMutex
+	cancel           context.CancelFunc
+	accountID        string
+	region           string
+	wg               sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
@@ -869,41 +882,16 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	ctx, cancel := context.WithCancel(svcCtx)
 
 	return &InMemoryBackend{
-		pipes:               make(map[string]map[string]*Pipe),
-		pipeARNIndex:        make(map[string]map[string]string),
-		enrichmentCallCount: make(map[string]map[string]int64),
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("pipes"),
-		svcCtx:              ctx,
-		cancel:              cancel,
+		registry:         store.NewRegistry(),
+		pipes:            make(map[string]*store.Table[Pipe]),
+		pipesByARN:       make(map[string]*store.Index[Pipe]),
+		enrichmentCounts: make(map[string]*store.Table[enrichmentCounter]),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("pipes"),
+		svcCtx:           ctx,
+		cancel:           cancel,
 	}
-}
-
-// --- Per-region store accessors (callers must hold b.mu) ---
-
-func (b *InMemoryBackend) pipesStore(region string) map[string]*Pipe {
-	if b.pipes[region] == nil {
-		b.pipes[region] = make(map[string]*Pipe)
-	}
-
-	return b.pipes[region]
-}
-
-func (b *InMemoryBackend) pipeARNIndexStore(region string) map[string]string {
-	if b.pipeARNIndex[region] == nil {
-		b.pipeARNIndex[region] = make(map[string]string)
-	}
-
-	return b.pipeARNIndex[region]
-}
-
-func (b *InMemoryBackend) enrichmentCallCountStore(region string) map[string]int64 {
-	if b.enrichmentCallCount[region] == nil {
-		b.enrichmentCallCount[region] = make(map[string]int64)
-	}
-
-	return b.enrichmentCallCount[region]
 }
 
 // runDelayed runs fn after delay, unless the backend's lifecycle context is
@@ -946,7 +934,15 @@ func (b *InMemoryBackend) Shutdown(ctx context.Context) {
 func (b *InMemoryBackend) RecordEnrichmentCall(ctx context.Context, pipeName string) {
 	b.mu.Lock("RecordEnrichmentCall")
 	defer b.mu.Unlock()
-	b.enrichmentCallCountStore(getRegion(ctx, b.region))[pipeName]++
+
+	t := b.enrichmentCountsTable(getRegion(ctx, b.region))
+
+	var count int64
+	if c, ok := t.Get(pipeName); ok {
+		count = c.Count
+	}
+
+	t.Put(&enrichmentCounter{Name: pipeName, Count: count + 1})
 }
 
 // GetEnrichmentCallCount returns the number of enrichment calls for a pipe.
@@ -954,7 +950,12 @@ func (b *InMemoryBackend) GetEnrichmentCallCount(ctx context.Context, pipeName s
 	b.mu.RLock("GetEnrichmentCallCount")
 	defer b.mu.RUnlock()
 
-	return b.enrichmentCallCountStore(getRegion(ctx, b.region))[pipeName]
+	c, ok := b.enrichmentCountsTable(getRegion(ctx, b.region)).Get(pipeName)
+	if !ok {
+		return 0
+	}
+
+	return c.Count
 }
 
 func (b *InMemoryBackend) Region() string { return b.region }
@@ -1002,17 +1003,16 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.pipesStore(region)
-	arnIndex := b.pipeARNIndexStore(region)
+	pipesTable := b.pipesTable(region)
 
-	if len(store) >= maxPipesPerAcct {
+	if pipesTable.Len() >= maxPipesPerAcct {
 		return nil, fmt.Errorf(
 			"%w: account has reached the maximum number of pipes (%d)",
 			ErrQuota,
 			maxPipesPerAcct,
 		)
 	}
-	if _, ok := store[in.Name]; ok {
+	if pipesTable.Has(in.Name) {
 		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, in.Name)
 	}
 	if in.DesiredState == "" {
@@ -1036,8 +1036,7 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 		EnrichmentParameters:    in.EnrichmentParameters,
 		RuntimeMetricsStreaming: in.RuntimeMetricsStreaming,
 	}
-	store[in.Name] = p
-	arnIndex[pipeARN] = in.Name
+	pipesTable.Put(p)
 
 	cp := clonePipe(p)
 	b.runDelayed(func() {
@@ -1051,7 +1050,7 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 func (b *InMemoryBackend) completeCreateTransition(region, name, desiredState string) {
 	b.mu.Lock("completeCreateTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return
 	}
@@ -1064,7 +1063,7 @@ func (b *InMemoryBackend) completeCreateTransition(region, name, desiredState st
 func (b *InMemoryBackend) GetPipe(ctx context.Context, name string) (*Pipe, error) {
 	b.mu.RLock("GetPipe")
 	defer b.mu.RUnlock()
-	p, ok := b.pipesStore(getRegion(ctx, b.region))[name]
+	p, ok := b.pipesTable(getRegion(ctx, b.region)).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1093,22 +1092,22 @@ func (b *InMemoryBackend) ListPipes(ctx context.Context, f ListPipesFilter) (Lis
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
 
-	store := b.pipesStore(getRegion(ctx, b.region))
+	pipesTable := b.pipesTable(getRegion(ctx, b.region))
 
 	limit := f.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 1000
 	}
 
-	names := sortedPipeNames(store)
+	names := sortedPipeNames(pipesTable)
 
 	startIdx, err := resolveStartIndex(names, f.NextToken)
 	if err != nil {
 		return ListPipesResult{}, err
 	}
 
-	result, lastIncluded := collectMatchingPipes(store, names, startIdx, limit, f)
-	nextToken := buildNextToken(store, names, startIdx, len(result), limit, lastIncluded, f)
+	result, lastIncluded := collectMatchingPipes(pipesTable, names, startIdx, limit, f)
+	nextToken := buildNextToken(pipesTable, names, startIdx, len(result), limit, lastIncluded, f)
 
 	return ListPipesResult{Pipes: result, NextToken: nextToken}, nil
 }
@@ -1121,8 +1120,8 @@ func (b *InMemoryBackend) allRunningPipes() []*Pipe {
 
 	var result []*Pipe
 
-	for _, regionStore := range b.pipes {
-		for _, p := range regionStore {
+	for _, regionTable := range b.pipes {
+		for _, p := range regionTable.All() {
 			if p.CurrentState == stateRunning {
 				result = append(result, clonePipe(p))
 			}
@@ -1132,10 +1131,10 @@ func (b *InMemoryBackend) allRunningPipes() []*Pipe {
 	return result
 }
 
-func sortedPipeNames(store map[string]*Pipe) []string {
-	names := make([]string, 0, len(store))
-	for name := range store {
-		names = append(names, name)
+func sortedPipeNames(pipesTable *store.Table[Pipe]) []string {
+	names := make([]string, 0, pipesTable.Len())
+	for _, p := range pipesTable.All() {
+		names = append(names, p.Name)
 	}
 	for i := 0; i < len(names); i++ {
 		for j := i + 1; j < len(names); j++ {
@@ -1170,7 +1169,7 @@ func resolveStartIndex(names []string, nextToken string) (int, error) {
 }
 
 func collectMatchingPipes(
-	store map[string]*Pipe,
+	pipesTable *store.Table[Pipe],
 	names []string, startIdx, limit int, f ListPipesFilter,
 ) ([]*Pipe, string) {
 	var result []*Pipe
@@ -1179,7 +1178,7 @@ func collectMatchingPipes(
 		if len(result) >= limit {
 			break
 		}
-		p := store[names[i]]
+		p, _ := pipesTable.Get(names[i])
 		if !matchesFilter(p, f) {
 			continue
 		}
@@ -1191,14 +1190,15 @@ func collectMatchingPipes(
 }
 
 func buildNextToken(
-	store map[string]*Pipe,
+	pipesTable *store.Table[Pipe],
 	names []string, startIdx, resultLen, limit int, lastIncluded string, f ListPipesFilter,
 ) string {
 	if resultLen < limit || lastIncluded == "" {
 		return ""
 	}
 	for i := startIdx + resultLen; i < len(names); i++ {
-		if matchesFilter(store[names[i]], f) {
+		p, _ := pipesTable.Get(names[i])
+		if matchesFilter(p, f) {
 			return base64.StdEncoding.EncodeToString([]byte(lastIncluded + nextTokenSep))
 		}
 	}
@@ -1294,7 +1294,7 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in Update
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1319,7 +1319,7 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in Update
 func (b *InMemoryBackend) completeUpdateTransition(region, name, desiredState string) {
 	b.mu.Lock("completeUpdateTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return
 	}
@@ -1334,7 +1334,7 @@ func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) (*Pipe, e
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -1359,17 +1359,17 @@ func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) (*Pipe, e
 func (b *InMemoryBackend) completeDeleteTransition(region, name string) {
 	b.mu.Lock("completeDeleteTransition")
 	defer b.mu.Unlock()
-	store := b.pipesStore(region)
-	p, ok := store[name]
+	pipesTable := b.pipesTable(region)
+	p, ok := pipesTable.Get(name)
 	if !ok {
 		return
 	}
 	if p.CurrentState == stateDeleting {
-		delete(b.pipeARNIndexStore(region), p.ARN)
-		delete(store, name)
+		// Delete also removes p from the ARN secondary index automatically.
+		pipesTable.Delete(name)
 		// Prune the per-pipe enrichment counter to prevent unbounded growth.
-		if cc := b.enrichmentCallCount[region]; cc != nil {
-			delete(cc, name)
+		if ct, exists := b.enrichmentCounts[region]; exists {
+			ct.Delete(name)
 		}
 	}
 }
@@ -1393,7 +1393,7 @@ func (b *InMemoryBackend) changePipeDesiredState(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
@@ -1440,7 +1440,7 @@ func (b *InMemoryBackend) StartPipe(ctx context.Context, name string) (*Pipe, er
 func (b *InMemoryBackend) completeStartTransition(region, name string) {
 	b.mu.Lock("completeStartTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return
 	}
@@ -1464,7 +1464,7 @@ func (b *InMemoryBackend) StopPipe(ctx context.Context, name string) (*Pipe, err
 func (b *InMemoryBackend) completeStopTransition(region, name string) {
 	b.mu.Lock("completeStopTransition")
 	defer b.mu.Unlock()
-	p, ok := b.pipesStore(region)[name]
+	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return
 	}
@@ -1480,8 +1480,8 @@ func (b *InMemoryBackend) MarkPipeFailed(name, state, reason string) {
 	b.mu.Lock("MarkPipeFailed")
 	defer b.mu.Unlock()
 
-	for _, regionStore := range b.pipes {
-		if p, ok := regionStore[name]; ok {
+	for _, regionTable := range b.pipes {
+		if p, ok := regionTable.Get(name); ok {
 			p.CurrentState = state
 			p.StateReason = reason
 			p.LastModifiedTime = time.Now()
@@ -1499,12 +1499,10 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, k
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	arnIndex := b.pipeARNIndexStore(region)
-	name, ok := arnIndex[resourceARN]
+	p, ok := b.pipeByARN(region, resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	p := b.pipesStore(region)[name]
 	merged := mergeTags(p.Tags, kv)
 	if len(merged) > maxTagsPerPipe {
 		return fmt.Errorf("%w: pipe would exceed %d tags limit", ErrValidation, maxTagsPerPipe)
@@ -1519,12 +1517,10 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	arnIndex := b.pipeARNIndexStore(region)
-	name, ok := arnIndex[resourceARN]
+	p, ok := b.pipeByARN(region, resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	p := b.pipesStore(region)[name]
 	for _, k := range keys {
 		delete(p.Tags, k)
 	}
@@ -1537,16 +1533,26 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	arnIndex := b.pipeARNIndexStore(region)
-	name, ok := arnIndex[resourceARN]
+	p, ok := b.pipeByARN(region, resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	p := b.pipesStore(region)[name]
 	result := make(map[string]string, len(p.Tags))
 	maps.Copy(result, p.Tags)
 
 	return result, nil
+}
+
+// pipeByARN looks up a pipe by ARN within region via the pipesByARN secondary
+// index, returning (nil, false) if no pipe in that region has that ARN. ARNs
+// are unique per pipe, so the index group has at most one entry.
+func (b *InMemoryBackend) pipeByARN(region, resourceARN string) (*Pipe, bool) {
+	list := b.pipesByARNIndex(region).Get(resourceARN)
+	if len(list) == 0 {
+		return nil, false
+	}
+
+	return list[0], true
 }
 
 func mergeTags(existing, incoming map[string]string) map[string]string {
@@ -1560,9 +1566,7 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
-	b.pipes = make(map[string]map[string]*Pipe)
-	b.pipeARNIndex = make(map[string]map[string]string)
-	b.enrichmentCallCount = make(map[string]map[string]int64)
+	b.registry.ResetAll()
 }
 
 func validatePipeName(name string) error {
@@ -1616,68 +1620,6 @@ func validateTags(tags map[string]string) error {
 				maxTagValueLen,
 			)
 		}
-	}
-
-	return nil
-}
-
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-	type snap struct {
-		Pipes               map[string]map[string]*Pipe `json:"pipes"`
-		EnrichmentCallCount map[string]map[string]int64 `json:"enrichmentCallCount,omitempty"`
-		AccountID           string                      `json:"accountID"`
-		Region              string                      `json:"region"`
-	}
-	s := snap{
-		Pipes:               b.pipes,
-		AccountID:           b.accountID,
-		Region:              b.region,
-		EnrichmentCallCount: b.enrichmentCallCount,
-	}
-
-	return persistence.MarshalSnapshot(ctx, "pipes", s)
-}
-
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	type snap struct {
-		Pipes               map[string]map[string]*Pipe `json:"pipes"`
-		EnrichmentCallCount map[string]map[string]int64 `json:"enrichmentCallCount,omitempty"`
-		AccountID           string                      `json:"accountID"`
-		Region              string                      `json:"region"`
-	}
-	var s snap
-	if err := persistence.UnmarshalSnapshot(ctx, "pipes", data, &s); err != nil {
-		return err
-	}
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-	if s.Pipes == nil {
-		s.Pipes = make(map[string]map[string]*Pipe)
-	}
-	b.pipes = s.Pipes
-	b.accountID = s.AccountID
-	b.region = s.Region
-
-	// Rebuild pipeARNIndex from the restored pipe data.
-	b.pipeARNIndex = make(map[string]map[string]string)
-	for region, regionStore := range b.pipes {
-		if regionStore == nil {
-			continue
-		}
-		for name, p := range regionStore {
-			if b.pipeARNIndex[region] == nil {
-				b.pipeARNIndex[region] = make(map[string]string)
-			}
-			b.pipeARNIndex[region][p.ARN] = name
-		}
-	}
-
-	if s.EnrichmentCallCount != nil {
-		b.enrichmentCallCount = s.EnrichmentCallCount
-	} else {
-		b.enrichmentCallCount = make(map[string]map[string]int64)
 	}
 
 	return nil
