@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -244,14 +245,23 @@ type ReplicationConfig struct {
 }
 
 // AssessmentRun represents a DMS pre-migration assessment run.
+//
+// Region supports Phase 3.3's store.Table keying (see store_setup.go) --
+// AssessmentRun carries no other region-derived field, so the value needs
+// its own copy to serve as a pure store.Table/store.Index key input.
 type AssessmentRun struct {
 	ReplicationTaskAssessmentRunArn string
 	ReplicationTaskArn              string
 	AssessmentRunName               string
 	Status                          string
+	Region                          string
 }
 
 // Connection represents a DMS connection between a replication instance and an endpoint.
+//
+// Region supports Phase 3.3's store.Table keying (see store_setup.go) --
+// Connection carries no other region-derived field, so the value needs its
+// own copy to serve as a pure store.Table/store.Index key input.
 type Connection struct {
 	ReplicationInstanceArn        string
 	ReplicationInstanceIdentifier string
@@ -259,6 +269,7 @@ type Connection struct {
 	EndpointIdentifier            string
 	Status                        string
 	LastFailureMessage            string
+	Region                        string
 }
 
 // Event records an operational event emitted by a DMS resource.
@@ -278,64 +289,96 @@ type Recommendation struct {
 }
 
 // FleetAdvisorDatabase is a database discovered by a Fleet Advisor collector.
+//
+// Region supports Phase 3.3's store.Table keying (see store_setup.go) --
+// FleetAdvisorDatabase carries no other region-derived field, so the value
+// needs its own copy to serve as a pure store.Table/store.Index key input.
 type FleetAdvisorDatabase struct {
 	DatabaseID            string
 	DatabaseName          string
 	IPAddress             string
 	EngineName            string
 	CollectorReferencedID string
+	Region                string
 }
 
 // MetadataModelRequest tracks a metadata model operation (assessment, conversion, etc.).
+//
+// Region supports Phase 3.3's store.Table keying (see store_setup.go) --
+// MetadataModelRequest carries no other region-derived field, so the value
+// needs its own copy to serve as a pure store.Table/store.Index key input.
 type MetadataModelRequest struct {
 	RequestIdentifier          string
 	MigrationProjectIdentifier string
 	Status                     string
 	RequestType                string
 	SelectionRules             string
+	Region                     string
 }
 
 // InMemoryBackend is the in-memory store for AWS DMS resources.
 //
-// All resource maps are nested by region (outer key = region) so that
-// same-named resources are isolated across regions. The per-region inner maps
-// are created lazily via the *Store helpers. Callers must hold b.mu while
-// accessing the inner maps.
+// Every named resource collection is a *store.Table[T] keyed by a composite
+// "<region>|<identifier-or-ARN>" primary key (see store_setup.go's
+// [regionKey]), so that same-named resources stay isolated across regions
+// exactly as the pre-Phase-3.3 per-region nested maps did. ByARN/ByID
+// lookups and region-scoped listing go through the accompanying
+// *store.Index[T] fields. Callers must hold b.mu while accessing any table
+// or index.
 type InMemoryBackend struct {
-	replicationInstances   map[string]map[string]*ReplicationInstance
-	endpoints              map[string]map[string]*Endpoint
-	replicationTasks       map[string]map[string]*ReplicationTask
-	dataMigrations         map[string]map[string]*DataMigration
-	dataProviders          map[string]map[string]*DataProvider
-	eventSubscriptions     map[string]map[string]*EventSubscription
-	fleetAdvisorCollectors map[string]map[string]*FleetAdvisorCollector
+	registry               *store.Registry
+	replicationInstances   *store.Table[ReplicationInstance]
+	endpoints              *store.Table[Endpoint]
+	replicationTasks       *store.Table[ReplicationTask]
+	dataMigrations         *store.Table[DataMigration]
+	dataProviders          *store.Table[DataProvider]
+	eventSubscriptions     *store.Table[EventSubscription]
+	fleetAdvisorCollectors *store.Table[FleetAdvisorCollector]
 	// fleetAdvisorCollectorsByID indexes collectors by CollectorReferencedID (UUID) for O(1) delete by ID.
-	fleetAdvisorCollectorsByID map[string]map[string]*FleetAdvisorCollector
-	instanceProfiles           map[string]map[string]*InstanceProfile
-	replicationInstancesByARN  map[string]map[string]*ReplicationInstance
-	endpointsByARN             map[string]map[string]*Endpoint
-	replicationTasksByARN      map[string]map[string]*ReplicationTask
+	fleetAdvisorCollectorsByID *store.Index[FleetAdvisorCollector]
+	instanceProfiles           *store.Table[InstanceProfile]
+	replicationInstancesByARN  *store.Index[ReplicationInstance]
+	endpointsByARN             *store.Index[Endpoint]
+	replicationTasksByARN      *store.Index[ReplicationTask]
 	// tasksByInstanceARN indexes task ARNs by the instance ARN they are attached to,
 	// enabling O(1) checks in DeleteReplicationInstance instead of scanning all tasks.
-	tasksByInstanceARN           map[string]map[string]struct{}
-	dataMigrationsByARN          map[string]map[string]*DataMigration
-	dataProvidersByARN           map[string]map[string]*DataProvider
-	instanceProfilesByARN        map[string]map[string]*InstanceProfile
-	certificates                 map[string]map[string]*Certificate
-	replicationSubnetGroups      map[string]map[string]*ReplicationSubnetGroup
-	replicationSubnetGroupsByARN map[string]map[string]*ReplicationSubnetGroup
-	migrationProjects            map[string]map[string]*MigrationProject
-	migrationProjectsByARN       map[string]map[string]*MigrationProject
-	replicationConfigs           map[string]map[string]*ReplicationConfig
-	replicationConfigsByARN      map[string]map[string]*ReplicationConfig
-	connections                  map[string]map[string]*Connection           // inner key: "riArn:epArn"
-	assessmentRuns               map[string]map[string]*AssessmentRun        // inner key: ARN
-	events                       map[string][]*Event                         // region → events
-	recommendations              map[string][]*Recommendation                // region → recommendations
-	fleetAdvisorDatabases        map[string]map[string]*FleetAdvisorDatabase // region → id → db
-	endpointSchemas              map[string]map[string][]string              // region → endpointARN → schemas
-	// metadataModelRequests tracks pending metadata model operations per project per region.
-	metadataModelRequests map[string]map[string]map[string]*MetadataModelRequest // region → projectARN → reqID → req
+	tasksByInstanceARN            map[string]map[string]struct{}
+	dataMigrationsByARN           *store.Index[DataMigration]
+	dataProvidersByARN            *store.Index[DataProvider]
+	instanceProfilesByARN         *store.Index[InstanceProfile]
+	certificates                  *store.Table[Certificate]
+	certificatesByARN             *store.Index[Certificate]
+	replicationSubnetGroups       *store.Table[ReplicationSubnetGroup]
+	replicationSubnetGroupsByARN  *store.Index[ReplicationSubnetGroup]
+	migrationProjects             *store.Table[MigrationProject]
+	migrationProjectsByARN        *store.Index[MigrationProject]
+	replicationConfigs            *store.Table[ReplicationConfig]
+	replicationConfigsByARN       *store.Index[ReplicationConfig]
+	connections                   *store.Table[Connection] // primary key: "<region>|<riArn>:<epArn>"
+	connectionsByRegion           *store.Index[Connection]
+	assessmentRuns                *store.Table[AssessmentRun] // primary key: "<region>|<ARN>"
+	assessmentRunsByRegion        *store.Index[AssessmentRun]
+	events                        map[string][]*Event                // region → events
+	recommendations               map[string][]*Recommendation       // region → recommendations
+	fleetAdvisorDatabases         *store.Table[FleetAdvisorDatabase] // primary key: "<region>|<id>"
+	fleetAdvisorDatabasesByRegion *store.Index[FleetAdvisorDatabase]
+	endpointSchemas               map[string]map[string][]string // region → endpointARN → schemas
+	// metadataModelRequests tracks pending metadata model operations per project per region,
+	// primary key "<region>|<projectARN>|<reqID>".
+	metadataModelRequests           *store.Table[MetadataModelRequest]
+	metadataModelRequestsByProject  *store.Index[MetadataModelRequest]
+	replicationInstancesByRegion    *store.Index[ReplicationInstance]
+	endpointsByRegion               *store.Index[Endpoint]
+	replicationTasksByRegion        *store.Index[ReplicationTask]
+	dataMigrationsByRegion          *store.Index[DataMigration]
+	dataProvidersByRegion           *store.Index[DataProvider]
+	eventSubscriptionsByRegion      *store.Index[EventSubscription]
+	fleetAdvisorCollectorsByRegion  *store.Index[FleetAdvisorCollector]
+	instanceProfilesByRegion        *store.Index[InstanceProfile]
+	certificatesByRegion            *store.Index[Certificate]
+	replicationSubnetGroupsByRegion *store.Index[ReplicationSubnetGroup]
+	migrationProjectsByRegion       *store.Index[MigrationProject]
+	replicationConfigsByRegion      *store.Index[ReplicationConfig]
 	// tasksByEndpointARN indexes task ARNs by endpoint ARN (source or target) for O(1) in-use check.
 	tasksByEndpointARN map[string]map[string]struct{} // endpointARN → taskARN set
 	mu                 *lockmetrics.RWMutex
@@ -346,266 +389,22 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory DMS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		replicationInstances:         make(map[string]map[string]*ReplicationInstance),
-		endpoints:                    make(map[string]map[string]*Endpoint),
-		replicationTasks:             make(map[string]map[string]*ReplicationTask),
-		dataMigrations:               make(map[string]map[string]*DataMigration),
-		dataProviders:                make(map[string]map[string]*DataProvider),
-		eventSubscriptions:           make(map[string]map[string]*EventSubscription),
-		fleetAdvisorCollectors:       make(map[string]map[string]*FleetAdvisorCollector),
-		fleetAdvisorCollectorsByID:   make(map[string]map[string]*FleetAdvisorCollector),
-		instanceProfiles:             make(map[string]map[string]*InstanceProfile),
-		replicationInstancesByARN:    make(map[string]map[string]*ReplicationInstance),
-		endpointsByARN:               make(map[string]map[string]*Endpoint),
-		replicationTasksByARN:        make(map[string]map[string]*ReplicationTask),
-		tasksByInstanceARN:           make(map[string]map[string]struct{}),
-		dataMigrationsByARN:          make(map[string]map[string]*DataMigration),
-		dataProvidersByARN:           make(map[string]map[string]*DataProvider),
-		instanceProfilesByARN:        make(map[string]map[string]*InstanceProfile),
-		certificates:                 make(map[string]map[string]*Certificate),
-		replicationSubnetGroups:      make(map[string]map[string]*ReplicationSubnetGroup),
-		replicationSubnetGroupsByARN: make(map[string]map[string]*ReplicationSubnetGroup),
-		migrationProjects:            make(map[string]map[string]*MigrationProject),
-		migrationProjectsByARN:       make(map[string]map[string]*MigrationProject),
-		replicationConfigs:           make(map[string]map[string]*ReplicationConfig),
-		replicationConfigsByARN:      make(map[string]map[string]*ReplicationConfig),
-		connections:                  make(map[string]map[string]*Connection),
-		assessmentRuns:               make(map[string]map[string]*AssessmentRun),
-		events:                       make(map[string][]*Event),
-		recommendations:              make(map[string][]*Recommendation),
-		fleetAdvisorDatabases:        make(map[string]map[string]*FleetAdvisorDatabase),
-		endpointSchemas:              make(map[string]map[string][]string),
-		metadataModelRequests:        make(map[string]map[string]map[string]*MetadataModelRequest),
-		tasksByEndpointARN:           make(map[string]map[string]struct{}),
-		accountID:                    accountID,
-		region:                       region,
-		paginationSecret:             uuid.NewString(),
-		mu:                           lockmetrics.New("dms"),
-	}
-}
-
-// The *Store helpers return the per-region inner map, lazily creating it.
-// Callers must hold b.mu.
-
-func (b *InMemoryBackend) replicationInstancesStore(region string) map[string]*ReplicationInstance {
-	if b.replicationInstances[region] == nil {
-		b.replicationInstances[region] = make(map[string]*ReplicationInstance)
+	b := &InMemoryBackend{
+		registry:           store.NewRegistry(),
+		tasksByInstanceARN: make(map[string]map[string]struct{}),
+		events:             make(map[string][]*Event),
+		recommendations:    make(map[string][]*Recommendation),
+		endpointSchemas:    make(map[string]map[string][]string),
+		tasksByEndpointARN: make(map[string]map[string]struct{}),
+		accountID:          accountID,
+		region:             region,
+		paginationSecret:   uuid.NewString(),
+		mu:                 lockmetrics.New("dms"),
 	}
 
-	return b.replicationInstances[region]
-}
+	registerAllTables(b)
 
-func (b *InMemoryBackend) replicationInstancesByARNStore(region string) map[string]*ReplicationInstance {
-	if b.replicationInstancesByARN[region] == nil {
-		b.replicationInstancesByARN[region] = make(map[string]*ReplicationInstance)
-	}
-
-	return b.replicationInstancesByARN[region]
-}
-
-func (b *InMemoryBackend) endpointsStore(region string) map[string]*Endpoint {
-	if b.endpoints[region] == nil {
-		b.endpoints[region] = make(map[string]*Endpoint)
-	}
-
-	return b.endpoints[region]
-}
-
-func (b *InMemoryBackend) endpointsByARNStore(region string) map[string]*Endpoint {
-	if b.endpointsByARN[region] == nil {
-		b.endpointsByARN[region] = make(map[string]*Endpoint)
-	}
-
-	return b.endpointsByARN[region]
-}
-
-func (b *InMemoryBackend) replicationTasksStore(region string) map[string]*ReplicationTask {
-	if b.replicationTasks[region] == nil {
-		b.replicationTasks[region] = make(map[string]*ReplicationTask)
-	}
-
-	return b.replicationTasks[region]
-}
-
-func (b *InMemoryBackend) replicationTasksByARNStore(region string) map[string]*ReplicationTask {
-	if b.replicationTasksByARN[region] == nil {
-		b.replicationTasksByARN[region] = make(map[string]*ReplicationTask)
-	}
-
-	return b.replicationTasksByARN[region]
-}
-
-func (b *InMemoryBackend) dataMigrationsStore(region string) map[string]*DataMigration {
-	if b.dataMigrations[region] == nil {
-		b.dataMigrations[region] = make(map[string]*DataMigration)
-	}
-
-	return b.dataMigrations[region]
-}
-
-func (b *InMemoryBackend) dataMigrationsByARNStore(region string) map[string]*DataMigration {
-	if b.dataMigrationsByARN[region] == nil {
-		b.dataMigrationsByARN[region] = make(map[string]*DataMigration)
-	}
-
-	return b.dataMigrationsByARN[region]
-}
-
-func (b *InMemoryBackend) dataProvidersStore(region string) map[string]*DataProvider {
-	if b.dataProviders[region] == nil {
-		b.dataProviders[region] = make(map[string]*DataProvider)
-	}
-
-	return b.dataProviders[region]
-}
-
-func (b *InMemoryBackend) dataProvidersByARNStore(region string) map[string]*DataProvider {
-	if b.dataProvidersByARN[region] == nil {
-		b.dataProvidersByARN[region] = make(map[string]*DataProvider)
-	}
-
-	return b.dataProvidersByARN[region]
-}
-
-func (b *InMemoryBackend) eventSubscriptionsStore(region string) map[string]*EventSubscription {
-	if b.eventSubscriptions[region] == nil {
-		b.eventSubscriptions[region] = make(map[string]*EventSubscription)
-	}
-
-	return b.eventSubscriptions[region]
-}
-
-func (b *InMemoryBackend) fleetAdvisorCollectorsStore(region string) map[string]*FleetAdvisorCollector {
-	if b.fleetAdvisorCollectors[region] == nil {
-		b.fleetAdvisorCollectors[region] = make(map[string]*FleetAdvisorCollector)
-	}
-
-	return b.fleetAdvisorCollectors[region]
-}
-
-func (b *InMemoryBackend) fleetAdvisorCollectorsByIDStore(region string) map[string]*FleetAdvisorCollector {
-	if b.fleetAdvisorCollectorsByID[region] == nil {
-		b.fleetAdvisorCollectorsByID[region] = make(map[string]*FleetAdvisorCollector)
-	}
-
-	return b.fleetAdvisorCollectorsByID[region]
-}
-
-func (b *InMemoryBackend) instanceProfilesStore(region string) map[string]*InstanceProfile {
-	if b.instanceProfiles[region] == nil {
-		b.instanceProfiles[region] = make(map[string]*InstanceProfile)
-	}
-
-	return b.instanceProfiles[region]
-}
-
-func (b *InMemoryBackend) instanceProfilesByARNStore(region string) map[string]*InstanceProfile {
-	if b.instanceProfilesByARN[region] == nil {
-		b.instanceProfilesByARN[region] = make(map[string]*InstanceProfile)
-	}
-
-	return b.instanceProfilesByARN[region]
-}
-
-func (b *InMemoryBackend) certificatesStore(region string) map[string]*Certificate {
-	if b.certificates[region] == nil {
-		b.certificates[region] = make(map[string]*Certificate)
-	}
-
-	return b.certificates[region]
-}
-
-func (b *InMemoryBackend) replicationSubnetGroupsStore(region string) map[string]*ReplicationSubnetGroup {
-	if b.replicationSubnetGroups[region] == nil {
-		b.replicationSubnetGroups[region] = make(map[string]*ReplicationSubnetGroup)
-	}
-
-	return b.replicationSubnetGroups[region]
-}
-
-func (b *InMemoryBackend) replicationSubnetGroupsByARNStore(region string) map[string]*ReplicationSubnetGroup {
-	if b.replicationSubnetGroupsByARN[region] == nil {
-		b.replicationSubnetGroupsByARN[region] = make(map[string]*ReplicationSubnetGroup)
-	}
-
-	return b.replicationSubnetGroupsByARN[region]
-}
-
-func (b *InMemoryBackend) migrationProjectsStore(region string) map[string]*MigrationProject {
-	if b.migrationProjects[region] == nil {
-		b.migrationProjects[region] = make(map[string]*MigrationProject)
-	}
-
-	return b.migrationProjects[region]
-}
-
-func (b *InMemoryBackend) migrationProjectsByARNStore(region string) map[string]*MigrationProject {
-	if b.migrationProjectsByARN[region] == nil {
-		b.migrationProjectsByARN[region] = make(map[string]*MigrationProject)
-	}
-
-	return b.migrationProjectsByARN[region]
-}
-
-func (b *InMemoryBackend) replicationConfigsStore(region string) map[string]*ReplicationConfig {
-	if b.replicationConfigs[region] == nil {
-		b.replicationConfigs[region] = make(map[string]*ReplicationConfig)
-	}
-
-	return b.replicationConfigs[region]
-}
-
-func (b *InMemoryBackend) replicationConfigsByARNStore(region string) map[string]*ReplicationConfig {
-	if b.replicationConfigsByARN[region] == nil {
-		b.replicationConfigsByARN[region] = make(map[string]*ReplicationConfig)
-	}
-
-	return b.replicationConfigsByARN[region]
-}
-
-func (b *InMemoryBackend) connectionsStore(region string) map[string]*Connection {
-	if b.connections[region] == nil {
-		b.connections[region] = make(map[string]*Connection)
-	}
-
-	return b.connections[region]
-}
-
-func (b *InMemoryBackend) assessmentRunsStore(region string) map[string]*AssessmentRun {
-	if b.assessmentRuns[region] == nil {
-		b.assessmentRuns[region] = make(map[string]*AssessmentRun)
-	}
-
-	return b.assessmentRuns[region]
-}
-
-func (b *InMemoryBackend) fleetAdvisorDatabasesStore(region string) map[string]*FleetAdvisorDatabase {
-	if b.fleetAdvisorDatabases[region] == nil {
-		b.fleetAdvisorDatabases[region] = make(map[string]*FleetAdvisorDatabase)
-	}
-
-	return b.fleetAdvisorDatabases[region]
-}
-
-func (b *InMemoryBackend) endpointSchemasStore(region string) map[string][]string {
-	if b.endpointSchemas[region] == nil {
-		b.endpointSchemas[region] = make(map[string][]string)
-	}
-
-	return b.endpointSchemas[region]
-}
-
-func (b *InMemoryBackend) metadataModelRequestsStore(region, projectARN string) map[string]*MetadataModelRequest {
-	if b.metadataModelRequests[region] == nil {
-		b.metadataModelRequests[region] = make(map[string]map[string]*MetadataModelRequest)
-	}
-
-	if b.metadataModelRequests[region][projectARN] == nil {
-		b.metadataModelRequests[region][projectARN] = make(map[string]*MetadataModelRequest)
-	}
-
-	return b.metadataModelRequests[region][projectARN]
+	return b
 }
 
 // resolveProjectARN returns the project ARN for a name-or-ARN identifier.
@@ -615,7 +414,7 @@ func (b *InMemoryBackend) resolveProjectARN(region, identifier string) string {
 		return identifier
 	}
 
-	if mp, ok := b.migrationProjectsStore(region)[identifier]; ok {
+	if mp, ok := b.migrationProjects.Get(regionKey(region, identifier)); ok {
 		return mp.MigrationProjectArn
 	}
 
@@ -661,10 +460,8 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationInstancesStore(region)
-	byARN := b.replicationInstancesByARNStore(region)
 
-	if _, ok := store[identifier]; ok {
+	if b.replicationInstances.Has(regionKey(region, identifier)) {
 		return nil, fmt.Errorf(
 			"%w: replication instance %s already exists",
 			ErrAlreadyExists,
@@ -703,8 +500,7 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		CreationTime:                  time.Now().UTC(),
 		Tags:                          t,
 	}
-	store[identifier] = ri
-	byARN[instanceARN] = ri
+	b.replicationInstances.Put(ri)
 	cp := *ri
 
 	return &cp, nil
@@ -718,33 +514,11 @@ func (b *InMemoryBackend) DescribeReplicationInstances(
 	b.mu.RLock("DescribeReplicationInstances")
 	defer b.mu.RUnlock()
 
-	store := b.replicationInstancesStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	if identifierOrArn != "" {
-		// Try by identifier first, then by ARN index.
-		if ri, ok := store[identifierOrArn]; ok {
-			cp := *ri
-
-			return []*ReplicationInstance{&cp}, nil
-		}
-
-		byARN := b.replicationInstancesByARNStore(getRegion(ctx, b.region))
-		if ri, ok := byARN[identifierOrArn]; ok {
-			cp := *ri
-
-			return []*ReplicationInstance{&cp}, nil
-		}
-
-		return []*ReplicationInstance{}, nil
-	}
-
-	list := make([]*ReplicationInstance, 0, len(store))
-	for _, ri := range store {
-		cp := *ri
-		list = append(list, &cp)
-	}
-
-	return list, nil
+	return describeByIdentifierOrARN(
+		b.replicationInstances, b.replicationInstancesByARN, b.replicationInstancesByRegion, region, identifierOrArn,
+	), nil
 }
 
 // DeleteReplicationInstance deletes a replication instance by ARN or identifier.
@@ -754,8 +528,6 @@ func (b *InMemoryBackend) DeleteReplicationInstance(ctx context.Context, arnOrID
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationInstancesStore(region)
-	byARN := b.replicationInstancesByARNStore(region)
 
 	deleteInstance := func(ri *ReplicationInstance, id string) error {
 		// O(1) check via reverse index instead of scanning all tasks.
@@ -767,18 +539,17 @@ func (b *InMemoryBackend) DeleteReplicationInstance(ctx context.Context, arnOrID
 			)
 		}
 		ri.Tags.Close()
-		delete(byARN, ri.ReplicationInstanceArn)
 		delete(b.tasksByInstanceARN, ri.ReplicationInstanceArn)
-		delete(store, id)
+		b.replicationInstances.Delete(regionKey(region, id))
 
 		return nil
 	}
 
 	// Try by identifier first, then by ARN index.
-	if ri, ok := store[arnOrID]; ok {
+	if ri, ok := b.replicationInstances.Get(regionKey(region, arnOrID)); ok {
 		return deleteInstance(ri, arnOrID)
 	}
-	if ri, ok := byARN[arnOrID]; ok {
+	if ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, arnOrID)); ok {
 		return deleteInstance(ri, ri.ReplicationInstanceIdentifier)
 	}
 
@@ -796,10 +567,8 @@ func (b *InMemoryBackend) CreateEndpoint(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.endpointsStore(region)
-	byARN := b.endpointsByARNStore(region)
 
-	if _, ok := store[identifier]; ok {
+	if b.endpoints.Has(regionKey(region, identifier)) {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, identifier)
 	}
 
@@ -825,8 +594,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		CreationTime:       time.Now().UTC(),
 		Tags:               t,
 	}
-	store[identifier] = ep
-	byARN[endpointARN] = ep
+	b.endpoints.Put(ep)
 	b.appendEvent(
 		region, endpointARN, "replication-instance",
 		"Endpoint "+identifier+" created", []string{eventCategoryCreation},
@@ -841,33 +609,9 @@ func (b *InMemoryBackend) DescribeEndpoints(ctx context.Context, identifierOrArn
 	b.mu.RLock("DescribeEndpoints")
 	defer b.mu.RUnlock()
 
-	store := b.endpointsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	if identifierOrArn != "" {
-		// Try by identifier first, then by ARN index.
-		if ep, ok := store[identifierOrArn]; ok {
-			cp := *ep
-
-			return []*Endpoint{&cp}, nil
-		}
-
-		byARN := b.endpointsByARNStore(getRegion(ctx, b.region))
-		if ep, ok := byARN[identifierOrArn]; ok {
-			cp := *ep
-
-			return []*Endpoint{&cp}, nil
-		}
-
-		return []*Endpoint{}, nil
-	}
-
-	list := make([]*Endpoint, 0, len(store))
-	for _, ep := range store {
-		cp := *ep
-		list = append(list, &cp)
-	}
-
-	return list, nil
+	return describeByIdentifierOrARN(b.endpoints, b.endpointsByARN, b.endpointsByRegion, region, identifierOrArn), nil
 }
 
 // DeleteEndpoint deletes an endpoint by ARN or identifier.
@@ -877,15 +621,13 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.endpointsStore(region)
-	byARN := b.endpointsByARNStore(region)
 
 	deleteEndpoint := func(ep *Endpoint, id string) (*Endpoint, error) {
 		// O(1) check using tasksByEndpointARN index (#performance).
 		if tasks := b.tasksByEndpointARN[ep.EndpointArn]; len(tasks) > 0 {
 			for taskARN := range tasks {
 				taskID := taskARN
-				if rt, ok := b.replicationTasksByARNStore(region)[taskARN]; ok {
+				if rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, taskARN)); ok {
 					taskID = rt.ReplicationTaskIdentifier
 				}
 
@@ -899,8 +641,7 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 		}
 		cp := *ep
 		ep.Tags.Close()
-		delete(byARN, ep.EndpointArn)
-		delete(store, id)
+		b.endpoints.Delete(regionKey(region, id))
 		b.appendEvent(
 			region, ep.EndpointArn, "replication-instance",
 			"Endpoint "+id+" deleted", []string{eventCategoryDeletion},
@@ -910,11 +651,11 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, arnOrID string) (*
 	}
 
 	// Try by identifier first.
-	if ep, ok := store[arnOrID]; ok {
+	if ep, ok := b.endpoints.Get(regionKey(region, arnOrID)); ok {
 		return deleteEndpoint(ep, arnOrID)
 	}
 	// Try by ARN index.
-	if ep, ok := byARN[arnOrID]; ok {
+	if ep, ok := lookupUnique(b.endpointsByARN, regionKey(region, arnOrID)); ok {
 		return deleteEndpoint(ep, ep.EndpointIdentifier)
 	}
 
@@ -932,10 +673,8 @@ func (b *InMemoryBackend) CreateReplicationTask(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationTasksStore(region)
-	byARN := b.replicationTasksByARNStore(region)
 
-	if _, ok := store[identifier]; ok {
+	if b.replicationTasks.Has(regionKey(region, identifier)) {
 		return nil, fmt.Errorf(
 			"%w: replication task %s already exists",
 			ErrAlreadyExists,
@@ -944,15 +683,15 @@ func (b *InMemoryBackend) CreateReplicationTask(
 	}
 
 	// Validate referenced resources exist (real AWS returns ResourceNotFoundFault).
-	if _, ok := b.endpointsByARNStore(region)[sourceEndpointArn]; !ok {
+	if _, ok := lookupUnique(b.endpointsByARN, regionKey(region, sourceEndpointArn)); !ok {
 		return nil, fmt.Errorf("%w: source endpoint %s not found", ErrNotFound, sourceEndpointArn)
 	}
 
-	if _, ok := b.endpointsByARNStore(region)[targetEndpointArn]; !ok {
+	if _, ok := lookupUnique(b.endpointsByARN, regionKey(region, targetEndpointArn)); !ok {
 		return nil, fmt.Errorf("%w: target endpoint %s not found", ErrNotFound, targetEndpointArn)
 	}
 
-	if _, ok := b.replicationInstancesByARNStore(region)[replicationInstanceArn]; !ok {
+	if _, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, replicationInstanceArn)); !ok {
 		return nil, fmt.Errorf(
 			"%w: replication instance %s not found",
 			ErrNotFound,
@@ -981,8 +720,7 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		CreationTime:              time.Now().UTC(),
 		Tags:                      t,
 	}
-	store[identifier] = rt
-	byARN[taskARN] = rt
+	b.replicationTasks.Put(rt)
 	if b.tasksByInstanceARN[replicationInstanceArn] == nil {
 		b.tasksByInstanceARN[replicationInstanceArn] = make(map[string]struct{})
 	}
@@ -1005,33 +743,11 @@ func (b *InMemoryBackend) DescribeReplicationTasks(ctx context.Context, arnOrID 
 	b.mu.RLock("DescribeReplicationTasks")
 	defer b.mu.RUnlock()
 
-	store := b.replicationTasksStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	if arnOrID != "" {
-		// Try by identifier first, then by ARN index.
-		if rt, ok := store[arnOrID]; ok {
-			cp := *rt
-
-			return []*ReplicationTask{&cp}, nil
-		}
-
-		byARN := b.replicationTasksByARNStore(getRegion(ctx, b.region))
-		if rt, ok := byARN[arnOrID]; ok {
-			cp := *rt
-
-			return []*ReplicationTask{&cp}, nil
-		}
-
-		return []*ReplicationTask{}, nil
-	}
-
-	list := make([]*ReplicationTask, 0, len(store))
-	for _, rt := range store {
-		cp := *rt
-		list = append(list, &cp)
-	}
-
-	return list, nil
+	return describeByIdentifierOrARN(
+		b.replicationTasks, b.replicationTasksByARN, b.replicationTasksByRegion, region, arnOrID,
+	), nil
 }
 
 // StartReplicationTask transitions a replication task to running status.
@@ -1099,8 +815,6 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationTasksStore(region)
-	byARN := b.replicationTasksByARNStore(region)
 
 	deleteTask := func(rt *ReplicationTask, id string) (*ReplicationTask, error) {
 		if rt.Status == statusRunning {
@@ -1112,8 +826,7 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 		}
 		cp := *rt
 		rt.Tags.Close()
-		delete(byARN, rt.ReplicationTaskArn)
-		delete(store, id)
+		b.replicationTasks.Delete(regionKey(region, id))
 		// Remove from reverse instance→tasks index.
 		if instTasks := b.tasksByInstanceARN[rt.ReplicationInstanceArn]; instTasks != nil {
 			delete(instTasks, rt.ReplicationTaskArn)
@@ -1130,10 +843,10 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 	}
 
 	// Try by identifier first, then by ARN index.
-	if rt, ok := store[arnOrID]; ok {
+	if rt, ok := b.replicationTasks.Get(regionKey(region, arnOrID)); ok {
 		return deleteTask(rt, arnOrID)
 	}
-	if rt, ok := byARN[arnOrID]; ok {
+	if rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, arnOrID)); ok {
 		return deleteTask(rt, rt.ReplicationTaskIdentifier)
 	}
 
@@ -1143,13 +856,12 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 // findTask locates a replication task by identifier or ARN within the request
 // region (must hold a lock).
 func (b *InMemoryBackend) findTask(ctx context.Context, arnOrID string) *ReplicationTask {
-	store := b.replicationTasksStore(getRegion(ctx, b.region))
-	if rt, ok := store[arnOrID]; ok {
+	region := getRegion(ctx, b.region)
+	if rt, ok := b.replicationTasks.Get(regionKey(region, arnOrID)); ok {
 		return rt
 	}
 
-	byARN := b.replicationTasksByARNStore(getRegion(ctx, b.region))
-	if rt, ok := byARN[arnOrID]; ok {
+	if rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, arnOrID)); ok {
 		return rt
 	}
 
@@ -1193,11 +905,9 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	byARN := b.replicationInstancesByARNStore(region)
-	ri, ok := byARN[replicationInstanceArn]
+	ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, replicationInstanceArn))
 	if !ok {
-		store := b.replicationInstancesStore(region)
-		ri, ok = store[replicationInstanceArn]
+		ri, ok = b.replicationInstances.Get(regionKey(region, replicationInstanceArn))
 	}
 	if ok {
 		// In-memory: mark the action as applied by updating the engine version
@@ -1225,10 +935,10 @@ func (b *InMemoryBackend) BatchStartRecommendations(ctx context.Context) error {
 
 	region := getRegion(ctx, b.region)
 
-	for epARN, ep := range b.endpointsByARNStore(region) {
+	for _, ep := range b.endpointsByRegion.Get(region) {
 		if ep.EndpointType == "source" {
 			b.recommendations[region] = append(b.recommendations[region], &Recommendation{
-				DatabaseID: epARN,
+				DatabaseID: ep.EndpointArn,
 				EngineName: "aurora-mysql",
 				Status:     "active",
 			})
@@ -1257,7 +967,7 @@ func (b *InMemoryBackend) CancelMetadataModelConversion(
 	region := getRegion(ctx, b.region)
 	projectARN := b.resolveProjectARN(region, migrationProjectIdentifier)
 
-	if req, ok := b.metadataModelRequestsStore(region, projectARN)[requestIdentifier]; ok {
+	if req, ok := b.metadataModelRequests.Get(metadataModelRequestKey(region, projectARN, requestIdentifier)); ok {
 		req.Status = statusCancelling
 	}
 
@@ -1283,7 +993,7 @@ func (b *InMemoryBackend) CancelMetadataModelCreation(
 	region := getRegion(ctx, b.region)
 	projectARN := b.resolveProjectARN(region, migrationProjectIdentifier)
 
-	if req, ok := b.metadataModelRequestsStore(region, projectARN)[requestIdentifier]; ok {
+	if req, ok := b.metadataModelRequests.Get(metadataModelRequestKey(region, projectARN, requestIdentifier)); ok {
 		req.Status = statusCancelling
 	}
 
@@ -1302,9 +1012,9 @@ func (b *InMemoryBackend) CancelReplicationTaskAssessmentRun(
 	b.mu.Lock("CancelReplicationTaskAssessmentRun")
 	defer b.mu.Unlock()
 
-	store := b.assessmentRunsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	run, ok := store[replicationTaskAssessmentRunArn]
+	run, ok := b.assessmentRuns.Get(regionKey(region, replicationTaskAssessmentRunArn))
 	if !ok {
 		return fmt.Errorf(
 			"%w: assessment run %s not found",
@@ -1328,7 +1038,7 @@ func (b *InMemoryBackend) StartAssessmentRun(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.replicationTasksByARNStore(region)[taskArn]; !ok {
+	if _, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, taskArn)); !ok {
 		return nil, fmt.Errorf("%w: replication task %s not found", ErrNotFound, taskArn)
 	}
 
@@ -1338,8 +1048,9 @@ func (b *InMemoryBackend) StartAssessmentRun(
 		ReplicationTaskArn:              taskArn,
 		AssessmentRunName:               assessmentRunName,
 		Status:                          statusRunning,
+		Region:                          region,
 	}
-	b.assessmentRunsStore(region)[runARN] = run
+	b.assessmentRuns.Put(run)
 	cp := *run
 
 	return &cp, nil
@@ -1350,15 +1061,15 @@ func (b *InMemoryBackend) DeleteAssessmentRun(ctx context.Context, runArn string
 	b.mu.Lock("DeleteAssessmentRun")
 	defer b.mu.Unlock()
 
-	store := b.assessmentRunsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	run, ok := store[runArn]
+	run, ok := b.assessmentRuns.Get(regionKey(region, runArn))
 	if !ok {
 		return nil, fmt.Errorf("%w: assessment run %s not found", ErrNotFound, runArn)
 	}
 
 	cp := *run
-	delete(store, runArn)
+	b.assessmentRuns.Delete(regionKey(region, runArn))
 
 	return &cp, nil
 }
@@ -1368,10 +1079,11 @@ func (b *InMemoryBackend) DescribeAssessmentRuns(ctx context.Context, taskArn st
 	b.mu.RLock("DescribeAssessmentRuns")
 	defer b.mu.RUnlock()
 
-	store := b.assessmentRunsStore(getRegion(ctx, b.region))
-	list := make([]*AssessmentRun, 0, len(store))
+	region := getRegion(ctx, b.region)
+	items := b.assessmentRunsByRegion.Get(region)
+	list := make([]*AssessmentRun, 0, len(items))
 
-	for _, run := range store {
+	for _, run := range items {
 		if taskArn != "" && run.ReplicationTaskArn != taskArn {
 			continue
 		}
@@ -1407,10 +1119,8 @@ func (b *InMemoryBackend) CreateDataMigration(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.dataMigrationsStore(region)
-	byARN := b.dataMigrationsByARNStore(region)
 
-	if _, ok := store[name]; ok {
+	if b.dataMigrations.Has(regionKey(region, name)) {
 		return nil, fmt.Errorf("%w: data migration %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1447,8 +1157,7 @@ func (b *InMemoryBackend) CreateDataMigration(
 		CreationTime:         time.Now().UTC(),
 		Tags:                 t,
 	}
-	store[name] = dm
-	byARN[migrationARN] = dm
+	b.dataMigrations.Put(dm)
 	cp := *dm
 
 	return &cp, nil
@@ -1464,10 +1173,8 @@ func (b *InMemoryBackend) CreateDataProvider(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.dataProvidersStore(region)
-	byARN := b.dataProvidersByARNStore(region)
 
-	if _, ok := store[name]; ok {
+	if b.dataProviders.Has(regionKey(region, name)) {
 		return nil, fmt.Errorf("%w: data provider %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1488,8 +1195,7 @@ func (b *InMemoryBackend) CreateDataProvider(
 		CreationTime:     now,
 		Tags:             t,
 	}
-	store[name] = dp
-	byARN[providerARN] = dp
+	b.dataProviders.Put(dp)
 	cp := *dp
 
 	return &cp, nil
@@ -1507,9 +1213,8 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.eventSubscriptionsStore(region)
 
-	if _, ok := store[subscriptionName]; ok {
+	if b.eventSubscriptions.Has(regionKey(region, subscriptionName)) {
 		return nil, fmt.Errorf(
 			"%w: event subscription %s already exists",
 			ErrAlreadyExists,
@@ -1538,7 +1243,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		CreationTime:     time.Now().UTC(),
 		Tags:             t,
 	}
-	store[subscriptionName] = es
+	b.eventSubscriptions.Put(es)
 	cp := *es
 	cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
 	cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
@@ -1555,9 +1260,8 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.fleetAdvisorCollectorsStore(region)
 
-	if _, ok := store[collectorName]; ok {
+	if b.fleetAdvisorCollectors.Has(regionKey(region, collectorName)) {
 		return nil, fmt.Errorf(
 			"%w: Fleet Advisor collector %s already exists",
 			ErrAlreadyExists,
@@ -1580,23 +1284,22 @@ func (b *InMemoryBackend) CreateFleetAdvisorCollector(
 		CreatedDate:           time.Now().UTC(),
 		Tags:                  t,
 	}
-	store[collectorName] = col
-	b.fleetAdvisorCollectorsByIDStore(region)[collectorID] = col
+	b.fleetAdvisorCollectors.Put(col)
 
 	// Seed two discovered databases per collector to emulate Fleet Advisor discovery.
-	dbStore := b.fleetAdvisorDatabasesStore(region)
 	for _, seed := range []struct{ name, engine, ip string }{
 		{collectorName + "-mysql-db", "mysql", "10.0.1.10"},
 		{collectorName + "-pg-db", "postgresql", "10.0.1.11"},
 	} {
 		dbID := uuid.NewString()
-		dbStore[dbID] = &FleetAdvisorDatabase{
+		b.fleetAdvisorDatabases.Put(&FleetAdvisorDatabase{
 			DatabaseID:            dbID,
 			DatabaseName:          seed.name,
 			IPAddress:             seed.ip,
 			EngineName:            seed.engine,
 			CollectorReferencedID: collectorID,
-		}
+			Region:                region,
+		})
 	}
 
 	cp := *col
@@ -1619,15 +1322,13 @@ func (b *InMemoryBackend) CreateInstanceProfile(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.instanceProfilesStore(region)
-	byARN := b.instanceProfilesByARNStore(region)
 
 	key := instanceProfileName
 	if key == "" {
 		key = uuid.NewString()
 	}
 
-	if _, ok := store[key]; ok {
+	if b.instanceProfiles.Has(regionKey(region, key)) {
 		return nil, fmt.Errorf("%w: instance profile %s already exists", ErrAlreadyExists, key)
 	}
 
@@ -1663,22 +1364,17 @@ func (b *InMemoryBackend) CreateInstanceProfile(
 		CreationTime:          time.Now().UTC(),
 		Tags:                  t,
 	}
-	store[key] = ip
-	byARN[profileARN] = ip
+	b.instanceProfiles.Put(ip)
 	cp := *ip
 
 	return &cp, nil
 }
 
-// closeTagged closes the Tags registry on every value across all per-region
-// inner maps. The Tagged constraint matches resource structs that embed a
-// *tags.Tags accessible via a Close-able registry; closeTagged uses a closer
-// callback so it stays generic over the concrete resource type.
-func closeAllTags[T any](m map[string]map[string]*T, closer func(*T)) {
-	for _, regionMap := range m {
-		for _, v := range regionMap {
-			closer(v)
-		}
+// closeAllTags closes the Tags registry on every value currently in t. It
+// stays generic over the concrete resource type via a closer callback.
+func closeAllTags[T any](t *store.Table[T], closer func(*T)) {
+	for _, v := range t.All() {
+		closer(v)
 	}
 }
 
@@ -1699,36 +1395,12 @@ func (b *InMemoryBackend) Reset() {
 	closeAllTags(b.replicationSubnetGroups, func(sg *ReplicationSubnetGroup) { sg.Tags.Close() })
 	closeAllTags(b.replicationConfigs, func(rc *ReplicationConfig) { rc.Tags.Close() })
 
-	b.replicationInstances = make(map[string]map[string]*ReplicationInstance)
-	b.replicationInstancesByARN = make(map[string]map[string]*ReplicationInstance)
-	b.endpoints = make(map[string]map[string]*Endpoint)
-	b.endpointsByARN = make(map[string]map[string]*Endpoint)
-	b.replicationTasks = make(map[string]map[string]*ReplicationTask)
-	b.replicationTasksByARN = make(map[string]map[string]*ReplicationTask)
+	b.registry.ResetAll()
+
 	b.tasksByInstanceARN = make(map[string]map[string]struct{})
-	b.dataMigrations = make(map[string]map[string]*DataMigration)
-	b.dataMigrationsByARN = make(map[string]map[string]*DataMigration)
-	b.dataProviders = make(map[string]map[string]*DataProvider)
-	b.dataProvidersByARN = make(map[string]map[string]*DataProvider)
-	b.eventSubscriptions = make(map[string]map[string]*EventSubscription)
-	b.fleetAdvisorCollectors = make(map[string]map[string]*FleetAdvisorCollector)
-	b.fleetAdvisorCollectorsByID = make(map[string]map[string]*FleetAdvisorCollector)
-	b.instanceProfiles = make(map[string]map[string]*InstanceProfile)
-	b.instanceProfilesByARN = make(map[string]map[string]*InstanceProfile)
-	b.certificates = make(map[string]map[string]*Certificate)
-	b.replicationSubnetGroups = make(map[string]map[string]*ReplicationSubnetGroup)
-	b.replicationSubnetGroupsByARN = make(map[string]map[string]*ReplicationSubnetGroup)
-	b.migrationProjects = make(map[string]map[string]*MigrationProject)
-	b.migrationProjectsByARN = make(map[string]map[string]*MigrationProject)
-	b.replicationConfigs = make(map[string]map[string]*ReplicationConfig)
-	b.replicationConfigsByARN = make(map[string]map[string]*ReplicationConfig)
-	b.connections = make(map[string]map[string]*Connection)
-	b.assessmentRuns = make(map[string]map[string]*AssessmentRun)
 	b.events = make(map[string][]*Event)
 	b.recommendations = make(map[string][]*Recommendation)
-	b.fleetAdvisorDatabases = make(map[string]map[string]*FleetAdvisorDatabase)
 	b.endpointSchemas = make(map[string]map[string][]string)
-	b.metadataModelRequests = make(map[string]map[string]map[string]*MetadataModelRequest)
 	b.tasksByEndpointARN = make(map[string]map[string]struct{})
 }
 
@@ -1781,10 +1453,10 @@ func (b *InMemoryBackend) DescribeFleetAdvisorDatabases(ctx context.Context) ([]
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.fleetAdvisorDatabasesStore(region)
-	result := make([]*FleetAdvisorDatabase, 0, len(store))
+	items := b.fleetAdvisorDatabasesByRegion.Get(region)
+	result := make([]*FleetAdvisorDatabase, 0, len(items))
 
-	for _, db := range store {
+	for _, db := range items {
 		cp := *db
 		result = append(result, &cp)
 	}
@@ -1798,17 +1470,27 @@ func (b *InMemoryBackend) DeleteFleetAdvisorDatabases(ctx context.Context, ids [
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.fleetAdvisorDatabasesStore(region)
 	deleted := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		if _, ok := store[id]; ok {
-			delete(store, id)
+		if b.fleetAdvisorDatabases.Delete(regionKey(region, id)) {
 			deleted = append(deleted, id)
 		}
 	}
 
 	return deleted, nil
+}
+
+// endpointSchemasStore returns the per-region inner map, lazily creating it.
+// endpointSchemas is deliberately left a plain map (not converted to
+// store.Table) because its values are []string, not *T -- see
+// store_setup.go's registerAllTables doc comment. Callers must hold b.mu.
+func (b *InMemoryBackend) endpointSchemasStore(region string) map[string][]string {
+	if b.endpointSchemas[region] == nil {
+		b.endpointSchemas[region] = make(map[string][]string)
+	}
+
+	return b.endpointSchemas[region]
 }
 
 // DescribeSchemas returns the schema names available on an endpoint.
@@ -1835,7 +1517,7 @@ func (b *InMemoryBackend) RefreshSchemas(ctx context.Context, endpointARN string
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	ep, ok := b.endpointsByARNStore(region)[endpointARN]
+	ep, ok := lookupUnique(b.endpointsByARN, regionKey(region, endpointARN))
 
 	if !ok {
 		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointARN)
@@ -1871,13 +1553,14 @@ func (b *InMemoryBackend) StartMetadataModelRequest(
 	region := getRegion(ctx, b.region)
 	projectARN := b.resolveProjectARN(region, projectIdentifier)
 	reqID := uuid.NewString()
-	b.metadataModelRequestsStore(region, projectARN)[reqID] = &MetadataModelRequest{
+	b.metadataModelRequests.Put(&MetadataModelRequest{
 		RequestIdentifier:          reqID,
 		MigrationProjectIdentifier: projectARN,
 		Status:                     "running",
 		RequestType:                reqType,
 		SelectionRules:             selectionRules,
-	}
+		Region:                     region,
+	})
 
 	return reqID, nil
 }
@@ -1892,10 +1575,10 @@ func (b *InMemoryBackend) ListMetadataModelRequests(
 
 	region := getRegion(ctx, b.region)
 	projectARN := b.resolveProjectARN(region, projectIdentifier)
-	store := b.metadataModelRequestsStore(region, projectARN)
+	items := b.metadataModelRequestsByProject.Get(metadataModelRequestProjectKey(region, projectARN))
 	result := make([]*MetadataModelRequest, 0)
 
-	for _, req := range store {
+	for _, req := range items {
 		if req.RequestType == reqType {
 			cp := *req
 			result = append(result, &cp)
@@ -1909,8 +1592,6 @@ func (b *InMemoryBackend) ListMetadataModelRequests(
 func (b *InMemoryBackend) AddReplicationInstanceInternal(identifier, class string) {
 	b.mu.Lock("AddReplicationInstanceInternal")
 	defer b.mu.Unlock()
-	store := b.replicationInstancesStore(b.region)
-	byARN := b.replicationInstancesByARNStore(b.region)
 	instanceARN := arn.Build("dms", b.region, b.accountID, "rep:"+identifier)
 	t := tags.New("dms.replication-instance." + identifier + ".tags")
 	ri := &ReplicationInstance{
@@ -1926,16 +1607,13 @@ func (b *InMemoryBackend) AddReplicationInstanceInternal(identifier, class strin
 		CreationTime:                  time.Now().UTC(),
 		Tags:                          t,
 	}
-	store[identifier] = ri
-	byARN[instanceARN] = ri
+	b.replicationInstances.Put(ri)
 }
 
 // AddEndpointInternal seeds an endpoint directly without HTTP.
 func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineName string) {
 	b.mu.Lock("AddEndpointInternal")
 	defer b.mu.Unlock()
-	store := b.endpointsStore(b.region)
-	byARN := b.endpointsByARNStore(b.region)
 	epID := uuid.NewString()
 	epARN := arn.Build("dms", b.region, b.accountID, "endpoint:"+epID)
 	t := tags.New("dms.endpoint." + identifier + ".tags")
@@ -1950,8 +1628,7 @@ func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineNa
 		CreationTime:       time.Now().UTC(),
 		Tags:               t,
 	}
-	store[identifier] = ep
-	byARN[epARN] = ep
+	b.endpoints.Put(ep)
 }
 
 // AddReplicationTaskInternal seeds a replication task directly without HTTP.
@@ -1960,8 +1637,6 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(
 ) {
 	b.mu.Lock("AddReplicationTaskInternal")
 	defer b.mu.Unlock()
-	store := b.replicationTasksStore(b.region)
-	byARN := b.replicationTasksByARNStore(b.region)
 	taskARN := arn.Build("dms", b.region, b.accountID, "task:"+uuid.NewString())
 	t := tags.New("dms.task." + identifier + ".tags")
 	rt := &ReplicationTask{
@@ -1977,8 +1652,7 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(
 		CreationTime:              time.Now().UTC(),
 		Tags:                      t,
 	}
-	store[identifier] = rt
-	byARN[taskARN] = rt
+	b.replicationTasks.Put(rt)
 	if b.tasksByInstanceARN[instARN] == nil {
 		b.tasksByInstanceARN[instARN] = make(map[string]struct{})
 	}
@@ -1997,8 +1671,6 @@ func (b *InMemoryBackend) AddReplicationTaskInternal(
 func (b *InMemoryBackend) AddDataMigrationInternal(name, migrationType string) {
 	b.mu.Lock("AddDataMigrationInternal")
 	defer b.mu.Unlock()
-	store := b.dataMigrationsStore(b.region)
-	byARN := b.dataMigrationsByARNStore(b.region)
 	migrationARN := arn.Build("dms", b.region, b.accountID, "data-migration:"+uuid.NewString())
 	t := tags.New("dms.data-migration." + name + ".tags")
 	dm := &DataMigration{
@@ -2012,16 +1684,13 @@ func (b *InMemoryBackend) AddDataMigrationInternal(name, migrationType string) {
 		CreationTime:        time.Now().UTC(),
 		Tags:                t,
 	}
-	store[name] = dm
-	byARN[migrationARN] = dm
+	b.dataMigrations.Put(dm)
 }
 
 // AddDataProviderInternal seeds a data provider directly without HTTP.
 func (b *InMemoryBackend) AddDataProviderInternal(name, engine string) {
 	b.mu.Lock("AddDataProviderInternal")
 	defer b.mu.Unlock()
-	store := b.dataProvidersStore(b.region)
-	byARN := b.dataProvidersByARNStore(b.region)
 	providerARN := arn.Build("dms", b.region, b.accountID, "data-provider:"+uuid.NewString())
 	t := tags.New("dms.data-provider." + name + ".tags")
 	now := time.Now().UTC()
@@ -2034,15 +1703,13 @@ func (b *InMemoryBackend) AddDataProviderInternal(name, engine string) {
 		CreationTime:     now,
 		Tags:             t,
 	}
-	store[name] = dp
-	byARN[providerARN] = dp
+	b.dataProviders.Put(dp)
 }
 
 // AddEventSubscriptionInternal seeds an event subscription directly without HTTP.
 func (b *InMemoryBackend) AddEventSubscriptionInternal(name, snsTopicArn string) {
 	b.mu.Lock("AddEventSubscriptionInternal")
 	defer b.mu.Unlock()
-	store := b.eventSubscriptionsStore(b.region)
 	t := tags.New("dms.event-subscription." + name + ".tags")
 	es := &EventSubscription{
 		SubscriptionName: name,
@@ -2056,7 +1723,7 @@ func (b *InMemoryBackend) AddEventSubscriptionInternal(name, snsTopicArn string)
 		CreationTime:     time.Now().UTC(),
 		Tags:             t,
 	}
-	store[name] = es
+	b.eventSubscriptions.Put(es)
 }
 
 // AddFleetAdvisorCollectorInternal seeds a Fleet Advisor collector directly without HTTP.
@@ -2064,7 +1731,6 @@ func (b *InMemoryBackend) AddFleetAdvisorCollectorInternal(name string) {
 	b.mu.Lock("AddFleetAdvisorCollectorInternal")
 	defer b.mu.Unlock()
 	collectorID := uuid.NewString()
-	store := b.fleetAdvisorCollectorsStore(b.region)
 	t := tags.New("dms.fleet-advisor-collector." + name + ".tags")
 	col := &FleetAdvisorCollector{
 		CollectorName:         name,
@@ -2076,8 +1742,7 @@ func (b *InMemoryBackend) AddFleetAdvisorCollectorInternal(name string) {
 		CreatedDate:           time.Now().UTC(),
 		Tags:                  t,
 	}
-	store[name] = col
-	b.fleetAdvisorCollectorsByIDStore(b.region)[collectorID] = col
+	b.fleetAdvisorCollectors.Put(col)
 }
 
 // AddInstanceProfileInternal seeds an instance profile directly without HTTP.
@@ -2087,8 +1752,6 @@ func (b *InMemoryBackend) AddInstanceProfileInternal(name string) {
 	if name == "" {
 		name = uuid.NewString()
 	}
-	store := b.instanceProfilesStore(b.region)
-	byARN := b.instanceProfilesByARNStore(b.region)
 	profileARN := arn.Build("dms", b.region, b.accountID, "instance-profile:"+uuid.NewString())
 	t := tags.New("dms.instance-profile." + name + ".tags")
 	ip := &InstanceProfile{
@@ -2099,8 +1762,7 @@ func (b *InMemoryBackend) AddInstanceProfileInternal(name string) {
 		CreationTime:        time.Now().UTC(),
 		Tags:                t,
 	}
-	store[name] = ip
-	byARN[profileARN] = ip
+	b.instanceProfiles.Put(ip)
 }
 
 // PaginationSecret returns the HMAC secret for pagination tokens.
@@ -2145,11 +1807,11 @@ func (b *InMemoryBackend) ModifyEndpoint(
 // region (must hold a lock).
 func (b *InMemoryBackend) findEndpoint(ctx context.Context, arnOrID string) *Endpoint {
 	region := getRegion(ctx, b.region)
-	if ep, ok := b.endpointsStore(region)[arnOrID]; ok {
+	if ep, ok := b.endpoints.Get(regionKey(region, arnOrID)); ok {
 		return ep
 	}
 
-	if ep, ok := b.endpointsByARNStore(region)[arnOrID]; ok {
+	if ep, ok := lookupUnique(b.endpointsByARN, regionKey(region, arnOrID)); ok {
 		return ep
 	}
 
@@ -2200,11 +1862,11 @@ func (b *InMemoryBackend) ModifyReplicationInstance(
 // within the request region (must hold a lock).
 func (b *InMemoryBackend) findReplicationInstance(ctx context.Context, arnOrID string) *ReplicationInstance {
 	region := getRegion(ctx, b.region)
-	if ri, ok := b.replicationInstancesStore(region)[arnOrID]; ok {
+	if ri, ok := b.replicationInstances.Get(regionKey(region, arnOrID)); ok {
 		return ri
 	}
 
-	if ri, ok := b.replicationInstancesByARNStore(region)[arnOrID]; ok {
+	if ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, arnOrID)); ok {
 		return ri
 	}
 
@@ -2256,23 +1918,19 @@ func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn str
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.dataMigrationsStore(region)
-	byARN := b.dataMigrationsByARNStore(region)
 
-	if dm, ok := store[nameOrArn]; ok {
+	if dm, ok := b.dataMigrations.Get(regionKey(region, nameOrArn)); ok {
 		cp := *dm
 		dm.Tags.Close()
-		delete(byARN, dm.DataMigrationArn)
-		delete(store, nameOrArn)
+		b.dataMigrations.Delete(regionKey(region, nameOrArn))
 
 		return &cp, nil
 	}
 
-	if dm, ok := byARN[nameOrArn]; ok {
+	if dm, ok := lookupUnique(b.dataMigrationsByARN, regionKey(region, nameOrArn)); ok {
 		cp := *dm
 		dm.Tags.Close()
-		delete(store, dm.DataMigrationName)
-		delete(byARN, nameOrArn)
+		b.dataMigrations.Delete(regionKey(region, dm.DataMigrationName))
 
 		return &cp, nil
 	}
@@ -2286,23 +1944,19 @@ func (b *InMemoryBackend) DeleteDataProvider(ctx context.Context, nameOrArn stri
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.dataProvidersStore(region)
-	byARN := b.dataProvidersByARNStore(region)
 
-	if dp, ok := store[nameOrArn]; ok {
+	if dp, ok := b.dataProviders.Get(regionKey(region, nameOrArn)); ok {
 		cp := *dp
 		dp.Tags.Close()
-		delete(byARN, dp.DataProviderArn)
-		delete(store, nameOrArn)
+		b.dataProviders.Delete(regionKey(region, nameOrArn))
 
 		return &cp, nil
 	}
 
-	if dp, ok := byARN[nameOrArn]; ok {
+	if dp, ok := lookupUnique(b.dataProvidersByARN, regionKey(region, nameOrArn)); ok {
 		cp := *dp
 		dp.Tags.Close()
-		delete(store, dp.DataProviderName)
-		delete(byARN, nameOrArn)
+		b.dataProviders.Delete(regionKey(region, dp.DataProviderName))
 
 		return &cp, nil
 	}
@@ -2315,9 +1969,9 @@ func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name stri
 	b.mu.Lock("DeleteEventSubscription")
 	defer b.mu.Unlock()
 
-	store := b.eventSubscriptionsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	es, ok := store[name]
+	es, ok := b.eventSubscriptions.Get(regionKey(region, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: event subscription %s not found", ErrNotFound, name)
 	}
@@ -2326,7 +1980,7 @@ func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name stri
 	cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
 	cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
 	es.Tags.Close()
-	delete(store, name)
+	b.eventSubscriptions.Delete(regionKey(region, name))
 
 	return &cp, nil
 }
@@ -2337,21 +1991,17 @@ func (b *InMemoryBackend) DeleteFleetAdvisorCollector(ctx context.Context, nameO
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.fleetAdvisorCollectorsStore(region)
-	byID := b.fleetAdvisorCollectorsByIDStore(region)
 
-	if col, ok := store[nameOrID]; ok {
+	if col, ok := b.fleetAdvisorCollectors.Get(regionKey(region, nameOrID)); ok {
 		col.Tags.Close()
-		delete(byID, col.CollectorReferencedID)
-		delete(store, nameOrID)
+		b.fleetAdvisorCollectors.Delete(regionKey(region, nameOrID))
 
 		return nil
 	}
 
-	if col, ok := byID[nameOrID]; ok {
+	if col, ok := lookupUnique(b.fleetAdvisorCollectorsByID, regionKey(region, nameOrID)); ok {
 		col.Tags.Close()
-		delete(store, col.CollectorName)
-		delete(byID, nameOrID)
+		b.fleetAdvisorCollectors.Delete(regionKey(region, col.CollectorName))
 
 		return nil
 	}
@@ -2365,21 +2015,17 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.instanceProfilesStore(region)
-	byARN := b.instanceProfilesByARNStore(region)
 
-	if ip, ok := store[nameOrArn]; ok {
+	if ip, ok := b.instanceProfiles.Get(regionKey(region, nameOrArn)); ok {
 		ip.Tags.Close()
-		delete(byARN, ip.InstanceProfileArn)
-		delete(store, nameOrArn)
+		b.instanceProfiles.Delete(regionKey(region, nameOrArn))
 
 		return nil
 	}
 
-	if ip, ok := byARN[nameOrArn]; ok {
+	if ip, ok := lookupUnique(b.instanceProfilesByARN, regionKey(region, nameOrArn)); ok {
 		ip.Tags.Close()
-		delete(store, ip.InstanceProfileName)
-		delete(byARN, nameOrArn)
+		b.instanceProfiles.Delete(regionKey(region, ip.InstanceProfileName))
 
 		return nil
 	}
@@ -2390,39 +2036,39 @@ func (b *InMemoryBackend) DeleteInstanceProfile(ctx context.Context, nameOrArn s
 // findResourceTags returns the Tags for a resource ARN within the given region
 // (must hold a lock). Returns nil if not found.
 func (b *InMemoryBackend) findResourceTags(region, resourceArn string) *tags.Tags {
-	if ri, ok := b.replicationInstancesByARNStore(region)[resourceArn]; ok {
+	if ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, resourceArn)); ok {
 		return ri.Tags
 	}
 
-	if ep, ok := b.endpointsByARNStore(region)[resourceArn]; ok {
+	if ep, ok := lookupUnique(b.endpointsByARN, regionKey(region, resourceArn)); ok {
 		return ep.Tags
 	}
 
-	if rt, ok := b.replicationTasksByARNStore(region)[resourceArn]; ok {
+	if rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, resourceArn)); ok {
 		return rt.Tags
 	}
 
-	if dm, ok := b.dataMigrationsByARNStore(region)[resourceArn]; ok {
+	if dm, ok := lookupUnique(b.dataMigrationsByARN, regionKey(region, resourceArn)); ok {
 		return dm.Tags
 	}
 
-	if dp, ok := b.dataProvidersByARNStore(region)[resourceArn]; ok {
+	if dp, ok := lookupUnique(b.dataProvidersByARN, regionKey(region, resourceArn)); ok {
 		return dp.Tags
 	}
 
-	if ip, ok := b.instanceProfilesByARNStore(region)[resourceArn]; ok {
+	if ip, ok := lookupUnique(b.instanceProfilesByARN, regionKey(region, resourceArn)); ok {
 		return ip.Tags
 	}
 
-	if mp, ok := b.migrationProjectsByARNStore(region)[resourceArn]; ok {
+	if mp, ok := lookupUnique(b.migrationProjectsByARN, regionKey(region, resourceArn)); ok {
 		return mp.Tags
 	}
 
-	if sg, ok := b.replicationSubnetGroupsByARNStore(region)[resourceArn]; ok {
+	if sg, ok := lookupUnique(b.replicationSubnetGroupsByARN, regionKey(region, resourceArn)); ok {
 		return sg.Tags
 	}
 
-	if rc, ok := b.replicationConfigsByARNStore(region)[resourceArn]; ok {
+	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, resourceArn)); ok {
 		return rc.Tags
 	}
 
@@ -2479,11 +2125,11 @@ func (b *InMemoryBackend) ModifyDataMigration(
 // region (must hold a lock).
 func (b *InMemoryBackend) findDataMigration(ctx context.Context, nameOrArn string) *DataMigration {
 	region := getRegion(ctx, b.region)
-	if dm, ok := b.dataMigrationsStore(region)[nameOrArn]; ok {
+	if dm, ok := b.dataMigrations.Get(regionKey(region, nameOrArn)); ok {
 		return dm
 	}
 
-	if dm, ok := b.dataMigrationsByARNStore(region)[nameOrArn]; ok {
+	if dm, ok := lookupUnique(b.dataMigrationsByARN, regionKey(region, nameOrArn)); ok {
 		return dm
 	}
 
@@ -2520,11 +2166,11 @@ func (b *InMemoryBackend) ModifyDataProvider(
 // region (must hold a lock).
 func (b *InMemoryBackend) findDataProvider(ctx context.Context, nameOrArn string) *DataProvider {
 	region := getRegion(ctx, b.region)
-	if dp, ok := b.dataProvidersStore(region)[nameOrArn]; ok {
+	if dp, ok := b.dataProviders.Get(regionKey(region, nameOrArn)); ok {
 		return dp
 	}
 
-	if dp, ok := b.dataProvidersByARNStore(region)[nameOrArn]; ok {
+	if dp, ok := lookupUnique(b.dataProvidersByARN, regionKey(region, nameOrArn)); ok {
 		return dp
 	}
 
@@ -2540,7 +2186,7 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 	b.mu.Lock("ModifyEventSubscription")
 	defer b.mu.Unlock()
 
-	es, ok := b.eventSubscriptionsStore(getRegion(ctx, b.region))[name]
+	es, ok := b.eventSubscriptions.Get(regionKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: event subscription %s not found", ErrNotFound, name)
 	}
@@ -2590,11 +2236,11 @@ func (b *InMemoryBackend) ModifyInstanceProfile(
 // request region (must hold a lock).
 func (b *InMemoryBackend) findInstanceProfile(ctx context.Context, nameOrArn string) *InstanceProfile {
 	region := getRegion(ctx, b.region)
-	if ip, ok := b.instanceProfilesStore(region)[nameOrArn]; ok {
+	if ip, ok := b.instanceProfiles.Get(regionKey(region, nameOrArn)); ok {
 		return ip
 	}
 
-	if ip, ok := b.instanceProfilesByARNStore(region)[nameOrArn]; ok {
+	if ip, ok := lookupUnique(b.instanceProfilesByARN, regionKey(region, nameOrArn)); ok {
 		return ip
 	}
 
@@ -2677,7 +2323,7 @@ func (b *InMemoryBackend) TestConnection(
 
 	region := getRegion(ctx, b.region)
 
-	ri, ok := b.replicationInstancesByARNStore(region)[replicationInstanceArn]
+	ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, replicationInstanceArn))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: replication instance %s not found",
@@ -2686,20 +2332,20 @@ func (b *InMemoryBackend) TestConnection(
 		)
 	}
 
-	ep, ok := b.endpointsByARNStore(region)[endpointArn]
+	ep, ok := lookupUnique(b.endpointsByARN, regionKey(region, endpointArn))
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointArn)
 	}
 
-	key := replicationInstanceArn + ":" + endpointArn
 	conn := &Connection{
 		ReplicationInstanceArn:        replicationInstanceArn,
 		ReplicationInstanceIdentifier: ri.ReplicationInstanceIdentifier,
 		EndpointArn:                   endpointArn,
 		EndpointIdentifier:            ep.EndpointIdentifier,
 		Status:                        statusSuccessful,
+		Region:                        region,
 	}
-	b.connectionsStore(region)[key] = conn
+	b.connections.Put(conn)
 	cp := *conn
 
 	return &cp, nil
@@ -2713,9 +2359,10 @@ func (b *InMemoryBackend) DescribeConnections(
 	b.mu.RLock("DescribeConnections")
 	defer b.mu.RUnlock()
 
-	store := b.connectionsStore(getRegion(ctx, b.region))
-	list := make([]*Connection, 0, len(store))
-	for _, conn := range store {
+	region := getRegion(ctx, b.region)
+	items := b.connectionsByRegion.Get(region)
+	list := make([]*Connection, 0, len(items))
+	for _, conn := range items {
 		if replicationInstanceArn != "" && conn.ReplicationInstanceArn != replicationInstanceArn {
 			continue
 		}
@@ -2735,9 +2382,8 @@ func (b *InMemoryBackend) ImportCertificate(ctx context.Context, identifier, cer
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.certificatesStore(region)
 
-	if _, ok := store[identifier]; ok {
+	if b.certificates.Has(regionKey(region, identifier)) {
 		return nil, fmt.Errorf("%w: certificate %s already exists", ErrAlreadyExists, identifier)
 	}
 
@@ -2749,7 +2395,7 @@ func (b *InMemoryBackend) ImportCertificate(ctx context.Context, identifier, cer
 		AccountID:             b.accountID,
 		Region:                region,
 	}
-	store[identifier] = cert
+	b.certificates.Put(cert)
 	cp := *cert
 
 	return &cp, nil
@@ -2760,22 +2406,20 @@ func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, identifierOrArn
 	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
-	store := b.certificatesStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
-	if cert, ok := store[identifierOrArn]; ok {
+	if cert, ok := b.certificates.Get(regionKey(region, identifierOrArn)); ok {
 		cp := *cert
-		delete(store, identifierOrArn)
+		b.certificates.Delete(regionKey(region, identifierOrArn))
 
 		return &cp, nil
 	}
 
-	for id, cert := range store {
-		if cert.CertificateArn == identifierOrArn {
-			cp := *cert
-			delete(store, id)
+	if cert, ok := lookupUnique(b.certificatesByARN, regionKey(region, identifierOrArn)); ok {
+		cp := *cert
+		b.certificates.Delete(regionKey(region, cert.CertificateIdentifier))
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: certificate %s not found", ErrNotFound, identifierOrArn)
@@ -2791,10 +2435,8 @@ func (b *InMemoryBackend) CreateMigrationProject(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.migrationProjectsStore(region)
-	byARN := b.migrationProjectsByARNStore(region)
 
-	if _, ok := store[name]; ok {
+	if b.migrationProjects.Has(regionKey(region, name)) {
 		return nil, fmt.Errorf("%w: migration project %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -2812,8 +2454,7 @@ func (b *InMemoryBackend) CreateMigrationProject(
 		Region:                     region,
 		Tags:                       t,
 	}
-	store[name] = mp
-	byARN[projectARN] = mp
+	b.migrationProjects.Put(mp)
 	cp := *mp
 
 	return &cp, nil
@@ -2825,25 +2466,19 @@ func (b *InMemoryBackend) DeleteMigrationProject(ctx context.Context, nameOrArn 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.migrationProjectsStore(region)
-	byARN := b.migrationProjectsByARNStore(region)
 
-	if mp, ok := store[nameOrArn]; ok {
+	if mp, ok := b.migrationProjects.Get(regionKey(region, nameOrArn)); ok {
 		mp.Tags.Close()
-		delete(byARN, mp.MigrationProjectArn)
-		delete(store, nameOrArn)
+		b.migrationProjects.Delete(regionKey(region, nameOrArn))
 
 		return nil
 	}
 
-	for name, mp := range store {
-		if mp.MigrationProjectArn == nameOrArn {
-			mp.Tags.Close()
-			delete(byARN, nameOrArn)
-			delete(store, name)
+	if mp, ok := lookupUnique(b.migrationProjectsByARN, regionKey(region, nameOrArn)); ok {
+		mp.Tags.Close()
+		b.migrationProjects.Delete(regionKey(region, mp.MigrationProjectName))
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: migration project %s not found", ErrNotFound, nameOrArn)
@@ -2859,10 +2494,8 @@ func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationSubnetGroupsStore(region)
-	byARN := b.replicationSubnetGroupsByARNStore(region)
 
-	if _, ok := store[identifier]; ok {
+	if b.replicationSubnetGroups.Has(regionKey(region, identifier)) {
 		return nil, fmt.Errorf(
 			"%w: replication subnet group %s already exists",
 			ErrAlreadyExists,
@@ -2884,8 +2517,7 @@ func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 		Region:                            region,
 		Tags:                              t,
 	}
-	store[identifier] = sg
-	byARN[sgARN] = sg
+	b.replicationSubnetGroups.Put(sg)
 	cp := *sg
 
 	return &cp, nil
@@ -2897,25 +2529,19 @@ func (b *InMemoryBackend) DeleteReplicationSubnetGroup(ctx context.Context, iden
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationSubnetGroupsStore(region)
-	byARN := b.replicationSubnetGroupsByARNStore(region)
 
-	if sg, ok := store[identifierOrArn]; ok {
+	if sg, ok := b.replicationSubnetGroups.Get(regionKey(region, identifierOrArn)); ok {
 		sg.Tags.Close()
-		delete(byARN, sg.ReplicationSubnetGroupArn)
-		delete(store, identifierOrArn)
+		b.replicationSubnetGroups.Delete(regionKey(region, identifierOrArn))
 
 		return nil
 	}
 
-	for id, sg := range store {
-		if sg.ReplicationSubnetGroupArn == identifierOrArn {
-			sg.Tags.Close()
-			delete(byARN, identifierOrArn)
-			delete(store, id)
+	if sg, ok := lookupUnique(b.replicationSubnetGroupsByARN, regionKey(region, identifierOrArn)); ok {
+		sg.Tags.Close()
+		b.replicationSubnetGroups.Delete(regionKey(region, sg.ReplicationSubnetGroupIdentifier))
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: replication subnet group %s not found", ErrNotFound, identifierOrArn)
@@ -2931,10 +2557,8 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationConfigsStore(region)
-	byARN := b.replicationConfigsByARNStore(region)
 
-	if _, ok := store[identifier]; ok {
+	if b.replicationConfigs.Has(regionKey(region, identifier)) {
 		return nil, fmt.Errorf(
 			"%w: replication config %s already exists",
 			ErrAlreadyExists,
@@ -2957,8 +2581,7 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 		Region:                      region,
 		Tags:                        t,
 	}
-	store[identifier] = rc
-	byARN[configARN] = rc
+	b.replicationConfigs.Put(rc)
 	cp := *rc
 
 	return &cp, nil
@@ -2970,25 +2593,19 @@ func (b *InMemoryBackend) DeleteReplicationConfig(ctx context.Context, identifie
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationConfigsStore(region)
-	byARN := b.replicationConfigsByARNStore(region)
 
-	if rc, ok := store[identifierOrArn]; ok {
+	if rc, ok := b.replicationConfigs.Get(regionKey(region, identifierOrArn)); ok {
 		rc.Tags.Close()
-		delete(byARN, rc.ReplicationConfigArn)
-		delete(store, identifierOrArn)
+		b.replicationConfigs.Delete(regionKey(region, identifierOrArn))
 
 		return nil
 	}
 
-	for id, rc := range store {
-		if rc.ReplicationConfigArn == identifierOrArn {
-			rc.Tags.Close()
-			delete(byARN, identifierOrArn)
-			delete(store, id)
+	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, identifierOrArn)); ok {
+		rc.Tags.Close()
+		b.replicationConfigs.Delete(regionKey(region, rc.ReplicationConfigIdentifier))
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
@@ -3010,9 +2627,9 @@ func (b *InMemoryBackend) DescribeDataMigrations(ctx context.Context, nameOrArn 
 		return []*DataMigration{&cp}, nil
 	}
 
-	store := b.dataMigrationsStore(getRegion(ctx, b.region))
-	list := make([]*DataMigration, 0, len(store))
-	for _, dm := range store {
+	items := b.dataMigrationsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*DataMigration, 0, len(items))
+	for _, dm := range items {
 		cp := *dm
 		list = append(list, &cp)
 	}
@@ -3036,9 +2653,9 @@ func (b *InMemoryBackend) DescribeDataProviders(ctx context.Context, nameOrArn s
 		return []*DataProvider{&cp}, nil
 	}
 
-	store := b.dataProvidersStore(getRegion(ctx, b.region))
-	list := make([]*DataProvider, 0, len(store))
-	for _, dp := range store {
+	items := b.dataProvidersByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*DataProvider, 0, len(items))
+	for _, dp := range items {
 		cp := *dp
 		list = append(list, &cp)
 	}
@@ -3051,10 +2668,10 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name s
 	b.mu.RLock("DescribeEventSubscriptions")
 	defer b.mu.RUnlock()
 
-	store := b.eventSubscriptionsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
 	if name != "" {
-		es, ok := store[name]
+		es, ok := b.eventSubscriptions.Get(regionKey(region, name))
 		if !ok {
 			return []*EventSubscription{}, nil
 		}
@@ -3066,8 +2683,9 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name s
 		return []*EventSubscription{&cp}, nil
 	}
 
-	list := make([]*EventSubscription, 0, len(store))
-	for _, es := range store {
+	items := b.eventSubscriptionsByRegion.Get(region)
+	list := make([]*EventSubscription, 0, len(items))
+	for _, es := range items {
 		cp := *es
 		cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
 		cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
@@ -3082,9 +2700,9 @@ func (b *InMemoryBackend) DescribeFleetAdvisorCollectors(ctx context.Context) ([
 	b.mu.RLock("DescribeFleetAdvisorCollectors")
 	defer b.mu.RUnlock()
 
-	store := b.fleetAdvisorCollectorsStore(getRegion(ctx, b.region))
-	list := make([]*FleetAdvisorCollector, 0, len(store))
-	for _, col := range store {
+	items := b.fleetAdvisorCollectorsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*FleetAdvisorCollector, 0, len(items))
+	for _, col := range items {
 		cp := *col
 		list = append(list, &cp)
 	}
@@ -3097,9 +2715,9 @@ func (b *InMemoryBackend) DescribeInstanceProfiles(ctx context.Context) ([]*Inst
 	b.mu.RLock("DescribeInstanceProfiles")
 	defer b.mu.RUnlock()
 
-	store := b.instanceProfilesStore(getRegion(ctx, b.region))
-	list := make([]*InstanceProfile, 0, len(store))
-	for _, ip := range store {
+	items := b.instanceProfilesByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*InstanceProfile, 0, len(items))
+	for _, ip := range items {
 		cp := *ip
 		list = append(list, &cp)
 	}
@@ -3112,9 +2730,9 @@ func (b *InMemoryBackend) DescribeMigrationProjects(ctx context.Context) ([]*Mig
 	b.mu.RLock("DescribeMigrationProjects")
 	defer b.mu.RUnlock()
 
-	store := b.migrationProjectsStore(getRegion(ctx, b.region))
-	list := make([]*MigrationProject, 0, len(store))
-	for _, mp := range store {
+	items := b.migrationProjectsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*MigrationProject, 0, len(items))
+	for _, mp := range items {
 		cp := *mp
 		list = append(list, &cp)
 	}
@@ -3127,9 +2745,9 @@ func (b *InMemoryBackend) DescribeReplicationSubnetGroups(ctx context.Context) (
 	b.mu.RLock("DescribeReplicationSubnetGroups")
 	defer b.mu.RUnlock()
 
-	store := b.replicationSubnetGroupsStore(getRegion(ctx, b.region))
-	list := make([]*ReplicationSubnetGroup, 0, len(store))
-	for _, sg := range store {
+	items := b.replicationSubnetGroupsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*ReplicationSubnetGroup, 0, len(items))
+	for _, sg := range items {
 		cp := *sg
 		list = append(list, &cp)
 	}
@@ -3142,9 +2760,9 @@ func (b *InMemoryBackend) DescribeReplicationConfigs(ctx context.Context) ([]*Re
 	b.mu.RLock("DescribeReplicationConfigs")
 	defer b.mu.RUnlock()
 
-	store := b.replicationConfigsStore(getRegion(ctx, b.region))
-	list := make([]*ReplicationConfig, 0, len(store))
-	for _, rc := range store {
+	items := b.replicationConfigsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*ReplicationConfig, 0, len(items))
+	for _, rc := range items {
 		cp := *rc
 		list = append(list, &cp)
 	}
@@ -3160,16 +2778,16 @@ func (b *InMemoryBackend) DeleteConnection(
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	store := b.connectionsStore(getRegion(ctx, b.region))
-	key := replicationInstanceArn + ":" + endpointArn
+	region := getRegion(ctx, b.region)
+	key := regionKey(region, replicationInstanceArn+":"+endpointArn)
 
-	conn, ok := store[key]
+	conn, ok := b.connections.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: connection not found", ErrNotFound)
 	}
 
 	cp := *conn
-	delete(store, key)
+	b.connections.Delete(key)
 
 	return &cp, nil
 }
@@ -3183,22 +2801,19 @@ func (b *InMemoryBackend) ModifyMigrationProject(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.migrationProjectsStore(region)
 
-	if mp, ok := store[nameOrArn]; ok {
+	if mp, ok := b.migrationProjects.Get(regionKey(region, nameOrArn)); ok {
 		mp.Description = description
 		cp := *mp
 
 		return &cp, nil
 	}
 
-	for _, mp := range store {
-		if mp.MigrationProjectArn == nameOrArn {
-			mp.Description = description
-			cp := *mp
+	if mp, ok := lookupUnique(b.migrationProjectsByARN, regionKey(region, nameOrArn)); ok {
+		mp.Description = description
+		cp := *mp
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: migration project %s not found", ErrNotFound, nameOrArn)
@@ -3213,9 +2828,8 @@ func (b *InMemoryBackend) ModifyReplicationConfig(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.replicationConfigsStore(region)
 
-	if rc, ok := store[identifierOrArn]; ok {
+	if rc, ok := b.replicationConfigs.Get(regionKey(region, identifierOrArn)); ok {
 		if replicationType != "" {
 			rc.ReplicationType = replicationType
 		}
@@ -3224,15 +2838,13 @@ func (b *InMemoryBackend) ModifyReplicationConfig(
 		return &cp, nil
 	}
 
-	for _, rc := range store {
-		if rc.ReplicationConfigArn == identifierOrArn {
-			if replicationType != "" {
-				rc.ReplicationType = replicationType
-			}
-			cp := *rc
-
-			return &cp, nil
+	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, identifierOrArn)); ok {
+		if replicationType != "" {
+			rc.ReplicationType = replicationType
 		}
+		cp := *rc
+
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
@@ -3243,9 +2855,9 @@ func (b *InMemoryBackend) DescribeCertificates(ctx context.Context) ([]*Certific
 	b.mu.RLock("DescribeCertificates")
 	defer b.mu.RUnlock()
 
-	store := b.certificatesStore(getRegion(ctx, b.region))
-	list := make([]*Certificate, 0, len(store))
-	for _, cert := range store {
+	items := b.certificatesByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*Certificate, 0, len(items))
+	for _, cert := range items {
 		cp := *cert
 		list = append(list, &cp)
 	}
