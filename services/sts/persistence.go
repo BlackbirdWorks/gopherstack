@@ -25,13 +25,15 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	sessions := make(map[string]*SessionInfo, len(b.sessions))
-	for k, v := range b.sessions {
+	sessions := make(map[string]*SessionInfo, b.sessions.Len())
+	b.sessions.Range(func(v *SessionInfo) bool {
 		if v != nil {
 			cp := *v
-			sessions[k] = &cp
+			sessions[cp.AccessKeyID] = &cp
 		}
-	}
+
+		return true
+	})
 
 	snap := backendSnapshot{
 		Sessions:             sessions,
@@ -53,13 +55,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return data
 }
 
-// ensureNonNilMaps initialises any nil internal maps. Must be called under b.mu.
-func (b *InMemoryBackend) ensureNonNilMaps() {
-	if b.sessions == nil {
-		b.sessions = make(map[string]*SessionInfo)
-	}
-}
-
 // Restore loads backend state from a JSON snapshot.
 // Expired sessions are discarded on load.
 // It implements persistence.Persistable.
@@ -77,10 +72,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	now := time.Now().UTC()
 
 	b.mu.Lock("Restore")
-	b.ensureNonNilMaps()
-	b.sessions = make(map[string]*SessionInfo)
+	b.sessions.Reset()
 
-	for k, s := range snap.Sessions {
+	for _, s := range snap.Sessions {
 		if s == nil {
 			continue
 		}
@@ -90,7 +84,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			continue
 		}
 
-		b.sessions[k] = s
+		b.sessions.Put(s)
 	}
 
 	b.mu.Unlock()

@@ -20,6 +20,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -230,13 +231,21 @@ func isSessionExpired(s *SessionInfo) bool {
 // enough that the O(n) sweep amortizes cheaply.
 const sessionEvictThreshold = 256
 
-// evictExpiredSessionsLocked removes all expired sessions from the map.
+// evictExpiredSessionsLocked removes all expired sessions from the table.
 // The caller must hold b.mu.
 func (b *InMemoryBackend) evictExpiredSessionsLocked() {
-	for id, session := range b.sessions {
+	var expired []string
+
+	b.sessions.Range(func(session *SessionInfo) bool {
 		if isSessionExpired(session) {
-			delete(b.sessions, id)
+			expired = append(expired, session.AccessKeyID)
 		}
+
+		return true
+	})
+
+	for _, id := range expired {
+		b.sessions.Delete(id)
 	}
 }
 
@@ -246,7 +255,7 @@ func (b *InMemoryBackend) evictExpiredSessionsLocked() {
 // is never blocked by an O(n) sweep.
 func (b *InMemoryBackend) maybeEvictExpiredSessions() {
 	b.mu.Lock("EvictExpiredSessions")
-	if len(b.sessions) >= sessionEvictThreshold {
+	if b.sessions.Len() >= sessionEvictThreshold {
 		b.evictExpiredSessionsLocked()
 	}
 	b.mu.Unlock()
@@ -256,9 +265,9 @@ func (b *InMemoryBackend) maybeEvictExpiredSessions() {
 // the lifetime counter. The store is a fast O(1) operation; opportunistic
 // eviction of expired sessions is deferred to a separate lock acquisition so
 // that the 11 credential-issuing operations do not serialize on O(n) sweeps.
-func (b *InMemoryBackend) storeSession(accessKeyID string, session *SessionInfo) {
+func (b *InMemoryBackend) storeSession(session *SessionInfo) {
 	b.mu.Lock("StoreSession")
-	b.sessions[accessKeyID] = session
+	b.sessions.Put(session)
 	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
@@ -392,7 +401,8 @@ const authMsgSep = '|'
 type InMemoryBackend struct {
 	roleLookup RoleLookup
 	oidcLookup OIDCLookup
-	sessions   map[string]*SessionInfo
+	sessions   *store.Table[SessionInfo]
+	registry   *store.Registry
 	mu         *lockmetrics.RWMutex
 	accountID  string
 
@@ -430,12 +440,21 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		panic("sts: failed to generate authorization message signing key: " + err.Error())
 	}
 
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		accountID:         accountID,
-		sessions:          make(map[string]*SessionInfo),
+		registry:          store.NewRegistry(),
 		authMsgSigningKey: key,
 		mu:                lockmetrics.New("sts"),
 	}
+	b.sessions = store.Register(b.registry, "sessions", store.New(sessionTableKey))
+
+	return b
+}
+
+// sessionTableKey is the [store.Table] key function for the sessions table:
+// sessions are looked up by the AccessKeyID of the credentials that were issued.
+func sessionTableKey(s *SessionInfo) string {
+	return s.AccessKeyID
 }
 
 // SetRoleLookup wires an optional role-lookup implementation (e.g. the IAM backend)
@@ -765,7 +784,7 @@ func (b *InMemoryBackend) issueCredentials(
 		Expiration:        expiration,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	result := AssumeRoleResult{
 		AssumedRoleUser: AssumedRoleUser{
@@ -797,9 +816,9 @@ func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *Sessi
 	}
 
 	b.mu.Lock("LookupSession")
-	session, ok := b.sessions[accessKeyID]
+	session, ok := b.sessions.Get(accessKeyID)
 	if ok && isSessionExpired(session) {
-		delete(b.sessions, accessKeyID)
+		b.sessions.Delete(accessKeyID)
 		ok = false
 	}
 	b.mu.Unlock()
@@ -828,11 +847,11 @@ func (b *InMemoryBackend) GetCallerIdentity(
 	}
 
 	b.mu.Lock("GetCallerIdentity")
-	session, ok := b.sessions[accessKeyID]
+	session, ok := b.sessions.Get(accessKeyID)
 	wasExpired := false
 
 	if ok && isSessionExpired(session) {
-		delete(b.sessions, accessKeyID)
+		b.sessions.Delete(accessKeyID)
 		ok = false
 		wasExpired = true
 	}
@@ -904,10 +923,10 @@ func (b *InMemoryBackend) ValidateSessionCredential(
 	accessKeyID, sessionToken string,
 ) (*SessionInfo, error) {
 	b.mu.Lock("ValidateSessionCredential")
-	session, ok := b.sessions[accessKeyID]
+	session, ok := b.sessions.Get(accessKeyID)
 
 	if ok && isSessionExpired(session) {
-		delete(b.sessions, accessKeyID)
+		b.sessions.Delete(accessKeyID)
 		ok = false
 	}
 
@@ -978,7 +997,7 @@ func (b *InMemoryBackend) GetSessionToken(
 		AssumedRoleID:   MockUserID,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &GetSessionTokenResponse{
 		Xmlns: STSNamespace,
@@ -1062,7 +1081,7 @@ func (b *InMemoryBackend) GetFederationToken(
 		Tags:            input.Tags,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &GetFederationTokenResponse{
 		Xmlns: STSNamespace,
@@ -1243,7 +1262,7 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 		SourceIdentity:  input.SourceIdentity,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &AssumeRoleWithWebIdentityResponse{
 		Xmlns: STSNamespace,
@@ -1425,7 +1444,7 @@ func (b *InMemoryBackend) buildSAMLResponse(
 		Tags:            input.Tags,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	issuerParts := strings.Split(input.PrincipalArn, "/")
 	issuer := issuerParts[len(issuerParts)-1]
@@ -1510,7 +1529,7 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		AssumedRoleID:   account + ":" + rootSessionName,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &AssumeRootResponse{
 		Xmlns: STSNamespace,
@@ -1576,7 +1595,7 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		AssumedRoleID:   b.accountID + ":" + delegatedSessionName,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &GetDelegatedAccessTokenResponse{
 		Xmlns: STSNamespace,
@@ -2090,7 +2109,7 @@ func (b *InMemoryBackend) VerifyEncodedAuthorizationMessage(encoded string) (str
 // Operation counters and totalSessionsCreated are also reset to zero.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
-	b.sessions = make(map[string]*SessionInfo)
+	b.registry.ResetAll()
 	b.mu.Unlock()
 
 	b.cntAssumeRole.Store(0)
@@ -2116,16 +2135,16 @@ func (b *InMemoryBackend) SessionCounts() (int, int) {
 	active := 0
 	expired := 0
 
-	for _, session := range b.sessions {
+	b.sessions.Range(func(session *SessionInfo) bool {
 		// A zero expiration is treated as non-expiring in-memory session state.
 		if !session.Expiration.IsZero() && !now.Before(session.Expiration) {
 			expired++
-
-			continue
+		} else {
+			active++
 		}
 
-		active++
-	}
+		return true
+	})
 
 	return active, expired
 }

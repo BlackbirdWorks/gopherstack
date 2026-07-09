@@ -530,7 +530,7 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 	b, ok := h.Backend.(*InMemoryBackend)
 	if ok {
 		b.mu.RLock("GetAccessKeyInfo")
-		session, found := b.sessions[accessKeyID]
+		session, found := b.sessions.Get(accessKeyID)
 		b.mu.RUnlock()
 
 		if found {
