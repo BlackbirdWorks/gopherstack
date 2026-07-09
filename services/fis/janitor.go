@@ -77,12 +77,13 @@ func (j *Janitor) sweepCompletedExperiments(ctx context.Context) {
 
 	var swept []string
 
-	for id, exp := range j.Backend.experiments {
+	// Table.All() returns a snapshot slice, so it is safe to call Delete
+	// (which mutates the table's internal map) while iterating over it.
+	for _, exp := range j.Backend.experiments.All() {
 		if isTerminalExperiment(exp.Status.Status) && exp.EndTime != nil &&
 			exp.EndTime.Before(cutoff) {
-			swept = append(swept, id)
-			delete(j.Backend.experimentARNIndex, exp.Arn)
-			delete(j.Backend.experiments, id)
+			swept = append(swept, exp.ID)
+			j.Backend.experiments.Delete(exp.ID)
 		}
 	}
 

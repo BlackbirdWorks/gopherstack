@@ -96,7 +96,7 @@ var ErrMockAction = errors.New("mock action failed")
 func (b *InMemoryBackend) SetExperimentTerminal(id, status string, endTime time.Time) {
 	b.mu.Lock("SetExperimentTerminal")
 
-	exp, ok := b.experiments[id]
+	exp, ok := b.experiments.Get(id)
 	if !ok {
 		b.mu.Unlock()
 
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) InjectExperiment(exp *Experiment) {
 	b.mu.Lock("InjectExperiment")
 	defer b.mu.Unlock()
 
-	b.experiments[exp.ID] = exp
+	b.experiments.Put(exp)
 }
 
 // ExperimentCount returns the number of experiments stored.
@@ -132,7 +132,7 @@ func (b *InMemoryBackend) ExperimentCount() int {
 	b.mu.RLock("ExperimentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.experiments)
+	return b.experiments.Len()
 }
 
 // InjectTemplate inserts a pre-built experiment template directly into the store.
@@ -141,8 +141,7 @@ func (b *InMemoryBackend) InjectTemplate(tpl *ExperimentTemplate) {
 	b.mu.Lock("InjectTemplate")
 	defer b.mu.Unlock()
 
-	b.templates[tpl.ID] = tpl
-	b.templateARNIndex[tpl.Arn] = tpl.ID
+	b.templates.Put(tpl)
 }
 
 // TemplateCount returns the number of experiment templates stored.
@@ -151,7 +150,7 @@ func (b *InMemoryBackend) TemplateCount() int {
 	b.mu.RLock("TemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.templates)
+	return b.templates.Len()
 }
 
 // InjectCancel injects a cancel function for an experiment, simulating the one
@@ -161,7 +160,7 @@ func (b *InMemoryBackend) InjectCancel(id string, cancel context.CancelFunc) {
 	b.mu.Lock("InjectCancel")
 	defer b.mu.Unlock()
 
-	if exp, ok := b.experiments[id]; ok {
+	if exp, ok := b.experiments.Get(id); ok {
 		exp.cancel = cancel
 	}
 }
@@ -203,8 +202,7 @@ func (b *InMemoryBackend) AddTemplateInternal(tpl *ExperimentTemplate) {
 	defer b.mu.Unlock()
 
 	cp := cloneTemplate(tpl)
-	b.templates[cp.ID] = cp
-	b.templateARNIndex[cp.Arn] = cp.ID
+	b.templates.Put(cp)
 }
 
 // AddTargetAccountConfigInternal inserts a target account configuration for a template.
@@ -213,12 +211,8 @@ func (b *InMemoryBackend) AddTargetAccountConfigInternal(cfg *TargetAccountConfi
 	b.mu.Lock("AddTargetAccountConfigInternal")
 	defer b.mu.Unlock()
 
-	if b.targetAccountConfigs[cfg.ExperimentTemplateID] == nil {
-		b.targetAccountConfigs[cfg.ExperimentTemplateID] = make(map[string]*TargetAccountConfiguration)
-	}
-
 	cp := *cfg
-	b.targetAccountConfigs[cfg.ExperimentTemplateID][cfg.AccountID] = &cp
+	b.targetAccountConfigs.Put(&cp)
 }
 
 // TargetAccountConfigCount returns the total number of target account configurations across all templates.
@@ -227,13 +221,7 @@ func (b *InMemoryBackend) TargetAccountConfigCount() int {
 	b.mu.RLock("TargetAccountConfigCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, cfgs := range b.targetAccountConfigs {
-		total += len(cfgs)
-	}
-
-	return total
+	return b.targetAccountConfigs.Len()
 }
 
 // HandlerOpsLen returns 0 because the FIS handler uses a switch-based dispatch, not a map.
