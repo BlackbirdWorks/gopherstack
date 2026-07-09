@@ -115,9 +115,9 @@ func (j *Janitor) sweepExecutions(cutoff float64) int {
 
 	candidates := make([]string, 0)
 
-	for id, qe := range b.queryExecutions {
+	for _, qe := range b.queryExecutions.All() {
 		if isEvictable(qe.Status.State, qe.Status.CompletionDateTime, cutoff, isTerminalExecution) {
-			candidates = append(candidates, id)
+			candidates = append(candidates, qe.QueryExecutionID)
 		}
 	}
 
@@ -132,12 +132,12 @@ func (j *Janitor) sweepExecutions(cutoff float64) int {
 	b.mu.Lock("AthenaJanitor-deleteExecutions")
 
 	for _, id := range candidates {
-		qe, ok := b.queryExecutions[id]
+		qe, ok := b.queryExecutions.Get(id)
 		if !ok || !isEvictable(qe.Status.State, qe.Status.CompletionDateTime, cutoff, isTerminalExecution) {
 			continue
 		}
 
-		delete(b.queryExecutions, id)
+		b.queryExecutions.Delete(id)
 		delete(b.queryResults, id)
 
 		swept++
@@ -156,9 +156,9 @@ func (j *Janitor) sweepSessions(cutoff float64) int {
 
 	candidates := make([]string, 0)
 
-	for id, s := range b.sessions {
+	for _, s := range b.sessions.All() {
 		if isEvictable(s.Status.State, sessionEndTime(s), cutoff, isTerminalSession) {
-			candidates = append(candidates, id)
+			candidates = append(candidates, s.SessionID)
 		}
 	}
 
@@ -173,12 +173,12 @@ func (j *Janitor) sweepSessions(cutoff float64) int {
 	b.mu.Lock("AthenaJanitor-deleteSessions")
 
 	for _, id := range candidates {
-		s, ok := b.sessions[id]
+		s, ok := b.sessions.Get(id)
 		if !ok || !isEvictable(s.Status.State, sessionEndTime(s), cutoff, isTerminalSession) {
 			continue
 		}
 
-		delete(b.sessions, id)
+		b.sessions.Delete(id)
 
 		swept++
 	}
@@ -197,9 +197,9 @@ func (j *Janitor) sweepCalculations(cutoff float64) int {
 
 	candidates := make([]string, 0)
 
-	for id, c := range b.calculations {
+	for _, c := range b.calculations.All() {
 		if isEvictable(c.Status.State, c.Status.CompletionDateTime, cutoff, isTerminalCalculation) {
-			candidates = append(candidates, id)
+			candidates = append(candidates, c.CalculationID)
 		}
 	}
 
@@ -214,12 +214,12 @@ func (j *Janitor) sweepCalculations(cutoff float64) int {
 	b.mu.Lock("AthenaJanitor-deleteCalculations")
 
 	for _, id := range candidates {
-		c, ok := b.calculations[id]
+		c, ok := b.calculations.Get(id)
 		if !ok || !isEvictable(c.Status.State, c.Status.CompletionDateTime, cutoff, isTerminalCalculation) {
 			continue
 		}
 
-		delete(b.calculations, id)
+		b.calculations.Delete(id)
 
 		swept++
 	}

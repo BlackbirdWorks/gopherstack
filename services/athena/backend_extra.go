@@ -141,20 +141,38 @@ type Column struct {
 
 // Database describes an Athena database.
 type Database struct {
-	Parameters  map[string]string `json:"Parameters,omitempty"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description,omitempty"`
+	Parameters map[string]string `json:"Parameters,omitempty"`
+	Name       string            `json:"Name"`
+	// Catalog is the data catalog this database belongs to. It is the first
+	// component of the composite key store.Table's keyFn derives (see
+	// databaseKeyFn in store_setup.go) and of the databasesByCatalog
+	// secondary index -- Database itself carries no other notion of which
+	// catalog it lives in, since AWS's own Database shape does not either.
+	// Tagged json:"-" because a real persistence layer would round-trip it
+	// through a dedicated DTO (see services/ses's IdentityRecord.Identity for
+	// the established pattern) rather than relying on this field surviving a
+	// direct JSON marshal.
+	Catalog     string `json:"-"`
+	Description string `json:"Description,omitempty"`
 }
 
 // TableMetadata describes a table.
 type TableMetadata struct {
-	Parameters     map[string]string `json:"Parameters,omitempty"`
-	Name           string            `json:"Name"`
-	TableType      string            `json:"TableType,omitempty"`
-	Columns        []Column          `json:"Columns,omitempty"`
-	PartitionKeys  []Column          `json:"PartitionKeys,omitempty"`
-	CreateTime     float64           `json:"CreateTime,omitempty"`
-	LastAccessTime float64           `json:"LastAccessTime,omitempty"`
+	Parameters map[string]string `json:"Parameters,omitempty"`
+	Name       string            `json:"Name"`
+	TableType  string            `json:"TableType,omitempty"`
+	// Catalog and Database identify which data catalog and database this
+	// table belongs to. Together with Name they form the composite key
+	// store.Table's keyFn derives (see tableMetadataKeyFn in
+	// store_setup.go); Database alone is the tablesByDatabase secondary
+	// index's group key. Tagged json:"-" for the same reason as
+	// Database.Catalog above.
+	Catalog        string   `json:"-"`
+	Database       string   `json:"-"`
+	Columns        []Column `json:"Columns,omitempty"`
+	PartitionKeys  []Column `json:"PartitionKeys,omitempty"`
+	CreateTime     float64  `json:"CreateTime,omitempty"`
+	LastAccessTime float64  `json:"LastAccessTime,omitempty"`
 }
 
 // --- Capacity assignment types ---
@@ -249,7 +267,7 @@ func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion s
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workGroups[workGroup]; !ok {
+	if !b.workGroups.Has(workGroup) {
 		return "", "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
 	}
 
@@ -263,7 +281,7 @@ func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion s
 
 	id := randomID()
 	now := nowSeconds()
-	b.sessions[id] = &Session{
+	b.sessions.Put(&Session{
 		SessionID:            id,
 		Description:          description,
 		WorkGroup:            workGroup,
@@ -277,7 +295,7 @@ func (b *InMemoryBackend) StartSession(workGroup, description, notebookVersion s
 			LastModifiedDateTime: now,
 			IdleSinceDateTime:    now,
 		},
-	}
+	})
 
 	return id, sessionStateIdle, nil
 }
@@ -287,7 +305,7 @@ func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
 	b.mu.RLock("GetSession")
 	defer b.mu.RUnlock()
 
-	s, ok := b.sessions[id]
+	s, ok := b.sessions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
@@ -302,7 +320,7 @@ func (b *InMemoryBackend) GetSessionStatus(id string) (SessionStatus, error) {
 	b.mu.RLock("GetSessionStatus")
 	defer b.mu.RUnlock()
 
-	s, ok := b.sessions[id]
+	s, ok := b.sessions.Get(id)
 	if !ok {
 		return SessionStatus{}, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
@@ -315,7 +333,7 @@ func (b *InMemoryBackend) GetSessionEndpoint(id string) (string, error) {
 	b.mu.RLock("GetSessionEndpoint")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.sessions[id]; !ok {
+	if !b.sessions.Has(id) {
 		return "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
 
@@ -327,7 +345,7 @@ func (b *InMemoryBackend) TerminateSession(id string) (string, error) {
 	b.mu.Lock("TerminateSession")
 	defer b.mu.Unlock()
 
-	s, ok := b.sessions[id]
+	s, ok := b.sessions.Get(id)
 	if !ok {
 		return "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
@@ -349,9 +367,9 @@ func (b *InMemoryBackend) ListSessions(workGroup, stateFilter string) ([]Session
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
-	out := make([]SessionSummary, 0, len(b.sessions))
+	out := make([]SessionSummary, 0, b.sessions.Len())
 
-	for _, s := range b.sessions {
+	for _, s := range b.sessions.All() {
 		if workGroup != "" && s.WorkGroup != workGroup {
 			continue
 		}
@@ -382,13 +400,13 @@ func (b *InMemoryBackend) ListNotebookSessions(notebookID string) ([]SessionSumm
 	b.mu.RLock("ListNotebookSessions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.notebooks[notebookID]; !ok {
+	if !b.notebooks.Has(notebookID) {
 		return nil, fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
-	out := make([]SessionSummary, 0, len(b.sessions))
+	out := make([]SessionSummary, 0, b.sessions.Len())
 
-	for _, s := range b.sessions {
+	for _, s := range b.sessions.All() {
 		if s.NotebookID != notebookID {
 			continue
 		}
@@ -419,7 +437,7 @@ func (b *InMemoryBackend) StartCalculationExecution(
 	b.mu.Lock("StartCalculationExecution")
 	defer b.mu.Unlock()
 
-	s, ok := b.sessions[sessionID]
+	s, ok := b.sessions.Get(sessionID)
 	if !ok {
 		return "", "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
 	}
@@ -430,7 +448,7 @@ func (b *InMemoryBackend) StartCalculationExecution(
 
 	id := randomID()
 	now := nowSeconds()
-	b.calculations[id] = &CalculationExecution{
+	b.calculations.Put(&CalculationExecution{
 		CalculationID: id,
 		SessionID:     sessionID,
 		Description:   description,
@@ -447,7 +465,7 @@ func (b *InMemoryBackend) StartCalculationExecution(
 			StdOutS3URI:   fmt.Sprintf("s3://athena-mock/%s/stdout.log", id),
 			StdErrorS3URI: fmt.Sprintf("s3://athena-mock/%s/stderr.log", id),
 		},
-	}
+	})
 
 	return id, calcStateCompleted, nil
 }
@@ -457,7 +475,7 @@ func (b *InMemoryBackend) GetCalculationExecution(id string) (*CalculationExecut
 	b.mu.RLock("GetCalculationExecution")
 	defer b.mu.RUnlock()
 
-	c, ok := b.calculations[id]
+	c, ok := b.calculations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
@@ -472,7 +490,7 @@ func (b *InMemoryBackend) GetCalculationExecutionStatus(id string) (CalculationS
 	b.mu.RLock("GetCalculationExecutionStatus")
 	defer b.mu.RUnlock()
 
-	c, ok := b.calculations[id]
+	c, ok := b.calculations.Get(id)
 	if !ok {
 		return CalculationStatus{}, CalculationStatistics{},
 			fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
@@ -486,7 +504,7 @@ func (b *InMemoryBackend) GetCalculationExecutionCode(id string) (string, error)
 	b.mu.RLock("GetCalculationExecutionCode")
 	defer b.mu.RUnlock()
 
-	c, ok := b.calculations[id]
+	c, ok := b.calculations.Get(id)
 	if !ok {
 		return "", fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
@@ -499,7 +517,7 @@ func (b *InMemoryBackend) StopCalculationExecution(id string) (string, error) {
 	b.mu.Lock("StopCalculationExecution")
 	defer b.mu.Unlock()
 
-	c, ok := b.calculations[id]
+	c, ok := b.calculations.Get(id)
 	if !ok {
 		return "", fmt.Errorf("%w: calculation execution %q not found", ErrResourceNotFound, id)
 	}
@@ -529,13 +547,13 @@ func (b *InMemoryBackend) ListCalculationExecutions(sessionID, stateFilter strin
 	b.mu.RLock("ListCalculationExecutions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.sessions[sessionID]; !ok {
+	if !b.sessions.Has(sessionID) {
 		return nil, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
 	}
 
-	out := make([]CalculationSummary, 0, len(b.calculations))
+	out := make([]CalculationSummary, 0, b.calculations.Len())
 
-	for _, c := range b.calculations {
+	for _, c := range b.calculations.All() {
 		if c.SessionID != sessionID {
 			continue
 		}
@@ -563,7 +581,7 @@ func (b *InMemoryBackend) GetCapacityReservation(name string) (*CapacityReservat
 	b.mu.RLock("GetCapacityReservation")
 	defer b.mu.RUnlock()
 
-	cr, ok := b.capacityReservations[name]
+	cr, ok := b.capacityReservations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
@@ -579,8 +597,8 @@ func (b *InMemoryBackend) ListCapacityReservations() ([]CapacityReservation, err
 	b.mu.RLock("ListCapacityReservations")
 	defer b.mu.RUnlock()
 
-	out := make([]CapacityReservation, 0, len(b.capacityReservations))
-	for _, cr := range b.capacityReservations {
+	out := make([]CapacityReservation, 0, b.capacityReservations.Len())
+	for _, cr := range b.capacityReservations.All() {
 		cp := *cr
 		cp.Tags = maps.Clone(cr.Tags)
 		out = append(out, cp)
@@ -601,7 +619,7 @@ func (b *InMemoryBackend) UpdateCapacityReservation(name string, targetDPUs int3
 	b.mu.Lock("UpdateCapacityReservation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[name]
+	cr, ok := b.capacityReservations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
@@ -630,7 +648,7 @@ func (b *InMemoryBackend) PutCapacityAssignmentConfiguration(
 	b.mu.Lock("PutCapacityAssignmentConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityReservations[name]; !ok {
+	if !b.capacityReservations.Has(name) {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
 
@@ -641,10 +659,10 @@ func (b *InMemoryBackend) PutCapacityAssignmentConfiguration(
 		cp[i] = CapacityAssignment{WorkGroupNames: dst}
 	}
 
-	b.capacityAssignments[name] = &CapacityAssignmentConfiguration{
+	b.capacityAssignments.Put(&CapacityAssignmentConfiguration{
 		CapacityReservationName: name,
 		CapacityAssignments:     cp,
-	}
+	})
 
 	return nil
 }
@@ -654,7 +672,7 @@ func (b *InMemoryBackend) GetCapacityAssignmentConfiguration(name string) (*Capa
 	b.mu.RLock("GetCapacityAssignmentConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.capacityAssignments[name]
+	cfg, ok := b.capacityAssignments.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: capacity assignment %q not found", ErrNotFound, name)
 	}
@@ -686,9 +704,7 @@ func (b *InMemoryBackend) GetDatabase(catalog, name string) (*Database, error) {
 	b.mu.RLock("GetDatabase")
 	defer b.mu.RUnlock()
 
-	dbs := b.databases[catalog]
-
-	d, ok := dbs[name]
+	d, ok := b.databases.Get(databaseKey(catalog, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: database %q not found in catalog %q", ErrMetadata, name, catalog)
 	}
@@ -708,7 +724,7 @@ func (b *InMemoryBackend) ListDatabases(catalog string) ([]Database, error) {
 	b.mu.RLock("ListDatabases")
 	defer b.mu.RUnlock()
 
-	dbs := b.databases[catalog]
+	dbs := b.databasesByCatalog.Get(catalog)
 	out := make([]Database, 0, len(dbs))
 
 	for _, d := range dbs {
@@ -731,9 +747,7 @@ func (b *InMemoryBackend) GetTableMetadata(catalog, database, table string) (*Ta
 	b.mu.RLock("GetTableMetadata")
 	defer b.mu.RUnlock()
 
-	tables := b.tables[catalog+"/"+database]
-
-	t, ok := tables[table]
+	t, ok := b.tables.Get(tableMetadataKey(catalog, database, table))
 	if !ok {
 		return nil, fmt.Errorf("%w: table %q not found in %s/%s", ErrMetadata, table, catalog, database)
 	}
@@ -755,7 +769,7 @@ func (b *InMemoryBackend) ListTableMetadata(catalog, database, expr string) ([]T
 	b.mu.RLock("ListTableMetadata")
 	defer b.mu.RUnlock()
 
-	tables := b.tables[catalog+"/"+database]
+	tables := b.tablesByDatabase.Get(databaseKey(catalog, database))
 	out := make([]TableMetadata, 0, len(tables))
 
 	for _, t := range tables {
@@ -782,7 +796,7 @@ func (b *InMemoryBackend) GetNotebookMetadata(notebookID string) (*NotebookMetad
 	b.mu.RLock("GetNotebookMetadata")
 	defer b.mu.RUnlock()
 
-	nb, ok := b.notebooks[notebookID]
+	nb, ok := b.notebooks.Get(notebookID)
 	if !ok {
 		return nil, fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
@@ -802,9 +816,9 @@ func (b *InMemoryBackend) ListNotebookMetadata(workGroup, namePrefix string) ([]
 	b.mu.RLock("ListNotebookMetadata")
 	defer b.mu.RUnlock()
 
-	out := make([]NotebookMetadata, 0, len(b.notebooks))
+	out := make([]NotebookMetadata, 0, b.notebooks.Len())
 
-	for _, nb := range b.notebooks {
+	for _, nb := range b.notebooks.All() {
 		if workGroup != "" && nb.WorkGroup != workGroup {
 			continue
 		}
@@ -847,13 +861,13 @@ func (b *InMemoryBackend) ImportNotebook(workGroup, name, payload, notebookType 
 	defer b.mu.Unlock()
 
 	nameKey := notebookNameKey(workGroup, name)
-	if _, exists := b.notebookNames[nameKey]; exists {
+	if len(b.notebooksByName.Get(nameKey)) > 0 {
 		return "", fmt.Errorf("%w: notebook %q already exists in workgroup %q", ErrAlreadyExists, name, workGroup)
 	}
 
 	id := randomID()
 	now := nowSeconds()
-	b.notebooks[id] = &Notebook{
+	b.notebooks.Put(&Notebook{
 		NotebookID:       id,
 		Name:             name,
 		WorkGroup:        workGroup,
@@ -861,8 +875,7 @@ func (b *InMemoryBackend) ImportNotebook(workGroup, name, payload, notebookType 
 		Content:          payload,
 		CreationTime:     now,
 		LastModifiedTime: now,
-	}
-	b.notebookNames[nameKey] = struct{}{}
+	})
 
 	return id, nil
 }
@@ -880,13 +893,13 @@ func (b *InMemoryBackend) UpdateNotebook(notebookID, payload, notebookType, sess
 	b.mu.Lock("UpdateNotebook")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[notebookID]
+	nb, ok := b.notebooks.Get(notebookID)
 	if !ok {
 		return fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
 	if sessionID != "" {
-		if _, sok := b.sessions[sessionID]; !sok {
+		if !b.sessions.Has(sessionID) {
 			return fmt.Errorf("%w: session %q not found", ErrNotFound, sessionID)
 		}
 	}
@@ -915,7 +928,7 @@ func (b *InMemoryBackend) UpdateNotebookMetadata(notebookID, newName string) err
 	b.mu.Lock("UpdateNotebookMetadata")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[notebookID]
+	nb, ok := b.notebooks.Get(notebookID)
 	if !ok {
 		return fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
@@ -925,14 +938,19 @@ func (b *InMemoryBackend) UpdateNotebookMetadata(notebookID, newName string) err
 	}
 
 	newKey := notebookNameKey(nb.WorkGroup, newName)
-	if _, exists := b.notebookNames[newKey]; exists {
+	if len(b.notebooksByName.Get(newKey)) > 0 {
 		return fmt.Errorf("%w: notebook %q already exists in workgroup %q", ErrAlreadyExists, newName, nb.WorkGroup)
 	}
 
-	delete(b.notebookNames, notebookNameKey(nb.WorkGroup, nb.Name))
-	b.notebookNames[newKey] = struct{}{}
+	// Renaming changes the notebooksByName secondary index's group key, so the
+	// entry must be removed under its OLD key before Name is mutated: index
+	// removal reads the value's CURRENT fields (see pkgs/store's Index doc),
+	// so removing after mutating would look up the wrong (already-new) key
+	// and leak the stale index entry.
+	b.notebooks.Delete(notebookID)
 	nb.Name = newName
 	nb.LastModifiedTime = nowSeconds()
+	b.notebooks.Put(nb)
 
 	return nil
 }
@@ -948,7 +966,7 @@ func (b *InMemoryBackend) UpdateNamedQuery(id, name, description, queryString st
 	b.mu.Lock("UpdateNamedQuery")
 	defer b.mu.Unlock()
 
-	q, ok := b.namedQueries[id]
+	q, ok := b.namedQueries.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: named query %q not found", ErrNotFound, id)
 	}
@@ -984,7 +1002,7 @@ func (b *InMemoryBackend) UpdatePreparedStatement(name, workGroup, queryStatemen
 
 	key := preparedStatementKey(workGroup, name)
 
-	ps, ok := b.preparedStatements[key]
+	ps, ok := b.preparedStatements.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: prepared statement %q not found in workgroup %q", ErrResourceNotFound, name, workGroup)
 	}
@@ -1041,7 +1059,7 @@ func (b *InMemoryBackend) ListExecutors(sessionID, stateFilter string) ([]Execut
 	b.mu.RLock("ListExecutors")
 	defer b.mu.RUnlock()
 
-	s, ok := b.sessions[sessionID]
+	s, ok := b.sessions.Get(sessionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, sessionID)
 	}
@@ -1074,7 +1092,7 @@ func (b *InMemoryBackend) GetQueryRuntimeStatistics(id string) (*QueryRuntimeSta
 	b.mu.RLock("GetQueryRuntimeStatistics")
 	defer b.mu.RUnlock()
 
-	qe, ok := b.queryExecutions[id]
+	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
 	}
