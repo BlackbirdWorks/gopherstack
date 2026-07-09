@@ -1,21 +1,11 @@
 package neptune
 
-// sumNested returns the total element count across all region maps.
-func sumNested[V any](m map[string]map[string]V) int {
-	total := 0
-	for _, region := range m {
-		total += len(region)
-	}
-
-	return total
-}
-
 // ClusterCount returns the number of clusters in the backend across all regions.
 func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.clusters)
+	return b.clusters.Len()
 }
 
 // InstanceCount returns the number of DB instances in the backend across all regions.
@@ -23,7 +13,7 @@ func InstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("InstanceCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.instances)
+	return b.instances.Len()
 }
 
 // SubnetGroupCount returns the number of subnet groups in the backend across all regions.
@@ -31,7 +21,7 @@ func SubnetGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("SubnetGroupCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.subnetGroups)
+	return b.subnetGroups.Len()
 }
 
 // ClusterParameterGroupCount returns the number of cluster parameter groups across all regions.
@@ -39,7 +29,7 @@ func ClusterParameterGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterParameterGroupCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.clusterParameterGroups)
+	return b.clusterParameterGroups.Len()
 }
 
 // ClusterSnapshotCount returns the number of cluster snapshots in the backend across all regions.
@@ -47,7 +37,7 @@ func ClusterSnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterSnapshotCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.clusterSnapshots)
+	return b.clusterSnapshots.Len()
 }
 
 // ParameterGroupCount returns the number of DB parameter groups across all regions.
@@ -55,7 +45,7 @@ func ParameterGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("ParameterGroupCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.parameterGroups)
+	return b.parameterGroups.Len()
 }
 
 // ClusterEndpointCount returns the number of cluster endpoints across all regions.
@@ -63,7 +53,7 @@ func ClusterEndpointCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterEndpointCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.clusterEndpoints)
+	return b.clusterEndpoints.Len()
 }
 
 // EventSubscriptionCount returns the number of event subscriptions across all regions.
@@ -71,7 +61,7 @@ func EventSubscriptionCount(b *InMemoryBackend) int {
 	b.mu.RLock("EventSubscriptionCount")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.eventSubscriptions)
+	return b.eventSubscriptions.Len()
 }
 
 // GlobalClusterCount returns the number of global clusters (partition-scoped).
@@ -79,7 +69,7 @@ func GlobalClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("GlobalClusterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.globalClusters)
+	return b.globalClusters.Len()
 }
 
 // TagCount returns the total number of tag entries across all resources and regions.
