@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -47,6 +48,16 @@ func regionFromARN(resourceARN string) string {
 	}
 
 	return ""
+}
+
+// regionKey builds the composite store.Table/Index key used throughout this
+// backend to flatten what used to be a map[region]map[key]*T nested map into
+// a single map[key]*T (see pkgs/store's package doc). It is the direct
+// mechanical replacement for indexing into the region bucket first: any call
+// site that used to write `someMap[region][key]` now uses
+// `someTable.Get(regionKey(region, key))`.
+func regionKey(region, key string) string {
+	return region + "|" + key
 }
 
 func fillVersionFromRaw(v *ManagedRuleSetVersion, raw any) {
@@ -267,44 +278,80 @@ type ManagedRuleSetVersion struct {
 
 // ManagedRuleSet represents an AWS WAFv2 managed rule set.
 type ManagedRuleSet struct {
-	PublishedVersions  map[string]ManagedRuleSetVersion `json:"publishedVersions,omitempty"`
-	ID                 string                           `json:"id"`
-	Name               string                           `json:"name"`
-	Scope              string                           `json:"scope"`
-	ARN                string                           `json:"arn,omitempty"`
-	LockToken          string                           `json:"lockToken"`
-	RecommendedVersion string                           `json:"recommendedVersion,omitempty"`
+	PublishedVersions map[string]ManagedRuleSetVersion `json:"publishedVersions,omitempty"`
+	ID                string                           `json:"id"`
+	Name              string                           `json:"name"`
+	Scope             string                           `json:"scope"`
+	ARN               string                           `json:"arn,omitempty"`
+	LockToken         string                           `json:"lockToken"`
+	// Region is the request region this managed rule set was created/looked
+	// up under (see getRegion). Unlike WebACL/IPSet/RegexPatternSet/RuleGroup,
+	// ManagedRuleSet storage keys off the RAW request region rather than the
+	// scope-normalized region baked into ARN, so it cannot be reliably
+	// recovered from ARN alone -- this field is the store.Table[ManagedRuleSet]
+	// key material that replaces the old map[region]map[id] nesting. Tagged
+	// json:"-" because it is not part of the AWS-facing shape; it is
+	// round-tripped through persistence.go's managedRuleSetSnapshot DTO
+	// instead (see that file's doc comment).
+	Region             string `json:"-"`
+	RecommendedVersion string `json:"recommendedVersion,omitempty"`
 }
 
 // APIKey represents an AWS WAFv2 API key.
 type APIKey struct {
-	APIKeyValue  string   `json:"apiKey"`
-	Scope        string   `json:"scope"`
+	APIKeyValue string `json:"apiKey"`
+	Scope       string `json:"scope"`
+	// Region is the store.Table[APIKey] key material replacing the old
+	// map[region]map[key]*APIKey nesting: the region bucket the key was
+	// created under (storeRegion-normalized -- see CreateAPIKey). Tagged
+	// json:"-" and round-tripped via persistence.go's apiKeySnapshot DTO,
+	// mirroring ManagedRuleSet.Region.
+	Region       string   `json:"-"`
 	TokenDomains []string `json:"tokenDomains,omitempty"`
 }
 
 // InMemoryBackend is an in-memory store for WAFv2 resources.
+//
+// webACLs/ipSets/regexPatternSets/ruleGroups are "clean" store.Table
+// registrations (Phase 3.3 -- see store_setup.go's file doc comment): each
+// replaces what used to be three separate region-nested maps (the primary
+// map[region]map[id]*T, plus map[region]map[arn]string and
+// map[region]map[nameScope]string secondary indexes) with one
+// *store.Table[T] keyed by a region+id composite (see regionKey) and two
+// *store.Index[T] (by ARN, by name+scope) plus one *store.Index[T] grouping
+// by region for List operations. managedRuleSets/apiKeys are "dirty" tables
+// (identity-less: their region-bucket key isn't reliably recoverable from
+// their other fields -- see ManagedRuleSet.Region/APIKey.Region) so they are
+// NOT registered on b.registry; persistence.go round-trips them through a
+// DTO registry instead, mirroring services/ses's pattern.
 type InMemoryBackend struct {
-	webACLs                map[string]map[string]*WebACL
-	ipSets                 map[string]map[string]*IPSet
-	regexPatternSets       map[string]map[string]*RegexPatternSet
-	ruleGroups             map[string]map[string]*RuleGroup
-	managedRuleSets        map[string]map[string]*ManagedRuleSet
-	apiKeys                map[string]map[string]*APIKey
-	loggingConfigs         map[string]map[string]json.RawMessage
-	permissionPolicies     map[string]map[string]string
-	webACLByARN            map[string]map[string]string
-	ipSetByARN             map[string]map[string]string
-	regexPatternSetByARN   map[string]map[string]string
-	ruleGroupByARN         map[string]map[string]string
-	webACLByNameScope      map[string]map[string]string
-	ipSetByNameScope       map[string]map[string]string
-	regexPatternSetByScope map[string]map[string]string
-	ruleGroupByNameScope   map[string]map[string]string
-	associations           map[string]map[string]string
-	mu                     *lockmetrics.RWMutex
-	accountID              string
-	region                 string
+	registry                    *store.Registry
+	webACLs                     *store.Table[WebACL]
+	webACLsByARN                *store.Index[WebACL]
+	webACLsByNameScope          *store.Index[WebACL]
+	webACLsByRegion             *store.Index[WebACL]
+	ipSets                      *store.Table[IPSet]
+	ipSetsByARN                 *store.Index[IPSet]
+	ipSetsByNameScope           *store.Index[IPSet]
+	ipSetsByRegion              *store.Index[IPSet]
+	regexPatternSets            *store.Table[RegexPatternSet]
+	regexPatternSetsByARN       *store.Index[RegexPatternSet]
+	regexPatternSetsByNameScope *store.Index[RegexPatternSet]
+	regexPatternSetsByRegion    *store.Index[RegexPatternSet]
+	ruleGroups                  *store.Table[RuleGroup]
+	ruleGroupsByARN             *store.Index[RuleGroup]
+	ruleGroupsByNameScope       *store.Index[RuleGroup]
+	ruleGroupsByRegion          *store.Index[RuleGroup]
+	managedRuleSets             *store.Table[ManagedRuleSet]
+	managedRuleSetsByRegion     *store.Index[ManagedRuleSet]
+	apiKeys                     *store.Table[APIKey]
+	apiKeysByRegion             *store.Index[APIKey]
+	loggingConfigs              map[string]map[string]json.RawMessage
+	permissionPolicies          map[string]map[string]string
+	associations                map[string]map[string]string
+	mu                          *lockmetrics.RWMutex
+	accountID                   string
+	region                      string
 }
 
 // maxRegions caps the number of distinct region keys stored in each per-region map.
@@ -330,52 +377,19 @@ func initRegion[V any](m map[string]map[string]V, region string) map[string]V {
 
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		webACLs:                make(map[string]map[string]*WebACL),
-		ipSets:                 make(map[string]map[string]*IPSet),
-		regexPatternSets:       make(map[string]map[string]*RegexPatternSet),
-		ruleGroups:             make(map[string]map[string]*RuleGroup),
-		managedRuleSets:        make(map[string]map[string]*ManagedRuleSet),
-		apiKeys:                make(map[string]map[string]*APIKey),
-		loggingConfigs:         make(map[string]map[string]json.RawMessage),
-		permissionPolicies:     make(map[string]map[string]string),
-		webACLByARN:            make(map[string]map[string]string),
-		ipSetByARN:             make(map[string]map[string]string),
-		regexPatternSetByARN:   make(map[string]map[string]string),
-		ruleGroupByARN:         make(map[string]map[string]string),
-		webACLByNameScope:      make(map[string]map[string]string),
-		ipSetByNameScope:       make(map[string]map[string]string),
-		regexPatternSetByScope: make(map[string]map[string]string),
-		ruleGroupByNameScope:   make(map[string]map[string]string),
-		associations:           make(map[string]map[string]string),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("wafv2"),
+	b := &InMemoryBackend{
+		registry:           store.NewRegistry(),
+		loggingConfigs:     make(map[string]map[string]json.RawMessage),
+		permissionPolicies: make(map[string]map[string]string),
+		associations:       make(map[string]map[string]string),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("wafv2"),
 	}
-}
 
-func (b *InMemoryBackend) webACLsStore(region string) map[string]*WebACL {
-	return initRegion(b.webACLs, region)
-}
+	registerAllTables(b)
 
-func (b *InMemoryBackend) ipSetsStore(region string) map[string]*IPSet {
-	return initRegion(b.ipSets, region)
-}
-
-func (b *InMemoryBackend) regexPatternSetsStore(region string) map[string]*RegexPatternSet {
-	return initRegion(b.regexPatternSets, region)
-}
-
-func (b *InMemoryBackend) ruleGroupsStore(region string) map[string]*RuleGroup {
-	return initRegion(b.ruleGroups, region)
-}
-
-func (b *InMemoryBackend) managedRuleSetsStore(region string) map[string]*ManagedRuleSet {
-	return initRegion(b.managedRuleSets, region)
-}
-
-func (b *InMemoryBackend) apiKeysStore(region string) map[string]*APIKey {
-	return initRegion(b.apiKeys, region)
+	return b
 }
 
 func (b *InMemoryBackend) loggingConfigsStore(region string) map[string]json.RawMessage {
@@ -384,38 +398,6 @@ func (b *InMemoryBackend) loggingConfigsStore(region string) map[string]json.Raw
 
 func (b *InMemoryBackend) permissionPoliciesStore(region string) map[string]string {
 	return initRegion(b.permissionPolicies, region)
-}
-
-func (b *InMemoryBackend) webACLByARNStore(region string) map[string]string {
-	return initRegion(b.webACLByARN, region)
-}
-
-func (b *InMemoryBackend) ipSetByARNStore(region string) map[string]string {
-	return initRegion(b.ipSetByARN, region)
-}
-
-func (b *InMemoryBackend) regexPatternSetByARNStore(region string) map[string]string {
-	return initRegion(b.regexPatternSetByARN, region)
-}
-
-func (b *InMemoryBackend) ruleGroupByARNStore(region string) map[string]string {
-	return initRegion(b.ruleGroupByARN, region)
-}
-
-func (b *InMemoryBackend) webACLByNameScopeStore(region string) map[string]string {
-	return initRegion(b.webACLByNameScope, region)
-}
-
-func (b *InMemoryBackend) ipSetByNameScopeStore(region string) map[string]string {
-	return initRegion(b.ipSetByNameScope, region)
-}
-
-func (b *InMemoryBackend) regexPatternSetByScopeStore(region string) map[string]string {
-	return initRegion(b.regexPatternSetByScope, region)
-}
-
-func (b *InMemoryBackend) ruleGroupByNameScopeStore(region string) map[string]string {
-	return initRegion(b.ruleGroupByNameScope, region)
 }
 
 func (b *InMemoryBackend) associationsStore(region string) map[string]string {
@@ -824,7 +806,7 @@ func (b *InMemoryBackend) CreateWebACL(
 
 	region := storeRegion(scope, getRegion(ctx, b.region))
 
-	if _, exists := b.webACLByNameScopeStore(region)[nameScope(name, scope)]; exists {
+	if len(b.webACLsByNameScope.Get(regionKey(region, nameScope(name, scope)))) > 0 {
 		return nil, fmt.Errorf("%w: web ACL %q already exists in scope %s", ErrWebACLAlreadyExists, name, scope)
 	}
 
@@ -847,9 +829,7 @@ func (b *InMemoryBackend) CreateWebACL(
 		LockToken:            uuid.NewString(),
 		Tags:                 cloneTags(tags),
 	}
-	b.webACLsStore(region)[id] = w
-	b.webACLByARNStore(region)[arnStr] = id
-	b.webACLByNameScopeStore(region)[nameScope(name, scope)] = id
+	b.webACLs.Put(w)
 
 	return cloneWebACL(w), nil
 }
@@ -857,12 +837,12 @@ func (b *InMemoryBackend) CreateWebACL(
 // lookupWebACLByID finds a WebACL in requestRegion first, then the global CLOUDFRONT
 // store ("") so that CLOUDFRONT resources are always accessible.
 func (b *InMemoryBackend) lookupWebACLByID(requestRegion, id string) (*WebACL, bool) {
-	if w, ok := b.webACLs[requestRegion][id]; ok {
+	if w, ok := b.webACLs.Get(regionKey(requestRegion, id)); ok {
 		return w, true
 	}
 
 	if requestRegion != "" {
-		if w, ok := b.webACLs[""][id]; ok {
+		if w, ok := b.webACLs.Get(regionKey("", id)); ok {
 			return w, true
 		}
 	}
@@ -872,12 +852,12 @@ func (b *InMemoryBackend) lookupWebACLByID(requestRegion, id string) (*WebACL, b
 
 // lookupIPSetByID finds an IPSet with the same CLOUDFRONT fallback logic.
 func (b *InMemoryBackend) lookupIPSetByID(requestRegion, id string) (*IPSet, bool) {
-	if s, ok := b.ipSets[requestRegion][id]; ok {
+	if s, ok := b.ipSets.Get(regionKey(requestRegion, id)); ok {
 		return s, true
 	}
 
 	if requestRegion != "" {
-		if s, ok := b.ipSets[""][id]; ok {
+		if s, ok := b.ipSets.Get(regionKey("", id)); ok {
 			return s, true
 		}
 	}
@@ -887,12 +867,12 @@ func (b *InMemoryBackend) lookupIPSetByID(requestRegion, id string) (*IPSet, boo
 
 // lookupRegexPatternSetByID finds a RegexPatternSet with the same CLOUDFRONT fallback logic.
 func (b *InMemoryBackend) lookupRegexPatternSetByID(requestRegion, id string) (*RegexPatternSet, bool) {
-	if r, ok := b.regexPatternSets[requestRegion][id]; ok {
+	if r, ok := b.regexPatternSets.Get(regionKey(requestRegion, id)); ok {
 		return r, true
 	}
 
 	if requestRegion != "" {
-		if r, ok := b.regexPatternSets[""][id]; ok {
+		if r, ok := b.regexPatternSets.Get(regionKey("", id)); ok {
 			return r, true
 		}
 	}
@@ -902,12 +882,12 @@ func (b *InMemoryBackend) lookupRegexPatternSetByID(requestRegion, id string) (*
 
 // lookupRuleGroupByID finds a RuleGroup with the same CLOUDFRONT fallback logic.
 func (b *InMemoryBackend) lookupRuleGroupByID(requestRegion, id string) (*RuleGroup, bool) {
-	if rg, ok := b.ruleGroups[requestRegion][id]; ok {
+	if rg, ok := b.ruleGroups.Get(regionKey(requestRegion, id)); ok {
 		return rg, true
 	}
 
 	if requestRegion != "" {
-		if rg, ok := b.ruleGroups[""][id]; ok {
+		if rg, ok := b.ruleGroups.Get(regionKey("", id)); ok {
 			return rg, true
 		}
 	}
@@ -1022,9 +1002,7 @@ func (b *InMemoryBackend) DeleteWebACL(ctx context.Context, id, lockToken string
 
 	webACLArnStr := w.ARN
 
-	delete(b.webACLByARN[region], webACLArnStr)
-	delete(b.webACLByNameScope[region], nameScope(w.Name, w.Scope))
-	delete(b.webACLs[region], id)
+	b.webACLs.Delete(regionKey(region, id))
 	delete(b.loggingConfigs[region], webACLArnStr)
 	delete(b.permissionPolicies[region], webACLArnStr)
 
@@ -1041,12 +1019,12 @@ func (b *InMemoryBackend) ListWebACLs(ctx context.Context) []*WebACL {
 	region := getRegion(ctx, b.region)
 	list := make([]*WebACL, 0)
 
-	for _, w := range b.webACLs[region] {
+	for _, w := range b.webACLsByRegion.Get(region) {
 		list = append(list, cloneWebACL(w))
 	}
 
 	if region != "" {
-		for _, w := range b.webACLs[""] {
+		for _, w := range b.webACLsByRegion.Get("") {
 			list = append(list, cloneWebACL(w))
 		}
 	}
@@ -1070,7 +1048,7 @@ func (b *InMemoryBackend) CreateIPSet(
 
 	region := storeRegion(scope, getRegion(ctx, b.region))
 
-	if _, exists := b.ipSetByNameScopeStore(region)[nameScope(name, scope)]; exists {
+	if len(b.ipSetsByNameScope.Get(regionKey(region, nameScope(name, scope)))) > 0 {
 		return nil, fmt.Errorf("%w: IP set %q already exists in scope %s", ErrIPSetAlreadyExists, name, scope)
 	}
 
@@ -1087,9 +1065,7 @@ func (b *InMemoryBackend) CreateIPSet(
 		LockToken:        uuid.NewString(),
 		Tags:             cloneTags(tags),
 	}
-	b.ipSetsStore(region)[id] = s
-	b.ipSetByARNStore(region)[arnStr] = id
-	b.ipSetByNameScopeStore(region)[nameScope(name, scope)] = id
+	b.ipSets.Put(s)
 
 	return cloneIPSet(s), nil
 }
@@ -1157,9 +1133,7 @@ func (b *InMemoryBackend) DeleteIPSet(ctx context.Context, id, lockToken string)
 		return fmt.Errorf("%w: lock token mismatch for IP set %q", ErrOptimisticLock, id)
 	}
 
-	delete(b.ipSetByARN[storeReg], s.ARN)
-	delete(b.ipSetByNameScope[storeReg], nameScope(s.Name, s.Scope))
-	delete(b.ipSets[storeReg], id)
+	b.ipSets.Delete(regionKey(storeReg, id))
 
 	return nil
 }
@@ -1172,12 +1146,12 @@ func (b *InMemoryBackend) ListIPSets(ctx context.Context) []*IPSet {
 	region := getRegion(ctx, b.region)
 	list := make([]*IPSet, 0)
 
-	for _, s := range b.ipSets[region] {
+	for _, s := range b.ipSetsByRegion.Get(region) {
 		list = append(list, cloneIPSet(s))
 	}
 
 	if region != "" {
-		for _, s := range b.ipSets[""] {
+		for _, s := range b.ipSetsByRegion.Get("") {
 			list = append(list, cloneIPSet(s))
 		}
 	}
@@ -1189,33 +1163,24 @@ func (b *InMemoryBackend) ListIPSets(ctx context.Context) []*IPSet {
 	return list
 }
 
-// lookupTaggedResource resolves the tags pointer for a resource ARN using the
-// ARN-embedded region for an O(1) store lookup. Returns nil if not found.
+// lookupTaggedResource resolves the tags pointer for a resource ARN via the
+// by-ARN store.Index on each resource table (ARN is already globally unique,
+// so no region partitioning is needed for this lookup). Returns nil if not found.
 func (b *InMemoryBackend) lookupTaggedResource(resourceARN string) *map[string]string {
-	region := regionFromARN(resourceARN)
-
-	if id, ok := b.webACLByARN[region][resourceARN]; ok {
-		if w, found := b.webACLs[region][id]; found {
-			return &w.Tags
-		}
+	if ws := b.webACLsByARN.Get(resourceARN); len(ws) > 0 {
+		return &ws[0].Tags
 	}
 
-	if id, ok := b.ipSetByARN[region][resourceARN]; ok {
-		if s, found := b.ipSets[region][id]; found {
-			return &s.Tags
-		}
+	if ss := b.ipSetsByARN.Get(resourceARN); len(ss) > 0 {
+		return &ss[0].Tags
 	}
 
-	if id, ok := b.regexPatternSetByARN[region][resourceARN]; ok {
-		if r, found := b.regexPatternSets[region][id]; found {
-			return &r.Tags
-		}
+	if rs := b.regexPatternSetsByARN.Get(resourceARN); len(rs) > 0 {
+		return &rs[0].Tags
 	}
 
-	if id, ok := b.ruleGroupByARN[region][resourceARN]; ok {
-		if rg, found := b.ruleGroups[region][id]; found {
-			return &rg.Tags
-		}
+	if rgs := b.ruleGroupsByARN.Get(resourceARN); len(rgs) > 0 {
+		return &rgs[0].Tags
 	}
 
 	return nil
@@ -1348,22 +1313,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.webACLs = make(map[string]map[string]*WebACL)
-	b.ipSets = make(map[string]map[string]*IPSet)
-	b.regexPatternSets = make(map[string]map[string]*RegexPatternSet)
-	b.ruleGroups = make(map[string]map[string]*RuleGroup)
-	b.managedRuleSets = make(map[string]map[string]*ManagedRuleSet)
-	b.apiKeys = make(map[string]map[string]*APIKey)
+	b.resetTablesLocked()
 	b.loggingConfigs = make(map[string]map[string]json.RawMessage)
 	b.permissionPolicies = make(map[string]map[string]string)
-	b.webACLByARN = make(map[string]map[string]string)
-	b.ipSetByARN = make(map[string]map[string]string)
-	b.regexPatternSetByARN = make(map[string]map[string]string)
-	b.ruleGroupByARN = make(map[string]map[string]string)
-	b.webACLByNameScope = make(map[string]map[string]string)
-	b.ipSetByNameScope = make(map[string]map[string]string)
-	b.regexPatternSetByScope = make(map[string]map[string]string)
-	b.ruleGroupByNameScope = make(map[string]map[string]string)
 	b.associations = make(map[string]map[string]string)
 }
 
@@ -1373,7 +1325,7 @@ func (b *InMemoryBackend) AssociateWebACL(ctx context.Context, webACLARN, resour
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	webACLID, ok := b.webACLByARN[region][webACLARN]
+	webACLID, ok := b.webACLIDByARNInRegion(webACLARN, region)
 	if !ok {
 		return fmt.Errorf("%w: web ACL with ARN %q not found", ErrWebACLNotFound, webACLARN)
 	}
@@ -1381,6 +1333,26 @@ func (b *InMemoryBackend) AssociateWebACL(ctx context.Context, webACLARN, resour
 	b.associationsStore(region)[resourceARN] = webACLID
 
 	return nil
+}
+
+// webACLIDByARNInRegion resolves webACLARN to its WebACL ID, but only if the
+// ARN's own embedded region (see regionFromARN) matches region. This
+// reproduces the old map[region]map[arn]string index's behavior exactly: a
+// WebACL is only found under the region bucket it was created into, so
+// looking it up from a mismatched ctx region must still miss (see
+// AssociateWebACL/DeleteFirewallManagerRuleGroups/ListResourcesForWebACL,
+// none of which merge in the "" CLOUDFRONT bucket the way lookupWebACLByID does).
+func (b *InMemoryBackend) webACLIDByARNInRegion(webACLARN, region string) (string, bool) {
+	if regionFromARN(webACLARN) != region {
+		return "", false
+	}
+
+	ws := b.webACLsByARN.Get(webACLARN)
+	if len(ws) == 0 {
+		return "", false
+	}
+
+	return ws[0].ID, true
 }
 
 // DisassociateWebACL removes the WebACL association from a resource ARN.
@@ -1406,7 +1378,7 @@ func (b *InMemoryBackend) GetWebACLForResource(ctx context.Context, resourceARN 
 		return nil, fmt.Errorf("%w: no web ACL association found for resource %q", ErrAssociationNotFound, resourceARN)
 	}
 
-	w, ok := b.webACLs[region][webACLID]
+	w, ok := b.webACLs.Get(regionKey(region, webACLID))
 	if !ok {
 		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLID)
 	}
@@ -1431,8 +1403,9 @@ func (b *InMemoryBackend) CreateAPIKey(ctx context.Context, scope string, tokenD
 		APIKeyValue:  key,
 		Scope:        scope,
 		TokenDomains: cloneAddresses(tokenDomains),
+		Region:       region,
 	}
-	b.apiKeysStore(region)[apiKeyMapKey(scope, key)] = a
+	b.apiKeys.Put(a)
 
 	return &APIKey{
 		APIKeyValue:  a.APIKeyValue,
@@ -1447,12 +1420,11 @@ func (b *InMemoryBackend) DeleteAPIKey(ctx context.Context, scope, apiKey string
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	k := apiKeyMapKey(scope, apiKey)
-	if _, ok := b.apiKeys[region][k]; !ok {
+	compositeKey := regionKey(region, apiKeyMapKey(scope, apiKey))
+
+	if !b.apiKeys.Delete(compositeKey) {
 		return fmt.Errorf("%w: API key not found", ErrAPIKeyNotFound)
 	}
-
-	delete(b.apiKeys[region], k)
 
 	return nil
 }
@@ -1469,7 +1441,7 @@ func (b *InMemoryBackend) CreateRegexPatternSet(
 
 	region := storeRegion(scope, getRegion(ctx, b.region))
 
-	if _, exists := b.regexPatternSetByScopeStore(region)[nameScope(name, scope)]; exists {
+	if len(b.regexPatternSetsByNameScope.Get(regionKey(region, nameScope(name, scope)))) > 0 {
 		return nil, fmt.Errorf(
 			"%w: regex pattern set %q already exists in scope %s",
 			ErrRegexPatternSetAlreadyExists,
@@ -1490,9 +1462,7 @@ func (b *InMemoryBackend) CreateRegexPatternSet(
 		LockToken:             uuid.NewString(),
 		Tags:                  cloneTags(tags),
 	}
-	b.regexPatternSetsStore(region)[id] = rps
-	b.regexPatternSetByARNStore(region)[arnStr] = id
-	b.regexPatternSetByScopeStore(region)[nameScope(name, scope)] = id
+	b.regexPatternSets.Put(rps)
 
 	return cloneRegexPatternSet(rps), nil
 }
@@ -1514,9 +1484,7 @@ func (b *InMemoryBackend) DeleteRegexPatternSet(ctx context.Context, id, lockTok
 		return fmt.Errorf("%w: lock token mismatch for regex pattern set %q", ErrOptimisticLock, id)
 	}
 
-	delete(b.regexPatternSetByARN[storeReg], rps.ARN)
-	delete(b.regexPatternSetByScope[storeReg], nameScope(rps.Name, rps.Scope))
-	delete(b.regexPatternSets[storeReg], id)
+	b.regexPatternSets.Delete(regionKey(storeReg, id))
 
 	return nil
 }
@@ -1534,7 +1502,7 @@ func (b *InMemoryBackend) CreateRuleGroup(
 
 	region := storeRegion(scope, getRegion(ctx, b.region))
 
-	if _, exists := b.ruleGroupByNameScopeStore(region)[nameScope(name, scope)]; exists {
+	if len(b.ruleGroupsByNameScope.Get(regionKey(region, nameScope(name, scope)))) > 0 {
 		return nil, fmt.Errorf("%w: rule group %q already exists in scope %s", ErrRuleGroupAlreadyExists, name, scope)
 	}
 
@@ -1552,9 +1520,7 @@ func (b *InMemoryBackend) CreateRuleGroup(
 		LockToken:        uuid.NewString(),
 		Tags:             cloneTags(tags),
 	}
-	b.ruleGroupsStore(region)[id] = rg
-	b.ruleGroupByARNStore(region)[arnStr] = id
-	b.ruleGroupByNameScopeStore(region)[nameScope(name, scope)] = id
+	b.ruleGroups.Put(rg)
 
 	return cloneRuleGroup(rg), nil
 }
@@ -1578,24 +1544,20 @@ func (b *InMemoryBackend) DeleteRuleGroup(ctx context.Context, id, lockToken str
 
 	rgARN := rg.ARN
 
-	for _, regionWebACLs := range b.webACLs {
-		for _, w := range regionWebACLs {
-			for _, rule := range w.Rules {
-				if b.ruleReferencesARN(rule, rgARN) {
-					return fmt.Errorf(
-						"%w: rule group %q is referenced by web ACL %q",
-						ErrAssociatedItem,
-						id,
-						w.ID,
-					)
-				}
+	for _, w := range b.webACLs.All() {
+		for _, rule := range w.Rules {
+			if b.ruleReferencesARN(rule, rgARN) {
+				return fmt.Errorf(
+					"%w: rule group %q is referenced by web ACL %q",
+					ErrAssociatedItem,
+					id,
+					w.ID,
+				)
 			}
 		}
 	}
 
-	delete(b.ruleGroupByARN[storeReg], rgARN)
-	delete(b.ruleGroupByNameScope[storeReg], nameScope(rg.Name, rg.Scope))
-	delete(b.ruleGroups[storeReg], id)
+	b.ruleGroups.Delete(regionKey(storeReg, id))
 
 	return nil
 }
@@ -1625,12 +1587,12 @@ func (b *InMemoryBackend) DeleteFirewallManagerRuleGroups(ctx context.Context, w
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	webACLID, ok := b.webACLByARN[region][webACLARN]
+	webACLID, ok := b.webACLIDByARNInRegion(webACLARN, region)
 	if !ok {
 		return nil, fmt.Errorf("%w: web ACL with ARN %q not found", ErrWebACLNotFound, webACLARN)
 	}
 
-	w, ok := b.webACLs[region][webACLID]
+	w, ok := b.webACLs.Get(regionKey(region, webACLID))
 	if !ok {
 		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLID)
 	}
@@ -1757,14 +1719,15 @@ func (b *InMemoryBackend) ListRegexPatternSets(ctx context.Context) []*RegexPatt
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	list := make([]*RegexPatternSet, 0, len(b.regexPatternSets[region]))
+	regionSets := b.regexPatternSetsByRegion.Get(region)
+	list := make([]*RegexPatternSet, 0, len(regionSets))
 
-	for _, r := range b.regexPatternSets[region] {
+	for _, r := range regionSets {
 		list = append(list, cloneRegexPatternSet(r))
 	}
 
 	if region != "" {
-		for _, r := range b.regexPatternSets[""] {
+		for _, r := range b.regexPatternSetsByRegion.Get("") {
 			list = append(list, cloneRegexPatternSet(r))
 		}
 	}
@@ -1826,14 +1789,15 @@ func (b *InMemoryBackend) ListRuleGroups(ctx context.Context) []*RuleGroup {
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	list := make([]*RuleGroup, 0, len(b.ruleGroups[region]))
+	regionGroups := b.ruleGroupsByRegion.Get(region)
+	list := make([]*RuleGroup, 0, len(regionGroups))
 
-	for _, rg := range b.ruleGroups[region] {
+	for _, rg := range regionGroups {
 		list = append(list, cloneRuleGroup(rg))
 	}
 
 	if region != "" {
-		for _, rg := range b.ruleGroups[""] {
+		for _, rg := range b.ruleGroupsByRegion.Get("") {
 			list = append(list, cloneRuleGroup(rg))
 		}
 	}
@@ -1885,10 +1849,10 @@ func (b *InMemoryBackend) ListAPIKeys(ctx context.Context, scope string) []*APIK
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	regionMap := b.apiKeys[region]
-	list := make([]*APIKey, 0, len(regionMap))
+	regionKeys := b.apiKeysByRegion.Get(region)
+	list := make([]*APIKey, 0, len(regionKeys))
 
-	for _, a := range regionMap {
+	for _, a := range regionKeys {
 		if scope == "" || a.Scope == scope {
 			list = append(list, &APIKey{
 				APIKeyValue:  a.APIKeyValue,
@@ -1909,7 +1873,7 @@ func (b *InMemoryBackend) GetDecryptedAPIKey(ctx context.Context, scope, apiKey 
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	a, ok := b.apiKeys[region][apiKeyMapKey(scope, apiKey)]
+	a, ok := b.apiKeys.Get(regionKey(region, apiKeyMapKey(scope, apiKey)))
 	if !ok {
 		return nil, fmt.Errorf("%w: API key not found", ErrAPIKeyNotFound)
 	}
@@ -1945,11 +1909,11 @@ func (b *InMemoryBackend) ListResourcesForWebACL(ctx context.Context, webACLARN 
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	if _, ok := b.webACLByARN[region][webACLARN]; !ok {
+	webACLID, ok := b.webACLIDByARNInRegion(webACLARN, region)
+	if !ok {
 		return nil, fmt.Errorf("%w: web ACL with ARN %q not found", ErrWebACLNotFound, webACLARN)
 	}
 
-	webACLID := b.webACLByARN[region][webACLARN]
 	regionAssoc := b.associations[region]
 	result := make([]string, 0, len(regionAssoc))
 
@@ -2018,7 +1982,7 @@ func (b *InMemoryBackend) GetManagedRuleSet(ctx context.Context, id string) (*Ma
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	ms, ok := b.managedRuleSets[region][id]
+	ms, ok := b.managedRuleSets.Get(regionKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: managed rule set %q not found", ErrManagedRuleSetNotFound, id)
 	}
@@ -2032,10 +1996,10 @@ func (b *InMemoryBackend) ListManagedRuleSets(ctx context.Context, scope string)
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	regionMap := b.managedRuleSets[region]
-	list := make([]*ManagedRuleSet, 0, len(regionMap))
+	regionSets := b.managedRuleSetsByRegion.Get(region)
+	list := make([]*ManagedRuleSet, 0, len(regionSets))
 
-	for _, ms := range regionMap {
+	for _, ms := range regionSets {
 		if scope != "" && ms.Scope != scope {
 			continue
 		}
@@ -2061,7 +2025,7 @@ func (b *InMemoryBackend) PutManagedRuleSetVersions(
 
 	region := getRegion(ctx, b.region)
 
-	ms, exists := b.managedRuleSets[region][id]
+	ms, exists := b.managedRuleSets.Get(regionKey(region, id))
 	if exists && lockToken != "" && lockToken != ms.LockToken {
 		return nil, fmt.Errorf("%w: lock token mismatch for managed rule set %q", ErrOptimisticLock, id)
 	}
@@ -2075,8 +2039,9 @@ func (b *InMemoryBackend) PutManagedRuleSetVersions(
 			ARN:               arnStr,
 			LockToken:         uuid.NewString(),
 			PublishedVersions: make(map[string]ManagedRuleSetVersion),
+			Region:            region,
 		}
-		b.managedRuleSetsStore(region)[id] = ms
+		b.managedRuleSets.Put(ms)
 	}
 
 	for versionName, versionRaw := range versionsToPublish {
@@ -2107,7 +2072,7 @@ func (b *InMemoryBackend) UpdateManagedRuleSetVersionExpiryDate(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	ms, ok := b.managedRuleSets[region][id]
+	ms, ok := b.managedRuleSets.Get(regionKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: managed rule set %q not found", ErrManagedRuleSetNotFound, id)
 	}

@@ -28,12 +28,7 @@ func WebACLCount(b *InMemoryBackend) int {
 	b.mu.RLock("WebACLCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, m := range b.webACLs {
-		total += len(m)
-	}
-
-	return total
+	return b.webACLs.Len()
 }
 
 // IPSetCount returns the number of IP sets in the backend (across all regions).
@@ -41,12 +36,7 @@ func IPSetCount(b *InMemoryBackend) int {
 	b.mu.RLock("IPSetCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, m := range b.ipSets {
-		total += len(m)
-	}
-
-	return total
+	return b.ipSets.Len()
 }
 
 // RegexPatternSetCount returns the number of regex pattern sets in the backend (across all regions).
@@ -54,12 +44,7 @@ func RegexPatternSetCount(b *InMemoryBackend) int {
 	b.mu.RLock("RegexPatternSetCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, m := range b.regexPatternSets {
-		total += len(m)
-	}
-
-	return total
+	return b.regexPatternSets.Len()
 }
 
 // RuleGroupCount returns the number of rule groups in the backend (across all regions).
@@ -67,12 +52,7 @@ func RuleGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("RuleGroupCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, m := range b.ruleGroups {
-		total += len(m)
-	}
-
-	return total
+	return b.ruleGroups.Len()
 }
 
 // APIKeyCount returns the number of API keys in the backend (across all regions).
@@ -80,12 +60,7 @@ func APIKeyCount(b *InMemoryBackend) int {
 	b.mu.RLock("APIKeyCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, m := range b.apiKeys {
-		total += len(m)
-	}
-
-	return total
+	return b.apiKeys.Len()
 }
 
 // AssociationCount returns the number of WebACL-to-resource associations (across all regions).
@@ -127,10 +102,13 @@ func AddWebACLInternal(b *InMemoryBackend, w *WebACL) {
 		w.Rules = []map[string]any{}
 	}
 
-	region := b.region
-	b.webACLsStore(region)[w.ID] = w
-	b.webACLByARNStore(region)[b.WebACLARN(w.Name, w.ID, w.Scope)] = w.ID
-	b.webACLByNameScopeStore(region)[nameScope(w.Name, w.Scope)] = w.ID
+	// ARN is always (re)computed here, mirroring the pre-store.Table behavior
+	// where the by-ARN index was populated from a freshly built ARN string
+	// regardless of any value the caller may have set on w.ARN. store.Table's
+	// primary key and "arn" index are both derived from w.ARN (see
+	// store_setup.go), so it must be set for this record to be reachable by ARN.
+	w.ARN = b.WebACLARN(w.Name, w.ID, w.Scope)
+	b.webACLs.Put(w)
 }
 
 // AddIPSetInternal inserts an IPSet directly into the backend, bypassing validation.
@@ -146,10 +124,8 @@ func AddIPSetInternal(b *InMemoryBackend, s *IPSet) {
 		s.Addresses = []string{}
 	}
 
-	region := b.region
-	b.ipSetsStore(region)[s.ID] = s
-	b.ipSetByARNStore(region)[b.IPSetARN(s.Name, s.ID, s.Scope)] = s.ID
-	b.ipSetByNameScopeStore(region)[nameScope(s.Name, s.Scope)] = s.ID
+	s.ARN = b.IPSetARN(s.Name, s.ID, s.Scope)
+	b.ipSets.Put(s)
 }
 
 // AddRegexPatternSetInternal inserts a RegexPatternSet directly into the backend.
@@ -165,10 +141,8 @@ func AddRegexPatternSetInternal(b *InMemoryBackend, r *RegexPatternSet) {
 		r.RegularExpressionList = []RegexEntry{}
 	}
 
-	region := b.region
-	b.regexPatternSetsStore(region)[r.ID] = r
-	b.regexPatternSetByARNStore(region)[b.RegexPatternSetARN(r.Name, r.ID, r.Scope)] = r.ID
-	b.regexPatternSetByScopeStore(region)[nameScope(r.Name, r.Scope)] = r.ID
+	r.ARN = b.RegexPatternSetARN(r.Name, r.ID, r.Scope)
+	b.regexPatternSets.Put(r)
 }
 
 // AddRuleGroupInternal inserts a RuleGroup directly into the backend.
@@ -184,8 +158,6 @@ func AddRuleGroupInternal(b *InMemoryBackend, rg *RuleGroup) {
 		rg.Rules = []map[string]any{}
 	}
 
-	region := b.region
-	b.ruleGroupsStore(region)[rg.ID] = rg
-	b.ruleGroupByARNStore(region)[b.RuleGroupARN(rg.Name, rg.ID, rg.Scope)] = rg.ID
-	b.ruleGroupByNameScopeStore(region)[nameScope(rg.Name, rg.Scope)] = rg.ID
+	rg.ARN = b.RuleGroupARN(rg.Name, rg.ID, rg.Scope)
+	b.ruleGroups.Put(rg)
 }
