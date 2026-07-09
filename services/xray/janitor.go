@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -75,26 +76,29 @@ func (j *Janitor) sweepExpiredTraces(ctx context.Context) {
 
 	var swept []string
 
-	for id, t := range j.Backend.traces {
+	for _, t := range j.Backend.traces.All() {
 		if t.StartTime.Before(cutoff) {
-			swept = append(swept, id)
-			delete(j.Backend.traces, id)
+			swept = append(swept, t.TraceID)
+		}
+	}
 
-			// Clean up segment indexes for the evicted trace.
-			if segs, ok := j.Backend.traceSegments[id]; ok {
-				for _, seg := range segs {
-					delete(j.Backend.parsedSegments, id+":"+seg.ID)
-				}
+	for _, id := range swept {
+		j.Backend.traces.Delete(id)
 
-				delete(j.Backend.traceSegments, id)
-			}
+		// Clean up segment indexes for the evicted trace. Clone the index
+		// result first: parsedSegments.Delete below mutates the traceSegments
+		// index in place, which would otherwise corrupt this same slice
+		// while it is still being ranged over.
+		segs := slices.Clone(j.Backend.traceSegments.Get(id))
+		for _, seg := range segs {
+			j.Backend.parsedSegments.Delete(seg.TraceID + ":" + seg.ID)
 		}
 	}
 
 	// Sweep expired retrieval tokens.
 	for token, created := range j.Backend.retrievalTimes {
 		if created.Before(cutoff) {
-			delete(j.Backend.traceRetrievals, token)
+			j.Backend.traceRetrievals.Delete(token)
 			delete(j.Backend.retrievedTraces, token)
 			delete(j.Backend.retrievalTimes, token)
 		}

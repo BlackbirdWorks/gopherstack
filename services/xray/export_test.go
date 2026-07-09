@@ -46,10 +46,10 @@ func (b *InMemoryBackend) PutTraceForTest(startTime time.Time) string {
 	b.mu.Lock("PutTraceForTest")
 	defer b.mu.Unlock()
 
-	b.traces[traceID] = &Trace{
+	b.traces.Put(&Trace{
 		TraceID:   traceID,
 		StartTime: startTime,
-	}
+	})
 
 	return traceID
 }
@@ -59,9 +59,7 @@ func (b *InMemoryBackend) TraceExistsForTest(traceID string) bool {
 	b.mu.RLock("TraceExistsForTest")
 	defer b.mu.RUnlock()
 
-	_, ok := b.traces[traceID]
-
-	return ok
+	return b.traces.Has(traceID)
 }
 
 // GroupCount returns the number of groups stored in the backend.
@@ -69,7 +67,7 @@ func (b *InMemoryBackend) GroupCount() int {
 	b.mu.RLock("GroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.groups)
+	return b.groups.Len()
 }
 
 // SamplingRuleCount returns the number of sampling rules stored in the backend.
@@ -77,7 +75,7 @@ func (b *InMemoryBackend) SamplingRuleCount() int {
 	b.mu.RLock("SamplingRuleCount")
 	defer b.mu.RUnlock()
 
-	return len(b.samplingRules)
+	return b.samplingRules.Len()
 }
 
 // TraceCount returns the number of traces stored in the backend.
@@ -85,7 +83,7 @@ func (b *InMemoryBackend) TraceCount() int {
 	b.mu.RLock("TraceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.traces)
+	return b.traces.Len()
 }
 
 // InsightCount returns the number of insights stored in the backend.
@@ -93,7 +91,7 @@ func (b *InMemoryBackend) InsightCount() int {
 	b.mu.RLock("InsightCount")
 	defer b.mu.RUnlock()
 
-	return len(b.insights)
+	return b.insights.Len()
 }
 
 // ResourcePolicyCount returns the number of resource policies stored in the backend.
@@ -101,7 +99,7 @@ func (b *InMemoryBackend) ResourcePolicyCount() int {
 	b.mu.RLock("ResourcePolicyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.resourcePolicies)
+	return b.resourcePolicies.Len()
 }
 
 // HandlerOpsLen returns the number of operations in GetSupportedOperations.
@@ -125,7 +123,7 @@ func (b *InMemoryBackend) AddSamplingRuleInternal(rule SamplingRule) {
 		rule.ModifiedAt = now
 	}
 
-	b.samplingRules[rule.RuleName] = &rule
+	b.samplingRules.Put(&rule)
 }
 
 // MaxSegmentsPerTrace exposes the per-trace segment cap for tests.
