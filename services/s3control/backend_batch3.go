@@ -20,11 +20,11 @@ func (b *InMemoryBackend) GetAccessPointPublicAccessBlock(accountID, name string
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return nil, fmt.Errorf("%w: %s", errAccessPointNotFound, name)
 	}
 
-	pab, ok := b.accessPointPABs[key]
+	pab, ok := b.accessPointPABs.Get(key)
 	if !ok {
 		return nil, errAPPABNotFound
 	}
@@ -40,12 +40,14 @@ func (b *InMemoryBackend) PutAccessPointPublicAccessBlock(accountID, name string
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return fmt.Errorf("%w: %s", errAccessPointNotFound, name)
 	}
 
 	cp := cfg
-	b.accessPointPABs[key] = &cp
+	cp.AccountID = accountID
+	cp.APName = name
+	b.accessPointPABs.Put(&cp)
 
 	return nil
 }
@@ -56,11 +58,11 @@ func (b *InMemoryBackend) DeleteAccessPointPublicAccessBlock(accountID, name str
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return fmt.Errorf("%w: %s", errAccessPointNotFound, name)
 	}
 
-	delete(b.accessPointPABs, key)
+	b.accessPointPABs.Delete(key)
 
 	return nil
 }
@@ -91,7 +93,7 @@ func (b *InMemoryBackend) UpdateJobStatusValidated(
 	b.mu.Lock("UpdateJobStatusValidated")
 	defer b.mu.Unlock()
 
-	job, ok := b.batchJobs[accountID+":"+jobID]
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}

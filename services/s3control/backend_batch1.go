@@ -33,7 +33,7 @@ func (b *InMemoryBackend) PutJobTagging(accountID, jobID string, tags TagSet) er
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + jobID
-	if _, ok := b.batchJobs[key]; !ok {
+	if !b.batchJobs.Has(key) {
 		return fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 	b.jobTags[key] = tags
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) GetJobTagging(accountID, jobID string) (TagSet, error)
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + jobID
-	if _, ok := b.batchJobs[key]; !ok {
+	if !b.batchJobs.Has(key) {
 		return nil, fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) DeleteJobTagging(accountID, jobID string) error {
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + jobID
-	if _, ok := b.batchJobs[key]; !ok {
+	if !b.batchJobs.Has(key) {
 		return fmt.Errorf("%w: %s", errJobNotFound, jobID)
 	}
 	delete(b.jobTags, key)
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) ListAccessGrantsInstances(accountID string) []*AccessG
 	b.mu.RLock("ListAccessGrantsInstances")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.accessGrantsInstances[accountID]
+	inst, ok := b.accessGrantsInstances.Get(accountID)
 	if !ok {
 		return nil
 	}
@@ -94,7 +94,7 @@ func (b *InMemoryBackend) GetAccessGrantsInstance(accountID string) (*AccessGran
 	b.mu.RLock("GetAccessGrantsInstance")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.accessGrantsInstances[accountID]
+	inst, ok := b.accessGrantsInstances.Get(accountID)
 	if !ok {
 		return nil, awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
 	}
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) DeleteAccessGrantsInstance(accountID string) error {
 	b.mu.Lock("DeleteAccessGrantsInstance")
 	defer b.mu.Unlock()
 
-	delete(b.accessGrantsInstances, accountID)
+	b.accessGrantsInstances.Delete(accountID)
 
 	return nil
 }
@@ -143,7 +143,7 @@ func (b *InMemoryBackend) DissociateAccessGrantsIdentityCenter(accountID string)
 	b.mu.Lock("DissociateAccessGrantsIdentityCenter")
 	defer b.mu.Unlock()
 
-	if inst, ok := b.accessGrantsInstances[accountID]; ok {
+	if inst, ok := b.accessGrantsInstances.Get(accountID); ok {
 		inst.IdentityCenterArn = ""
 	}
 }
@@ -155,7 +155,7 @@ func (b *InMemoryBackend) GetAccessGrantsInstanceForPrefix(
 	b.mu.RLock("GetAccessGrantsInstanceForPrefix")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.accessGrantsInstances[accountID]
+	inst, ok := b.accessGrantsInstances.Get(accountID)
 	if !ok {
 		return nil, awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
 	}
@@ -172,7 +172,7 @@ func (b *InMemoryBackend) GetAccessGrant(accountID, grantID string) (*AccessGran
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + grantID
-	grant, ok := b.accessGrants[key]
+	grant, ok := b.accessGrants.Get(key)
 	if !ok {
 		return nil, awserr.New("NoSuchAccessGrant", awserr.ErrNotFound)
 	}
@@ -186,10 +186,9 @@ func (b *InMemoryBackend) DeleteAccessGrant(accountID, grantID string) error {
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + grantID
-	if _, ok := b.accessGrants[key]; !ok {
+	if !b.accessGrants.Delete(key) {
 		return awserr.New("NoSuchAccessGrant", awserr.ErrNotFound)
 	}
-	delete(b.accessGrants, key)
 
 	return nil
 }
@@ -200,7 +199,7 @@ func (b *InMemoryBackend) ListAccessGrants(accountID, locationScope string) []*A
 	defer b.mu.RUnlock()
 
 	var out []*AccessGrant
-	for _, g := range b.accessGrants {
+	for _, g := range b.accessGrants.All() {
 		if g.AccountID != accountID {
 			continue
 		}
@@ -228,7 +227,7 @@ func (b *InMemoryBackend) GetAccessGrantsLocation(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + locationID
-	loc, ok := b.accessGrantsLocations[key]
+	loc, ok := b.accessGrantsLocations.Get(key)
 	if !ok {
 		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
@@ -242,10 +241,9 @@ func (b *InMemoryBackend) DeleteAccessGrantsLocation(accountID, locationID strin
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + locationID
-	if _, ok := b.accessGrantsLocations[key]; !ok {
+	if !b.accessGrantsLocations.Delete(key) {
 		return awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
-	delete(b.accessGrantsLocations, key)
 
 	return nil
 }
@@ -258,7 +256,7 @@ func (b *InMemoryBackend) UpdateAccessGrantsLocation(
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + locationID
-	loc, ok := b.accessGrantsLocations[key]
+	loc, ok := b.accessGrantsLocations.Get(key)
 	if !ok {
 		return nil, awserr.New("NoSuchAccessGrantsLocation", awserr.ErrNotFound)
 	}
@@ -273,7 +271,7 @@ func (b *InMemoryBackend) ListAccessGrantsLocations(accountID string) []*AccessG
 	defer b.mu.RUnlock()
 
 	var out []*AccessGrantsLocation
-	for _, loc := range b.accessGrantsLocations {
+	for _, loc := range b.accessGrantsLocations.All() {
 		if loc.AccountID == accountID {
 			cp := *loc
 			out = append(out, &cp)
@@ -293,7 +291,7 @@ func (b *InMemoryBackend) GetDataAccess(accountID, target, permission string) (s
 	defer b.mu.RUnlock()
 
 	// Verify the instance exists
-	if _, ok := b.accessGrantsInstances[accountID]; !ok {
+	if !b.accessGrantsInstances.Has(accountID) {
 		return "", awserr.New("AccessGrantsInstanceNotExistsError", awserr.ErrNotFound)
 	}
 	_ = target
@@ -310,7 +308,7 @@ func (b *InMemoryBackend) GetAccessPointScope(accountID, name string) (string, e
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return "", awserr.New("NoSuchAccessPoint", awserr.ErrNotFound)
 	}
 
@@ -323,7 +321,7 @@ func (b *InMemoryBackend) PutAccessPointScope(accountID, name, scope string) err
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return awserr.New("NoSuchAccessPoint", awserr.ErrNotFound)
 	}
 	b.accessPointScopes[key] = scope
@@ -348,7 +346,7 @@ func (b *InMemoryBackend) ListAccessPointsForDirectoryBuckets(accountID string) 
 	defer b.mu.RUnlock()
 
 	var out []*AccessPoint
-	for _, ap := range b.accessPoints {
+	for _, ap := range b.accessPoints.All() {
 		if ap.AccountID == accountID {
 			cp := *ap
 			out = append(out, &cp)
@@ -369,7 +367,7 @@ func (b *InMemoryBackend) GetAccessPointForObjectLambda(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	ap, ok := b.objectLambdaAccessPoints[key]
+	ap, ok := b.objectLambdaAccessPoints.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
@@ -383,10 +381,9 @@ func (b *InMemoryBackend) DeleteAccessPointForObjectLambda(accountID, name strin
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.objectLambdaAccessPoints[key]; !ok {
+	if !b.objectLambdaAccessPoints.Delete(key) {
 		return fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
-	delete(b.objectLambdaAccessPoints, key)
 
 	return nil
 }
@@ -399,7 +396,7 @@ func (b *InMemoryBackend) ListAccessPointsForObjectLambda(
 	defer b.mu.RUnlock()
 
 	var out []*ObjectLambdaAccessPoint
-	for _, ap := range b.objectLambdaAccessPoints {
+	for _, ap := range b.objectLambdaAccessPoints.All() {
 		if ap.AccountID == accountID {
 			cp := *ap
 			out = append(out, &cp)
@@ -418,7 +415,7 @@ func (b *InMemoryBackend) GetAccessPointPolicyForObjectLambda(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.objectLambdaAccessPoints[key]; !ok {
+	if !b.objectLambdaAccessPoints.Has(key) {
 		return "", fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
 
@@ -433,7 +430,7 @@ func (b *InMemoryBackend) PutAccessPointPolicyForObjectLambda(
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.objectLambdaAccessPoints[key]; !ok {
+	if !b.objectLambdaAccessPoints.Has(key) {
 		return fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
 	b.objectLambdaAPPolicies[key] = policy
@@ -460,7 +457,7 @@ func (b *InMemoryBackend) GetAccessPointPolicyStatusForObjectLambda(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.objectLambdaAccessPoints[key]; !ok {
+	if !b.objectLambdaAccessPoints.Has(key) {
 		return false, fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
 
@@ -475,7 +472,7 @@ func (b *InMemoryBackend) GetAccessPointConfigurationForObjectLambda(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.objectLambdaAccessPoints[key]; !ok {
+	if !b.objectLambdaAccessPoints.Has(key) {
 		return "", fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
 
@@ -490,7 +487,7 @@ func (b *InMemoryBackend) PutAccessPointConfigurationForObjectLambda(
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.objectLambdaAccessPoints[key]; !ok {
+	if !b.objectLambdaAccessPoints.Has(key) {
 		return fmt.Errorf("%w: %s", errObjectLambdaAPNotFound, name)
 	}
 	b.objectLambdaAPConfigs[key] = config
@@ -506,7 +503,7 @@ func (b *InMemoryBackend) GetBucket(accountID, bucketName string) (*OutpostsBuck
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + bucketName
-	bucket, ok := b.outpostsBuckets[key]
+	bucket, ok := b.outpostsBuckets.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
@@ -520,10 +517,9 @@ func (b *InMemoryBackend) DeleteBucket(accountID, bucketName string) error {
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Delete(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
-	delete(b.outpostsBuckets, key)
 
 	return nil
 }
@@ -536,7 +532,7 @@ func (b *InMemoryBackend) GetBucketLifecycleConfiguration(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return "", fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 
@@ -551,7 +547,7 @@ func (b *InMemoryBackend) PutBucketLifecycleConfiguration(
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	b.bucketLifecycle[key] = lifecycleConfig
@@ -565,7 +561,7 @@ func (b *InMemoryBackend) DeleteBucketLifecycleConfiguration(accountID, bucketNa
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	delete(b.bucketLifecycle, key)
@@ -579,7 +575,7 @@ func (b *InMemoryBackend) GetBucketPolicy(accountID, bucketName string) (string,
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return "", fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 
@@ -592,7 +588,7 @@ func (b *InMemoryBackend) PutBucketPolicy(accountID, bucketName, policy string) 
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	b.bucketPolicies[key] = policy
@@ -606,7 +602,7 @@ func (b *InMemoryBackend) DeleteBucketPolicy(accountID, bucketName string) error
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	delete(b.bucketPolicies, key)
@@ -620,7 +616,7 @@ func (b *InMemoryBackend) GetBucketTagging(accountID, bucketName string) (TagSet
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return nil, fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	tags := b.bucketTagging[key]
@@ -639,7 +635,7 @@ func (b *InMemoryBackend) PutBucketTagging(accountID, bucketName string, tags Ta
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	b.bucketTagging[key] = tags
@@ -653,7 +649,7 @@ func (b *InMemoryBackend) DeleteBucketTagging(accountID, bucketName string) erro
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	delete(b.bucketTagging, key)
@@ -667,7 +663,7 @@ func (b *InMemoryBackend) GetBucketVersioning(accountID, bucketName string) (str
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return "", fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	state := b.bucketVersioning[key]
@@ -684,7 +680,7 @@ func (b *InMemoryBackend) PutBucketVersioning(accountID, bucketName, status stri
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + bucketName
-	if _, ok := b.outpostsBuckets[key]; !ok {
+	if !b.outpostsBuckets.Has(key) {
 		return fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
 	b.bucketVersioning[key] = status
@@ -698,7 +694,7 @@ func (b *InMemoryBackend) ListRegionalBuckets(accountID string) []*OutpostsBucke
 	defer b.mu.RUnlock()
 
 	var out []*OutpostsBucket
-	for _, bucket := range b.outpostsBuckets {
+	for _, bucket := range b.outpostsBuckets.All() {
 		if bucket.AccountID == accountID {
 			cp := *bucket
 			out = append(out, &cp)
@@ -719,11 +715,11 @@ func (b *InMemoryBackend) DescribeMultiRegionAccessPointOperation(
 	defer b.mu.RUnlock()
 
 	// Try direct key lookup (bare token).
-	if req, ok := b.mrapRequests[accountID+":"+requestToken]; ok {
+	if req, ok := b.mrapRequests.Get(accountID + ":" + requestToken); ok {
 		return req, nil
 	}
 	// Fall back to ARN match.
-	for _, req := range b.mrapRequests {
+	for _, req := range b.mrapRequests.All() {
 		if req.AccountID == accountID && req.RequestTokenARN == requestToken {
 			return req, nil
 		}
@@ -738,7 +734,7 @@ func (b *InMemoryBackend) GetMultiRegionAccessPointPolicy(accountID, name string
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	mrapObj, ok := b.mraps[key]
+	mrapObj, ok := b.mraps.Get(key)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", errMRAPNotFound, name)
 	}
@@ -754,7 +750,7 @@ func (b *InMemoryBackend) GetMultiRegionAccessPointPolicyStatus(
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	mrapObj, ok := b.mraps[key]
+	mrapObj, ok := b.mraps.Get(key)
 	if !ok {
 		return false, fmt.Errorf("%w: %s", errMRAPNotFound, name)
 	}
@@ -768,7 +764,7 @@ func (b *InMemoryBackend) GetMultiRegionAccessPointRoutes(accountID, mrap string
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + mrap
-	if _, ok := b.mraps[key]; !ok {
+	if !b.mraps.Has(key) {
 		return "", fmt.Errorf("%w: %s", errMRAPNotFound, mrap)
 	}
 
