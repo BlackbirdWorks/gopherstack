@@ -9,12 +9,7 @@ func GroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("GroupCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionGroups := range b.groups {
-		total += len(regionGroups)
-	}
-
-	return total
+	return b.groups.Len()
 }
 
 // TagSyncTaskCount returns the total number of tag-sync tasks across all regions.
@@ -22,12 +17,7 @@ func TagSyncTaskCount(b *InMemoryBackend) int {
 	b.mu.RLock("TagSyncTaskCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionTasks := range b.tagSyncTasks {
-		total += len(regionTasks)
-	}
-
-	return total
+	return b.tagSyncTasks.Len()
 }
 
 // GroupResourceCount returns the total number of resource ARNs stored across all groups and regions.
@@ -78,17 +68,7 @@ func AddGroupInternal(b *InMemoryBackend, name, description string) *Group {
 		Tags:        tags.New("rg." + name + ".tags"),
 	}
 
-	if b.groups[region] == nil {
-		b.groups[region] = make(map[string]*Group)
-	}
-
-	b.groups[region][name] = g
-
-	if b.arnIndex[region] == nil {
-		b.arnIndex[region] = make(map[string]string)
-	}
-
-	b.arnIndex[region][groupARN] = name
+	b.groups.Put(g)
 
 	cp := *g
 
