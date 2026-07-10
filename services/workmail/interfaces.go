@@ -190,6 +190,12 @@ type StorageBackend interface {
 	AccountID() string
 	Region() string
 	Reset()
+
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks WorkMail up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // Organization represents a WorkMail organization.
@@ -230,6 +236,10 @@ type User struct {
 	Role         string
 	State        string
 	ARN          string
+	// orgID is the store.Table composite-key qualifier (see orgKey in
+	// backend.go); never part of the wire API, carried through persistence
+	// via orgDTO (see persistence.go).
+	orgID string
 }
 
 // UserSummary is a summary of a WorkMail user.
@@ -252,7 +262,10 @@ type Group struct {
 	Email        string
 	State        string
 	ARN          string
-	Hidden       bool
+	// orgID is the store.Table composite-key qualifier (see orgKey in
+	// backend.go); carried through persistence via orgDTO.
+	orgID  string
+	Hidden bool
 }
 
 // GroupSummary is a summary of a WorkMail group.
@@ -285,6 +298,9 @@ type Resource struct {
 	Description  string
 	State        string
 	ARN          string
+	// orgID is the store.Table composite-key qualifier (see orgKey in
+	// backend.go); carried through persistence via orgDTO.
+	orgID string
 }
 
 // ResourceSummary is a summary of a WorkMail resource.
@@ -307,6 +323,8 @@ type Delegate struct {
 type Permission struct {
 	GranteeID   string
 	GranteeType string
+	orgID       string
+	entityID    string
 	Permissions []string
 }
 
@@ -321,6 +339,7 @@ type MailDomain struct {
 	DomainName                  string
 	OwnershipVerificationStatus string
 	MxRecord                    string
+	orgID                       string
 	Records                     []DNSRecord
 	IsDefault                   bool
 	IsTestDomain                bool
@@ -347,6 +366,7 @@ type AccessControlRule struct {
 	Name         string
 	Effect       string
 	Description  string
+	orgID        string
 	IPRanges     []string
 	NotIPRanges  []string
 	Actions      []string
@@ -363,6 +383,7 @@ type ImpersonationRole struct {
 	Name         string
 	RoleType     string
 	Description  string
+	orgID        string
 	Rules        []ImpersonationRule
 }
 
@@ -406,24 +427,28 @@ type AvailabilityConfiguration struct {
 	EwsEndpoint  string
 	EwsUsername  string
 	LambdaARN    string
+	// orgID is the store.Table composite-key qualifier (see orgKey in
+	// backend.go); carried through persistence via orgDTO.
+	orgID string
 }
 
 // MobileDeviceAccessRule holds a mobile device access rule.
 type MobileDeviceAccessRule struct {
-	DateCreated               time.Time
 	DateModified              time.Time
+	DateCreated               time.Time
+	orgID                     string
 	RuleID                    string
 	Name                      string
 	Effect                    string
 	Description               string
 	DeviceModels              []string
-	NotDeviceModels           []string
 	DeviceTypes               []string
 	NotDeviceTypes            []string
 	DeviceOperatingSystems    []string
 	NotDeviceOperatingSystems []string
 	DeviceUserAgents          []string
 	NotDeviceUserAgents       []string
+	NotDeviceModels           []string
 }
 
 // MobileDeviceMatchedRule is a matched rule summary.
@@ -440,12 +465,18 @@ type MobileDeviceAccessOverride struct {
 	DeviceID     string
 	Effect       string
 	Description  string
+	// orgID is the store.Table composite-key qualifier (see orgKey in
+	// backend.go); carried through persistence via orgDTO.
+	orgID string
 }
 
 // EmailMonitoringConfiguration holds email monitoring config.
 type EmailMonitoringConfiguration struct {
 	RoleARN     string
 	LogGroupARN string
+	// orgID is the store.Table primary key for this one-per-org record (see
+	// orgOnlyDTO in persistence.go); never part of the wire API.
+	orgID string
 }
 
 // FolderConfiguration holds a retention policy folder config.
@@ -460,23 +491,27 @@ type RetentionPolicy struct {
 	ID                   string
 	Name                 string
 	Description          string
+	orgID                string
 	FolderConfigurations []*FolderConfiguration
 }
 
 // MailboxExportJob holds a mailbox export job.
 type MailboxExportJob struct {
-	StartTime         time.Time
-	EndTime           time.Time
-	S3Prefix          string
-	RoleARN           string
-	KmsKeyARN         string
-	S3BucketName      string
-	JobID             string
-	S3Path            string
-	State             string
-	ErrorInfo         string
-	Description       string
-	EntityID          string
+	StartTime    time.Time
+	EndTime      time.Time
+	S3Prefix     string
+	RoleARN      string
+	KmsKeyARN    string
+	S3BucketName string
+	JobID        string
+	S3Path       string
+	State        string
+	ErrorInfo    string
+	Description  string
+	EntityID     string
+	// orgID is the store.Table composite-key qualifier (see orgKey in
+	// backend.go); carried through persistence via orgDTO.
+	orgID             string
 	EstimatedProgress int32
 }
 
@@ -487,16 +522,20 @@ type IdentityProviderConfiguration struct {
 	IdentityCenterAppARN      string
 	IdentityCenterInstanceARN string
 	PATStatus                 string
+	// orgID is the store.Table primary key for this one-per-org record (see
+	// orgOnlyDTO in persistence.go); never part of the wire API.
+	orgID string
 }
 
 // PersonalAccessToken holds PAT metadata.
 type PersonalAccessToken struct {
-	TokenID      string
-	UserID       string
-	Name         string
 	DateCreated  time.Time
 	DateLastUsed time.Time
 	ExpiresTime  time.Time
+	TokenID      string
+	UserID       string
+	Name         string
+	orgID        string
 	Scopes       []string
 }
 
