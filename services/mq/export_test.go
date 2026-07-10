@@ -5,7 +5,7 @@ func BrokerCount(b *InMemoryBackend) int {
 	b.mu.RLock("BrokerCount")
 	defer b.mu.RUnlock()
 
-	return len(b.brokers)
+	return b.brokers.Len()
 }
 
 // ConfigurationCount returns the number of configurations in the backend.
@@ -13,7 +13,7 @@ func ConfigurationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ConfigurationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.configurations)
+	return b.configurations.Len()
 }
 
 // TagCount returns the number of tag-tracked ARNs in the backend.
@@ -43,7 +43,7 @@ func AddBrokerInternal(b *InMemoryBackend, br *Broker) {
 		br.Users = make(map[string]*User)
 	}
 
-	b.brokers[br.BrokerID] = br
+	b.brokers.Put(br)
 	b.tags[br.BrokerArn] = br.Tags
 }
 
@@ -61,6 +61,6 @@ func AddConfigurationInternal(b *InMemoryBackend, cfg *Configuration) {
 		cfg.Data = make(map[int32]string)
 	}
 
-	b.configurations[cfg.ID] = cfg
+	b.configurations.Put(cfg)
 	b.tags[cfg.Arn] = cfg.Tags
 }
