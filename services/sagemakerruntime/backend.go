@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // maxInvocationHistory is the maximum number of invocations retained in memory.
@@ -62,9 +63,15 @@ type AsyncInvocation struct {
 
 // InMemoryBackend stores SageMaker Runtime state in memory.
 type InMemoryBackend struct {
+	// registry holds every store.Table-backed resource field so their
+	// Reset/Snapshot/Restore collapse to one call each -- see
+	// store_setup.go's file doc comment for why sessions and
+	// asyncInvocations are both "clean" tables (registered directly, no
+	// DTO-registry needed).
+	registry         *store.Registry
 	mu               *lockmetrics.RWMutex
-	sessions         map[string]*Session
-	asyncInvocations map[string]*AsyncInvocation
+	sessions         *store.Table[Session]
+	asyncInvocations *store.Table[AsyncInvocation]
 	accountID        string
 	region           string
 	invocations      []*Invocation
@@ -73,14 +80,16 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		invocations:      make([]*Invocation, 0),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("sagemakerruntime"),
-		sessions:         make(map[string]*Session),
-		asyncInvocations: make(map[string]*AsyncInvocation),
+	b := &InMemoryBackend{
+		registry:    store.NewRegistry(),
+		invocations: make([]*Invocation, 0),
+		accountID:   accountID,
+		region:      region,
+		mu:          lockmetrics.New("sagemakerruntime"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -138,8 +147,8 @@ func (b *InMemoryBackend) StartSession(endpointName string) *Session {
 		LastInvokedAt: now,
 		ExpiresAt:     now.Add(sessionDuration),
 	}
-	b.sessions[session.ID] = session
-	evictOldest(b.sessions, maxSessions, func(s *Session) time.Time { return s.CreatedAt })
+	b.sessions.Put(session)
+	evictOldest(b.sessions, maxSessions, sessionKeyFn, func(s *Session) time.Time { return s.CreatedAt })
 
 	return cloneSession(session)
 }
@@ -149,7 +158,7 @@ func (b *InMemoryBackend) TouchSession(sessionID string) {
 	b.mu.Lock("TouchSession")
 	defer b.mu.Unlock()
 
-	if session, ok := b.sessions[sessionID]; ok {
+	if session, ok := b.sessions.Get(sessionID); ok {
 		session.LastInvokedAt = time.Now().UTC()
 	}
 }
@@ -159,8 +168,10 @@ func (b *InMemoryBackend) ListSessions() []*Session {
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
-	out := make([]*Session, 0, len(b.sessions))
-	for _, session := range b.sessions {
+	all := b.sessions.All()
+	out := make([]*Session, 0, len(all))
+
+	for _, session := range all {
 		out = append(out, cloneSession(session))
 	}
 
@@ -193,8 +204,11 @@ func (b *InMemoryBackend) RecordAsyncInvocation(
 		OutputLocation: loc,
 		CreatedAt:      time.Now().UTC(),
 	}
-	b.asyncInvocations[inferenceID] = invocation
-	evictOldest(b.asyncInvocations, maxAsyncInvocations, func(a *AsyncInvocation) time.Time { return a.CreatedAt })
+	b.asyncInvocations.Put(invocation)
+	evictOldest(
+		b.asyncInvocations, maxAsyncInvocations, asyncInvocationKeyFn,
+		func(a *AsyncInvocation) time.Time { return a.CreatedAt },
+	)
 
 	return cloneAsyncInvocation(invocation)
 }
@@ -204,30 +218,33 @@ func (b *InMemoryBackend) ListAsyncInvocations() []*AsyncInvocation {
 	b.mu.RLock("ListAsyncInvocations")
 	defer b.mu.RUnlock()
 
-	out := make([]*AsyncInvocation, 0, len(b.asyncInvocations))
-	for _, invocation := range b.asyncInvocations {
+	all := b.asyncInvocations.All()
+	out := make([]*AsyncInvocation, 0, len(all))
+
+	for _, invocation := range all {
 		out = append(out, cloneAsyncInvocation(invocation))
 	}
 
 	return out
 }
 
-// evictOldest enforces a FIFO size bound on m: while the map exceeds maxSize, it
-// repeatedly removes the entry with the oldest timestamp (as reported by createdAt).
-// This keeps long-running sessions/async-invocation maps from growing without bound.
-func evictOldest[V any](m map[string]V, maxSize int, createdAt func(V) time.Time) {
-	for len(m) > maxSize {
+// evictOldest enforces a FIFO size bound on t: while the table exceeds
+// maxSize, it repeatedly removes the entry with the oldest timestamp (as
+// reported by createdAt), identified via idFn. This keeps long-running
+// sessions/async-invocation tables from growing without bound.
+func evictOldest[V any](t *store.Table[V], maxSize int, idFn func(*V) string, createdAt func(*V) time.Time) {
+	for t.Len() > maxSize {
 		var (
-			oldestKey  string
+			oldestID   string
 			oldestTime time.Time
 			found      bool
 		)
 
-		for k, v := range m {
-			t := createdAt(v)
-			if !found || t.Before(oldestTime) {
-				oldestKey = k
-				oldestTime = t
+		for _, v := range t.All() {
+			ts := createdAt(v)
+			if !found || ts.Before(oldestTime) {
+				oldestID = idFn(v)
+				oldestTime = ts
 				found = true
 			}
 		}
@@ -236,7 +253,7 @@ func evictOldest[V any](m map[string]V, maxSize int, createdAt func(V) time.Time
 			return
 		}
 
-		delete(m, oldestKey)
+		t.Delete(oldestID)
 	}
 }
 
