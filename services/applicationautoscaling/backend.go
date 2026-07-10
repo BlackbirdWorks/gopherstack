@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -107,15 +108,36 @@ type ScheduledAction struct {
 
 // InMemoryBackend stores Application Auto Scaling state in memory.
 type InMemoryBackend struct {
-	scalableTargets   map[string]*ScalableTarget
-	scalingPolicies   map[string]*ScalingPolicy
-	scheduledActions  map[string]*ScheduledAction
-	targetARNIndex    map[string]string
-	policyNameIndex   map[string]string
-	actionNameIndex   map[string]string
-	mu                *lockmetrics.RWMutex
-	accountID         string
-	region            string
+	// registry holds every store.Table-backed resource field so their
+	// Reset/Snapshot/Restore collapse to one call each -- see
+	// store_setup.go's file doc comment.
+	registry        *store.Registry
+	scalableTargets *store.Table[ScalableTarget]
+	// targetsByARN is a secondary index over scalableTargets grouping by ARN,
+	// answering the "target for resource ARN X" lookups TagResource,
+	// ListTagsForResource, and UntagResource need. It replaces the previous
+	// map[string]string targetARNIndex reverse-lookup map.
+	targetsByARN    *store.Index[ScalableTarget]
+	scalingPolicies *store.Table[ScalingPolicy]
+	// policiesByName is a secondary index over scalingPolicies grouping by
+	// the (serviceNamespace,resourceId,scalableDimension,policyName)
+	// composite key built by policyNameKey. It replaces the previous
+	// map[string]string policyNameIndex reverse-lookup map.
+	policiesByName   *store.Index[ScalingPolicy]
+	scheduledActions *store.Table[ScheduledAction]
+	// actionsByName is a secondary index over scheduledActions grouping by
+	// the (serviceNamespace,resourceId,scalableDimension,scheduledActionName)
+	// composite key built by actionNameKey. It replaces the previous
+	// map[string]string actionNameIndex reverse-lookup map.
+	actionsByName *store.Index[ScheduledAction]
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
+	// scalingActivities is append-order-sensitive: DescribeScalingActivities
+	// returns entries most-recent-first via slices.Backward over this exact
+	// slice. store.Table has no defined insertion order (see pkgs/store's
+	// package doc), so this is intentionally left as a raw slice rather than
+	// converted.
 	scalingActivities []*ScalingActivity
 }
 
@@ -136,17 +158,15 @@ type ScalingActivity struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		scalableTargets:  make(map[string]*ScalableTarget),
-		scalingPolicies:  make(map[string]*ScalingPolicy),
-		scheduledActions: make(map[string]*ScheduledAction),
-		targetARNIndex:   make(map[string]string),
-		policyNameIndex:  make(map[string]string),
-		actionNameIndex:  make(map[string]string),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("applicationautoscaling"),
+	b := &InMemoryBackend{
+		registry:  store.NewRegistry(),
+		accountID: accountID,
+		region:    region,
+		mu:        lockmetrics.New("applicationautoscaling"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -210,7 +230,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 	key := scalableTargetKey(serviceNamespace, resourceID, scalableDimension)
 	now := time.Now().UTC()
 
-	if existing, ok := b.scalableTargets[key]; ok {
+	if existing, ok := b.scalableTargets.Get(key); ok {
 		return b.updateExistingTarget(existing, minCapacity, maxCapacity, tags, roleARN, suspendedState, now)
 	}
 
@@ -238,8 +258,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		t.Tags = make(map[string]string)
 	}
 
-	b.scalableTargets[key] = t
-	b.targetARNIndex[t.ARN] = key
+	b.scalableTargets.Put(t)
 
 	b.recordActivityLocked(
 		serviceNamespace, resourceID, scalableDimension,
@@ -414,35 +433,28 @@ func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID,
 
 	key := scalableTargetKey(serviceNamespace, resourceID, scalableDimension)
 
-	t, ok := b.scalableTargets[key]
-	if !ok {
+	if !b.scalableTargets.Has(key) {
 		return fmt.Errorf("%w: scalable target %s not found", ErrNotFound, key)
 	}
 
-	delete(b.targetARNIndex, t.ARN)
-	delete(b.scalableTargets, key)
+	b.scalableTargets.Delete(key)
 
 	// Cascade: remove all scaling policies that belong to this target.
-	for pARN, p := range b.scalingPolicies {
+	// b.scalingPolicies.All() returns a fresh slice, so deleting by key while
+	// ranging over it is safe (unlike ranging directly over the table's
+	// internal map).
+	for _, p := range b.scalingPolicies.All() {
 		if p.ServiceNamespace == serviceNamespace && p.ResourceID == resourceID &&
 			p.ScalableDimension == scalableDimension {
-			delete(b.scalingPolicies, pARN)
-			delete(
-				b.policyNameIndex,
-				policyNameKey(p.ServiceNamespace, p.ResourceID, p.ScalableDimension, p.PolicyName),
-			)
+			b.scalingPolicies.Delete(p.ARN)
 		}
 	}
 
 	// Cascade: remove all scheduled actions that belong to this target.
-	for aARN, a := range b.scheduledActions {
+	for _, a := range b.scheduledActions.All() {
 		if a.ServiceNamespace == serviceNamespace && a.ResourceID == resourceID &&
 			a.ScalableDimension == scalableDimension {
-			delete(b.scheduledActions, aARN)
-			delete(
-				b.actionNameIndex,
-				actionNameKey(a.ServiceNamespace, a.ResourceID, a.ScalableDimension, a.ScheduledActionName),
-			)
+			b.scheduledActions.Delete(a.ARN)
 		}
 	}
 
@@ -516,8 +528,8 @@ func (b *InMemoryBackend) DescribeScalableTargets(f DescribeScalableTargetsFilte
 		}
 	}
 
-	list := make([]*ScalableTarget, 0, len(b.scalableTargets))
-	for _, t := range b.scalableTargets {
+	list := make([]*ScalableTarget, 0, b.scalableTargets.Len())
+	for _, t := range b.scalableTargets.All() {
 		if f.ServiceNamespace != "" && t.ServiceNamespace != f.ServiceNamespace {
 			continue
 		}
@@ -587,8 +599,8 @@ func (b *InMemoryBackend) PutScalingPolicy(
 	now := time.Now().UTC()
 	key := policyNameKey(serviceNamespace, resourceID, scalableDimension, policyName)
 
-	if existingARN, ok := b.policyNameIndex[key]; ok {
-		p := b.scalingPolicies[existingARN]
+	if group := b.policiesByName.Get(key); len(group) > 0 {
+		p := group[0]
 		// Only update PolicyType when the caller explicitly provided one.
 		if policyType != "" {
 			p.PolicyType = policyType
@@ -621,8 +633,7 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		CreationTime:         now,
 		LastModifiedTime:     now,
 	}
-	b.scalingPolicies[policyARN] = p
-	b.policyNameIndex[key] = policyARN
+	b.scalingPolicies.Put(p)
 	cp := cloneScalingPolicy(p)
 
 	return cp, nil
@@ -653,13 +664,12 @@ func (b *InMemoryBackend) DeleteScalingPolicy(
 
 	key := policyNameKey(serviceNamespace, resourceID, scalableDimension, policyName)
 
-	existingARN, ok := b.policyNameIndex[key]
-	if !ok {
+	group := b.policiesByName.Get(key)
+	if len(group) == 0 {
 		return fmt.Errorf("%w: scaling policy %s not found", ErrNotFound, policyName)
 	}
 
-	delete(b.scalingPolicies, existingARN)
-	delete(b.policyNameIndex, key)
+	b.scalingPolicies.Delete(group[0].ARN)
 
 	return nil
 }
@@ -734,8 +744,8 @@ func (b *InMemoryBackend) DescribeScalingPolicies(f DescribeScalingPoliciesFilte
 	nameSet := buildStringSet(f.PolicyNames)
 	arnSet := buildStringSet(f.PolicyARNs)
 
-	list := make([]*ScalingPolicy, 0, len(b.scalingPolicies))
-	for _, p := range b.scalingPolicies {
+	list := make([]*ScalingPolicy, 0, b.scalingPolicies.Len())
+	for _, p := range b.scalingPolicies.All() {
 		if policyMatchesFilter(p, f, nameSet, arnSet) {
 			list = append(list, cloneScalingPolicy(p))
 		}
@@ -778,8 +788,8 @@ func (b *InMemoryBackend) PutScheduledAction(
 	now := time.Now().UTC()
 	key := actionNameKey(serviceNamespace, resourceID, scalableDimension, scheduledActionName)
 
-	if existingARN, ok := b.actionNameIndex[key]; ok {
-		a := b.scheduledActions[existingARN]
+	if group := b.actionsByName.Get(key); len(group) > 0 {
+		a := group[0]
 		a.Schedule = schedule
 		a.LastModifiedTime = now
 		if scalableTargetAction != nil {
@@ -820,8 +830,7 @@ func (b *InMemoryBackend) PutScheduledAction(
 		CreationTime:         now,
 		LastModifiedTime:     now,
 	}
-	b.scheduledActions[actionARN] = a
-	b.actionNameIndex[key] = actionARN
+	b.scheduledActions.Put(a)
 	cp := *a
 
 	return &cp, nil
@@ -852,13 +861,12 @@ func (b *InMemoryBackend) DeleteScheduledAction(
 
 	key := actionNameKey(serviceNamespace, resourceID, scalableDimension, scheduledActionName)
 
-	existingARN, ok := b.actionNameIndex[key]
-	if !ok {
+	group := b.actionsByName.Get(key)
+	if len(group) == 0 {
 		return fmt.Errorf("%w: scheduled action %s not found", ErrNotFound, scheduledActionName)
 	}
 
-	delete(b.scheduledActions, existingARN)
-	delete(b.actionNameIndex, key)
+	b.scheduledActions.Delete(group[0].ARN)
 
 	return nil
 }
@@ -893,8 +901,8 @@ func (b *InMemoryBackend) DescribeScheduledActions(f DescribeScheduledActionsFil
 		}
 	}
 
-	list := make([]*ScheduledAction, 0, len(b.scheduledActions))
-	for _, a := range b.scheduledActions {
+	list := make([]*ScheduledAction, 0, b.scheduledActions.Len())
+	for _, a := range b.scheduledActions.All() {
 		if f.ServiceNamespace != "" && a.ServiceNamespace != f.ServiceNamespace {
 			continue
 		}
@@ -929,12 +937,12 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	key, ok := b.targetARNIndex[resourceARN]
-	if !ok {
+	group := b.targetsByARN.Get(resourceARN)
+	if len(group) == 0 {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	t := b.scalableTargets[key]
+	t := group[0]
 
 	if t.Tags == nil {
 		t.Tags = make(map[string]string)
@@ -952,12 +960,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	key, ok := b.targetARNIndex[resourceARN]
-	if !ok {
+	group := b.targetsByARN.Get(resourceARN)
+	if len(group) == 0 {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	t := b.scalableTargets[key]
+	t := group[0]
 	out := make(map[string]string, len(t.Tags))
 	maps.Copy(out, t.Tags)
 
@@ -973,12 +981,12 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	key, ok := b.targetARNIndex[resourceARN]
-	if !ok {
+	group := b.targetsByARN.Get(resourceARN)
+	if len(group) == 0 {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	t := b.scalableTargets[key]
+	t := group[0]
 
 	for _, k := range tagKeys {
 		delete(t.Tags, k)
@@ -1022,15 +1030,15 @@ func (b *InMemoryBackend) GetPredictiveScalingForecast(
 
 	key := policyNameKey(serviceNamespace, resourceID, scalableDimension, policyName)
 
-	policyARN, ok := b.policyNameIndex[key]
-	if !ok {
+	group := b.policiesByName.Get(key)
+	if len(group) == 0 {
 		return nil, nil, time.Time{}, fmt.Errorf(
 			"%w: scaling policy %s not found for %s/%s/%s",
 			ErrNotFound, policyName, serviceNamespace, resourceID, scalableDimension,
 		)
 	}
 
-	p := b.scalingPolicies[policyARN]
+	p := group[0]
 	if p.PolicyType != "PredictiveScaling" {
 		return nil, nil, time.Time{}, fmt.Errorf(
 			"%w: GetPredictiveScalingForecast is only supported for PredictiveScaling policies; policy %s has type %s",
@@ -1083,12 +1091,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.scalableTargets = make(map[string]*ScalableTarget)
-	b.scalingPolicies = make(map[string]*ScalingPolicy)
-	b.scheduledActions = make(map[string]*ScheduledAction)
-	b.targetARNIndex = make(map[string]string)
-	b.policyNameIndex = make(map[string]string)
-	b.actionNameIndex = make(map[string]string)
+	b.registry.ResetAll()
 	b.scalingActivities = nil
 }
 
@@ -1097,11 +1100,6 @@ func (b *InMemoryBackend) Purge() {
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
-	b.scalableTargets = make(map[string]*ScalableTarget)
-	b.scalingPolicies = make(map[string]*ScalingPolicy)
-	b.scheduledActions = make(map[string]*ScheduledAction)
-	b.targetARNIndex = make(map[string]string)
-	b.policyNameIndex = make(map[string]string)
-	b.actionNameIndex = make(map[string]string)
+	b.registry.ResetAll()
 	b.scalingActivities = nil
 }
