@@ -54,7 +54,7 @@ func (b *InMemoryBackend) StartSession(
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[applicationID]
+	app, ok := b.applications.Get(applicationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
@@ -93,15 +93,11 @@ func (b *InMemoryBackend) StartSession(
 	if session.Tags == nil {
 		session.Tags = make(map[string]string)
 	}
-	if b.sessions[applicationID] == nil {
-		b.sessions[applicationID] = make(map[string]*Session)
-	}
 	if b.sessionTokens[applicationID] == nil {
 		b.sessionTokens[applicationID] = make(map[string]string)
 	}
-	b.sessions[applicationID][id] = session
+	b.sessions.Put(session)
 	b.sessionTokens[applicationID][clientToken] = id
-	b.sessionARNs[session.Arn] = [2]string{applicationID, id}
 
 	return cloneSession(session), nil
 }
@@ -112,7 +108,12 @@ func (b *InMemoryBackend) sessionForToken(applicationID, clientToken string) *Se
 		return nil
 	}
 
-	return b.sessions[applicationID][sessionID]
+	session, ok := b.sessions.Get(sessionID)
+	if !ok || session.ApplicationID != applicationID {
+		return nil
+	}
+
+	return session
 }
 
 // GetSession retrieves an interactive session.
@@ -129,11 +130,11 @@ func (b *InMemoryBackend) GetSession(applicationID, sessionID string) (*Session,
 }
 
 func (b *InMemoryBackend) lookupSession(applicationID, sessionID string) (*Session, error) {
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
-	session, ok := b.sessions[applicationID][sessionID]
-	if !ok {
+	session, ok := b.sessions.Get(sessionID)
+	if !ok || session.ApplicationID != applicationID {
 		return nil, fmt.Errorf("%w: session %s not found", ErrNotFound, sessionID)
 	}
 
@@ -147,7 +148,7 @@ func (b *InMemoryBackend) ListSessions(
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return nil, "", fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
@@ -155,8 +156,9 @@ func (b *InMemoryBackend) ListSessions(
 	for _, state := range states {
 		stateSet[state] = struct{}{}
 	}
-	list := make([]*Session, 0, len(b.sessions[applicationID]))
-	for _, session := range b.sessions[applicationID] {
+	sessionsForApp := b.sessionsByApplication.Get(applicationID)
+	list := make([]*Session, 0, len(sessionsForApp))
+	for _, session := range sessionsForApp {
 		if len(stateSet) > 0 {
 			if _, ok := stateSet[session.State]; !ok {
 				continue
