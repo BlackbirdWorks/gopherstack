@@ -3,93 +3,67 @@ package transcribe
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// transcribeSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change to backendSnapshot (or a value type held by one
+// of the registered tables) would make an older snapshot unsafe to decode as
+// the current shape. Restore compares this against the persisted value and
+// discards (registry.ResetAll, not a partial decode) any mismatch -- see
+// Restore. The pre-Phase-3.3 snapshot format had no version field at all, so
+// an old snapshot decodes with Version == 0, which is guaranteed to mismatch
+// transcribeSnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const transcribeSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the Transcribe backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// b.registry.SnapshotAll() (jobs, callAnalyticsCategories, languageModels,
+// medicalVocabularies, vocabularies, vocabularyFilters, callAnalyticsJobs,
+// medicalScribeJobs, medicalTranscriptionJobs -- see store_setup.go). Every
+// registered table is a "clean" table keyed directly off a real
+// (non-json:"-") identity field, so no ephemeral DTO registry is needed here.
+// ResourceTags (map[string]map[string]string, keyed by ARN rather than *T) is
+// left as a plain field: its values are plain string maps, not *T, so it does
+// not fit store.Table's keyed-collection shape. Version guards against
+// decoding a snapshot from an incompatible (older or newer) build of this
+// backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Jobs                     map[string]*TranscriptionJob        `json:"jobs"`
-	CallAnalyticsCategories  map[string]*CallAnalyticsCategory   `json:"callAnalyticsCategories"`
-	LanguageModels           map[string]*LanguageModel           `json:"languageModels"`
-	MedicalVocabularies      map[string]*MedicalVocabulary       `json:"medicalVocabularies"`
-	Vocabularies             map[string]*Vocabulary              `json:"vocabularies"`
-	VocabularyFilters        map[string]*VocabularyFilter        `json:"vocabularyFilters"`
-	CallAnalyticsJobs        map[string]*CallAnalyticsJob        `json:"callAnalyticsJobs"`
-	MedicalScribeJobs        map[string]*MedicalScribeJob        `json:"medicalScribeJobs"`
-	MedicalTranscriptionJobs map[string]*MedicalTranscriptionJob `json:"medicalTranscriptionJobs"`
+	Tables       map[string]json.RawMessage   `json:"tables"`
+	ResourceTags map[string]map[string]string `json:"resourceTags"`
+	Version      int                          `json:"version"`
+}
+
+func ensureNonNilMaps(s *backendSnapshot) {
+	if s.ResourceTags == nil {
+		s.ResourceTags = make(map[string]map[string]string)
+	}
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
 
-	jobsCopy := make(map[string]*TranscriptionJob, len(b.jobs))
-	for k, v := range b.jobs {
-		cp := *v
-		jobsCopy[k] = &cp
-	}
-
-	catsCopy := make(map[string]*CallAnalyticsCategory, len(b.callAnalyticsCategories))
-	for k, v := range b.callAnalyticsCategories {
-		cp := *v
-		catsCopy[k] = &cp
-	}
-
-	modelsCopy := make(map[string]*LanguageModel, len(b.languageModels))
-	for k, v := range b.languageModels {
-		cp := *v
-		modelsCopy[k] = &cp
-	}
-
-	medVocabsCopy := make(map[string]*MedicalVocabulary, len(b.medicalVocabularies))
-	for k, v := range b.medicalVocabularies {
-		cp := *v
-		medVocabsCopy[k] = &cp
-	}
-
-	vocabsCopy := make(map[string]*Vocabulary, len(b.vocabularies))
-	for k, v := range b.vocabularies {
-		cp := *v
-		vocabsCopy[k] = &cp
-	}
-
-	filtersCopy := make(map[string]*VocabularyFilter, len(b.vocabularyFilters))
-	for k, v := range b.vocabularyFilters {
-		cp := *v
-		filtersCopy[k] = &cp
-	}
-
-	caJobsCopy := make(map[string]*CallAnalyticsJob, len(b.callAnalyticsJobs))
-	for k, v := range b.callAnalyticsJobs {
-		cp := *v
-		caJobsCopy[k] = &cp
-	}
-
-	msJobsCopy := make(map[string]*MedicalScribeJob, len(b.medicalScribeJobs))
-	for k, v := range b.medicalScribeJobs {
-		cp := *v
-		msJobsCopy[k] = &cp
-	}
-
-	mtJobsCopy := make(map[string]*MedicalTranscriptionJob, len(b.medicalTranscriptionJobs))
-	for k, v := range b.medicalTranscriptionJobs {
-		cp := *v
-		mtJobsCopy[k] = &cp
-	}
+	tables, tblErr := b.registry.SnapshotAll()
 
 	snap := backendSnapshot{
-		Jobs:                     jobsCopy,
-		CallAnalyticsCategories:  catsCopy,
-		LanguageModels:           modelsCopy,
-		MedicalVocabularies:      medVocabsCopy,
-		Vocabularies:             vocabsCopy,
-		VocabularyFilters:        filtersCopy,
-		CallAnalyticsJobs:        caJobsCopy,
-		MedicalScribeJobs:        msJobsCopy,
-		MedicalTranscriptionJobs: mtJobsCopy,
+		Version:      transcribeSnapshotVersion,
+		Tables:       tables,
+		ResourceTags: b.resourceTags,
+	}
+
+	b.mu.RUnlock()
+
+	if tblErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "transcribe: snapshot table marshal failed", "error", tblErr)
+
+		return nil
 	}
 
 	data, err := json.Marshal(snap)
@@ -114,27 +88,32 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	// Restore maps, replacing nil with empty maps so the backend is always usable.
-	b.jobs = nonNilMap(snap.Jobs)
-	b.callAnalyticsCategories = nonNilMap(snap.CallAnalyticsCategories)
-	b.languageModels = nonNilMap(snap.LanguageModels)
-	b.medicalVocabularies = nonNilMap(snap.MedicalVocabularies)
-	b.vocabularies = nonNilMap(snap.Vocabularies)
-	b.vocabularyFilters = nonNilMap(snap.VocabularyFilters)
-	b.callAnalyticsJobs = nonNilMap(snap.CallAnalyticsJobs)
-	b.medicalScribeJobs = nonNilMap(snap.MedicalScribeJobs)
-	b.medicalTranscriptionJobs = nonNilMap(snap.MedicalTranscriptionJobs)
+	if snap.Version != transcribeSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"transcribe: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", transcribeSnapshotVersion)
 
-	return nil
-}
+		b.registry.ResetAll()
+		b.resourceTags = make(map[string]map[string]string)
 
-// nonNilMap returns m if it is not nil, otherwise returns a new empty map.
-func nonNilMap[K comparable, V any](m map[K]V) map[K]V {
-	if m != nil {
-		return m
+		return nil
 	}
 
-	return make(map[K]V)
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("transcribe: restore snapshot tables: %w", err)
+	}
+
+	ensureNonNilMaps(&snap)
+
+	b.resourceTags = snap.ResourceTags
+
+	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
