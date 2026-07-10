@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // defaultIdleSessionTTLSeconds is the default agent idle session TTL (10 minutes),
@@ -489,30 +490,79 @@ type KBDocumentDetail struct {
 // ---------------------------------------------------------------------------
 
 // InMemoryBackend implements StorageBackend with in-memory maps, isolated by region.
+//
+// Phase 3.3 datalayer conversion: every map[string]*T resource collection is
+// a *store.Table[T] registered on b.registry, with a *store.Index[T] added
+// where a parent-scoped List/bulk-delete previously did a linear key-prefix
+// scan (see store_setup.go's registerAllTables). Resources with a real,
+// globally-unique identity field (agents, knowledgeBases, flows, prompts)
+// are registered directly by that ID; resources whose ID is only unique
+// within a parent (agent/flow/knowledge-base versions, action groups,
+// aliases, collaborators, associations, data sources, ingestion jobs, KB
+// documents) keep the same "parent/child[/grandchild]" composite key the
+// original map already used, matching the composite-key rule in
+// .claude/memories/parity-principles.md.
+//
+// agentsByName, kbsByName, flowsByName, and promptsByName are left as plain
+// map[string]string reverse-lookup caches (name -> ID): their values are
+// bare strings, not *T, so there is nothing for store.Table to key on.
+// agentVersionCtrs, flowVersionCtrs, and promptVersionCtrs (map[string]int)
+// are likewise left raw for the same reason. tags (map[string]map[string]string)
+// is the one remaining grouping map with a non-*T value.
 type InMemoryBackend struct {
-	kbDocuments        map[string]*KBDocumentDetail
-	agentsByName       map[string]string
-	agentVersions      map[string]map[string]*AgentVersion
-	actionGroups       map[string]*AgentActionGroup
-	agentAliases       map[string]*AgentAlias
-	agentCollaborators map[string]map[string]*AgentCollaborator
-	agentKBAssocs      map[string]*AgentKnowledgeBase
-	knowledgeBases     map[string]*KnowledgeBase
-	kbsByName          map[string]string
-	dataSources        map[string]*DataSource
-	ingestionJobs      map[string]*IngestionJob
-	flows              map[string]*Flow
-	flowsByName        map[string]string
-	flowVersions       map[string]map[string]*FlowVersion
-	flowAliases        map[string]*FlowAlias
-	prompts            map[string]*Prompt
-	promptVersions     map[string]map[string]*PromptVersion
-	promptsByName      map[string]string
-	promptVersionCtrs  map[string]int
-	tags               map[string]map[string]string
-	flowVersionCtrs    map[string]int
-	agents             map[string]*Agent
-	agentVersionCtrs   map[string]int
+	kbDocuments             *store.Table[KBDocumentDetail]
+	kbDocumentsByDataSource *store.Index[KBDocumentDetail]
+
+	agentsByName map[string]string
+
+	agents *store.Table[Agent]
+
+	agentVersions        *store.Table[AgentVersion]
+	agentVersionsByAgent *store.Index[AgentVersion]
+
+	actionGroups               *store.Table[AgentActionGroup]
+	actionGroupsByAgentVersion *store.Index[AgentActionGroup]
+
+	agentAliases        *store.Table[AgentAlias]
+	agentAliasesByAgent *store.Index[AgentAlias]
+
+	agentCollaborators               *store.Table[AgentCollaborator]
+	agentCollaboratorsByAgentVersion *store.Index[AgentCollaborator]
+
+	knowledgeBases *store.Table[KnowledgeBase]
+	kbsByName      map[string]string
+
+	agentKBAssocs               *store.Table[AgentKnowledgeBase]
+	agentKBAssocsByAgentVersion *store.Index[AgentKnowledgeBase]
+
+	dataSources     *store.Table[DataSource]
+	dataSourcesByKB *store.Index[DataSource]
+
+	ingestionJobs             *store.Table[IngestionJob]
+	ingestionJobsByDataSource *store.Index[IngestionJob]
+
+	flows       *store.Table[Flow]
+	flowsByName map[string]string
+
+	flowVersions       *store.Table[FlowVersion]
+	flowVersionsByFlow *store.Index[FlowVersion]
+
+	flowAliases       *store.Table[FlowAlias]
+	flowAliasesByFlow *store.Index[FlowAlias]
+
+	prompts *store.Table[Prompt]
+
+	promptVersions         *store.Table[PromptVersion]
+	promptVersionsByPrompt *store.Index[PromptVersion]
+	promptsByName          map[string]string
+	promptVersionCtrs      map[string]int
+
+	tags             map[string]map[string]string
+	flowVersionCtrs  map[string]int
+	agentVersionCtrs map[string]int
+
+	registry *store.Registry
+
 	accountID          string
 	defaultRegion      string
 	dsCounter          int
@@ -532,33 +582,22 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates and initialises an InMemoryBackend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
-	return &InMemoryBackend{
-		agents:             make(map[string]*Agent),
-		agentsByName:       make(map[string]string),
-		agentVersions:      make(map[string]map[string]*AgentVersion),
-		actionGroups:       make(map[string]*AgentActionGroup),
-		agentAliases:       make(map[string]*AgentAlias),
-		agentCollaborators: make(map[string]map[string]*AgentCollaborator),
-		agentKBAssocs:      make(map[string]*AgentKnowledgeBase),
-		knowledgeBases:     make(map[string]*KnowledgeBase),
-		kbsByName:          make(map[string]string),
-		dataSources:        make(map[string]*DataSource),
-		ingestionJobs:      make(map[string]*IngestionJob),
-		flows:              make(map[string]*Flow),
-		flowsByName:        make(map[string]string),
-		flowVersions:       make(map[string]map[string]*FlowVersion),
-		flowAliases:        make(map[string]*FlowAlias),
-		prompts:            make(map[string]*Prompt),
-		promptsByName:      make(map[string]string),
-		promptVersions:     make(map[string]map[string]*PromptVersion),
-		kbDocuments:        make(map[string]*KBDocumentDetail),
-		tags:               make(map[string]map[string]string),
-		agentVersionCtrs:   make(map[string]int),
-		flowVersionCtrs:    make(map[string]int),
-		promptVersionCtrs:  make(map[string]int),
-		defaultRegion:      region,
-		accountID:          accountID,
+	b := &InMemoryBackend{
+		registry:          store.NewRegistry(),
+		agentsByName:      make(map[string]string),
+		kbsByName:         make(map[string]string),
+		flowsByName:       make(map[string]string),
+		promptsByName:     make(map[string]string),
+		tags:              make(map[string]map[string]string),
+		agentVersionCtrs:  make(map[string]int),
+		flowVersionCtrs:   make(map[string]int),
+		promptVersionCtrs: make(map[string]int),
+		defaultRegion:     region,
+		accountID:         accountID,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state (used in tests).
@@ -566,25 +605,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.agents = make(map[string]*Agent)
+	b.registry.ResetAll()
 	b.agentsByName = make(map[string]string)
-	b.agentVersions = make(map[string]map[string]*AgentVersion)
-	b.actionGroups = make(map[string]*AgentActionGroup)
-	b.agentAliases = make(map[string]*AgentAlias)
-	b.agentCollaborators = make(map[string]map[string]*AgentCollaborator)
-	b.agentKBAssocs = make(map[string]*AgentKnowledgeBase)
-	b.knowledgeBases = make(map[string]*KnowledgeBase)
 	b.kbsByName = make(map[string]string)
-	b.dataSources = make(map[string]*DataSource)
-	b.ingestionJobs = make(map[string]*IngestionJob)
-	b.flows = make(map[string]*Flow)
 	b.flowsByName = make(map[string]string)
-	b.flowVersions = make(map[string]map[string]*FlowVersion)
-	b.flowAliases = make(map[string]*FlowAlias)
-	b.prompts = make(map[string]*Prompt)
 	b.promptsByName = make(map[string]string)
-	b.promptVersions = make(map[string]map[string]*PromptVersion)
-	b.kbDocuments = make(map[string]*KBDocumentDetail)
 	b.tags = make(map[string]map[string]string)
 	b.agentVersionCtrs = make(map[string]int)
 	b.flowVersionCtrs = make(map[string]int)
@@ -646,6 +671,28 @@ func (b *InMemoryBackend) buildFlowAliasARN(region, flowID, aliasID string) stri
 }
 
 // ---------------------------------------------------------------------------
+// store.Table composite-key helpers
+// ---------------------------------------------------------------------------
+
+// agentVersionScope is the composite key shared by every table nested two
+// levels under an agent (actionGroups, agentCollaborators, agentKBAssocs):
+// agentID + "/" + agentVersion. It doubles as the byAgentVersion secondary
+// index key for each of those tables.
+func agentVersionScope(agentID, agentVersion string) string {
+	return agentID + "/" + agentVersion
+}
+
+func agentVersionKey(agentID, version string) string { return agentID + "/" + version }
+
+func agentCollabKey(agentID, agentVersion, collaboratorID string) string {
+	return agentVersionScope(agentID, agentVersion) + "/" + collaboratorID
+}
+
+func flowVersionKey(flowID, version string) string { return flowID + "/" + version }
+
+func promptVersionKey(promptID, version string) string { return promptID + "/" + version }
+
+// ---------------------------------------------------------------------------
 // Agent CRUD
 // ---------------------------------------------------------------------------
 
@@ -694,7 +741,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		UpdatedAt:               now,
 	}
 
-	b.agents[id] = a
+	b.agents.Put(a)
 	b.agentsByName[cfg.AgentName] = id
 	b.tags[a.AgentARN] = maps.Clone(cfg.Tags)
 
@@ -706,7 +753,7 @@ func (b *InMemoryBackend) GetAgent(_ context.Context, agentID string) (*Agent, e
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	a, ok := b.agents[agentID]
+	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -719,7 +766,7 @@ func (b *InMemoryBackend) UpdateAgent(_ context.Context, agentID string, cfg Age
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	a, ok := b.agents[agentID]
+	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -783,20 +830,32 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 }
 
 // DeleteAgent deletes an agent.
+//
+// Note: this only removes the agent itself, its name-lookup entry, its
+// versions (agentVersions), and its version counter -- it does NOT clean up
+// actionGroups, agentAliases, or agentCollaborators for the deleted agent
+// (the pre-Phase-3.3 map version keyed agentCollaborators by "agentID/"+
+// agentVersion and called delete(b.agentCollaborators, agentID) here, which
+// never matched any real key -- a no-op cleanup bug preserved as-is by this
+// conversion; see the DeleteAgent doc in .claude/memories for the
+// byte-for-byte preservation rule).
 func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	a, ok := b.agents[agentID]
+	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
 	delete(b.agentsByName, a.AgentName)
-	delete(b.agents, agentID)
-	delete(b.agentVersions, agentID)
+	b.agents.Delete(agentID)
+
+	for _, av := range slices.Clone(b.agentVersionsByAgent.Get(agentID)) {
+		b.agentVersions.Delete(agentVersionKey(av.AgentID, av.AgentVersion))
+	}
+
 	delete(b.agentVersionCtrs, agentID)
-	delete(b.agentCollaborators, agentID)
 
 	return nil
 }
@@ -808,13 +867,13 @@ func (b *InMemoryBackend) ListAgents(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ids := sortedKeys(b.agents)
+	ids := tableIDs(b.agents.Snapshot(), func(a *Agent) string { return a.AgentID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentSummary, 0, len(ids))
 
 	for _, id := range ids {
-		a := b.agents[id]
+		a, _ := b.agents.Get(id)
 		out = append(out, &AgentSummary{
 			AgentID:     a.AgentID,
 			AgentName:   a.AgentName,
@@ -832,7 +891,7 @@ func (b *InMemoryBackend) PrepareAgent(_ context.Context, agentID string) (*Agen
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	a, ok := b.agents[agentID]
+	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -856,7 +915,7 @@ func (b *InMemoryBackend) CreateAgentVersion(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	a, ok := b.agents[agentID]
+	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -864,10 +923,6 @@ func (b *InMemoryBackend) CreateAgentVersion(
 	b.agentVersionCtrs[agentID]++
 	versionNum := b.agentVersionCtrs[agentID]
 	version := strconv.Itoa(versionNum)
-
-	if b.agentVersions[agentID] == nil {
-		b.agentVersions[agentID] = make(map[string]*AgentVersion)
-	}
 
 	now := time.Now().UTC()
 	av := &AgentVersion{
@@ -884,24 +939,35 @@ func (b *InMemoryBackend) CreateAgentVersion(
 		UpdatedAt:       now,
 	}
 
-	b.agentVersions[agentID][version] = av
+	b.agentVersions.Put(av)
 
 	return agentVersionCopy(av), nil
 }
 
 // GetAgentVersion returns a specific agent version.
+//
+// Not-found precedence note: the pre-Phase-3.3 map checked for the presence
+// of the per-agent inner map (created lazily by the first
+// CreateAgentVersion call and never removed except by DeleteAgent) to decide
+// between "agent not found" and "agent version not found". That inner-map
+// presence check is not reproducible with a flat store.Table + secondary
+// Index (an Index prunes a group the moment its last member is deleted, see
+// pkgs/store's Index.remove), so this checks b.agents.Has(agentID) instead --
+// identical result in every case except the one where every version of a
+// still-existing agent has been deleted via DeleteAgentVersion, where the
+// pre-conversion code returned "agent not found" (arguably itself a
+// mislabeled error) and this returns "agent version not found".
 func (b *InMemoryBackend) GetAgentVersion(
 	_ context.Context, agentID, agentVersion string,
 ) (*AgentVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	versions, ok := b.agentVersions[agentID]
-	if !ok {
+	if !b.agents.Has(agentID) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	av, ok := versions[agentVersion]
+	av, ok := b.agentVersions.Get(agentVersionKey(agentID, agentVersion))
 	if !ok {
 		return nil, fmt.Errorf("%w: agent version %q not found", ErrNotFound, agentVersion)
 	}
@@ -909,23 +975,24 @@ func (b *InMemoryBackend) GetAgentVersion(
 	return agentVersionCopy(av), nil
 }
 
-// DeleteAgentVersion deletes an agent version.
+// DeleteAgentVersion deletes an agent version. See the not-found precedence
+// note on GetAgentVersion.
 func (b *InMemoryBackend) DeleteAgentVersion(
 	_ context.Context, agentID, agentVersion string,
 ) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	versions, ok := b.agentVersions[agentID]
-	if !ok {
+	if !b.agents.Has(agentID) {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	if _, exists := versions[agentVersion]; !exists {
+	key := agentVersionKey(agentID, agentVersion)
+	if !b.agentVersions.Has(key) {
 		return fmt.Errorf("%w: agent version %q not found", ErrNotFound, agentVersion)
 	}
 
-	delete(versions, agentVersion)
+	b.agentVersions.Delete(key)
 
 	return nil
 }
@@ -937,18 +1004,18 @@ func (b *InMemoryBackend) ListAgentVersions(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if !b.agents.Has(agentID) {
 		return nil, "", fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	versions := b.agentVersions[agentID]
-	keys := sortedKeys(versions)
+	group := b.agentVersionsByAgent.Get(agentID)
+	keys := tableIDs(group, func(av *AgentVersion) string { return av.AgentVersion })
 	keys, outToken := paginate(keys, nextToken, maxResults)
 
 	out := make([]*AgentVersionSummary, 0, len(keys))
 
 	for _, k := range keys {
-		av := versions[k]
+		av, _ := b.agentVersions.Get(agentVersionKey(agentID, k))
 		out = append(out, &AgentVersionSummary{
 			AgentName:    av.AgentName,
 			AgentVersion: av.AgentVersion,
@@ -980,7 +1047,7 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if !b.agents.Has(agentID) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
@@ -1006,7 +1073,7 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 		ag.ActionGroupState = cfg.ActionGroupState
 	}
 
-	b.actionGroups[agActionGroupKey(agentID, agentVersion, id)] = ag
+	b.actionGroups.Put(ag)
 
 	return actionGroupCopy(ag), nil
 }
@@ -1018,7 +1085,7 @@ func (b *InMemoryBackend) GetAgentActionGroup(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ag, ok := b.actionGroups[agActionGroupKey(agentID, agentVersion, actionGroupID)]
+	ag, ok := b.actionGroups.Get(agActionGroupKey(agentID, agentVersion, actionGroupID))
 	if !ok {
 		return nil, fmt.Errorf("%w: action group %q not found", ErrNotFound, actionGroupID)
 	}
@@ -1035,7 +1102,7 @@ func (b *InMemoryBackend) UpdateAgentActionGroup(
 
 	key := agActionGroupKey(agentID, agentVersion, actionGroupID)
 
-	ag, ok := b.actionGroups[key]
+	ag, ok := b.actionGroups.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: action group %q not found", ErrNotFound, actionGroupID)
 	}
@@ -1081,11 +1148,11 @@ func (b *InMemoryBackend) DeleteAgentActionGroup(
 
 	key := agActionGroupKey(agentID, agentVersion, actionGroupID)
 
-	if _, ok := b.actionGroups[key]; !ok {
+	if !b.actionGroups.Has(key) {
 		return fmt.Errorf("%w: action group %q not found", ErrNotFound, actionGroupID)
 	}
 
-	delete(b.actionGroups, key)
+	b.actionGroups.Delete(key)
 
 	return nil
 }
@@ -1097,23 +1164,14 @@ func (b *InMemoryBackend) ListAgentActionGroups(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := agentID + "/" + agentVersion + "/"
-
-	var ids []string
-
-	for k := range b.actionGroups {
-		if k[:len(prefix)] == prefix {
-			ids = append(ids, k[len(prefix):])
-		}
-	}
-
-	sort.Strings(ids)
+	group := b.actionGroupsByAgentVersion.Get(agentVersionScope(agentID, agentVersion))
+	ids := tableIDs(group, func(ag *AgentActionGroup) string { return ag.ActionGroupID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*ActionGroupSummary, 0, len(ids))
 
 	for _, id := range ids {
-		ag := b.actionGroups[agActionGroupKey(agentID, agentVersion, id)]
+		ag, _ := b.actionGroups.Get(agActionGroupKey(agentID, agentVersion, id))
 		out = append(out, &ActionGroupSummary{
 			ActionGroupID:    ag.ActionGroupID,
 			ActionGroupName:  ag.ActionGroupName,
@@ -1144,7 +1202,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if !b.agents.Has(agentID) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
@@ -1164,7 +1222,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		UpdatedAt:            now,
 	}
 
-	b.agentAliases[aliasKey(agentID, id)] = al
+	b.agentAliases.Put(al)
 
 	return aliasCopy(al), nil
 }
@@ -1174,7 +1232,7 @@ func (b *InMemoryBackend) GetAgentAlias(_ context.Context, agentID, aliasID stri
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	al, ok := b.agentAliases[aliasKey(agentID, aliasID)]
+	al, ok := b.agentAliases.Get(aliasKey(agentID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: alias %q not found", ErrNotFound, aliasID)
 	}
@@ -1189,7 +1247,7 @@ func (b *InMemoryBackend) UpdateAgentAlias(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	al, ok := b.agentAliases[aliasKey(agentID, aliasID)]
+	al, ok := b.agentAliases.Get(aliasKey(agentID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: alias %q not found", ErrNotFound, aliasID)
 	}
@@ -1220,11 +1278,12 @@ func (b *InMemoryBackend) DeleteAgentAlias(_ context.Context, agentID, aliasID s
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.agentAliases[aliasKey(agentID, aliasID)]; !ok {
+	key := aliasKey(agentID, aliasID)
+	if !b.agentAliases.Has(key) {
 		return fmt.Errorf("%w: alias %q not found", ErrNotFound, aliasID)
 	}
 
-	delete(b.agentAliases, aliasKey(agentID, aliasID))
+	b.agentAliases.Delete(key)
 
 	return nil
 }
@@ -1236,23 +1295,14 @@ func (b *InMemoryBackend) ListAgentAliases(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := agentID + "/"
-
-	var ids []string
-
-	for k := range b.agentAliases {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			ids = append(ids, k[len(prefix):])
-		}
-	}
-
-	sort.Strings(ids)
+	group := b.agentAliasesByAgent.Get(agentID)
+	ids := tableIDs(group, func(al *AgentAlias) string { return al.AgentAliasID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentAliasSummary, 0, len(ids))
 
 	for _, id := range ids {
-		al := b.agentAliases[aliasKey(agentID, id)]
+		al, _ := b.agentAliases.Get(aliasKey(agentID, id))
 		out = append(out, &AgentAliasSummary{
 			AgentAliasID:     al.AgentAliasID,
 			AgentAliasName:   al.AgentAliasName,
@@ -1275,15 +1325,11 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if !b.agents.Has(agentID) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
 	id := b.nextID("collab", &b.collabCounter)
-
-	if b.agentCollaborators[agentID+"/"+agentVersion] == nil {
-		b.agentCollaborators[agentID+"/"+agentVersion] = make(map[string]*AgentCollaborator)
-	}
 
 	now := time.Now().UTC()
 	c := &AgentCollaborator{
@@ -1299,7 +1345,7 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 		UpdatedAt:                now,
 	}
 
-	b.agentCollaborators[agentID+"/"+agentVersion][id] = c
+	b.agentCollaborators.Put(c)
 
 	return collabCopy(c), nil
 }
@@ -1311,12 +1357,7 @@ func (b *InMemoryBackend) GetAgentCollaborator(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	group, ok := b.agentCollaborators[agentID+"/"+agentVersion]
-	if !ok {
-		return nil, fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
-	}
-
-	c, ok := group[collaboratorID]
+	c, ok := b.agentCollaborators.Get(agentCollabKey(agentID, agentVersion, collaboratorID))
 	if !ok {
 		return nil, fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
 	}
@@ -1331,12 +1372,7 @@ func (b *InMemoryBackend) UpdateAgentCollaborator(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	group, ok := b.agentCollaborators[agentID+"/"+agentVersion]
-	if !ok {
-		return nil, fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
-	}
-
-	c, ok := group[collaboratorID]
+	c, ok := b.agentCollaborators.Get(agentCollabKey(agentID, agentVersion, collaboratorID))
 	if !ok {
 		return nil, fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
 	}
@@ -1369,16 +1405,12 @@ func (b *InMemoryBackend) DisassociateAgentCollaborator(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	group, ok := b.agentCollaborators[agentID+"/"+agentVersion]
-	if !ok {
+	key := agentCollabKey(agentID, agentVersion, collaboratorID)
+	if !b.agentCollaborators.Has(key) {
 		return fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
 	}
 
-	if _, exists := group[collaboratorID]; !exists {
-		return fmt.Errorf("%w: collaborator %q not found", ErrNotFound, collaboratorID)
-	}
-
-	delete(group, collaboratorID)
+	b.agentCollaborators.Delete(key)
 
 	return nil
 }
@@ -1390,15 +1422,15 @@ func (b *InMemoryBackend) ListAgentCollaborators(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	group := b.agentCollaborators[agentID+"/"+agentVersion]
-
-	ids := sortedKeys(group)
+	group := b.agentCollaboratorsByAgentVersion.Get(agentVersionScope(agentID, agentVersion))
+	ids := tableIDs(group, func(c *AgentCollaborator) string { return c.CollaboratorID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentCollaborator, 0, len(ids))
 
 	for _, id := range ids {
-		out = append(out, collabCopy(group[id]))
+		c, _ := b.agentCollaborators.Get(agentCollabKey(agentID, agentVersion, id))
+		out = append(out, collabCopy(c))
 	}
 
 	return out, outToken, nil
@@ -1442,7 +1474,7 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 		UpdatedAt:            now,
 	}
 
-	b.knowledgeBases[id] = kb
+	b.knowledgeBases.Put(kb)
 	b.kbsByName[cfg.Name] = id
 	b.tags[kb.KnowledgeBaseARN] = maps.Clone(cfg.Tags)
 
@@ -1454,7 +1486,7 @@ func (b *InMemoryBackend) GetKnowledgeBase(_ context.Context, kbID string) (*Kno
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	kb, ok := b.knowledgeBases[kbID]
+	kb, ok := b.knowledgeBases.Get(kbID)
 	if !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
@@ -1469,7 +1501,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	kb, ok := b.knowledgeBases[kbID]
+	kb, ok := b.knowledgeBases.Get(kbID)
 	if !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
@@ -1504,13 +1536,13 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	kb, ok := b.knowledgeBases[kbID]
+	kb, ok := b.knowledgeBases.Get(kbID)
 	if !ok {
 		return fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
 	delete(b.kbsByName, kb.Name)
-	delete(b.knowledgeBases, kbID)
+	b.knowledgeBases.Delete(kbID)
 
 	return nil
 }
@@ -1522,13 +1554,13 @@ func (b *InMemoryBackend) ListKnowledgeBases(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ids := sortedKeys(b.knowledgeBases)
+	ids := tableIDs(b.knowledgeBases.Snapshot(), func(kb *KnowledgeBase) string { return kb.KnowledgeBaseID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*KnowledgeBaseSummary, 0, len(ids))
 
 	for _, id := range ids {
-		kb := b.knowledgeBases[id]
+		kb, _ := b.knowledgeBases.Get(id)
 		out = append(out, &KnowledgeBaseSummary{
 			KnowledgeBaseID: kb.KnowledgeBaseID,
 			Name:            kb.Name,
@@ -1556,11 +1588,11 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if !b.agents.Has(agentID) {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	if _, ok := b.knowledgeBases[kbID]; !ok {
+	if !b.knowledgeBases.Has(kbID) {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
@@ -1581,7 +1613,7 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 		UpdatedAt:       now,
 	}
 
-	b.agentKBAssocs[agKBKey(agentID, agentVersion, kbID)] = assoc
+	b.agentKBAssocs.Put(assoc)
 
 	return agKBCopy(assoc), nil
 }
@@ -1593,7 +1625,7 @@ func (b *InMemoryBackend) GetAgentKnowledgeBase(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	assoc, ok := b.agentKBAssocs[agKBKey(agentID, agentVersion, kbID)]
+	assoc, ok := b.agentKBAssocs.Get(agKBKey(agentID, agentVersion, kbID))
 	if !ok {
 		return nil, fmt.Errorf("%w: association for kb %q not found", ErrNotFound, kbID)
 	}
@@ -1610,7 +1642,7 @@ func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
 
 	key := agKBKey(agentID, agentVersion, kbID)
 
-	assoc, ok := b.agentKBAssocs[key]
+	assoc, ok := b.agentKBAssocs.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: association for kb %q not found", ErrNotFound, kbID)
 	}
@@ -1637,11 +1669,11 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(
 
 	key := agKBKey(agentID, agentVersion, kbID)
 
-	if _, ok := b.agentKBAssocs[key]; !ok {
+	if !b.agentKBAssocs.Has(key) {
 		return fmt.Errorf("%w: association for kb %q not found", ErrNotFound, kbID)
 	}
 
-	delete(b.agentKBAssocs, key)
+	b.agentKBAssocs.Delete(key)
 
 	return nil
 }
@@ -1653,23 +1685,15 @@ func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := agentID + "/" + agentVersion + "/"
-
-	var ids []string
-
-	for k := range b.agentKBAssocs {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			ids = append(ids, k[len(prefix):])
-		}
-	}
-
-	sort.Strings(ids)
+	group := b.agentKBAssocsByAgentVersion.Get(agentVersionScope(agentID, agentVersion))
+	ids := tableIDs(group, func(a *AgentKnowledgeBase) string { return a.KnowledgeBaseID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*AgentKnowledgeBase, 0, len(ids))
 
 	for _, id := range ids {
-		out = append(out, agKBCopy(b.agentKBAssocs[agKBKey(agentID, agentVersion, id)]))
+		assoc, _ := b.agentKBAssocs.Get(agKBKey(agentID, agentVersion, id))
+		out = append(out, agKBCopy(assoc))
 	}
 
 	return out, outToken, nil
@@ -1692,7 +1716,7 @@ func (b *InMemoryBackend) CreateDataSource(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.knowledgeBases[kbID]; !ok {
+	if !b.knowledgeBases.Has(kbID) {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
@@ -1712,7 +1736,7 @@ func (b *InMemoryBackend) CreateDataSource(
 		UpdatedAt:               now,
 	}
 
-	b.dataSources[dsKey(kbID, id)] = ds
+	b.dataSources.Put(ds)
 
 	return dsCopy(ds), nil
 }
@@ -1722,7 +1746,7 @@ func (b *InMemoryBackend) GetDataSource(_ context.Context, kbID, dsID string) (*
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ds, ok := b.dataSources[dsKey(kbID, dsID)]
+	ds, ok := b.dataSources.Get(dsKey(kbID, dsID))
 	if !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
@@ -1737,7 +1761,7 @@ func (b *InMemoryBackend) UpdateDataSource(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ds, ok := b.dataSources[dsKey(kbID, dsID)]
+	ds, ok := b.dataSources.Get(dsKey(kbID, dsID))
 	if !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
@@ -1772,11 +1796,12 @@ func (b *InMemoryBackend) DeleteDataSource(_ context.Context, kbID, dsID string)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.dataSources[dsKey(kbID, dsID)]; !ok {
+	key := dsKey(kbID, dsID)
+	if !b.dataSources.Has(key) {
 		return fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
-	delete(b.dataSources, dsKey(kbID, dsID))
+	b.dataSources.Delete(key)
 
 	return nil
 }
@@ -1788,23 +1813,14 @@ func (b *InMemoryBackend) ListDataSources(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := kbID + "/"
-
-	var ids []string
-
-	for k := range b.dataSources {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			ids = append(ids, k[len(prefix):])
-		}
-	}
-
-	sort.Strings(ids)
+	group := b.dataSourcesByKB.Get(kbID)
+	ids := tableIDs(group, func(ds *DataSource) string { return ds.DataSourceID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*DataSourceSummary, 0, len(ids))
 
 	for _, id := range ids {
-		ds := b.dataSources[dsKey(kbID, id)]
+		ds, _ := b.dataSources.Get(dsKey(kbID, id))
 		out = append(out, &DataSourceSummary{
 			DataSourceID:     ds.DataSourceID,
 			KnowledgeBaseID:  ds.KnowledgeBaseID,
@@ -1831,7 +1847,7 @@ func (b *InMemoryBackend) StartIngestionJob(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.dataSources[dsKey(kbID, dsID)]; !ok {
+	if !b.dataSources.Has(dsKey(kbID, dsID)) {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
@@ -1848,7 +1864,7 @@ func (b *InMemoryBackend) StartIngestionJob(
 		UpdatedAt:       now,
 	}
 
-	b.ingestionJobs[jobKey(kbID, dsID, id)] = job
+	b.ingestionJobs.Put(job)
 
 	return jobCopy(job), nil
 }
@@ -1860,7 +1876,7 @@ func (b *InMemoryBackend) GetIngestionJob(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	job, ok := b.ingestionJobs[jobKey(kbID, dsID, jobID)]
+	job, ok := b.ingestionJobs.Get(jobKey(kbID, dsID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
 	}
@@ -1875,7 +1891,7 @@ func (b *InMemoryBackend) StopIngestionJob(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	job, ok := b.ingestionJobs[jobKey(kbID, dsID, jobID)]
+	job, ok := b.ingestionJobs.Get(jobKey(kbID, dsID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
 	}
@@ -1893,23 +1909,15 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := kbID + "/" + dsID + "/"
-
-	var ids []string
-
-	for k := range b.ingestionJobs {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			ids = append(ids, k[len(prefix):])
-		}
-	}
-
-	sort.Strings(ids)
+	group := b.ingestionJobsByDataSource.Get(dsKey(kbID, dsID))
+	ids := tableIDs(group, func(j *IngestionJob) string { return j.IngestionJobID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*IngestionJob, 0, len(ids))
 
 	for _, id := range ids {
-		out = append(out, jobCopy(b.ingestionJobs[jobKey(kbID, dsID, id)]))
+		job, _ := b.ingestionJobs.Get(jobKey(kbID, dsID, id))
+		out = append(out, jobCopy(job))
 	}
 
 	return out, outToken, nil
@@ -1951,7 +1959,7 @@ func (b *InMemoryBackend) CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow
 		UpdatedAt:   now,
 	}
 
-	b.flows[id] = f
+	b.flows.Put(f)
 	b.flowsByName[cfg.Name] = id
 	b.tags[f.FlowARN] = maps.Clone(cfg.Tags)
 
@@ -1963,7 +1971,7 @@ func (b *InMemoryBackend) GetFlow(_ context.Context, flowID string) (*Flow, erro
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -1976,7 +1984,7 @@ func (b *InMemoryBackend) UpdateFlow(_ context.Context, flowID string, cfg FlowC
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -2014,14 +2022,18 @@ func (b *InMemoryBackend) DeleteFlow(_ context.Context, flowID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
 	delete(b.flowsByName, f.Name)
-	delete(b.flows, flowID)
-	delete(b.flowVersions, flowID)
+	b.flows.Delete(flowID)
+
+	for _, fv := range slices.Clone(b.flowVersionsByFlow.Get(flowID)) {
+		b.flowVersions.Delete(flowVersionKey(fv.FlowID, fv.Version))
+	}
+
 	delete(b.flowVersionCtrs, flowID)
 
 	return nil
@@ -2034,13 +2046,13 @@ func (b *InMemoryBackend) ListFlows(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ids := sortedKeys(b.flows)
+	ids := tableIDs(b.flows.Snapshot(), func(f *Flow) string { return f.FlowID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*FlowSummary, 0, len(ids))
 
 	for _, id := range ids {
-		f := b.flows[id]
+		f, _ := b.flows.Get(id)
 		out = append(out, &FlowSummary{
 			FlowID:      f.FlowID,
 			Name:        f.Name,
@@ -2059,7 +2071,7 @@ func (b *InMemoryBackend) PrepareFlow(_ context.Context, flowID string) (*Flow, 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -2088,7 +2100,7 @@ func (b *InMemoryBackend) CreateFlowVersion(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -2096,10 +2108,6 @@ func (b *InMemoryBackend) CreateFlowVersion(
 	b.flowVersionCtrs[flowID]++
 	vNum := b.flowVersionCtrs[flowID]
 	version := strconv.Itoa(vNum)
-
-	if b.flowVersions[flowID] == nil {
-		b.flowVersions[flowID] = make(map[string]*FlowVersion)
-	}
 
 	fv := &FlowVersion{
 		FlowID:      flowID,
@@ -2112,24 +2120,25 @@ func (b *InMemoryBackend) CreateFlowVersion(
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	b.flowVersions[flowID][version] = fv
+	b.flowVersions.Put(fv)
 
 	return flowVersionCopy(fv), nil
 }
 
-// GetFlowVersion returns a flow version.
+// GetFlowVersion returns a flow version. See the not-found precedence note
+// on GetAgentVersion in the Agent version CRUD section above -- the same
+// b.flows.Has(flowID)-instead-of-inner-map-presence reasoning applies here.
 func (b *InMemoryBackend) GetFlowVersion(
 	_ context.Context, flowID, flowVersion string,
 ) (*FlowVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	versions, ok := b.flowVersions[flowID]
-	if !ok {
+	if !b.flows.Has(flowID) {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
-	fv, ok := versions[flowVersion]
+	fv, ok := b.flowVersions.Get(flowVersionKey(flowID, flowVersion))
 	if !ok {
 		return nil, fmt.Errorf("%w: flow version %q not found", ErrNotFound, flowVersion)
 	}
@@ -2142,16 +2151,16 @@ func (b *InMemoryBackend) DeleteFlowVersion(_ context.Context, flowID, flowVersi
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	versions, ok := b.flowVersions[flowID]
-	if !ok {
+	if !b.flows.Has(flowID) {
 		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
-	if _, exists := versions[flowVersion]; !exists {
+	key := flowVersionKey(flowID, flowVersion)
+	if !b.flowVersions.Has(key) {
 		return fmt.Errorf("%w: flow version %q not found", ErrNotFound, flowVersion)
 	}
 
-	delete(versions, flowVersion)
+	b.flowVersions.Delete(key)
 
 	return nil
 }
@@ -2163,18 +2172,18 @@ func (b *InMemoryBackend) ListFlowVersions(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.flows[flowID]; !ok {
+	if !b.flows.Has(flowID) {
 		return nil, "", fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
-	versions := b.flowVersions[flowID]
-	keys := sortedKeys(versions)
+	group := b.flowVersionsByFlow.Get(flowID)
+	keys := tableIDs(group, func(fv *FlowVersion) string { return fv.Version })
 	keys, outToken := paginate(keys, nextToken, maxResults)
 
 	out := make([]*FlowVersionSummary, 0, len(keys))
 
 	for _, k := range keys {
-		fv := versions[k]
+		fv, _ := b.flowVersions.Get(flowVersionKey(flowID, k))
 		out = append(out, &FlowVersionSummary{
 			FlowID:      fv.FlowID,
 			Arn:         fv.FlowARN,
@@ -2208,7 +2217,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.flows[flowID]; !ok {
+	if !b.flows.Has(flowID) {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
@@ -2227,7 +2236,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 		UpdatedAt:            now,
 	}
 
-	b.flowAliases[flowAliasKey(flowID, id)] = al
+	b.flowAliases.Put(al)
 
 	return flowAliasCopy(al), nil
 }
@@ -2237,7 +2246,7 @@ func (b *InMemoryBackend) GetFlowAlias(_ context.Context, flowID, aliasID string
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	al, ok := b.flowAliases[flowAliasKey(flowID, aliasID)]
+	al, ok := b.flowAliases.Get(flowAliasKey(flowID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
@@ -2252,7 +2261,7 @@ func (b *InMemoryBackend) UpdateFlowAlias(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	al, ok := b.flowAliases[flowAliasKey(flowID, aliasID)]
+	al, ok := b.flowAliases.Get(flowAliasKey(flowID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
@@ -2283,11 +2292,12 @@ func (b *InMemoryBackend) DeleteFlowAlias(_ context.Context, flowID, aliasID str
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.flowAliases[flowAliasKey(flowID, aliasID)]; !ok {
+	key := flowAliasKey(flowID, aliasID)
+	if !b.flowAliases.Has(key) {
 		return fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
 
-	delete(b.flowAliases, flowAliasKey(flowID, aliasID))
+	b.flowAliases.Delete(key)
 
 	return nil
 }
@@ -2299,23 +2309,14 @@ func (b *InMemoryBackend) ListFlowAliases(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := flowID + "/"
-
-	var ids []string
-
-	for k := range b.flowAliases {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			ids = append(ids, k[len(prefix):])
-		}
-	}
-
-	sort.Strings(ids)
+	group := b.flowAliasesByFlow.Get(flowID)
+	ids := tableIDs(group, func(al *FlowAlias) string { return al.AliasID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*FlowAliasSummary, 0, len(ids))
 
 	for _, id := range ids {
-		al := b.flowAliases[flowAliasKey(flowID, id)]
+		al, _ := b.flowAliases.Get(flowAliasKey(flowID, id))
 		out = append(out, &FlowAliasSummary{
 			AliasID:     al.AliasID,
 			AliasARN:    al.AliasARN,
@@ -2365,7 +2366,7 @@ func (b *InMemoryBackend) CreatePrompt(ctx context.Context, cfg PromptConfig) (*
 		UpdatedAt:      now,
 	}
 
-	b.prompts[id] = p
+	b.prompts.Put(p)
 	b.promptsByName[cfg.Name] = id
 	b.tags[p.PromptARN] = maps.Clone(cfg.Tags)
 
@@ -2377,7 +2378,7 @@ func (b *InMemoryBackend) GetPrompt(_ context.Context, promptID string) (*Prompt
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
@@ -2392,7 +2393,7 @@ func (b *InMemoryBackend) UpdatePrompt(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
@@ -2427,14 +2428,18 @@ func (b *InMemoryBackend) DeletePrompt(_ context.Context, promptID string) error
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
 	delete(b.promptsByName, p.Name)
-	delete(b.prompts, promptID)
-	delete(b.promptVersions, promptID)
+	b.prompts.Delete(promptID)
+
+	for _, pv := range slices.Clone(b.promptVersionsByPrompt.Get(promptID)) {
+		b.promptVersions.Delete(promptVersionKey(pv.PromptID, pv.Version))
+	}
+
 	delete(b.promptVersionCtrs, promptID)
 
 	return nil
@@ -2447,13 +2452,13 @@ func (b *InMemoryBackend) ListPrompts(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ids := sortedKeys(b.prompts)
+	ids := tableIDs(b.prompts.Snapshot(), func(p *Prompt) string { return p.PromptID })
 	ids, outToken := paginate(ids, nextToken, maxResults)
 
 	out := make([]*PromptSummary, 0, len(ids))
 
 	for _, id := range ids {
-		p := b.prompts[id]
+		p, _ := b.prompts.Get(id)
 		out = append(out, &PromptSummary{
 			PromptID:    p.PromptID,
 			PromptARN:   p.PromptARN,
@@ -2479,7 +2484,7 @@ func (b *InMemoryBackend) CreatePromptVersion(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
@@ -2487,10 +2492,6 @@ func (b *InMemoryBackend) CreatePromptVersion(
 	b.promptVersionCtrs[promptID]++
 	vNum := b.promptVersionCtrs[promptID]
 	version := strconv.Itoa(vNum)
-
-	if b.promptVersions[promptID] == nil {
-		b.promptVersions[promptID] = make(map[string]*PromptVersion)
-	}
 
 	pv := &PromptVersion{
 		PromptID:    promptID,
@@ -2502,24 +2503,26 @@ func (b *InMemoryBackend) CreatePromptVersion(
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	b.promptVersions[promptID][version] = pv
+	b.promptVersions.Put(pv)
 
 	return promptVersionCopy(pv), nil
 }
 
-// GetPromptVersion returns a specific prompt version.
+// GetPromptVersion returns a specific prompt version. See the not-found
+// precedence note on GetAgentVersion in the Agent version CRUD section above
+// -- the same b.prompts.Has(promptID)-instead-of-inner-map-presence
+// reasoning applies here.
 func (b *InMemoryBackend) GetPromptVersion(
 	_ context.Context, promptID, version string,
 ) (*PromptVersion, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	versions, ok := b.promptVersions[promptID]
-	if !ok {
+	if !b.prompts.Has(promptID) {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
-	pv, ok := versions[version]
+	pv, ok := b.promptVersions.Get(promptVersionKey(promptID, version))
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt version %q not found", ErrNotFound, version)
 	}
@@ -2534,16 +2537,16 @@ func (b *InMemoryBackend) DeletePromptVersion(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	versions, ok := b.promptVersions[promptID]
-	if !ok {
+	if !b.prompts.Has(promptID) {
 		return fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
-	if _, exists := versions[version]; !exists {
+	key := promptVersionKey(promptID, version)
+	if !b.promptVersions.Has(key) {
 		return fmt.Errorf("%w: prompt version %q not found", ErrNotFound, version)
 	}
 
-	delete(versions, version)
+	b.promptVersions.Delete(key)
 
 	return nil
 }
@@ -2561,21 +2564,21 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.dataSources[dsKey(kbID, dsID)]; !ok {
+	if !b.dataSources.Has(dsKey(kbID, dsID)) {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
 	out := make([]KBDocumentDetail, 0, len(docs))
 
 	for _, doc := range docs {
-		detail := KBDocumentDetail{
+		detail := &KBDocumentDetail{
 			DocumentID:      doc.DocID,
 			KnowledgeBaseID: kbID,
 			DataSourceID:    dsID,
 			Status:          docStatusIndexed,
 		}
-		b.kbDocuments[kbDocKey(kbID, dsID, doc.DocID)] = &detail
-		out = append(out, detail)
+		b.kbDocuments.Put(detail)
+		out = append(out, *detail)
 	}
 
 	return out, nil
@@ -2591,7 +2594,7 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 	out := make([]KBDocumentDetail, 0, len(docIDs))
 
 	for _, id := range docIDs {
-		detail, ok := b.kbDocuments[kbDocKey(kbID, dsID, id)]
+		detail, ok := b.kbDocuments.Get(kbDocKey(kbID, dsID, id))
 		if !ok {
 			return nil, fmt.Errorf("%w: document %q not found", ErrNotFound, id)
 		}
@@ -2614,7 +2617,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 	for _, id := range docIDs {
 		key := kbDocKey(kbID, dsID, id)
 
-		detail, ok := b.kbDocuments[key]
+		detail, ok := b.kbDocuments.Get(key)
 		if !ok {
 			out = append(out, KBDocumentDetail{
 				DocumentID:      id,
@@ -2626,7 +2629,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 			continue
 		}
 
-		delete(b.kbDocuments, key)
+		b.kbDocuments.Delete(key)
 
 		d := *detail
 		d.Status = "DELETED"
@@ -2643,23 +2646,17 @@ func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	prefix := kbID + "/" + dsID + "/"
-
-	var keys []string
-
-	for k := range b.kbDocuments {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
-			keys = append(keys, k)
-		}
-	}
-
-	sort.Strings(keys)
+	group := b.kbDocumentsByDataSource.Get(dsKey(kbID, dsID))
+	keys := tableIDs(group, func(d *KBDocumentDetail) string {
+		return kbDocKey(d.KnowledgeBaseID, d.DataSourceID, d.DocumentID)
+	})
 	keys, outToken := paginate(keys, nextToken, maxResults)
 
 	out := make([]KBDocumentDetail, 0, len(keys))
 
 	for _, k := range keys {
-		out = append(out, *b.kbDocuments[k])
+		d, _ := b.kbDocuments.Get(k)
+		out = append(out, *d)
 	}
 
 	return out, outToken, nil
@@ -2754,10 +2751,22 @@ func paginate(ids []string, nextToken string, maxResults int) ([]string, string)
 	return page, outToken
 }
 
-func sortedKeys[V any](m map[string]V) []string {
-	keys := collections.SortedKeys(m)
+// tableIDs extracts an ID from every item in items via idFn and returns the
+// IDs sorted ascending -- the store.Table/store.Index equivalent of the
+// pre-Phase-3.3 sortedKeys(map[string]V) helper (both ultimately do a plain
+// lexicographic string sort, matching pkgs/collections.SortedKeys, which
+// pkgs/store.Table.Snapshot also uses internally). items may come from
+// [store.Table.Snapshot] (already key-sorted, so the sort below is a cheap
+// no-op) or a [store.Index.Get] group (unordered, so the sort is required).
+func tableIDs[V any](items []*V, idFn func(*V) string) []string {
+	ids := make([]string, len(items))
+	for i, v := range items {
+		ids[i] = idFn(v)
+	}
 
-	return keys
+	sort.Strings(ids)
+
+	return ids
 }
 
 // ---------------------------------------------------------------------------

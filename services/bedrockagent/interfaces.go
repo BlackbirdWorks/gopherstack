@@ -4,6 +4,17 @@ import "context"
 
 // StorageBackend defines all persistence operations for the Bedrock Agent service.
 type StorageBackend interface {
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks BedrockAgent up. Before Phase 3.3, BedrockAgent
+	// had no persistence at all: neither Handler nor InMemoryBackend
+	// implemented Snapshot/Restore, so state never survived a restart. This
+	// is the dead-wiring fix in scope for the Phase 3.3 datalayer
+	// conversion, built from scratch following the codecommit/cleanrooms
+	// pattern (see persistence.go).
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+
 	// Agent operations.
 	CreateAgent(ctx context.Context, cfg AgentConfig) (*Agent, error)
 	GetAgent(ctx context.Context, agentID string) (*Agent, error)
