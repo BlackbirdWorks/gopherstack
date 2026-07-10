@@ -16,13 +16,7 @@ func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, regionApps := range b.apps {
-		total += len(regionApps)
-	}
-
-	return total
+	return b.apps.Len()
 }
 
 // HandlerOpsLen returns the number of operations pre-built in the handler dispatch map.

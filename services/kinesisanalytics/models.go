@@ -3,6 +3,17 @@ package kinesisanalytics
 import "time"
 
 // Application represents a Kinesis Analytics v1 application.
+//
+// Region is additive: it is never part of the AWS wire format (Application
+// is always converted to applicationDetail/applicationSummary before being
+// marshaled for a response -- see toApplicationDetail in handler.go), so it
+// carries a lowercase JSON tag to distinguish it from the AWS-named fields
+// above. It exists purely so the [store.Table] keyFn and byRegion/byARN
+// [store.Index]es (see store_setup.go) can derive both halves of the
+// region-scoped identity from the value itself, mirroring how
+// ApplicationName was already a real field. It must still round-trip
+// through JSON (not json:"-") because it is part of the primary key store.Table.Restore
+// rebuilds from a persisted snapshot.
 type Application struct {
 	LastUpdateTimestamp      *time.Time                       `json:"LastUpdateTimestamp,omitempty"`
 	Tags                     map[string]string                `json:"Tags,omitempty"`
@@ -14,6 +25,7 @@ type Application struct {
 	ApplicationName          string                           `json:"ApplicationName"`
 	ServiceExecutionRole     string                           `json:"ServiceExecutionRole,omitempty"`
 	RuntimeEnvironment       string                           `json:"RuntimeEnvironment,omitempty"`
+	Region                   string                           `json:"region,omitempty"`
 	CloudWatchLoggingOptions []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptions,omitempty"`
 	ReferenceDataSources     []ReferenceDataSourceDescription `json:"ReferenceDataSources,omitempty"`
 	Outputs                  []OutputDescription              `json:"Outputs,omitempty"`
