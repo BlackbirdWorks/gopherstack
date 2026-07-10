@@ -112,7 +112,7 @@ func (b *InMemoryBackend) CreateCaseWithOptions(in CreateCaseOptions) (*Case, er
 		Body:         in.CommunicationBody,
 		CreatedTime:  now,
 	}
-	b.cases[cs.CaseID] = cs
+	b.cases.Put(cs)
 	b.communications[cs.CaseID] = []Communication{
 		newCommunication(cs.CaseID, in.CommunicationBody, in.CCEmails, attachments, now),
 	}
@@ -128,8 +128,9 @@ func (b *InMemoryBackend) DescribeCasesWithOptions(in DescribeCasesOptions) ([]C
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	cases := make([]Case, 0, len(b.cases))
-	for _, cs := range b.cases {
+	all := b.cases.All()
+	cases := make([]Case, 0, len(all))
+	for _, cs := range all {
 		if matchCase(cs, in) {
 			cp := *cs
 			cp.CCEmails = append([]string(nil), cs.CCEmails...)
@@ -163,7 +164,7 @@ func (b *InMemoryBackend) AddCommunicationWithOptions(in AddCommunicationOptions
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cs, ok := b.cases[in.CaseID]
+	cs, ok := b.cases.Get(in.CaseID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, in.CaseID)
 	}
@@ -188,7 +189,7 @@ func (b *InMemoryBackend) ResolveCaseWithStatus(caseID string) (string, *Case, e
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	cs, ok := b.cases[caseID]
+	cs, ok := b.cases.Get(caseID)
 	if !ok {
 		return "", nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
@@ -211,7 +212,7 @@ func (b *InMemoryBackend) DescribeCommunicationsWithOptions(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.cases[in.CaseID]; !ok {
+	if !b.cases.Has(in.CaseID) {
 		return nil, "", fmt.Errorf("%w: %s", ErrNotFound, in.CaseID)
 	}
 	comms := make([]Communication, 0, len(b.communications[in.CaseID]))
@@ -262,7 +263,7 @@ func (b *InMemoryBackend) AddAttachmentsToSetWithAttachments(
 		attachment.AttachmentID = "att-" + uuid.NewString()
 		cp := attachment
 		cp.Data = append([]byte(nil), attachment.Data...)
-		b.attachments[cp.AttachmentID] = &cp
+		b.attachments.Put(&cp)
 		set.AttachmentIDs = append(set.AttachmentIDs, cp.AttachmentID)
 	}
 	set.Expiry = time.Now().Add(time.Hour)
@@ -282,29 +283,34 @@ func validateAttachments(attachments []Attachment) error {
 
 func (b *InMemoryBackend) attachmentSetForAppendLocked(id string) (*AttachmentSet, string, error) {
 	if id == "" {
-		if len(b.attachmentSets) >= maxAttachmentSets {
+		if b.attachmentSets.Len() >= maxAttachmentSets {
 			// Evict the set with the earliest (soonest-expired) expiry.
 			var oldestID string
 			var oldestExpiry time.Time
 
-			for sid, s := range b.attachmentSets {
-				if oldestID == "" || s.Expiry.Before(oldestExpiry) {
-					oldestID = sid
-					oldestExpiry = s.Expiry
-				}
-			}
+			found := false
 
-			delete(b.attachmentSets, oldestID)
+			b.attachmentSets.Range(func(s *AttachmentSet) bool {
+				if !found || s.Expiry.Before(oldestExpiry) {
+					oldestID = s.ID
+					oldestExpiry = s.Expiry
+					found = true
+				}
+
+				return true
+			})
+
+			b.attachmentSets.Delete(oldestID)
 		}
 
 		id = uuid.NewString()
-		set := &AttachmentSet{}
-		b.attachmentSets[id] = set
+		set := &AttachmentSet{ID: id}
+		b.attachmentSets.Put(set)
 
 		return set, id, nil
 	}
 
-	set, ok := b.attachmentSets[id]
+	set, ok := b.attachmentSets.Get(id)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: %s", ErrAttachmentSetNotFound, id)
 	}
@@ -320,7 +326,7 @@ func (b *InMemoryBackend) consumeAttachmentSetLocked(id string) ([]AttachmentRef
 	if id == "" {
 		return nil, nil
 	}
-	set, ok := b.attachmentSets[id]
+	set, ok := b.attachmentSets.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrAttachmentSetNotFound, id)
 	}
@@ -329,10 +335,10 @@ func (b *InMemoryBackend) consumeAttachmentSetLocked(id string) ([]AttachmentRef
 	}
 	refs := make([]AttachmentRef, 0, len(set.AttachmentIDs))
 	for _, attachmentID := range set.AttachmentIDs {
-		attachment := b.attachments[attachmentID]
+		attachment, _ := b.attachments.Get(attachmentID)
 		refs = append(refs, AttachmentRef{AttachmentID: attachmentID, FileName: attachment.FileName})
 	}
-	delete(b.attachmentSets, id)
+	b.attachmentSets.Delete(id)
 
 	return refs, nil
 }

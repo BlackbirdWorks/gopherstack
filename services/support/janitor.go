@@ -25,13 +25,15 @@ func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
 	defer b.mu.Unlock()
 
 	now := time.Now()
-	expiredSets := make([]string, 0, len(b.attachmentSets))
+	expiredSets := make([]string, 0, b.attachmentSets.Len())
 
-	for id, set := range b.attachmentSets {
+	b.attachmentSets.Range(func(set *AttachmentSet) bool {
 		if now.After(set.Expiry) {
-			expiredSets = append(expiredSets, id)
+			expiredSets = append(expiredSets, set.ID)
 		}
-	}
+
+		return true
+	})
 
 	if len(expiredSets) == 0 {
 		return
@@ -39,11 +41,11 @@ func (b *InMemoryBackend) sweepExpiredResources(ctx context.Context) {
 
 	removedCount := 0
 	for _, setID := range expiredSets {
-		set := b.attachmentSets[setID]
+		set, _ := b.attachmentSets.Get(setID)
 		for _, attachmentID := range set.AttachmentIDs {
-			delete(b.attachments, attachmentID)
+			b.attachments.Delete(attachmentID)
 		}
-		delete(b.attachmentSets, setID)
+		b.attachmentSets.Delete(setID)
 		removedCount++
 	}
 
