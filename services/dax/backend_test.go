@@ -1572,11 +1572,14 @@ func TestRestore_ReferentialIntegrityFailure(t *testing.T) {
 
 	// Craft a snapshot where a cluster references a missing parameter group.
 	badSnap := `{` +
-		`"clusters":{"bad":{"clusterName":"bad",` +
+		`"version":1,` +
+		`"tables":{` +
+		`"clusters":[{"clusterName":"bad",` +
 		`"parameterGroup":{"parameterGroupName":"missing-pg"},` +
-		`"subnetGroupName":"default","tags":{},"nodes":[],"securityGroupIds":[]}},` +
-		`"paramGroups":{},` +
-		`"subnetGroups":{"default":{"subnetGroupName":"default","subnets":[]}},` +
+		`"subnetGroupName":"default","tags":{},"nodes":[],"securityGroupIds":[]}],` +
+		`"paramGroups":[],` +
+		`"subnetGroups":[{"subnetGroupName":"default","subnets":[]}]` +
+		`},` +
 		`"tags":{}}`
 
 	b := newTestBackend()
