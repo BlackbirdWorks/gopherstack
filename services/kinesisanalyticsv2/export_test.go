@@ -16,12 +16,7 @@ func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionApps := range b.applications {
-		total += len(regionApps)
-	}
-
-	return total
+	return b.applications.Len()
 }
 
 // SnapshotCount returns the total number of snapshots across all applications and regions.
@@ -30,14 +25,7 @@ func SnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock("SnapshotCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionSnaps := range b.snapshots {
-		for _, snaps := range regionSnaps {
-			total += len(snaps)
-		}
-	}
-
-	return total
+	return b.snapshots.Len()
 }
 
 // HandlerOpsLen returns the number of operations pre-built in the handler dispatch map.

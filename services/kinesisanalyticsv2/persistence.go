@@ -3,17 +3,33 @@ package kinesisanalyticsv2
 import (
 	"context"
 	"encoding/json"
-	"maps"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// kinesisanalyticsv2SnapshotVersion identifies the shape of [backendSnapshot].
+// It must be bumped whenever a change to a DTO type or backendSnapshot
+// itself would make an older snapshot unsafe to decode as the current shape.
+// Restore compares this against the persisted value and discards
+// (b.registry.ResetAll, not a partial decode) any mismatch -- see Restore.
+// The pre-Phase-3.3 snapshot format had no version field at all, so an old
+// snapshot decodes with Version == 0, which is guaranteed to mismatch
+// kinesisanalyticsv2SnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const kinesisanalyticsv2SnapshotVersion = 1
+
 // persistedApplication is a persistence-safe representation of Application,
-// including fields that use json:"-" on the live struct.
+// including fields that use json:"-" on the live struct (CreatedAt, Region,
+// Tags, and every *Descriptions slice) -- see store_setup.go's file doc
+// comment for why applications can't be registered on b.registry for
+// Snapshot/Restore directly.
 type persistedApplication struct {
 	CreatedAt                       time.Time                        `json:"created_at"`
+	Region                          string                           `json:"region"`
 	ApplicationARN                  string                           `json:"ApplicationARN"`
 	ApplicationName                 string                           `json:"ApplicationName"`
 	ApplicationStatus               string                           `json:"ApplicationStatus"`
@@ -21,6 +37,7 @@ type persistedApplication struct {
 	ServiceExecutionRole            string                           `json:"ServiceExecutionRole,omitempty"`
 	ApplicationDescription          string                           `json:"ApplicationDescription,omitempty"`
 	ApplicationMode                 string                           `json:"ApplicationMode,omitempty"`
+	MaintenanceWindowStartTime      string                           `json:"MaintenanceWindowStartTime,omitempty"`
 	Tags                            []Tag                            `json:"Tags"`
 	CloudWatchLoggingOptionDescs    []CloudWatchLoggingOptionDesc    `json:"CloudWatchLoggingOptionDescs"`
 	InputDescriptions               []InputDescription               `json:"InputDescriptions"`
@@ -30,18 +47,50 @@ type persistedApplication struct {
 	ApplicationVersionID            int64                            `json:"ApplicationVersionId"`
 }
 
-// persistedSnapshot is a persistence-safe representation of Snapshot.
+// persistedApplicationKey is the [store.Table] key function used for the
+// ephemeral DTO table built inside Snapshot/Restore. It mirrors
+// applicationKeyFn so the on-disk table is keyed identically to the live
+// b.applications table.
+func persistedApplicationKey(p *persistedApplication) string {
+	return applicationKey(p.Region, p.ApplicationName)
+}
+
+// persistedSnapshot is a persistence-safe representation of Snapshot,
+// including fields that use json:"-" on the live struct (SnapshotCreation,
+// Region, AppName).
 type persistedSnapshot struct {
 	SnapshotCreation   time.Time `json:"snapshot_creation"`
+	Region             string    `json:"region"`
+	AppName            string    `json:"appName"`
 	ApplicationARN     string    `json:"ApplicationARN"`
 	SnapshotName       string    `json:"SnapshotName"`
 	SnapshotStatus     string    `json:"SnapshotStatus"`
 	ApplicationVersion int64     `json:"ApplicationVersionId"`
 }
 
-func toPersistedApp(app *Application) persistedApplication {
-	return persistedApplication{
+// persistedSnapshotKey is the [store.Table] key function used for the
+// ephemeral DTO table built inside Snapshot/Restore. It mirrors
+// snapshotKeyFn so the on-disk table is keyed identically to the live
+// b.snapshots table.
+func persistedSnapshotKey(p *persistedSnapshot) string {
+	return snapshotKey(p.Region, p.AppName, p.SnapshotName)
+}
+
+// newDTORegistry builds the ephemeral DTO [store.Registry] shared by
+// Snapshot and Restore for the tables that can't be registered on
+// b.registry directly for encoding purposes (see store_setup.go).
+func newDTORegistry() (*store.Registry, *store.Table[persistedApplication], *store.Table[persistedSnapshot]) {
+	dtoReg := store.NewRegistry()
+	appDTOs := store.Register(dtoReg, "applications", store.New(persistedApplicationKey))
+	snapDTOs := store.Register(dtoReg, "snapshots", store.New(persistedSnapshotKey))
+
+	return dtoReg, appDTOs, snapDTOs
+}
+
+func toPersistedApp(app *Application) *persistedApplication {
+	return &persistedApplication{
 		CreatedAt:                       app.CreatedAt,
+		Region:                          app.Region,
 		ApplicationARN:                  app.ApplicationARN,
 		ApplicationName:                 app.ApplicationName,
 		ApplicationStatus:               app.ApplicationStatus,
@@ -68,9 +117,10 @@ func ensureNonNil[T any](s []T) []T {
 	return s
 }
 
-func fromPersistedApp(p persistedApplication) *Application {
+func fromPersistedApp(p *persistedApplication) *Application {
 	return &Application{
 		CreatedAt:                       p.CreatedAt,
+		Region:                          p.Region,
 		ApplicationARN:                  p.ApplicationARN,
 		ApplicationName:                 p.ApplicationName,
 		ApplicationStatus:               p.ApplicationStatus,
@@ -88,9 +138,11 @@ func fromPersistedApp(p persistedApplication) *Application {
 	}
 }
 
-func toPersistedSnap(s *Snapshot) persistedSnapshot {
-	return persistedSnapshot{
+func toPersistedSnap(s *Snapshot) *persistedSnapshot {
+	return &persistedSnapshot{
 		SnapshotCreation:   s.SnapshotCreation,
+		Region:             s.Region,
+		AppName:            s.AppName,
 		ApplicationARN:     s.ApplicationARN,
 		SnapshotName:       s.SnapshotName,
 		SnapshotStatus:     s.SnapshotStatus,
@@ -98,9 +150,11 @@ func toPersistedSnap(s *Snapshot) persistedSnapshot {
 	}
 }
 
-func fromPersistedSnap(p persistedSnapshot) *Snapshot {
+func fromPersistedSnap(p *persistedSnapshot) *Snapshot {
 	return &Snapshot{
 		SnapshotCreation:   p.SnapshotCreation,
+		Region:             p.Region,
+		AppName:            p.AppName,
 		ApplicationARN:     p.ApplicationARN,
 		SnapshotName:       p.SnapshotName,
 		SnapshotStatus:     p.SnapshotStatus,
@@ -108,14 +162,20 @@ func fromPersistedSnap(p persistedSnapshot) *Snapshot {
 	}
 }
 
-// backendSnapshot is the persisted form of the backend state. All resource maps are
-// nested by region (outer key = region) to mirror the in-memory layout and keep
-// same-named resources in different regions fully isolated across restarts.
+// backendSnapshot is the top-level on-disk shape for the Kinesis Data
+// Analytics v2 backend.
+//
+// Tables holds one JSON-encoded array per registered DTO table, produced by
+// [store.Registry.SnapshotAll] on the ephemeral DTO registry -- "applications"
+// ([]*persistedApplication) and "snapshots" ([]*persistedSnapshot). operations
+// and versions are not persisted, matching pre-Phase-3.3 behavior (see
+// InMemoryBackend's doc comment in backend.go). Version guards against
+// decoding a snapshot from an incompatible (older or newer) build of this
+// backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Applications    map[string]map[string]persistedApplication `json:"applications"`
-	ApplicationARNs map[string]map[string]string               `json:"application_arns"`
-	Snapshots       map[string]map[string][]persistedSnapshot  `json:"snapshots"`
-	NextID          int64                                      `json:"next_id"`
+	Tables  map[string]json.RawMessage `json:"tables"`
+	NextID  int64                      `json:"next_id"`
+	Version int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -123,50 +183,35 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	appsCopy := make(map[string]map[string]persistedApplication, len(b.applications))
-	for region, regionApps := range b.applications {
-		regionCopy := make(map[string]persistedApplication, len(regionApps))
-		for k, v := range regionApps {
-			regionCopy[k] = toPersistedApp(v)
-		}
-		appsCopy[region] = regionCopy
+	dtoReg, appDTOs, snapDTOs := newDTORegistry()
+
+	for _, app := range b.applications.Snapshot() {
+		appDTOs.Put(toPersistedApp(app))
 	}
 
-	arnCopy := make(map[string]map[string]string, len(b.applicationARNs))
-	for region, regionARNs := range b.applicationARNs {
-		regionCopy := make(map[string]string, len(regionARNs))
-		maps.Copy(regionCopy, regionARNs)
-		arnCopy[region] = regionCopy
+	for _, s := range b.snapshots.Snapshot() {
+		snapDTOs.Put(toPersistedSnap(s))
 	}
 
-	snapsCopy := make(map[string]map[string][]persistedSnapshot, len(b.snapshots))
-	for region, regionSnaps := range b.snapshots {
-		regionCopy := make(map[string][]persistedSnapshot, len(regionSnaps))
-		for k, v := range regionSnaps {
-			sl := make([]persistedSnapshot, len(v))
-			for i, s := range v {
-				sl[i] = toPersistedSnap(s)
-			}
-			regionCopy[k] = sl
-		}
-		snapsCopy[region] = regionCopy
-	}
-
-	snap := backendSnapshot{
-		Applications:    appsCopy,
-		ApplicationARNs: arnCopy,
-		Snapshots:       snapsCopy,
-		NextID:          b.nextID,
-	}
-
-	data, err := json.Marshal(snap)
+	tables, err := dtoReg.SnapshotAll()
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "kinesisanalyticsv2: failed to marshal snapshot", "error", err)
+		// The DTOs above are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the
+		// Manager).
+		logger.Load(ctx).WarnContext(ctx, "kinesisanalyticsv2: snapshot table marshal failed", "error", err)
 
 		return nil
 	}
 
-	return data
+	snap := backendSnapshot{
+		Version: kinesisanalyticsv2SnapshotVersion,
+		Tables:  tables,
+		NextID:  b.nextID,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "kinesisanalyticsv2", &snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -180,36 +225,50 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	apps := make(map[string]map[string]*Application, len(snap.Applications))
-	for region, regionApps := range snap.Applications {
-		regionLive := make(map[string]*Application, len(regionApps))
-		for k, v := range regionApps {
-			regionLive[k] = fromPersistedApp(v)
-		}
-		apps[region] = regionLive
+	if snap.Version != kinesisanalyticsv2SnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"kinesisanalyticsv2: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", kinesisanalyticsv2SnapshotVersion)
+
+		b.registry.ResetAll()
+		b.operations = make(map[string]map[string][]*ApplicationOperation)
+		b.versions = make(map[string]map[string][]*Application)
+		b.nextID = 0
+
+		return nil
 	}
 
-	snapshots := make(map[string]map[string][]*Snapshot, len(snap.Snapshots))
-	for region, regionSnaps := range snap.Snapshots {
-		regionLive := make(map[string][]*Snapshot, len(regionSnaps))
-		for k, v := range regionSnaps {
-			sl := make([]*Snapshot, len(v))
-			for i, s := range v {
-				sl[i] = fromPersistedSnap(s)
-			}
-			regionLive[k] = sl
-		}
-		snapshots[region] = regionLive
+	dtoReg, appDTOs, snapDTOs := newDTORegistry()
+
+	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("kinesisanalyticsv2: restore snapshot tables: %w", err)
 	}
 
-	arnIndex := snap.ApplicationARNs
-	if arnIndex == nil {
-		arnIndex = make(map[string]map[string]string)
+	liveApps := make([]*Application, 0, appDTOs.Len())
+	for _, p := range appDTOs.All() {
+		liveApps = append(liveApps, fromPersistedApp(p))
 	}
 
-	b.applications = apps
-	b.applicationARNs = arnIndex
-	b.snapshots = snapshots
+	b.applications.Restore(liveApps)
+
+	liveSnaps := make([]*Snapshot, 0, snapDTOs.Len())
+	for _, p := range snapDTOs.All() {
+		liveSnaps = append(liveSnaps, fromPersistedSnap(p))
+	}
+
+	b.snapshots.Restore(liveSnaps)
+
+	// operations and versions are deliberately left untouched here, exactly
+	// matching pre-Phase-3.3 behavior: neither was ever part of
+	// backendSnapshot, so a Restore call never reset (or populated) them --
+	// only Reset() and the version-mismatch branch above do that. See
+	// InMemoryBackend's doc comment in backend.go.
 	b.nextID = snap.NextID
 
 	return nil
