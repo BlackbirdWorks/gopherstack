@@ -1,9 +1,9 @@
 package mediapackage
 
 import (
-	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -11,10 +11,9 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -178,40 +177,33 @@ func (j *storedHarvestJob) toHarvestJob() *HarvestJob {
 	}
 }
 
-type snapshot struct {
-	Channels                map[string]*storedChannel                `json:"channels"`
-	OriginEndpoints         map[string]*storedOriginEndpoint         `json:"originEndpoints"`
-	HarvestJobs             map[string]*storedHarvestJob             `json:"harvestJobs"`
-	PackagingConfigurations map[string]*storedPackagingConfiguration `json:"packagingConfigurations"`
-	Tags                    map[string]map[string]string             `json:"tags"`
-	AccountID               string                                   `json:"accountId"`
-	Region                  string                                   `json:"region"`
-}
-
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu                      *lockmetrics.RWMutex
-	channels                map[string]*storedChannel
-	originEndpoints         map[string]*storedOriginEndpoint
-	harvestJobs             map[string]*storedHarvestJob
-	packagingConfigurations map[string]*storedPackagingConfiguration
-	tags                    map[string]map[string]string
-	accountID               string
-	region                  string
+	mu                       *lockmetrics.RWMutex
+	registry                 *store.Registry
+	channels                 *store.Table[storedChannel]
+	originEndpoints          *store.Table[storedOriginEndpoint]
+	originEndpointsByChannel *store.Index[storedOriginEndpoint]
+	harvestJobs              *store.Table[storedHarvestJob]
+	packagingConfigurations  *store.Table[storedPackagingConfiguration]
+	tags                     map[string]map[string]string
+	accountID                string
+	region                   string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                      lockmetrics.New("mediapackage"),
-		channels:                make(map[string]*storedChannel),
-		originEndpoints:         make(map[string]*storedOriginEndpoint),
-		harvestJobs:             make(map[string]*storedHarvestJob),
-		packagingConfigurations: make(map[string]*storedPackagingConfiguration),
-		tags:                    make(map[string]map[string]string),
-		accountID:               accountID,
-		region:                  region,
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("mediapackage"),
+		registry:  store.NewRegistry(),
+		tags:      make(map[string]map[string]string),
+		accountID: accountID,
+		region:    region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the configured AWS account ID.
@@ -225,50 +217,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.channels = make(map[string]*storedChannel)
-	b.originEndpoints = make(map[string]*storedOriginEndpoint)
-	b.harvestJobs = make(map[string]*storedHarvestJob)
-	b.packagingConfigurations = make(map[string]*storedPackagingConfiguration)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-}
-
-// Snapshot returns a JSON-encoded snapshot of the backend state.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	snap := snapshot{
-		AccountID:               b.accountID,
-		Region:                  b.region,
-		Channels:                b.channels,
-		OriginEndpoints:         b.originEndpoints,
-		HarvestJobs:             b.harvestJobs,
-		PackagingConfigurations: b.packagingConfigurations,
-		Tags:                    b.tags,
-	}
-
-	return persistence.MarshalSnapshot(ctx, "mediapackage", snap)
-}
-
-// Restore loads backend state from a JSON snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var snap snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "mediapackage", data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-	b.channels = snap.Channels
-	b.originEndpoints = snap.OriginEndpoints
-	b.harvestJobs = snap.HarvestJobs
-	b.packagingConfigurations = snap.PackagingConfigurations
-	b.tags = snap.Tags
-
-	return nil
 }
 
 func (b *InMemoryBackend) buildChannelARN(id string) string {
@@ -313,7 +263,7 @@ func (b *InMemoryBackend) CreateChannel(id, description string, tags map[string]
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
-	if _, exists := b.channels[id]; exists {
+	if b.channels.Has(id) {
 		return nil, fmt.Errorf("%w: channel %q already exists", ErrConflict, id)
 	}
 
@@ -328,7 +278,7 @@ func (b *InMemoryBackend) CreateChannel(id, description string, tags map[string]
 		IngestEndpoints: newIngestEndpoints(b.region, id),
 	}
 
-	b.channels[id] = ch
+	b.channels.Put(ch)
 
 	if len(tagsCopy) > 0 {
 		b.tags[ch.ARN] = make(map[string]string, len(tagsCopy))
@@ -343,7 +293,7 @@ func (b *InMemoryBackend) DescribeChannel(id string) (*Channel, error) {
 	b.mu.RLock("DescribeChannel")
 	defer b.mu.RUnlock()
 
-	ch, ok := b.channels[id]
+	ch, ok := b.channels.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
@@ -356,7 +306,7 @@ func (b *InMemoryBackend) UpdateChannel(id, description string) (*Channel, error
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[id]
+	ch, ok := b.channels.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
@@ -371,19 +321,18 @@ func (b *InMemoryBackend) DeleteChannel(id string) (*Channel, error) {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[id]
+	ch, ok := b.channels.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
 
 	// Delete associated origin endpoints.
-	for epID, ep := range b.originEndpoints {
-		if ep.ChannelID == id {
-			delete(b.originEndpoints, epID)
-		}
+	matches := slices.Clone(b.originEndpointsByChannel.Get(id))
+	for _, ep := range matches {
+		b.originEndpoints.Delete(ep.ID)
 	}
 
-	delete(b.channels, id)
+	b.channels.Delete(id)
 
 	return ch.toChannel(), nil
 }
@@ -393,12 +342,7 @@ func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*Cha
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.channels)
-
-	all := make([]*storedChannel, 0, len(ids))
-	for _, id := range ids {
-		all = append(all, b.channels[id])
-	}
+	all := b.channels.Snapshot()
 
 	p := page.New(all, nextToken, maxResults, defaultMaxResults)
 
@@ -415,7 +359,7 @@ func (b *InMemoryBackend) ConfigureLogs(id, egressLogGroup, ingressLogGroup stri
 	b.mu.Lock("ConfigureLogs")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[id]
+	ch, ok := b.channels.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
@@ -432,7 +376,7 @@ func (b *InMemoryBackend) RotateChannelCredentials(id string) (*Channel, error) 
 	b.mu.Lock("RotateChannelCredentials")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[id]
+	ch, ok := b.channels.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
@@ -461,11 +405,11 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 	b.mu.Lock("CreateOriginEndpoint")
 	defer b.mu.Unlock()
 
-	if _, exists := b.channels[channelID]; !exists {
+	if !b.channels.Has(channelID) {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, channelID)
 	}
 
-	if _, exists := b.originEndpoints[id]; exists {
+	if b.originEndpoints.Has(id) {
 		return nil, fmt.Errorf("%w: origin endpoint %q already exists", ErrConflict, id)
 	}
 
@@ -502,7 +446,7 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 		Tags:                   tagsCopy,
 	}
 
-	b.originEndpoints[id] = ep
+	b.originEndpoints.Put(ep)
 
 	if len(tagsCopy) > 0 {
 		b.tags[ep.ARN] = make(map[string]string, len(tagsCopy))
@@ -517,7 +461,7 @@ func (b *InMemoryBackend) DescribeOriginEndpoint(id string) (*OriginEndpoint, er
 	b.mu.RLock("DescribeOriginEndpoint")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.originEndpoints[id]
+	ep, ok := b.originEndpoints.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: origin endpoint %q not found", ErrNotFound, id)
 	}
@@ -535,7 +479,7 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 	b.mu.Lock("UpdateOriginEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.originEndpoints[id]
+	ep, ok := b.originEndpoints.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: origin endpoint %q not found", ErrNotFound, id)
 	}
@@ -574,12 +518,12 @@ func (b *InMemoryBackend) DeleteOriginEndpoint(id string) (*OriginEndpoint, erro
 	b.mu.Lock("DeleteOriginEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.originEndpoints[id]
+	ep, ok := b.originEndpoints.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: origin endpoint %q not found", ErrNotFound, id)
 	}
 
-	delete(b.originEndpoints, id)
+	b.originEndpoints.Delete(id)
 
 	return ep.toOriginEndpoint(), nil
 }
@@ -593,18 +537,12 @@ func (b *InMemoryBackend) ListOriginEndpoints(
 	b.mu.RLock("ListOriginEndpoints")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.originEndpoints))
-	for id, ep := range b.originEndpoints {
-		if channelID == "" || ep.ChannelID == channelID {
-			ids = append(ids, id)
-		}
-	}
-
-	sort.Strings(ids)
-
-	all := make([]*storedOriginEndpoint, 0, len(ids))
-	for _, id := range ids {
-		all = append(all, b.originEndpoints[id])
+	var all []*storedOriginEndpoint
+	if channelID == "" {
+		all = b.originEndpoints.Snapshot()
+	} else {
+		all = slices.Clone(b.originEndpointsByChannel.Get(channelID))
+		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	}
 
 	p := page.New(all, nextToken, maxResults, defaultMaxResults)
@@ -622,7 +560,7 @@ func (b *InMemoryBackend) RotateIngestEndpointCredentials(channelID, ingestEndpo
 	b.mu.Lock("RotateIngestEndpointCredentials")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, channelID)
 	}
@@ -667,11 +605,11 @@ func (b *InMemoryBackend) CreateHarvestJob(
 	b.mu.Lock("CreateHarvestJob")
 	defer b.mu.Unlock()
 
-	if _, exists := b.harvestJobs[id]; exists {
+	if b.harvestJobs.Has(id) {
 		return nil, fmt.Errorf("%w: harvest job %q already exists", ErrConflict, id)
 	}
 
-	ep, ok := b.originEndpoints[originEndpointID]
+	ep, ok := b.originEndpoints.Get(originEndpointID)
 	if !ok {
 		return nil, fmt.Errorf("%w: origin endpoint %q not found", ErrNotFound, originEndpointID)
 	}
@@ -692,7 +630,7 @@ func (b *InMemoryBackend) CreateHarvestJob(
 		Status:    harvestJobStatusSucceeded,
 	}
 
-	b.harvestJobs[id] = job
+	b.harvestJobs.Put(job)
 
 	return job.toHarvestJob(), nil
 }
@@ -702,7 +640,7 @@ func (b *InMemoryBackend) DescribeHarvestJob(id string) (*HarvestJob, error) {
 	b.mu.RLock("DescribeHarvestJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.harvestJobs[id]
+	job, ok := b.harvestJobs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: harvest job %q not found", ErrNotFound, id)
 	}
@@ -719,8 +657,10 @@ func (b *InMemoryBackend) ListHarvestJobs(
 	b.mu.RLock("ListHarvestJobs")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.harvestJobs))
-	for id, job := range b.harvestJobs {
+	snap := b.harvestJobs.Snapshot()
+
+	all := make([]*storedHarvestJob, 0, len(snap))
+	for _, job := range snap {
 		if includeChannelID != "" && job.ChannelID != includeChannelID {
 			continue
 		}
@@ -729,14 +669,7 @@ func (b *InMemoryBackend) ListHarvestJobs(
 			continue
 		}
 
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
-
-	all := make([]*storedHarvestJob, 0, len(ids))
-	for _, id := range ids {
-		all = append(all, b.harvestJobs[id])
+		all = append(all, job)
 	}
 
 	p := page.New(all, nextToken, maxResults, defaultMaxResults)
@@ -805,24 +738,36 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 
 // findChannelByARN returns the channel with the given ARN, or nil. Must be called with lock held.
 func (b *InMemoryBackend) findChannelByARN(resourceARN string) *storedChannel {
-	for _, ch := range b.channels {
-		if ch.ARN == resourceARN {
-			return ch
-		}
-	}
+	var found *storedChannel
 
-	return nil
+	b.channels.Range(func(ch *storedChannel) bool {
+		if ch.ARN == resourceARN {
+			found = ch
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // findOriginEndpointByARN returns the origin endpoint with the given ARN, or nil. Must be called with lock held.
 func (b *InMemoryBackend) findOriginEndpointByARN(resourceARN string) *storedOriginEndpoint {
-	for _, ep := range b.originEndpoints {
-		if ep.ARN == resourceARN {
-			return ep
-		}
-	}
+	var found *storedOriginEndpoint
 
-	return nil
+	b.originEndpoints.Range(func(ep *storedOriginEndpoint) bool {
+		if ep.ARN == resourceARN {
+			found = ep
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // ListTagsForResource returns all tags for a resource.
@@ -850,7 +795,7 @@ func (b *InMemoryBackend) CreatePackagingConfiguration(
 	if id == "" {
 		return nil, fmt.Errorf("%w: id required", ErrInvalidParameter)
 	}
-	if _, exists := b.packagingConfigurations[id]; exists {
+	if b.packagingConfigurations.Has(id) {
 		return nil, ErrConflict
 	}
 
@@ -865,7 +810,7 @@ func (b *InMemoryBackend) CreatePackagingConfiguration(
 		Description:      description,
 		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
 	}
-	b.packagingConfigurations[id] = pc
+	b.packagingConfigurations.Put(pc)
 
 	return pc.toPackagingConfiguration(), nil
 }
@@ -875,7 +820,7 @@ func (b *InMemoryBackend) DescribePackagingConfiguration(id string) (*PackagingC
 	b.mu.RLock("DescribePackagingConfiguration")
 	defer b.mu.RUnlock()
 
-	pc, ok := b.packagingConfigurations[id]
+	pc, ok := b.packagingConfigurations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: packagingConfiguration %s not found", ErrNotFound, id)
 	}
@@ -888,10 +833,10 @@ func (b *InMemoryBackend) DeletePackagingConfiguration(id string) error {
 	b.mu.Lock("DeletePackagingConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.packagingConfigurations[id]; !ok {
+	if !b.packagingConfigurations.Has(id) {
 		return fmt.Errorf("%w: packagingConfiguration %s not found", ErrNotFound, id)
 	}
-	delete(b.packagingConfigurations, id)
+	b.packagingConfigurations.Delete(id)
 
 	return nil
 }
@@ -904,11 +849,7 @@ func (b *InMemoryBackend) ListPackagingConfigurations(
 	b.mu.RLock("ListPackagingConfigurations")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedPackagingConfiguration, 0, len(b.packagingConfigurations))
-	for _, pc := range b.packagingConfigurations {
-		all = append(all, pc)
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	all := b.packagingConfigurations.Snapshot()
 
 	p := page.New(all, nextToken, maxResults, defaultMaxResults)
 
@@ -925,7 +866,7 @@ func (b *InMemoryBackend) PutChannelLifecyclePolicy(channelID, policy string) er
 	b.mu.Lock("PutChannelLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -939,7 +880,7 @@ func (b *InMemoryBackend) GetChannelLifecyclePolicy(channelID string) (string, e
 	b.mu.RLock("GetChannelLifecyclePolicy")
 	defer b.mu.RUnlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}

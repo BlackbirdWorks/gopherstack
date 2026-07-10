@@ -5,7 +5,7 @@ func ChannelCount(b *InMemoryBackend) int {
 	b.mu.RLock("ChannelCount")
 	defer b.mu.RUnlock()
 
-	return len(b.channels)
+	return b.channels.Len()
 }
 
 // OriginEndpointCount returns the number of stored origin endpoints.
@@ -13,7 +13,7 @@ func OriginEndpointCount(b *InMemoryBackend) int {
 	b.mu.RLock("OriginEndpointCount")
 	defer b.mu.RUnlock()
 
-	return len(b.originEndpoints)
+	return b.originEndpoints.Len()
 }
 
 // HarvestJobCount returns the number of stored harvest jobs.
@@ -21,8 +21,8 @@ func HarvestJobCount(b *InMemoryBackend) int {
 	b.mu.RLock("HarvestJobCount")
 	defer b.mu.RUnlock()
 
-	return len(b.harvestJobs)
+	return b.harvestJobs.Len()
 }
 
 // PackagingConfigCount returns the number of stored packaging configurations.
-func PackagingConfigCount(b *InMemoryBackend) int { return len(b.packagingConfigurations) }
+func PackagingConfigCount(b *InMemoryBackend) int { return b.packagingConfigurations.Len() }
