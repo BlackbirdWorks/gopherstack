@@ -79,6 +79,23 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// Snapshot implements persistence.Persistable by delegating to the backend.
+//
+// This delegation is required: cli.go's setupPersistence type-asserts the
+// service.Registerable value returned by Provider.Init (the Handler, not
+// InMemoryBackend) against a Snapshot/Restore interface -- since Handler
+// itself never exposed either method before this fix, InMemoryBackend.
+// Snapshot/Restore existed but were never reachable through the registered
+// service, so CodeConnections state was silently never persisted.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "CodeConnections" }
 
