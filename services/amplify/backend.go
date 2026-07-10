@@ -1,9 +1,11 @@
 package amplify
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -24,6 +27,12 @@ var (
 
 // StorageBackend defines the interface for Amplify storage operations.
 type StorageBackend interface {
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks Amplify up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+
 	CreateApp(
 		name, description, repository, platform string,
 		tagMap map[string]string,
@@ -118,35 +127,45 @@ func randomAppID() string {
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+//
+// Every resource collection is a *store.Table[T] registered on registry (see
+// store_setup.go); branches, jobs, domains, and backendEnvironments were
+// previously nested per-parent maps and are now flattened to a single Table
+// keyed by a composite "parent|child" string with a companion byApp/byBranch
+// [store.Index] for the "all children of parent X" lookups the nested maps
+// used to answer directly. webhooksByApp was a reverse-lookup map
+// (map[string][]string); it is now a [store.Index] on webhooks, not its own
+// Table.
 type InMemoryBackend struct {
-	apps                map[string]*App                           // appID → app
-	branches            map[string]map[string]*Branch             // appID → branchName → branch
-	jobs                map[string]map[string]map[string]*Job     // appID → branchName → jobID → job
-	domains             map[string]map[string]*DomainAssociation  // appID → domainName → domain
-	webhooks            map[string]*Webhook                       // webhookID → webhook
-	webhooksByApp       map[string][]string                       // appID → []webhookID
-	backendEnvironments map[string]map[string]*BackendEnvironment // appID → envName → env
-	artifacts           map[string]*Artifact                      // artifactID → artifact
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	apps                     *store.Table[App]
+	branches                 *store.Table[Branch]
+	branchesByApp            *store.Index[Branch]
+	jobs                     *store.Table[Job]
+	jobsByBranch             *store.Index[Job]
+	domains                  *store.Table[DomainAssociation]
+	domainsByApp             *store.Index[DomainAssociation]
+	webhooks                 *store.Table[Webhook]
+	webhooksByApp            *store.Index[Webhook]
+	backendEnvironments      *store.Table[BackendEnvironment]
+	backendEnvironmentsByApp *store.Index[BackendEnvironment]
+	artifacts                *store.Table[Artifact]
+	registry                 *store.Registry
+	mu                       *lockmetrics.RWMutex
+	accountID                string
+	region                   string
 }
 
 // NewInMemoryBackend creates a new in-memory Amplify backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		apps:                make(map[string]*App),
-		branches:            make(map[string]map[string]*Branch),
-		jobs:                make(map[string]map[string]map[string]*Job),
-		domains:             make(map[string]map[string]*DomainAssociation),
-		webhooks:            make(map[string]*Webhook),
-		webhooksByApp:       make(map[string][]string),
-		backendEnvironments: make(map[string]map[string]*BackendEnvironment),
-		artifacts:           make(map[string]*Artifact),
-		mu:                  lockmetrics.New("amplify"),
-		accountID:           accountID,
-		region:              region,
+	b := &InMemoryBackend{
+		registry:  store.NewRegistry(),
+		mu:        lockmetrics.New("amplify"),
+		accountID: accountID,
+		region:    region,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // CreateApp creates a new Amplify application.
@@ -179,7 +198,7 @@ func (b *InMemoryBackend) CreateApp(
 		Tags:          tags.FromMap("amplify.app."+appID+".tags", tagMap),
 	}
 
-	b.apps[appID] = app
+	b.apps.Put(app)
 
 	cp := *app
 
@@ -191,7 +210,7 @@ func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
 	b.mu.RLock("GetApp")
 	defer b.mu.RUnlock()
 
-	app, ok := b.apps[appID]
+	app, ok := b.apps.Get(appID)
 	if !ok {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
@@ -206,8 +225,10 @@ func (b *InMemoryBackend) ListApps(nextToken string, maxResults int) ([]*App, st
 	b.mu.RLock("ListApps")
 	defer b.mu.RUnlock()
 
-	all := make([]*App, 0, len(b.apps))
-	for _, app := range b.apps {
+	src := b.apps.All()
+	all := make([]*App, 0, len(src))
+
+	for _, app := range src {
 		cp := *app
 		all = append(all, &cp)
 	}
@@ -224,17 +245,19 @@ func (b *InMemoryBackend) DeleteApp(appID string) error {
 	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
-	app, ok := b.apps[appID]
+	app, ok := b.apps.Get(appID)
 	if !ok {
 		return fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	app.Tags.Close()
-	for _, branch := range b.branches[appID] {
+
+	for _, branch := range slices.Clone(b.branchesByApp.Get(appID)) {
 		branch.Tags.Close()
+		b.branches.Delete(branchKey(appID, branch.BranchName))
 	}
-	delete(b.apps, appID)
-	delete(b.branches, appID)
+
+	b.apps.Delete(appID)
 
 	return nil
 }
@@ -248,15 +271,12 @@ func (b *InMemoryBackend) CreateBranch(
 	b.mu.Lock("CreateBranch")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	if b.branches[appID] == nil {
-		b.branches[appID] = make(map[string]*Branch)
-	}
-
-	if _, exists := b.branches[appID][branchName]; exists {
+	key := branchKey(appID, branchName)
+	if b.branches.Has(key) {
 		return nil, fmt.Errorf("%w: branch %s already exists", ErrAlreadyExists, branchName)
 	}
 
@@ -280,7 +300,7 @@ func (b *InMemoryBackend) CreateBranch(
 		Tags:            tags.FromMap("amplify.branch."+appID+"."+branchName+".tags", tagMap),
 	}
 
-	b.branches[appID][branchName] = branch
+	b.branches.Put(branch)
 
 	cp := *branch
 
@@ -292,12 +312,7 @@ func (b *InMemoryBackend) GetBranch(appID, branchName string) (*Branch, error) {
 	b.mu.RLock("GetBranch")
 	defer b.mu.RUnlock()
 
-	branches, ok := b.branches[appID]
-	if !ok {
-		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
-	}
-
-	branch, ok := branches[branchName]
+	branch, ok := b.branches.Get(branchKey(appID, branchName))
 	if !ok {
 		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
@@ -315,14 +330,14 @@ func (b *InMemoryBackend) ListBranches(
 	b.mu.RLock("ListBranches")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	branches := b.branches[appID]
-	all := make([]*Branch, 0, len(branches))
+	src := b.branchesByApp.Get(appID)
+	all := make([]*Branch, 0, len(src))
 
-	for _, branch := range branches {
+	for _, branch := range src {
 		cp := *branch
 		all = append(all, &cp)
 	}
@@ -339,13 +354,15 @@ func (b *InMemoryBackend) DeleteBranch(appID, branchName string) error {
 	b.mu.Lock("DeleteBranch")
 	defer b.mu.Unlock()
 
-	branches, ok := b.branches[appID]
-	if !ok || branches[branchName] == nil {
+	key := branchKey(appID, branchName)
+
+	branch, ok := b.branches.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
 
-	branches[branchName].Tags.Close()
-	delete(branches, branchName)
+	branch.Tags.Close()
+	b.branches.Delete(key)
 
 	return nil
 }
@@ -413,7 +430,7 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (*tags.Tags, error) 
 	if len(resourceParts) == 2 && resourceParts[0] == arnResourceApps {
 		appID := resourceParts[1]
 
-		app, ok := b.apps[appID]
+		app, ok := b.apps.Get(appID)
 		if !ok {
 			return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 		}
@@ -427,17 +444,7 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (*tags.Tags, error) 
 		appID := resourceParts[1]
 		branchName := resourceParts[3]
 
-		branches, ok := b.branches[appID]
-		if !ok {
-			return nil, fmt.Errorf(
-				"%w: branch %s not found for app %s",
-				ErrNotFound,
-				branchName,
-				appID,
-			)
-		}
-
-		branch, ok := branches[branchName]
+		branch, ok := b.branches.Get(branchKey(appID, branchName))
 		if !ok {
 			return nil, fmt.Errorf(
 				"%w: branch %s not found for app %s",
@@ -460,7 +467,7 @@ func (b *InMemoryBackend) UpdateApp(
 	b.mu.Lock("UpdateApp")
 	defer b.mu.Unlock()
 
-	app, ok := b.apps[appID]
+	app, ok := b.apps.Get(appID)
 	if !ok {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
@@ -496,12 +503,7 @@ func (b *InMemoryBackend) UpdateBranch(
 	b.mu.Lock("UpdateBranch")
 	defer b.mu.Unlock()
 
-	branches, ok := b.branches[appID]
-	if !ok {
-		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
-	}
-
-	branch, ok := branches[branchName]
+	branch, ok := b.branches.Get(branchKey(appID, branchName))
 	if !ok {
 		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
@@ -534,24 +536,15 @@ func (b *InMemoryBackend) StartJob(
 	b.mu.Lock("StartJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	if b.branches[appID] == nil || b.branches[appID][branchName] == nil {
+	if !b.branches.Has(branchKey(appID, branchName)) {
 		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
 
 	jobID := randomID()
-
-	if b.jobs[appID] == nil {
-		b.jobs[appID] = make(map[string]map[string]*Job)
-	}
-
-	if b.jobs[appID][branchName] == nil {
-		b.jobs[appID][branchName] = make(map[string]*Job)
-	}
-
 	now := time.Now().UTC()
 
 	jt := JobType(jobType)
@@ -570,7 +563,7 @@ func (b *InMemoryBackend) StartJob(
 		BranchName: branchName,
 	}
 
-	b.jobs[appID][branchName][jobID] = job
+	b.jobs.Put(job)
 
 	cp := *job
 
@@ -618,17 +611,15 @@ func (b *InMemoryBackend) ListJobs(
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	var all []*Job
 
-	if b.jobs[appID] != nil && b.jobs[appID][branchName] != nil {
-		for _, job := range b.jobs[appID][branchName] {
-			cp := *job
-			all = append(all, &cp)
-		}
+	for _, job := range b.jobsByBranch.Get(branchKey(appID, branchName)) {
+		cp := *job
+		all = append(all, &cp)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].JobID < all[j].JobID })
@@ -649,7 +640,7 @@ func (b *InMemoryBackend) DeleteJob(appID, branchName, jobID string) (*Job, erro
 	}
 
 	cp := *job
-	delete(b.jobs[appID][branchName], jobID)
+	b.jobs.Delete(jobKey(appID, branchName, jobID))
 
 	return &cp, nil
 }
@@ -659,11 +650,11 @@ func (b *InMemoryBackend) CreateDeployment(appID, branchName string) (string, st
 	b.mu.RLock("CreateDeployment")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return "", "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	if b.branches[appID] == nil || b.branches[appID][branchName] == nil {
+	if !b.branches.Has(branchKey(appID, branchName)) {
 		return "", "", fmt.Errorf(
 			"%w: branch %s not found for app %s",
 			ErrNotFound,
@@ -685,20 +676,12 @@ func (b *InMemoryBackend) StartDeployment(
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	if b.branches[appID] == nil || b.branches[appID][branchName] == nil {
+	if !b.branches.Has(branchKey(appID, branchName)) {
 		return nil, fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
-	}
-
-	if b.jobs[appID] == nil {
-		b.jobs[appID] = make(map[string]map[string]*Job)
-	}
-
-	if b.jobs[appID][branchName] == nil {
-		b.jobs[appID][branchName] = make(map[string]*Job)
 	}
 
 	if jobID == "" {
@@ -717,26 +700,16 @@ func (b *InMemoryBackend) StartDeployment(
 		BranchName: branchName,
 	}
 
-	b.jobs[appID][branchName][jobID] = job
+	b.jobs.Put(job)
 
 	cp := *job
 
 	return &cp, nil
 }
 
-// findJob locates a job within the nested maps. Must be called while holding a lock.
+// findJob locates a job in the jobs table. Must be called while holding a lock.
 func (b *InMemoryBackend) findJob(appID, branchName, jobID string) (*Job, error) {
-	if b.jobs[appID] == nil || b.jobs[appID][branchName] == nil {
-		return nil, fmt.Errorf(
-			"%w: job %s not found for branch %s app %s",
-			ErrNotFound,
-			jobID,
-			branchName,
-			appID,
-		)
-	}
-
-	job, ok := b.jobs[appID][branchName][jobID]
+	job, ok := b.jobs.Get(jobKey(appID, branchName, jobID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: job %s not found for branch %s app %s",
@@ -759,15 +732,12 @@ func (b *InMemoryBackend) CreateDomainAssociation(
 	b.mu.Lock("CreateDomainAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	if b.domains[appID] == nil {
-		b.domains[appID] = make(map[string]*DomainAssociation)
-	}
-
-	if _, exists := b.domains[appID][domainName]; exists {
+	key := domainKey(appID, domainName)
+	if b.domains.Has(key) {
 		return nil, fmt.Errorf(
 			"%w: domain %s already exists for app %s",
 			ErrAlreadyExists,
@@ -803,7 +773,7 @@ func (b *InMemoryBackend) CreateDomainAssociation(
 		CertificateVerificationDNSRecord: "_verify." + domainName + " CNAME _acm." + appID + ".amplifyapp.com",
 	}
 
-	b.domains[appID][domainName] = da
+	b.domains.Put(da)
 
 	cp := *da
 
@@ -855,7 +825,7 @@ func (b *InMemoryBackend) DeleteDomainAssociation(
 	}
 
 	cp := *da
-	delete(b.domains[appID], domainName)
+	b.domains.Delete(domainKey(appID, domainName))
 
 	return &cp, nil
 }
@@ -885,13 +855,13 @@ func (b *InMemoryBackend) ListDomainAssociations(
 	b.mu.RLock("ListDomainAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	var all []*DomainAssociation
 
-	for _, da := range b.domains[appID] {
+	for _, da := range b.domainsByApp.Get(appID) {
 		cp := *da
 		all = append(all, &cp)
 	}
@@ -905,11 +875,7 @@ func (b *InMemoryBackend) ListDomainAssociations(
 
 // findDomain locates a domain association. Must be called while holding a lock.
 func (b *InMemoryBackend) findDomain(appID, domainName string) (*DomainAssociation, error) {
-	if b.domains[appID] == nil {
-		return nil, fmt.Errorf("%w: domain %s not found for app %s", ErrNotFound, domainName, appID)
-	}
-
-	da, ok := b.domains[appID][domainName]
+	da, ok := b.domains.Get(domainKey(appID, domainName))
 	if !ok {
 		return nil, fmt.Errorf("%w: domain %s not found for app %s", ErrNotFound, domainName, appID)
 	}
@@ -922,7 +888,7 @@ func (b *InMemoryBackend) CreateWebhook(appID, branchName, description string) (
 	b.mu.Lock("CreateWebhook")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
@@ -947,8 +913,7 @@ func (b *InMemoryBackend) CreateWebhook(appID, branchName, description string) (
 		UpdateTime: now,
 	}
 
-	b.webhooks[webhookID] = wh
-	b.webhooksByApp[appID] = append(b.webhooksByApp[appID], webhookID)
+	b.webhooks.Put(wh)
 
 	cp := *wh
 
@@ -962,7 +927,7 @@ func (b *InMemoryBackend) UpdateWebhook(
 	b.mu.Lock("UpdateWebhook")
 	defer b.mu.Unlock()
 
-	wh, ok := b.webhooks[webhookID]
+	wh, ok := b.webhooks.Get(webhookID)
 	if !ok {
 		return nil, fmt.Errorf("%w: webhook %s not found", ErrNotFound, webhookID)
 	}
@@ -987,25 +952,13 @@ func (b *InMemoryBackend) DeleteWebhook(webhookID string) (*Webhook, error) {
 	b.mu.Lock("DeleteWebhook")
 	defer b.mu.Unlock()
 
-	wh, ok := b.webhooks[webhookID]
+	wh, ok := b.webhooks.Get(webhookID)
 	if !ok {
 		return nil, fmt.Errorf("%w: webhook %s not found", ErrNotFound, webhookID)
 	}
 
 	cp := *wh
-	delete(b.webhooks, webhookID)
-
-	// Remove from webhooksByApp index
-	appIDs := b.webhooksByApp[wh.AppID]
-	updated := appIDs[:0]
-
-	for _, id := range appIDs {
-		if id != webhookID {
-			updated = append(updated, id)
-		}
-	}
-
-	b.webhooksByApp[wh.AppID] = updated
+	b.webhooks.Delete(webhookID)
 
 	return &cp, nil
 }
@@ -1015,7 +968,7 @@ func (b *InMemoryBackend) GetWebhook(webhookID string) (*Webhook, error) {
 	b.mu.RLock("GetWebhook")
 	defer b.mu.RUnlock()
 
-	wh, ok := b.webhooks[webhookID]
+	wh, ok := b.webhooks.Get(webhookID)
 	if !ok {
 		return nil, fmt.Errorf("%w: webhook %s not found", ErrNotFound, webhookID)
 	}
@@ -1033,17 +986,15 @@ func (b *InMemoryBackend) ListWebhooks(
 	b.mu.RLock("ListWebhooks")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	var all []*Webhook
 
-	for _, whID := range b.webhooksByApp[appID] {
-		if wh, ok := b.webhooks[whID]; ok {
-			cp := *wh
-			all = append(all, &cp)
-		}
+	for _, wh := range b.webhooksByApp.Get(appID) {
+		cp := *wh
+		all = append(all, &cp)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].WebhookID < all[j].WebhookID })
@@ -1060,15 +1011,12 @@ func (b *InMemoryBackend) CreateBackendEnvironment(
 	b.mu.Lock("CreateBackendEnvironment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
-	if b.backendEnvironments[appID] == nil {
-		b.backendEnvironments[appID] = make(map[string]*BackendEnvironment)
-	}
-
-	if _, exists := b.backendEnvironments[appID][environmentName]; exists {
+	key := backendEnvKey(appID, environmentName)
+	if b.backendEnvironments.Has(key) {
 		return nil, fmt.Errorf(
 			"%w: backend environment %s already exists for app %s",
 			ErrAlreadyExists,
@@ -1093,7 +1041,7 @@ func (b *InMemoryBackend) CreateBackendEnvironment(
 		UpdateTime:            now,
 	}
 
-	b.backendEnvironments[appID][environmentName] = env
+	b.backendEnvironments.Put(env)
 
 	cp := *env
 
@@ -1130,7 +1078,7 @@ func (b *InMemoryBackend) DeleteBackendEnvironment(
 	}
 
 	cp := *env
-	delete(b.backendEnvironments[appID], environmentName)
+	b.backendEnvironments.Delete(backendEnvKey(appID, environmentName))
 
 	return &cp, nil
 }
@@ -1143,13 +1091,13 @@ func (b *InMemoryBackend) ListBackendEnvironments(
 	b.mu.RLock("ListBackendEnvironments")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	var all []*BackendEnvironment
 
-	for _, env := range b.backendEnvironments[appID] {
+	for _, env := range b.backendEnvironmentsByApp.Get(appID) {
 		cp := *env
 		all = append(all, &cp)
 	}
@@ -1165,16 +1113,7 @@ func (b *InMemoryBackend) ListBackendEnvironments(
 func (b *InMemoryBackend) findBackendEnv(
 	appID, environmentName string,
 ) (*BackendEnvironment, error) {
-	if b.backendEnvironments[appID] == nil {
-		return nil, fmt.Errorf(
-			"%w: backend environment %s not found for app %s",
-			ErrNotFound,
-			environmentName,
-			appID,
-		)
-	}
-
-	env, ok := b.backendEnvironments[appID][environmentName]
+	env, ok := b.backendEnvironments.Get(backendEnvKey(appID, environmentName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: backend environment %s not found for app %s",
@@ -1194,7 +1133,7 @@ func (b *InMemoryBackend) GenerateAccessLogs(
 	b.mu.RLock("GenerateAccessLogs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
@@ -1209,7 +1148,7 @@ func (b *InMemoryBackend) GetArtifactURL(artifactID string) (string, string, err
 	b.mu.RLock("GetArtifactURL")
 	defer b.mu.RUnlock()
 
-	artifact, ok := b.artifacts[artifactID]
+	artifact, ok := b.artifacts.Get(artifactID)
 	if !ok {
 		return "", "", fmt.Errorf("%w: artifact %s not found", ErrNotFound, artifactID)
 	}
@@ -1227,7 +1166,7 @@ func (b *InMemoryBackend) ListArtifacts(
 	b.mu.RLock("ListArtifacts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Has(appID) {
 		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
