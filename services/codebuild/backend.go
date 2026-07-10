@@ -11,8 +11,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -374,61 +374,52 @@ type TestCase struct {
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CodeBuild resources.
+//
+// Every resource map is a *store.Table[T] (see store_setup.go), with former
+// ARN reverse-lookup maps and per-parent grouping maps replaced by companion
+// *store.Index values. resourcePolicies remains a plain map since its values
+// are strings, not *T.
 type InMemoryBackend struct {
-	projects            map[string]*Project
-	builds              map[string]*Build
-	buildsByProject     map[string]map[string]struct{} // project name → set of build full IDs
-	projectARNIndex     map[string]string              // ARN → project name
-	buildARNIndex       map[string]string              // ARN → build ID
-	fleets              map[string]*Fleet              // name → Fleet
-	fleetARNIndex       map[string]string              // ARN → name
-	reportGroups        map[string]*ReportGroup        // name → ReportGroup
-	reportGroupARNIndex map[string]string              // ARN → name
-	reports             map[string]*Report             // ARN → Report
-	buildBatches        map[string]*BuildBatch         // ID → BuildBatch
-	batchARNIndex       map[string]string              // ARN → batch ID
-	commandExecutions   map[string]*CommandExecution   // ID → CommandExecution
-	sandboxes           map[string]*Sandbox            // ID → Sandbox
-	webhooks            map[string]*Webhook            // projectName → Webhook
-	resourcePolicies    map[string]string              // ARN → policy JSON
-	sourceCredentials   map[string]*SourceCredentials  // ARN → creds
-	sandboxesByProject  map[string]map[string]struct{} // project name → sandbox ID set
-	batchesByProject    map[string]map[string]struct{} // project name → batch ID set
-	commandsBySandbox   map[string]map[string]struct{} // sandboxID → commandExecution ID set
-	reportsByGroup      map[string]map[string]struct{} // reportGroupARN → report ARN set
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	projects                   *store.Table[Project]
+	projectsByARN              *store.Index[Project]
+	builds                     *store.Table[Build]
+	buildsByARN                *store.Index[Build]
+	buildsByProject            *store.Index[Build]
+	fleets                     *store.Table[Fleet]
+	fleetsByARN                *store.Index[Fleet]
+	reportGroups               *store.Table[ReportGroup]
+	reportGroupsByARN          *store.Index[ReportGroup]
+	reports                    *store.Table[Report]
+	reportsByGroup             *store.Index[Report]
+	buildBatches               *store.Table[BuildBatch]
+	buildBatchesByARN          *store.Index[BuildBatch]
+	buildBatchesByProject      *store.Index[BuildBatch]
+	commandExecutions          *store.Table[CommandExecution]
+	commandExecutionsBySandbox *store.Index[CommandExecution]
+	sandboxes                  *store.Table[Sandbox]
+	sandboxesByProject         *store.Index[Sandbox]
+	webhooks                   *store.Table[Webhook]
+	sourceCredentials          *store.Table[SourceCredentials]
+	registry                   *store.Registry
+	resourcePolicies           map[string]string // ARN → policy JSON
+	mu                         *lockmetrics.RWMutex
+	accountID                  string
+	region                     string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		projects:            make(map[string]*Project),
-		builds:              make(map[string]*Build),
-		buildsByProject:     make(map[string]map[string]struct{}),
-		projectARNIndex:     make(map[string]string),
-		buildARNIndex:       make(map[string]string),
-		fleets:              make(map[string]*Fleet),
-		fleetARNIndex:       make(map[string]string),
-		reportGroups:        make(map[string]*ReportGroup),
-		reportGroupARNIndex: make(map[string]string),
-		reports:             make(map[string]*Report),
-		buildBatches:        make(map[string]*BuildBatch),
-		batchARNIndex:       make(map[string]string),
-		commandExecutions:   make(map[string]*CommandExecution),
-		sandboxes:           make(map[string]*Sandbox),
-		webhooks:            make(map[string]*Webhook),
-		resourcePolicies:    make(map[string]string),
-		sourceCredentials:   make(map[string]*SourceCredentials),
-		sandboxesByProject:  make(map[string]map[string]struct{}),
-		batchesByProject:    make(map[string]map[string]struct{}),
-		commandsBySandbox:   make(map[string]map[string]struct{}),
-		reportsByGroup:      make(map[string]map[string]struct{}),
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("codebuild"),
+	b := &InMemoryBackend{
+		resourcePolicies: make(map[string]string),
+		registry:         store.NewRegistry(),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("codebuild"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the region for this backend instance.
@@ -439,27 +430,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.projects = make(map[string]*Project)
-	b.builds = make(map[string]*Build)
-	b.buildsByProject = make(map[string]map[string]struct{})
-	b.projectARNIndex = make(map[string]string)
-	b.buildARNIndex = make(map[string]string)
-	b.fleets = make(map[string]*Fleet)
-	b.fleetARNIndex = make(map[string]string)
-	b.reportGroups = make(map[string]*ReportGroup)
-	b.reportGroupARNIndex = make(map[string]string)
-	b.reports = make(map[string]*Report)
-	b.buildBatches = make(map[string]*BuildBatch)
-	b.batchARNIndex = make(map[string]string)
-	b.commandExecutions = make(map[string]*CommandExecution)
-	b.sandboxes = make(map[string]*Sandbox)
-	b.webhooks = make(map[string]*Webhook)
+	b.registry.ResetAll()
 	b.resourcePolicies = make(map[string]string)
-	b.sourceCredentials = make(map[string]*SourceCredentials)
-	b.sandboxesByProject = make(map[string]map[string]struct{})
-	b.batchesByProject = make(map[string]map[string]struct{})
-	b.commandsBySandbox = make(map[string]map[string]struct{})
-	b.reportsByGroup = make(map[string]map[string]struct{})
 }
 
 func (b *InMemoryBackend) buildProjectARN(name string) string {
@@ -480,12 +452,12 @@ func randomID() string {
 
 // lookupByNameOrARN finds a project by name or by its ARN.
 func (b *InMemoryBackend) lookupByNameOrARN(nameOrARN string) (*Project, bool) {
-	if p, ok := b.projects[nameOrARN]; ok {
+	if p, ok := b.projects.Get(nameOrARN); ok {
 		return p, true
 	}
 
-	if name, ok := b.projectARNIndex[nameOrARN]; ok {
-		return b.projects[name], true
+	if matches := b.projectsByARN.Get(nameOrARN); len(matches) > 0 {
+		return matches[0], true
 	}
 
 	return nil, false
@@ -525,7 +497,7 @@ func (b *InMemoryBackend) CreateProject(cfg ProjectConfig) (*Project, error) {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	if _, exists := b.projects[cfg.Name]; exists {
+	if b.projects.Has(cfg.Name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -569,8 +541,7 @@ func (b *InMemoryBackend) CreateProject(cfg ProjectConfig) (*Project, error) {
 		p.Environment = *cfg.Environment
 	}
 
-	b.projects[cfg.Name] = p
-	b.projectARNIndex[p.Arn] = cfg.Name
+	b.projects.Put(p)
 
 	out := *p
 
@@ -716,22 +687,25 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 
-	p, ok := b.projects[name]
-	if !ok {
+	if !b.projects.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.projectARNIndex, p.Arn)
-	delete(b.projects, name)
+	b.projects.Delete(name)
 
 	// Use the per-project build index for O(k) cleanup instead of O(n) scan.
-	for id := range b.buildsByProject[name] {
-		if build, ok2 := b.builds[id]; ok2 {
-			delete(b.buildARNIndex, build.Arn)
-			delete(b.builds, id)
-		}
+	// IDs are gathered first since deleting from the table mutates the very
+	// index slice Get returned.
+	group := b.buildsByProject.Get(name)
+	ids := make([]string, len(group))
+
+	for i, bld := range group {
+		ids[i] = bld.ID
 	}
-	delete(b.buildsByProject, name)
+
+	for _, id := range ids {
+		b.builds.Delete(id)
+	}
 
 	return nil
 }
@@ -741,7 +715,12 @@ func (b *InMemoryBackend) ListProjects() []string {
 	b.mu.RLock("ListProjects")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.projects)
+	items := b.projects.Snapshot()
+	names := make([]string, len(items))
+
+	for i, p := range items {
+		names[i] = p.Name
+	}
 
 	return names
 }
@@ -823,7 +802,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 	b.mu.Lock("StartBuild")
 	defer b.mu.Unlock()
 
-	proj, ok := b.projects[projectName]
+	proj, ok := b.projects.Get(projectName)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -853,12 +832,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
 		},
 	}
-	b.builds[fullID] = build
-	b.buildARNIndex[build.Arn] = fullID
-	if b.buildsByProject[projectName] == nil {
-		b.buildsByProject[projectName] = make(map[string]struct{})
-	}
-	b.buildsByProject[projectName][fullID] = struct{}{}
+	b.builds.Put(build)
 
 	out := *build
 
@@ -874,12 +848,14 @@ func (b *InMemoryBackend) BatchGetBuilds(ids []string) ([]*Build, []string) {
 	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		lookupID := id
-		if resolvedID, ok := b.buildARNIndex[id]; ok {
-			lookupID = resolvedID
+		build, ok := b.builds.Get(id)
+		if !ok {
+			if matches := b.buildsByARN.Get(id); len(matches) > 0 {
+				build, ok = matches[0], true
+			}
 		}
 
-		if build, ok := b.builds[lookupID]; ok {
+		if ok {
 			out := *build
 			found = append(found, &out)
 		} else {
@@ -895,7 +871,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	b.mu.Lock("StopBuild")
 	defer b.mu.Unlock()
 
-	build, ok := b.builds[id]
+	build, ok := b.builds.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -915,7 +891,12 @@ func (b *InMemoryBackend) ListBuilds() []string {
 	b.mu.RLock("ListBuilds")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.builds)
+	items := b.builds.Snapshot()
+	ids := make([]string, len(items))
+
+	for i, bd := range items {
+		ids[i] = bd.ID
+	}
 
 	return ids
 }
@@ -928,20 +909,9 @@ func (b *InMemoryBackend) BatchDeleteBuilds(ids []string) []string {
 	deleted := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		build, ok := b.builds[id]
-		if !ok {
-			continue
+		if b.builds.Delete(id) {
+			deleted = append(deleted, id)
 		}
-
-		projectName := build.ProjectName
-		delete(b.buildARNIndex, build.Arn)
-		delete(b.builds, id)
-
-		if projectBuilds, ok2 := b.buildsByProject[projectName]; ok2 {
-			delete(projectBuilds, id)
-		}
-
-		deleted = append(deleted, id)
 	}
 
 	return deleted
@@ -953,13 +923,13 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 	b.mu.Lock("RetryBuild")
 	defer b.mu.Unlock()
 
-	existing, ok := b.builds[id]
+	existing, ok := b.builds.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
 
 	projectName := existing.ProjectName
-	if _, ok2 := b.projects[projectName]; !ok2 {
+	if !b.projects.Has(projectName) {
 		return nil, fmt.Errorf("%w: project %s not found", ErrNotFound, projectName)
 	}
 
@@ -985,14 +955,7 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now},
 		},
 	}
-	b.builds[fullID] = build
-	b.buildARNIndex[build.Arn] = fullID
-
-	if b.buildsByProject[projectName] == nil {
-		b.buildsByProject[projectName] = make(map[string]struct{})
-	}
-
-	b.buildsByProject[projectName][fullID] = struct{}{}
+	b.builds.Put(build)
 
 	out := *build
 
@@ -1004,12 +967,18 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 	b.mu.RLock("ListBuildsForProject")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return nil, ErrNotFound
 	}
 
-	buildSet := b.buildsByProject[projectName]
-	ids := collections.SortedKeys(buildSet)
+	group := b.buildsByProject.Get(projectName)
+	ids := make([]string, len(group))
+
+	for i, bd := range group {
+		ids[i] = bd.ID
+	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }
@@ -1019,32 +988,32 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if name, ok := b.projectARNIndex[resourceARN]; ok {
-		p := b.projects[name]
+	if matches := b.projectsByARN.Get(resourceARN); len(matches) > 0 {
+		p := matches[0]
 		out := make(map[string]string, len(p.Tags))
 		maps.Copy(out, p.Tags)
 
 		return out, nil
 	}
 
-	if id, ok := b.buildARNIndex[resourceARN]; ok {
-		build := b.builds[id]
+	if matches := b.buildsByARN.Get(resourceARN); len(matches) > 0 {
+		build := matches[0]
 		out := make(map[string]string, len(build.Tags))
 		maps.Copy(out, build.Tags)
 
 		return out, nil
 	}
 
-	if name, ok := b.fleetARNIndex[resourceARN]; ok {
-		f := b.fleets[name]
+	if matches := b.fleetsByARN.Get(resourceARN); len(matches) > 0 {
+		f := matches[0]
 		out := make(map[string]string, len(f.Tags))
 		maps.Copy(out, f.Tags)
 
 		return out, nil
 	}
 
-	if name, ok := b.reportGroupARNIndex[resourceARN]; ok {
-		rg := b.reportGroups[name]
+	if matches := b.reportGroupsByARN.Get(resourceARN); len(matches) > 0 {
+		rg := matches[0]
 		out := make(map[string]string, len(rg.Tags))
 		maps.Copy(out, rg.Tags)
 
@@ -1062,8 +1031,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
-	if name, ok := b.projectARNIndex[resourceARN]; ok {
-		p := b.projects[name]
+	if matches := b.projectsByARN.Get(resourceARN); len(matches) > 0 {
+		p := matches[0]
 		if p.Tags == nil {
 			p.Tags = make(map[string]string)
 		}
@@ -1073,8 +1042,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
-	if id, ok := b.buildARNIndex[resourceARN]; ok {
-		build := b.builds[id]
+	if matches := b.buildsByARN.Get(resourceARN); len(matches) > 0 {
+		build := matches[0]
 		if build.Tags == nil {
 			build.Tags = make(map[string]string)
 		}
@@ -1084,8 +1053,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
-	if name, ok := b.fleetARNIndex[resourceARN]; ok {
-		f := b.fleets[name]
+	if matches := b.fleetsByARN.Get(resourceARN); len(matches) > 0 {
+		f := matches[0]
 		if f.Tags == nil {
 			f.Tags = make(map[string]string)
 		}
@@ -1095,8 +1064,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
-	if name, ok := b.reportGroupARNIndex[resourceARN]; ok {
-		rg := b.reportGroups[name]
+	if matches := b.reportGroupsByARN.Get(resourceARN); len(matches) > 0 {
+		rg := matches[0]
 		if rg.Tags == nil {
 			rg.Tags = make(map[string]string)
 		}
@@ -1114,8 +1083,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if name, ok := b.projectARNIndex[resourceARN]; ok {
-		p := b.projects[name]
+	if matches := b.projectsByARN.Get(resourceARN); len(matches) > 0 {
+		p := matches[0]
 		for _, k := range tagKeys {
 			delete(p.Tags, k)
 		}
@@ -1123,8 +1092,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
-	if id, ok := b.buildARNIndex[resourceARN]; ok {
-		build := b.builds[id]
+	if matches := b.buildsByARN.Get(resourceARN); len(matches) > 0 {
+		build := matches[0]
 		for _, k := range tagKeys {
 			delete(build.Tags, k)
 		}
@@ -1132,8 +1101,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
-	if name, ok := b.fleetARNIndex[resourceARN]; ok {
-		f := b.fleets[name]
+	if matches := b.fleetsByARN.Get(resourceARN); len(matches) > 0 {
+		f := matches[0]
 		for _, k := range tagKeys {
 			delete(f.Tags, k)
 		}
@@ -1141,8 +1110,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
-	if name, ok := b.reportGroupARNIndex[resourceARN]; ok {
-		rg := b.reportGroups[name]
+	if matches := b.reportGroupsByARN.Get(resourceARN); len(matches) > 0 {
+		rg := matches[0]
 		for _, k := range tagKeys {
 			delete(rg.Tags, k)
 		}
@@ -1174,7 +1143,7 @@ func (b *InMemoryBackend) CreateFleet(
 	b.mu.Lock("CreateFleet")
 	defer b.mu.Unlock()
 
-	if _, exists := b.fleets[name]; exists {
+	if b.fleets.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1193,8 +1162,7 @@ func (b *InMemoryBackend) CreateFleet(
 		Created:         now,
 		LastModified:    now,
 	}
-	b.fleets[name] = f
-	b.fleetARNIndex[f.Arn] = name
+	b.fleets.Put(f)
 
 	out := *f
 
@@ -1210,12 +1178,14 @@ func (b *InMemoryBackend) BatchGetFleets(names []string) ([]*Fleet, []string) {
 	notFound := make([]string, 0, len(names))
 
 	for _, nameOrARN := range names {
-		name := nameOrARN
-		if n, ok := b.fleetARNIndex[nameOrARN]; ok {
-			name = n
+		f, ok := b.fleets.Get(nameOrARN)
+		if !ok {
+			if matches := b.fleetsByARN.Get(nameOrARN); len(matches) > 0 {
+				f, ok = matches[0], true
+			}
 		}
 
-		if f, ok := b.fleets[name]; ok {
+		if ok {
 			out := *f
 			found = append(found, &out)
 		} else {
@@ -1235,7 +1205,7 @@ func (b *InMemoryBackend) CreateReportGroup(
 	b.mu.Lock("CreateReportGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.reportGroups[name]; exists {
+	if b.reportGroups.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1253,8 +1223,7 @@ func (b *InMemoryBackend) CreateReportGroup(
 		Created:      now,
 		LastModified: now,
 	}
-	b.reportGroups[name] = rg
-	b.reportGroupARNIndex[rg.Arn] = name
+	b.reportGroups.Put(rg)
 
 	out := *rg
 
@@ -1270,17 +1239,19 @@ func (b *InMemoryBackend) BatchGetReportGroups(arns []string) ([]*ReportGroup, [
 	notFound := make([]string, 0, len(arns))
 
 	for _, a := range arns {
-		name, ok := b.reportGroupARNIndex[a]
-		if !ok {
+		var (
+			rg *ReportGroup
+			ok bool
+		)
+
+		if matches := b.reportGroupsByARN.Get(a); len(matches) > 0 {
+			rg, ok = matches[0], true
+		} else if v, found2 := b.reportGroups.Get(a); found2 {
 			// also try by name for convenience
-			if _, foundByName := b.reportGroups[a]; foundByName {
-				name = a
-				ok = true
-			}
+			rg, ok = v, true
 		}
 
 		if ok {
-			rg := b.reportGroups[name]
 			out := *rg
 			found = append(found, &out)
 		} else {
@@ -1298,13 +1269,7 @@ func (b *InMemoryBackend) AddReportInternal(r *Report) {
 	b.mu.Lock("AddReportInternal")
 	defer b.mu.Unlock()
 
-	b.reports[r.Arn] = r
-	if r.ReportGroupArn != "" {
-		if b.reportsByGroup[r.ReportGroupArn] == nil {
-			b.reportsByGroup[r.ReportGroupArn] = make(map[string]struct{})
-		}
-		b.reportsByGroup[r.ReportGroupArn][r.Arn] = struct{}{}
-	}
+	b.reports.Put(r)
 }
 
 // BatchGetReports returns reports by ARN. Missing ARNs are returned separately.
@@ -1316,7 +1281,7 @@ func (b *InMemoryBackend) BatchGetReports(arns []string) ([]*Report, []string) {
 	notFound := make([]string, 0, len(arns))
 
 	for _, a := range arns {
-		if r, ok := b.reports[a]; ok {
+		if r, ok := b.reports.Get(a); ok {
 			out := *r
 			found = append(found, &out)
 		} else {
@@ -1334,7 +1299,7 @@ func (b *InMemoryBackend) AddBuildBatchInternal(bb *BuildBatch) {
 	b.mu.Lock("AddBuildBatchInternal")
 	defer b.mu.Unlock()
 
-	b.buildBatches[bb.ID] = bb
+	b.buildBatches.Put(bb)
 }
 
 // BatchGetBuildBatches returns build batches by ID. Missing IDs are returned separately.
@@ -1346,7 +1311,7 @@ func (b *InMemoryBackend) BatchGetBuildBatches(ids []string) ([]*BuildBatch, []s
 	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		if bb, ok := b.buildBatches[id]; ok {
+		if bb, ok := b.buildBatches.Get(id); ok {
 			out := *bb
 			found = append(found, &out)
 		} else {
@@ -1364,7 +1329,7 @@ func (b *InMemoryBackend) AddCommandExecutionInternal(ce *CommandExecution) {
 	b.mu.Lock("AddCommandExecutionInternal")
 	defer b.mu.Unlock()
 
-	b.commandExecutions[ce.ID] = ce
+	b.commandExecutions.Put(ce)
 }
 
 // BatchGetCommandExecutions returns command executions by ID within a sandbox.
@@ -1377,7 +1342,7 @@ func (b *InMemoryBackend) BatchGetCommandExecutions(sandboxID string, ids []stri
 	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		ce, ok := b.commandExecutions[id]
+		ce, ok := b.commandExecutions.Get(id)
 		if ok && ce.SandboxID == sandboxID {
 			out := *ce
 			found = append(found, &out)
@@ -1396,7 +1361,7 @@ func (b *InMemoryBackend) AddSandboxInternal(s *Sandbox) {
 	b.mu.Lock("AddSandboxInternal")
 	defer b.mu.Unlock()
 
-	b.sandboxes[s.ID] = s
+	b.sandboxes.Put(s)
 }
 
 // BatchGetSandboxes returns sandboxes by ID or ARN. Missing IDs are returned separately.
@@ -1408,7 +1373,7 @@ func (b *InMemoryBackend) BatchGetSandboxes(ids []string) ([]*Sandbox, []string)
 	notFound := make([]string, 0, len(ids))
 
 	for _, id := range ids {
-		if s, ok := b.sandboxes[id]; ok {
+		if s, ok := b.sandboxes.Get(id); ok {
 			out := *s
 			found = append(found, &out)
 		} else {
@@ -1424,7 +1389,12 @@ func (b *InMemoryBackend) ListBuildBatches() []string {
 	b.mu.RLock("ListBuildBatches")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.buildBatches)
+	items := b.buildBatches.Snapshot()
+	ids := make([]string, len(items))
+
+	for i, bb := range items {
+		ids[i] = bb.ID
+	}
 
 	return ids
 }
@@ -1434,8 +1404,10 @@ func (b *InMemoryBackend) ListFleets() []string {
 	b.mu.RLock("ListFleets")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.fleets))
-	for _, f := range b.fleets {
+	items := b.fleets.All()
+	arns := make([]string, 0, len(items))
+
+	for _, f := range items {
 		arns = append(arns, f.Arn)
 	}
 
@@ -1449,8 +1421,10 @@ func (b *InMemoryBackend) ListReportGroups() []string {
 	b.mu.RLock("ListReportGroups")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.reportGroups))
-	for _, rg := range b.reportGroups {
+	items := b.reportGroups.All()
+	arns := make([]string, 0, len(items))
+
+	for _, rg := range items {
 		arns = append(arns, rg.Arn)
 	}
 
@@ -1464,7 +1438,12 @@ func (b *InMemoryBackend) ListSandboxes() []string {
 	b.mu.RLock("ListSandboxes")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.sandboxes)
+	items := b.sandboxes.Snapshot()
+	ids := make([]string, len(items))
+
+	for i, s := range items {
+		ids[i] = s.ID
+	}
 
 	return ids
 }
@@ -1474,7 +1453,7 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, erro
 	b.mu.Lock("StartBuildBatch")
 	defer b.mu.Unlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return nil, ErrNotFound
 	}
 
@@ -1487,13 +1466,7 @@ func (b *InMemoryBackend) StartBuildBatch(projectName string) (*BuildBatch, erro
 		BuildBatchStatus: buildStatusInProgress,
 		StartTime:        float64(time.Now().Unix()),
 	}
-	b.buildBatches[id] = bb
-	b.batchARNIndex[bb.Arn] = id
-
-	if b.batchesByProject[projectName] == nil {
-		b.batchesByProject[projectName] = make(map[string]struct{})
-	}
-	b.batchesByProject[projectName][id] = struct{}{}
+	b.buildBatches.Put(bb)
 
 	out := *bb
 
@@ -1505,7 +1478,7 @@ func (b *InMemoryBackend) StartCommandExecution(sandboxID, command, execType str
 	b.mu.Lock("StartCommandExecution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sandboxes[sandboxID]; !ok {
+	if !b.sandboxes.Has(sandboxID) {
 		return nil, ErrNotFound
 	}
 
@@ -1520,12 +1493,7 @@ func (b *InMemoryBackend) StartCommandExecution(sandboxID, command, execType str
 		StartTime: now,
 		EndTime:   now,
 	}
-	b.commandExecutions[id] = ce
-
-	if b.commandsBySandbox[sandboxID] == nil {
-		b.commandsBySandbox[sandboxID] = make(map[string]struct{})
-	}
-	b.commandsBySandbox[sandboxID][id] = struct{}{}
+	b.commandExecutions.Put(ce)
 
 	out := *ce
 
@@ -1537,7 +1505,7 @@ func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
 	b.mu.Lock("StartSandbox")
 	defer b.mu.Unlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return nil, ErrNotFound
 	}
 
@@ -1550,12 +1518,7 @@ func (b *InMemoryBackend) StartSandbox(projectName string) (*Sandbox, error) {
 		Status:      "READY",
 		StartTime:   float64(time.Now().Unix()),
 	}
-	b.sandboxes[id] = sb
-
-	if b.sandboxesByProject[projectName] == nil {
-		b.sandboxesByProject[projectName] = make(map[string]struct{})
-	}
-	b.sandboxesByProject[projectName][id] = struct{}{}
+	b.sandboxes.Put(sb)
 
 	out := *sb
 
@@ -1573,11 +1536,11 @@ func (b *InMemoryBackend) ImportSourceCredentials(authType, serverType, token st
 
 	_ = token
 	arnStr := "arn:aws:codebuild:" + b.region + ":" + b.accountID + ":token/" + serverType
-	b.sourceCredentials[arnStr] = &SourceCredentials{
+	b.sourceCredentials.Put(&SourceCredentials{
 		Arn:        arnStr,
 		ServerType: serverType,
 		AuthType:   authType,
-	}
+	})
 
 	return arnStr, nil
 }
@@ -1587,11 +1550,9 @@ func (b *InMemoryBackend) DeleteSourceCredentials(arnStr string) error {
 	b.mu.Lock("DeleteSourceCredentials")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sourceCredentials[arnStr]; !ok {
+	if !b.sourceCredentials.Delete(arnStr) {
 		return ErrNotFound
 	}
-
-	delete(b.sourceCredentials, arnStr)
 
 	return nil
 }
@@ -1601,8 +1562,10 @@ func (b *InMemoryBackend) ListSourceCredentials() []*SourceCredentials {
 	b.mu.RLock("ListSourceCredentials")
 	defer b.mu.RUnlock()
 
-	result := make([]*SourceCredentials, 0, len(b.sourceCredentials))
-	for _, sc := range b.sourceCredentials {
+	items := b.sourceCredentials.All()
+	result := make([]*SourceCredentials, 0, len(items))
+
+	for _, sc := range items {
 		out := *sc
 		result = append(result, &out)
 	}
@@ -1651,18 +1614,9 @@ func (b *InMemoryBackend) DeleteReport(arnStr string) error {
 	b.mu.Lock("DeleteReport")
 	defer b.mu.Unlock()
 
-	r, ok := b.reports[arnStr]
-	if !ok {
+	if !b.reports.Delete(arnStr) {
 		return ErrNotFound
 	}
-
-	if r.ReportGroupArn != "" {
-		if set, ok2 := b.reportsByGroup[r.ReportGroupArn]; ok2 {
-			delete(set, arnStr)
-		}
-	}
-
-	delete(b.reports, arnStr)
 
 	return nil
 }
@@ -1672,7 +1626,12 @@ func (b *InMemoryBackend) ListReports() []string {
 	b.mu.RLock("ListReports")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.reports)
+	items := b.reports.Snapshot()
+	arns := make([]string, len(items))
+
+	for i, r := range items {
+		arns[i] = r.Arn
+	}
 
 	return arns
 }
@@ -1682,8 +1641,14 @@ func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn string) []str
 	b.mu.RLock("ListReportsForReportGroup")
 	defer b.mu.RUnlock()
 
-	set := b.reportsByGroup[reportGroupArn]
-	arns := collections.SortedKeys(set)
+	group := b.reportsByGroup.Get(reportGroupArn)
+	arns := make([]string, len(group))
+
+	for i, r := range group {
+		arns[i] = r.Arn
+	}
+
+	sort.Strings(arns)
 
 	return arns
 }
@@ -1695,13 +1660,12 @@ func (b *InMemoryBackend) DeleteReportGroup(arnStr string) error {
 	b.mu.Lock("DeleteReportGroup")
 	defer b.mu.Unlock()
 
-	name, ok := b.reportGroupARNIndex[arnStr]
-	if !ok {
+	matches := b.reportGroupsByARN.Get(arnStr)
+	if len(matches) == 0 {
 		return ErrNotFound
 	}
 
-	delete(b.reportGroups, name)
-	delete(b.reportGroupARNIndex, arnStr)
+	b.reportGroups.Delete(matches[0].Name)
 
 	return nil
 }
@@ -1711,12 +1675,12 @@ func (b *InMemoryBackend) UpdateReportGroup(arnStr string, exportConfig *ReportE
 	b.mu.Lock("UpdateReportGroup")
 	defer b.mu.Unlock()
 
-	name, ok := b.reportGroupARNIndex[arnStr]
-	if !ok {
+	matches := b.reportGroupsByARN.Get(arnStr)
+	if len(matches) == 0 {
 		return nil, ErrNotFound
 	}
 
-	rg := b.reportGroups[name]
+	rg := matches[0]
 	if exportConfig != nil {
 		rg.ExportConfig = *exportConfig
 	}
@@ -1734,11 +1698,9 @@ func (b *InMemoryBackend) DeleteWebhook(projectName string) error {
 	b.mu.Lock("DeleteWebhook")
 	defer b.mu.Unlock()
 
-	if _, ok := b.webhooks[projectName]; !ok {
+	if !b.webhooks.Delete(projectName) {
 		return ErrNotFound
 	}
-
-	delete(b.webhooks, projectName)
 
 	return nil
 }
@@ -1750,7 +1712,7 @@ func (b *InMemoryBackend) UpdateWebhook(
 	b.mu.Lock("UpdateWebhook")
 	defer b.mu.Unlock()
 
-	w, ok := b.webhooks[projectName]
+	w, ok := b.webhooks.Get(projectName)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1774,24 +1736,18 @@ func (b *InMemoryBackend) DeleteFleet(arnStr string) error {
 	b.mu.Lock("DeleteFleet")
 	defer b.mu.Unlock()
 
-	name, ok := b.fleetARNIndex[arnStr]
-	if !ok {
-		// also try by name for convenience
-		if _, okName := b.fleets[arnStr]; okName {
-			name = arnStr
-			ok = true
-		}
+	if matches := b.fleetsByARN.Get(arnStr); len(matches) > 0 {
+		b.fleets.Delete(matches[0].Name)
+
+		return nil
 	}
 
-	if !ok {
-		return ErrNotFound
+	// also try by name for convenience
+	if b.fleets.Delete(arnStr) {
+		return nil
 	}
 
-	f := b.fleets[name]
-	delete(b.fleetARNIndex, f.Arn)
-	delete(b.fleets, name)
-
-	return nil
+	return ErrNotFound
 }
 
 // DeleteBuildBatch removes a build batch by ID.
@@ -1799,17 +1755,9 @@ func (b *InMemoryBackend) DeleteBuildBatch(id string) error {
 	b.mu.Lock("DeleteBuildBatch")
 	defer b.mu.Unlock()
 
-	bb, ok := b.buildBatches[id]
-	if !ok {
+	if !b.buildBatches.Delete(id) {
 		return ErrNotFound
 	}
-
-	if set, ok2 := b.batchesByProject[bb.ProjectName]; ok2 {
-		delete(set, id)
-	}
-
-	delete(b.batchARNIndex, bb.Arn)
-	delete(b.buildBatches, id)
 
 	return nil
 }
@@ -1819,12 +1767,12 @@ func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32) (*Fleet
 	b.mu.Lock("UpdateFleet")
 	defer b.mu.Unlock()
 
-	name, ok := b.fleetARNIndex[arnStr]
-	if !ok {
+	matches := b.fleetsByARN.Get(arnStr)
+	if len(matches) == 0 {
 		return nil, ErrNotFound
 	}
 
-	f := b.fleets[name]
+	f := matches[0]
 	f.BaseCapacity = baseCapacity
 	f.LastModified = float64(time.Now().Unix())
 	out := *f
@@ -1839,7 +1787,7 @@ func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
 	b.mu.Lock("RetryBuildBatch")
 	defer b.mu.Unlock()
 
-	existing, ok := b.buildBatches[id]
+	existing, ok := b.buildBatches.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1854,13 +1802,7 @@ func (b *InMemoryBackend) RetryBuildBatch(id string) (*BuildBatch, error) {
 		BuildBatchStatus: buildStatusInProgress,
 		StartTime:        float64(time.Now().Unix()),
 	}
-	b.buildBatches[newID] = bb
-	b.batchARNIndex[bb.Arn] = newID
-
-	if b.batchesByProject[projectName] == nil {
-		b.batchesByProject[projectName] = make(map[string]struct{})
-	}
-	b.batchesByProject[projectName][newID] = struct{}{}
+	b.buildBatches.Put(bb)
 
 	out := *bb
 
@@ -1872,7 +1814,7 @@ func (b *InMemoryBackend) StopBuildBatch(id string) (*BuildBatch, error) {
 	b.mu.Lock("StopBuildBatch")
 	defer b.mu.Unlock()
 
-	bb, ok := b.buildBatches[id]
+	bb, ok := b.buildBatches.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1889,12 +1831,18 @@ func (b *InMemoryBackend) ListBuildBatchesForProject(projectName string) ([]stri
 	b.mu.RLock("ListBuildBatchesForProject")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return nil, ErrNotFound
 	}
 
-	set := b.batchesByProject[projectName]
-	ids := collections.SortedKeys(set)
+	group := b.buildBatchesByProject.Get(projectName)
+	ids := make([]string, len(group))
+
+	for i, bb := range group {
+		ids[i] = bb.ID
+	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }
@@ -1906,7 +1854,7 @@ func (b *InMemoryBackend) StopSandbox(id string) (*Sandbox, error) {
 	b.mu.Lock("StopSandbox")
 	defer b.mu.Unlock()
 
-	sb, ok := b.sandboxes[id]
+	sb, ok := b.sandboxes.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1923,12 +1871,18 @@ func (b *InMemoryBackend) ListSandboxesForProject(projectName string) ([]string,
 	b.mu.RLock("ListSandboxesForProject")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return nil, ErrNotFound
 	}
 
-	set := b.sandboxesByProject[projectName]
-	ids := collections.SortedKeys(set)
+	group := b.sandboxesByProject.Get(projectName)
+	ids := make([]string, len(group))
+
+	for i, s := range group {
+		ids[i] = s.ID
+	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }
@@ -1941,20 +1895,19 @@ func (b *InMemoryBackend) ListCommandExecutionsForSandbox(sandboxID string) ([]*
 	b.mu.RLock("ListCommandExecutionsForSandbox")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.sandboxes[sandboxID]; !ok {
+	if !b.sandboxes.Has(sandboxID) {
 		return nil, ErrNotFound
 	}
 
-	set := b.commandsBySandbox[sandboxID]
-	ids := collections.SortedKeys(set)
-	out := make([]*CommandExecution, 0, len(ids))
+	group := b.commandExecutionsBySandbox.Get(sandboxID)
+	out := make([]*CommandExecution, len(group))
 
-	for _, id := range ids {
-		if ce, ok := b.commandExecutions[id]; ok {
-			cp := *ce
-			out = append(out, &cp)
-		}
+	for i, ce := range group {
+		cp := *ce
+		out[i] = &cp
 	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 
 	return out, nil
 }
@@ -1967,12 +1920,12 @@ func (b *InMemoryBackend) UpdateProjectVisibility(projectArn, visibility string)
 	b.mu.Lock("UpdateProjectVisibility")
 	defer b.mu.Unlock()
 
-	name, ok := b.projectARNIndex[projectArn]
-	if !ok {
+	matches := b.projectsByARN.Get(projectArn)
+	if len(matches) == 0 {
 		return "", ErrNotFound
 	}
 
-	p := b.projects[name]
+	p := matches[0]
 	p.Visibility = visibility
 
 	if visibility == "PUBLIC_READ" {
@@ -1991,7 +1944,7 @@ func (b *InMemoryBackend) InvalidateProjectCache(projectName string) error {
 	b.mu.RLock("InvalidateProjectCache")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return ErrNotFound
 	}
 
@@ -2051,11 +2004,11 @@ func (b *InMemoryBackend) CreateWebhook(
 	b.mu.Lock("CreateWebhook")
 	defer b.mu.Unlock()
 
-	if _, ok := b.projects[projectName]; !ok {
+	if !b.projects.Has(projectName) {
 		return nil, ErrNotFound
 	}
 
-	if _, exists := b.webhooks[projectName]; exists {
+	if b.webhooks.Has(projectName) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -2067,7 +2020,7 @@ func (b *InMemoryBackend) CreateWebhook(
 		BuildType:    buildType,
 		FilterGroups: filterGroups,
 	}
-	b.webhooks[projectName] = w
+	b.webhooks.Put(w)
 
 	out := *w
 
