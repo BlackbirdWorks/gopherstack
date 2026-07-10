@@ -1,9 +1,9 @@
 package datasync
 
 import (
-	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,7 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -303,39 +303,45 @@ func (e *storedTaskExecution) toTaskExecution() TaskExecution {
 	}
 }
 
-// snapshot holds serializable backend state.
-type snapshot struct {
-	Agents     map[string]*storedAgent                    `json:"agents"`
-	Locations  map[string]*storedLocation                 `json:"locations"`
-	Tasks      map[string]*storedTask                     `json:"tasks"`
-	Executions map[string]map[string]*storedTaskExecution `json:"executions"` // taskArn → executionArn → execution
-	Tags       map[string]map[string]string               `json:"tags"`
-}
-
-// InMemoryBackend implements StorageBackend using in-memory maps.
+// InMemoryBackend implements StorageBackend using pkgs/store tables.
+//
+// agents, locations, and tasks are flat ARN-keyed resources with globally
+// unique identity, so each is registered directly on b.registry (see
+// store_setup.go). executions is likewise keyed by its own globally-unique
+// TaskExecutionArn (which embeds the owning TaskArn), so it too is a direct
+// registration; the former taskArn → executionArn → execution nesting is
+// replaced by the executionsByTask secondary index, additively derived from
+// TaskExecutionArn via extractTaskArnFromExecution. tags is left as a raw map
+// because its values are plain string maps, not *T.
 type InMemoryBackend struct {
-	mu         *lockmetrics.RWMutex
-	agents     map[string]*storedAgent                    // agentArn → agent
-	locations  map[string]*storedLocation                 // locationArn → location
-	tasks      map[string]*storedTask                     // taskArn → task
-	executions map[string]map[string]*storedTaskExecution // taskArn → executionArn → execution
-	tags       map[string]map[string]string               // resourceArn → tags
-	accountID  string
-	region     string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	agents    *store.Table[storedAgent]    // keyed by AgentArn
+	locations *store.Table[storedLocation] // keyed by LocationArn
+	tasks     *store.Table[storedTask]     // keyed by TaskArn
+
+	executions       *store.Table[storedTaskExecution] // keyed by TaskExecutionArn
+	executionsByTask *store.Index[storedTaskExecution] // grouped by parent TaskArn
+
+	tags map[string]map[string]string // resourceArn → tags
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:         lockmetrics.New("datasync"),
-		accountID:  accountID,
-		region:     region,
-		agents:     make(map[string]*storedAgent),
-		locations:  make(map[string]*storedLocation),
-		tasks:      make(map[string]*storedTask),
-		executions: make(map[string]map[string]*storedTaskExecution),
-		tags:       make(map[string]map[string]string),
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("datasync"),
+		registry:  store.NewRegistry(),
+		accountID: accountID,
+		region:    region,
+		tags:      make(map[string]map[string]string),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) agentARN(id string) string {
@@ -365,7 +371,7 @@ func newID() string {
 }
 
 func (b *InMemoryBackend) storeLocation(l *storedLocation) Location {
-	b.locations[l.LocationArn] = l
+	b.locations.Put(l)
 
 	if len(l.Tags) > 0 {
 		b.tags[l.LocationArn] = make(map[string]string)
@@ -397,7 +403,7 @@ func (b *InMemoryBackend) CreateAgent(name, _ string, tags map[string]string) (*
 		CreationTime: now,
 		Tags:         agentTags,
 	}
-	b.agents[agentArn] = a
+	b.agents.Put(a)
 
 	if len(agentTags) > 0 {
 		b.tags[agentArn] = make(map[string]string)
@@ -414,7 +420,7 @@ func (b *InMemoryBackend) DescribeAgent(agentArn string) (*Agent, error) {
 	b.mu.RLock("DescribeAgent")
 	defer b.mu.RUnlock()
 
-	a, ok := b.agents[agentArn]
+	a, ok := b.agents.Get(agentArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -429,7 +435,7 @@ func (b *InMemoryBackend) UpdateAgent(agentArn, name string) error {
 	b.mu.Lock("UpdateAgent")
 	defer b.mu.Unlock()
 
-	a, ok := b.agents[agentArn]
+	a, ok := b.agents.Get(agentArn)
 	if !ok {
 		return ErrNotFound
 	}
@@ -444,11 +450,11 @@ func (b *InMemoryBackend) DeleteAgent(agentArn string) error {
 	b.mu.Lock("DeleteAgent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentArn]; !ok {
+	if !b.agents.Has(agentArn) {
 		return ErrNotFound
 	}
 
-	delete(b.agents, agentArn)
+	b.agents.Delete(agentArn)
 	delete(b.tags, agentArn)
 
 	return nil
@@ -459,11 +465,10 @@ func (b *InMemoryBackend) ListAgents(maxResults int32, nextToken string) ([]*Age
 	b.mu.RLock("ListAgents")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.agents)
+	sorted := b.agents.Snapshot()
 
-	all := make([]*AgentListEntry, 0, len(arns))
-	for _, a := range arns {
-		ag := b.agents[a]
+	all := make([]*AgentListEntry, 0, len(sorted))
+	for _, ag := range sorted {
 		all = append(all, &AgentListEntry{
 			AgentArn: ag.AgentArn,
 			Name:     ag.Name,
@@ -511,7 +516,7 @@ func (b *InMemoryBackend) CreateLocationS3(
 		CreationTime:   now,
 		Tags:           locationTags,
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -528,7 +533,7 @@ func (b *InMemoryBackend) DescribeLocationS3(locationArn string) (*LocationS3, e
 	b.mu.RLock("DescribeLocationS3")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -547,11 +552,11 @@ func (b *InMemoryBackend) DeleteLocation(locationArn string) error {
 	b.mu.Lock("DeleteLocation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.locations[locationArn]; !ok {
+	if !b.locations.Has(locationArn) {
 		return ErrNotFound
 	}
 
-	delete(b.locations, locationArn)
+	b.locations.Delete(locationArn)
 	delete(b.tags, locationArn)
 
 	return nil
@@ -562,11 +567,10 @@ func (b *InMemoryBackend) ListLocations(maxResults int32, nextToken string) ([]*
 	b.mu.RLock("ListLocations")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.locations)
+	sorted := b.locations.Snapshot()
 
-	all := make([]*LocationListEntry, 0, len(arns))
-	for _, a := range arns {
-		l := b.locations[a]
+	all := make([]*LocationListEntry, 0, len(sorted))
+	for _, l := range sorted {
 		all = append(all, &LocationListEntry{
 			LocationArn:  l.LocationArn,
 			LocationURI:  l.LocationURI,
@@ -588,11 +592,11 @@ func (b *InMemoryBackend) CreateTask(
 	b.mu.Lock("CreateTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.locations[sourceLocationArn]; !ok {
+	if !b.locations.Has(sourceLocationArn) {
 		return nil, fmt.Errorf("source location %s not found: %w", sourceLocationArn, ErrInvalidParameter)
 	}
 
-	if _, ok := b.locations[destinationLocationArn]; !ok {
+	if !b.locations.Has(destinationLocationArn) {
 		return nil, fmt.Errorf("destination location %s not found: %w", destinationLocationArn, ErrInvalidParameter)
 	}
 
@@ -613,7 +617,7 @@ func (b *InMemoryBackend) CreateTask(
 		CreationTime:           now,
 		Tags:                   taskTags,
 	}
-	b.tasks[taskArn] = t
+	b.tasks.Put(t)
 
 	if len(taskTags) > 0 {
 		b.tags[taskArn] = make(map[string]string)
@@ -630,7 +634,7 @@ func (b *InMemoryBackend) DescribeTask(taskArn string) (*Task, error) {
 	b.mu.RLock("DescribeTask")
 	defer b.mu.RUnlock()
 
-	t, ok := b.tasks[taskArn]
+	t, ok := b.tasks.Get(taskArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -645,7 +649,7 @@ func (b *InMemoryBackend) UpdateTask(taskArn, name, cloudWatchLogGroupArn string
 	b.mu.Lock("UpdateTask")
 	defer b.mu.Unlock()
 
-	t, ok := b.tasks[taskArn]
+	t, ok := b.tasks.Get(taskArn)
 	if !ok {
 		return ErrNotFound
 	}
@@ -664,12 +668,17 @@ func (b *InMemoryBackend) DeleteTask(taskArn string) error {
 	b.mu.Lock("DeleteTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tasks[taskArn]; !ok {
+	if !b.tasks.Has(taskArn) {
 		return ErrNotFound
 	}
 
-	delete(b.tasks, taskArn)
-	delete(b.executions, taskArn)
+	b.tasks.Delete(taskArn)
+
+	execs := slices.Clone(b.executionsByTask.Get(taskArn))
+	for _, e := range execs {
+		b.executions.Delete(e.TaskExecutionArn)
+	}
+
 	delete(b.tags, taskArn)
 
 	return nil
@@ -680,11 +689,10 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	b.mu.RLock("ListTasks")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.tasks)
+	sorted := b.tasks.Snapshot()
 
-	all := make([]*TaskListEntry, 0, len(arns))
-	for _, a := range arns {
-		t := b.tasks[a]
+	all := make([]*TaskListEntry, 0, len(sorted))
+	for _, t := range sorted {
 		all = append(all, &TaskListEntry{
 			TaskArn: t.TaskArn,
 			Name:    t.Name,
@@ -703,7 +711,7 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 	b.mu.Lock("StartTaskExecution")
 	defer b.mu.Unlock()
 
-	t, ok := b.tasks[taskArn]
+	t, ok := b.tasks.Get(taskArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -718,11 +726,7 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 		StartTime:        now,
 	}
 
-	if b.executions[taskArn] == nil {
-		b.executions[taskArn] = make(map[string]*storedTaskExecution)
-	}
-
-	b.executions[taskArn][execArn] = e
+	b.executions.Put(e)
 	t.CurrentTaskExecutionArn = execArn
 
 	cp := e.toTaskExecution()
@@ -740,18 +744,14 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 		return ErrNotFound
 	}
 
-	execMap, ok := b.executions[taskArn]
+	e, ok := b.executions.Get(taskExecutionArn)
 	if !ok {
 		return ErrNotFound
 	}
 
-	if _, ok = execMap[taskExecutionArn]; !ok {
-		return ErrNotFound
-	}
+	e.Status = "CANCELLED"
 
-	execMap[taskExecutionArn].Status = "CANCELLED"
-
-	if t, found := b.tasks[taskArn]; found && t.CurrentTaskExecutionArn == taskExecutionArn {
+	if t, found := b.tasks.Get(taskArn); found && t.CurrentTaskExecutionArn == taskExecutionArn {
 		t.CurrentTaskExecutionArn = ""
 	}
 
@@ -769,12 +769,7 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 		return nil, ErrNotFound
 	}
 
-	execMap, ok := b.executions[taskArn]
-	if !ok {
-		return nil, ErrNotFound
-	}
-
-	e, ok := execMap[taskExecutionArn]
+	e, ok := b.executions.Get(taskExecutionArn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -798,17 +793,18 @@ func (b *InMemoryBackend) ListTaskExecutions(
 	defer b.mu.RUnlock()
 
 	if taskArn != "" {
-		if _, ok := b.tasks[taskArn]; !ok {
+		if !b.tasks.Has(taskArn) {
 			return nil, "", ErrNotFound
 		}
 	}
 
-	execMap := b.executions[taskArn]
-	execArns := collections.SortedKeys(execMap)
+	execs := slices.Clone(b.executionsByTask.Get(taskArn))
+	slices.SortFunc(execs, func(a, b *storedTaskExecution) int {
+		return strings.Compare(a.TaskExecutionArn, b.TaskExecutionArn)
+	})
 
-	all := make([]*TaskExecutionListEntry, 0, len(execArns))
-	for _, a := range execArns {
-		e := execMap[a]
+	all := make([]*TaskExecutionListEntry, 0, len(execs))
+	for _, e := range execs {
 		all = append(all, &TaskExecutionListEntry{
 			TaskExecutionArn: e.TaskExecutionArn,
 			Status:           e.Status,
@@ -835,7 +831,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	}
 	maps.Copy(b.tags[resourceArn], tags)
 
-	if a, ok := b.agents[resourceArn]; ok {
+	if a, ok := b.agents.Get(resourceArn); ok {
 		if a.Tags == nil {
 			a.Tags = make(map[string]string)
 		}
@@ -858,7 +854,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 		delete(b.tags[resourceArn], k)
 	}
 
-	if a, ok := b.agents[resourceArn]; ok {
+	if a, ok := b.agents.Get(resourceArn); ok {
 		for _, k := range keys {
 			delete(a.Tags, k)
 		}
@@ -908,19 +904,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 // isKnownResource returns true if the ARN corresponds to a known agent, location, or task.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) isKnownResource(a string) bool {
-	if _, ok := b.agents[a]; ok {
-		return true
-	}
-
-	if _, ok := b.locations[a]; ok {
-		return true
-	}
-
-	if _, ok := b.tasks[a]; ok {
-		return true
-	}
-
-	return false
+	return b.agents.Has(a) || b.locations.Has(a) || b.tasks.Has(a)
 }
 
 // AccountID returns the account ID.
@@ -934,68 +918,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.agents = make(map[string]*storedAgent)
-	b.locations = make(map[string]*storedLocation)
-	b.tasks = make(map[string]*storedTask)
-	b.executions = make(map[string]map[string]*storedTaskExecution)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-}
-
-// Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "datasync", snapshot{
-		Agents:     b.agents,
-		Locations:  b.locations,
-		Tasks:      b.tasks,
-		Executions: b.executions,
-		Tags:       b.tags,
-	})
-}
-
-// Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	var snap snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "datasync", data, &snap); err != nil {
-		return err
-	}
-
-	if snap.Agents != nil {
-		b.agents = snap.Agents
-	} else {
-		b.agents = make(map[string]*storedAgent)
-	}
-
-	if snap.Locations != nil {
-		b.locations = snap.Locations
-	} else {
-		b.locations = make(map[string]*storedLocation)
-	}
-
-	if snap.Tasks != nil {
-		b.tasks = snap.Tasks
-	} else {
-		b.tasks = make(map[string]*storedTask)
-	}
-
-	if snap.Executions != nil {
-		b.executions = snap.Executions
-	} else {
-		b.executions = make(map[string]map[string]*storedTaskExecution)
-	}
-
-	if snap.Tags != nil {
-		b.tags = snap.Tags
-	} else {
-		b.tags = make(map[string]map[string]string)
-	}
-
-	return nil
 }
 
 // UpdateLocationS3 updates an S3 location's subdirectory, storage class, and S3 config.
@@ -1003,7 +927,7 @@ func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageC
 	b.mu.Lock("UpdateLocationS3")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != "S3" {
 		return ErrNotFound
 	}
@@ -1031,12 +955,7 @@ func (b *InMemoryBackend) UpdateTaskExecution(taskExecutionArn string, options m
 		return ErrNotFound
 	}
 
-	execMap, ok := b.executions[taskArn]
-	if !ok {
-		return ErrNotFound
-	}
-
-	exec, ok := execMap[taskExecutionArn]
+	exec, ok := b.executions.Get(taskExecutionArn)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1104,7 +1023,7 @@ func (b *InMemoryBackend) CreateLocationAzureBlob(
 		Tags:         locationTags,
 		AzureBlob:    cfg,
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -1120,7 +1039,7 @@ func (b *InMemoryBackend) DescribeLocationAzureBlob(locationArn string) (*Locati
 	b.mu.RLock("DescribeLocationAzureBlob")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeAzureBlob {
 		return nil, ErrNotFound
 	}
@@ -1154,7 +1073,7 @@ func (b *InMemoryBackend) UpdateLocationAzureBlob(
 	b.mu.Lock("UpdateLocationAzureBlob")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeAzureBlob {
 		return ErrNotFound
 	}
@@ -1237,7 +1156,7 @@ func (b *InMemoryBackend) CreateLocationEfs(
 		Tags:         locationTags,
 		Efs:          cfg,
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -1253,7 +1172,7 @@ func (b *InMemoryBackend) DescribeLocationEfs(locationArn string) (*LocationEfs,
 	b.mu.RLock("DescribeLocationEfs")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeEFS {
 		return nil, ErrNotFound
 	}
@@ -1289,7 +1208,7 @@ func (b *InMemoryBackend) UpdateLocationEfs(
 	b.mu.Lock("UpdateLocationEfs")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeEFS {
 		return ErrNotFound
 	}
@@ -1363,7 +1282,7 @@ func (b *InMemoryBackend) CreateLocationFsxLustre(
 			SecurityGroupArns: securityGroupArns,
 		},
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -1379,7 +1298,7 @@ func (b *InMemoryBackend) DescribeLocationFsxLustre(locationArn string) (*Locati
 	b.mu.RLock("DescribeLocationFsxLustre")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxLustre {
 		return nil, ErrNotFound
 	}
@@ -1403,7 +1322,7 @@ func (b *InMemoryBackend) UpdateLocationFsxLustre(locationArn, subdirectory stri
 	b.mu.Lock("UpdateLocationFsxLustre")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxLustre {
 		return ErrNotFound
 	}
@@ -1522,7 +1441,7 @@ func (b *InMemoryBackend) DescribeLocationFsxOntap(locationArn string) (*Locatio
 	b.mu.RLock("DescribeLocationFsxOntap")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxOntap {
 		return nil, ErrNotFound
 	}
@@ -1547,7 +1466,7 @@ func (b *InMemoryBackend) UpdateLocationFsxOntap(locationArn, subdirectory strin
 	b.mu.Lock("UpdateLocationFsxOntap")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxOntap {
 		return ErrNotFound
 	}
@@ -1614,7 +1533,7 @@ func (b *InMemoryBackend) DescribeLocationFsxOpenZfs(locationArn string) (*Locat
 	b.mu.RLock("DescribeLocationFsxOpenZfs")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxOpenZfs {
 		return nil, ErrNotFound
 	}
@@ -1639,7 +1558,7 @@ func (b *InMemoryBackend) UpdateLocationFsxOpenZfs(locationArn, subdirectory str
 	b.mu.Lock("UpdateLocationFsxOpenZfs")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxOpenZfs {
 		return ErrNotFound
 	}
@@ -1697,7 +1616,7 @@ func (b *InMemoryBackend) CreateLocationFsxWindows(
 			SecurityGroupArns: securityGroupArns,
 		},
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -1713,7 +1632,7 @@ func (b *InMemoryBackend) DescribeLocationFsxWindows(locationArn string) (*Locat
 	b.mu.RLock("DescribeLocationFsxWindows")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxWindows {
 		return nil, ErrNotFound
 	}
@@ -1739,7 +1658,7 @@ func (b *InMemoryBackend) UpdateLocationFsxWindows(locationArn, subdirectory, do
 	b.mu.Lock("UpdateLocationFsxWindows")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeFsxWindows {
 		return ErrNotFound
 	}
@@ -1833,7 +1752,7 @@ func (b *InMemoryBackend) CreateLocationHdfs(
 		Tags:         locationTags,
 		Hdfs:         cfg,
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -1849,7 +1768,7 @@ func (b *InMemoryBackend) DescribeLocationHdfs(locationArn string) (*LocationHdf
 	b.mu.RLock("DescribeLocationHdfs")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeHDFS {
 		return nil, ErrNotFound
 	}
@@ -1900,7 +1819,7 @@ func (b *InMemoryBackend) UpdateLocationHdfs(
 	b.mu.Lock("UpdateLocationHdfs")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeHDFS {
 		return ErrNotFound
 	}
@@ -2045,7 +1964,7 @@ func (b *InMemoryBackend) CreateLocationNfs(
 		Tags:         locationTags,
 		Nfs:          cfg,
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -2061,7 +1980,7 @@ func (b *InMemoryBackend) DescribeLocationNfs(locationArn string) (*LocationNfs,
 	b.mu.RLock("DescribeLocationNfs")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeNFS {
 		return nil, ErrNotFound
 	}
@@ -2093,7 +2012,7 @@ func (b *InMemoryBackend) UpdateLocationNfs(
 	b.mu.Lock("UpdateLocationNfs")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeNFS {
 		return ErrNotFound
 	}
@@ -2157,7 +2076,7 @@ func (b *InMemoryBackend) CreateLocationObjectStorage(
 			AgentArns:      agentArns,
 		},
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -2173,7 +2092,7 @@ func (b *InMemoryBackend) DescribeLocationObjectStorage(locationArn string) (*Lo
 	b.mu.RLock("DescribeLocationObjectStorage")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeObjectStorage {
 		return nil, ErrNotFound
 	}
@@ -2205,7 +2124,7 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 	b.mu.Lock("UpdateLocationObjectStorage")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeObjectStorage {
 		return ErrNotFound
 	}
@@ -2290,7 +2209,7 @@ func (b *InMemoryBackend) CreateLocationSmb(
 		Tags:         locationTags,
 		Smb:          cfg,
 	}
-	b.locations[locationArn] = l
+	b.locations.Put(l)
 
 	if len(locationTags) > 0 {
 		b.tags[locationArn] = make(map[string]string)
@@ -2306,7 +2225,7 @@ func (b *InMemoryBackend) DescribeLocationSmb(locationArn string) (*LocationSmb,
 	b.mu.RLock("DescribeLocationSmb")
 	defer b.mu.RUnlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeSMB {
 		return nil, ErrNotFound
 	}
@@ -2340,7 +2259,7 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 	b.mu.Lock("UpdateLocationSmb")
 	defer b.mu.Unlock()
 
-	l, ok := b.locations[locationArn]
+	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeSMB {
 		return ErrNotFound
 	}
