@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -148,8 +149,19 @@ type ActionConfigurationProperty struct {
 
 // CustomActionType represents an in-memory custom action type.
 type CustomActionType struct {
-	Settings                *ActionTypeSettings           `json:"settings,omitempty"`
-	Tags                    map[string]string             `json:"-"`
+	Settings *ActionTypeSettings `json:"settings,omitempty"`
+	Tags     map[string]string   `json:"-"`
+	// region is the AWS region this custom action type belongs to. It is the
+	// outer half of the composite key ("region|category/provider/version")
+	// used by the backend's flat store.Table[CustomActionType] (see
+	// customActionTypeKeyFn in store_setup.go), which replaces the old
+	// map[string]map[customActionTypeKey]*CustomActionType nesting (outer
+	// key = region). Unexported so it never appears in wire responses (those
+	// are built by marshaling CustomActionType directly, and this field
+	// carries no json tag so encoding/json skips it regardless), but
+	// persistence.go must carry it through a DTO explicitly since
+	// json.Marshal never sees unexported fields.
+	region                  string
 	Category                string                        `json:"category"`
 	Owner                   string                        `json:"owner"`
 	Provider                string                        `json:"provider"`
@@ -169,10 +181,16 @@ type customActionTypeKey struct {
 // Job represents a CodePipeline job queued for a custom action.
 type Job struct {
 	ActionTypeID ActionTypeID `json:"actionTypeId,omitzero"`
-	ID           string       `json:"id"`
-	PipelineName string       `json:"pipelineName,omitempty"`
-	Nonce        string       `json:"nonce"`
-	Status       string       `json:"status"`
+	// region is the AWS region this job belongs to; the outer half of the
+	// composite "region|id" key used by the backend's flat store.Table[Job]
+	// (see regionKey in backend.go). Unexported so it never appears in wire
+	// responses; persistence.go carries it through a DTO explicitly since
+	// json.Marshal never sees unexported fields.
+	region       string
+	ID           string `json:"id"`
+	PipelineName string `json:"pipelineName,omitempty"`
+	Nonce        string `json:"nonce"`
+	Status       string `json:"status"`
 }
 
 // WebhookFilter represents a filter applied to incoming webhook payloads.
@@ -189,7 +207,13 @@ type WebhookAuthConfig struct {
 
 // Webhook represents a CodePipeline webhook with full AWS-parity fields.
 type Webhook struct {
-	Tags                        map[string]string `json:"-"`
+	Tags map[string]string `json:"-"`
+	// region is the AWS region this webhook belongs to; the outer half of the
+	// composite "region|id" key used by the backend's flat store.Table[Webhook]
+	// (see regionKey in backend.go). Unexported so it never appears in wire
+	// responses; persistence.go carries it through a DTO explicitly since
+	// json.Marshal never sees unexported fields.
+	region                      string
 	AuthenticationConfiguration WebhookAuthConfig `json:"authenticationConfiguration,omitzero"`
 	Name                        string            `json:"name"`
 	TargetPipeline              string            `json:"targetPipeline"`
@@ -204,6 +228,13 @@ type Webhook struct {
 
 // StageTransitionState holds the disabled state and reason for a pipeline stage transition.
 type StageTransitionState struct {
+	// region is the AWS region this stage transition belongs to; the outer
+	// half of the composite key used by the backend's flat
+	// store.Table[StageTransitionState] (see stageTransitionKeyFn in
+	// store_setup.go). Unexported so it never appears in wire responses;
+	// persistence.go carries it through a DTO explicitly since json.Marshal
+	// never sees unexported fields.
+	region         string
 	PipelineName   string `json:"pipelineName"`
 	StageName      string `json:"stageName"`
 	TransitionType string `json:"transitionType"`
@@ -216,6 +247,13 @@ type stageTransitionKey struct {
 	PipelineName   string
 	StageName      string
 	TransitionType string
+}
+
+// String returns a unique string for k, used to build the composite
+// store.Table key for the stageTransitions table (see stageTransitionKeyFn in
+// store_setup.go).
+func (k stageTransitionKey) String() string {
+	return k.PipelineName + "/" + k.StageName + "/" + k.TransitionType
 }
 
 // Rule represents a condition rule within a stage condition.
@@ -338,6 +376,15 @@ type PipelineMetadata struct {
 
 // Pipeline wraps the declaration and metadata.
 type Pipeline struct {
+	// region is the AWS region this pipeline belongs to; the outer half of
+	// the composite "region|name" key used by the backend's flat
+	// store.Table[Pipeline] (see regionKey and pipelineKeyFn in
+	// backend.go/store_setup.go), which replaces the old
+	// map[string]map[string]*Pipeline nesting (outer key = region).
+	// Unexported so it never appears in wire responses; persistence.go
+	// carries it through a DTO explicitly since json.Marshal never sees
+	// unexported fields.
+	region      string
 	Tags        map[string]string   `json:"tags"`
 	Declaration PipelineDeclaration `json:"declaration"`
 	Metadata    PipelineMetadata    `json:"metadata"`
@@ -362,102 +409,59 @@ type Tag struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CodePipeline resources.
 //
-// All resource maps are nested by region (outer key = region) so that same-named
-// resources are isolated across regions. The per-region inner maps are created
-// lazily via the *Store helpers. Callers must hold b.mu while accessing the inner
-// maps.
+// pipelines, customActionTypes, jobs, webhooks, and stageTransitions are flat
+// store.Table collections keyed by a composite "region|id" string (see
+// regionKey below), replacing the old map[string]map[K]*V nesting (outer key
+// = region) that isolated same-named resources across regions. Each table's
+// companion *store.Index values replace the old per-region
+// iteration/reverse-ARN-map lookups -- see store_setup.go. executions and
+// actionExecutions remain plain region-nested maps: their values are bare
+// []*T slices with no identity of their own, so they are not candidates for
+// store.Table (see pkgs/store's package doc). Callers must hold b.mu while
+// accessing any of these collections.
 type InMemoryBackend struct {
-	pipelines         map[string]map[string]*Pipeline
-	pipelineARNIndex  map[string]map[string]string // region → ARN → pipeline name
-	customActionTypes map[string]map[customActionTypeKey]*CustomActionType
-	jobs              map[string]map[string]*Job     // region → jobID → Job
-	webhooks          map[string]map[string]*Webhook // region → name → Webhook
-	webhookARNIndex   map[string]map[string]string   // region → ARN → webhook name
-	stageTransitions  map[string]map[stageTransitionKey]*StageTransitionState
-	executions        map[string]map[string][]*PipelineExecution // region → pipelineName → executions
-	actionExecutions  map[string]map[string][]*ActionExecution   // region → pipelineName → action executions
-	mu                *lockmetrics.RWMutex
-	accountID         string
-	region            string
+	pipelines                  *store.Table[Pipeline]
+	pipelinesByRegion          *store.Index[Pipeline]
+	pipelinesByARN             *store.Index[Pipeline]
+	customActionTypes          *store.Table[CustomActionType]
+	customActionTypesByRegion  *store.Index[CustomActionType]
+	jobs                       *store.Table[Job]
+	jobsByRegion               *store.Index[Job]
+	webhooks                   *store.Table[Webhook]
+	webhooksByRegion           *store.Index[Webhook]
+	webhooksByARN              *store.Index[Webhook]
+	stageTransitions           *store.Table[StageTransitionState]
+	stageTransitionsByPipeline *store.Index[StageTransitionState]
+	registry                   *store.Registry
+	executions                 map[string]map[string][]*PipelineExecution // region → pipelineName → executions
+	actionExecutions           map[string]map[string][]*ActionExecution   // region → pipelineName → action executions
+	mu                         *lockmetrics.RWMutex
+	accountID                  string
+	region                     string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		pipelines:         make(map[string]map[string]*Pipeline),
-		pipelineARNIndex:  make(map[string]map[string]string),
-		customActionTypes: make(map[string]map[customActionTypeKey]*CustomActionType),
-		jobs:              make(map[string]map[string]*Job),
-		webhooks:          make(map[string]map[string]*Webhook),
-		webhookARNIndex:   make(map[string]map[string]string),
-		stageTransitions:  make(map[string]map[stageTransitionKey]*StageTransitionState),
-		executions:        make(map[string]map[string][]*PipelineExecution),
-		actionExecutions:  make(map[string]map[string][]*ActionExecution),
-		accountID:         accountID,
-		region:            region,
-		mu:                lockmetrics.New("codepipeline-" + region),
-	}
-}
-
-// The *Store helpers return the per-region inner map, lazily creating it.
-// Callers must hold b.mu.
-
-func (b *InMemoryBackend) pipelinesStore(region string) map[string]*Pipeline {
-	if b.pipelines[region] == nil {
-		b.pipelines[region] = make(map[string]*Pipeline)
+	b := &InMemoryBackend{
+		registry:         store.NewRegistry(),
+		executions:       make(map[string]map[string][]*PipelineExecution),
+		actionExecutions: make(map[string]map[string][]*ActionExecution),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("codepipeline-" + region),
 	}
 
-	return b.pipelines[region]
+	registerAllTables(b)
+
+	return b
 }
 
-func (b *InMemoryBackend) pipelineARNIndexStore(region string) map[string]string {
-	if b.pipelineARNIndex[region] == nil {
-		b.pipelineARNIndex[region] = make(map[string]string)
-	}
+// regionKey builds the composite store.Table primary key ("region|id") shared
+// by every resource table this backend owns.
+func regionKey(region, id string) string { return region + "|" + id }
 
-	return b.pipelineARNIndex[region]
-}
-
-func (b *InMemoryBackend) customActionTypesStore(region string) map[customActionTypeKey]*CustomActionType {
-	if b.customActionTypes[region] == nil {
-		b.customActionTypes[region] = make(map[customActionTypeKey]*CustomActionType)
-	}
-
-	return b.customActionTypes[region]
-}
-
-func (b *InMemoryBackend) jobsStore(region string) map[string]*Job {
-	if b.jobs[region] == nil {
-		b.jobs[region] = make(map[string]*Job)
-	}
-
-	return b.jobs[region]
-}
-
-func (b *InMemoryBackend) webhooksStore(region string) map[string]*Webhook {
-	if b.webhooks[region] == nil {
-		b.webhooks[region] = make(map[string]*Webhook)
-	}
-
-	return b.webhooks[region]
-}
-
-func (b *InMemoryBackend) webhookARNIndexStore(region string) map[string]string {
-	if b.webhookARNIndex[region] == nil {
-		b.webhookARNIndex[region] = make(map[string]string)
-	}
-
-	return b.webhookARNIndex[region]
-}
-
-func (b *InMemoryBackend) stageTransitionsStore(region string) map[stageTransitionKey]*StageTransitionState {
-	if b.stageTransitions[region] == nil {
-		b.stageTransitions[region] = make(map[stageTransitionKey]*StageTransitionState)
-	}
-
-	return b.stageTransitions[region]
-}
-
+// executionsStore returns the per-region execution-history map for region,
+// lazily creating it. Callers must hold b.mu.
 func (b *InMemoryBackend) executionsStore(region string) map[string][]*PipelineExecution {
 	if b.executions[region] == nil {
 		b.executions[region] = make(map[string][]*PipelineExecution)
@@ -466,6 +470,8 @@ func (b *InMemoryBackend) executionsStore(region string) map[string][]*PipelineE
 	return b.executions[region]
 }
 
+// actionExecutionsStore returns the per-region action-execution map for
+// region, lazily creating it. Callers must hold b.mu.
 func (b *InMemoryBackend) actionExecutionsStore(region string) map[string][]*ActionExecution {
 	if b.actionExecutions[region] == nil {
 		b.actionExecutions[region] = make(map[string][]*ActionExecution)
@@ -482,13 +488,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.pipelines = make(map[string]map[string]*Pipeline)
-	b.pipelineARNIndex = make(map[string]map[string]string)
-	b.customActionTypes = make(map[string]map[customActionTypeKey]*CustomActionType)
-	b.jobs = make(map[string]map[string]*Job)
-	b.webhooks = make(map[string]map[string]*Webhook)
-	b.webhookARNIndex = make(map[string]map[string]string)
-	b.stageTransitions = make(map[string]map[stageTransitionKey]*StageTransitionState)
+	b.registry.ResetAll()
 	b.executions = make(map[string]map[string][]*PipelineExecution)
 	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 }
@@ -511,10 +511,8 @@ func (b *InMemoryBackend) CreatePipeline(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.pipelinesStore(region)
-	arnIndex := b.pipelineARNIndexStore(region)
 
-	if _, exists := store[decl.Name]; exists {
+	if b.pipelines.Has(regionKey(region, decl.Name)) {
 		return nil, fmt.Errorf("%w: pipeline %q already exists", ErrPipelineNameInUse, decl.Name)
 	}
 
@@ -535,6 +533,7 @@ func (b *InMemoryBackend) CreatePipeline(
 	}
 
 	p := &Pipeline{
+		region:      region,
 		Declaration: decl,
 		Metadata: PipelineMetadata{
 			PipelineArn: b.buildPipelineARN(region, decl.Name),
@@ -543,8 +542,7 @@ func (b *InMemoryBackend) CreatePipeline(
 		},
 		Tags: tagsCopy,
 	}
-	store[decl.Name] = p
-	arnIndex[p.Metadata.PipelineArn] = decl.Name
+	b.pipelines.Put(p)
 
 	return copyPipeline(p), nil
 }
@@ -554,7 +552,7 @@ func (b *InMemoryBackend) GetPipeline(ctx context.Context, name string) (*Pipeli
 	b.mu.RLock("GetPipeline")
 	defer b.mu.RUnlock()
 
-	p, ok := b.pipelinesStore(getRegion(ctx, b.region))[name]
+	p, ok := b.pipelines.Get(regionKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
 	}
@@ -568,7 +566,7 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, decl PipelineDecla
 	b.mu.Lock("UpdatePipeline")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelinesStore(getRegion(ctx, b.region))[decl.Name]
+	p, ok := b.pipelines.Get(regionKey(getRegion(ctx, b.region), decl.Name))
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, decl.Name)
 	}
@@ -592,23 +590,18 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) error
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.pipelinesStore(region)
+	key := regionKey(region, name)
 
-	p, ok := store[name]
-	if !ok {
+	if !b.pipelines.Has(key) {
 		return fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
 	}
 
-	delete(b.pipelineARNIndexStore(region), p.Metadata.PipelineArn)
-	delete(store, name)
+	b.pipelines.Delete(key)
 	delete(b.executionsStore(region), name)
 
 	// Cascade: remove disabled stage transitions for this pipeline.
-	transitions := b.stageTransitionsStore(region)
-	for key := range transitions {
-		if key.PipelineName == name {
-			delete(transitions, key)
-		}
+	for _, st := range slices.Clone(b.stageTransitionsByPipeline.Get(regionKey(region, name))) {
+		b.stageTransitions.Delete(stageTransitionKeyFn(st))
 	}
 
 	return nil
@@ -619,13 +612,11 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context) []PipelineSummary {
 	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
-	store := b.pipelinesStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
+	entries := b.pipelinesByRegion.Get(region)
 
-	names := collections.SortedKeys(store)
-
-	summaries := make([]PipelineSummary, 0, len(store))
-	for _, name := range names {
-		p := store[name]
+	summaries := make([]PipelineSummary, 0, len(entries))
+	for _, p := range entries {
 		summaries = append(summaries, PipelineSummary{
 			Name:          p.Declaration.Name,
 			Version:       p.Declaration.Version,
@@ -637,6 +628,10 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context) []PipelineSummary {
 		})
 	}
 
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Name < summaries[j].Name
+	})
+
 	return summaries
 }
 
@@ -645,12 +640,12 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context) []PipelineSummary {
 // when present so callers cannot resolve resources outside their region. Returns
 // ErrNotFound if unknown. Callers must hold b.mu.
 func (b *InMemoryBackend) resolveResourceARN(region, resourceARN string) (string, string, error) {
-	if n, ok := b.pipelineARNIndexStore(region)[resourceARN]; ok {
-		return kindPipeline, n, nil
+	if matches := b.pipelinesByARN.Get(regionKey(region, resourceARN)); len(matches) > 0 {
+		return kindPipeline, matches[0].Declaration.Name, nil
 	}
 
-	if n, ok := b.webhookARNIndexStore(region)[resourceARN]; ok {
-		return kindWebhook, n, nil
+	if matches := b.webhooksByARN.Get(regionKey(region, resourceARN)); len(matches) > 0 {
+		return kindWebhook, matches[0].Name, nil
 	}
 
 	return "", "", ErrNotFound
@@ -671,9 +666,13 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 
 	switch kind {
 	case kindPipeline:
-		return tagsToSortedSlice(b.pipelinesStore(region)[name].Tags), nil
+		p, _ := b.pipelines.Get(regionKey(region, name))
+
+		return tagsToSortedSlice(p.Tags), nil
 	case kindWebhook:
-		return tagsToSortedSlice(b.webhooksStore(region)[name].Tags), nil
+		wh, _ := b.webhooks.Get(regionKey(region, name))
+
+		return tagsToSortedSlice(wh.Tags), nil
 	default:
 		return nil, fmt.Errorf("%w: ARN %q", ErrResourceNotFound, resourceARN)
 	}
@@ -693,7 +692,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 
 	switch kind {
 	case kindPipeline:
-		p := b.pipelinesStore(region)[name]
+		p, _ := b.pipelines.Get(regionKey(region, name))
 		if p.Tags == nil {
 			p.Tags = make(map[string]string)
 		}
@@ -702,7 +701,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 			p.Tags[t.Key] = t.Value
 		}
 	case kindWebhook:
-		wh := b.webhooksStore(region)[name]
+		wh, _ := b.webhooks.Get(regionKey(region, name))
 		if wh.Tags == nil {
 			wh.Tags = make(map[string]string)
 		}
@@ -731,12 +730,12 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 
 	switch kind {
 	case kindPipeline:
-		p := b.pipelinesStore(region)[name]
+		p, _ := b.pipelines.Get(regionKey(region, name))
 		for _, k := range tagKeys {
 			delete(p.Tags, k)
 		}
 	case kindWebhook:
-		wh := b.webhooksStore(region)[name]
+		wh, _ := b.webhooks.Get(regionKey(region, name))
 		for _, k := range tagKeys {
 			delete(wh.Tags, k)
 		}
@@ -775,9 +774,6 @@ func (b *InMemoryBackend) AddPipelineInternal(decl PipelineDeclaration, tags map
 	b.mu.Lock("AddPipelineInternal")
 	defer b.mu.Unlock()
 
-	store := b.pipelinesStore(b.region)
-	arnIndex := b.pipelineARNIndexStore(b.region)
-
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
@@ -787,6 +783,7 @@ func (b *InMemoryBackend) AddPipelineInternal(decl PipelineDeclaration, tags map
 	}
 
 	p := &Pipeline{
+		region:      b.region,
 		Declaration: decl,
 		Metadata: PipelineMetadata{
 			PipelineArn: b.buildPipelineARN(b.region, decl.Name),
@@ -795,8 +792,7 @@ func (b *InMemoryBackend) AddPipelineInternal(decl PipelineDeclaration, tags map
 		},
 		Tags: tagsCopy,
 	}
-	store[decl.Name] = p
-	arnIndex[p.Metadata.PipelineArn] = decl.Name
+	b.pipelines.Put(p)
 
 	return copyPipeline(p)
 }
@@ -806,8 +802,9 @@ func (b *InMemoryBackend) AddCustomActionTypeInternal(cat *CustomActionType) {
 	b.mu.Lock("AddCustomActionTypeInternal")
 	defer b.mu.Unlock()
 
-	key := customActionTypeKey{Category: cat.Category, Provider: cat.Provider, Version: cat.Version}
-	b.customActionTypesStore(b.region)[key] = copyCustomActionType(cat)
+	cp := copyCustomActionType(cat)
+	cp.region = b.region
+	b.customActionTypes.Put(cp)
 }
 
 // GetStageTransitionState returns the disabled state for a stage transition, or nil if enabled.
@@ -818,13 +815,14 @@ func (b *InMemoryBackend) GetStageTransitionState(
 	b.mu.RLock("GetStageTransitionState")
 	defer b.mu.RUnlock()
 
-	key := stageTransitionKey{
+	region := getRegion(ctx, b.region)
+	key := regionKey(region, stageTransitionKey{
 		PipelineName:   pipelineName,
 		StageName:      stageName,
 		TransitionType: transitionType,
-	}
+	}.String())
 
-	state, ok := b.stageTransitionsStore(getRegion(ctx, b.region))[key]
+	state, ok := b.stageTransitions.Get(key)
 	if !ok {
 		return nil
 	}
@@ -844,10 +842,11 @@ func (b *InMemoryBackend) CreateCustomActionType(
 	b.mu.Lock("CreateCustomActionType")
 	defer b.mu.Unlock()
 
-	store := b.customActionTypesStore(getRegion(ctx, b.region))
-	key := customActionTypeKey{Category: cat.Category, Provider: cat.Provider, Version: cat.Version}
+	region := getRegion(ctx, b.region)
+	catKey := customActionTypeKey{Category: cat.Category, Provider: cat.Provider, Version: cat.Version}
+	key := regionKey(region, catKey.String())
 
-	if _, exists := store[key]; exists {
+	if b.customActionTypes.Has(key) {
 		return nil, fmt.Errorf("%w: custom action type %q/%q/%q already exists",
 			ErrAlreadyExists, cat.Category, cat.Provider, cat.Version)
 	}
@@ -857,7 +856,8 @@ func (b *InMemoryBackend) CreateCustomActionType(
 	}
 
 	cp := copyCustomActionType(cat)
-	store[key] = cp
+	cp.region = region
+	b.customActionTypes.Put(cp)
 
 	return copyCustomActionType(cp), nil
 }
@@ -869,27 +869,26 @@ func (b *InMemoryBackend) DeleteCustomActionType(ctx context.Context, category, 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.customActionTypesStore(region)
-	key := customActionTypeKey{Category: category, Provider: provider, Version: version}
+	key := regionKey(region, customActionTypeKey{Category: category, Provider: provider, Version: version}.String())
 
-	if _, ok := store[key]; !ok {
+	if !b.customActionTypes.Has(key) {
 		return fmt.Errorf("%w: custom action type %q/%q/%q", ErrActionTypeNotFound, category, provider, version)
 	}
 
 	// Check that no pipeline references this action type.
-	for pName, p := range b.pipelinesStore(region) {
+	for _, p := range b.pipelinesByRegion.Get(region) {
 		for _, stage := range p.Declaration.Stages {
 			for _, action := range stage.Actions {
 				at := action.ActionTypeID
 				if at.Category == category && at.Provider == provider && at.Version == version {
 					return fmt.Errorf("%w: action type %q/%q/%q is in use by pipeline %q",
-						ErrResourceInUse, category, provider, version, pName)
+						ErrResourceInUse, category, provider, version, p.Declaration.Name)
 				}
 			}
 		}
 	}
 
-	delete(store, key)
+	b.customActionTypes.Delete(key)
 
 	return nil
 }
@@ -902,9 +901,10 @@ func (b *InMemoryBackend) GetActionType(
 	b.mu.RLock("GetActionType")
 	defer b.mu.RUnlock()
 
-	key := customActionTypeKey{Category: category, Provider: provider, Version: version}
+	region := getRegion(ctx, b.region)
+	key := regionKey(region, customActionTypeKey{Category: category, Provider: provider, Version: version}.String())
 
-	cat, ok := b.customActionTypesStore(getRegion(ctx, b.region))[key]
+	cat, ok := b.customActionTypes.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: action type %q/%q/%q/%q", ErrActionTypeNotFound, category, owner, provider, version)
 	}
@@ -920,7 +920,7 @@ func (b *InMemoryBackend) AcknowledgeJob(ctx context.Context, jobID, nonce strin
 	b.mu.Lock("AcknowledgeJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobsStore(getRegion(ctx, b.region))[jobID]
+	job, ok := b.jobs.Get(regionKey(getRegion(ctx, b.region), jobID))
 	if !ok {
 		return "", fmt.Errorf("%w: job %q", ErrJobNotFound, jobID)
 	}
@@ -940,7 +940,7 @@ func (b *InMemoryBackend) AcknowledgeThirdPartyJob(
 	b.mu.Lock("AcknowledgeThirdPartyJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobsStore(getRegion(ctx, b.region))[jobID]
+	job, ok := b.jobs.Get(regionKey(getRegion(ctx, b.region), jobID))
 	if !ok {
 		return "", fmt.Errorf("%w: third-party job %q with client token %q", ErrJobNotFound, jobID, clientToken)
 	}
@@ -957,7 +957,7 @@ func (b *InMemoryBackend) GetJobDetails(ctx context.Context, jobID string) (*Job
 	b.mu.RLock("GetJobDetails")
 	defer b.mu.RUnlock()
 
-	job, ok := b.jobsStore(getRegion(ctx, b.region))[jobID]
+	job, ok := b.jobs.Get(regionKey(getRegion(ctx, b.region), jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: job %q", ErrJobNotFound, jobID)
 	}
@@ -973,7 +973,8 @@ func (b *InMemoryBackend) AddJobInternal(job *Job) {
 	defer b.mu.Unlock()
 
 	cp := *job
-	b.jobsStore(b.region)[cp.ID] = &cp
+	cp.region = b.region
+	b.jobs.Put(&cp)
 }
 
 // --- Webhook operations ---
@@ -984,13 +985,7 @@ func (b *InMemoryBackend) DeleteWebhook(ctx context.Context, name string) error 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.webhooksStore(region)
-
-	if wh, ok := store[name]; ok {
-		delete(b.webhookARNIndexStore(region), wh.ARN)
-	}
-
-	delete(store, name)
+	b.webhooks.Delete(regionKey(region, name))
 
 	return nil
 }
@@ -1000,7 +995,7 @@ func (b *InMemoryBackend) DeregisterWebhookWithThirdParty(ctx context.Context, n
 	b.mu.Lock("DeregisterWebhookWithThirdParty")
 	defer b.mu.Unlock()
 
-	if wh, ok := b.webhooksStore(getRegion(ctx, b.region))[name]; ok {
+	if wh, ok := b.webhooks.Get(regionKey(getRegion(ctx, b.region), name)); ok {
 		wh.RegisteredWithThirdParty = false
 	}
 
@@ -1013,12 +1008,12 @@ func (b *InMemoryBackend) AddWebhookInternal(wh *Webhook) {
 	defer b.mu.Unlock()
 
 	cp := *wh
+	cp.region = b.region
 	if cp.ARN == "" {
 		cp.ARN = b.buildWebhookARN(b.region, cp.Name)
 	}
 
-	b.webhooksStore(b.region)[cp.Name] = &cp
-	b.webhookARNIndexStore(b.region)[cp.ARN] = cp.Name
+	b.webhooks.Put(&cp)
 }
 
 // --- Stage transition operations ---
@@ -1034,7 +1029,7 @@ func (b *InMemoryBackend) DisableStageTransition(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[pipelineName]
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
 		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
 	}
@@ -1043,14 +1038,14 @@ func (b *InMemoryBackend) DisableStageTransition(
 		return fmt.Errorf("%w: stage %q not found in pipeline %q", ErrStageNotFound, stageName, pipelineName)
 	}
 
-	key := stageTransitionKey{PipelineName: pipelineName, StageName: stageName, TransitionType: transitionType}
-	b.stageTransitionsStore(region)[key] = &StageTransitionState{
+	b.stageTransitions.Put(&StageTransitionState{
+		region:         region,
 		PipelineName:   pipelineName,
 		StageName:      stageName,
 		TransitionType: transitionType,
 		Reason:         reason,
 		Disabled:       true,
-	}
+	})
 
 	return nil
 }
@@ -1065,12 +1060,14 @@ func (b *InMemoryBackend) EnableStageTransition(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(region, pipelineName)) {
 		return fmt.Errorf("%w: pipeline %q", ErrNotFound, pipelineName)
 	}
 
-	key := stageTransitionKey{PipelineName: pipelineName, StageName: stageName, TransitionType: transitionType}
-	delete(b.stageTransitionsStore(region), key)
+	key := regionKey(region, stageTransitionKey{
+		PipelineName: pipelineName, StageName: stageName, TransitionType: transitionType,
+	}.String())
+	b.stageTransitions.Delete(key)
 
 	return nil
 }
@@ -1236,7 +1233,7 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[pipelineName]
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1287,7 +1284,7 @@ func (b *InMemoryBackend) GetPipelineExecution(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(region, pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1317,7 +1314,7 @@ func (b *InMemoryBackend) StopPipelineExecution(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(region, pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1349,7 +1346,7 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(region, pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1379,29 +1376,27 @@ func (b *InMemoryBackend) GetPipelineState(ctx context.Context, pipelineName str
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[pipelineName]
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
 		return nil, ErrNotFound
 	}
 
-	transitions := b.stageTransitionsStore(region)
-
 	states := make([]StageState, len(p.Declaration.Stages))
 	for i, stage := range p.Declaration.Stages {
-		inKey := stageTransitionKey{
+		inKey := regionKey(region, stageTransitionKey{
 			PipelineName: pipelineName, StageName: stage.Name, TransitionType: transitionTypeInbound,
-		}
-		outKey := stageTransitionKey{
+		}.String())
+		outKey := regionKey(region, stageTransitionKey{
 			PipelineName: pipelineName, StageName: stage.Name, TransitionType: transitionTypeOutbound,
-		}
+		}.String())
 
 		var inState, outState *StageTransitionState
-		if ts, found := transitions[inKey]; found {
+		if ts, found := b.stageTransitions.Get(inKey); found {
 			tsCopy := *ts
 			inState = &tsCopy
 		}
 
-		if ts, found := transitions[outKey]; found {
+		if ts, found := b.stageTransitions.Get(outKey); found {
 			tsCopy := *ts
 			outState = &tsCopy
 		}
@@ -1447,7 +1442,7 @@ func (b *InMemoryBackend) RetryStageExecution(
 	b.mu.RLock("RetryStageExecution")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1468,7 +1463,7 @@ func (b *InMemoryBackend) RollbackStage(
 	b.mu.RLock("RollbackStage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1490,7 +1485,7 @@ func (b *InMemoryBackend) OverrideStageCondition(
 	b.mu.RLock("OverrideStageCondition")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return ErrNotFound
 	}
 
@@ -1505,10 +1500,10 @@ func (b *InMemoryBackend) ListWebhooks(ctx context.Context) []*Webhook {
 	b.mu.RLock("ListWebhooks")
 	defer b.mu.RUnlock()
 
-	store := b.webhooksStore(getRegion(ctx, b.region))
+	entries := b.webhooksByRegion.Get(getRegion(ctx, b.region))
 
-	result := make([]*Webhook, 0, len(store))
-	for _, wh := range store {
+	result := make([]*Webhook, 0, len(entries))
+	for _, wh := range entries {
 		cp := *wh
 		result = append(result, &cp)
 	}
@@ -1526,20 +1521,19 @@ func (b *InMemoryBackend) PutWebhook(ctx context.Context, wh *Webhook) (*Webhook
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.webhooksStore(region)
 
 	cp := *wh
+	cp.region = region
 	cp.ARN = b.buildWebhookARN(region, wh.Name)
 	cp.URL = fmt.Sprintf("https://webhooks.%s.codepipeline.aws.a2z.com/trigger?t=%s",
 		region, uuid.NewString())
 
-	if existing, ok := store[wh.Name]; ok {
+	if existing, ok := b.webhooks.Get(regionKey(region, wh.Name)); ok {
 		// Preserve URL on update.
 		cp.URL = existing.URL
 	}
 
-	store[cp.Name] = &cp
-	b.webhookARNIndexStore(region)[cp.ARN] = cp.Name
+	b.webhooks.Put(&cp)
 
 	result := cp
 
@@ -1551,7 +1545,7 @@ func (b *InMemoryBackend) RegisterWebhookWithThirdParty(ctx context.Context, nam
 	b.mu.Lock("RegisterWebhookWithThirdParty")
 	defer b.mu.Unlock()
 
-	wh, ok := b.webhooksStore(getRegion(ctx, b.region))[name]
+	wh, ok := b.webhooks.Get(regionKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return ErrWebhookNotFound
 	}
@@ -1566,11 +1560,11 @@ func (b *InMemoryBackend) PollForJobs(ctx context.Context, category, owner, prov
 	b.mu.RLock("PollForJobs")
 	defer b.mu.RUnlock()
 
-	store := b.jobsStore(getRegion(ctx, b.region))
+	entries := b.jobsByRegion.Get(getRegion(ctx, b.region))
 
-	result := make([]*Job, 0, len(store))
+	result := make([]*Job, 0, len(entries))
 
-	for _, job := range store {
+	for _, job := range entries {
 		if job.Status != "Queued" {
 			continue
 		}
@@ -1608,7 +1602,7 @@ func (b *InMemoryBackend) GetThirdPartyJobDetails(ctx context.Context, jobID, cl
 	b.mu.RLock("GetThirdPartyJobDetails")
 	defer b.mu.RUnlock()
 
-	job, ok := b.jobsStore(getRegion(ctx, b.region))[jobID]
+	job, ok := b.jobs.Get(regionKey(getRegion(ctx, b.region), jobID))
 	if !ok {
 		return nil, ErrJobNotFound
 	}
@@ -1625,7 +1619,7 @@ func (b *InMemoryBackend) PutJobSuccessResult(ctx context.Context, jobID string)
 	b.mu.Lock("PutJobSuccessResult")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobsStore(getRegion(ctx, b.region))[jobID]
+	job, ok := b.jobs.Get(regionKey(getRegion(ctx, b.region), jobID))
 	if !ok {
 		return ErrJobNotFound
 	}
@@ -1640,7 +1634,7 @@ func (b *InMemoryBackend) PutJobFailureResult(ctx context.Context, jobID, messag
 	b.mu.Lock("PutJobFailureResult")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobsStore(getRegion(ctx, b.region))[jobID]
+	job, ok := b.jobs.Get(regionKey(getRegion(ctx, b.region), jobID))
 	if !ok {
 		return ErrJobNotFound
 	}
@@ -1666,7 +1660,7 @@ func (b *InMemoryBackend) PutActionRevision(ctx context.Context, pipelineName, s
 	b.mu.RLock("PutActionRevision")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return ErrNotFound
 	}
 
@@ -1684,7 +1678,7 @@ func (b *InMemoryBackend) PutApprovalResult(
 	b.mu.RLock("PutApprovalResult")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return ErrNotFound
 	}
 
@@ -1701,19 +1695,20 @@ func (b *InMemoryBackend) UpdateActionType(ctx context.Context, cat *CustomActio
 	b.mu.Lock("UpdateActionType")
 	defer b.mu.Unlock()
 
-	store := b.customActionTypesStore(getRegion(ctx, b.region))
-	key := customActionTypeKey{
+	region := getRegion(ctx, b.region)
+	key := regionKey(region, customActionTypeKey{
 		Category: cat.Category,
 		Provider: cat.Provider,
 		Version:  cat.Version,
-	}
+	}.String())
 
-	if _, ok := store[key]; !ok {
+	if !b.customActionTypes.Has(key) {
 		return ErrActionTypeNotFound
 	}
 
 	cp := copyCustomActionType(cat)
-	store[key] = cp
+	cp.region = region
+	b.customActionTypes.Put(cp)
 
 	return nil
 }
@@ -1723,11 +1718,11 @@ func (b *InMemoryBackend) ListActionTypes(ctx context.Context) []*CustomActionTy
 	b.mu.RLock("ListActionTypes")
 	defer b.mu.RUnlock()
 
-	store := b.customActionTypesStore(getRegion(ctx, b.region))
+	entries := b.customActionTypesByRegion.Get(getRegion(ctx, b.region))
 
-	result := make([]*CustomActionType, 0, len(store))
+	result := make([]*CustomActionType, 0, len(entries))
 
-	for _, cat := range store {
+	for _, cat := range entries {
 		result = append(result, copyCustomActionType(cat))
 	}
 
@@ -1760,7 +1755,7 @@ func (b *InMemoryBackend) ListActionExecutions(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(region, pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1794,7 +1789,7 @@ func (b *InMemoryBackend) ListRuleExecutions(ctx context.Context, pipelineName s
 	b.mu.RLock("ListRuleExecutions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return nil, ErrNotFound
 	}
 
@@ -1832,7 +1827,7 @@ func (b *InMemoryBackend) ListDeployActionExecutionTargets(
 	b.mu.RLock("ListDeployActionExecutionTargets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pipelinesStore(getRegion(ctx, b.region))[pipelineName]; !ok {
+	if !b.pipelines.Has(regionKey(getRegion(ctx, b.region), pipelineName)) {
 		return nil, ErrNotFound
 	}
 
