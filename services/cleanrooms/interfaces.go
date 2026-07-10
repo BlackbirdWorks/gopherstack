@@ -1,10 +1,18 @@
 package cleanrooms
 
+import "context"
+
 // StorageBackend defines the interface for all Clean Rooms backend operations.
 type StorageBackend interface {
 	Region() string
 	AccountID() string
 	Reset()
+
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks CleanRooms up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 
 	// Collaboration operations.
 	CreateCollaboration(
