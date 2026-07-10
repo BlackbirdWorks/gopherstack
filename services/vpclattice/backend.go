@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -435,37 +435,29 @@ func (a *storedALS) toSummary() *AccessLogSubscriptionSummary {
 	}
 }
 
-// snapshot is the serializable form of InMemoryBackend.
-type snapshot struct {
-	Services         map[string]*storedService        `json:"services"`
-	ServiceNetworks  map[string]*storedServiceNetwork `json:"serviceNetworks"`
-	SNSAs            map[string]*storedSNSA           `json:"snsas"`
-	SNVAs            map[string]*storedSNVA           `json:"snvas"`
-	Listeners        map[string]*storedListener       `json:"listeners"`
-	Rules            map[string]*storedRule           `json:"rules"`
-	TargetGroups     map[string]*storedTargetGroup    `json:"targetGroups"`
-	Targets          map[string][]*storedTarget       `json:"targets"`
-	ALSs             map[string]*storedALS            `json:"alss"`
-	AuthPolicies     map[string]string                `json:"authPolicies"`
-	ResourcePolicies map[string]string                `json:"resourcePolicies"`
-	Tags             map[string]map[string]string     `json:"tags"`
-}
-
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu               *lockmetrics.RWMutex
-	services         map[string]*storedService
-	servicesByName   map[string]string
-	serviceNetworks  map[string]*storedServiceNetwork
-	networksByName   map[string]string
-	snsas            map[string]*storedSNSA
-	snvas            map[string]*storedSNVA
-	listeners        map[string]*storedListener
-	rules            map[string]*storedRule
-	targetGroups     map[string]*storedTargetGroup
-	tgsByName        map[string]string
-	targets          map[string][]*storedTarget
-	alss             map[string]*storedALS
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	services        *store.Table[storedService]
+	servicesByName  *store.Index[storedService]
+	serviceNetworks *store.Table[storedServiceNetwork]
+	networksByName  *store.Index[storedServiceNetwork]
+	snsas           *store.Table[storedSNSA]
+	snvas           *store.Table[storedSNVA]
+
+	listeners          *store.Table[storedListener]
+	listenersByService *store.Index[storedListener]
+
+	rules           *store.Table[storedRule]
+	rulesByListener *store.Index[storedRule]
+
+	targetGroups *store.Table[storedTargetGroup]
+	tgsByName    *store.Index[storedTargetGroup]
+	targets      map[string][]*storedTarget
+
+	alss             *store.Table[storedALS]
 	authPolicies     map[string]string
 	resourcePolicies map[string]string
 	tags             map[string]map[string]string
@@ -476,31 +468,18 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu:        lockmetrics.New("vpclattice"),
-		accountID: accountID,
-		region:    region,
+		mu:               lockmetrics.New("vpclattice"),
+		registry:         store.NewRegistry(),
+		targets:          make(map[string][]*storedTarget),
+		authPolicies:     make(map[string]string),
+		resourcePolicies: make(map[string]string),
+		tags:             make(map[string]map[string]string),
+		accountID:        accountID,
+		region:           region,
 	}
-	b.initMaps()
+	registerAllTables(b)
 
 	return b
-}
-
-func (b *InMemoryBackend) initMaps() {
-	b.services = make(map[string]*storedService)
-	b.servicesByName = make(map[string]string)
-	b.serviceNetworks = make(map[string]*storedServiceNetwork)
-	b.networksByName = make(map[string]string)
-	b.snsas = make(map[string]*storedSNSA)
-	b.snvas = make(map[string]*storedSNVA)
-	b.listeners = make(map[string]*storedListener)
-	b.rules = make(map[string]*storedRule)
-	b.targetGroups = make(map[string]*storedTargetGroup)
-	b.tgsByName = make(map[string]string)
-	b.targets = make(map[string][]*storedTarget)
-	b.alss = make(map[string]*storedALS)
-	b.authPolicies = make(map[string]string)
-	b.resourcePolicies = make(map[string]string)
-	b.tags = make(map[string]map[string]string)
 }
 
 // AccountID returns the configured account ID.
@@ -521,71 +500,12 @@ func (b *InMemoryBackend) regionFor(ctx context.Context) string {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
-	b.initMaps()
-}
 
-// Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	s := snapshot{
-		Services:         b.services,
-		ServiceNetworks:  b.serviceNetworks,
-		SNSAs:            b.snsas,
-		SNVAs:            b.snvas,
-		Listeners:        b.listeners,
-		Rules:            b.rules,
-		TargetGroups:     b.targetGroups,
-		Targets:          b.targets,
-		ALSs:             b.alss,
-		AuthPolicies:     b.authPolicies,
-		ResourcePolicies: b.resourcePolicies,
-		Tags:             b.tags,
-	}
-
-	return persistence.MarshalSnapshot(ctx, "vpclattice", s)
-}
-
-// Restore deserializes backend state.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var s snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "vpclattice", data, &s); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.services = s.Services
-	b.serviceNetworks = s.ServiceNetworks
-	b.snsas = s.SNSAs
-	b.snvas = s.SNVAs
-	b.listeners = s.Listeners
-	b.rules = s.Rules
-	b.targetGroups = s.TargetGroups
-	b.targets = s.Targets
-	b.alss = s.ALSs
-	b.authPolicies = s.AuthPolicies
-	b.resourcePolicies = s.ResourcePolicies
-	b.tags = s.Tags
-
-	b.servicesByName = make(map[string]string)
-	for id, svc := range b.services {
-		b.servicesByName[svc.Name] = id
-	}
-
-	b.networksByName = make(map[string]string)
-	for id, sn := range b.serviceNetworks {
-		b.networksByName[sn.Name] = id
-	}
-
-	b.tgsByName = make(map[string]string)
-	for id, tg := range b.targetGroups {
-		b.tgsByName[tg.Name] = id
-	}
-
-	return nil
+	b.registry.ResetAll()
+	b.targets = make(map[string][]*storedTarget)
+	b.authPolicies = make(map[string]string)
+	b.resourcePolicies = make(map[string]string)
+	b.tags = make(map[string]map[string]string)
 }
 
 func (b *InMemoryBackend) buildListenerARN(serviceID, listenerID string) string {
@@ -629,13 +549,13 @@ func copyTags(src map[string]string) map[string]string {
 
 // resolveServiceID resolves a service identifier (ID or ARN) to an ID.
 func (b *InMemoryBackend) resolveServiceID(identifier string) (string, bool) {
-	if svc, ok := b.services[identifier]; ok {
+	if svc, ok := b.services.Get(identifier); ok {
 		return svc.ID, true
 	}
 	// check if it's an ARN
-	for id, svc := range b.services {
+	for _, svc := range b.services.All() {
 		if svc.ARN == identifier {
-			return id, true
+			return svc.ID, true
 		}
 	}
 
@@ -644,12 +564,12 @@ func (b *InMemoryBackend) resolveServiceID(identifier string) (string, bool) {
 
 // resolveServiceNetworkID resolves a service network identifier to an ID.
 func (b *InMemoryBackend) resolveServiceNetworkID(identifier string) (string, bool) {
-	if _, ok := b.serviceNetworks[identifier]; ok {
+	if b.serviceNetworks.Has(identifier) {
 		return identifier, true
 	}
-	for id, sn := range b.serviceNetworks {
+	for _, sn := range b.serviceNetworks.All() {
 		if sn.ARN == identifier || sn.Name == identifier {
-			return id, true
+			return sn.ID, true
 		}
 	}
 
@@ -658,12 +578,11 @@ func (b *InMemoryBackend) resolveServiceNetworkID(identifier string) (string, bo
 
 // resolveListenerID resolves a listener identifier to (serviceID, listenerID).
 func (b *InMemoryBackend) resolveListenerID(serviceID, identifier string) (string, bool) {
-	key := serviceID + "/" + identifier
-	if _, ok := b.listeners[key]; ok {
+	if l, ok := b.listeners.Get(identifier); ok && l.ServiceID == serviceID {
 		return identifier, true
 	}
-	for _, l := range b.listeners {
-		if l.ServiceID == serviceID && (l.ARN == identifier) {
+	for _, l := range b.listenersByService.Get(serviceID) {
+		if l.ARN == identifier {
 			return l.ID, true
 		}
 	}
@@ -673,12 +592,11 @@ func (b *InMemoryBackend) resolveListenerID(serviceID, identifier string) (strin
 
 // resolveRuleID resolves a rule identifier within a listener to a rule ID.
 func (b *InMemoryBackend) resolveRuleID(serviceID, listenerID, identifier string) (string, bool) {
-	key := serviceID + "/" + listenerID + "/" + identifier
-	if _, ok := b.rules[key]; ok {
+	if r, ok := b.rules.Get(identifier); ok && r.ServiceID == serviceID && r.ListenerID == listenerID {
 		return identifier, true
 	}
-	for _, r := range b.rules {
-		if r.ServiceID == serviceID && r.ListenerID == listenerID && r.ARN == identifier {
+	for _, r := range b.rulesByListener.Get(listenerID) {
+		if r.ServiceID == serviceID && r.ARN == identifier {
 			return r.ID, true
 		}
 	}
@@ -688,12 +606,12 @@ func (b *InMemoryBackend) resolveRuleID(serviceID, listenerID, identifier string
 
 // resolveTargetGroupID resolves a target group identifier to an ID.
 func (b *InMemoryBackend) resolveTargetGroupID(identifier string) (string, bool) {
-	if _, ok := b.targetGroups[identifier]; ok {
+	if b.targetGroups.Has(identifier) {
 		return identifier, true
 	}
-	for id, tg := range b.targetGroups {
+	for _, tg := range b.targetGroups.All() {
 		if tg.ARN == identifier {
-			return id, true
+			return tg.ID, true
 		}
 	}
 
@@ -702,12 +620,12 @@ func (b *InMemoryBackend) resolveTargetGroupID(identifier string) (string, bool)
 
 // resolveALSID resolves an access log subscription identifier.
 func (b *InMemoryBackend) resolveALSID(identifier string) (string, bool) {
-	if _, ok := b.alss[identifier]; ok {
+	if b.alss.Has(identifier) {
 		return identifier, true
 	}
-	for id, a := range b.alss {
+	for _, a := range b.alss.All() {
 		if a.ARN == identifier {
-			return id, true
+			return a.ID, true
 		}
 	}
 
@@ -716,12 +634,12 @@ func (b *InMemoryBackend) resolveALSID(identifier string) (string, bool) {
 
 // resolveSNSAID resolves a SNSA identifier.
 func (b *InMemoryBackend) resolveSNSAID(identifier string) (string, bool) {
-	if _, ok := b.snsas[identifier]; ok {
+	if b.snsas.Has(identifier) {
 		return identifier, true
 	}
-	for id, s := range b.snsas {
+	for _, s := range b.snsas.All() {
 		if s.ARN == identifier {
-			return id, true
+			return s.ID, true
 		}
 	}
 
@@ -730,12 +648,12 @@ func (b *InMemoryBackend) resolveSNSAID(identifier string) (string, bool) {
 
 // resolveSNVAID resolves a SNVA identifier.
 func (b *InMemoryBackend) resolveSNVAID(identifier string) (string, bool) {
-	if _, ok := b.snvas[identifier]; ok {
+	if b.snvas.Has(identifier) {
 		return identifier, true
 	}
-	for id, s := range b.snvas {
+	for _, s := range b.snvas.All() {
 		if s.ARN == identifier {
-			return id, true
+			return s.ID, true
 		}
 	}
 
@@ -757,7 +675,7 @@ func (b *InMemoryBackend) CreateService(
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
 
-	if _, exists := b.servicesByName[name]; exists {
+	if len(b.servicesByName.Get(name)) > 0 {
 		return nil, ErrAlreadyExists
 	}
 
@@ -785,8 +703,7 @@ func (b *InMemoryBackend) CreateService(
 		Region:           region,
 	}
 
-	b.services[id] = svc
-	b.servicesByName[name] = id
+	b.services.Put(svc)
 	b.tags[svcARN] = copyTags(tags)
 
 	return svc.toService(), nil
@@ -802,7 +719,9 @@ func (b *InMemoryBackend) GetService(serviceID string) (*Service, error) {
 		return nil, ErrNotFound
 	}
 
-	return b.services[id].toService(), nil
+	svc, _ := b.services.Get(id)
+
+	return svc.toService(), nil
 }
 
 // UpdateService updates a service.
@@ -817,7 +736,7 @@ func (b *InMemoryBackend) UpdateService(
 		return nil, ErrNotFound
 	}
 
-	svc := b.services[id]
+	svc, _ := b.services.Get(id)
 	if authType != "" {
 		svc.AuthType = authType
 	}
@@ -838,12 +757,11 @@ func (b *InMemoryBackend) DeleteService(serviceID string) (*Service, error) {
 		return nil, ErrNotFound
 	}
 
-	svc := b.services[id]
+	svc, _ := b.services.Get(id)
 	out := svc.toService()
 	out.Status = statusDeleted
 
-	delete(b.servicesByName, svc.Name)
-	delete(b.services, id)
+	b.services.Delete(id)
 	delete(b.tags, svc.ARN)
 
 	return out, nil
@@ -859,9 +777,9 @@ func (b *InMemoryBackend) ListServices(
 	defer b.mu.RUnlock()
 
 	region := b.regionFor(ctx)
-	all := make([]*ServiceSummary, 0, len(b.services))
+	all := make([]*ServiceSummary, 0, b.services.Len())
 
-	for _, svc := range b.services {
+	for _, svc := range b.services.All() {
 		if svc.Region != region {
 			continue
 		}
@@ -891,7 +809,7 @@ func (b *InMemoryBackend) CreateServiceNetwork(
 	b.mu.Lock("CreateServiceNetwork")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networksByName[name]; exists {
+	if len(b.networksByName.Get(name)) > 0 {
 		return nil, ErrAlreadyExists
 	}
 
@@ -915,8 +833,7 @@ func (b *InMemoryBackend) CreateServiceNetwork(
 		Region:        region,
 	}
 
-	b.serviceNetworks[id] = sn
-	b.networksByName[name] = id
+	b.serviceNetworks.Put(sn)
 	b.tags[snARN] = copyTags(tags)
 
 	return sn.toServiceNetwork(), nil
@@ -932,7 +849,7 @@ func (b *InMemoryBackend) GetServiceNetwork(snID string) (*ServiceNetwork, error
 		return nil, ErrNotFound
 	}
 
-	sn := b.serviceNetworks[id]
+	sn, _ := b.serviceNetworks.Get(id)
 
 	// compute counts
 	sn.NumberOfAssociatedServices = b.countSNSAs(id)
@@ -943,7 +860,7 @@ func (b *InMemoryBackend) GetServiceNetwork(snID string) (*ServiceNetwork, error
 
 func (b *InMemoryBackend) countSNSAs(snID string) int64 {
 	var count int64
-	for _, s := range b.snsas {
+	for _, s := range b.snsas.All() {
 		if s.ServiceNetworkID == snID {
 			count++
 		}
@@ -954,7 +871,7 @@ func (b *InMemoryBackend) countSNSAs(snID string) int64 {
 
 func (b *InMemoryBackend) countSNVAs(snID string) int64 {
 	var count int64
-	for _, s := range b.snvas {
+	for _, s := range b.snvas.All() {
 		if s.ServiceNetworkID == snID {
 			count++
 		}
@@ -973,7 +890,7 @@ func (b *InMemoryBackend) UpdateServiceNetwork(snID, authType string) (*ServiceN
 		return nil, ErrNotFound
 	}
 
-	sn := b.serviceNetworks[id]
+	sn, _ := b.serviceNetworks.Get(id)
 	if authType != "" {
 		sn.AuthType = authType
 	}
@@ -993,9 +910,8 @@ func (b *InMemoryBackend) DeleteServiceNetwork(snID string) error {
 		return ErrNotFound
 	}
 
-	sn := b.serviceNetworks[id]
-	delete(b.networksByName, sn.Name)
-	delete(b.serviceNetworks, id)
+	sn, _ := b.serviceNetworks.Get(id)
+	b.serviceNetworks.Delete(id)
 	delete(b.tags, sn.ARN)
 
 	return nil
@@ -1011,9 +927,9 @@ func (b *InMemoryBackend) ListServiceNetworks(
 	defer b.mu.RUnlock()
 
 	region := b.regionFor(ctx)
-	all := make([]*ServiceNetworkSummary, 0, len(b.serviceNetworks))
+	all := make([]*ServiceNetworkSummary, 0, b.serviceNetworks.Len())
 
-	for _, sn := range b.serviceNetworks {
+	for _, sn := range b.serviceNetworks.All() {
 		if sn.Region != region {
 			continue
 		}
@@ -1050,7 +966,7 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 	}
 
 	// check for existing association
-	for _, s := range b.snsas {
+	for _, s := range b.snsas.All() {
 		if s.ServiceNetworkID == snID && s.ServiceID == svcID {
 			return nil, ErrAlreadyExists
 		}
@@ -1061,8 +977,8 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 	region := b.regionFor(ctx)
 	assocARN := arn.Build(arnService, region, b.accountID, resourceServiceNetworkSvcAssoc+"/"+id)
 
-	sn := b.serviceNetworks[snID]
-	svc := b.services[svcID]
+	sn, _ := b.serviceNetworks.Get(snID)
+	svc, _ := b.services.Get(svcID)
 
 	snsa := &storedSNSA{
 		ARN:                assocARN,
@@ -1082,7 +998,7 @@ func (b *InMemoryBackend) CreateServiceNetworkServiceAssociation(
 		Region:             region,
 	}
 
-	b.snsas[id] = snsa
+	b.snsas.Put(snsa)
 	b.tags[assocARN] = copyTags(tags)
 
 	return snsa.toAssociation(), nil
@@ -1100,7 +1016,9 @@ func (b *InMemoryBackend) GetServiceNetworkServiceAssociation(
 		return nil, ErrNotFound
 	}
 
-	return b.snsas[id].toAssociation(), nil
+	s, _ := b.snsas.Get(id)
+
+	return s.toAssociation(), nil
 }
 
 // DeleteServiceNetworkServiceAssociation deletes a SNSA.
@@ -1113,8 +1031,8 @@ func (b *InMemoryBackend) DeleteServiceNetworkServiceAssociation(snsaID string) 
 		return ErrNotFound
 	}
 
-	s := b.snsas[id]
-	delete(b.snsas, id)
+	s, _ := b.snsas.Get(id)
+	b.snsas.Delete(id)
 	delete(b.tags, s.ARN)
 
 	return nil
@@ -1133,7 +1051,7 @@ func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
 	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkServiceAssociationSummary, 0)
 
-	for _, s := range b.snsas {
+	for _, s := range b.snsas.All() {
 		if s.Region != region {
 			continue
 		}
@@ -1179,7 +1097,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 	}
 
 	// check for existing
-	for _, s := range b.snvas {
+	for _, s := range b.snvas.All() {
 		if s.ServiceNetworkID == snID && s.VpcID == vpcID {
 			return nil, ErrAlreadyExists
 		}
@@ -1190,7 +1108,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 	region := b.regionFor(ctx)
 	assocARN := arn.Build(arnService, region, b.accountID, resourceServiceNetworkVpcAssoc+"/"+id)
 
-	sn := b.serviceNetworks[snID]
+	sn, _ := b.serviceNetworks.Get(snID)
 	sgs := make([]string, len(securityGroupIDs))
 	copy(sgs, securityGroupIDs)
 
@@ -1210,7 +1128,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 		Region:             region,
 	}
 
-	b.snvas[id] = snva
+	b.snvas.Put(snva)
 	b.tags[assocARN] = copyTags(tags)
 
 	return snva.toAssociation(), nil
@@ -1228,7 +1146,9 @@ func (b *InMemoryBackend) GetServiceNetworkVpcAssociation(
 		return nil, ErrNotFound
 	}
 
-	return b.snvas[id].toAssociation(), nil
+	s, _ := b.snvas.Get(id)
+
+	return s.toAssociation(), nil
 }
 
 // UpdateServiceNetworkVpcAssociation updates security groups on a SNVA.
@@ -1244,7 +1164,7 @@ func (b *InMemoryBackend) UpdateServiceNetworkVpcAssociation(
 		return nil, ErrNotFound
 	}
 
-	snva := b.snvas[id]
+	snva, _ := b.snvas.Get(id)
 	sgs := make([]string, len(securityGroupIDs))
 	copy(sgs, securityGroupIDs)
 	snva.SecurityGroupIDs = sgs
@@ -1263,8 +1183,8 @@ func (b *InMemoryBackend) DeleteServiceNetworkVpcAssociation(snvaID string) erro
 		return ErrNotFound
 	}
 
-	s := b.snvas[id]
-	delete(b.snvas, id)
+	s, _ := b.snvas.Get(id)
+	b.snvas.Delete(id)
 	delete(b.tags, s.ARN)
 
 	return nil
@@ -1283,7 +1203,7 @@ func (b *InMemoryBackend) ListServiceNetworkVpcAssociations(
 	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkVpcAssociationSummary, 0)
 
-	for _, s := range b.snvas {
+	for _, s := range b.snvas.All() {
 		if s.Region != region {
 			continue
 		}
@@ -1329,8 +1249,8 @@ func (b *InMemoryBackend) CreateListener(
 	}
 
 	// check duplicate name within service
-	for _, l := range b.listeners {
-		if l.ServiceID == svcID && l.Name == name {
+	for _, l := range b.listenersByService.Get(svcID) {
+		if l.Name == name {
 			return nil, ErrAlreadyExists
 		}
 	}
@@ -1345,9 +1265,8 @@ func (b *InMemoryBackend) CreateListener(
 
 	now := time.Now().UTC()
 	id := newID(idPrefixListener)
-	svc := b.services[svcID]
+	svc, _ := b.services.Get(svcID)
 	listenerARN := b.buildListenerARN(svcID, id)
-	key := svcID + "/" + id
 
 	l := &storedListener{
 		ARN:           listenerARN,
@@ -1363,7 +1282,7 @@ func (b *InMemoryBackend) CreateListener(
 		LastUpdatedAt: now,
 	}
 
-	b.listeners[key] = l
+	b.listeners.Put(l)
 	b.tags[listenerARN] = copyTags(tags)
 
 	// create the default rule
@@ -1379,7 +1298,6 @@ func (b *InMemoryBackend) createDefaultRule(
 ) {
 	id := newID(idPrefixRule)
 	ruleARN := b.buildRuleARN(serviceID, listenerID, id)
-	key := serviceID + "/" + listenerID + "/" + id
 
 	r := &storedRule{
 		ARN:           ruleARN,
@@ -1395,7 +1313,7 @@ func (b *InMemoryBackend) createDefaultRule(
 		LastUpdatedAt: now,
 	}
 
-	b.rules[key] = r
+	b.rules.Put(r)
 }
 
 // GetListener returns a listener.
@@ -1413,9 +1331,9 @@ func (b *InMemoryBackend) GetListener(serviceID, listenerID string) (*Listener, 
 		return nil, ErrNotFound
 	}
 
-	key := svcID + "/" + lID
+	l, _ := b.listeners.Get(lID)
 
-	return b.listeners[key].toListener(), nil
+	return l.toListener(), nil
 }
 
 // UpdateListener updates the default action of a listener.
@@ -1436,8 +1354,7 @@ func (b *InMemoryBackend) UpdateListener(
 		return nil, ErrNotFound
 	}
 
-	key := svcID + "/" + lID
-	l := b.listeners[key]
+	l, _ := b.listeners.Get(lID)
 
 	if defaultAction != nil {
 		l.DefaultAction = defaultAction
@@ -1463,18 +1380,14 @@ func (b *InMemoryBackend) DeleteListener(serviceID, listenerID string) error {
 		return ErrNotFound
 	}
 
-	key := svcID + "/" + lID
-	l := b.listeners[key]
-	delete(b.listeners, key)
+	l, _ := b.listeners.Get(lID)
+	b.listeners.Delete(lID)
 	delete(b.tags, l.ARN)
 
 	// delete all rules for this listener
-	prefix := svcID + "/" + lID + "/"
-	for k, r := range b.rules {
-		if strings.HasPrefix(k, prefix) {
-			delete(b.rules, k)
-			delete(b.tags, r.ARN)
-		}
+	for _, r := range slices.Clone(b.rulesByListener.Get(lID)) {
+		b.rules.Delete(r.ID)
+		delete(b.tags, r.ARN)
 	}
 
 	return nil
@@ -1496,10 +1409,8 @@ func (b *InMemoryBackend) ListListeners(
 
 	all := make([]*ListenerSummary, 0)
 
-	for _, l := range b.listeners {
-		if l.ServiceID == svcID {
-			all = append(all, l.toSummary())
-		}
+	for _, l := range b.listenersByService.Get(svcID) {
+		all = append(all, l.toSummary())
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -1537,8 +1448,8 @@ func (b *InMemoryBackend) CreateRule(
 	}
 
 	// check duplicate name within listener
-	for _, r := range b.rules {
-		if r.ServiceID == svcID && r.ListenerID == lID && r.Name == name {
+	for _, r := range b.rulesByListener.Get(lID) {
+		if r.Name == name {
 			return nil, ErrAlreadyExists
 		}
 	}
@@ -1546,7 +1457,6 @@ func (b *InMemoryBackend) CreateRule(
 	now := time.Now().UTC()
 	id := newID(idPrefixRule)
 	ruleARN := b.buildRuleARN(svcID, lID, id)
-	key := svcID + "/" + lID + "/" + id
 
 	r := &storedRule{
 		ARN:           ruleARN,
@@ -1562,7 +1472,7 @@ func (b *InMemoryBackend) CreateRule(
 		LastUpdatedAt: now,
 	}
 
-	b.rules[key] = r
+	b.rules.Put(r)
 	b.tags[ruleARN] = copyTags(tags)
 
 	return r.toRule(), nil
@@ -1588,9 +1498,9 @@ func (b *InMemoryBackend) GetRule(serviceID, listenerID, ruleID string) (*Rule, 
 		return nil, ErrNotFound
 	}
 
-	key := svcID + "/" + lID + "/" + rID
+	r, _ := b.rules.Get(rID)
 
-	return b.rules[key].toRule(), nil
+	return r.toRule(), nil
 }
 
 // UpdateRule updates a rule.
@@ -1618,8 +1528,7 @@ func (b *InMemoryBackend) UpdateRule(
 		return nil, ErrNotFound
 	}
 
-	key := svcID + "/" + lID + "/" + rID
-	r := b.rules[key]
+	r, _ := b.rules.Get(rID)
 
 	if priority != 0 {
 		r.Priority = priority
@@ -1658,14 +1567,13 @@ func (b *InMemoryBackend) DeleteRule(serviceID, listenerID, ruleID string) error
 		return ErrNotFound
 	}
 
-	key := svcID + "/" + lID + "/" + rID
-	r := b.rules[key]
+	r, _ := b.rules.Get(rID)
 
 	if r.IsDefault {
 		return ErrInvalidParameter
 	}
 
-	delete(b.rules, key)
+	b.rules.Delete(rID)
 	delete(b.tags, r.ARN)
 
 	return nil
@@ -1692,8 +1600,8 @@ func (b *InMemoryBackend) ListRules(
 
 	all := make([]*RuleSummary, 0)
 
-	for _, r := range b.rules {
-		if r.ServiceID == svcID && r.ListenerID == lID {
+	for _, r := range b.rulesByListener.Get(lID) {
+		if r.ServiceID == svcID {
 			all = append(all, r.toSummary())
 		}
 	}
@@ -1739,8 +1647,7 @@ func (b *InMemoryBackend) BatchUpdateRule(
 			continue
 		}
 
-		key := svcID + "/" + lID + "/" + rID
-		r := b.rules[key]
+		r, _ := b.rules.Get(rID)
 
 		if u.Priority != 0 {
 			r.Priority = u.Priority
@@ -1785,7 +1692,7 @@ func (b *InMemoryBackend) CreateTargetGroup(
 	b.mu.Lock("CreateTargetGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.tgsByName[name]; exists {
+	if len(b.tgsByName.Get(name)) > 0 {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1807,8 +1714,7 @@ func (b *InMemoryBackend) CreateTargetGroup(
 		Region:        region,
 	}
 
-	b.targetGroups[id] = tg
-	b.tgsByName[name] = id
+	b.targetGroups.Put(tg)
 	b.targets[id] = make([]*storedTarget, 0)
 	b.tags[tgARN] = copyTags(tags)
 
@@ -1825,7 +1731,9 @@ func (b *InMemoryBackend) GetTargetGroup(tgID string) (*TargetGroup, error) {
 		return nil, ErrNotFound
 	}
 
-	return b.targetGroups[id].toTargetGroup(), nil
+	tg, _ := b.targetGroups.Get(id)
+
+	return tg.toTargetGroup(), nil
 }
 
 // UpdateTargetGroup updates a target group's health check config.
@@ -1841,7 +1749,7 @@ func (b *InMemoryBackend) UpdateTargetGroup(
 		return nil, ErrNotFound
 	}
 
-	tg := b.targetGroups[id]
+	tg, _ := b.targetGroups.Get(id)
 	if tg.Config == nil {
 		tg.Config = &TargetGroupConfig{}
 	}
@@ -1865,9 +1773,8 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgID string) error {
 		return ErrNotFound
 	}
 
-	tg := b.targetGroups[id]
-	delete(b.targetGroups, id)
-	delete(b.tgsByName, tg.Name)
+	tg, _ := b.targetGroups.Get(id)
+	b.targetGroups.Delete(id)
 	delete(b.targets, id)
 	delete(b.tags, tg.ARN)
 
@@ -1885,9 +1792,9 @@ func (b *InMemoryBackend) ListTargetGroups(
 	defer b.mu.RUnlock()
 
 	region := b.regionFor(ctx)
-	all := make([]*TargetGroupSummary, 0, len(b.targetGroups))
+	all := make([]*TargetGroupSummary, 0, b.targetGroups.Len())
 
-	for _, tg := range b.targetGroups {
+	for _, tg := range b.targetGroups.All() {
 		if tg.Region != region {
 			continue
 		}
@@ -2104,28 +2011,28 @@ func (b *InMemoryBackend) CreateAccessLogSubscription(
 		LastUpdatedAt:         now,
 	}
 
-	b.alss[id] = als
+	b.alss.Put(als)
 	b.tags[alsARN] = copyTags(tags)
 
 	return als.toALS(), nil
 }
 
 func (b *InMemoryBackend) resolveResourceARN(resourceID string) string {
-	if svc, ok := b.services[resourceID]; ok {
+	if svc, ok := b.services.Get(resourceID); ok {
 		return svc.ARN
 	}
 
-	for _, svc := range b.services {
+	for _, svc := range b.services.All() {
 		if svc.ARN == resourceID {
 			return svc.ARN
 		}
 	}
 
-	if sn, ok := b.serviceNetworks[resourceID]; ok {
+	if sn, ok := b.serviceNetworks.Get(resourceID); ok {
 		return sn.ARN
 	}
 
-	for _, sn := range b.serviceNetworks {
+	for _, sn := range b.serviceNetworks.All() {
 		if sn.ARN == resourceID {
 			return sn.ARN
 		}
@@ -2144,7 +2051,9 @@ func (b *InMemoryBackend) GetAccessLogSubscription(alsID string) (*AccessLogSubs
 		return nil, ErrNotFound
 	}
 
-	return b.alss[id].toALS(), nil
+	als, _ := b.alss.Get(id)
+
+	return als.toALS(), nil
 }
 
 // UpdateAccessLogSubscription updates the destination ARN.
@@ -2159,7 +2068,7 @@ func (b *InMemoryBackend) UpdateAccessLogSubscription(
 		return nil, ErrNotFound
 	}
 
-	als := b.alss[id]
+	als, _ := b.alss.Get(id)
 	als.DestinationARN = destinationArn
 	als.LastUpdatedAt = time.Now().UTC()
 
@@ -2176,8 +2085,8 @@ func (b *InMemoryBackend) DeleteAccessLogSubscription(alsID string) error {
 		return ErrNotFound
 	}
 
-	a := b.alss[id]
-	delete(b.alss, id)
+	a, _ := b.alss.Get(id)
+	b.alss.Delete(id)
 	delete(b.tags, a.ARN)
 
 	return nil
@@ -2195,7 +2104,7 @@ func (b *InMemoryBackend) ListAccessLogSubscriptions(
 
 	all := make([]*AccessLogSubscriptionSummary, 0)
 
-	for _, a := range b.alss {
+	for _, a := range b.alss.All() {
 		if resourceID != "" && a.ResourceID != resourceID && a.ResourceARN != resourceID {
 			continue
 		}
