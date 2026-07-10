@@ -3,17 +3,36 @@ package timestreamquery
 import (
 	"context"
 	"encoding/json"
-	"maps"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// timestreamquerySnapshotVersion identifies the shape of [backendSnapshot]. It
+// must be bumped whenever a change to backendSnapshot (or a value type held
+// by one of the registered store.Tables) would make an older snapshot unsafe
+// to decode as the current shape. Restore compares this against the
+// persisted value and discards (registry.ResetAll, not a partial decode) any
+// mismatch -- see Restore. The pre-Phase-3.3 snapshot format had no version
+// field at all, so an old snapshot decodes with Version == 0, which is
+// guaranteed to mismatch timestreamquerySnapshotVersion and is discarded the
+// same way any other incompatible snapshot is.
+const timestreamquerySnapshotVersion = 1
+
 // backendSnapshot is the serialisable form of InMemoryBackend state.
+//
+// Tables holds one JSON-encoded array per registered store.Table name
+// (scheduledQueries, queries -- see store_setup.go), produced by
+// b.registry.SnapshotAll(). AccountSettings is still a plain nested map (its
+// value type is a plain struct, not *T, so it does not fit store.Table's
+// shape -- see store_setup.go) and is persisted directly, as before. Version
+// guards against decoding a snapshot from an incompatible (older or newer)
+// build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	ScheduledQueries map[string]map[string]*ScheduledQuery `json:"scheduled_queries"` // region → name → SQ
-	ArnIndex         map[string]map[string]string          `json:"arn_index"`         // region → ARN → name
-	AccountSettings  map[string]accountSettingsSnapshot    `json:"account_settings"`  // region → settings
+	Tables          map[string]json.RawMessage         `json:"tables"`
+	AccountSettings map[string]accountSettingsSnapshot `json:"account_settings"`
+	Version         int                                `json:"version"`
 }
 
 // accountSettingsSnapshot is the serialisable form of AccountSettings.
@@ -28,20 +47,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Deep-copy scheduled queries across all regions.
-	sqCopy := make(map[string]map[string]*ScheduledQuery, len(b.scheduledQueries))
-	for region, regionMap := range b.scheduledQueries {
-		inner := make(map[string]*ScheduledQuery, len(regionMap))
-		for name, sq := range regionMap {
-			inner[name] = cloneScheduledQuery(sq)
-		}
-		sqCopy[region] = inner
-	}
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "timestreamquery: failed to snapshot tables", "error", err)
 
-	// Deep-copy ARN index across all regions.
-	arnCopy := make(map[string]map[string]string, len(b.arnIndex))
-	for region, regionMap := range b.arnIndex {
-		arnCopy[region] = maps.Clone(regionMap)
+		return nil
 	}
 
 	// Snapshot account settings across all regions.
@@ -56,9 +66,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	data, err := json.Marshal(backendSnapshot{
-		ScheduledQueries: sqCopy,
-		ArnIndex:         arnCopy,
-		AccountSettings:  settingsSnap,
+		Version:         timestreamquerySnapshotVersion,
+		Tables:          tables,
+		AccountSettings: settingsSnap,
 	})
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "timestreamquery: failed to marshal snapshot", "error", err)
@@ -81,8 +91,28 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.scheduledQueries = snap.ScheduledQueries
-	b.arnIndex = snap.ArnIndex
+	if snap.Version != timestreamquerySnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"timestreamquery: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", timestreamquerySnapshotVersion)
+
+		b.registry.ResetAll()
+		b.accountSettings = make(map[string]AccountSettings)
+		b.clientTokens = newClientTokenCache()
+		b.pageStore = newNextTokenStore()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("timestreamquery: restore snapshot tables: %w", err)
+	}
 
 	// Reconstruct per-region account settings.
 	b.accountSettings = make(map[string]AccountSettings, len(snap.AccountSettings))
@@ -101,18 +131,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // ensureNonNilMaps initialises any nil maps in the backend.
 // Must be called with the write lock held.
 func ensureNonNilMaps(b *InMemoryBackend) {
-	if b.scheduledQueries == nil {
-		b.scheduledQueries = make(map[string]map[string]*ScheduledQuery)
-	}
-
-	if b.arnIndex == nil {
-		b.arnIndex = make(map[string]map[string]string)
-	}
-
-	if b.queries == nil {
-		b.queries = make(map[string]*QueryResult)
-	}
-
 	if b.accountSettings == nil {
 		b.accountSettings = make(map[string]AccountSettings)
 	}

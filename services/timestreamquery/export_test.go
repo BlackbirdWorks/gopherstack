@@ -11,12 +11,7 @@ func ScheduledQueryCount(b *InMemoryBackend) int {
 	b.mu.RLock("ScheduledQueryCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionMap := range b.scheduledQueries {
-		total += len(regionMap)
-	}
-
-	return total
+	return b.scheduledQueries.Len()
 }
 
 // QueryCount returns the number of active query results stored in the backend.
@@ -25,7 +20,7 @@ func QueryCount(b *InMemoryBackend) int {
 	b.mu.RLock("QueryCount")
 	defer b.mu.RUnlock()
 
-	return len(b.queries)
+	return b.queries.Len()
 }
 
 // HandlerOpsLen returns the number of operations pre-built in the handler's supported ops set.
