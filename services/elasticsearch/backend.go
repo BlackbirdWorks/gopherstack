@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -125,6 +126,11 @@ type Package struct {
 	PackageType string `json:"packageType"`
 	Description string `json:"packageDescription"`
 	Status      string `json:"packageStatus"`
+	// region is the store.Table composite-key qualifier (see regionKey in
+	// backend.go); it is unexported so it is never marshaled by a plain
+	// json.Marshal(Package) and is instead carried through persistence via
+	// regionalDTO (see persistence.go).
+	region string
 }
 
 // CrossClusterDomainInfo holds domain endpoint info used in cross-cluster connections.
@@ -140,6 +146,11 @@ type InboundConnection struct {
 	ConnectionStatus string                 `json:"connectionStatus"`
 	SourceDomainInfo CrossClusterDomainInfo `json:"sourceDomainInfo"`
 	DestDomainInfo   CrossClusterDomainInfo `json:"destDomainInfo"`
+	// region is the store.Table composite-key qualifier (see regionKey in
+	// backend.go); it is unexported so it is never marshaled by a plain
+	// json.Marshal(InboundConnection) and is instead carried through
+	// persistence via regionalDTO (see persistence.go).
+	region string
 }
 
 // OutboundConnection represents an outbound cross-cluster search connection.
@@ -149,17 +160,23 @@ type OutboundConnection struct {
 	ConnectionStatus string                 `json:"connectionStatus"`
 	LocalDomainInfo  CrossClusterDomainInfo `json:"localDomainInfo"`
 	RemoteDomainInfo CrossClusterDomainInfo `json:"remoteDomainInfo"`
+	// region is the store.Table composite-key qualifier; see the identical
+	// comment on InboundConnection above.
+	region string
 }
 
 // VpcEndpoint represents a managed VPC endpoint for an Elasticsearch domain.
 type VpcEndpoint struct {
-	ID              string            `json:"vpcEndpointID"`
-	OwnerAccountID  string            `json:"ownerAccountID"`
-	DomainARN       string            `json:"domainARN"`
-	Endpoint        string            `json:"endpoint"`
-	Status          string            `json:"status"`
-	VpcOptions      map[string]string `json:"vpcOptions"`
-	AuthorizedAccts []string          `json:"authorizedAccounts"`
+	VpcOptions     map[string]string `json:"vpcOptions"`
+	ID             string            `json:"vpcEndpointID"`
+	OwnerAccountID string            `json:"ownerAccountID"`
+	DomainARN      string            `json:"domainARN"`
+	Endpoint       string            `json:"endpoint"`
+	Status         string            `json:"status"`
+	// region is the store.Table composite-key qualifier; see the identical
+	// comment on InboundConnection above.
+	region          string
+	AuthorizedAccts []string `json:"authorizedAccounts"`
 }
 
 // ReservedInstanceOffering represents a reserved Elasticsearch instance offering.
@@ -175,15 +192,18 @@ type ReservedInstanceOffering struct {
 
 // ReservedInstance represents a purchased reserved Elasticsearch instance.
 type ReservedInstance struct {
-	ReservationID   string  `json:"reservedElasticsearchInstanceId"`
-	ReservationName string  `json:"reservationName"`
-	OfferingID      string  `json:"reservedElasticsearchInstanceOfferingId"`
-	InstanceType    string  `json:"elasticsearchInstanceType"`
-	State           string  `json:"state"`
-	FixedPrice      float64 `json:"fixedPrice"`
-	UsagePrice      float64 `json:"usagePrice"`
-	Duration        int     `json:"duration"`
-	Count           int     `json:"elasticsearchInstanceCount"`
+	ReservationID   string `json:"reservedElasticsearchInstanceId"`
+	ReservationName string `json:"reservationName"`
+	OfferingID      string `json:"reservedElasticsearchInstanceOfferingId"`
+	InstanceType    string `json:"elasticsearchInstanceType"`
+	State           string `json:"state"`
+	// region is the store.Table composite-key qualifier; see the identical
+	// comment on InboundConnection above.
+	region     string
+	FixedPrice float64 `json:"fixedPrice"`
+	UsagePrice float64 `json:"usagePrice"`
+	Duration   int     `json:"duration"`
+	Count      int     `json:"elasticsearchInstanceCount"`
 }
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
@@ -227,34 +247,35 @@ type EBSOptions struct {
 }
 
 // Domain represents an Elasticsearch domain.
-type Domain struct { //nolint:govet // fieldalignment: readability over micro-optimization
+type Domain struct {
 	Tags                        *tags.Tags        `json:"tags,omitempty"`
 	AdvancedOptions             map[string]string `json:"advancedOptions,omitempty"`
-	Name                        string            `json:"name"`
+	Status                      string            `json:"status"`
+	AccessPolicies              string            `json:"accessPolicies,omitempty"`
 	DomainID                    string            `json:"domainID"`
 	ARN                         string            `json:"arn"`
 	ElasticsearchVersion        string            `json:"elasticsearchVersion"`
 	Endpoint                    string            `json:"endpoint"`
-	Status                      string            `json:"status"`
-	AccessPolicies              string            `json:"accessPolicies,omitempty"`
-	TLSSecurityPolicy           string            `json:"tlsSecurityPolicy,omitempty"`
-	ClusterConfig               ClusterConfig     `json:"clusterConfig"`
-	EBSOptions                  EBSOptions        `json:"ebsOptions"`
-	SnapshotOptions             SnapshotOptions   `json:"snapshotOptions"`
-	EncryptionAtRestEnabled     bool              `json:"encryptionAtRestEnabled"`
-	NodeToNodeEncryptionEnabled bool              `json:"nodeToNodeEncryptionEnabled"`
-	EnforceHTTPS                bool              `json:"enforceHTTPS"`
+	region                      string
+	Name                        string          `json:"name"`
+	TLSSecurityPolicy           string          `json:"tlsSecurityPolicy,omitempty"`
+	EBSOptions                  EBSOptions      `json:"ebsOptions"`
+	ClusterConfig               ClusterConfig   `json:"clusterConfig"`
+	SnapshotOptions             SnapshotOptions `json:"snapshotOptions"`
+	EncryptionAtRestEnabled     bool            `json:"encryptionAtRestEnabled"`
+	NodeToNodeEncryptionEnabled bool            `json:"nodeToNodeEncryptionEnabled"`
+	EnforceHTTPS                bool            `json:"enforceHTTPS"`
 }
 
 // CreateDomainInput holds all parameters for CreateDomain.
-type CreateDomainInput struct { //nolint:govet // fieldalignment: readability over micro-optimization
+type CreateDomainInput struct {
 	AdvancedOptions             map[string]string
 	Name                        string
 	ElasticsearchVersion        string
 	AccessPolicies              string
 	TLSSecurityPolicy           string
-	ClusterConfig               ClusterConfig
 	EBSOptions                  EBSOptions
+	ClusterConfig               ClusterConfig
 	SnapshotOptions             SnapshotOptions
 	EncryptionAtRestEnabled     bool
 	NodeToNodeEncryptionEnabled bool
@@ -276,58 +297,91 @@ type UpdateConfig struct {
 
 // InMemoryBackend is the in-memory store for Elasticsearch domains.
 //
-// All resource maps are nested by region (outer key = region) so that same-named
-// resources in different regions are fully isolated. Elasticsearch resources are
-// region-scoped in AWS, so every map carries a region dimension.
+// Elasticsearch resources are region-scoped in AWS. Phase 3.3 of the
+// datalayer refactor replaces the resource collections that used to be
+// nested by region (outer key = region, e.g. map[string]map[string]*Domain)
+// with a flat *store.Table, keyed by the composite "region|id" string (see
+// regionKey), with a companion *store.Index grouping entries by region for
+// the per-region scans the nested maps used to answer directly -- the same
+// region-qualified-table pattern services/emr and services/codeartifact use.
+// None of Domain/Package/InboundConnection/OutboundConnection/VpcEndpoint/
+// ReservedInstance carried a region field of their own before this
+// conversion, so each gained an unexported region field purely for this
+// composite key; persistence.go carries it through via a shared regionalDTO
+// wrapper (store.Table.Snapshot's plain json.Marshal cannot see unexported
+// fields).
+//
+// arnIndex, packagesByName, packageAssociations, and vpcAccess are
+// deliberately NOT converted: store.Table requires a *V value with its own
+// identity, but each entry in these four maps is a bare string or string
+// slice with no identifier of its own. They remain plain region-nested maps,
+// unchanged by this refactor.
 type InMemoryBackend struct {
-	dnsRegistrar        DNSRegistrar
-	domains             map[string]map[string]*Domain
-	arnIndex            map[string]map[string]string // region → ARN → domain name
-	packages            map[string]map[string]*Package
-	packagesByName      map[string]map[string]string   // region → package name → package ID
-	packageAssociations map[string]map[string][]string // region → package ID → []domain names
-	inboundConnections  map[string]map[string]*InboundConnection
-	outboundConnections map[string]map[string]*OutboundConnection
-	vpcEndpoints        map[string]map[string]*VpcEndpoint
-	vpcAccess           map[string]map[string][]string
-	reservedInstances   map[string]map[string]*ReservedInstance
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
-	nextID              int
+	dnsRegistrar                DNSRegistrar
+	domains                     *store.Table[Domain]
+	domainsByRegion             *store.Index[Domain]
+	arnIndex                    map[string]map[string]string // region → ARN → domain name
+	packages                    *store.Table[Package]
+	packagesByRegion            *store.Index[Package]
+	packagesByName              map[string]map[string]string   // region → package name → package ID
+	packageAssociations         map[string]map[string][]string // region → package ID → []domain names
+	inboundConnections          *store.Table[InboundConnection]
+	inboundConnectionsByRegion  *store.Index[InboundConnection]
+	outboundConnections         *store.Table[OutboundConnection]
+	outboundConnectionsByRegion *store.Index[OutboundConnection]
+	vpcEndpoints                *store.Table[VpcEndpoint]
+	vpcEndpointsByRegion        *store.Index[VpcEndpoint]
+	vpcAccess                   map[string]map[string][]string
+	reservedInstances           *store.Table[ReservedInstance]
+	reservedInstancesByRegion   *store.Index[ReservedInstance]
+	registry                    *store.Registry
+	mu                          *lockmetrics.RWMutex
+	accountID                   string
+	region                      string
+	nextID                      int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		domains:             make(map[string]map[string]*Domain),
+	b := &InMemoryBackend{
 		arnIndex:            make(map[string]map[string]string),
-		packages:            make(map[string]map[string]*Package),
 		packagesByName:      make(map[string]map[string]string),
 		packageAssociations: make(map[string]map[string][]string),
-		inboundConnections:  make(map[string]map[string]*InboundConnection),
-		outboundConnections: make(map[string]map[string]*OutboundConnection),
-		vpcEndpoints:        make(map[string]map[string]*VpcEndpoint),
 		vpcAccess:           make(map[string]map[string][]string),
-		reservedInstances:   make(map[string]map[string]*ReservedInstance),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("elasticsearch"),
+		registry:            store.NewRegistry(),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the backend's default AWS region.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// The following lazy per-region store helpers return the resource map for the
-// given region, creating it on first use. Callers must hold b.mu.
+// regionKey builds the composite store.Table primary key ("region|id") shared
+// by every region-qualified table registered in store_setup.go.
+func regionKey(region, id string) string { return region + "|" + id }
 
-func (b *InMemoryBackend) domainsStore(region string) map[string]*Domain {
-	if b.domains[region] == nil {
-		b.domains[region] = make(map[string]*Domain)
-	}
+// The following Get/Put/Delete/InRegion helpers replace the old lazy
+// per-region map accessors (domainsStore(region) etc.) with store.Table /
+// store.Index operations. Callers must still hold b.mu, exactly as before --
+// store.Table performs no locking of its own (see pkgs/store's package doc).
 
-	return b.domains[region]
+func (b *InMemoryBackend) domainGet(region, name string) (*Domain, bool) {
+	return b.domains.Get(regionKey(region, name))
+}
+
+func (b *InMemoryBackend) domainPut(v *Domain) { b.domains.Put(v) }
+
+func (b *InMemoryBackend) domainDelete(region, name string) {
+	b.domains.Delete(regionKey(region, name))
+}
+
+func (b *InMemoryBackend) domainsInRegion(region string) []*Domain {
+	return b.domainsByRegion.Get(region)
 }
 
 func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
@@ -338,12 +392,18 @@ func (b *InMemoryBackend) arnIndexStore(region string) map[string]string {
 	return b.arnIndex[region]
 }
 
-func (b *InMemoryBackend) packagesStore(region string) map[string]*Package {
-	if b.packages[region] == nil {
-		b.packages[region] = make(map[string]*Package)
-	}
+func (b *InMemoryBackend) packageGet(region, id string) (*Package, bool) {
+	return b.packages.Get(regionKey(region, id))
+}
 
-	return b.packages[region]
+func (b *InMemoryBackend) packagePut(v *Package) { b.packages.Put(v) }
+
+func (b *InMemoryBackend) packageDelete(region, id string) {
+	b.packages.Delete(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) packagesInRegion(region string) []*Package {
+	return b.packagesByRegion.Get(region)
 }
 
 func (b *InMemoryBackend) packagesByNameStore(region string) map[string]string {
@@ -362,28 +422,48 @@ func (b *InMemoryBackend) packageAssociationsStore(region string) map[string][]s
 	return b.packageAssociations[region]
 }
 
-func (b *InMemoryBackend) inboundConnectionsStore(region string) map[string]*InboundConnection {
-	if b.inboundConnections[region] == nil {
-		b.inboundConnections[region] = make(map[string]*InboundConnection)
-	}
-
-	return b.inboundConnections[region]
+func (b *InMemoryBackend) inboundConnectionGet(region, id string) (*InboundConnection, bool) {
+	return b.inboundConnections.Get(regionKey(region, id))
 }
 
-func (b *InMemoryBackend) outboundConnectionsStore(region string) map[string]*OutboundConnection {
-	if b.outboundConnections[region] == nil {
-		b.outboundConnections[region] = make(map[string]*OutboundConnection)
-	}
+func (b *InMemoryBackend) inboundConnectionPut(v *InboundConnection) { b.inboundConnections.Put(v) }
 
-	return b.outboundConnections[region]
+func (b *InMemoryBackend) inboundConnectionDelete(region, id string) {
+	b.inboundConnections.Delete(regionKey(region, id))
 }
 
-func (b *InMemoryBackend) vpcEndpointsStore(region string) map[string]*VpcEndpoint {
-	if b.vpcEndpoints[region] == nil {
-		b.vpcEndpoints[region] = make(map[string]*VpcEndpoint)
-	}
+func (b *InMemoryBackend) inboundConnectionsInRegion(region string) []*InboundConnection {
+	return b.inboundConnectionsByRegion.Get(region)
+}
 
-	return b.vpcEndpoints[region]
+func (b *InMemoryBackend) outboundConnectionGet(region, id string) (*OutboundConnection, bool) {
+	return b.outboundConnections.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) outboundConnectionPut(v *OutboundConnection) {
+	b.outboundConnections.Put(v)
+}
+
+func (b *InMemoryBackend) outboundConnectionDelete(region, id string) {
+	b.outboundConnections.Delete(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) outboundConnectionsInRegion(region string) []*OutboundConnection {
+	return b.outboundConnectionsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) vpcEndpointGet(region, id string) (*VpcEndpoint, bool) {
+	return b.vpcEndpoints.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) vpcEndpointPut(v *VpcEndpoint) { b.vpcEndpoints.Put(v) }
+
+func (b *InMemoryBackend) vpcEndpointDelete(region, id string) {
+	b.vpcEndpoints.Delete(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) vpcEndpointsInRegion(region string) []*VpcEndpoint {
+	return b.vpcEndpointsByRegion.Get(region)
 }
 
 func (b *InMemoryBackend) vpcAccessStore(region string) map[string][]string {
@@ -394,12 +474,10 @@ func (b *InMemoryBackend) vpcAccessStore(region string) map[string][]string {
 	return b.vpcAccess[region]
 }
 
-func (b *InMemoryBackend) reservedInstancesStore(region string) map[string]*ReservedInstance {
-	if b.reservedInstances[region] == nil {
-		b.reservedInstances[region] = make(map[string]*ReservedInstance)
-	}
+func (b *InMemoryBackend) reservedInstancePut(v *ReservedInstance) { b.reservedInstances.Put(v) }
 
-	return b.reservedInstances[region]
+func (b *InMemoryBackend) reservedInstancesInRegion(region string) []*ReservedInstance {
+	return b.reservedInstancesByRegion.Get(region)
 }
 
 // SetDNSRegistrar wires a DNS server so Elasticsearch domain hostnames are auto-registered.
@@ -427,8 +505,7 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
-	domains := b.domainsStore(region)
-	if _, exists := domains[inp.Name]; exists {
+	if _, exists := b.domainGet(region, inp.Name); exists {
 		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, inp.Name)
 	}
 
@@ -453,6 +530,7 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 	}
 
 	d := &Domain{
+		region:                      region,
 		Name:                        inp.Name,
 		DomainID:                    domainID,
 		ARN:                         domainARN,
@@ -470,7 +548,7 @@ func (b *InMemoryBackend) CreateDomain(ctx context.Context, inp CreateDomainInpu
 		TLSSecurityPolicy:           inp.TLSSecurityPolicy,
 		Tags:                        tags.New("elasticsearch." + region + "." + inp.Name + ".tags"),
 	}
-	domains[inp.Name] = d
+	b.domainPut(d)
 	b.arnIndexStore(region)[domainARN] = inp.Name
 
 	if b.dnsRegistrar != nil {
@@ -486,8 +564,7 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
 
-	domains := b.domainsStore(region)
-	d, exists := domains[name]
+	d, exists := b.domainGet(region, name)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
@@ -495,7 +572,7 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 	cp := domainCopy(d)
 	d.Tags.Close()
 	delete(b.arnIndexStore(region), d.ARN)
-	delete(domains, name)
+	b.domainDelete(region, name)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
@@ -510,7 +587,7 @@ func (b *InMemoryBackend) DescribeDomain(ctx context.Context, name string) (*Dom
 	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domainsStore(region)[name]
+	d, exists := b.domainGet(region, name)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
@@ -524,10 +601,10 @@ func (b *InMemoryBackend) ListDomainNames(ctx context.Context) []string {
 	b.mu.RLock("ListDomainNames")
 	defer b.mu.RUnlock()
 
-	domains := b.domainsStore(region)
+	domains := b.domainsInRegion(region)
 	names := make([]string, 0, len(domains))
-	for name := range domains {
-		names = append(names, name)
+	for _, d := range domains {
+		names = append(names, d.Name)
 	}
 
 	slices.Sort(names)
@@ -541,7 +618,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(ctx context.Context, name string, c
 	b.mu.Lock("UpdateDomainConfig")
 	defer b.mu.Unlock()
 
-	d, exists := b.domainsStore(region)[name]
+	d, exists := b.domainGet(region, name)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
@@ -593,7 +670,9 @@ func (b *InMemoryBackend) findDomainByARN(region, domainARN string) *Domain {
 		return nil
 	}
 
-	return b.domainsStore(region)[name]
+	d, _ := b.domainGet(region, name)
+
+	return d
 }
 
 // ListTags returns tags for the domain identified by ARN. The region is resolved
@@ -649,22 +728,15 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, regionDomains := range b.domains {
-		for _, d := range regionDomains {
-			d.Tags.Close()
-		}
+	for _, d := range b.domains.Snapshot() {
+		d.Tags.Close()
 	}
 
-	b.domains = make(map[string]map[string]*Domain)
+	b.registry.ResetAll()
 	b.arnIndex = make(map[string]map[string]string)
-	b.packages = make(map[string]map[string]*Package)
 	b.packagesByName = make(map[string]map[string]string)
 	b.packageAssociations = make(map[string]map[string][]string)
-	b.inboundConnections = make(map[string]map[string]*InboundConnection)
-	b.outboundConnections = make(map[string]map[string]*OutboundConnection)
-	b.vpcEndpoints = make(map[string]map[string]*VpcEndpoint)
 	b.vpcAccess = make(map[string]map[string][]string)
-	b.reservedInstances = make(map[string]map[string]*ReservedInstance)
 	b.nextID = 0
 }
 
@@ -706,8 +778,9 @@ func (b *InMemoryBackend) CreatePackage(ctx context.Context, name, packageType, 
 		PackageType: packageType,
 		Description: description,
 		Status:      "AVAILABLE",
+		region:      region,
 	}
-	b.packagesStore(region)[id] = pkg
+	b.packagePut(pkg)
 	packagesByName[name] = id
 
 	cp := *pkg
@@ -721,11 +794,11 @@ func (b *InMemoryBackend) AssociatePackage(ctx context.Context, packageID, domai
 	b.mu.Lock("AssociatePackage")
 	defer b.mu.Unlock()
 
-	if _, exists := b.packagesStore(region)[packageID]; !exists {
+	if _, exists := b.packageGet(region, packageID); !exists {
 		return fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -751,7 +824,7 @@ func (b *InMemoryBackend) AcceptInboundCrossClusterSearchConnection(
 	b.mu.Lock("AcceptInboundCrossClusterSearchConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.inboundConnectionsStore(region)[connectionID]
+	conn, exists := b.inboundConnectionGet(region, connectionID)
 	if !exists {
 		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
 	}
@@ -769,7 +842,8 @@ func (b *InMemoryBackend) AddInboundConnectionInternal(ctx context.Context, conn
 	defer b.mu.Unlock()
 
 	cp := conn
-	b.inboundConnectionsStore(region)[conn.ConnectionID] = &cp
+	cp.region = region
+	b.inboundConnectionPut(&cp)
 }
 
 // CreateOutboundCrossClusterSearchConnection creates a new outbound cross-cluster
@@ -794,8 +868,9 @@ func (b *InMemoryBackend) CreateOutboundCrossClusterSearchConnection(
 		ConnectionStatus: "VALIDATING",
 		LocalDomainInfo:  localDomain,
 		RemoteDomainInfo: remoteDomain,
+		region:           region,
 	}
-	b.outboundConnectionsStore(region)[id] = conn
+	b.outboundConnectionPut(conn)
 	cp := *conn
 
 	return &cp, nil
@@ -826,8 +901,9 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		Endpoint:       fmt.Sprintf("vpc-%s.%s.es.amazonaws.com", id, region),
 		Status:         statusActive,
 		VpcOptions:     optsCopy,
+		region:         region,
 	}
-	b.vpcEndpointsStore(region)[id] = endpoint
+	b.vpcEndpointPut(endpoint)
 
 	return vpcEndpointCopy(endpoint), nil
 }
@@ -842,7 +918,7 @@ func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(ctx context.Context, domain
 	b.mu.Lock("AuthorizeVpcEndpointAccess")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -862,7 +938,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(ctx context.Context, domainNa
 	b.mu.RLock("CancelDomainConfigChange")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domainsStore(region)[domainName]
+	d, exists := b.domainGet(region, domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -879,7 +955,7 @@ func (b *InMemoryBackend) CancelElasticsearchServiceSoftwareUpdate(
 	b.mu.RLock("CancelElasticsearchServiceSoftwareUpdate")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domainsStore(region)[domainName]
+	d, exists := b.domainGet(region, domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -914,7 +990,8 @@ func (b *InMemoryBackend) AddDomainInternal(ctx context.Context, d Domain) {
 		cp.Tags = tags.New("elasticsearch." + region + "." + cp.Name + ".tags")
 	}
 
-	b.domainsStore(region)[cp.Name] = &cp
+	cp.region = region
+	b.domainPut(&cp)
 
 	if cp.ARN != "" {
 		b.arnIndexStore(region)[cp.ARN] = cp.Name
@@ -929,14 +1006,13 @@ func (b *InMemoryBackend) DeleteInboundCrossClusterSearchConnection(
 	b.mu.Lock("DeleteInboundCrossClusterSearchConnection")
 	defer b.mu.Unlock()
 
-	conns := b.inboundConnectionsStore(region)
-	conn, exists := conns[connectionID]
+	conn, exists := b.inboundConnectionGet(region, connectionID)
 	if !exists {
 		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
 	}
 
 	cp := *conn
-	delete(conns, connectionID)
+	b.inboundConnectionDelete(region, connectionID)
 
 	return &cp, nil
 }
@@ -949,14 +1025,13 @@ func (b *InMemoryBackend) DeleteOutboundCrossClusterSearchConnection(
 	b.mu.Lock("DeleteOutboundCrossClusterSearchConnection")
 	defer b.mu.Unlock()
 
-	conns := b.outboundConnectionsStore(region)
-	conn, exists := conns[connectionID]
+	conn, exists := b.outboundConnectionGet(region, connectionID)
 	if !exists {
 		return nil, fmt.Errorf("%w: outbound connection %s not found", ErrConnectionNotFound, connectionID)
 	}
 
 	cp := *conn
-	delete(conns, connectionID)
+	b.outboundConnectionDelete(region, connectionID)
 
 	return &cp, nil
 }
@@ -969,7 +1044,7 @@ func (b *InMemoryBackend) RejectInboundCrossClusterSearchConnection(
 	b.mu.Lock("RejectInboundCrossClusterSearchConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.inboundConnectionsStore(region)[connectionID]
+	conn, exists := b.inboundConnectionGet(region, connectionID)
 	if !exists {
 		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
 	}
@@ -986,7 +1061,7 @@ func (b *InMemoryBackend) DescribeInboundCrossClusterSearchConnections(ctx conte
 	b.mu.RLock("DescribeInboundCrossClusterSearchConnections")
 	defer b.mu.RUnlock()
 
-	conns := b.inboundConnectionsStore(region)
+	conns := b.inboundConnectionsInRegion(region)
 	result := make([]*InboundConnection, 0, len(conns))
 	for _, conn := range conns {
 		cp := *conn
@@ -1002,7 +1077,7 @@ func (b *InMemoryBackend) DescribeOutboundCrossClusterSearchConnections(ctx cont
 	b.mu.RLock("DescribeOutboundCrossClusterSearchConnections")
 	defer b.mu.RUnlock()
 
-	conns := b.outboundConnectionsStore(region)
+	conns := b.outboundConnectionsInRegion(region)
 	result := make([]*OutboundConnection, 0, len(conns))
 	for _, conn := range conns {
 		cp := *conn
@@ -1018,15 +1093,14 @@ func (b *InMemoryBackend) DeletePackage(ctx context.Context, packageID string) (
 	b.mu.Lock("DeletePackage")
 	defer b.mu.Unlock()
 
-	packages := b.packagesStore(region)
-	pkg, exists := packages[packageID]
+	pkg, exists := b.packageGet(region, packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
 	cp := *pkg
 	delete(b.packagesByNameStore(region), pkg.Name)
-	delete(packages, packageID)
+	b.packageDelete(region, packageID)
 	delete(b.packageAssociationsStore(region), packageID)
 
 	return &cp, nil
@@ -1038,8 +1112,8 @@ func (b *InMemoryBackend) DescribePackages(ctx context.Context, packageIDs []str
 	b.mu.RLock("DescribePackages")
 	defer b.mu.RUnlock()
 
-	packages := b.packagesStore(region)
 	if len(packageIDs) == 0 {
+		packages := b.packagesInRegion(region)
 		result := make([]*Package, 0, len(packages))
 		for _, pkg := range packages {
 			cp := *pkg
@@ -1051,7 +1125,7 @@ func (b *InMemoryBackend) DescribePackages(ctx context.Context, packageIDs []str
 
 	result := make([]*Package, 0, len(packageIDs))
 	for _, id := range packageIDs {
-		if pkg, exists := packages[id]; exists {
+		if pkg, exists := b.packageGet(region, id); exists {
 			cp := *pkg
 			result = append(result, &cp)
 		}
@@ -1066,11 +1140,11 @@ func (b *InMemoryBackend) DissociatePackage(ctx context.Context, packageID, doma
 	b.mu.Lock("DissociatePackage")
 	defer b.mu.Unlock()
 
-	if _, exists := b.packagesStore(region)[packageID]; !exists {
+	if _, exists := b.packageGet(region, packageID); !exists {
 		return fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1093,7 +1167,7 @@ func (b *InMemoryBackend) GetPackageVersionHistory(ctx context.Context, packageI
 	b.mu.RLock("GetPackageVersionHistory")
 	defer b.mu.RUnlock()
 
-	pkg, exists := b.packagesStore(region)[packageID]
+	pkg, exists := b.packageGet(region, packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
@@ -1109,7 +1183,7 @@ func (b *InMemoryBackend) ListDomainsForPackage(ctx context.Context, packageID s
 	b.mu.RLock("ListDomainsForPackage")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.packagesStore(region)[packageID]; !exists {
+	if _, exists := b.packageGet(region, packageID); !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
@@ -1126,11 +1200,10 @@ func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName 
 	b.mu.RLock("ListPackagesForDomain")
 	defer b.mu.RUnlock()
 
-	packages := b.packagesStore(region)
 	var result []*Package
 	for packageID, assocs := range b.packageAssociationsStore(region) {
 		if slices.Contains(assocs, domainName) {
-			if pkg, exists := packages[packageID]; exists {
+			if pkg, exists := b.packageGet(region, packageID); exists {
 				cp := *pkg
 				result = append(result, &cp)
 			}
@@ -1146,7 +1219,7 @@ func (b *InMemoryBackend) UpdatePackage(ctx context.Context, packageID, descript
 	b.mu.Lock("UpdatePackage")
 	defer b.mu.Unlock()
 
-	pkg, exists := b.packagesStore(region)[packageID]
+	pkg, exists := b.packageGet(region, packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
@@ -1163,14 +1236,13 @@ func (b *InMemoryBackend) DeleteVpcEndpoint(ctx context.Context, vpcEndpointID s
 	b.mu.Lock("DeleteVpcEndpoint")
 	defer b.mu.Unlock()
 
-	endpoints := b.vpcEndpointsStore(region)
-	endpoint, exists := endpoints[vpcEndpointID]
+	endpoint, exists := b.vpcEndpointGet(region, vpcEndpointID)
 	if !exists {
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrVpcEndpointNotFound, vpcEndpointID)
 	}
 
 	cp := *endpoint
-	delete(endpoints, vpcEndpointID)
+	b.vpcEndpointDelete(region, vpcEndpointID)
 
 	return vpcEndpointCopy(&cp), nil
 }
@@ -1181,8 +1253,8 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ctx context.Context, vpcEndpointI
 	b.mu.RLock("DescribeVpcEndpoints")
 	defer b.mu.RUnlock()
 
-	endpoints := b.vpcEndpointsStore(region)
 	if len(vpcEndpointIDs) == 0 {
+		endpoints := b.vpcEndpointsInRegion(region)
 		result := make([]*VpcEndpoint, 0, len(endpoints))
 		for _, ep := range endpoints {
 			result = append(result, vpcEndpointCopy(ep))
@@ -1193,7 +1265,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ctx context.Context, vpcEndpointI
 
 	result := make([]*VpcEndpoint, 0, len(vpcEndpointIDs))
 	for _, id := range vpcEndpointIDs {
-		if ep, exists := endpoints[id]; exists {
+		if ep, exists := b.vpcEndpointGet(region, id); exists {
 			result = append(result, vpcEndpointCopy(ep))
 		}
 	}
@@ -1207,7 +1279,7 @@ func (b *InMemoryBackend) ListVpcEndpointAccess(ctx context.Context, domainName 
 	b.mu.RLock("ListVpcEndpointAccess")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1220,7 +1292,7 @@ func (b *InMemoryBackend) ListVpcEndpoints(ctx context.Context) []*VpcEndpoint {
 	b.mu.RLock("ListVpcEndpoints")
 	defer b.mu.RUnlock()
 
-	endpoints := b.vpcEndpointsStore(region)
+	endpoints := b.vpcEndpointsInRegion(region)
 	result := make([]*VpcEndpoint, 0, len(endpoints))
 	for _, ep := range endpoints {
 		result = append(result, vpcEndpointCopy(ep))
@@ -1235,13 +1307,13 @@ func (b *InMemoryBackend) ListVpcEndpointsForDomain(ctx context.Context, domainN
 	b.mu.RLock("ListVpcEndpointsForDomain")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domainsStore(region)[domainName]
+	d, exists := b.domainGet(region, domainName)
 	if !exists {
 		return nil
 	}
 
 	var result []*VpcEndpoint
-	for _, ep := range b.vpcEndpointsStore(region) {
+	for _, ep := range b.vpcEndpointsInRegion(region) {
 		if ep.DomainARN == d.ARN {
 			result = append(result, vpcEndpointCopy(ep))
 		}
@@ -1260,7 +1332,7 @@ func (b *InMemoryBackend) RevokeVpcEndpointAccess(ctx context.Context, domainNam
 	b.mu.Lock("RevokeVpcEndpointAccess")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1285,7 +1357,7 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(
 	b.mu.Lock("UpdateVpcEndpoint")
 	defer b.mu.Unlock()
 
-	endpoint, exists := b.vpcEndpointsStore(region)[vpcEndpointID]
+	endpoint, exists := b.vpcEndpointGet(region, vpcEndpointID)
 	if !exists {
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrVpcEndpointNotFound, vpcEndpointID)
 	}
@@ -1311,7 +1383,7 @@ func (b *InMemoryBackend) DescribeDomainAutoTunes(ctx context.Context, domainNam
 	b.mu.RLock("DescribeDomainAutoTunes")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1324,7 +1396,7 @@ func (b *InMemoryBackend) DescribeDomainChangeProgress(ctx context.Context, doma
 	b.mu.RLock("DescribeDomainChangeProgress")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1337,7 +1409,7 @@ func (b *InMemoryBackend) GetUpgradeHistory(ctx context.Context, domainName stri
 	b.mu.RLock("GetUpgradeHistory")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1350,7 +1422,7 @@ func (b *InMemoryBackend) GetUpgradeStatus(ctx context.Context, domainName strin
 	b.mu.RLock("GetUpgradeStatus")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.domainsStore(region)[domainName]; !exists {
+	if _, exists := b.domainGet(region, domainName); !exists {
 		return fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1365,7 +1437,7 @@ func (b *InMemoryBackend) StartElasticsearchServiceSoftwareUpdate(
 	b.mu.RLock("StartElasticsearchServiceSoftwareUpdate")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domainsStore(region)[domainName]
+	d, exists := b.domainGet(region, domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -1381,7 +1453,7 @@ func (b *InMemoryBackend) UpgradeElasticsearchDomain(
 	b.mu.Lock("UpgradeElasticsearchDomain")
 	defer b.mu.Unlock()
 
-	d, exists := b.domainsStore(region)[domainName]
+	d, exists := b.domainGet(region, domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -1410,7 +1482,7 @@ func (b *InMemoryBackend) DescribeReservedElasticsearchInstances(ctx context.Con
 	b.mu.RLock("DescribeReservedElasticsearchInstances")
 	defer b.mu.RUnlock()
 
-	reserved := b.reservedInstancesStore(region)
+	reserved := b.reservedInstancesInRegion(region)
 	instances := make([]ReservedInstance, 0, len(reserved))
 	for _, instance := range reserved {
 		instances = append(instances, *instance)
@@ -1446,6 +1518,7 @@ func (b *InMemoryBackend) PurchaseReservedElasticsearchInstanceOffering(
 		OfferingID:      offeringID,
 		Count:           count,
 		State:           statusActive,
+		region:          region,
 	}
 	for _, offering := range b.DescribeReservedElasticsearchInstanceOfferings() {
 		if offering.OfferingID == offeringID {
@@ -1458,7 +1531,7 @@ func (b *InMemoryBackend) PurchaseReservedElasticsearchInstanceOffering(
 		}
 	}
 
-	b.reservedInstancesStore(region)[id] = instance
+	b.reservedInstancePut(instance)
 	cp := *instance
 
 	return &cp, nil
