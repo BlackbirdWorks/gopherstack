@@ -47,7 +47,7 @@ func HasReportState(b *InMemoryBackend) bool {
 	b.mu.RLock("HasReportState")
 	defer b.mu.RUnlock()
 
-	return b.reportStates[b.defaultRegion] != nil
+	return b.reportStates.Has(b.defaultRegion)
 }
 
 // ReportStatus returns the status string from the stored report state for the default region, or empty string.
@@ -55,8 +55,8 @@ func ReportStatus(b *InMemoryBackend) string {
 	b.mu.RLock("ReportStatus")
 	defer b.mu.RUnlock()
 
-	state := b.reportStates[b.defaultRegion]
-	if state == nil {
+	state, ok := b.reportStates.Get(b.defaultRegion)
+	if !ok {
 		return ""
 	}
 
@@ -68,8 +68,8 @@ func ReportS3Location(b *InMemoryBackend) string {
 	b.mu.RLock("ReportS3Location")
 	defer b.mu.RUnlock()
 
-	state := b.reportStates[b.defaultRegion]
-	if state == nil {
+	state, ok := b.reportStates.Get(b.defaultRegion)
+	if !ok {
 		return ""
 	}
 
@@ -97,12 +97,48 @@ func HandlerOpsLen(h *Handler) int {
 
 // AddReportStateInternal seeds the backend with a specific report state for the default region.
 func AddReportStateInternal(b *InMemoryBackend, status, s3Location, startDate string) {
-	b.mu.Lock("AddReportStateInternal")
+	AddReportStateForRegion(b, b.defaultRegion, status, s3Location, startDate)
+}
+
+// AddReportStateForRegion seeds the backend with a specific report state for an arbitrary
+// region, exercising the reportStates table's region-keyed identity directly (rather than
+// through the request-context-derived region every production code path uses).
+func AddReportStateForRegion(b *InMemoryBackend, region, status, s3Location, startDate string) {
+	b.mu.Lock("AddReportStateForRegion")
 	defer b.mu.Unlock()
 
-	b.reportStates[b.defaultRegion] = &reportCreationState{
+	b.reportStates.Put(&reportCreationState{
+		Region:     region,
 		Status:     status,
 		S3Location: s3Location,
 		StartDate:  startDate,
+	})
+}
+
+// ReportStateRegions returns the sorted list of regions that currently have a stored report
+// creation state, for asserting the full contents of the reportStates table in tests.
+func ReportStateRegions(b *InMemoryBackend) []string {
+	b.mu.RLock("ReportStateRegions")
+	defer b.mu.RUnlock()
+
+	out := make([]string, 0, b.reportStates.Len())
+	for _, s := range b.reportStates.Snapshot() {
+		out = append(out, s.Region)
 	}
+
+	return out
+}
+
+// ReportStatusForRegion returns the status string from the stored report state for region,
+// or empty string when no report state exists for that region.
+func ReportStatusForRegion(b *InMemoryBackend, region string) string {
+	b.mu.RLock("ReportStatusForRegion")
+	defer b.mu.RUnlock()
+
+	state, ok := b.reportStates.Get(region)
+	if !ok {
+		return ""
+	}
+
+	return state.Status
 }
