@@ -91,6 +91,76 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			name: "anomaly_round_trip",
+			setup: func(b *ce.InMemoryBackend) string {
+				b.AddAnomaly(ce.Anomaly{
+					AnomalyID:        "anomaly-1",
+					AnomalyStartDate: "2024-01-01",
+					AnomalyEndDate:   "2024-01-02",
+					TotalImpact:      42.5,
+				})
+
+				return "anomaly-1"
+			},
+			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
+				t.Helper()
+
+				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "")
+				require.Len(t, anomalies, 1)
+				assert.Equal(t, id, anomalies[0].AnomalyID)
+				assert.InDelta(t, 42.5, anomalies[0].TotalImpact, 0.0001)
+			},
+		},
+		{
+			name: "cost_allocation_tag_round_trip",
+			setup: func(b *ce.InMemoryBackend) string {
+				b.UpdateCostAllocationTagsStatus([]ce.CostAllocationTagStatusEntry{
+					{TagKey: "env", Status: "Active"},
+				})
+
+				return "env"
+			},
+			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
+				t.Helper()
+
+				tags := b.ListCostAllocationTags("", "", nil)
+				require.Len(t, tags, 1)
+				assert.Equal(t, id, tags[0].TagKey)
+				assert.Equal(t, "Active", tags[0].Status)
+			},
+		},
+		{
+			name: "commitment_analysis_round_trip",
+			setup: func(b *ce.InMemoryBackend) string {
+				a := b.CreateCommitmentAnalysis()
+
+				return a.AnalysisID
+			},
+			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
+				t.Helper()
+
+				a, err := b.GetCommitmentAnalysis(id)
+				require.NoError(t, err)
+				assert.Equal(t, "PROCESSING", a.AnalysisStatus)
+			},
+		},
+		{
+			name: "backfill_job_round_trip",
+			setup: func(b *ce.InMemoryBackend) string {
+				job := b.CreateBackfillJob("2024-01-01T00:00:00Z")
+
+				return job.BackfillFrom
+			},
+			verify: func(t *testing.T, b *ce.InMemoryBackend, id string) {
+				t.Helper()
+
+				jobs := b.ListBackfillHistory()
+				require.Len(t, jobs, 1)
+				assert.Equal(t, id, jobs[0].BackfillFrom)
+				assert.Equal(t, "PROCESSING", jobs[0].BackfillStatus)
+			},
+		},
+		{
 			name:  "empty_backend_round_trip",
 			setup: func(_ *ce.InMemoryBackend) string { return "" },
 			verify: func(t *testing.T, b *ce.InMemoryBackend, _ string) {
@@ -102,6 +172,11 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Empty(t, monitors)
 				subs, _ := b.GetAnomalySubscriptions(nil, "", 0, "")
 				assert.Empty(t, subs)
+				anomalies, _ := b.GetAnomalies("", "", "", "", 0, "")
+				assert.Empty(t, anomalies)
+				assert.Empty(t, b.ListCostAllocationTags("", "", nil))
+				assert.Empty(t, b.ListCommitmentAnalyses())
+				assert.Empty(t, b.ListBackfillHistory())
 			},
 		},
 	}
@@ -122,6 +197,76 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			tt.verify(t, fresh, id)
 		})
 	}
+}
+
+// TestInMemoryBackend_FullStateSnapshotRestore populates every store.Table
+// (costCategories, anomalyMonitors, anomalySubscriptions, anomalies,
+// costAllocationTags, commitmentAnalyses) plus the raw-left backfillJobs
+// slice in one backend, then verifies a Snapshot/Restore round trip
+// reproduces every one of them in a fresh backend.
+func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	original := ce.NewInMemoryBackend("000000000000", "us-east-1")
+
+	cat, err := original.CreateCostCategoryDefinition(
+		"FullCat", "CostCategoryExpression.v1", "INHERITED_VALUE",
+		[]ce.CostCategoryRule{{Value: "Engineering"}}, nil,
+	)
+	require.NoError(t, err)
+
+	mon, err := original.CreateAnomalyMonitor("FullMonitor", "DIMENSIONAL", "SERVICE", nil)
+	require.NoError(t, err)
+
+	sub, err := original.CreateAnomalySubscription(
+		"FullSub", "DAILY",
+		[]string{mon.MonitorARN},
+		[]ce.Subscriber{{Address: "full@example.com", Type: "EMAIL", Status: "CONFIRMED"}},
+		10.0, nil,
+	)
+	require.NoError(t, err)
+
+	original.AddAnomaly(ce.Anomaly{AnomalyID: "full-anomaly", MonitorARN: mon.MonitorARN})
+	original.UpdateCostAllocationTagsStatus([]ce.CostAllocationTagStatusEntry{
+		{TagKey: "team", Status: "Active"},
+	})
+
+	analysis := original.CreateCommitmentAnalysis()
+	job := original.CreateBackfillJob("2024-02-01T00:00:00Z")
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := ce.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	gotCat, err := fresh.DescribeCostCategoryDefinition(cat.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "FullCat", gotCat.Name)
+
+	monitors, _ := fresh.GetAnomalyMonitors([]string{mon.MonitorARN}, 0, "")
+	require.Len(t, monitors, 1)
+	assert.Equal(t, "FullMonitor", monitors[0].MonitorName)
+
+	subs, _ := fresh.GetAnomalySubscriptions([]string{sub.SubscriptionARN}, "", 0, "")
+	require.Len(t, subs, 1)
+	assert.Equal(t, "FullSub", subs[0].SubscriptionName)
+
+	anomalies, _ := fresh.GetAnomalies("", "", "", "", 0, "")
+	require.Len(t, anomalies, 1)
+	assert.Equal(t, "full-anomaly", anomalies[0].AnomalyID)
+
+	tags := fresh.ListCostAllocationTags("", "", nil)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "team", tags[0].TagKey)
+
+	gotAnalysis, err := fresh.GetCommitmentAnalysis(analysis.AnalysisID)
+	require.NoError(t, err)
+	assert.Equal(t, analysis.AnalysisID, gotAnalysis.AnalysisID)
+
+	jobs := fresh.ListBackfillHistory()
+	require.Len(t, jobs, 1)
+	assert.Equal(t, job.BackfillFrom, jobs[0].BackfillFrom)
 }
 
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
