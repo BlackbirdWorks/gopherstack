@@ -10,6 +10,16 @@ func epochSecondsNow() float64 {
 
 // Environment represents an MWAA environment.
 type Environment struct {
+	// region is the AWS region this environment belongs to. It is the outer
+	// half of the composite key ("region|Name") used by the backend's flat
+	// store.Table[Environment] (see regionKey in backend.go), which replaces
+	// the old map[string]map[string]*Environment nesting (outer key =
+	// region). Unexported so it never appears in MWAA wire responses (those
+	// are built by marshaling Environment directly, but this field carries
+	// no json tag and so is skipped by encoding/json regardless), but
+	// persistence.go must carry it through a DTO explicitly since
+	// json.Marshal never sees unexported fields.
+	region                       string
 	Tags                         map[string]string     `json:"Tags,omitempty"`
 	NetworkConfiguration         *NetworkConfig        `json:"NetworkConfiguration,omitempty"`
 	AirflowConfigurationOptions  map[string]string     `json:"AirflowConfigurationOptions,omitempty"`
