@@ -48,6 +48,23 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// Snapshot implements persistence.Persistable by delegating to the backend.
+//
+// Without this delegation, cli.go's setupPersistence type-asserts the
+// service.Registerable value returned by Provider.Init (this Handler, not
+// InMemoryBackend) against a Snapshot/Restore interface -- since Handler
+// itself never exposed either method, InMemoryBackend.Snapshot/Restore
+// (persistence.go) were dead code and this service was never actually
+// persisted, despite implementing the Persistable contract.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
+
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"CreateConnection":              service.WrapOp(h.handleCreateConnection),
