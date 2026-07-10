@@ -2,19 +2,45 @@ package awsconfig
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// awsconfigSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change to a registered table's value type or to
+// backendSnapshot itself would make an older snapshot unsafe to decode as the
+// current shape. Restore compares this against the persisted value and
+// discards (registry.ResetAll, not a partial decode) any mismatch -- see
+// Restore below. This is the first version with a version guard: the
+// pre-Phase-3.3 backendSnapshot had no Version field at all, so any snapshot
+// written before this change (including one with no version field, which
+// decodes as 0) is discarded the same way any other incompatible snapshot is.
+const awsconfigSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the AWS Config backend.
+//
+// Tables holds one JSON-encoded array per table registered on b.registry (see
+// store_setup.go's registerAllTables): recorders, channels, aggregationAuths,
+// configRules, aggregators, conformancePacks, orgConfigRules,
+// orgConformancePacks, storedQueries, retentionConfigs, remediationConfigs,
+// resourceEvaluations, resourceConfigs, and ruleResourceEvals. The first eight
+// were already persisted pre-Phase-3.3 (as individual named map fields); the
+// remaining six become persisted for the first time as a natural consequence
+// of the store.Table conversion -- see this package's persistence audit below.
+//
+// ruleEvaluations, resourceHistory, resourceTags, remediationExceptions,
+// customRulePolicies, and orgCustomRulePolicies are deliberately NOT included:
+// each is a scalar- or slice-valued map with no store.Table identity (see the
+// field comments on InMemoryBackend in backend.go), and none of the six was
+// persisted before Phase 3.3 either -- this preserves that pre-existing gap
+// rather than closing it, per the mechanical-conversion (not parity-fix)
+// scope of this rollout.
 type backendSnapshot struct {
-	Recorders           map[string]*ConfigurationRecorder       `json:"recorders"`
-	Channels            map[string]*DeliveryChannel             `json:"channels"`
-	AggregationAuths    map[string]*AggregationAuthorization    `json:"aggregationAuths,omitempty"`
-	ConfigRules         map[string]*ConfigRule                  `json:"configRules,omitempty"`
-	Aggregators         map[string]*ConfigurationAggregator     `json:"aggregators,omitempty"`
-	ConformancePacks    map[string]*ConformancePack             `json:"conformancePacks,omitempty"`
-	OrgConfigRules      map[string]*OrganizationConfigRule      `json:"orgConfigRules,omitempty"`
-	OrgConformancePacks map[string]*OrganizationConformancePack `json:"orgConformancePacks,omitempty"`
+	Tables  map[string]json.RawMessage `json:"tables"`
+	Version int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -23,15 +49,16 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "awsconfig: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Recorders:           b.recorders,
-		Channels:            b.channels,
-		AggregationAuths:    b.aggregationAuths,
-		ConfigRules:         b.configRules,
-		Aggregators:         b.aggregators,
-		ConformancePacks:    b.conformancePacks,
-		OrgConfigRules:      b.orgConfigRules,
-		OrgConformancePacks: b.orgConformancePacks,
+		Version: awsconfigSnapshotVersion,
+		Tables:  tables,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "awsconfig", snap)
@@ -49,46 +76,31 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Recorders == nil {
-		snap.Recorders = make(map[string]*ConfigurationRecorder)
+	if snap.Version != awsconfigSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"awsconfig: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", awsconfigSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.ruleEvaluations = make(map[string]string)
+		b.resourceHistory = make(map[string][]ResourceConfigItem)
+		b.resourceTags = make(map[string][]Tag)
+		b.remediationExceptions = make(map[string][]RemediationException)
+		b.customRulePolicies = make(map[string]string)
+		b.orgCustomRulePolicies = make(map[string]string)
+
+		return nil
 	}
 
-	if snap.Channels == nil {
-		snap.Channels = make(map[string]*DeliveryChannel)
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("awsconfig: restore snapshot tables: %w", err)
 	}
-
-	if snap.AggregationAuths == nil {
-		snap.AggregationAuths = make(map[string]*AggregationAuthorization)
-	}
-
-	if snap.ConfigRules == nil {
-		snap.ConfigRules = make(map[string]*ConfigRule)
-	}
-
-	if snap.Aggregators == nil {
-		snap.Aggregators = make(map[string]*ConfigurationAggregator)
-	}
-
-	if snap.ConformancePacks == nil {
-		snap.ConformancePacks = make(map[string]*ConformancePack)
-	}
-
-	if snap.OrgConfigRules == nil {
-		snap.OrgConfigRules = make(map[string]*OrganizationConfigRule)
-	}
-
-	if snap.OrgConformancePacks == nil {
-		snap.OrgConformancePacks = make(map[string]*OrganizationConformancePack)
-	}
-
-	b.recorders = snap.Recorders
-	b.channels = snap.Channels
-	b.aggregationAuths = snap.AggregationAuths
-	b.configRules = snap.ConfigRules
-	b.aggregators = snap.Aggregators
-	b.conformancePacks = snap.ConformancePacks
-	b.orgConfigRules = snap.OrgConfigRules
-	b.orgConformancePacks = snap.OrgConformancePacks
 
 	return nil
 }

@@ -33,8 +33,10 @@ func (b *InMemoryBackend) DescribeConfigurationAggregators() []ConfigurationAggr
 	b.mu.RLock("DescribeConfigurationAggregators")
 	defer b.mu.RUnlock()
 
-	out := make([]ConfigurationAggregator, 0, len(b.aggregators))
-	for _, a := range b.aggregators {
+	all := b.aggregators.All()
+	out := make([]ConfigurationAggregator, 0, len(all))
+
+	for _, a := range all {
 		out = append(out, *a)
 	}
 
@@ -46,8 +48,10 @@ func (b *InMemoryBackend) DescribeConformancePacks() []ConformancePack {
 	b.mu.RLock("DescribeConformancePacks")
 	defer b.mu.RUnlock()
 
-	out := make([]ConformancePack, 0, len(b.conformancePacks))
-	for _, p := range b.conformancePacks {
+	all := b.conformancePacks.All()
+	out := make([]ConformancePack, 0, len(all))
+
+	for _, p := range all {
 		out = append(out, *p)
 	}
 
@@ -59,8 +63,10 @@ func (b *InMemoryBackend) DescribeOrganizationConfigRules() []OrganizationConfig
 	b.mu.RLock("DescribeOrganizationConfigRules")
 	defer b.mu.RUnlock()
 
-	out := make([]OrganizationConfigRule, 0, len(b.orgConfigRules))
-	for _, r := range b.orgConfigRules {
+	all := b.orgConfigRules.All()
+	out := make([]OrganizationConfigRule, 0, len(all))
+
+	for _, r := range all {
 		out = append(out, *r)
 	}
 
@@ -72,8 +78,10 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePacks() []OrganizationC
 	b.mu.RLock("DescribeOrganizationConformancePacks")
 	defer b.mu.RUnlock()
 
-	out := make([]OrganizationConformancePack, 0, len(b.orgConformancePacks))
-	for _, p := range b.orgConformancePacks {
+	all := b.orgConformancePacks.All()
+	out := make([]OrganizationConformancePack, 0, len(all))
+
+	for _, p := range all {
 		out = append(out, *p)
 	}
 
@@ -111,9 +119,10 @@ func (b *InMemoryBackend) ListConfigurationRecorders() []ConfigurationRecorderSu
 	b.mu.RLock("ListConfigurationRecorders")
 	defer b.mu.RUnlock()
 
-	out := make([]ConfigurationRecorderSummary, 0, len(b.recorders))
+	all := b.recorders.All()
+	out := make([]ConfigurationRecorderSummary, 0, len(all))
 
-	for _, r := range b.recorders {
+	for _, r := range all {
 		arn := fmt.Sprintf(
 			"arn:aws:config:%s:%s:config-recorder/%s",
 			b.region, b.accountID, r.Name,
@@ -138,9 +147,10 @@ func (b *InMemoryBackend) ListStoredQueries() []StoredQueryMetadata {
 	b.mu.RLock("ListStoredQueries")
 	defer b.mu.RUnlock()
 
-	out := make([]StoredQueryMetadata, 0, len(b.storedQueries))
+	all := b.storedQueries.All()
+	out := make([]StoredQueryMetadata, 0, len(all))
 
-	for _, q := range b.storedQueries {
+	for _, q := range all {
 		arn := fmt.Sprintf(
 			"arn:aws:config:%s:%s:stored-query/%s",
 			b.region, b.accountID, q.QueryName,
@@ -167,7 +177,7 @@ func (b *InMemoryBackend) PutStoredQuery(name string) error {
 	b.mu.Lock("PutStoredQuery")
 	defer b.mu.Unlock()
 
-	b.storedQueries[name] = &StoredQuery{QueryName: name}
+	b.storedQueries.Put(&StoredQuery{QueryName: name})
 
 	return nil
 }

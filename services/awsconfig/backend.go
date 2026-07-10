@@ -6,6 +6,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -208,31 +209,67 @@ type ResourceKey struct {
 }
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
+//
+// Phase 3.3 datalayer conversion: every map[string]*T resource collection is
+// now a *store.Table[T] registered on b.registry (see store_setup.go's
+// registerAllTables), which collapses Reset/Snapshot/Restore to one
+// b.registry call each instead of one hand-written block per map. Fields
+// whose value is not a *T (a scalar, a slice, or a nested map) have no
+// natural store.Table key and are left as plain maps -- see each field's own
+// comment for why, and persistence.go's doc comment for the persistence
+// audit of each.
 type InMemoryBackend struct {
-	recorders        map[string]*ConfigurationRecorder
-	channels         map[string]*DeliveryChannel
-	aggregationAuths map[string]*AggregationAuthorization
-	configRules      map[string]*ConfigRule
-	ruleEvaluations  map[string]string // rule name → rolled-up compliance type after evaluation
-	// ruleResourceEvals holds per-(rule, resource) evaluation results so compliance
-	// detail APIs can report real per-resource COMPLIANT/NON_COMPLIANT outcomes.
-	ruleResourceEvals map[string]map[string]*StoredEvaluation // rule name → resourceKey → evaluation
-	// resourceHistory retains an ordered configuration history per resource (oldest first).
-	resourceHistory map[string][]ResourceConfigItem // resourceKey → history
-	// resourceEvaluations records StartResourceEvaluation runs keyed by evaluation id.
-	resourceEvaluations    map[string]*ResourceEvaluation
-	aggregators            map[string]*ConfigurationAggregator
-	conformancePacks       map[string]*ConformancePack
-	orgConfigRules         map[string]*OrganizationConfigRule
-	orgConformancePacks    map[string]*OrganizationConformancePack
-	storedQueries          map[string]*StoredQuery
-	resourceTags           map[string][]Tag                          // ARN → tags
-	retentionConfigs       map[string]*RetentionConfiguration        // name → config
-	remediationConfigs     map[string]*RemediationConfiguration      // rule name → config
-	remediationExceptions  map[string][]RemediationException         // rule name → exceptions
-	resourceConfigs        map[string]map[string]*ResourceConfigItem // type → id → item
-	customRulePolicies     map[string]string                         // rule name → policy text
-	orgCustomRulePolicies  map[string]string                         // rule name → policy text
+	registry         *store.Registry
+	recorders        *store.Table[ConfigurationRecorder]
+	channels         *store.Table[DeliveryChannel]
+	aggregationAuths *store.Table[AggregationAuthorization]
+	configRules      *store.Table[ConfigRule]
+	// ruleEvaluations is a scalar-valued map (rule name → rolled-up compliance
+	// type) -- no *T for store.Table to key on -- so it stays a plain map.
+	ruleEvaluations map[string]string
+	// ruleResourceEvals holds per-(rule, resource) evaluation results, flattened
+	// to a single store.Table[StoredEvaluation] keyed by
+	// "<ruleName>|<resourceType>\x1f<resourceID>" (storedEvaluationKeyFn),
+	// mirroring codecommit's nested-per-parent conversion. Two secondary
+	// indexes replace the two access patterns the nested map used to answer
+	// directly: ruleResourceEvalsByRule ("all evaluations for rule X", used by
+	// evaluateManagedRuleLocked/recomputeRollupLocked/GetComplianceDetailsByConfigRule)
+	// and ruleResourceEvalsByResource ("all evaluations for resource Y across
+	// every rule", used by GetComplianceDetailsByResource).
+	ruleResourceEvals           *store.Table[StoredEvaluation]
+	ruleResourceEvalsByRule     *store.Index[StoredEvaluation]
+	ruleResourceEvalsByResource *store.Index[StoredEvaluation]
+	// resourceHistory is a slice-valued map (resourceKey → ordered history) --
+	// no *T for store.Table to key on -- so it stays a plain map.
+	resourceHistory map[string][]ResourceConfigItem
+	// resourceEvaluations records StartResourceEvaluation runs keyed by
+	// evaluation id (ResourceEvaluation.ResourceEvaluationID, a real field).
+	resourceEvaluations *store.Table[ResourceEvaluation]
+	aggregators         *store.Table[ConfigurationAggregator]
+	conformancePacks    *store.Table[ConformancePack]
+	orgConfigRules      *store.Table[OrganizationConfigRule]
+	orgConformancePacks *store.Table[OrganizationConformancePack]
+	storedQueries       *store.Table[StoredQuery]
+	// resourceTags is a slice-valued map (ARN → tags) -- left as a plain map.
+	resourceTags       map[string][]Tag
+	retentionConfigs   *store.Table[RetentionConfiguration]
+	remediationConfigs *store.Table[RemediationConfiguration]
+	// remediationExceptions is a slice-valued map (rule name → exceptions) --
+	// left as a plain map.
+	remediationExceptions map[string][]RemediationException
+	// resourceConfigs holds discovered resource configuration items,
+	// flattened to a single store.Table[ResourceConfigItem] keyed by
+	// "<resourceType>|<resourceID>" (resourceConfigItemKeyFn) since
+	// ResourceConfigItem already carries real ResourceType/ResourceID
+	// fields -- no hidden field needed, unlike codecommit's dirty tables.
+	// resourceConfigsByType replaces the old map[string]map[string]*T's
+	// outer-map lookup for "all resources of type X" (ListDiscoveredResources).
+	resourceConfigs       *store.Table[ResourceConfigItem]
+	resourceConfigsByType *store.Index[ResourceConfigItem]
+	// customRulePolicies/orgCustomRulePolicies are scalar-valued maps (rule
+	// name → policy text) -- left as plain maps.
+	customRulePolicies     map[string]string
+	orgCustomRulePolicies  map[string]string
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -250,31 +287,22 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithMeta creates a new InMemoryBackend with account and region context.
 func NewInMemoryBackendWithMeta(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		recorders:             make(map[string]*ConfigurationRecorder),
-		channels:              make(map[string]*DeliveryChannel),
-		aggregationAuths:      make(map[string]*AggregationAuthorization),
-		configRules:           make(map[string]*ConfigRule),
+	b := &InMemoryBackend{
+		registry:              store.NewRegistry(),
 		ruleEvaluations:       make(map[string]string),
-		ruleResourceEvals:     make(map[string]map[string]*StoredEvaluation),
 		resourceHistory:       make(map[string][]ResourceConfigItem),
-		resourceEvaluations:   make(map[string]*ResourceEvaluation),
-		aggregators:           make(map[string]*ConfigurationAggregator),
-		conformancePacks:      make(map[string]*ConformancePack),
-		orgConfigRules:        make(map[string]*OrganizationConfigRule),
-		orgConformancePacks:   make(map[string]*OrganizationConformancePack),
-		storedQueries:         make(map[string]*StoredQuery),
 		resourceTags:          make(map[string][]Tag),
-		retentionConfigs:      make(map[string]*RetentionConfiguration),
-		remediationConfigs:    make(map[string]*RemediationConfiguration),
 		remediationExceptions: make(map[string][]RemediationException),
-		resourceConfigs:       make(map[string]map[string]*ResourceConfigItem),
 		customRulePolicies:    make(map[string]string),
 		orgCustomRulePolicies: make(map[string]string),
 		mu:                    lockmetrics.New("awsconfig"),
 		accountID:             accountID,
 		region:                region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // PutConfigurationRecorder creates or updates a configuration recorder.
@@ -292,19 +320,19 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordi
 	b.mu.Lock("PutConfigurationRecorder")
 	defer b.mu.Unlock()
 
-	if existing, ok := b.recorders[name]; ok {
+	if existing, ok := b.recorders.Get(name); ok {
 		existing.RoleARN = roleARN
 		existing.RecordingGroup = recordingGroup
 
 		return nil
 	}
 
-	b.recorders[name] = &ConfigurationRecorder{
+	b.recorders.Put(&ConfigurationRecorder{
 		Name:           name,
 		RoleARN:        roleARN,
 		Status:         recorderStatusPending,
 		RecordingGroup: recordingGroup,
-	}
+	})
 
 	return nil
 }
@@ -315,15 +343,15 @@ func (b *InMemoryBackend) DescribeConfigurationRecorders(names []string) []Confi
 	b.mu.RLock("DescribeConfigurationRecorders")
 	defer b.mu.RUnlock()
 
-	out := make([]ConfigurationRecorder, 0, len(b.recorders))
+	out := make([]ConfigurationRecorder, 0, b.recorders.Len())
 
 	if len(names) == 0 {
-		for _, r := range b.recorders {
+		for _, r := range b.recorders.All() {
 			out = append(out, *r)
 		}
 	} else {
 		for _, n := range names {
-			if r, ok := b.recorders[n]; ok {
+			if r, ok := b.recorders.Get(n); ok {
 				out = append(out, *r)
 			}
 		}
@@ -353,12 +381,12 @@ func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
 	b.mu.Lock("StartConfigurationRecorder")
 	defer b.mu.Unlock()
 
-	r, ok := b.recorders[name]
+	r, ok := b.recorders.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
-	if len(b.channels) == 0 {
+	if b.channels.Len() == 0 {
 		return fmt.Errorf("%w: no delivery channel configured", ErrNoDeliveryChannel)
 	}
 
@@ -376,7 +404,7 @@ func (b *InMemoryBackend) StopConfigurationRecorder(name string) error {
 	b.mu.Lock("StopConfigurationRecorder")
 	defer b.mu.Unlock()
 
-	r, ok := b.recorders[name]
+	r, ok := b.recorders.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
@@ -402,13 +430,13 @@ func (b *InMemoryBackend) PutDeliveryChannel(
 	b.mu.Lock("PutDeliveryChannel")
 	defer b.mu.Unlock()
 
-	b.channels[name] = &DeliveryChannel{
+	b.channels.Put(&DeliveryChannel{
 		Name:                             name,
 		S3Bucket:                         s3Bucket,
 		SNSArn:                           snsArn,
 		S3KeyPrefix:                      s3KeyPrefix,
 		ConfigSnapshotDeliveryProperties: props,
-	}
+	})
 
 	return nil
 }
@@ -419,15 +447,15 @@ func (b *InMemoryBackend) DescribeDeliveryChannels(names []string) []DeliveryCha
 	b.mu.RLock("DescribeDeliveryChannels")
 	defer b.mu.RUnlock()
 
-	out := make([]DeliveryChannel, 0, len(b.channels))
+	out := make([]DeliveryChannel, 0, b.channels.Len())
 
 	if len(names) == 0 {
-		for _, c := range b.channels {
+		for _, c := range b.channels.All() {
 			out = append(out, *c)
 		}
 	} else {
 		for _, n := range names {
-			if c, ok := b.channels[n]; ok {
+			if c, ok := b.channels.Get(n); ok {
 				out = append(out, *c)
 			}
 		}
@@ -457,11 +485,11 @@ func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
 	b.mu.Lock("DeleteDeliveryChannel")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[name]; !ok {
+	if !b.channels.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchDeliveryChannel, name)
 	}
 
-	delete(b.channels, name)
+	b.channels.Delete(name)
 
 	return nil
 }
@@ -475,11 +503,11 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 	b.mu.Lock("DeleteConfigurationRecorder")
 	defer b.mu.Unlock()
 
-	if _, ok := b.recorders[name]; !ok {
+	if !b.recorders.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
-	delete(b.recorders, name)
+	b.recorders.Delete(name)
 
 	return nil
 }
@@ -506,15 +534,15 @@ func (b *InMemoryBackend) DescribeConfigurationRecorderStatus(names []string) []
 	b.mu.RLock("DescribeConfigurationRecorderStatus")
 	defer b.mu.RUnlock()
 
-	out := make([]ConfigurationRecorderStatus, 0, len(b.recorders))
+	out := make([]ConfigurationRecorderStatus, 0, b.recorders.Len())
 
 	if len(names) == 0 {
-		for _, r := range b.recorders {
+		for _, r := range b.recorders.All() {
 			out = append(out, recorderStatus(r))
 		}
 	} else {
 		for _, n := range names {
-			if r, ok := b.recorders[n]; ok {
+			if r, ok := b.recorders.Get(n); ok {
 				out = append(out, recorderStatus(r))
 			}
 		}
@@ -535,32 +563,22 @@ func (b *InMemoryBackend) DescribeConfigurationRecorderStatus(names []string) []
 	return out
 }
 
-// Reset clears all in-memory state.
+// Reset clears all in-memory state. Note conformancePackCounter and
+// aggregatorCounter are deliberately NOT reset here -- this is a pre-existing
+// quirk of the map-based implementation (they were never zeroed in the old
+// Reset either), preserved as-is per Phase 3.3's mechanical-conversion scope.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.recorders = make(map[string]*ConfigurationRecorder)
-	b.channels = make(map[string]*DeliveryChannel)
-	b.aggregationAuths = make(map[string]*AggregationAuthorization)
-	b.configRules = make(map[string]*ConfigRule)
+	b.registry.ResetAll()
 	b.ruleEvaluations = make(map[string]string)
-	b.ruleResourceEvals = make(map[string]map[string]*StoredEvaluation)
 	b.resourceHistory = make(map[string][]ResourceConfigItem)
-	b.resourceEvaluations = make(map[string]*ResourceEvaluation)
 	b.resourceEvalCounter = 0
 	b.captureCounter = 0
 	b.ruleCounter = 0
-	b.aggregators = make(map[string]*ConfigurationAggregator)
-	b.conformancePacks = make(map[string]*ConformancePack)
-	b.orgConfigRules = make(map[string]*OrganizationConfigRule)
-	b.orgConformancePacks = make(map[string]*OrganizationConformancePack)
-	b.storedQueries = make(map[string]*StoredQuery)
 	b.resourceTags = make(map[string][]Tag)
-	b.retentionConfigs = make(map[string]*RetentionConfiguration)
-	b.remediationConfigs = make(map[string]*RemediationConfiguration)
 	b.remediationExceptions = make(map[string][]RemediationException)
-	b.resourceConfigs = make(map[string]map[string]*ResourceConfigItem)
 	b.customRulePolicies = make(map[string]string)
 	b.orgCustomRulePolicies = make(map[string]string)
 }
@@ -580,11 +598,11 @@ func (b *InMemoryBackend) PutAggregationAuthorization(accountID, region string) 
 		b.region, b.accountID, accountID, region,
 	)
 
-	b.aggregationAuths[aggregationAuthKey(accountID, region)] = &AggregationAuthorization{
+	b.aggregationAuths.Put(&AggregationAuthorization{
 		AuthorizedAccountID:         accountID,
 		AuthorizedAwsRegion:         region,
 		AggregationAuthorizationArn: arn,
-	}
+	})
 
 	return nil
 }
@@ -595,8 +613,10 @@ func (b *InMemoryBackend) DescribeAggregationAuthorizations() []AggregationAutho
 	b.mu.RLock("DescribeAggregationAuthorizations")
 	defer b.mu.RUnlock()
 
-	out := make([]AggregationAuthorization, 0, len(b.aggregationAuths))
-	for _, a := range b.aggregationAuths {
+	all := b.aggregationAuths.All()
+	out := make([]AggregationAuthorization, 0, len(all))
+
+	for _, a := range all {
 		out = append(out, *a)
 	}
 
@@ -637,7 +657,7 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 	defer b.mu.Unlock()
 
 	key := aggregationAuthKey(accountID, region)
-	if _, ok := b.aggregationAuths[key]; !ok {
+	if !b.aggregationAuths.Has(key) {
 		return fmt.Errorf(
 			"%w: aggregation authorization for account %s region %s not found",
 			ErrNoSuchAggregationAuthorization,
@@ -646,7 +666,7 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 		)
 	}
 
-	delete(b.aggregationAuths, key)
+	b.aggregationAuths.Delete(key)
 
 	return nil
 }
@@ -660,7 +680,7 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 	b.mu.Lock("PutConfigRule")
 	defer b.mu.Unlock()
 
-	existing, ok := b.configRules[input.ConfigRuleName]
+	existing, ok := b.configRules.Get(input.ConfigRuleName)
 	if ok {
 		// Preserve ARN and ID on update.
 		input.ConfigRuleArn = existing.ConfigRuleArn
@@ -685,7 +705,7 @@ func (b *InMemoryBackend) PutConfigRule(input *ConfigRule) error {
 		cp.Source = &srcCopy
 	}
 
-	b.configRules[input.ConfigRuleName] = &cp
+	b.configRules.Put(&cp)
 
 	return nil
 }
@@ -695,15 +715,15 @@ func (b *InMemoryBackend) DescribeConfigRules(names []string) []ConfigRule {
 	b.mu.RLock("DescribeConfigRules")
 	defer b.mu.RUnlock()
 
-	out := make([]ConfigRule, 0, len(b.configRules))
+	out := make([]ConfigRule, 0, b.configRules.Len())
 
 	if len(names) == 0 {
-		for _, r := range b.configRules {
+		for _, r := range b.configRules.All() {
 			out = append(out, *r)
 		}
 	} else {
 		for _, n := range names {
-			if r, ok := b.configRules[n]; ok {
+			if r, ok := b.configRules.Get(n); ok {
 				out = append(out, *r)
 			}
 		}
@@ -733,13 +753,21 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 	b.mu.Lock("DeleteConfigRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configRules[name]; !ok {
+	if !b.configRules.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchConfigRule, name)
 	}
 
-	delete(b.configRules, name)
+	b.configRules.Delete(name)
 	delete(b.ruleEvaluations, name)
-	delete(b.ruleResourceEvals, name)
+
+	// ruleResourceEvals has no bulk "delete everything under this rule"
+	// operation (unlike the old map[string]map[string]*T's single outer-map
+	// delete); snapshot the rule's entries via slices.Clone first since
+	// Table.Delete mutates the very index slice ruleResourceEvalsByRule.Get
+	// returns.
+	for _, e := range slices.Clone(b.ruleResourceEvalsByRule.Get(name)) {
+		b.ruleResourceEvals.Delete(storedEvaluationKeyFn(e))
+	}
 
 	return nil
 }
@@ -763,12 +791,12 @@ func (b *InMemoryBackend) PutConfigurationAggregator(
 		b.region, b.accountID, b.aggregatorCounter,
 	)
 
-	b.aggregators[name] = &ConfigurationAggregator{
+	b.aggregators.Put(&ConfigurationAggregator{
 		ConfigurationAggregatorName:   name,
 		ConfigurationAggregatorArn:    arn,
 		AccountAggregationSources:     accountSources,
 		OrganizationAggregationSource: orgSource,
-	}
+	})
 
 	return nil
 }
@@ -782,11 +810,11 @@ func (b *InMemoryBackend) DeleteConfigurationAggregator(name string) error {
 	b.mu.Lock("DeleteConfigurationAggregator")
 	defer b.mu.Unlock()
 
-	if _, ok := b.aggregators[name]; !ok {
+	if !b.aggregators.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchAggregator, name)
 	}
 
-	delete(b.aggregators, name)
+	b.aggregators.Delete(name)
 
 	return nil
 }
@@ -807,13 +835,13 @@ func (b *InMemoryBackend) PutConformancePack(name, deliveryS3Bucket, deliveryS3K
 		b.region, b.accountID, name, packID,
 	)
 
-	b.conformancePacks[name] = &ConformancePack{
+	b.conformancePacks.Put(&ConformancePack{
 		ConformancePackName: name,
 		ConformancePackArn:  arn,
 		ConformancePackID:   packID,
 		DeliveryS3Bucket:    deliveryS3Bucket,
 		DeliveryS3KeyPrefix: deliveryS3KeyPrefix,
-	}
+	})
 
 	return nil
 }
@@ -827,11 +855,11 @@ func (b *InMemoryBackend) DeleteConformancePack(name string) error {
 	b.mu.Lock("DeleteConformancePack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.conformancePacks[name]; !ok {
+	if !b.conformancePacks.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchConformancePack, name)
 	}
 
-	delete(b.conformancePacks, name)
+	b.conformancePacks.Delete(name)
 
 	return nil
 }
@@ -851,7 +879,7 @@ func (b *InMemoryBackend) PutOrganizationConfigRule(name string) error {
 	b.mu.Lock("PutOrganizationConfigRule")
 	defer b.mu.Unlock()
 
-	b.orgConfigRules[name] = &OrganizationConfigRule{OrganizationConfigRuleName: name}
+	b.orgConfigRules.Put(&OrganizationConfigRule{OrganizationConfigRuleName: name})
 
 	return nil
 }
@@ -865,11 +893,11 @@ func (b *InMemoryBackend) DeleteOrganizationConfigRule(name string) error {
 	b.mu.Lock("DeleteOrganizationConfigRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.orgConfigRules[name]; !ok {
+	if !b.orgConfigRules.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchOrganizationConfigRule, name)
 	}
 
-	delete(b.orgConfigRules, name)
+	b.orgConfigRules.Delete(name)
 
 	return nil
 }
@@ -883,7 +911,7 @@ func (b *InMemoryBackend) PutOrganizationConformancePack(name string) error {
 	b.mu.Lock("PutOrganizationConformancePack")
 	defer b.mu.Unlock()
 
-	b.orgConformancePacks[name] = &OrganizationConformancePack{OrganizationConformancePackName: name}
+	b.orgConformancePacks.Put(&OrganizationConformancePack{OrganizationConformancePackName: name})
 
 	return nil
 }
@@ -897,11 +925,11 @@ func (b *InMemoryBackend) DeleteOrganizationConformancePack(name string) error {
 	b.mu.Lock("DeleteOrganizationConformancePack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.orgConformancePacks[name]; !ok {
+	if !b.orgConformancePacks.Has(name) {
 		return fmt.Errorf("%w: %s", ErrNoSuchOrganizationConformancePack, name)
 	}
 
-	delete(b.orgConformancePacks, name)
+	b.orgConformancePacks.Delete(name)
 
 	return nil
 }
@@ -921,7 +949,7 @@ func (b *InMemoryBackend) AssociateResourceTypes(
 	defer b.mu.RUnlock()
 
 	// Match by exact recorder name first (most common for LocalStack compatibility).
-	if r, ok := b.recorders[recorderARN]; ok {
+	if r, ok := b.recorders.Get(recorderARN); ok {
 		return &ConfigurationRecorder{Name: r.Name, RoleARN: r.RoleARN, Status: r.Status}, nil
 	}
 

@@ -88,7 +88,7 @@ func (b *InMemoryBackend) GetStoredQuery(name string) *StoredQuery {
 	b.mu.RLock("GetStoredQuery")
 	defer b.mu.RUnlock()
 
-	q, ok := b.storedQueries[name]
+	q, ok := b.storedQueries.Get(name)
 	if !ok {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (b *InMemoryBackend) DeleteStoredQuery(name string) error {
 	b.mu.Lock("DeleteStoredQuery")
 	defer b.mu.Unlock()
 
-	delete(b.storedQueries, name)
+	b.storedQueries.Delete(name)
 
 	return nil
 }
@@ -119,10 +119,10 @@ func (b *InMemoryBackend) PutRetentionConfiguration(name string, days int32) err
 	b.mu.Lock("PutRetentionConfiguration")
 	defer b.mu.Unlock()
 
-	b.retentionConfigs[name] = &RetentionConfiguration{
+	b.retentionConfigs.Put(&RetentionConfiguration{
 		Name:                  name,
 		RetentionPeriodInDays: days,
-	}
+	})
 
 	return nil
 }
@@ -132,8 +132,10 @@ func (b *InMemoryBackend) DescribeRetentionConfigurations() []RetentionConfigura
 	b.mu.RLock("DescribeRetentionConfigurations")
 	defer b.mu.RUnlock()
 
-	out := make([]RetentionConfiguration, 0, len(b.retentionConfigs))
-	for _, rc := range b.retentionConfigs {
+	all := b.retentionConfigs.All()
+	out := make([]RetentionConfiguration, 0, len(all))
+
+	for _, rc := range all {
 		out = append(out, *rc)
 	}
 
@@ -145,7 +147,7 @@ func (b *InMemoryBackend) DeleteRetentionConfiguration(name string) error {
 	b.mu.Lock("DeleteRetentionConfiguration")
 	defer b.mu.Unlock()
 
-	delete(b.retentionConfigs, name)
+	b.retentionConfigs.Delete(name)
 
 	return nil
 }
@@ -159,7 +161,7 @@ func (b *InMemoryBackend) PutRemediationConfigurations(configs []RemediationConf
 
 	for i := range configs {
 		cp := configs[i]
-		b.remediationConfigs[cp.ConfigRuleName] = &cp
+		b.remediationConfigs.Put(&cp)
 	}
 
 	return nil
@@ -172,8 +174,10 @@ func (b *InMemoryBackend) DescribeRemediationConfigurations(ruleNames []string) 
 	defer b.mu.RUnlock()
 
 	if len(ruleNames) == 0 {
-		out := make([]RemediationConfiguration, 0, len(b.remediationConfigs))
-		for _, rc := range b.remediationConfigs {
+		all := b.remediationConfigs.All()
+		out := make([]RemediationConfiguration, 0, len(all))
+
+		for _, rc := range all {
 			out = append(out, *rc)
 		}
 
@@ -183,7 +187,7 @@ func (b *InMemoryBackend) DescribeRemediationConfigurations(ruleNames []string) 
 	out := make([]RemediationConfiguration, 0, len(ruleNames))
 
 	for _, name := range ruleNames {
-		if rc, ok := b.remediationConfigs[name]; ok {
+		if rc, ok := b.remediationConfigs.Get(name); ok {
 			out = append(out, *rc)
 		}
 	}
@@ -240,7 +244,7 @@ func (b *InMemoryBackend) DeleteRemediationConfiguration(ruleName string) error 
 	b.mu.Lock("DeleteRemediationConfiguration")
 	defer b.mu.Unlock()
 
-	delete(b.remediationConfigs, ruleName)
+	b.remediationConfigs.Delete(ruleName)
 
 	return nil
 }
@@ -415,12 +419,12 @@ func (b *InMemoryBackend) DescribeDeliveryChannelStatus(names []string) []Delive
 	var channelNames []string
 
 	if len(names) == 0 {
-		for name := range b.channels {
-			channelNames = append(channelNames, name)
+		for _, c := range b.channels.All() {
+			channelNames = append(channelNames, c.Name)
 		}
 	} else {
 		for _, name := range names {
-			if _, ok := b.channels[name]; ok {
+			if b.channels.Has(name) {
 				channelNames = append(channelNames, name)
 			}
 		}
@@ -448,8 +452,10 @@ func (b *InMemoryBackend) DescribeConformancePackStatus(names []string) []Confor
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		out := make([]ConformancePackStatus, 0, len(b.conformancePacks))
-		for _, p := range b.conformancePacks {
+		all := b.conformancePacks.All()
+		out := make([]ConformancePackStatus, 0, len(all))
+
+		for _, p := range all {
 			out = append(out, ConformancePackStatus{
 				ConformancePackName:  p.ConformancePackName,
 				ConformancePackState: conformancePackStateComplete,
@@ -466,7 +472,7 @@ func (b *InMemoryBackend) DescribeConformancePackStatus(names []string) []Confor
 	out := make([]ConformancePackStatus, 0, len(names))
 
 	for _, name := range names {
-		if p, ok := b.conformancePacks[name]; ok {
+		if p, ok := b.conformancePacks.Get(name); ok {
 			out = append(out, ConformancePackStatus{
 				ConformancePackName:  p.ConformancePackName,
 				ConformancePackState: conformancePackStateComplete,
@@ -496,8 +502,10 @@ func (b *InMemoryBackend) DescribeOrganizationConfigRuleStatuses(names []string)
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		out := make([]OrganizationConfigRuleStatus, 0, len(b.orgConfigRules))
-		for _, r := range b.orgConfigRules {
+		all := b.orgConfigRules.All()
+		out := make([]OrganizationConfigRuleStatus, 0, len(all))
+
+		for _, r := range all {
 			out = append(out, OrganizationConfigRuleStatus{
 				OrganizationConfigRuleName: r.OrganizationConfigRuleName,
 				OrganizationRuleStatus:     orgRuleStatusCreateSuccessful,
@@ -510,7 +518,7 @@ func (b *InMemoryBackend) DescribeOrganizationConfigRuleStatuses(names []string)
 	out := make([]OrganizationConfigRuleStatus, 0, len(names))
 
 	for _, name := range names {
-		if r, ok := b.orgConfigRules[name]; ok {
+		if r, ok := b.orgConfigRules.Get(name); ok {
 			out = append(out, OrganizationConfigRuleStatus{
 				OrganizationConfigRuleName: r.OrganizationConfigRuleName,
 				OrganizationRuleStatus:     orgRuleStatusCreateSuccessful,
@@ -530,8 +538,10 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePackStatuses(
 	defer b.mu.RUnlock()
 
 	if len(names) == 0 {
-		out := make([]OrganizationConformancePackStatus, 0, len(b.orgConformancePacks))
-		for _, p := range b.orgConformancePacks {
+		all := b.orgConformancePacks.All()
+		out := make([]OrganizationConformancePackStatus, 0, len(all))
+
+		for _, p := range all {
 			out = append(out, OrganizationConformancePackStatus{
 				OrganizationConformancePackName: p.OrganizationConformancePackName,
 				Status:                          orgRuleStatusCreateSuccessful,
@@ -544,7 +554,7 @@ func (b *InMemoryBackend) DescribeOrganizationConformancePackStatuses(
 	out := make([]OrganizationConformancePackStatus, 0, len(names))
 
 	for _, name := range names {
-		if p, ok := b.orgConformancePacks[name]; ok {
+		if p, ok := b.orgConformancePacks.Get(name); ok {
 			out = append(out, OrganizationConformancePackStatus{
 				OrganizationConformancePackName: p.OrganizationConformancePackName,
 				Status:                          orgRuleStatusCreateSuccessful,
@@ -564,10 +574,6 @@ func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configurat
 	b.mu.Lock("PutResourceConfig")
 	defer b.mu.Unlock()
 
-	if b.resourceConfigs[resourceType] == nil {
-		b.resourceConfigs[resourceType] = make(map[string]*ResourceConfigItem)
-	}
-
 	b.captureCounter++
 
 	item := ResourceConfigItem{
@@ -577,7 +583,7 @@ func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configurat
 		ConfigurationItemCaptureTime: float64(time.Now().Unix()),
 	}
 
-	b.resourceConfigs[resourceType][resourceID] = &item
+	b.resourceConfigs.Put(&item)
 
 	key := resourceEvalKey(resourceType, resourceID)
 
@@ -636,7 +642,7 @@ func (b *InMemoryBackend) ListDiscoveredResources(resourceType string) []Resourc
 	b.mu.RLock("ListDiscoveredResources")
 	defer b.mu.RUnlock()
 
-	byType := b.resourceConfigs[resourceType]
+	byType := b.resourceConfigsByType.Get(resourceType)
 	if len(byType) == 0 {
 		return []ResourceConfigItem{}
 	}
@@ -674,13 +680,7 @@ func (b *InMemoryBackend) GetAggregateDiscoveredResourceCounts() int32 {
 	b.mu.RLock("GetAggregateDiscoveredResourceCounts")
 	defer b.mu.RUnlock()
 
-	var total int32
-
-	for _, byType := range b.resourceConfigs {
-		total += int32(len(byType)) //nolint:gosec // len is non-negative and bounded
-	}
-
-	return total
+	return int32(b.resourceConfigs.Len()) //nolint:gosec // Len is non-negative and bounded
 }
 
 // GetAggregateResourceConfig returns the first resource config found, or an empty item.
@@ -688,12 +688,10 @@ func (b *InMemoryBackend) GetAggregateResourceConfig() *BaseConfigurationItem {
 	b.mu.RLock("GetAggregateResourceConfig")
 	defer b.mu.RUnlock()
 
-	for _, byType := range b.resourceConfigs {
-		for _, item := range byType {
-			return &BaseConfigurationItem{
-				ResourceType: item.ResourceType,
-				ResourceID:   item.ResourceID,
-			}
+	for _, item := range b.resourceConfigs.All() {
+		return &BaseConfigurationItem{
+			ResourceType: item.ResourceType,
+			ResourceID:   item.ResourceID,
 		}
 	}
 
@@ -738,7 +736,7 @@ func (b *InMemoryBackend) GetComplianceSummaryByResourceType(
 	b.mu.RLock("GetComplianceSummaryByResourceType")
 	defer b.mu.RUnlock()
 
-	nonCompliant := resourceComplianceByType(b.ruleResourceEvals, resourceTypes)
+	nonCompliant := resourceComplianceByType(b.ruleResourceEvals.All(), resourceTypes)
 
 	resourceTypesSeen := make([]string, 0, len(nonCompliant))
 	for rt := range nonCompliant {
@@ -758,8 +756,13 @@ func (b *InMemoryBackend) GetComplianceSummaryByResourceType(
 // resourceComplianceByType walks per-(rule, resource) evaluations and, for
 // every resource matching the optional resourceTypes filter, records whether
 // any rule found it NON_COMPLIANT (true) or only COMPLIANT/other (false).
+// evals is the flat contents of b.ruleResourceEvals (formerly a nested
+// map[string]map[string]*StoredEvaluation keyed by rule then resource; the
+// flattened store.Table has no rule-name grouping at this call site's level,
+// but nothing here ever used the rule name, only ResourceType/ResourceID/
+// ComplianceType off each StoredEvaluation, so a flat slice is equivalent).
 func resourceComplianceByType(
-	ruleResourceEvals map[string]map[string]*StoredEvaluation,
+	evals []*StoredEvaluation,
 	resourceTypes []string,
 ) map[string]map[string]bool {
 	filter := make(map[string]struct{}, len(resourceTypes))
@@ -769,21 +772,19 @@ func resourceComplianceByType(
 
 	nonCompliant := make(map[string]map[string]bool)
 
-	for _, evals := range ruleResourceEvals {
-		for _, e := range evals {
-			if len(filter) > 0 {
-				if _, ok := filter[e.ResourceType]; !ok {
-					continue
-				}
+	for _, e := range evals {
+		if len(filter) > 0 {
+			if _, ok := filter[e.ResourceType]; !ok {
+				continue
 			}
-
-			if nonCompliant[e.ResourceType] == nil {
-				nonCompliant[e.ResourceType] = make(map[string]bool)
-			}
-
-			nonCompliant[e.ResourceType][e.ResourceID] =
-				nonCompliant[e.ResourceType][e.ResourceID] || e.ComplianceType == complianceNonCompliant
 		}
+
+		if nonCompliant[e.ResourceType] == nil {
+			nonCompliant[e.ResourceType] = make(map[string]bool)
+		}
+
+		nonCompliant[e.ResourceType][e.ResourceID] =
+			nonCompliant[e.ResourceType][e.ResourceID] || e.ComplianceType == complianceNonCompliant
 	}
 
 	return nonCompliant
@@ -823,14 +824,7 @@ func (b *InMemoryBackend) DescribeComplianceByResource() []any { return []any{} 
 // resourceConfigItemsLocked returns every discovered resource configuration
 // item across all resource types. Caller must hold at least a read lock.
 func (b *InMemoryBackend) resourceConfigItemsLocked() []*ResourceConfigItem {
-	items := make([]*ResourceConfigItem, 0, len(b.resourceConfigs))
-	for _, byID := range b.resourceConfigs {
-		for _, item := range byID {
-			items = append(items, item)
-		}
-	}
-
-	return items
+	return b.resourceConfigs.All()
 }
 
 // SelectResourceConfig evaluates a minimal SQL-like "SELECT fields WHERE
