@@ -14,8 +14,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -209,37 +209,85 @@ type Repository struct {
 }
 
 // InMemoryBackend is the in-memory store for CodeCommit resources.
+//
+// Phase 3.3 datalayer refactor: every map[string]*T resource field is
+// registered exactly once (see store_setup.go's registerAllTables) as a
+// *store.Table[T] on registry. Maps whose value is not a *T of its own (sets,
+// plain scalars/strings, slices, or a pure reverse/derived index) are left as
+// plain maps below -- see store_setup.go's file doc for the full audit of
+// which field went which way and why.
 type InMemoryBackend struct {
-	repositories          map[string]*Repository           // key: repositoryName
-	repositoriesByARN     map[string]string                // key: ARN → repositoryName
-	approvalRuleTemplates map[string]*ApprovalRuleTemplate // key: templateName
-	// repoTemplateAssoc maps repositoryName -> set of templateNames
+	registry *store.Registry
+
+	repositories *store.Table[Repository] // key: repositoryName
+	// repositoriesByARN is a pure reverse-lookup cache (ARN -> repositoryName)
+	// rebuildable in full from repositories; it is never persisted and is
+	// rebuilt by rebuildRepositoriesByARN after Restore (see persistence.go).
+	repositoriesByARN map[string]string
+
+	approvalRuleTemplates *store.Table[ApprovalRuleTemplate] // key: templateName
+
+	// repoTemplateAssoc maps repositoryName -> set of templateNames. Its
+	// value (map[string]struct{}) has no identity of its own, so it is not a
+	// store.Table candidate; it remains a plain persisted map.
 	repoTemplateAssoc map[string]map[string]struct{}
-	// branches maps repositoryName -> branchName -> Branch
-	branches map[string]map[string]*Branch
-	// commits maps repositoryName -> commitId -> Commit
-	commits map[string]map[string]*Commit
-	// pullRequests maps pullRequestId -> PullRequest
-	pullRequests map[string]*PullRequest
-	// prApprovals maps prID -> userARN -> approvalState
+
+	// branches was previously nested (repositoryName -> branchName ->
+	// *Branch); it is now one flat table keyed by the composite
+	// "repositoryName|branchName" string (see branchKey in store_setup.go),
+	// with branchesByRepo grouping entries by repository for the "all
+	// branches in repo X" lookups the nested map used to answer directly.
+	branches       *store.Table[Branch]
+	branchesByRepo *store.Index[Branch]
+
+	// commits was previously nested (repositoryName -> commitId -> *Commit);
+	// same composite-key + index treatment as branches.
+	commits       *store.Table[Commit]
+	commitsByRepo *store.Index[Commit]
+
+	pullRequests *store.Table[PullRequest] // key: pullRequestId
+
+	// prApprovals maps prID -> userARN -> approvalState; a bare string value
+	// with no identity of its own, so it remains a plain persisted map.
 	prApprovals map[string]map[string]string
-	// prApprovalRules maps prID -> ruleName -> rule
-	prApprovalRules map[string]map[string]*PullRequestApprovalRule
-	// prOverrides maps prID -> overridden
+
+	// prApprovalRules was previously nested (prID -> ruleName -> *rule); flat
+	// table keyed by the composite "prID|ruleName" string (see
+	// prApprovalRuleKey), with prApprovalRulesByPR grouping by pull request.
+	// "Dirty" table (see store_setup.go's registerAllTables doc): NOT on
+	// b.registry, persisted via a DTO in persistence.go.
+	prApprovalRules     *store.Table[PullRequestApprovalRule]
+	prApprovalRulesByPR *store.Index[PullRequestApprovalRule]
+
+	// prOverrides maps prID -> overridden; plain persisted map (bare bool value).
 	prOverrides map[string]bool
-	// prOverriders maps prID -> overrider ARN
+	// prOverriders maps prID -> overrider ARN; plain persisted map (bare string value).
 	prOverriders map[string]string
-	// prEvents maps prID -> events
+	// prEvents maps prID -> events; plain persisted map (slice value, no identity).
 	prEvents map[string][]PullRequestEvent
-	// comments maps commentID -> Comment
-	comments map[string]*Comment
-	// commentReactions maps commentID -> reactions
+
+	// comments is keyed by commentID. "Dirty" table (see store_setup.go's
+	// registerAllTables doc): NOT on b.registry, persisted via a DTO in
+	// persistence.go, since Comment's PRid/RepoName/AfterCommitID fields are
+	// tagged json:"-" (hidden from the wire API but real backend state).
+	comments *store.Table[Comment]
+
+	// commentReactions maps commentID -> reactions; plain persisted map (slice value).
 	commentReactions map[string][]Reaction
-	// files maps repoName -> filePath -> File (current version)
-	files map[string]map[string]*File
-	// fileHistory maps repoName -> filePath -> []commitID (ordered, oldest first)
+
+	// files was previously nested (repoName -> filePath -> *File); flat table
+	// keyed by the composite "repoName|filePath" string (see fileKey), with
+	// filesByRepo grouping by repository. File gained a RepoName field
+	// purely to carry this identity (see backend_ops.go). "Dirty" table (see
+	// store_setup.go's registerAllTables doc): NOT on b.registry, persisted
+	// via a DTO in persistence.go.
+	files       *store.Table[File]
+	filesByRepo *store.Index[File]
+
+	// fileHistory maps repoName -> filePath -> []commitID (ordered, oldest
+	// first); plain persisted map (slice value, no identity).
 	fileHistory map[string]map[string][]string
-	// triggers maps repoName -> triggers
+	// triggers maps repoName -> triggers; plain persisted map (slice value).
 	triggers      map[string][]RepositoryTrigger
 	mu            *lockmetrics.RWMutex
 	accountID     string
@@ -249,28 +297,24 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory CodeCommit backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		repositories:          make(map[string]*Repository),
-		repositoriesByARN:     make(map[string]string),
-		approvalRuleTemplates: make(map[string]*ApprovalRuleTemplate),
-		repoTemplateAssoc:     make(map[string]map[string]struct{}),
-		branches:              make(map[string]map[string]*Branch),
-		commits:               make(map[string]map[string]*Commit),
-		pullRequests:          make(map[string]*PullRequest),
-		prApprovals:           make(map[string]map[string]string),
-		prApprovalRules:       make(map[string]map[string]*PullRequestApprovalRule),
-		prOverrides:           make(map[string]bool),
-		prOverriders:          make(map[string]string),
-		prEvents:              make(map[string][]PullRequestEvent),
-		comments:              make(map[string]*Comment),
-		commentReactions:      make(map[string][]Reaction),
-		files:                 make(map[string]map[string]*File),
-		fileHistory:           make(map[string]map[string][]string),
-		triggers:              make(map[string][]RepositoryTrigger),
-		accountID:             accountID,
-		region:                region,
-		mu:                    lockmetrics.New("codecommit"),
+	b := &InMemoryBackend{
+		registry:          store.NewRegistry(),
+		repositoriesByARN: make(map[string]string),
+		repoTemplateAssoc: make(map[string]map[string]struct{}),
+		prApprovals:       make(map[string]map[string]string),
+		prOverrides:       make(map[string]bool),
+		prOverriders:      make(map[string]string),
+		prEvents:          make(map[string][]PullRequestEvent),
+		commentReactions:  make(map[string][]Reaction),
+		fileHistory:       make(map[string]map[string][]string),
+		triggers:          make(map[string][]RepositoryTrigger),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("codecommit"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state, returning it to a pristine empty state.
@@ -278,25 +322,23 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, r := range b.repositories {
+	for _, r := range b.repositories.All() {
 		r.Tags.Close()
 	}
 
-	b.repositories = make(map[string]*Repository)
+	b.registry.ResetAll()
+	// The "dirty" tables (see store_setup.go's registerAllTables doc) are
+	// deliberately NOT on b.registry, so each needs its own Reset() call here.
+	b.prApprovalRules.Reset()
+	b.comments.Reset()
+	b.files.Reset()
 	b.repositoriesByARN = make(map[string]string)
-	b.approvalRuleTemplates = make(map[string]*ApprovalRuleTemplate)
 	b.repoTemplateAssoc = make(map[string]map[string]struct{})
-	b.branches = make(map[string]map[string]*Branch)
-	b.commits = make(map[string]map[string]*Commit)
-	b.pullRequests = make(map[string]*PullRequest)
 	b.prApprovals = make(map[string]map[string]string)
-	b.prApprovalRules = make(map[string]map[string]*PullRequestApprovalRule)
 	b.prOverrides = make(map[string]bool)
 	b.prOverriders = make(map[string]string)
 	b.prEvents = make(map[string][]PullRequestEvent)
-	b.comments = make(map[string]*Comment)
 	b.commentReactions = make(map[string][]Reaction)
-	b.files = make(map[string]map[string]*File)
 	b.fileHistory = make(map[string]map[string][]string)
 	b.triggers = make(map[string][]RepositoryTrigger)
 	b.nextPRCounter = 0
@@ -314,7 +356,7 @@ func (b *InMemoryBackend) CreateRepository(name, description string, kv map[stri
 		return nil, err
 	}
 
-	if _, ok := b.repositories[name]; ok {
+	if b.repositories.Has(name) {
 		return nil, fmt.Errorf("%w: repository %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -338,7 +380,7 @@ func (b *InMemoryBackend) CreateRepository(name, description string, kv map[stri
 		CloneURLSSH:      fmt.Sprintf("ssh://git-codecommit.%s.amazonaws.com/v1/repos/%s", b.region, name),
 		Tags:             t,
 	}
-	b.repositories[name] = r
+	b.repositories.Put(r)
 	b.repositoriesByARN[repoARN] = name
 	cp := *r
 
@@ -350,7 +392,7 @@ func (b *InMemoryBackend) GetRepository(name string) (*Repository, error) {
 	b.mu.RLock("GetRepository")
 	defer b.mu.RUnlock()
 
-	r, ok := b.repositories[name]
+	r, ok := b.repositories.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
 	}
@@ -365,29 +407,40 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	b.mu.Lock("DeleteRepository")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositories[name]
+	r, ok := b.repositories.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
 	}
 	cp := *r
-	delete(b.repositories, name)
+	b.repositories.Delete(name)
 	delete(b.repositoriesByARN, r.ARN)
 	r.Tags.Close()
 
 	// Cascade: remove branches, commits, template-associations, files, triggers.
-	delete(b.branches, name)
-	delete(b.commits, name)
+	for _, br := range append([]*Branch{}, b.branchesByRepo.Get(name)...) {
+		b.branches.Delete(branchKey(name, br.BranchName))
+	}
+	for _, c := range append([]*Commit{}, b.commitsByRepo.Get(name)...) {
+		b.commits.Delete(commitKey(name, c.CommitID))
+	}
 	delete(b.repoTemplateAssoc, name)
-	delete(b.files, name)
+	for _, f := range append([]*File{}, b.filesByRepo.Get(name)...) {
+		b.files.Delete(fileKey(name, f.FilePath))
+	}
 	delete(b.triggers, name)
 
 	// Cascade: remove pull requests that target this repository.
-	for prID, pr := range b.pullRequests {
+	for _, pr := range b.pullRequests.All() {
 		for _, t := range pr.PullRequestTargets {
 			if t.RepositoryName == name {
-				delete(b.pullRequests, prID)
+				prID := pr.PullRequestID
+				b.pullRequests.Delete(prID)
 				delete(b.prApprovals, prID)
-				delete(b.prApprovalRules, prID)
+
+				for _, rule := range append([]*PullRequestApprovalRule{}, b.prApprovalRulesByPR.Get(prID)...) {
+					b.prApprovalRules.Delete(prApprovalRuleKey(prID, rule.RuleName))
+				}
+
 				delete(b.prOverrides, prID)
 				delete(b.prOverriders, prID)
 				delete(b.prEvents, prID)
@@ -405,11 +458,11 @@ func (b *InMemoryBackend) ListRepositories() []*Repository {
 	b.mu.RLock("ListRepositories")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.repositories)
+	snap := b.repositories.Snapshot()
+	list := make([]*Repository, 0, len(snap))
 
-	list := make([]*Repository, 0, len(names))
-	for _, n := range names {
-		cp := *b.repositories[n]
+	for _, r := range snap {
+		cp := *r
 		list = append(list, &cp)
 	}
 
@@ -425,7 +478,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	b.repositories[name].Tags.Merge(kv)
+	r, _ := b.repositories.Get(name)
+	r.Tags.Merge(kv)
 
 	return nil
 }
@@ -439,7 +493,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
-	b.repositories[name].Tags.DeleteKeys(tagKeys)
+	r, _ := b.repositories.Get(name)
+	r.Tags.DeleteKeys(tagKeys)
 
 	return nil
 }
@@ -454,7 +509,9 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return b.repositories[name].Tags.Clone(), nil
+	r, _ := b.repositories.Get(name)
+
+	return r.Tags.Clone(), nil
 }
 
 // BatchGetRepositories returns repositories by name, splitting results into found/notFound.
@@ -475,7 +532,7 @@ func (b *InMemoryBackend) BatchGetRepositories(names []string) ([]*Repository, [
 	var notFound []string
 
 	for _, name := range names {
-		r, ok := b.repositories[name]
+		r, ok := b.repositories.Get(name)
 		if !ok {
 			notFound = append(notFound, name)
 
@@ -493,7 +550,7 @@ func (b *InMemoryBackend) CreateApprovalRuleTemplate(name, description, content 
 	b.mu.Lock("CreateApprovalRuleTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.approvalRuleTemplates[name]; ok {
+	if b.approvalRuleTemplates.Has(name) {
 		return nil, fmt.Errorf(
 			"%w: approval rule template %s already exists",
 			ErrApprovalRuleTemplateAlreadyExists,
@@ -515,7 +572,7 @@ func (b *InMemoryBackend) CreateApprovalRuleTemplate(name, description, content 
 		LastModifiedDate:                now,
 		RuleContentSha256:               hex.EncodeToString(hash[:]),
 	}
-	b.approvalRuleTemplates[name] = t
+	b.approvalRuleTemplates.Put(t)
 	cp := *t
 
 	return &cp, nil
@@ -526,11 +583,11 @@ func (b *InMemoryBackend) AssociateApprovalRuleTemplateWithRepository(templateNa
 	b.mu.Lock("AssociateApprovalRuleTemplateWithRepository")
 	defer b.mu.Unlock()
 
-	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+	if !b.approvalRuleTemplates.Has(templateName) {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, templateName)
 	}
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
@@ -547,11 +604,11 @@ func (b *InMemoryBackend) DisassociateApprovalRuleTemplateFromRepository(templat
 	b.mu.Lock("DisassociateApprovalRuleTemplateFromRepository")
 	defer b.mu.Unlock()
 
-	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+	if !b.approvalRuleTemplates.Has(templateName) {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, templateName)
 	}
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
@@ -574,7 +631,7 @@ func (b *InMemoryBackend) BatchAssociateApprovalRuleTemplateWithRepositories(
 	var associated []string
 	var errors []BatchAssociationError
 
-	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+	if !b.approvalRuleTemplates.Has(templateName) {
 		for _, name := range repositoryNames {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
@@ -587,7 +644,7 @@ func (b *InMemoryBackend) BatchAssociateApprovalRuleTemplateWithRepositories(
 	}
 
 	for _, name := range repositoryNames {
-		if _, ok := b.repositories[name]; !ok {
+		if !b.repositories.Has(name) {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
 				ErrorCode:      errRepoDoesNotExist,
@@ -619,7 +676,7 @@ func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
 	var disassociated []string
 	var errors []BatchAssociationError
 
-	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+	if !b.approvalRuleTemplates.Has(templateName) {
 		for _, name := range repositoryNames {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
@@ -632,7 +689,7 @@ func (b *InMemoryBackend) BatchDisassociateApprovalRuleTemplateFromRepositories(
 	}
 
 	for _, name := range repositoryNames {
-		if _, ok := b.repositories[name]; !ok {
+		if !b.repositories.Has(name) {
 			errors = append(errors, BatchAssociationError{
 				RepositoryName: name,
 				ErrorCode:      errRepoDoesNotExist,
@@ -667,32 +724,24 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 	b.mu.Lock("CreateBranch")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
 	// Validate that the commitID exists in the repository.
-	if repoCommits := b.commits[repositoryName]; repoCommits != nil {
-		if _, ok := repoCommits[commitID]; !ok {
-			return fmt.Errorf("%w: commit %s not found in repository %s", ErrCommitNotFound, commitID, repositoryName)
-		}
-	} else {
+	if !b.commits.Has(commitKey(repositoryName, commitID)) {
 		return fmt.Errorf("%w: commit %s not found in repository %s", ErrCommitNotFound, commitID, repositoryName)
 	}
 
-	if b.branches[repositoryName] == nil {
-		b.branches[repositoryName] = make(map[string]*Branch)
-	}
-
-	if _, ok := b.branches[repositoryName][branchName]; ok {
+	if b.branches.Has(branchKey(repositoryName, branchName)) {
 		return fmt.Errorf("%w: branch %s already exists", ErrBranchAlreadyExists, branchName)
 	}
 
-	b.branches[repositoryName][branchName] = &Branch{
+	b.branches.Put(&Branch{
 		BranchName:     branchName,
 		CommitID:       commitID,
 		RepositoryName: repositoryName,
-	}
+	})
 
 	return nil
 }
@@ -701,9 +750,6 @@ func (b *InMemoryBackend) CreateBranch(repositoryName, branchName, commitID stri
 // Caller must hold the write lock.
 func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string) {
 	if len(putFiles) > 0 {
-		if b.files[repoName] == nil {
-			b.files[repoName] = make(map[string]*File)
-		}
 		if b.fileHistory[repoName] == nil {
 			b.fileHistory[repoName] = make(map[string][]string)
 		}
@@ -712,20 +758,19 @@ func (b *InMemoryBackend) applyFileChanges(repoName, commitID string, putFiles [
 			if fileMode == "" {
 				fileMode = fileModeDefault
 			}
-			b.files[repoName][pf.FilePath] = &File{
+			b.files.Put(&File{
 				FilePath:        pf.FilePath,
 				CommitSpecifier: commitID,
 				BlobID:          uuid.NewString(),
 				FileMode:        fileMode,
 				FileContent:     pf.FileContent,
-			}
+				RepoName:        repoName,
+			})
 			b.fileHistory[repoName][pf.FilePath] = append(b.fileHistory[repoName][pf.FilePath], commitID)
 		}
 	}
 	for _, fp := range deleteFiles {
-		if b.files[repoName] != nil {
-			delete(b.files[repoName], fp)
-		}
+		b.files.Delete(fileKey(repoName, fp))
 	}
 }
 
@@ -742,17 +787,15 @@ func (b *InMemoryBackend) CreateCommit(
 	b.mu.Lock("CreateCommit")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
 	// Determine current branch tip (if any).
 	var currentTip string
 	if branchName != "" {
-		if repoBranches := b.branches[repositoryName]; repoBranches != nil {
-			if existing, ok := repoBranches[branchName]; ok {
-				currentTip = existing.CommitID
-			}
+		if existing, ok := b.branches.Get(branchKey(repositoryName, branchName)); ok {
+			currentTip = existing.CommitID
 		}
 	}
 
@@ -789,24 +832,18 @@ func (b *InMemoryBackend) CreateCommit(
 		CreatedAt:      now,
 	}
 
-	if b.commits[repositoryName] == nil {
-		b.commits[repositoryName] = make(map[string]*Commit)
-	}
-	b.commits[repositoryName][commitID] = commit
+	b.commits.Put(commit)
 
 	// Apply putFiles and deleteFiles to the file store.
 	b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
-		if b.branches[repositoryName] == nil {
-			b.branches[repositoryName] = make(map[string]*Branch)
-		}
-		b.branches[repositoryName][branchName] = &Branch{
+		b.branches.Put(&Branch{
 			BranchName:     branchName,
 			CommitID:       commitID,
 			RepositoryName: repositoryName,
-		}
+		})
 	}
 
 	cp := *commit
@@ -827,17 +864,15 @@ func (b *InMemoryBackend) BatchGetCommits(
 	b.mu.RLock("BatchGetCommits")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
 	found := make([]*Commit, 0, len(commitIDs))
 	errors := make([]BatchCommitError, 0, len(commitIDs))
 
-	repoCommits := b.commits[repositoryName]
-
 	for _, id := range commitIDs {
-		c, ok := repoCommits[id]
+		c, ok := b.commits.Get(commitKey(repositoryName, id))
 		if !ok {
 			errors = append(errors, BatchCommitError{
 				CommitID:     id,
@@ -928,7 +963,7 @@ func (b *InMemoryBackend) BatchDescribeMergeConflicts(
 	b.mu.RLock("BatchDescribeMergeConflicts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
@@ -978,7 +1013,7 @@ func (b *InMemoryBackend) CreatePullRequest(
 		PullRequestTargets: targets,
 		RevisionID:         uuid.NewString(),
 	}
-	b.pullRequests[prID] = pr
+	b.pullRequests.Put(pr)
 	cp := *pr
 
 	// deep copy targets slice
@@ -993,11 +1028,11 @@ func (b *InMemoryBackend) GetBranch(repositoryName, branchName string) (*Branch,
 	b.mu.RLock("GetBranch")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	br, ok := b.branches[repositoryName][branchName]
+	br, ok := b.branches.Get(branchKey(repositoryName, branchName))
 	if !ok {
 		return nil, fmt.Errorf("%w: branch %s not found", ErrBranchNotFound, branchName)
 	}
@@ -1012,17 +1047,17 @@ func (b *InMemoryBackend) DeleteBranch(repositoryName, branchName string) (*Bran
 	b.mu.Lock("DeleteBranch")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	br, ok := b.branches[repositoryName][branchName]
+	br, ok := b.branches.Get(branchKey(repositoryName, branchName))
 	if !ok {
 		return nil, fmt.Errorf("%w: branch %s not found", ErrBranchNotFound, branchName)
 	}
 
 	cp := *br
-	delete(b.branches[repositoryName], branchName)
+	b.branches.Delete(branchKey(repositoryName, branchName))
 
 	return &cp, nil
 }
@@ -1032,11 +1067,11 @@ func (b *InMemoryBackend) GetCommit(repositoryName, commitID string) (*Commit, e
 	b.mu.RLock("GetCommit")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	c, ok := b.commits[repositoryName][commitID]
+	c, ok := b.commits.Get(commitKey(repositoryName, commitID))
 	if !ok {
 		return nil, fmt.Errorf("%w: commit %s not found", ErrCommitNotFound, commitID)
 	}
@@ -1051,12 +1086,16 @@ func (b *InMemoryBackend) ListBranches(repositoryName string) ([]string, error) 
 	b.mu.RLock("ListBranches")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	branches := b.branches[repositoryName]
-	names := collections.SortedKeys(branches)
+	group := b.branchesByRepo.Get(repositoryName)
+	names := make([]string, 0, len(group))
+	for _, br := range group {
+		names = append(names, br.BranchName)
+	}
+	sort.Strings(names)
 
 	return names, nil
 }
@@ -1066,7 +1105,7 @@ func (b *InMemoryBackend) GetPullRequest(prID string) (*PullRequest, error) {
 	b.mu.RLock("GetPullRequest")
 	defer b.mu.RUnlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -1083,13 +1122,14 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus, au
 	b.mu.RLock("ListPullRequests")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repositoryName]; !ok {
+	if !b.repositories.Has(repositoryName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repositoryName)
 	}
 
-	ids := make([]string, 0, len(b.pullRequests))
+	all := b.pullRequests.All()
+	ids := make([]string, 0, len(all))
 
-	for id, pr := range b.pullRequests {
+	for _, pr := range all {
 		if pullRequestStatus != "" && pr.PullRequestStatus != pullRequestStatus {
 			continue
 		}
@@ -1099,7 +1139,7 @@ func (b *InMemoryBackend) ListPullRequests(repositoryName, pullRequestStatus, au
 
 		for _, t := range pr.PullRequestTargets {
 			if t.RepositoryName == repositoryName {
-				ids = append(ids, id)
+				ids = append(ids, pr.PullRequestID)
 
 				break
 			}
@@ -1128,7 +1168,7 @@ func (b *InMemoryBackend) AddRepositoryInternal(r *Repository) {
 	b.mu.Lock("AddRepositoryInternal")
 	defer b.mu.Unlock()
 
-	b.repositories[r.RepositoryName] = r
+	b.repositories.Put(r)
 	b.repositoriesByARN[r.ARN] = r.RepositoryName
 }
 
@@ -1137,7 +1177,7 @@ func (b *InMemoryBackend) AddApprovalRuleTemplateInternal(t *ApprovalRuleTemplat
 	b.mu.Lock("AddApprovalRuleTemplateInternal")
 	defer b.mu.Unlock()
 
-	b.approvalRuleTemplates[t.ApprovalRuleTemplateName] = t
+	b.approvalRuleTemplates.Put(t)
 }
 
 // AddBranchInternal seeds a Branch directly into the backend.
@@ -1145,10 +1185,8 @@ func (b *InMemoryBackend) AddBranchInternal(repositoryName string, br *Branch) {
 	b.mu.Lock("AddBranchInternal")
 	defer b.mu.Unlock()
 
-	if b.branches[repositoryName] == nil {
-		b.branches[repositoryName] = make(map[string]*Branch)
-	}
-	b.branches[repositoryName][br.BranchName] = br
+	br.RepositoryName = repositoryName
+	b.branches.Put(br)
 }
 
 // AddCommitInternal seeds a Commit directly into the backend.
@@ -1156,10 +1194,8 @@ func (b *InMemoryBackend) AddCommitInternal(repositoryName string, c *Commit) {
 	b.mu.Lock("AddCommitInternal")
 	defer b.mu.Unlock()
 
-	if b.commits[repositoryName] == nil {
-		b.commits[repositoryName] = make(map[string]*Commit)
-	}
-	b.commits[repositoryName][c.CommitID] = c
+	c.RepositoryName = repositoryName
+	b.commits.Put(c)
 }
 
 // AddPullRequestInternal seeds a PullRequest directly into the backend.
@@ -1167,5 +1203,5 @@ func (b *InMemoryBackend) AddPullRequestInternal(pr *PullRequest) {
 	b.mu.Lock("AddPullRequestInternal")
 	defer b.mu.Unlock()
 
-	b.pullRequests[pr.PullRequestID] = pr
+	b.pullRequests.Put(pr)
 }
