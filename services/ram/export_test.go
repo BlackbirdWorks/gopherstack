@@ -12,7 +12,7 @@ func ResourceShareCount(b *InMemoryBackend) int {
 	b.mu.RLock("ResourceShareCount")
 	defer b.mu.RUnlock()
 
-	return len(b.resourceShares)
+	return b.resourceShares.Len()
 }
 
 // PermissionCount returns the number of permissions in the backend (including soft-deleted).
@@ -20,7 +20,7 @@ func PermissionCount(b *InMemoryBackend) int {
 	b.mu.RLock("PermissionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.permissions)
+	return b.permissions.Len()
 }
 
 // InvitationCount returns the number of invitations in the backend.
@@ -28,7 +28,7 @@ func InvitationCount(b *InMemoryBackend) int {
 	b.mu.RLock("InvitationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.invitations)
+	return b.invitations.Len()
 }
 
 // AssociationCount returns the total number of associations stored in the backend.
@@ -74,7 +74,7 @@ func AddInvitationInternal(b *InMemoryBackend, inv *ResourceShareInvitation) {
 	b.mu.Lock("AddInvitationInternal")
 	defer b.mu.Unlock()
 
-	b.invitations[inv.InvitationARN] = inv
+	b.invitations.Put(inv)
 }
 
 // NewTestResourceShare is a convenience helper that builds a minimal ResourceShare
