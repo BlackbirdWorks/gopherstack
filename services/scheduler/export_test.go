@@ -30,12 +30,7 @@ func ScheduleCount(b *InMemoryBackend) int {
 	b.mu.RLock("ScheduleCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionSchedules := range b.schedules {
-		total += len(regionSchedules)
-	}
-
-	return total
+	return b.schedules.Len()
 }
 
 // ScheduleGroupCount returns the total number of schedule groups across all regions.
@@ -43,12 +38,7 @@ func ScheduleGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("ScheduleGroupCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionGroups := range b.scheduleGroups {
-		total += len(regionGroups)
-	}
-
-	return total
+	return b.scheduleGroups.Len()
 }
 
 // HandlerOpsLen returns the number of operations in the handler's dispatch table.
