@@ -431,6 +431,16 @@ type ProposalVote struct {
 	MemberID   string `json:"memberId"`
 	MemberName string `json:"memberName"`
 	Vote       string `json:"vote"`
+	// proposalID is the parent proposal's ID. It is deliberately unexported
+	// (not part of the wire-visible API) so it plays the same role
+	// services/workmail's orgID fields do: a hidden composite-key component
+	// used only to key store.Table[ProposalVote] by (proposalID, memberID)
+	// and to group votes per proposal via a store.Index. Because it is
+	// unexported it does not round-trip through a plain json.Marshal of a
+	// ProposalVote, which is exactly why persistence.go persists this table
+	// through an explicit proposalVoteDTO wrapper instead of registering it
+	// directly on the backend's store.Registry.
+	proposalID string
 }
 
 // -- Accessor request / response types -----------------------------------------
