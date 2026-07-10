@@ -5,7 +5,7 @@ func PlaybackConfigurationCount(b *InMemoryBackend) int {
 	b.mu.RLock("PlaybackConfigurationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.playbackConfigurations)
+	return b.playbackConfigurations.Len()
 }
 
 // ChannelCount returns the number of stored channels.
@@ -13,7 +13,7 @@ func ChannelCount(b *InMemoryBackend) int {
 	b.mu.RLock("ChannelCount")
 	defer b.mu.RUnlock()
 
-	return len(b.channels)
+	return b.channels.Len()
 }
 
 // SourceLocationCount returns the number of stored source locations.
@@ -21,7 +21,7 @@ func SourceLocationCount(b *InMemoryBackend) int {
 	b.mu.RLock("SourceLocationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.sourceLocations)
+	return b.sourceLocations.Len()
 }
 
 // VodSourceCount returns the number of stored VOD sources.
@@ -29,5 +29,5 @@ func VodSourceCount(b *InMemoryBackend) int {
 	b.mu.RLock("VodSourceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.vodSources)
+	return b.vodSources.Len()
 }

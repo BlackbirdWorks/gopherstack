@@ -1,9 +1,9 @@
 package mediatailor
 
 import (
-	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -11,7 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -212,53 +212,49 @@ func (v *storedVodSource) toSummary() *VodSourceSummary {
 	}
 }
 
-type snapshot struct {
-	PlaybackConfigurations map[string]*storedPlaybackConfiguration `json:"playbackConfigurations"`
-	Channels               map[string]*storedChannel               `json:"channels"`
-	SourceLocations        map[string]*storedSourceLocation        `json:"sourceLocations"`
-	VodSources             map[string]*storedVodSource             `json:"vodSources"`
-	LiveSources            map[string]*LiveSource                  `json:"liveSources"`
-	PrefetchSchedules      map[string]*PrefetchSchedule            `json:"prefetchSchedules"`
-	Programs               map[string]*Program                     `json:"programs"`
-	Tags                   map[string]map[string]string            `json:"tags"`
-	AccountID              string                                  `json:"accountId"`
-	Region                 string                                  `json:"region"`
-}
-
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu                     *lockmetrics.RWMutex
-	playbackConfigurations map[string]*storedPlaybackConfiguration
-	channels               map[string]*storedChannel
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	playbackConfigurations *store.Table[storedPlaybackConfiguration]
+	channels               *store.Table[storedChannel]
 	channelPolicies        map[string]string
-	sourceLocations        map[string]*storedSourceLocation
-	vodSources             map[string]*storedVodSource
-	liveSources            map[string]*LiveSource
-	prefetchSchedules      map[string]*PrefetchSchedule
-	programs               map[string]*Program
-	functions              map[string]*Function
-	tags                   map[string]map[string]string
-	accountID              string
-	region                 string
+	sourceLocations        *store.Table[storedSourceLocation]
+
+	vodSources           *store.Table[storedVodSource]
+	vodSourcesByLocation *store.Index[storedVodSource]
+
+	liveSources           *store.Table[LiveSource]
+	liveSourcesByLocation *store.Index[LiveSource]
+
+	prefetchSchedules         *store.Table[PrefetchSchedule]
+	prefetchSchedulesByConfig *store.Index[PrefetchSchedule]
+
+	programs          *store.Table[Program]
+	programsByChannel *store.Index[Program]
+
+	functions *store.Table[Function]
+
+	tags map[string]map[string]string
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                     lockmetrics.New("mediatailor"),
-		playbackConfigurations: make(map[string]*storedPlaybackConfiguration),
-		channels:               make(map[string]*storedChannel),
-		channelPolicies:        make(map[string]string),
-		sourceLocations:        make(map[string]*storedSourceLocation),
-		vodSources:             make(map[string]*storedVodSource),
-		liveSources:            make(map[string]*LiveSource),
-		prefetchSchedules:      make(map[string]*PrefetchSchedule),
-		programs:               make(map[string]*Program),
-		functions:              make(map[string]*Function),
-		tags:                   make(map[string]map[string]string),
-		accountID:              accountID,
-		region:                 region,
+	b := &InMemoryBackend{
+		mu:              lockmetrics.New("mediatailor"),
+		registry:        store.NewRegistry(),
+		channelPolicies: make(map[string]string),
+		tags:            make(map[string]map[string]string),
+		accountID:       accountID,
+		region:          region,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the configured account ID.
@@ -272,61 +268,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.playbackConfigurations = make(map[string]*storedPlaybackConfiguration)
-	b.channels = make(map[string]*storedChannel)
+	b.registry.ResetAll()
 	b.channelPolicies = make(map[string]string)
-	b.sourceLocations = make(map[string]*storedSourceLocation)
-	b.vodSources = make(map[string]*storedVodSource)
-	b.liveSources = make(map[string]*LiveSource)
-	b.prefetchSchedules = make(map[string]*PrefetchSchedule)
-	b.programs = make(map[string]*Program)
-	b.functions = make(map[string]*Function)
 	b.tags = make(map[string]map[string]string)
-}
-
-// Snapshot serializes current state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	s := snapshot{
-		PlaybackConfigurations: b.playbackConfigurations,
-		Channels:               b.channels,
-		SourceLocations:        b.sourceLocations,
-		VodSources:             b.vodSources,
-		LiveSources:            b.liveSources,
-		PrefetchSchedules:      b.prefetchSchedules,
-		Programs:               b.programs,
-		Tags:                   b.tags,
-		AccountID:              b.accountID,
-		Region:                 b.region,
-	}
-
-	return persistence.MarshalSnapshot(ctx, "mediatailor", s)
-}
-
-// Restore deserializes state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var s snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "mediatailor", data, &s); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.playbackConfigurations = s.PlaybackConfigurations
-	b.channels = s.Channels
-	b.sourceLocations = s.SourceLocations
-	b.vodSources = s.VodSources
-	b.liveSources = s.LiveSources
-	b.prefetchSchedules = s.PrefetchSchedules
-	b.programs = s.Programs
-	b.tags = s.Tags
-	b.accountID = s.AccountID
-	b.region = s.Region
-
-	return nil
 }
 
 func (b *InMemoryBackend) playbackConfigARN(name string) string {
@@ -402,7 +346,7 @@ func (b *InMemoryBackend) PutPlaybackConfiguration(
 	b.mu.Lock("PutPlaybackConfiguration")
 	defer b.mu.Unlock()
 
-	b.playbackConfigurations[name] = cfg
+	b.playbackConfigurations.Put(cfg)
 	b.tags[cfgARN] = copyTags(tags)
 
 	return cfg.toPlaybackConfiguration(), nil
@@ -413,7 +357,7 @@ func (b *InMemoryBackend) GetPlaybackConfiguration(name string) (*PlaybackConfig
 	b.mu.RLock("GetPlaybackConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.playbackConfigurations[name]
+	cfg, ok := b.playbackConfigurations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, name)
 	}
@@ -431,20 +375,18 @@ func (b *InMemoryBackend) DeletePlaybackConfiguration(name string) error {
 	b.mu.Lock("DeletePlaybackConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.playbackConfigurations[name]
+	cfg, ok := b.playbackConfigurations.Get(name)
 	if !ok {
 		return nil
 	}
 
 	delete(b.tags, cfg.PlaybackConfigurationARN)
-	delete(b.playbackConfigurations, name)
+	b.playbackConfigurations.Delete(name)
 
 	return nil
 }
 
 // ListPlaybackConfigurations returns a paginated list of playback configurations.
-//
-//nolint:dupl // list functions share structural similarity but operate on different types
 func (b *InMemoryBackend) ListPlaybackConfigurations(
 	maxResults int,
 	nextToken string,
@@ -452,10 +394,7 @@ func (b *InMemoryBackend) ListPlaybackConfigurations(
 	b.mu.RLock("ListPlaybackConfigurations")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedPlaybackConfiguration, 0, len(b.playbackConfigurations))
-	for _, cfg := range b.playbackConfigurations {
-		all = append(all, cfg)
-	}
+	all := b.playbackConfigurations.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
@@ -499,7 +438,7 @@ func (b *InMemoryBackend) CreateChannel(
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
-	if _, exists := b.channels[name]; exists {
+	if b.channels.Has(name) {
 		return nil, fmt.Errorf("%w: channel %s already exists", ErrConflict, name)
 	}
 
@@ -526,7 +465,7 @@ func (b *InMemoryBackend) CreateChannel(
 		}
 	}
 
-	b.channels[name] = ch
+	b.channels.Put(ch)
 
 	return ch.toChannel(), nil
 }
@@ -536,7 +475,7 @@ func (b *InMemoryBackend) DescribeChannel(name string) (*Channel, error) {
 	b.mu.RLock("DescribeChannel")
 	defer b.mu.RUnlock()
 
-	ch, ok := b.channels[name]
+	ch, ok := b.channels.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
 	}
@@ -553,7 +492,7 @@ func (b *InMemoryBackend) UpdateChannel(name string, outputs []OutputItem) (*Cha
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[name]
+	ch, ok := b.channels.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
 	}
@@ -570,7 +509,7 @@ func (b *InMemoryBackend) DeleteChannel(name string) error {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[name]
+	ch, ok := b.channels.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
 	}
@@ -580,22 +519,17 @@ func (b *InMemoryBackend) DeleteChannel(name string) error {
 	}
 
 	delete(b.tags, ch.ARN)
-	delete(b.channels, name)
+	b.channels.Delete(name)
 
 	return nil
 }
 
 // ListChannels returns a paginated list of channels.
-//
-//nolint:dupl // list functions share structural similarity but operate on different types
 func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*ChannelSummary, string, error) {
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedChannel, 0, len(b.channels))
-	for _, ch := range b.channels {
-		all = append(all, ch)
-	}
+	all := b.channels.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
@@ -618,7 +552,7 @@ func (b *InMemoryBackend) StartChannel(name string) error {
 	b.mu.Lock("StartChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[name]
+	ch, ok := b.channels.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
 	}
@@ -634,7 +568,7 @@ func (b *InMemoryBackend) StopChannel(name string) error {
 	b.mu.Lock("StopChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[name]
+	ch, ok := b.channels.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, name)
 	}
@@ -649,8 +583,7 @@ func (b *InMemoryBackend) ConfigureLogsForChannel(channelName string, logTypes [
 	b.mu.Lock("ConfigureLogsForChannel")
 	defer b.mu.Unlock()
 
-	_, ok := b.channels[channelName]
-	if !ok {
+	if !b.channels.Has(channelName) {
 		return "", nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
@@ -668,8 +601,7 @@ func (b *InMemoryBackend) ConfigureLogsForPlaybackConfiguration(
 	b.mu.Lock("ConfigureLogsForPlaybackConfiguration")
 	defer b.mu.Unlock()
 
-	_, ok := b.playbackConfigurations[playbackConfigName]
-	if !ok {
+	if !b.playbackConfigurations.Has(playbackConfigName) {
 		return "", 0, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
 	}
 
@@ -694,7 +626,7 @@ func (b *InMemoryBackend) CreateSourceLocation(
 	b.mu.Lock("CreateSourceLocation")
 	defer b.mu.Unlock()
 
-	if _, exists := b.sourceLocations[name]; exists {
+	if b.sourceLocations.Has(name) {
 		return nil, fmt.Errorf("%w: source location %s already exists", ErrConflict, name)
 	}
 
@@ -705,7 +637,7 @@ func (b *InMemoryBackend) CreateSourceLocation(
 		HTTPConfigurationURL: baseURL,
 	}
 
-	b.sourceLocations[name] = sl
+	b.sourceLocations.Put(sl)
 
 	return sl.toSourceLocation(), nil
 }
@@ -715,7 +647,7 @@ func (b *InMemoryBackend) DescribeSourceLocation(name string) (*SourceLocation, 
 	b.mu.RLock("DescribeSourceLocation")
 	defer b.mu.RUnlock()
 
-	sl, ok := b.sourceLocations[name]
+	sl, ok := b.sourceLocations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, name)
 	}
@@ -732,7 +664,7 @@ func (b *InMemoryBackend) UpdateSourceLocation(name, baseURL string) (*SourceLoc
 	b.mu.Lock("UpdateSourceLocation")
 	defer b.mu.Unlock()
 
-	sl, ok := b.sourceLocations[name]
+	sl, ok := b.sourceLocations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, name)
 	}
@@ -750,38 +682,32 @@ func (b *InMemoryBackend) DeleteSourceLocation(name string) error {
 	b.mu.Lock("DeleteSourceLocation")
 	defer b.mu.Unlock()
 
-	sl, ok := b.sourceLocations[name]
+	sl, ok := b.sourceLocations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: source location %s not found", ErrNotFound, name)
 	}
 
-	for _, vs := range b.vodSources {
-		if vs.SourceLocationName == name {
-			return fmt.Errorf(
-				"%w: source location %s has attached vod source %s",
-				ErrConflict, name, vs.VodSourceName,
-			)
-		}
+	if attached := b.vodSourcesByLocation.Get(name); len(attached) > 0 {
+		return fmt.Errorf(
+			"%w: source location %s has attached vod source %s",
+			ErrConflict, name, attached[0].VodSourceName,
+		)
 	}
 
-	for _, ls := range b.liveSources {
-		if ls.SourceLocationName == name {
-			return fmt.Errorf(
-				"%w: source location %s has attached live source %s",
-				ErrConflict, name, ls.LiveSourceName,
-			)
-		}
+	if attached := b.liveSourcesByLocation.Get(name); len(attached) > 0 {
+		return fmt.Errorf(
+			"%w: source location %s has attached live source %s",
+			ErrConflict, name, attached[0].LiveSourceName,
+		)
 	}
 
 	delete(b.tags, sl.ARN)
-	delete(b.sourceLocations, name)
+	b.sourceLocations.Delete(name)
 
 	return nil
 }
 
 // ListSourceLocations returns a paginated list of source locations.
-//
-//nolint:dupl // list functions share structural similarity but operate on different types
 func (b *InMemoryBackend) ListSourceLocations(
 	maxResults int,
 	nextToken string,
@@ -789,10 +715,7 @@ func (b *InMemoryBackend) ListSourceLocations(
 	b.mu.RLock("ListSourceLocations")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedSourceLocation, 0, len(b.sourceLocations))
-	for _, sl := range b.sourceLocations {
-		all = append(all, sl)
-	}
+	all := b.sourceLocations.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
@@ -832,12 +755,12 @@ func (b *InMemoryBackend) CreateVodSource(
 	b.mu.Lock("CreateVodSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.sourceLocations[sourceLocationName]; !exists {
+	if !b.sourceLocations.Has(sourceLocationName) {
 		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, sourceLocationName)
 	}
 
 	key := vodSourceKey(sourceLocationName, vodSourceName)
-	if _, exists := b.vodSources[key]; exists {
+	if b.vodSources.Has(key) {
 		return nil, fmt.Errorf("%w: vod source %s already exists", ErrConflict, vodSourceName)
 	}
 
@@ -852,7 +775,7 @@ func (b *InMemoryBackend) CreateVodSource(
 		HTTPPackageConfigurations: cfgs,
 	}
 
-	b.vodSources[key] = vs
+	b.vodSources.Put(vs)
 
 	return vs.toVodSource(), nil
 }
@@ -863,8 +786,8 @@ func (b *InMemoryBackend) DescribeVodSource(sourceLocationName, vodSourceName st
 	defer b.mu.RUnlock()
 
 	key := vodSourceKey(sourceLocationName, vodSourceName)
-	vs, ok := b.vodSources[key]
 
+	vs, ok := b.vodSources.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: vod source %s not found", ErrNotFound, vodSourceName)
 	}
@@ -885,8 +808,8 @@ func (b *InMemoryBackend) UpdateVodSource(
 	defer b.mu.Unlock()
 
 	key := vodSourceKey(sourceLocationName, vodSourceName)
-	vs, ok := b.vodSources[key]
 
+	vs, ok := b.vodSources.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: vod source %s not found", ErrNotFound, vodSourceName)
 	}
@@ -904,14 +827,14 @@ func (b *InMemoryBackend) DeleteVodSource(sourceLocationName, vodSourceName stri
 	defer b.mu.Unlock()
 
 	key := vodSourceKey(sourceLocationName, vodSourceName)
-	vs, ok := b.vodSources[key]
 
+	vs, ok := b.vodSources.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: vod source %s not found", ErrNotFound, vodSourceName)
 	}
 
 	delete(b.tags, vs.ARN)
-	delete(b.vodSources, key)
+	b.vodSources.Delete(key)
 
 	return nil
 }
@@ -925,12 +848,7 @@ func (b *InMemoryBackend) ListVodSources(
 	b.mu.RLock("ListVodSources")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedVodSource, 0)
-	for _, vs := range b.vodSources {
-		if vs.SourceLocationName == sourceLocationName {
-			all = append(all, vs)
-		}
-	}
+	all := slices.Clone(b.vodSourcesByLocation.Get(sourceLocationName))
 
 	sort.Slice(all, func(i, j int) bool { return all[i].VodSourceName < all[j].VodSourceName })
 
@@ -1006,6 +924,10 @@ func copyTags(tags map[string]string) map[string]string {
 
 // --- LiveSource operations ---
 
+func liveSourceKey(sourceLocationName, liveSourceName string) string {
+	return sourceLocationName + "/" + liveSourceName
+}
+
 // CreateLiveSource creates a new live source.
 func (b *InMemoryBackend) CreateLiveSource(
 	sourceLocationName, liveSourceName string,
@@ -1015,12 +937,12 @@ func (b *InMemoryBackend) CreateLiveSource(
 	b.mu.Lock("CreateLiveSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.sourceLocations[sourceLocationName]; !exists {
+	if !b.sourceLocations.Has(sourceLocationName) {
 		return nil, fmt.Errorf("%w: source location %s not found", ErrNotFound, sourceLocationName)
 	}
 
-	key := sourceLocationName + "/" + liveSourceName
-	if _, exists := b.liveSources[key]; exists {
+	key := liveSourceKey(sourceLocationName, liveSourceName)
+	if b.liveSources.Has(key) {
 		return nil, fmt.Errorf("%w: live source %s already exists", ErrConflict, liveSourceName)
 	}
 
@@ -1038,7 +960,7 @@ func (b *InMemoryBackend) CreateLiveSource(
 		LiveSourceName:            liveSourceName,
 		HTTPPackageConfigurations: cfgs,
 	}
-	b.liveSources[key] = ls
+	b.liveSources.Put(ls)
 
 	return ls, nil
 }
@@ -1048,8 +970,9 @@ func (b *InMemoryBackend) DescribeLiveSource(sourceLocationName, liveSourceName 
 	b.mu.RLock("DescribeLiveSource")
 	defer b.mu.RUnlock()
 
-	key := sourceLocationName + "/" + liveSourceName
-	ls, ok := b.liveSources[key]
+	key := liveSourceKey(sourceLocationName, liveSourceName)
+
+	ls, ok := b.liveSources.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
 	}
@@ -1065,8 +988,9 @@ func (b *InMemoryBackend) UpdateLiveSource(
 	b.mu.Lock("UpdateLiveSource")
 	defer b.mu.Unlock()
 
-	key := sourceLocationName + "/" + liveSourceName
-	ls, ok := b.liveSources[key]
+	key := liveSourceKey(sourceLocationName, liveSourceName)
+
+	ls, ok := b.liveSources.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
 	}
@@ -1083,12 +1007,12 @@ func (b *InMemoryBackend) DeleteLiveSource(sourceLocationName, liveSourceName st
 	b.mu.Lock("DeleteLiveSource")
 	defer b.mu.Unlock()
 
-	key := sourceLocationName + "/" + liveSourceName
-	if _, ok := b.liveSources[key]; !ok {
+	key := liveSourceKey(sourceLocationName, liveSourceName)
+	if !b.liveSources.Has(key) {
 		return fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
 	}
 
-	delete(b.liveSources, key)
+	b.liveSources.Delete(key)
 
 	return nil
 }
@@ -1100,12 +1024,7 @@ func (b *InMemoryBackend) ListLiveSources(
 	b.mu.RLock("ListLiveSources")
 	defer b.mu.RUnlock()
 
-	all := make([]*LiveSource, 0)
-	for _, ls := range b.liveSources {
-		if ls.SourceLocationName == sourceLocationName {
-			all = append(all, ls)
-		}
-	}
+	all := slices.Clone(b.liveSourcesByLocation.Get(sourceLocationName))
 
 	sort.Slice(all, func(i, j int) bool { return all[i].LiveSourceName < all[j].LiveSourceName })
 
@@ -1126,6 +1045,10 @@ func (b *InMemoryBackend) ListLiveSources(
 
 // --- PrefetchSchedule operations ---
 
+func prefetchScheduleKey(playbackConfigName, name string) string {
+	return playbackConfigName + "/" + name
+}
+
 // CreatePrefetchSchedule creates a prefetch schedule.
 func (b *InMemoryBackend) CreatePrefetchSchedule(
 	playbackConfigName, name string,
@@ -1135,7 +1058,7 @@ func (b *InMemoryBackend) CreatePrefetchSchedule(
 	b.mu.Lock("CreatePrefetchSchedule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.playbackConfigurations[playbackConfigName]; !ok {
+	if !b.playbackConfigurations.Has(playbackConfigName) {
 		return nil, fmt.Errorf("%w: playback configuration %s not found", ErrNotFound, playbackConfigName)
 	}
 
@@ -1150,7 +1073,7 @@ func (b *InMemoryBackend) CreatePrefetchSchedule(
 		Retrieval:                 retrieval,
 		Consumption:               consumption,
 	}
-	b.prefetchSchedules[playbackConfigName+"/"+name] = ps
+	b.prefetchSchedules.Put(ps)
 
 	return ps, nil
 }
@@ -1160,7 +1083,7 @@ func (b *InMemoryBackend) GetPrefetchSchedule(playbackConfigName, name string) (
 	b.mu.RLock("GetPrefetchSchedule")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.prefetchSchedules[playbackConfigName+"/"+name]
+	ps, ok := b.prefetchSchedules.Get(prefetchScheduleKey(playbackConfigName, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
 	}
@@ -1173,12 +1096,12 @@ func (b *InMemoryBackend) DeletePrefetchSchedule(playbackConfigName, name string
 	b.mu.Lock("DeletePrefetchSchedule")
 	defer b.mu.Unlock()
 
-	key := playbackConfigName + "/" + name
-	if _, ok := b.prefetchSchedules[key]; !ok {
+	key := prefetchScheduleKey(playbackConfigName, name)
+	if !b.prefetchSchedules.Has(key) {
 		return fmt.Errorf("%w: prefetch schedule %s not found", ErrNotFound, name)
 	}
 
-	delete(b.prefetchSchedules, key)
+	b.prefetchSchedules.Delete(key)
 
 	return nil
 }
@@ -1192,12 +1115,7 @@ func (b *InMemoryBackend) ListPrefetchSchedules(
 	b.mu.RLock("ListPrefetchSchedules")
 	defer b.mu.RUnlock()
 
-	all := make([]*PrefetchSchedule, 0)
-	for _, ps := range b.prefetchSchedules {
-		if ps.PlaybackConfigurationName == playbackConfigName {
-			all = append(all, ps)
-		}
-	}
+	all := slices.Clone(b.prefetchSchedulesByConfig.Get(playbackConfigName))
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
@@ -1208,6 +1126,10 @@ func (b *InMemoryBackend) ListPrefetchSchedules(
 
 // --- Program operations ---
 
+func programKey(channelName, programName string) string {
+	return channelName + "/" + programName
+}
+
 // CreateProgram creates a program within a channel.
 func (b *InMemoryBackend) CreateProgram(
 	channelName, programName, sourceLocationName, vodSourceName, liveSourceName string,
@@ -1216,7 +1138,7 @@ func (b *InMemoryBackend) CreateProgram(
 	b.mu.Lock("CreateProgram")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
@@ -1233,7 +1155,7 @@ func (b *InMemoryBackend) CreateProgram(
 		VodSourceName:      vodSourceName,
 		LiveSourceName:     liveSourceName,
 	}
-	b.programs[channelName+"/"+programName] = prog
+	b.programs.Put(prog)
 
 	return prog, nil
 }
@@ -1243,7 +1165,7 @@ func (b *InMemoryBackend) DescribeProgram(channelName, programName string) (*Pro
 	b.mu.RLock("DescribeProgram")
 	defer b.mu.RUnlock()
 
-	prog, ok := b.programs[channelName+"/"+programName]
+	prog, ok := b.programs.Get(programKey(channelName, programName))
 	if !ok {
 		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
 	}
@@ -1256,7 +1178,7 @@ func (b *InMemoryBackend) UpdateProgram(channelName, programName string) (*Progr
 	b.mu.RLock("UpdateProgram")
 	defer b.mu.RUnlock()
 
-	prog, ok := b.programs[channelName+"/"+programName]
+	prog, ok := b.programs.Get(programKey(channelName, programName))
 	if !ok {
 		return nil, fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
 	}
@@ -1269,12 +1191,12 @@ func (b *InMemoryBackend) DeleteProgram(channelName, programName string) error {
 	b.mu.Lock("DeleteProgram")
 	defer b.mu.Unlock()
 
-	key := channelName + "/" + programName
-	if _, ok := b.programs[key]; !ok {
+	key := programKey(channelName, programName)
+	if !b.programs.Has(key) {
 		return fmt.Errorf("%w: program %s not found", ErrNotFound, programName)
 	}
 
-	delete(b.programs, key)
+	b.programs.Delete(key)
 
 	return nil
 }
@@ -1286,16 +1208,12 @@ func (b *InMemoryBackend) GetChannelSchedule(
 	b.mu.RLock("GetChannelSchedule")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		return nil, "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
 	var out []*ProgramScheduleEntry
-	for _, prog := range b.programs {
-		if prog.ChannelName != channelName {
-			continue
-		}
-
+	for _, prog := range b.programsByChannel.Get(channelName) {
 		out = append(out, &ProgramScheduleEntry{
 			ARN:         prog.ARN,
 			ChannelName: prog.ChannelName,
@@ -1313,7 +1231,7 @@ func (b *InMemoryBackend) PutChannelPolicy(channelName, policy string) error {
 	b.mu.Lock("PutChannelPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
@@ -1327,7 +1245,7 @@ func (b *InMemoryBackend) GetChannelPolicy(channelName string) (string, error) {
 	b.mu.RLock("GetChannelPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		return "", fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
@@ -1344,7 +1262,7 @@ func (b *InMemoryBackend) DeleteChannelPolicy(channelName string) error {
 	b.mu.Lock("DeleteChannelPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelName)
 	}
 
@@ -1375,7 +1293,7 @@ func (b *InMemoryBackend) PutFunction(
 		ARN:          arnStr,
 		Description:  description,
 	}
-	b.functions[functionID] = fn
+	b.functions.Put(fn)
 
 	return fn, nil
 }
@@ -1385,7 +1303,7 @@ func (b *InMemoryBackend) GetFunction(functionID string) (*Function, error) {
 	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.functions[functionID]
+	fn, ok := b.functions.Get(functionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
@@ -1398,11 +1316,11 @@ func (b *InMemoryBackend) DeleteFunction(functionID string) error {
 	b.mu.Lock("DeleteFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[functionID]; !ok {
+	if !b.functions.Has(functionID) {
 		return fmt.Errorf("%w: function %s not found", ErrNotFound, functionID)
 	}
 
-	delete(b.functions, functionID)
+	b.functions.Delete(functionID)
 
 	return nil
 }
@@ -1412,8 +1330,10 @@ func (b *InMemoryBackend) ListFunctions(_ int, _ string) ([]*FunctionSummary, st
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
-	out := make([]*FunctionSummary, 0, len(b.functions))
-	for _, fn := range b.functions {
+	all := b.functions.All()
+
+	out := make([]*FunctionSummary, 0, len(all))
+	for _, fn := range all {
 		out = append(out, &FunctionSummary{
 			FunctionID:   fn.FunctionID,
 			FunctionType: fn.FunctionType,
