@@ -3,20 +3,40 @@ package timestreamwrite
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// timestreamwriteSnapshotVersion identifies the shape of [backendSnapshot].
+// It must be bumped whenever a change to backendSnapshot (or a value type
+// held by one of the registered tables) would make an older snapshot unsafe
+// to decode as the current shape. Restore compares this against the
+// persisted value and discards (registry.ResetAll, not a partial decode) any
+// mismatch -- see Restore. The pre-Phase-3.3 snapshot format had no version
+// field at all, so an old snapshot decodes with Version == 0, which is
+// guaranteed to mismatch timestreamwriteSnapshotVersion and is discarded the
+// same way any other incompatible snapshot is.
+const timestreamwriteSnapshotVersion = 1
+
 // backendSnapshot is the serialisable representation of the backend state.
+//
+// Tables holds one JSON-encoded array per registered store.Table name
+// (databases, tables, batchLoadTasks -- see store_setup.go), produced by
+// b.registry.SnapshotAll(). Records and Tags are still plain nested maps
+// (see store_setup.go for why they were not converted to store.Table) and
+// are persisted directly, as before. Version guards against decoding a
+// snapshot from an incompatible (older or newer) build of this backend as
+// though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Databases      map[string]*Database           `json:"databases"`
-	Tables         map[string]map[string]*Table   `json:"tables"`
-	Records        map[string]map[string][]Record `json:"records"`
-	Tags           map[string]map[string]string   `json:"tags"`
-	BatchLoadTasks map[string]*BatchLoadTask      `json:"batch_load_tasks"`
-	NextTaskID     int                            `json:"next_task_id"`
+	Tables     map[string]json.RawMessage     `json:"tables"`
+	Records    map[string]map[string][]Record `json:"records"`
+	Tags       map[string]map[string]string   `json:"tags"`
+	NextTaskID int                            `json:"next_task_id"`
+	Version    int                            `json:"version"`
 }
 
 // Snapshot serialises the current backend state into a JSON byte slice.
@@ -28,30 +48,16 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 	b.mu.Lock("Snapshot")
 	defer b.mu.Unlock()
 
-	snap := backendSnapshot{
-		Databases:      make(map[string]*Database, len(b.databases)),
-		Tables:         make(map[string]map[string]*Table, len(b.tables)),
-		Records:        make(map[string]map[string][]Record, len(b.records)),
-		Tags:           make(map[string]map[string]string, len(b.tags)),
-		BatchLoadTasks: make(map[string]*BatchLoadTask, len(b.batchLoadTasks)),
-		NextTaskID:     b.nextTaskID,
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		return nil, fmt.Errorf("timestreamwrite: snapshot table marshal failed: %w", err)
 	}
 
-	for k, v := range b.databases {
-		cp := *v
-		snap.Databases[k] = &cp
-	}
-
-	for dbName, tbls := range b.tables {
-		snap.Tables[dbName] = make(map[string]*Table, len(tbls))
-		for tblName, tbl := range tbls {
-			cp := *tbl
-			snap.Tables[dbName][tblName] = &cp
-		}
-	}
+	records := make(map[string]map[string][]Record, len(b.records))
 
 	for dbName, tblSlots := range b.records {
-		snap.Records[dbName] = make(map[string][]Record, len(tblSlots))
+		records[dbName] = make(map[string][]Record, len(tblSlots))
+
 		for tblName, slot := range tblSlots {
 			out := make([]Record, len(slot.records))
 			for i, r := range slot.records {
@@ -61,31 +67,38 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 				out[i] = r
 			}
 
-			snap.Records[dbName][tblName] = out
+			records[dbName][tblName] = out
 		}
 	}
 
+	tags := make(map[string]map[string]string, len(b.tags))
 	for arn, tagMap := range b.tags {
-		snap.Tags[arn] = make(map[string]string, len(tagMap))
-		maps.Copy(snap.Tags[arn], tagMap)
+		tags[arn] = make(map[string]string, len(tagMap))
+		maps.Copy(tags[arn], tagMap)
 	}
 
-	for id, task := range b.batchLoadTasks {
-		cp := *task
-		snap.BatchLoadTasks[id] = &cp
+	snap := backendSnapshot{
+		Version:    timestreamwriteSnapshotVersion,
+		Tables:     tables,
+		Records:    records,
+		Tags:       tags,
+		NextTaskID: b.nextTaskID,
 	}
 
 	// Marshal failure is returned to the caller (the Persistable wrapper logs it
 	// via the context-aware logger); do not log through slog.Default() here.
-	return json.Marshal(snap)
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("timestreamwrite: marshal snapshot: %w", err)
+	}
+
+	return data, nil
 }
 
 // Restore replaces the backend state with the data from a previous Snapshot call.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		logger.Load(ctx).WarnContext(ctx, "timestreamwrite: restore unmarshal failed", "error", err)
-
+	if err := persistence.UnmarshalSnapshot(ctx, "timestreamwrite", data, &snap); err != nil {
 		return err
 	}
 
@@ -96,11 +109,34 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// otherwise lockmetrics' global registry leaks one entry per pre-restore table.
 	b.closeAllTableMutexesLocked()
 
+	if snap.Version != timestreamwriteSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"timestreamwrite: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", timestreamwriteSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.nextTaskID = 0
+		b.ensureNonNilMapsLocked()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("timestreamwrite: restore snapshot tables: %w", err)
+	}
+
 	b.nextTaskID = snap.NextTaskID
-	b.databases = snap.Databases
-	b.tables = snap.Tables
+
 	b.tags = snap.Tags
-	b.batchLoadTasks = snap.BatchLoadTasks
+	if b.tags == nil {
+		b.tags = make(map[string]map[string]string)
+	}
 
 	// Convert snapshot's flat record map back into per-table slots so that
 	// each table owns its own mutex and slice independent of the enclosing maps.
@@ -132,14 +168,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoring a snapshot with missing fields, and ensures each table has a slot
 // with an initialised mutex even if its records slice is missing.
 func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
-	if b.databases == nil {
-		b.databases = make(map[string]*Database)
-	}
-
-	if b.tables == nil {
-		b.tables = make(map[string]map[string]*Table)
-	}
-
 	if b.records == nil {
 		b.records = make(map[string]map[string]*tableRecords)
 	}
@@ -148,26 +176,20 @@ func (b *InMemoryBackend) ensureNonNilMapsFromSnapshot() {
 		b.tags = make(map[string]map[string]string)
 	}
 
-	if b.batchLoadTasks == nil {
-		b.batchLoadTasks = make(map[string]*BatchLoadTask)
-	}
-
 	// Make sure every restored table has a corresponding records slot so
 	// WriteRecords always finds an initialised *tableRecords with a mutex.
-	for dbName, tbls := range b.tables {
-		if b.records[dbName] == nil {
-			b.records[dbName] = make(map[string]*tableRecords, len(tbls))
+	for _, tbl := range b.tables.All() {
+		if b.records[tbl.DatabaseName] == nil {
+			b.records[tbl.DatabaseName] = make(map[string]*tableRecords)
 		}
 
-		for tblName := range tbls {
-			if b.records[dbName][tblName] == nil {
-				b.records[dbName][tblName] = &tableRecords{
-					mu:          lockmetrics.New("timestreamwrite.table"),
-					recordIndex: make(map[string]int),
-				}
-			} else if b.records[dbName][tblName].recordIndex == nil {
-				b.records[dbName][tblName].recordIndex = make(map[string]int)
+		if b.records[tbl.DatabaseName][tbl.TableName] == nil {
+			b.records[tbl.DatabaseName][tbl.TableName] = &tableRecords{
+				mu:          lockmetrics.New("timestreamwrite.table"),
+				recordIndex: make(map[string]int),
 			}
+		} else if b.records[tbl.DatabaseName][tbl.TableName].recordIndex == nil {
+			b.records[tbl.DatabaseName][tbl.TableName].recordIndex = make(map[string]int)
 		}
 	}
 }

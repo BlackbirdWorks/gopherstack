@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -260,22 +261,37 @@ type tableRecords struct {
 
 // InMemoryBackend is the in-memory store for Timestream Write resources.
 type InMemoryBackend struct {
-	databases map[string]*Database
-	tables    map[string]map[string]*Table
+	// databases and tables are store.Table-backed (see store_setup.go); tables
+	// is keyed by the composite "databaseName|tableName" string (tableKey),
+	// with tablesByDatabase grouping entries by database for the per-database
+	// scans (ListTables, DeleteDatabase, isKnownARNLocked, SweepRetention) the
+	// old nested map[dbName]map[tblName]*Table used to answer directly.
+	databases        *store.Table[Database]
+	tables           *store.Table[Table]
+	tablesByDatabase *store.Index[Table]
 	// records is keyed dbName -> tblName -> *tableRecords. Each *tableRecords
 	// carries its own RWMutex so WriteRecords mutates the slice via the pointer
 	// (never the map), allowing parallel writes to different tables under a
-	// global read-lock without racing on inner maps.
-	records        map[string]map[string]*tableRecords
+	// global read-lock without racing on inner maps. Deliberately left as a
+	// plain nested map, not store.Table-backed -- see store_setup.go's file
+	// doc comment for why.
+	records map[string]map[string]*tableRecords
+	// tags is deliberately left as a plain nested map, not store.Table-backed
+	// -- see store_setup.go's file doc comment for why.
 	tags           map[string]map[string]string
-	batchLoadTasks map[string]*BatchLoadTask
+	batchLoadTasks *store.Table[BatchLoadTask]
+	registry       *store.Registry
 	mu             *lockmetrics.RWMutex
 	nextTaskID     int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("timestreamwrite")}
+	b := &InMemoryBackend{
+		mu:       lockmetrics.New("timestreamwrite"),
+		registry: store.NewRegistry(),
+	}
+	registerAllTables(b)
 	b.ensureNonNilMaps()
 
 	return b
@@ -288,6 +304,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.closeAllTableMutexesLocked()
 	b.nextTaskID = 0
+	b.registry.ResetAll()
 	b.ensureNonNilMapsLocked()
 }
 
@@ -311,22 +328,21 @@ func (b *InMemoryBackend) AccountID() string { return config.DefaultAccountID }
 // Region returns the simulated AWS region.
 func (b *InMemoryBackend) Region() string { return config.DefaultRegion }
 
-// ensureNonNilMaps initialises all maps (called without lock held during construction or restore).
+// ensureNonNilMaps initialises the raw (non-store.Table) maps (called
+// without lock held during construction or restore). databases, tables, and
+// batchLoadTasks are store.Table-backed and are always non-nil after
+// registerAllTables; they are cleared via b.registry.ResetAll(), not
+// reallocation.
 func (b *InMemoryBackend) ensureNonNilMaps() {
-	b.databases = make(map[string]*Database)
-	b.tables = make(map[string]map[string]*Table)
 	b.records = make(map[string]map[string]*tableRecords)
 	b.tags = make(map[string]map[string]string)
-	b.batchLoadTasks = make(map[string]*BatchLoadTask)
 }
 
-// ensureNonNilMapsLocked initialises all maps when the lock is already held.
+// ensureNonNilMapsLocked initialises the raw (non-store.Table) maps when the
+// lock is already held.
 func (b *InMemoryBackend) ensureNonNilMapsLocked() {
-	b.databases = make(map[string]*Database)
-	b.tables = make(map[string]map[string]*Table)
 	b.records = make(map[string]map[string]*tableRecords)
 	b.tags = make(map[string]map[string]string)
-	b.batchLoadTasks = make(map[string]*BatchLoadTask)
 }
 
 func databaseARN(name string) string {
@@ -355,13 +371,13 @@ func (b *InMemoryBackend) isKnownARNLocked(arn string) bool {
 	}
 
 	// Check against database ARNs.
-	for _, db := range b.databases {
+	for _, db := range b.databases.All() {
 		if db.ARN == arn {
 			return true
 		}
 
 		// Check against table ARNs.
-		for _, tbl := range b.tables[db.DatabaseName] {
+		for _, tbl := range b.tablesByDatabase.Get(db.DatabaseName) {
 			if tbl.ARN == arn {
 				return true
 			}
@@ -376,7 +392,7 @@ func (b *InMemoryBackend) CreateDatabase(name string, tags map[string]string) (*
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
-	if _, exists := b.databases[name]; exists {
+	if b.databases.Has(name) {
 		return nil, fmt.Errorf("%w: database %s already exists", ErrDatabaseAlreadyExists, name)
 	}
 
@@ -388,8 +404,7 @@ func (b *InMemoryBackend) CreateDatabase(name string, tags map[string]string) (*
 		CreationTime:    now,
 		LastUpdatedTime: now,
 	}
-	b.databases[name] = db
-	b.tables[name] = make(map[string]*Table)
+	b.databases.Put(db)
 	b.records[name] = make(map[string]*tableRecords)
 
 	if len(tags) > 0 {
@@ -407,7 +422,7 @@ func (b *InMemoryBackend) DescribeDatabase(name string) (*Database, error) {
 	b.mu.RLock("DescribeDatabase")
 	defer b.mu.RUnlock()
 
-	db, ok := b.databases[name]
+	db, ok := b.databases.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
@@ -422,8 +437,8 @@ func (b *InMemoryBackend) ListDatabases() []Database {
 	b.mu.RLock("ListDatabases")
 	defer b.mu.RUnlock()
 
-	out := make([]Database, 0, len(b.databases))
-	for _, db := range b.databases {
+	out := make([]Database, 0, b.databases.Len())
+	for _, db := range b.databases.All() {
 		cp := *db
 		out = append(out, cp)
 	}
@@ -440,14 +455,19 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	b.mu.Lock("DeleteDatabase")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[name]; !ok {
+	if !b.databases.Has(name) {
 		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
 
+	// Copy the index group before mutating b.tables: Index.Get's returned
+	// slice is owned by the index and is invalidated by Table.Delete calls
+	// made while ranging over it (see pkgs/store.Index.Get's doc comment).
+	tbls := append([]*Table(nil), b.tablesByDatabase.Get(name)...)
+
 	// Clean up tags and per-table mutexes for all tables in this database
 	// before dropping the records map so lockmetrics doesn't leak handles.
-	for tblName := range b.tables[name] {
-		delete(b.tags, tableARN(name, tblName))
+	for _, tbl := range tbls {
+		delete(b.tags, tableARN(name, tbl.TableName))
 	}
 
 	for _, slot := range b.records[name] {
@@ -456,8 +476,11 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 		}
 	}
 
-	delete(b.databases, name)
-	delete(b.tables, name)
+	for _, tbl := range tbls {
+		b.tables.Delete(tableKey(name, tbl.TableName))
+	}
+
+	b.databases.Delete(name)
 	delete(b.records, name)
 	delete(b.tags, databaseARN(name))
 
@@ -469,7 +492,7 @@ func (b *InMemoryBackend) UpdateDatabase(name, kmsKeyID string) (*Database, erro
 	b.mu.Lock("UpdateDatabase")
 	defer b.mu.Unlock()
 
-	db, ok := b.databases[name]
+	db, ok := b.databases.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
@@ -497,11 +520,11 @@ func (b *InMemoryBackend) CreateTable(
 	b.mu.Lock("CreateTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
-	if _, exists := b.tables[dbName][tblName]; exists {
+	if b.tables.Has(tableKey(dbName, tblName)) {
 		return nil, fmt.Errorf("%w: table %s already exists", ErrTableAlreadyExists, tblName)
 	}
 
@@ -528,12 +551,14 @@ func (b *InMemoryBackend) CreateTable(
 		}
 	}
 
-	b.tables[dbName][tblName] = tbl
+	b.tables.Put(tbl)
 	b.records[dbName][tblName] = &tableRecords{
 		mu:          lockmetrics.New("timestreamwrite.table"),
 		recordIndex: make(map[string]int),
 	}
-	b.databases[dbName].TableCount++
+
+	db, _ := b.databases.Get(dbName)
+	db.TableCount++
 
 	if len(tags) > 0 {
 		b.tags[tbl.ARN] = make(map[string]string, len(tags))
@@ -550,11 +575,11 @@ func (b *InMemoryBackend) DescribeTable(dbName, tblName string) (*Table, error) 
 	b.mu.RLock("DescribeTable")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
-	tbl, ok := b.tables[dbName][tblName]
+	tbl, ok := b.tables.Get(tableKey(dbName, tblName))
 	if !ok {
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
@@ -569,12 +594,14 @@ func (b *InMemoryBackend) ListTables(dbName string) ([]Table, error) {
 	b.mu.RLock("ListTables")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
-	out := make([]Table, 0, len(b.tables[dbName]))
-	for _, tbl := range b.tables[dbName] {
+	group := b.tablesByDatabase.Get(dbName)
+	out := make([]Table, 0, len(group))
+
+	for _, tbl := range group {
 		cp := *tbl
 		out = append(out, cp)
 	}
@@ -591,11 +618,12 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 	b.mu.Lock("DeleteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
-	if _, ok := b.tables[dbName][tblName]; !ok {
+	key := tableKey(dbName, tblName)
+	if !b.tables.Has(key) {
 		return fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
@@ -605,10 +633,12 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 		slot.mu.Close()
 	}
 
-	delete(b.tables[dbName], tblName)
+	b.tables.Delete(key)
 	delete(b.records[dbName], tblName)
 	delete(b.tags, arn)
-	b.databases[dbName].TableCount--
+
+	db, _ := b.databases.Get(dbName)
+	db.TableCount--
 
 	return nil
 }
@@ -625,11 +655,11 @@ func (b *InMemoryBackend) UpdateTable(dbName, tblName string, inp *UpdateTableIn
 	b.mu.Lock("UpdateTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
-	tbl, ok := b.tables[dbName][tblName]
+	tbl, ok := b.tables.Get(tableKey(dbName, tblName))
 	if !ok {
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
@@ -724,7 +754,7 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 	b.mu.RLock("WriteRecords")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, dbName)
 	}
 
@@ -733,7 +763,7 @@ func (b *InMemoryBackend) WriteRecords(dbName, tblName string, records []Record)
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, tblName)
 	}
 
-	tbl := b.tables[dbName][tblName]
+	tbl, _ := b.tables.Get(tableKey(dbName, tblName))
 
 	slot.mu.Lock("WriteRecords")
 	defer slot.mu.Unlock()
@@ -863,10 +893,8 @@ func (b *InMemoryBackend) SweepRetention(ctx context.Context) {
 	now := time.Now().UTC()
 	totalPruned := 0
 
-	for dbName, dbTables := range b.tables {
-		for tblName, tbl := range dbTables {
-			totalPruned += b.pruneTableRecords(dbName, tblName, tbl, now)
-		}
+	for _, tbl := range b.tables.All() {
+		totalPruned += b.pruneTableRecords(tbl.DatabaseName, tbl.TableName, tbl, now)
 	}
 
 	if totalPruned > 0 {
@@ -969,11 +997,11 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 	b.mu.Lock("CreateBatchLoadTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[targetDatabase]; !ok {
+	if !b.databases.Has(targetDatabase) {
 		return nil, fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, targetDatabase)
 	}
 
-	if _, ok := b.tables[targetDatabase][targetTable]; !ok {
+	if !b.tables.Has(tableKey(targetDatabase, targetTable)) {
 		return nil, fmt.Errorf("%w: table %s not found", ErrTableNotFound, targetTable)
 	}
 
@@ -991,7 +1019,7 @@ func (b *InMemoryBackend) CreateBatchLoadTask(
 		DataSourceConfiguration: dataSourceCfg,
 		ReportConfiguration:     reportCfg,
 	}
-	b.batchLoadTasks[taskID] = task
+	b.batchLoadTasks.Put(task)
 
 	cp := *task
 
@@ -1003,7 +1031,7 @@ func (b *InMemoryBackend) DescribeBatchLoadTask(taskID string) (*BatchLoadTask, 
 	b.mu.RLock("DescribeBatchLoadTask")
 	defer b.mu.RUnlock()
 
-	task, ok := b.batchLoadTasks[taskID]
+	task, ok := b.batchLoadTasks.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
 	}
@@ -1019,9 +1047,9 @@ func (b *InMemoryBackend) ListBatchLoadTasks(statusFilter string) []BatchLoadTas
 	b.mu.RLock("ListBatchLoadTasks")
 	defer b.mu.RUnlock()
 
-	out := make([]BatchLoadTask, 0, len(b.batchLoadTasks))
+	out := make([]BatchLoadTask, 0, b.batchLoadTasks.Len())
 
-	for _, task := range b.batchLoadTasks {
+	for _, task := range b.batchLoadTasks.All() {
 		if statusFilter != "" && task.TaskStatus != statusFilter {
 			continue
 		}
@@ -1042,7 +1070,7 @@ func (b *InMemoryBackend) ResumeBatchLoadTask(taskID string) error {
 	b.mu.Lock("ResumeBatchLoadTask")
 	defer b.mu.Unlock()
 
-	task, ok := b.batchLoadTasks[taskID]
+	task, ok := b.batchLoadTasks.Get(taskID)
 	if !ok {
 		return fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
 	}
@@ -1068,7 +1096,7 @@ func (b *InMemoryBackend) SetBatchLoadTaskStatus(taskID, status string) error {
 	b.mu.Lock("SetBatchLoadTaskStatus")
 	defer b.mu.Unlock()
 
-	task, ok := b.batchLoadTasks[taskID]
+	task, ok := b.batchLoadTasks.Get(taskID)
 	if !ok {
 		return fmt.Errorf("%w: batch load task %s not found", ErrBatchLoadTaskNotFound, taskID)
 	}
@@ -1086,11 +1114,7 @@ func (b *InMemoryBackend) AddDatabaseInternal(db *Database) {
 	defer b.mu.Unlock()
 
 	cp := *db
-	b.databases[db.DatabaseName] = &cp
-
-	if b.tables[db.DatabaseName] == nil {
-		b.tables[db.DatabaseName] = make(map[string]*Table)
-	}
+	b.databases.Put(&cp)
 
 	if b.records[db.DatabaseName] == nil {
 		b.records[db.DatabaseName] = make(map[string]*tableRecords)
@@ -1103,16 +1127,12 @@ func (b *InMemoryBackend) AddTableInternal(tbl *Table) {
 	b.mu.Lock("AddTableInternal")
 	defer b.mu.Unlock()
 
-	if b.tables[tbl.DatabaseName] == nil {
-		b.tables[tbl.DatabaseName] = make(map[string]*Table)
-	}
-
 	if b.records[tbl.DatabaseName] == nil {
 		b.records[tbl.DatabaseName] = make(map[string]*tableRecords)
 	}
 
 	cp := *tbl
-	b.tables[tbl.DatabaseName][tbl.TableName] = &cp
+	b.tables.Put(&cp)
 
 	// If a slot already exists for this table, close its mutex before
 	// overwriting so we don't leak the old lockmetrics.RWMutex.
@@ -1125,7 +1145,7 @@ func (b *InMemoryBackend) AddTableInternal(tbl *Table) {
 		recordIndex: make(map[string]int),
 	}
 
-	if db, ok := b.databases[tbl.DatabaseName]; ok {
+	if db, ok := b.databases.Get(tbl.DatabaseName); ok {
 		db.TableCount++
 	}
 }
@@ -1137,5 +1157,5 @@ func (b *InMemoryBackend) AddBatchLoadTaskInternal(task *BatchLoadTask) {
 	defer b.mu.Unlock()
 
 	cp := *task
-	b.batchLoadTasks[task.TaskID] = &cp
+	b.batchLoadTasks.Put(&cp)
 }
