@@ -2,6 +2,7 @@ package acm_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,6 +98,74 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Empty(t, certs)
 			},
 		},
+		{
+			// Proves the idempotencyMap (a non-*T value map, left raw and
+			// persisted directly -- see persistence.go) survives the round
+			// trip: a repeat RequestCertificate call with the same token
+			// and parameters after Restore must return the ARN captured
+			// before Snapshot rather than minting a new certificate.
+			name: "round_trip_preserves_idempotency_token",
+			setup: func(b *acm.InMemoryBackend) string {
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"idempotent.example.com",
+					"AMAZON_ISSUED",
+					"",
+					"idem-tok-1",
+					"",
+					"",
+					"",
+					nil,
+				)
+				if err != nil {
+					return ""
+				}
+
+				return cert.ARN
+			},
+			verify: func(t *testing.T, b *acm.InMemoryBackend, id string) {
+				t.Helper()
+
+				again, err := b.RequestCertificate(
+					context.Background(),
+					"idempotent.example.com",
+					"AMAZON_ISSUED",
+					"",
+					"idem-tok-1",
+					"",
+					"",
+					"",
+					nil,
+				)
+				require.NoError(t, err)
+				assert.Equal(t, id, again.ARN, "same idempotency token must return the original ARN")
+			},
+		},
+		{
+			// Proves accountConfig and accountIdempotency (both non-*T
+			// value maps, left raw and persisted directly) survive the
+			// round trip: the configured DaysBeforeExpiry must read back
+			// as set, and reusing the same PutAccountConfiguration token
+			// with different settings after Restore must still conflict.
+			name: "round_trip_preserves_account_configuration",
+			setup: func(b *acm.InMemoryBackend) string {
+				days := int32(30)
+				_ = b.PutAccountConfiguration(context.Background(), "acct-tok-1", &days)
+
+				return ""
+			},
+			verify: func(t *testing.T, b *acm.InMemoryBackend, _ string) {
+				t.Helper()
+
+				cfg := b.GetAccountConfiguration(context.Background())
+				assert.Equal(t, int32(30), cfg.DaysBeforeExpiry)
+
+				otherDays := int32(45)
+				err := b.PutAccountConfiguration(context.Background(), "acct-tok-1", &otherDays)
+				require.ErrorIs(t, err, acm.ErrConflict,
+					"reusing a persisted idempotency token with different settings must conflict")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -125,6 +194,71 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
+// "version" field does not match the backend's current snapshot version is
+// discarded wholesale (registry.ResetAll plus a reset of every raw-left
+// persisted map) rather than partially decoded -- see the acmSnapshotVersion
+// doc comment in persistence.go. It also proves the discard clears any state
+// already present in the target backend, not just leaves the mismatched
+// snapshot's state out.
+func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(snap map[string]any)
+		name   string
+	}{
+		{
+			name: "absent_version",
+			// Mirrors a pre-Phase-3.3 snapshot, which carried no version
+			// field at all and so decodes as Version == 0.
+			mutate: func(snap map[string]any) { delete(snap, "version") },
+		},
+		{
+			name:   "future_version",
+			mutate: func(snap map[string]any) { snap["version"] = 999 },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Build a valid snapshot from a backend with real state, then
+			// corrupt only its version field.
+			donor := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := donor.RequestCertificate(
+				context.Background(), "donor.example.com", "AMAZON_ISSUED", "", "", "", "", "", nil,
+			)
+			require.NoError(t, err)
+
+			var snapMap map[string]any
+			require.NoError(t, json.Unmarshal(donor.Snapshot(t.Context()), &snapMap))
+			tt.mutate(snapMap)
+
+			mutatedSnap, err := json.Marshal(snapMap)
+			require.NoError(t, err)
+
+			// The restore target starts with its own, different state so we
+			// can prove the mismatch discards it rather than leaving it
+			// untouched or merging in the donor's certificate.
+			target := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err = target.RequestCertificate(
+				context.Background(), "target.example.com", "AMAZON_ISSUED", "", "", "", "", "", nil,
+			)
+			require.NoError(t, err)
+
+			require.NoError(t, target.Restore(t.Context(), mutatedSnap))
+
+			p, _ := target.ListCertificates(context.Background(), acm.ListCertificatesParams{})
+			assert.Empty(t, p.Data, "version-mismatched restore must discard all state, not merge or keep it")
+
+			cfg := target.GetAccountConfiguration(context.Background())
+			assert.Equal(t, int32(45), cfg.DaysBeforeExpiry, "account config must reset to its default")
+		})
+	}
+}
+
 func TestACMHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
@@ -146,6 +280,60 @@ func TestACMHandler_Persistence(t *testing.T) {
 	p, _ := fresh.ListCertificates(context.Background(), acm.ListCertificatesParams{})
 	certs := p.Data
 	assert.Len(t, certs, 1)
+}
+
+// TestACMHandler_Persistence_Tags verifies that certificate tags (held by the
+// Handler in a store.Table[certTagsEntry], not the backend -- see
+// persistence.go) survive a full Handler.Snapshot/Restore round trip,
+// including on a certificate ARN that collides with an idempotency-token
+// clash-free re-request after restore.
+func TestACMHandler_Persistence_Tags(t *testing.T) {
+	t.Parallel()
+
+	h := newACMHandler()
+
+	reqRec := postACMJSON(t, h, "RequestCertificate",
+		`{"DomainName":"tagged-persist.example.com","Tags":[{"Key":"env","Value":"prod"}]}`)
+	require.Equal(t, http.StatusOK, reqRec.Code)
+
+	var reqOut struct {
+		CertificateArn string `json:"CertificateArn"`
+	}
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+
+	addBody, err := json.Marshal(map[string]any{
+		"CertificateArn": reqOut.CertificateArn,
+		"Tags":           []map[string]string{{"Key": "team", "Value": "platform"}},
+	})
+	require.NoError(t, err)
+
+	addRec := postACMJSON(t, h, "AddTagsToCertificate", string(addBody))
+	require.Equal(t, http.StatusOK, addRec.Code)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	freshH := newACMHandler()
+	require.NoError(t, freshH.Restore(t.Context(), snap))
+
+	listBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	require.NoError(t, err)
+
+	listRec := postACMJSON(t, freshH, "ListTagsForCertificate", string(listBody))
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var tagsOut struct {
+		Tags []map[string]string `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+
+	tagMap := make(map[string]string, len(tagsOut.Tags))
+	for _, kv := range tagsOut.Tags {
+		tagMap[kv["Key"]] = kv["Value"]
+	}
+
+	assert.Equal(t, "prod", tagMap["env"])
+	assert.Equal(t, "platform", tagMap["team"])
 }
 
 func TestACMHandler_Routing(t *testing.T) {

@@ -84,16 +84,14 @@ func (b *InMemoryBackend) sweepStaleCerts(now time.Time) {
 	// Abandoned pending validations (72h limit in AWS).
 	cutoffPending := now.Add(-72 * time.Hour)
 
-	for _, regionCerts := range b.certs {
-		for _, cert := range regionCerts {
-			if cert.Status == statusPendingValidation && cert.CreatedAt.Before(cutoffPending) {
-				cert.Status = statusValidationTimedOut
-				cert.FailureReason = "VALIDATION_TIMED_OUT"
-			}
+	for _, cert := range b.certs.All() {
+		if cert.Status == statusPendingValidation && cert.CreatedAt.Before(cutoffPending) {
+			cert.Status = statusValidationTimedOut
+			cert.FailureReason = "VALIDATION_TIMED_OUT"
+		}
 
-			if cert.Status == statusIssued && !cert.NotAfter.IsZero() && cert.NotAfter.Before(now) {
-				cert.Status = statusExpired
-			}
+		if cert.Status == statusIssued && !cert.NotAfter.IsZero() && cert.NotAfter.Before(now) {
+			cert.Status = statusExpired
 		}
 	}
 }
@@ -101,9 +99,8 @@ func (b *InMemoryBackend) sweepStaleCerts(now time.Time) {
 func (b *InMemoryBackend) sweepTimers() int {
 	removedCount := 0
 	for region, regionTimers := range b.timers {
-		certs := b.certs[region]
 		for arn, timer := range regionTimers {
-			cert, ok := certs[arn]
+			cert, ok := b.certs.Get(regionKey(region, arn))
 			if !ok {
 				timer.Stop()
 				delete(regionTimers, arn)
