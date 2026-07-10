@@ -3,25 +3,68 @@ package lakeformation
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// lakeformationSnapshotVersion identifies the shape of [backendSnapshot]. It
+// must be bumped whenever a change to backendSnapshot (or a value type held
+// by one of the registered tables) would make an older snapshot unsafe to
+// decode as the current shape. Restore compares this against the persisted
+// value and discards (registry.ResetAll, not a partial decode) any mismatch
+// -- see Restore. The pre-Phase-3.3 snapshot format had no version field at
+// all, so an old snapshot decodes with Version == 0, which is guaranteed to
+// mismatch lakeformationSnapshotVersion and is discarded the same way any
+// other incompatible snapshot is.
+const lakeformationSnapshotVersion = 1
+
+// transactionSnapshot is the DTO used only for Snapshot/Restore of the
+// "dirty" transactions table -- transactionInfo carries no field of its own
+// naming the transaction ID (it lives only as the store.Table key), so a
+// dedicated DTO carries the ID as a real JSON field for the round trip. See
+// store_setup.go's file doc comment.
+type transactionSnapshot struct {
+	ID   string          `json:"id"`
+	Info transactionInfo `json:"info"`
+}
+
+func transactionSnapshotKey(v *transactionSnapshot) string { return v.ID }
+
+// newTransactionDTORegistry builds the ephemeral DTO [store.Registry] shared
+// by Snapshot and Restore for the transactions table (see
+// store_setup.go's file doc comment).
+func newTransactionDTORegistry() (*store.Registry, *store.Table[transactionSnapshot]) {
+	dtoReg := store.NewRegistry()
+	txDTOs := store.Register(dtoReg, "transactions", store.New(transactionSnapshotKey))
+
+	return dtoReg, txDTOs
+}
+
 // backendSnapshot is the serialisable form of InMemoryBackend state.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// merging b.registry.SnapshotAll() (the "clean" tables: resources,
+// identityCenterConfigs, lfTags, dataCellsFilters, lfTagExpressions) with the
+// ephemeral transactions DTO registry's SnapshotAll(). permissionsMap is
+// deliberately absent from Tables: it is a derived cache rebuilt from
+// Permissions (b.permissionsList) after every Restore, so persisting it
+// separately would be redundant -- see store_setup.go's file doc comment and
+// rebuildPermissionsMapLocked below. Version guards against decoding a
+// snapshot from an incompatible (older or newer) build of this backend as
+// though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Resources              map[string]*ResourceInfo                `json:"Resources"`
-	LFTags                 map[string]*LFTag                       `json:"LFTags"`
-	Transactions           map[string]*transactionInfo             `json:"Transactions"`
-	DataCellsFilters       map[string]*DataCellsFilter             `json:"DataCellsFilters"`
-	LFTagExpressions       map[string]*LFTagExpression             `json:"LFTagExpressions"`
-	IdentityCenterConfigs  map[string]*IdentityCenterConfiguration `json:"IdentityCenterConfigs"`
-	ResourceLFTags         map[string][]LFTagPair                  `json:"ResourceLFTags"`
-	Queries                map[string]string                       `json:"Queries,omitempty"`
-	TableStorageOptimizers map[string][]StorageOptimizer           `json:"TableStorageOptimizers,omitempty"`
-	DataLakeSettings       *DataLakeSettings                       `json:"DataLakeSettings"`
-	Permissions            []*PermissionEntry                      `json:"Permissions"`
-	LakeFormationOptIns    []*LFOptIn                              `json:"LakeFormationOptIns"`
+	Tables                 map[string]json.RawMessage    `json:"tables"`
+	ResourceLFTags         map[string][]LFTagPair        `json:"resourceLFTags"`
+	Queries                map[string]string             `json:"queries,omitempty"`
+	TableStorageOptimizers map[string][]StorageOptimizer `json:"tableStorageOptimizers,omitempty"`
+	DataLakeSettings       *DataLakeSettings             `json:"dataLakeSettings"`
+	Permissions            []*PermissionEntry            `json:"permissions"`
+	LakeFormationOptIns    []*LFOptIn                    `json:"lakeFormationOptIns"`
+	Version                int                           `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON for persistence.
@@ -29,71 +72,50 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		DataLakeSettings:       copyDataLakeSettings(b.dataLakeSettings),
-		Resources:              make(map[string]*ResourceInfo, len(b.resources)),
-		Permissions:            make([]*PermissionEntry, len(b.permissionsList)),
-		LFTags:                 make(map[string]*LFTag, len(b.lfTags)),
-		Transactions:           make(map[string]*transactionInfo, len(b.transactions)),
-		DataCellsFilters:       make(map[string]*DataCellsFilter, len(b.dataCellsFilters)),
-		LFTagExpressions:       make(map[string]*LFTagExpression, len(b.lfTagExpressions)),
-		IdentityCenterConfigs:  make(map[string]*IdentityCenterConfiguration, len(b.identityCenterConfigs)),
-		LakeFormationOptIns:    make([]*LFOptIn, len(b.lakeFormationOptIns)),
-		ResourceLFTags:         make(map[string][]LFTagPair, len(b.resourceLFTags)),
-		Queries:                make(map[string]string, len(b.queries)),
-		TableStorageOptimizers: make(map[string][]StorageOptimizer, len(b.tableStorageOptimizers)),
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		return nil, fmt.Errorf("lakeformation: snapshot table marshal failed: %w", err)
 	}
 
-	for k, v := range b.resources {
-		snap.Resources[k] = copyResourceInfo(v)
+	dtoReg, txDTOs := newTransactionDTORegistry()
+
+	for _, info := range b.transactions.Snapshot() {
+		txDTOs.Put(&transactionSnapshot{ID: info.ID, Info: *info})
 	}
 
-	// Deep-copy permissions including Principal/Resource pointer fields.
-	for i, p := range b.permissionsList {
-		snap.Permissions[i] = deepCopyPermissionEntry(p)
+	txTables, err := dtoReg.SnapshotAll()
+	if err != nil {
+		return nil, fmt.Errorf("lakeformation: snapshot transaction DTO marshal failed: %w", err)
 	}
 
-	for k, v := range b.lfTags {
-		snap.LFTags[snapshotLFTagKey(k)] = copyLFTag(v)
+	maps.Copy(tables, txTables)
+
+	resourceLFTags := make(map[string][]LFTagPair, len(b.resourceLFTags))
+	for k, v := range b.resourceLFTags {
+		pairs := make([]LFTagPair, len(v))
+		copy(pairs, v)
+		resourceLFTags[k] = pairs
 	}
 
-	for k, v := range b.transactions {
-		cp := *v
-		snap.Transactions[k] = &cp
-	}
+	queries := make(map[string]string, len(b.queries))
+	maps.Copy(queries, b.queries)
 
-	maps.Copy(snap.Queries, b.queries)
-
+	tableStorageOptimizers := make(map[string][]StorageOptimizer, len(b.tableStorageOptimizers))
 	for k, v := range b.tableStorageOptimizers {
 		cp := make([]StorageOptimizer, len(v))
 		copy(cp, v)
-		snap.TableStorageOptimizers[k] = cp
+		tableStorageOptimizers[k] = cp
 	}
 
-	for k, v := range b.dataCellsFilters {
-		cp := *v
-		snap.DataCellsFilters[snapshotDCFKey(k)] = &cp
+	permissions := make([]*PermissionEntry, len(b.permissionsList))
+	for i, p := range b.permissionsList {
+		permissions[i] = deepCopyPermissionEntry(p)
 	}
 
-	for k, v := range b.lfTagExpressions {
-		expr := *v
+	optIns := make([]*LFOptIn, len(b.lakeFormationOptIns))
 
-		if v.Expression != nil {
-			expr.Expression = make([]LFTag, len(v.Expression))
-			copy(expr.Expression, v.Expression)
-		}
-
-		snap.LFTagExpressions[snapshotExprKey(k)] = &expr
-	}
-
-	for k, v := range b.identityCenterConfigs {
-		cp := *v
-		snap.IdentityCenterConfigs[k] = &cp
-	}
-
-	// Deep-copy opt-ins including Principal/Resource pointer fields.
 	for i, o := range b.lakeFormationOptIns {
-		cp := &LFOptIn{}
+		cp := &LFOptIn{LastModified: o.LastModified, LastUpdatedBy: o.LastUpdatedBy}
 
 		if o.Principal != nil {
 			p := *o.Principal
@@ -104,18 +126,28 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 			cp.Resource = copyResource(o.Resource)
 		}
 
-		snap.LakeFormationOptIns[i] = cp
+		optIns[i] = cp
 	}
 
-	for k, v := range b.resourceLFTags {
-		pairs := make([]LFTagPair, len(v))
-		copy(pairs, v)
-		snap.ResourceLFTags[k] = pairs
+	snap := backendSnapshot{
+		Version:                lakeformationSnapshotVersion,
+		Tables:                 tables,
+		DataLakeSettings:       copyDataLakeSettings(b.dataLakeSettings),
+		ResourceLFTags:         resourceLFTags,
+		Queries:                queries,
+		TableStorageOptimizers: tableStorageOptimizers,
+		Permissions:            permissions,
+		LakeFormationOptIns:    optIns,
 	}
 
-	// Marshal failure is returned to the caller (the Persistable wrapper logs it
-	// via the context-aware logger); do not log through slog.Default() here.
-	return json.Marshal(snap)
+	// Marshal failure is returned to the caller (the Persistable wrapper logs
+	// it via the context-aware logger); do not log through slog.Default() here.
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil, fmt.Errorf("lakeformation: marshal snapshot: %w", err)
+	}
+
+	return data, nil
 }
 
 // Restore deserialises a snapshot produced by Snapshot back into the backend.
@@ -128,31 +160,44 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	if snap.Version != lakeformationSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"lakeformation: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", lakeformationSnapshotVersion)
+
+		b.resetTablesLocked()
+		b.dataLakeSettings = &DataLakeSettings{}
+		b.resourceLFTags = make(map[string][]LFTagPair)
+		b.queries = make(map[string]string)
+		b.tableStorageOptimizers = make(map[string][]StorageOptimizer)
+		b.permissionsList = make([]*PermissionEntry, 0)
+		b.lakeFormationOptIns = make([]*LFOptIn, 0)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("lakeformation: restore snapshot tables: %w", err)
+	}
+
+	if err := b.restoreTransactionsLocked(snap.Tables); err != nil {
+		return err
+	}
+
 	b.dataLakeSettings = snap.DataLakeSettings
 	if b.dataLakeSettings == nil {
 		b.dataLakeSettings = &DataLakeSettings{}
 	}
 
-	b.resources = make(map[string]*ResourceInfo, len(snap.Resources))
-	maps.Copy(b.resources, snap.Resources)
-
-	b.permissionsList = snap.Permissions
-	if b.permissionsList == nil {
-		b.permissionsList = make([]*PermissionEntry, 0)
-	}
-	b.permissionsMap = make(map[string]*PermissionEntry)
-	for _, p := range b.permissionsList {
-		b.permissionsMap[permissionKey(p)] = p
-	}
-
-	b.lfTags = make(map[lfTagKey]*LFTag, len(snap.LFTags))
-	for ks, v := range snap.LFTags {
-		b.lfTags[parseLFTagKey(ks)] = v
-	}
-
-	b.transactions = snap.Transactions
-	if b.transactions == nil {
-		b.transactions = make(map[string]*transactionInfo)
+	b.resourceLFTags = snap.ResourceLFTags
+	if b.resourceLFTags == nil {
+		b.resourceLFTags = make(map[string][]LFTagPair)
 	}
 
 	b.queries = snap.Queries
@@ -165,102 +210,52 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.tableStorageOptimizers = make(map[string][]StorageOptimizer)
 	}
 
-	b.dataCellsFilters = make(map[dataCellsFilterKey]*DataCellsFilter, len(snap.DataCellsFilters))
-	for ks, v := range snap.DataCellsFilters {
-		b.dataCellsFilters[parseDCFKey(ks)] = v
+	b.permissionsList = snap.Permissions
+	if b.permissionsList == nil {
+		b.permissionsList = make([]*PermissionEntry, 0)
 	}
 
-	b.lfTagExpressions = make(map[lfTagExpressionKey]*LFTagExpression, len(snap.LFTagExpressions))
-	for ks, v := range snap.LFTagExpressions {
-		b.lfTagExpressions[parseExprKey(ks)] = v
-	}
-
-	b.identityCenterConfigs = snap.IdentityCenterConfigs
-	if b.identityCenterConfigs == nil {
-		b.identityCenterConfigs = make(map[string]*IdentityCenterConfiguration)
-	}
+	b.rebuildPermissionsMapLocked()
 
 	b.lakeFormationOptIns = snap.LakeFormationOptIns
 	if b.lakeFormationOptIns == nil {
 		b.lakeFormationOptIns = make([]*LFOptIn, 0)
 	}
 
-	b.resourceLFTags = snap.ResourceLFTags
-	if b.resourceLFTags == nil {
-		b.resourceLFTags = make(map[string][]LFTagPair)
+	return nil
+}
+
+// restoreTransactionsLocked restores the "dirty" transactions table from
+// tables via the ephemeral DTO registry, converting each DTO back to its
+// live type. The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) restoreTransactionsLocked(tables map[string]json.RawMessage) error {
+	dtoReg, txDTOs := newTransactionDTORegistry()
+
+	if err := dtoReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("lakeformation: restore transaction DTO tables: %w", err)
 	}
+
+	live := make([]*transactionInfo, 0, txDTOs.Len())
+
+	for _, dto := range txDTOs.All() {
+		info := dto.Info
+		info.ID = dto.ID
+		live = append(live, &info)
+	}
+
+	b.transactions.Restore(live)
 
 	return nil
 }
 
-// snapshotLFTagKey serialises an lfTagKey for JSON map keys.
-func snapshotLFTagKey(k lfTagKey) string {
-	return k.CatalogID + "|" + k.TagKey
-}
+// rebuildPermissionsMapLocked rebuilds the permissionsMap derived cache from
+// b.permissionsList, the source of truth for permission ordering and
+// persistence (see store_setup.go's file doc comment). The caller MUST hold
+// b.mu for writing.
+func (b *InMemoryBackend) rebuildPermissionsMapLocked() {
+	b.permissionsMap.Reset()
 
-// parseLFTagKey deserialises an lfTagKey produced by snapshotLFTagKey.
-func parseLFTagKey(s string) lfTagKey {
-	for i, c := range s {
-		if c == '|' {
-			return lfTagKey{CatalogID: s[:i], TagKey: s[i+1:]}
-		}
+	for _, p := range b.permissionsList {
+		b.permissionsMap.Put(p)
 	}
-
-	return lfTagKey{TagKey: s}
-}
-
-// dcfKeyParts is the number of pipe-delimited parts in a serialised dataCellsFilterKey.
-const dcfKeyParts = 4
-
-// snapshotDCFKey serialises a dataCellsFilterKey for JSON map keys.
-func snapshotDCFKey(k dataCellsFilterKey) string {
-	return k.TableCatalogID + "|" + k.DatabaseName + "|" + k.TableName + "|" + k.Name
-}
-
-// parseDCFKey deserialises a dataCellsFilterKey produced by snapshotDCFKey.
-func parseDCFKey(s string) dataCellsFilterKey {
-	parts := splitN(s, '|', dcfKeyParts)
-	if len(parts) == dcfKeyParts {
-		return dataCellsFilterKey{
-			TableCatalogID: parts[0],
-			DatabaseName:   parts[1],
-			TableName:      parts[2],
-			Name:           parts[3],
-		}
-	}
-
-	return dataCellsFilterKey{Name: s}
-}
-
-// snapshotExprKey serialises an lfTagExpressionKey for JSON map keys.
-func snapshotExprKey(k lfTagExpressionKey) string {
-	return k.CatalogID + "|" + k.Name
-}
-
-// parseExprKey deserialises an lfTagExpressionKey produced by snapshotExprKey.
-func parseExprKey(s string) lfTagExpressionKey {
-	for i, c := range s {
-		if c == '|' {
-			return lfTagExpressionKey{CatalogID: s[:i], Name: s[i+1:]}
-		}
-	}
-
-	return lfTagExpressionKey{Name: s}
-}
-
-// splitN splits s into at most n parts using sep.
-func splitN(s string, sep rune, n int) []string {
-	parts := make([]string, 0, n)
-	start := 0
-
-	for i, c := range s {
-		if c == sep && len(parts) < n-1 {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-
-	parts = append(parts, s[start:])
-
-	return parts
 }
