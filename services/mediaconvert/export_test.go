@@ -11,7 +11,7 @@ func QueueCount(b *InMemoryBackend) int {
 	b.mu.RLock("QueueCount")
 	defer b.mu.RUnlock()
 
-	return len(b.queues)
+	return b.queues.Len()
 }
 
 // JobTemplateCount returns the number of job templates in the backend.
@@ -19,7 +19,7 @@ func JobTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("JobTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.jobTemplates)
+	return b.jobTemplates.Len()
 }
 
 // JobCount returns the number of jobs in the backend.
@@ -27,7 +27,7 @@ func JobCount(b *InMemoryBackend) int {
 	b.mu.RLock("JobCount")
 	defer b.mu.RUnlock()
 
-	return len(b.jobs)
+	return b.jobs.Len()
 }
 
 // PresetCount returns the number of presets in the backend.
@@ -35,7 +35,7 @@ func PresetCount(b *InMemoryBackend) int {
 	b.mu.RLock("PresetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.presets)
+	return b.presets.Len()
 }
 
 // CertificateCount returns the number of associated certificates in the backend.
@@ -57,7 +57,7 @@ func JobStatusOf(b *InMemoryBackend, id string) string {
 	b.mu.RLock("JobStatusOf")
 	defer b.mu.RUnlock()
 
-	if j, ok := b.jobs[id]; ok {
+	if j, ok := b.jobs.Get(id); ok {
 		return j.Status
 	}
 
@@ -70,7 +70,7 @@ func JobPhaseOf(b *InMemoryBackend, id string) string {
 	b.mu.RLock("JobPhaseOf")
 	defer b.mu.RUnlock()
 
-	if j, ok := b.jobs[id]; ok {
+	if j, ok := b.jobs.Get(id); ok {
 		return j.CurrentPhase
 	}
 
@@ -82,7 +82,7 @@ func QueueCounterSubmitted(b *InMemoryBackend, queueArn string) int {
 	b.mu.RLock("QueueCounterSubmitted")
 	defer b.mu.RUnlock()
 
-	if c, ok := b.queueCounters[queueArn]; ok {
+	if c, ok := b.queueCounters.Get(queueArn); ok {
 		return c.submitted
 	}
 
@@ -94,7 +94,7 @@ func QueueCounterProgressing(b *InMemoryBackend, queueArn string) int {
 	b.mu.RLock("QueueCounterProgressing")
 	defer b.mu.RUnlock()
 
-	if c, ok := b.queueCounters[queueArn]; ok {
+	if c, ok := b.queueCounters.Get(queueArn); ok {
 		return c.progressing
 	}
 
@@ -106,5 +106,5 @@ func TokenIndexSize(b *InMemoryBackend) int {
 	b.mu.RLock("TokenIndexSize")
 	defer b.mu.RUnlock()
 
-	return len(b.tokenIndex)
+	return b.tokenIndex.Len()
 }

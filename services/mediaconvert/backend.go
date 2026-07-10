@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -288,36 +289,72 @@ type Policy struct {
 }
 
 // jobsQuery stores the parameters of a StartJobsQuery call for deferred execution.
+//
+// queryID is the store.Table key (see store_setup.go). The queries table is
+// never persisted (StartJobsQuery results were never part of backendSnapshot
+// pre-Phase-3.3 either), so queryID needs no json tag -- it just has to be a
+// pure function of the value for store.Table's keyFn.
 type jobsQuery struct {
+	queryID    string
 	order      string
 	filterList []map[string]any
 	maxResults int
 }
 
 // tokenEntry records a ClientRequestToken for deduplication.
+//
+// token is the store.Table key (see store_setup.go). Like createdAt/jobID it
+// is unexported, so it (and they) are silently excluded from tokenEntry's own
+// JSON encoding; persistence.go instead round-trips tokenIndex through a
+// dedicated tokenSnapshot DTO that carries token as an exported field -- see
+// persistence.go's file doc comment. This preserves the pre-Phase-3.3
+// behavior byte for byte: createdAt/jobID were already unexported before this
+// refactor, so a persisted tokenIndex entry was already encoded as `{}` and
+// restored with zeroed createdAt/jobID; that quirk is intentionally left
+// unchanged here.
 type tokenEntry struct {
 	createdAt time.Time
 	jobID     string
+	token     string
 }
 
 // queueJobCounter tracks active job counts for a single queue.
+//
+// queueArn is the store.Table key (see store_setup.go), unexported for the
+// same reason as tokenEntry.token above: submitted/progressing were already
+// unexported pre-Phase-3.3, so persisted queueCounters entries were already
+// lossy (`{}`, restored as zero) -- see persistence.go's counterSnapshot DTO,
+// which preserves that existing quirk rather than fixing it.
 type queueJobCounter struct {
+	queueArn    string
 	submitted   int
 	progressing int
 }
 
 // InMemoryBackend is the in-memory store for MediaConvert resources.
+//
+// registry holds every "clean" store.Table (queues, jobTemplates, jobs,
+// presets) so their Reset/Snapshot/Restore collapse to one call each via
+// resetTablesLocked / persistence.go. queueCounters and tokenIndex are
+// "dirty" tables -- their value types carry no natural identity field of
+// their own (see queueJobCounter.queueArn / tokenEntry.token) -- so they are
+// NOT on this registry; persistence.go round-trips them through a throwaway
+// DTO registry instead. queries is a store.Table too (for keyed Get/Put/
+// Delete) but was never persisted pre-Phase-3.3 and stays that way: it is
+// reset alongside the others but never appears in backendSnapshot. See
+// store_setup.go for the full rationale.
 type InMemoryBackend struct {
-	queries       map[string]*jobsQuery
-	queues        map[string]*Queue
-	queuesByArn   map[string]*Queue // ARN → queue; enables O(1) ARN lookup
-	jobTemplates  map[string]*JobTemplate
-	jobs          map[string]*Job
-	presets       map[string]*Preset
+	registry      *store.Registry
+	queries       *store.Table[jobsQuery]
+	queues        *store.Table[Queue]
+	queuesByArn   *store.Index[Queue] // ARN → queue; enables O(1) ARN lookup
+	jobTemplates  *store.Table[JobTemplate]
+	jobs          *store.Table[Job]
+	presets       *store.Table[Preset]
 	tags          map[string]map[string]string
 	certificates  map[string]struct{}
-	queueCounters map[string]*queueJobCounter
-	tokenIndex    map[string]*tokenEntry
+	queueCounters *store.Table[queueJobCounter]
+	tokenIndex    *store.Table[tokenEntry]
 	policy        *Policy
 	mu            *lockmetrics.RWMutex
 	accountID     string
@@ -326,21 +363,17 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory MediaConvert backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		queries:       make(map[string]*jobsQuery),
-		queues:        make(map[string]*Queue),
-		queuesByArn:   make(map[string]*Queue),
-		jobTemplates:  make(map[string]*JobTemplate),
-		jobs:          make(map[string]*Job),
-		presets:       make(map[string]*Preset),
-		tags:          make(map[string]map[string]string),
-		certificates:  make(map[string]struct{}),
-		queueCounters: make(map[string]*queueJobCounter),
-		tokenIndex:    make(map[string]*tokenEntry),
-		accountID:     accountID,
-		region:        region,
-		mu:            lockmetrics.New("mediaconvert"),
+	b := &InMemoryBackend{
+		registry:     store.NewRegistry(),
+		tags:         make(map[string]map[string]string),
+		certificates: make(map[string]struct{}),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("mediaconvert"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the region configured for this backend.
@@ -354,17 +387,22 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.queries = make(map[string]*jobsQuery)
-	b.queues = make(map[string]*Queue)
-	b.queuesByArn = make(map[string]*Queue)
-	b.jobTemplates = make(map[string]*JobTemplate)
-	b.jobs = make(map[string]*Job)
-	b.presets = make(map[string]*Preset)
+	b.resetTablesLocked()
 	b.tags = make(map[string]map[string]string)
 	b.certificates = make(map[string]struct{})
-	b.queueCounters = make(map[string]*queueJobCounter)
-	b.tokenIndex = make(map[string]*tokenEntry)
 	b.policy = nil
+}
+
+// resetTablesLocked resets every store.Table-backed resource field to empty:
+// the "clean" tables via one b.registry.ResetAll() call, plus the "dirty"
+// tables and the ephemeral queries table individually since they are not
+// registered on b.registry (see store_setup.go). The caller MUST hold b.mu
+// for writing.
+func (b *InMemoryBackend) resetTablesLocked() {
+	b.registry.ResetAll()
+	b.queueCounters.Reset()
+	b.tokenIndex.Reset()
+	b.queries.Reset()
 }
 
 // --- Internal seed helpers (used by tests) ---
@@ -374,8 +412,7 @@ func (b *InMemoryBackend) AddQueueInternal(q *Queue) {
 	b.mu.Lock("AddQueueInternal")
 	defer b.mu.Unlock()
 
-	b.queues[q.Name] = q
-	b.queuesByArn[q.Arn] = q
+	b.queues.Put(q)
 }
 
 // AddJobTemplateInternal inserts a job template directly into the backend.
@@ -383,7 +420,7 @@ func (b *InMemoryBackend) AddJobTemplateInternal(jt *JobTemplate) {
 	b.mu.Lock("AddJobTemplateInternal")
 	defer b.mu.Unlock()
 
-	b.jobTemplates[jt.Name] = jt
+	b.jobTemplates.Put(jt)
 }
 
 // AddJobInternal inserts a job directly into the backend.
@@ -391,7 +428,7 @@ func (b *InMemoryBackend) AddJobInternal(j *Job) {
 	b.mu.Lock("AddJobInternal")
 	defer b.mu.Unlock()
 
-	b.jobs[j.ID] = j
+	b.jobs.Put(j)
 }
 
 // AddPresetInternal inserts a preset directly into the backend.
@@ -399,7 +436,7 @@ func (b *InMemoryBackend) AddPresetInternal(p *Preset) {
 	b.mu.Lock("AddPresetInternal")
 	defer b.mu.Unlock()
 
-	b.presets[p.Name] = p
+	b.presets.Put(p)
 }
 
 // CreateQueue creates a new MediaConvert queue.
@@ -425,7 +462,7 @@ func (b *InMemoryBackend) CreateQueueFull(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	if _, ok := b.queues[name]; ok {
+	if b.queues.Has(name) {
 		return nil, fmt.Errorf("%w: queue %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -456,8 +493,7 @@ func (b *InMemoryBackend) CreateQueueFull(
 		ReservationPlan:  cloneReservationPlan(reservationPlan),
 		ServiceOverrides: deepCloneMap(serviceOverrides),
 	}
-	b.queues[name] = q
-	b.queuesByArn[q.Arn] = q
+	b.queues.Put(q)
 	b.initQueueCounterLocked(q.Arn)
 
 	if len(tags) > 0 {
@@ -474,7 +510,7 @@ func (b *InMemoryBackend) GetQueue(name string) (*Queue, error) {
 	b.mu.RLock("GetQueue")
 	defer b.mu.RUnlock()
 
-	q, ok := b.queues[name]
+	q, ok := b.queues.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
@@ -490,8 +526,8 @@ func (b *InMemoryBackend) ListQueues() []*Queue {
 	b.mu.RLock("ListQueues")
 	defer b.mu.RUnlock()
 
-	list := make([]*Queue, 0, len(b.queues))
-	for _, q := range b.queues {
+	list := make([]*Queue, 0, b.queues.Len())
+	for _, q := range b.queues.All() {
 		cp := cloneQueue(q)
 		cp.ProgressingJobsCount, cp.SubmittedJobsCount = b.getQueueCounterLocked(q.Arn)
 		list = append(list, cp)
@@ -505,15 +541,15 @@ func (b *InMemoryBackend) ListQueues() []*Queue {
 // initQueueCounterLocked creates a counter entry for queueArn if it does not exist.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) initQueueCounterLocked(queueArn string) {
-	if _, ok := b.queueCounters[queueArn]; !ok {
-		b.queueCounters[queueArn] = &queueJobCounter{}
+	if !b.queueCounters.Has(queueArn) {
+		b.queueCounters.Put(&queueJobCounter{queueArn: queueArn})
 	}
 }
 
 // getQueueCounterLocked returns (progressing, submitted) counts for queueArn.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) getQueueCounterLocked(queueArn string) (int, int) {
-	c, ok := b.queueCounters[queueArn]
+	c, ok := b.queueCounters.Get(queueArn)
 	if !ok {
 		return 0, 0
 	}
@@ -529,7 +565,7 @@ func (b *InMemoryBackend) adjustQueueCounterLocked(queueArn, status string, delt
 	}
 
 	b.initQueueCounterLocked(queueArn)
-	c := b.queueCounters[queueArn]
+	c, _ := b.queueCounters.Get(queueArn)
 
 	switch status {
 	case jobStatusSubmitted:
@@ -544,7 +580,7 @@ func (b *InMemoryBackend) UpdateQueue(name, description, status string) (*Queue,
 	b.mu.Lock("UpdateQueue")
 	defer b.mu.Unlock()
 
-	q, ok := b.queues[name]
+	q, ok := b.queues.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
@@ -571,14 +607,13 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
-	q, ok := b.queues[name]
+	q, ok := b.queues.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
 	delete(b.tags, q.Arn)
-	delete(b.queueCounters, q.Arn)
-	delete(b.queuesByArn, q.Arn)
-	delete(b.queues, name)
+	b.queueCounters.Delete(q.Arn)
+	b.queues.Delete(name) // also removes q from the queuesByArn index
 
 	return nil
 }
@@ -587,10 +622,10 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) resolveQueueLocked(queue string) (*Queue, error) {
 	if strings.HasPrefix(queue, "arn:") {
-		if q, ok := b.queuesByArn[queue]; ok {
-			return q, nil
+		if matches := b.queuesByArn.Get(queue); len(matches) > 0 {
+			return matches[0], nil
 		}
-	} else if q, ok := b.queues[queue]; ok {
+	} else if q, ok := b.queues.Get(queue); ok {
 		return q, nil
 	}
 
@@ -611,7 +646,7 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	if _, ok := b.jobTemplates[name]; ok {
+	if b.jobTemplates.Has(name) {
 		return nil, fmt.Errorf("%w: job template %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -633,7 +668,7 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		CreatedAt:   now,
 		LastUpdated: now,
 	}
-	b.jobTemplates[name] = jt
+	b.jobTemplates.Put(jt)
 
 	if len(tags) > 0 {
 		b.storeTagsLocked(jt.Arn, tags)
@@ -647,7 +682,7 @@ func (b *InMemoryBackend) GetJobTemplate(name string) (*JobTemplate, error) {
 	b.mu.RLock("GetJobTemplate")
 	defer b.mu.RUnlock()
 
-	jt, ok := b.jobTemplates[name]
+	jt, ok := b.jobTemplates.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: job template %s not found", ErrNotFound, name)
 	}
@@ -660,8 +695,8 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 	b.mu.RLock("ListJobTemplates")
 	defer b.mu.RUnlock()
 
-	list := make([]*JobTemplate, 0, len(b.jobTemplates))
-	for _, jt := range b.jobTemplates {
+	list := make([]*JobTemplate, 0, b.jobTemplates.Len())
+	for _, jt := range b.jobTemplates.All() {
 		list = append(list, cloneJobTemplate(jt))
 	}
 
@@ -679,7 +714,7 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 	b.mu.Lock("UpdateJobTemplate")
 	defer b.mu.Unlock()
 
-	jt, ok := b.jobTemplates[name]
+	jt, ok := b.jobTemplates.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: job template %s not found", ErrNotFound, name)
 	}
@@ -718,12 +753,12 @@ func (b *InMemoryBackend) DeleteJobTemplate(name string) error {
 	b.mu.Lock("DeleteJobTemplate")
 	defer b.mu.Unlock()
 
-	jt, ok := b.jobTemplates[name]
+	jt, ok := b.jobTemplates.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: job template %s not found", ErrNotFound, name)
 	}
 	delete(b.tags, jt.Arn)
-	delete(b.jobTemplates, name)
+	b.jobTemplates.Delete(name)
 
 	return nil
 }
@@ -750,12 +785,12 @@ func (b *InMemoryBackend) lookupTokenLocked(token string) (*Job, bool) {
 		return nil, false
 	}
 
-	entry, ok := b.tokenIndex[token]
+	entry, ok := b.tokenIndex.Get(token)
 	if !ok || time.Since(entry.createdAt) >= tokenTTL {
 		return nil, false
 	}
 
-	j, exists := b.jobs[entry.jobID]
+	j, exists := b.jobs.Get(entry.jobID)
 	if !exists {
 		return nil, false
 	}
@@ -844,17 +879,18 @@ func (b *InMemoryBackend) CreateJobFull(
 		Warnings:                  []WarningGroup{},
 		ShareStatus:               "NOT_SHARED",
 	}
-	b.jobs[id] = j
+	b.jobs.Put(j)
 
 	// Update queue counter for the new SUBMITTED job.
 	b.adjustQueueCounterLocked(queueArn, jobStatusSubmitted, +1)
 
 	// Record token for dedup (cap to prevent unbounded growth).
-	if clientRequestToken != "" && len(b.tokenIndex) < maxTokens {
-		b.tokenIndex[clientRequestToken] = &tokenEntry{
+	if clientRequestToken != "" && b.tokenIndex.Len() < maxTokens {
+		b.tokenIndex.Put(&tokenEntry{
+			token:     clientRequestToken,
 			jobID:     id,
 			createdAt: time.Now(),
-		}
+		})
 	}
 
 	if len(tags) > 0 {
@@ -869,7 +905,7 @@ func (b *InMemoryBackend) GetJob(id string) (*Job, error) {
 	b.mu.RLock("GetJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.jobs[id]
+	j, ok := b.jobs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
@@ -888,9 +924,9 @@ func (b *InMemoryBackend) ListJobsFiltered(status, queue, order string) []*Job {
 	b.mu.RLock("ListJobsFiltered")
 	defer b.mu.RUnlock()
 
-	list := make([]*Job, 0, len(b.jobs))
+	list := make([]*Job, 0, b.jobs.Len())
 
-	for _, j := range b.jobs {
+	for _, j := range b.jobs.All() {
 		if status != "" && j.Status != status {
 			continue
 		}
@@ -921,7 +957,7 @@ func (b *InMemoryBackend) CancelJob(id string) error {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[id]
+	j, ok := b.jobs.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
@@ -950,7 +986,7 @@ func (b *InMemoryBackend) UpdateJob(id, queue string, priority *int, hopDestinat
 	b.mu.Lock("UpdateJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[id]
+	j, ok := b.jobs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
@@ -1001,9 +1037,9 @@ func (b *InMemoryBackend) SweepExpiredTokens() {
 	b.mu.RLock("SweepExpiredTokens")
 
 	var expired []string
-	for token, entry := range b.tokenIndex {
+	for _, entry := range b.tokenIndex.All() {
 		if time.Since(entry.createdAt) >= tokenTTL {
-			expired = append(expired, token)
+			expired = append(expired, entry.token)
 		}
 	}
 
@@ -1017,7 +1053,7 @@ func (b *InMemoryBackend) SweepExpiredTokens() {
 	defer b.mu.Unlock()
 
 	for _, token := range expired {
-		delete(b.tokenIndex, token)
+		b.tokenIndex.Delete(token)
 	}
 }
 
@@ -1027,10 +1063,10 @@ func (b *InMemoryBackend) AdvanceJobPhase() bool {
 	b.mu.RLock("AdvanceJobPhase")
 
 	var eligible []string
-	for id, j := range b.jobs {
+	for _, j := range b.jobs.All() {
 		switch j.Status {
 		case jobStatusSubmitted, jobStatusProgressing:
-			eligible = append(eligible, id)
+			eligible = append(eligible, j.ID)
 		}
 	}
 
@@ -1047,7 +1083,7 @@ func (b *InMemoryBackend) AdvanceJobPhase() bool {
 	now := epochSeconds(time.Now())
 
 	for _, id := range eligible {
-		j, ok := b.jobs[id]
+		j, ok := b.jobs.Get(id)
 		if !ok {
 			continue
 		}
@@ -1144,20 +1180,22 @@ func (b *InMemoryBackend) completeJobLocked(j *Job, now float64) bool {
 	return true
 }
 
-// rebuildCountersLocked rebuilds queueCounters from the current jobs map.
-// Used when restoring a snapshot that predates per-queue counters.
-// Caller must hold the write lock.
+// rebuildCountersLocked rebuilds queueCounters from the current jobs table.
+// Used when restoring a snapshot that predates per-queue counters. Mirrors
+// the pre-Phase-3.3 maps.Copy merge semantics: only queue ARNs with at least
+// one SUBMITTED/PROGRESSING job are (re)written; any other pre-existing
+// queueCounters entry is left untouched. Caller must hold the write lock.
 func (b *InMemoryBackend) rebuildCountersLocked() {
 	counters := make(map[string]*queueJobCounter)
 
-	for _, j := range b.jobs {
+	for _, j := range b.jobs.All() {
 		if j.QueueArn == "" {
 			continue
 		}
 
 		c := counters[j.QueueArn]
 		if c == nil {
-			c = &queueJobCounter{}
+			c = &queueJobCounter{queueArn: j.QueueArn}
 			counters[j.QueueArn] = c
 		}
 
@@ -1169,7 +1207,9 @@ func (b *InMemoryBackend) rebuildCountersLocked() {
 		}
 	}
 
-	maps.Copy(b.queueCounters, counters)
+	for _, c := range counters {
+		b.queueCounters.Put(c)
+	}
 }
 
 // generateJobID generates a MediaConvert-style job ID.
@@ -1242,7 +1282,7 @@ func (b *InMemoryBackend) CreatePreset(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	if _, ok := b.presets[name]; ok {
+	if b.presets.Has(name) {
 		return nil, fmt.Errorf("%w: preset %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1258,7 +1298,7 @@ func (b *InMemoryBackend) CreatePreset(
 		CreatedAt:   now,
 		LastUpdated: now,
 	}
-	b.presets[name] = p
+	b.presets.Put(p)
 
 	if len(tags) > 0 {
 		b.storeTagsLocked(p.Arn, tags)
@@ -1272,7 +1312,7 @@ func (b *InMemoryBackend) GetPreset(name string) (*Preset, error) {
 	b.mu.RLock("GetPreset")
 	defer b.mu.RUnlock()
 
-	p, ok := b.presets[name]
+	p, ok := b.presets.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
 	}
@@ -1285,8 +1325,8 @@ func (b *InMemoryBackend) ListPresets() []*Preset {
 	b.mu.RLock("ListPresets")
 	defer b.mu.RUnlock()
 
-	list := make([]*Preset, 0, len(b.presets))
-	for _, p := range b.presets {
+	list := make([]*Preset, 0, b.presets.Len())
+	for _, p := range b.presets.All() {
 		list = append(list, clonePreset(p))
 	}
 
@@ -1300,7 +1340,7 @@ func (b *InMemoryBackend) UpdatePreset(name, description, category string, setti
 	b.mu.Lock("UpdatePreset")
 	defer b.mu.Unlock()
 
-	p, ok := b.presets[name]
+	p, ok := b.presets.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
 	}
@@ -1327,12 +1367,12 @@ func (b *InMemoryBackend) DeletePreset(name string) error {
 	b.mu.Lock("DeletePreset")
 	defer b.mu.Unlock()
 
-	p, ok := b.presets[name]
+	p, ok := b.presets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: preset %s not found", ErrNotFound, name)
 	}
 	delete(b.tags, p.Arn)
-	delete(b.presets, name)
+	b.presets.Delete(name)
 
 	return nil
 }
@@ -1429,11 +1469,12 @@ func (b *InMemoryBackend) StartJobsQuery(filterList []map[string]any, maxResults
 	b.mu.Lock("StartJobsQuery")
 	defer b.mu.Unlock()
 
-	b.queries[id] = &jobsQuery{
+	b.queries.Put(&jobsQuery{
+		queryID:    id,
 		filterList: filterList,
 		maxResults: maxResults,
 		order:      order,
-	}
+	})
 
 	return id, nil
 }
@@ -1444,14 +1485,14 @@ func (b *InMemoryBackend) GetJobsQueryResults(queryID string) []*Job {
 	b.mu.RLock("GetJobsQueryResults")
 	defer b.mu.RUnlock()
 
-	q, ok := b.queries[queryID]
+	q, ok := b.queries.Get(queryID)
 	if !ok {
 		return []*Job{}
 	}
 
-	list := make([]*Job, 0, len(b.jobs))
+	list := make([]*Job, 0, b.jobs.Len())
 
-	for _, j := range b.jobs {
+	for _, j := range b.jobs.All() {
 		if !jobMatchesFilters(j, q.filterList) {
 			continue
 		}
@@ -1518,7 +1559,7 @@ func (b *InMemoryBackend) CreateResourceShare(jobID string) (string, error) {
 		return "", fmt.Errorf("%w: jobId is required", ErrValidation)
 	}
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return "", fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
 	}
