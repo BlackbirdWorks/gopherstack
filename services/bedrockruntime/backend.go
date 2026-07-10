@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // maxInvocationHistory is the maximum number of invocations retained in memory.
@@ -116,7 +117,8 @@ func (r *invocationRing) reset() {
 type InMemoryBackend struct {
 	svcCtx             context.Context
 	mu                 *lockmetrics.RWMutex
-	asyncInvokes       map[string]*AsyncInvoke
+	registry           *store.Registry
+	asyncInvokes       *store.Table[AsyncInvoke]
 	tokenIndex         map[string]string
 	accountID          string
 	region             string
@@ -136,15 +138,19 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		svcCtx = context.Background()
 	}
 
-	return &InMemoryBackend{
-		invocations:  newInvocationRing(maxInvocationHistory),
-		asyncInvokes: make(map[string]*AsyncInvoke),
-		tokenIndex:   make(map[string]string),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("bedrockruntime"),
-		svcCtx:       svcCtx,
+	b := &InMemoryBackend{
+		invocations: newInvocationRing(maxInvocationHistory),
+		tokenIndex:  make(map[string]string),
+		accountID:   accountID,
+		region:      region,
+		mu:          lockmetrics.New("bedrockruntime"),
+		svcCtx:      svcCtx,
+		registry:    store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state, returning the backend to its initial empty state.
@@ -153,7 +159,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.invocations.reset()
-	b.asyncInvokes = make(map[string]*AsyncInvoke)
+	b.registry.ResetAll()
 	b.tokenIndex = make(map[string]string)
 	b.asyncInvokeCounter = 0
 }
@@ -259,7 +265,7 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 	// Idempotency: if clientToken is set and already seen, return existing invocation.
 	if clientToken != "" {
 		if existingArn, ok := b.tokenIndex[clientToken]; ok {
-			if existing, found := b.asyncInvokes[existingArn]; found {
+			if existing, found := b.asyncInvokes.Get(existingArn); found {
 				cp := *existing
 				cp.Tags = copyTags(existing.Tags)
 
@@ -291,7 +297,7 @@ func (b *InMemoryBackend) StartAsyncInvoke(
 		Tags:               copyTags(tags),
 	}
 
-	b.asyncInvokes[arnStr] = inv
+	b.asyncInvokes.Put(inv)
 
 	if clientToken != "" {
 		b.tokenIndex[clientToken] = arnStr
@@ -311,7 +317,7 @@ func (b *InMemoryBackend) AdvanceAsyncInvokesForTest(minAge time.Duration) {
 
 	now := time.Now()
 
-	for _, inv := range b.asyncInvokes {
+	for _, inv := range b.asyncInvokes.All() {
 		if inv.Status != AsyncInvokeStatusInProgress {
 			continue
 		}
@@ -331,7 +337,7 @@ func (b *InMemoryBackend) GetAsyncInvoke(invocationArn string) (*AsyncInvoke, er
 	b.mu.RLock("GetAsyncInvoke")
 	defer b.mu.RUnlock()
 
-	inv, ok := b.asyncInvokes[invocationArn]
+	inv, ok := b.asyncInvokes.Get(invocationArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: async-invoke %q", ErrNotFound, invocationArn)
 	}
@@ -348,9 +354,10 @@ func (b *InMemoryBackend) ListAsyncInvokes(filter ListAsyncInvokesFilter) []*Asy
 	b.mu.RLock("ListAsyncInvokes")
 	defer b.mu.RUnlock()
 
-	out := make([]*AsyncInvoke, 0, len(b.asyncInvokes))
+	all := b.asyncInvokes.All()
+	out := make([]*AsyncInvoke, 0, len(all))
 
-	for _, inv := range b.asyncInvokes {
+	for _, inv := range all {
 		if filter.StatusEquals != "" && inv.Status != filter.StatusEquals {
 			continue
 		}
