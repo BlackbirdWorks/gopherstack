@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -196,45 +197,50 @@ type ListOperationsFilter struct {
 
 // InMemoryBackend is the in-memory Cloud Map backend.
 type InMemoryBackend struct {
-	namespaces             map[string]*Namespace
-	services               map[string]*Service
-	instances              map[string]*Instance
-	operations             map[string]*Operation
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	namespaces       *store.Table[Namespace]
+	namespacesByARN  *store.Index[Namespace]
+	namespacesByName *store.Index[Namespace]
+
+	services         *store.Table[Service]
+	servicesByARN    *store.Index[Service]
+	servicesByNsName *store.Index[Service]
+
+	instances          *store.Table[Instance]
+	instancesByService *store.Index[Instance]
+
+	operations *store.Table[Operation]
+
 	serviceAttributes      map[string]map[string]string
 	instanceHealthStatuses map[string]string
-	instancesByService     map[string]map[string]*Instance
-	svcByNsAndName         map[string]string
-	nsARNIndex             map[string]string
-	svcARNIndex            map[string]string
-	nsNameIndex            map[string]string
-	mu                     *lockmetrics.RWMutex
-	accountID              string
-	region                 string
-	instanceRevision       int64
-	nsCounter              int
-	svcCounter             int
-	opCounter              int
-	deterministicIDs       bool
+
+	accountID string
+	region    string
+
+	instanceRevision int64
+	nsCounter        int
+	svcCounter       int
+	opCounter        int
+
+	deterministicIDs bool
 }
 
 // NewInMemoryBackend creates a new in-memory Cloud Map backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		namespaces:             make(map[string]*Namespace),
-		services:               make(map[string]*Service),
-		instances:              make(map[string]*Instance),
-		operations:             make(map[string]*Operation),
+	b := &InMemoryBackend{
+		registry:               store.NewRegistry(),
 		serviceAttributes:      make(map[string]map[string]string),
 		instanceHealthStatuses: make(map[string]string),
-		instancesByService:     make(map[string]map[string]*Instance),
-		svcByNsAndName:         make(map[string]string),
-		nsARNIndex:             make(map[string]string),
-		svcARNIndex:            make(map[string]string),
-		nsNameIndex:            make(map[string]string),
 		mu:                     lockmetrics.New("servicediscovery"),
 		accountID:              accountID,
 		region:                 region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -306,7 +312,7 @@ func (b *InMemoryBackend) createNamespace(
 	b.mu.Lock("createNamespace")
 	defer b.mu.Unlock()
 
-	if _, exists := b.nsNameIndex[name]; exists {
+	if existing := b.namespacesByName.Get(name); len(existing) > 0 {
 		return "", fmt.Errorf("%w: namespace %s already exists", ErrNamespaceAlreadyExists, name)
 	}
 
@@ -344,19 +350,17 @@ func (b *InMemoryBackend) createNamespace(
 		Tags:        copyTags(tags),
 		CreatedAt:   now,
 	}
-	b.namespaces[id] = ns
-	b.nsARNIndex[ns.ARN] = id
-	b.nsNameIndex[name] = id
+	b.namespaces.Put(ns)
 
 	opID := b.nextOpID()
-	b.operations[opID] = &Operation{
+	b.operations.Put(&Operation{
 		ID:         opID,
 		Type:       operationTypeCreateNamespace,
 		Status:     operationStatusSuccess,
 		Targets:    map[string]string{typeNamespace: id},
 		CreateDate: now,
 		UpdateDate: now,
-	}
+	})
 
 	return opID, nil
 }
@@ -392,31 +396,28 @@ func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
 
-	ns, ok := b.namespaces[id]
-	if !ok {
+	if !b.namespaces.Has(id) {
 		return "", fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
 
-	for _, svc := range b.services {
+	for _, svc := range b.services.All() {
 		if svc.NamespaceID == id {
 			return "", fmt.Errorf("%w: namespace %s has services; delete them first", ErrResourceInUse, id)
 		}
 	}
 
-	delete(b.nsARNIndex, ns.ARN)
-	delete(b.nsNameIndex, ns.Name)
-	delete(b.namespaces, id)
+	b.namespaces.Delete(id)
 
 	now := time.Now()
 	opID := b.nextOpID()
-	b.operations[opID] = &Operation{
+	b.operations.Put(&Operation{
 		ID:         opID,
 		Type:       operationTypeDeleteNamespace,
 		Status:     operationStatusSuccess,
 		Targets:    map[string]string{typeNamespace: id},
 		CreateDate: now,
 		UpdateDate: now,
-	}
+	})
 
 	return opID, nil
 }
@@ -426,7 +427,7 @@ func (b *InMemoryBackend) GetNamespace(id string) (*Namespace, error) {
 	b.mu.RLock("GetNamespace")
 	defer b.mu.RUnlock()
 
-	ns, ok := b.namespaces[id]
+	ns, ok := b.namespaces.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
@@ -440,7 +441,7 @@ func (b *InMemoryBackend) GetNamespace(id string) (*Namespace, error) {
 // countServicesInNamespace counts services belonging to a namespace. Caller must hold at least a read lock.
 func (b *InMemoryBackend) countServicesInNamespace(namespaceID string) int {
 	count := 0
-	for _, svc := range b.services {
+	for _, svc := range b.services.All() {
 		if svc.NamespaceID == namespaceID {
 			count++
 		}
@@ -454,9 +455,10 @@ func (b *InMemoryBackend) ListNamespaces(filter ListNamespacesFilter) []Namespac
 	b.mu.RLock("ListNamespaces")
 	defer b.mu.RUnlock()
 
-	result := make([]Namespace, 0, len(b.namespaces))
+	all := b.namespaces.All()
+	result := make([]Namespace, 0, len(all))
 
-	for _, ns := range b.namespaces {
+	for _, ns := range all {
 		if filter.Type != "" && ns.Type != filter.Type {
 			continue
 		}
@@ -489,7 +491,7 @@ func (b *InMemoryBackend) CreateService(
 	defer b.mu.Unlock()
 
 	if namespaceID != "" {
-		if _, ok := b.namespaces[namespaceID]; !ok {
+		if !b.namespaces.Has(namespaceID) {
 			return nil, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceID)
 		}
 	}
@@ -497,7 +499,7 @@ func (b *InMemoryBackend) CreateService(
 	// Derive service type when not explicitly set.
 	resolvedType := svcType
 	if resolvedType == "" && namespaceID != "" {
-		if ns, ok := b.namespaces[namespaceID]; ok {
+		if ns, ok := b.namespaces.Get(namespaceID); ok {
 			switch ns.Type {
 			case namespaceTypeHTTP:
 				resolvedType = serviceTypeHTTP
@@ -527,13 +529,7 @@ func (b *InMemoryBackend) CreateService(
 		CreatedAt:               time.Now(),
 	}
 
-	b.services[id] = svc
-	b.svcARNIndex[svc.ARN] = id
-	b.instancesByService[id] = make(map[string]*Instance)
-
-	if namespaceID != "" {
-		b.svcByNsAndName[namespaceID+":"+name] = id
-	}
+	b.services.Put(svc)
 
 	return copyService(svc), nil
 }
@@ -544,23 +540,16 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[id]
-	if !ok {
+	if !b.services.Has(id) {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
-	if insts, hasInsts := b.instancesByService[id]; hasInsts && len(insts) > 0 {
+	if insts := b.instancesByService.Get(id); len(insts) > 0 {
 		return fmt.Errorf("%w: service %s has registered instances; deregister them first", ErrResourceInUse, id)
 	}
 
-	delete(b.svcARNIndex, svc.ARN)
-	delete(b.services, id)
+	b.services.Delete(id)
 	delete(b.serviceAttributes, id)
-	delete(b.instancesByService, id)
-
-	if svc.NamespaceID != "" {
-		delete(b.svcByNsAndName, svc.NamespaceID+":"+svc.Name)
-	}
 
 	return nil
 }
@@ -570,13 +559,13 @@ func (b *InMemoryBackend) GetService(id string) (*Service, error) {
 	b.mu.RLock("GetService")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.services[id]
+	svc, ok := b.services.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
 	cp := copyService(svc)
-	cp.InstanceCount = len(b.instancesByService[id])
+	cp.InstanceCount = len(b.instancesByService.Get(id))
 
 	return cp, nil
 }
@@ -586,15 +575,16 @@ func (b *InMemoryBackend) ListServices(filter ListServicesFilter) []Service {
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
-	result := make([]Service, 0, len(b.services))
+	all := b.services.All()
+	result := make([]Service, 0, len(all))
 
-	for id, svc := range b.services {
+	for _, svc := range all {
 		if filter.NamespaceID != "" && svc.NamespaceID != filter.NamespaceID {
 			continue
 		}
 
 		cp := copyService(svc)
-		cp.InstanceCount = len(b.instancesByService[id])
+		cp.InstanceCount = len(b.instancesByService.Get(svc.ID))
 		result = append(result, *cp)
 	}
 
@@ -610,36 +600,29 @@ func (b *InMemoryBackend) RegisterInstance(serviceID, instanceID string, attrs m
 	b.mu.Lock("RegisterInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.services[serviceID]; !ok {
+	if !b.services.Has(serviceID) {
 		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
-
-	key := instanceKey(serviceID, instanceID)
 
 	inst := &Instance{
 		ID:         instanceID,
 		ServiceID:  serviceID,
 		Attributes: copyAttrs(attrs),
 	}
-	b.instances[key] = inst
+	b.instances.Put(inst)
 
-	if b.instancesByService[serviceID] == nil {
-		b.instancesByService[serviceID] = make(map[string]*Instance)
-	}
-
-	b.instancesByService[serviceID][instanceID] = inst
 	b.instanceRevision++
 
 	now := time.Now()
 	opID := b.nextOpID()
-	b.operations[opID] = &Operation{
+	b.operations.Put(&Operation{
 		ID:         opID,
 		Type:       operationTypeRegisterInstance,
 		Status:     operationStatusSuccess,
 		Targets:    map[string]string{typeInstance: instanceID, typeService: serviceID},
 		CreateDate: now,
 		UpdateDate: now,
-	}
+	})
 
 	return opID, nil
 }
@@ -650,29 +633,25 @@ func (b *InMemoryBackend) DeregisterInstance(serviceID, instanceID string) (stri
 	defer b.mu.Unlock()
 
 	key := instanceKey(serviceID, instanceID)
-	if _, ok := b.instances[key]; !ok {
+	if !b.instances.Has(key) {
 		return "", fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
 	}
 
-	delete(b.instances, key)
+	b.instances.Delete(key)
 	delete(b.instanceHealthStatuses, key)
-
-	if insts, ok := b.instancesByService[serviceID]; ok {
-		delete(insts, instanceID)
-	}
 
 	b.instanceRevision++
 
 	now := time.Now()
 	opID := b.nextOpID()
-	b.operations[opID] = &Operation{
+	b.operations.Put(&Operation{
 		ID:         opID,
 		Type:       operationTypeDeregisterInstance,
 		Status:     operationStatusSuccess,
 		Targets:    map[string]string{typeInstance: instanceID, typeService: serviceID},
 		CreateDate: now,
 		UpdateDate: now,
-	}
+	})
 
 	return opID, nil
 }
@@ -683,7 +662,7 @@ func (b *InMemoryBackend) GetInstance(serviceID, instanceID string) (*Instance, 
 	defer b.mu.RUnlock()
 
 	key := instanceKey(serviceID, instanceID)
-	inst, ok := b.instances[key]
+	inst, ok := b.instances.Get(key)
 
 	if !ok {
 		return nil, fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
@@ -700,11 +679,11 @@ func (b *InMemoryBackend) ListInstances(serviceID string) ([]Instance, error) {
 	b.mu.RLock("ListInstances")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.services[serviceID]; !ok {
+	if !b.services.Has(serviceID) {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
-	insts := b.instancesByService[serviceID]
+	insts := b.instancesByService.Get(serviceID)
 	result := make([]Instance, 0, len(insts))
 
 	for _, inst := range insts {
@@ -729,22 +708,30 @@ func (b *InMemoryBackend) DiscoverInstances(
 	b.mu.RLock("DiscoverInstances")
 	defer b.mu.RUnlock()
 
-	nsID, ok := b.nsNameIndex[namespaceName]
-	if !ok {
+	nsMatches := b.namespacesByName.Get(namespaceName)
+	if len(nsMatches) == 0 {
 		return []DiscoveredInstance{}, 0, nil
 	}
 
-	svcID, ok := b.svcByNsAndName[nsID+":"+serviceName]
-	if !ok {
+	nsID := nsMatches[0].ID
+
+	svcMatches := b.servicesByNsName.Get(nsID + ":" + serviceName)
+	if len(svcMatches) == 0 {
 		return []DiscoveredInstance{}, 0, nil
 	}
+
+	// Mirror the pre-conversion svcByNsAndName map's last-write-wins
+	// semantics: CreateService never enforced (namespaceID, name)
+	// uniqueness, so the most recently created match is the one an
+	// overwriting map assignment would have kept.
+	svcID := svcMatches[len(svcMatches)-1].ID
 
 	revision := b.instanceRevision
-	insts := b.instancesByService[svcID]
+	insts := b.instancesByService.Get(svcID)
 	result := make([]DiscoveredInstance, 0, len(insts))
 
-	for instID, inst := range insts {
-		key := instanceKey(svcID, instID)
+	for _, inst := range insts {
+		key := instanceKey(svcID, inst.ID)
 
 		if !b.instanceMatchesHealth(key, healthStatus) {
 			continue
@@ -809,7 +796,7 @@ func (b *InMemoryBackend) GetInstancesHealthStatus(serviceID string, instanceIDs
 	b.mu.RLock("GetInstancesHealthStatus")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.services[serviceID]; !ok {
+	if !b.services.Has(serviceID) {
 		return nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
@@ -819,9 +806,11 @@ func (b *InMemoryBackend) GetInstancesHealthStatus(serviceID string, instanceIDs
 	}
 
 	statuses := make(map[string]string)
-	insts := b.instancesByService[serviceID]
+	insts := b.instancesByService.Get(serviceID)
 
-	for instID := range insts {
+	for _, inst := range insts {
+		instID := inst.ID
+
 		if len(filter) > 0 {
 			if _, ok := filter[instID]; !ok {
 				continue
@@ -845,7 +834,7 @@ func (b *InMemoryBackend) GetOperation(id string) (*Operation, error) {
 	b.mu.RLock("GetOperation")
 	defer b.mu.RUnlock()
 
-	op, ok := b.operations[id]
+	op, ok := b.operations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: operation %s not found", ErrOperationNotFound, id)
 	}
@@ -860,9 +849,10 @@ func (b *InMemoryBackend) ListOperations(filter ListOperationsFilter) []Operatio
 	b.mu.RLock("ListOperations")
 	defer b.mu.RUnlock()
 
-	result := make([]Operation, 0, len(b.operations))
+	all := b.operations.All()
+	result := make([]Operation, 0, len(all))
 
-	for _, op := range b.operations {
+	for _, op := range all {
 		if filter.Status != "" && op.Status != filter.Status {
 			continue
 		}
@@ -886,12 +876,12 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if nsID, ok := b.nsARNIndex[arn]; ok {
-		return copyTags(b.namespaces[nsID].Tags), nil
+	if nsMatches := b.namespacesByARN.Get(arn); len(nsMatches) > 0 {
+		return copyTags(nsMatches[0].Tags), nil
 	}
 
-	if svcID, ok := b.svcARNIndex[arn]; ok {
-		return copyTags(b.services[svcID].Tags), nil
+	if svcMatches := b.servicesByARN.Get(arn); len(svcMatches) > 0 {
+		return copyTags(svcMatches[0].Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
@@ -902,8 +892,8 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if nsID, ok := b.nsARNIndex[arn]; ok {
-		ns := b.namespaces[nsID]
+	if nsMatches := b.namespacesByARN.Get(arn); len(nsMatches) > 0 {
+		ns := nsMatches[0]
 		if ns.Tags == nil {
 			ns.Tags = make(map[string]string)
 		}
@@ -913,8 +903,8 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 		return nil
 	}
 
-	if svcID, ok := b.svcARNIndex[arn]; ok {
-		svc := b.services[svcID]
+	if svcMatches := b.servicesByARN.Get(arn); len(svcMatches) > 0 {
+		svc := svcMatches[0]
 		if svc.Tags == nil {
 			svc.Tags = make(map[string]string)
 		}
@@ -932,17 +922,19 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if nsID, ok := b.nsARNIndex[arn]; ok {
+	if nsMatches := b.namespacesByARN.Get(arn); len(nsMatches) > 0 {
+		ns := nsMatches[0]
 		for _, k := range tagKeys {
-			delete(b.namespaces[nsID].Tags, k)
+			delete(ns.Tags, k)
 		}
 
 		return nil
 	}
 
-	if svcID, ok := b.svcARNIndex[arn]; ok {
+	if svcMatches := b.servicesByARN.Get(arn); len(svcMatches) > 0 {
+		svc := svcMatches[0]
 		for _, k := range tagKeys {
-			delete(b.services[svcID].Tags, k)
+			delete(svc.Tags, k)
 		}
 
 		return nil
@@ -971,7 +963,7 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 	b.mu.Lock("updateNamespace")
 	defer b.mu.Unlock()
 
-	ns, ok := b.namespaces[id]
+	ns, ok := b.namespaces.Get(id)
 	if !ok {
 		return "", fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
@@ -984,14 +976,14 @@ func (b *InMemoryBackend) updateNamespace(id, nsType, description string) (strin
 
 	now := time.Now()
 	opID := b.nextOpID()
-	b.operations[opID] = &Operation{
+	b.operations.Put(&Operation{
 		ID:         opID,
 		Type:       operationTypeUpdateNamespace,
 		Status:     operationStatusSuccess,
 		Targets:    map[string]string{typeNamespace: id},
 		CreateDate: now,
 		UpdateDate: now,
-	}
+	})
 
 	return opID, nil
 }
@@ -1006,7 +998,7 @@ func (b *InMemoryBackend) UpdateService(
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[id]
+	svc, ok := b.services.Get(id)
 	if !ok {
 		return "", fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
@@ -1031,14 +1023,14 @@ func (b *InMemoryBackend) UpdateService(
 
 	now := time.Now()
 	opID := b.nextOpID()
-	b.operations[opID] = &Operation{
+	b.operations.Put(&Operation{
 		ID:         opID,
 		Type:       operationTypeUpdateService,
 		Status:     operationStatusSuccess,
 		Targets:    map[string]string{typeService: id},
 		CreateDate: now,
 		UpdateDate: now,
-	}
+	})
 
 	return opID, nil
 }
@@ -1048,7 +1040,7 @@ func (b *InMemoryBackend) GetServiceAttributes(serviceID string) (string, map[st
 	b.mu.RLock("GetServiceAttributes")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.services[serviceID]
+	svc, ok := b.services.Get(serviceID)
 	if !ok {
 		return "", nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
@@ -1066,10 +1058,12 @@ func (b *InMemoryBackend) UpdateServiceAttributes(serviceARN string, attributes 
 	b.mu.Lock("UpdateServiceAttributes")
 	defer b.mu.Unlock()
 
-	svcID, ok := b.svcARNIndex[serviceARN]
-	if !ok {
+	svcMatches := b.servicesByARN.Get(serviceARN)
+	if len(svcMatches) == 0 {
 		return fmt.Errorf("%w: service with ARN %s not found", ErrServiceNotFound, serviceARN)
 	}
+
+	svcID := svcMatches[0].ID
 
 	existing := b.serviceAttributes[svcID]
 	if existing == nil {
@@ -1088,7 +1082,7 @@ func (b *InMemoryBackend) DeleteServiceAttributes(serviceID string) error {
 	b.mu.Lock("DeleteServiceAttributes")
 	defer b.mu.Unlock()
 
-	if _, ok := b.services[serviceID]; !ok {
+	if !b.services.Has(serviceID) {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
@@ -1112,12 +1106,12 @@ func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID
 		)
 	}
 
-	if _, ok := b.services[serviceID]; !ok {
+	if !b.services.Has(serviceID) {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
 	key := instanceKey(serviceID, instanceID)
-	if _, ok := b.instances[key]; !ok {
+	if !b.instances.Has(key) {
 		return fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
 	}
 
@@ -1132,12 +1126,14 @@ func (b *InMemoryBackend) DiscoverInstancesRevision(namespaceName, serviceName s
 	b.mu.RLock("DiscoverInstancesRevision")
 	defer b.mu.RUnlock()
 
-	nsID, ok := b.nsNameIndex[namespaceName]
-	if !ok {
+	nsMatches := b.namespacesByName.Get(namespaceName)
+	if len(nsMatches) == 0 {
 		return 0, fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, namespaceName)
 	}
 
-	if _, hasSvc := b.svcByNsAndName[nsID+":"+serviceName]; !hasSvc {
+	nsID := nsMatches[0].ID
+
+	if svcMatches := b.servicesByNsName.Get(nsID + ":" + serviceName); len(svcMatches) == 0 {
 		return 0, fmt.Errorf("%w: service %s not found in namespace %s", ErrServiceNotFound, serviceName, namespaceName)
 	}
 
@@ -1371,17 +1367,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.namespaces = make(map[string]*Namespace)
-	b.services = make(map[string]*Service)
-	b.instances = make(map[string]*Instance)
-	b.operations = make(map[string]*Operation)
+	b.registry.ResetAll()
 	b.serviceAttributes = make(map[string]map[string]string)
 	b.instanceHealthStatuses = make(map[string]string)
-	b.instancesByService = make(map[string]map[string]*Instance)
-	b.svcByNsAndName = make(map[string]string)
-	b.nsARNIndex = make(map[string]string)
-	b.svcARNIndex = make(map[string]string)
-	b.nsNameIndex = make(map[string]string)
 	b.instanceRevision = 0
 	b.nsCounter = 0
 	b.svcCounter = 0
