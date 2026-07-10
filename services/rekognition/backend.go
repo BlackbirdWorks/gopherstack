@@ -1,19 +1,18 @@
 package rekognition
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -176,56 +175,56 @@ func (p *storedStreamProcessor) toStreamProcessor() *StreamProcessor {
 	}
 }
 
-// snapshot holds serializable backend state.
-type snapshot struct {
-	Tags             map[string]map[string]string `json:"tags"`
-	AccountID        string                       `json:"accountId"`
-	Region           string                       `json:"region"`
-	Collections      []*storedCollection          `json:"collections"`
-	Faces            []*storedFace                `json:"faces"`
-	StreamProcessors []*storedStreamProcessor     `json:"streamProcessors"`
-}
-
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	mu                *lockmetrics.RWMutex
-	collections       map[string]*storedCollection
-	faces             map[string][]*storedFace // collectionID -> faces
-	streamProcessors  map[string]*storedStreamProcessor
-	tags              map[string]map[string]string // resourceARN -> tags
-	projects          map[string]*storedProject
-	projectVersions   map[string]*storedProjectVersion
-	projectPolicies   map[string]map[string]*storedProjectPolicy // projectArn → policyName → policy
-	datasets          map[string]*storedDataset
-	datasetEntries    map[string][]string               // datasetArn → jsonLines
-	users             map[string]map[string]*storedUser // collectionID → userID → user
-	livenessSessions  map[string]*storedLivenessSession
-	asyncJobs         map[string]*storedAsyncJob
-	mediaAnalysisJobs map[string]*storedMediaAnalysisJob
-	accountID         string
-	region            string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	collections       *store.Table[storedCollection]
+	faces             *store.Table[storedFace]
+	facesByCollection *store.Index[storedFace]
+	streamProcessors  *store.Table[storedStreamProcessor]
+
+	// tags is left as a plain map: values are plain string maps, not *T, so
+	// they do not fit store.Table's keyed-by-identity-value shape. See
+	// persistence.go for how it is carried through Snapshot/Restore.
+	tags map[string]map[string]string // resourceARN -> tags
+
+	projects                 *store.Table[storedProject]
+	projectVersions          *store.Table[storedProjectVersion]
+	projectPolicies          *store.Table[storedProjectPolicy]
+	projectPoliciesByProject *store.Index[storedProjectPolicy]
+	datasets                 *store.Table[storedDataset]
+
+	// datasetEntries is left as a plain map: values are []string, not *T, so
+	// they do not fit store.Table's keyed-by-identity-value shape. See
+	// persistence.go.
+	datasetEntries map[string][]string // datasetArn -> jsonLines
+
+	users             *store.Table[storedUser]
+	usersByCollection *store.Index[storedUser]
+	livenessSessions  *store.Table[storedLivenessSession]
+	asyncJobs         *store.Table[storedAsyncJob]
+	mediaAnalysisJobs *store.Table[storedMediaAnalysisJob]
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new in-memory backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                lockmetrics.New("rekognition"),
-		accountID:         accountID,
-		region:            region,
-		collections:       make(map[string]*storedCollection),
-		faces:             make(map[string][]*storedFace),
-		streamProcessors:  make(map[string]*storedStreamProcessor),
-		tags:              make(map[string]map[string]string),
-		projects:          make(map[string]*storedProject),
-		projectVersions:   make(map[string]*storedProjectVersion),
-		projectPolicies:   make(map[string]map[string]*storedProjectPolicy),
-		datasets:          make(map[string]*storedDataset),
-		datasetEntries:    make(map[string][]string),
-		users:             make(map[string]map[string]*storedUser),
-		livenessSessions:  make(map[string]*storedLivenessSession),
-		asyncJobs:         make(map[string]*storedAsyncJob),
-		mediaAnalysisJobs: make(map[string]*storedMediaAnalysisJob),
+	b := &InMemoryBackend{
+		mu:             lockmetrics.New("rekognition"),
+		registry:       store.NewRegistry(),
+		accountID:      accountID,
+		region:         region,
+		tags:           make(map[string]map[string]string),
+		datasetEntries: make(map[string][]string),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the account ID.
@@ -255,7 +254,7 @@ func (b *InMemoryBackend) CreateCollection(collectionID string, tags map[string]
 	b.mu.Lock("CreateCollection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; exists {
+	if b.collections.Has(collectionID) {
 		return nil, ErrCollectionAlreadyExists
 	}
 
@@ -269,7 +268,7 @@ func (b *InMemoryBackend) CreateCollection(collectionID string, tags map[string]
 		CreationTimestamp: time.Now(),
 		Tags:              tagsCopy,
 	}
-	b.collections[collectionID] = c
+	b.collections.Put(c)
 
 	if len(tagsCopy) > 0 {
 		b.tags[c.CollectionARN] = tagsCopy
@@ -283,13 +282,18 @@ func (b *InMemoryBackend) DeleteCollection(collectionID string) error {
 	b.mu.Lock("DeleteCollection")
 	defer b.mu.Unlock()
 
-	c, exists := b.collections[collectionID]
+	c, exists := b.collections.Get(collectionID)
 	if !exists {
 		return ErrCollectionNotFound
 	}
 
-	delete(b.collections, collectionID)
-	delete(b.faces, collectionID)
+	b.collections.Delete(collectionID)
+
+	// Index result slices mutate under Delete, so clone before the delete loop.
+	for _, f := range slices.Clone(b.facesByCollection.Get(collectionID)) {
+		b.faces.Delete(f.FaceID)
+	}
+
 	delete(b.tags, c.CollectionARN)
 
 	return nil
@@ -300,7 +304,7 @@ func (b *InMemoryBackend) DescribeCollection(collectionID string) (*Collection, 
 	b.mu.RLock("DescribeCollection")
 	defer b.mu.RUnlock()
 
-	c, exists := b.collections[collectionID]
+	c, exists := b.collections.Get(collectionID)
 	if !exists {
 		return nil, ErrCollectionNotFound
 	}
@@ -311,19 +315,21 @@ func (b *InMemoryBackend) DescribeCollection(collectionID string) (*Collection, 
 	return result, nil
 }
 
-// paginateStringMap pages over a map[string]V, sorted by key, and converts each value via convert.
-func paginateStringMap[V any, R any](
-	m map[string]V,
+// paginateTable pages over a store.Table[V]'s contents in ascending key order
+// (see store.Table.Snapshot), converting each value via convert.
+func paginateTable[V any, R any](
+	t *store.Table[V],
 	maxResults, maxPerPage int32,
 	nextToken string,
-	convert func(V) R,
+	keyFn func(*V) string,
+	convert func(*V) R,
 ) ([]R, string) {
-	keys := collections.SortedKeys(m)
+	items := t.Snapshot()
 
 	start := 0
 	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
+		for i, v := range items {
+			if keyFn(v) == nextToken {
 				start = i
 
 				break
@@ -336,16 +342,16 @@ func paginateStringMap[V any, R any](
 		limit = maxResults
 	}
 
-	end := min(start+int(limit), len(keys))
+	end := min(start+int(limit), len(items))
 
 	result := make([]R, 0, end-start)
-	for _, k := range keys[start:end] {
-		result = append(result, convert(m[k]))
+	for _, v := range items[start:end] {
+		result = append(result, convert(v))
 	}
 
 	var outToken string
-	if end < len(keys) {
-		outToken = keys[end]
+	if end < len(items) {
+		outToken = keyFn(items[end])
 	}
 
 	return result, outToken
@@ -356,8 +362,8 @@ func (b *InMemoryBackend) ListCollections(maxResults int32, nextToken string) ([
 	b.mu.RLock("ListCollections")
 	defer b.mu.RUnlock()
 
-	result, outToken := paginateStringMap(
-		b.collections, maxResults, maxCollectionsPerPage, nextToken, (*storedCollection).toCollection,
+	result, outToken := paginateTable(
+		b.collections, maxResults, maxCollectionsPerPage, nextToken, collectionKeyFn, (*storedCollection).toCollection,
 	)
 
 	return result, outToken, nil
@@ -368,7 +374,7 @@ func (b *InMemoryBackend) IndexFaces(collectionID, externalImageID string) ([]*F
 	b.mu.Lock("IndexFaces")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, ErrCollectionNotFound
 	}
 
@@ -381,7 +387,7 @@ func (b *InMemoryBackend) IndexFaces(collectionID, externalImageID string) ([]*F
 	// Detection confidence is derived deterministically from the face's own
 	// identity so distinct faces carry distinct (but stable) values.
 	face.Confidence = faceConfidence(face)
-	b.faces[collectionID] = append(b.faces[collectionID], face)
+	b.faces.Put(face)
 
 	return []*Face{face.toFace()}, nil
 }
@@ -391,7 +397,7 @@ func (b *InMemoryBackend) DeleteFaces(collectionID string, faceIDs []string) ([]
 	b.mu.Lock("DeleteFaces")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, ErrCollectionNotFound
 	}
 
@@ -401,17 +407,15 @@ func (b *InMemoryBackend) DeleteFaces(collectionID string, faceIDs []string) ([]
 	}
 
 	var deleted []string
-	var remaining []*storedFace
 
-	for _, f := range b.faces[collectionID] {
+	// Index result slices mutate under Delete, so clone before the delete loop.
+	for _, f := range slices.Clone(b.facesByCollection.Get(collectionID)) {
 		if toDelete[f.FaceID] {
+			b.faces.Delete(f.FaceID)
+
 			deleted = append(deleted, f.FaceID)
-		} else {
-			remaining = append(remaining, f)
 		}
 	}
-
-	b.faces[collectionID] = remaining
 
 	return deleted, nil
 }
@@ -421,11 +425,11 @@ func (b *InMemoryBackend) ListFaces(collectionID string, maxResults int32, nextT
 	b.mu.RLock("ListFaces")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, "", ErrCollectionNotFound
 	}
 
-	faces := b.faces[collectionID]
+	faces := b.facesByCollection.Get(collectionID)
 
 	start := 0
 	if nextToken != "" {
@@ -463,13 +467,13 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 	b.mu.RLock("SearchFaces")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, ErrCollectionNotFound
 	}
 
 	var query *storedFace
 
-	for _, f := range b.faces[collectionID] {
+	for _, f := range b.facesByCollection.Get(collectionID) {
 		if f.FaceID == faceID {
 			query = f
 
@@ -488,7 +492,7 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 
 	var matches []*FaceMatch
 
-	for _, f := range b.faces[collectionID] {
+	for _, f := range b.facesByCollection.Get(collectionID) {
 		if f.FaceID == faceID {
 			continue
 		}
@@ -519,7 +523,7 @@ func (b *InMemoryBackend) SearchFacesByImage(
 	b.mu.RLock("SearchFacesByImage")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, ErrCollectionNotFound
 	}
 
@@ -532,7 +536,7 @@ func (b *InMemoryBackend) SearchFacesByImage(
 	seed := imageKeySeed(imageKey)
 	var matches []*FaceMatch
 
-	for i, f := range b.faces[collectionID] {
+	for i, f := range b.facesByCollection.Get(collectionID) {
 		// Vary similarity in [75.0, 99.0] using image seed and face index.
 		similarity := minSearchSimilarity + float64((seed+uint32(i)*seedStride)%searchSimilaritySpan)
 		matches = append(matches, &FaceMatch{
@@ -610,7 +614,7 @@ func (b *InMemoryBackend) CreateStreamProcessor(
 	b.mu.Lock("CreateStreamProcessor")
 	defer b.mu.Unlock()
 
-	if _, exists := b.streamProcessors[name]; exists {
+	if b.streamProcessors.Has(name) {
 		return nil, ErrStreamProcessorAlreadyExists
 	}
 
@@ -626,7 +630,7 @@ func (b *InMemoryBackend) CreateStreamProcessor(
 		CreationTimestamp:  time.Now(),
 		Tags:               tagsCopy,
 	}
-	b.streamProcessors[name] = p
+	b.streamProcessors.Put(p)
 
 	if len(tagsCopy) > 0 {
 		b.tags[arn] = tagsCopy
@@ -640,12 +644,12 @@ func (b *InMemoryBackend) DeleteStreamProcessor(name string) error {
 	b.mu.Lock("DeleteStreamProcessor")
 	defer b.mu.Unlock()
 
-	p, exists := b.streamProcessors[name]
+	p, exists := b.streamProcessors.Get(name)
 	if !exists {
 		return ErrStreamProcessorNotFound
 	}
 
-	delete(b.streamProcessors, name)
+	b.streamProcessors.Delete(name)
 	delete(b.tags, p.StreamProcessorARN)
 
 	return nil
@@ -656,7 +660,7 @@ func (b *InMemoryBackend) DescribeStreamProcessor(name string) (*StreamProcessor
 	b.mu.RLock("DescribeStreamProcessor")
 	defer b.mu.RUnlock()
 
-	p, exists := b.streamProcessors[name]
+	p, exists := b.streamProcessors.Get(name)
 	if !exists {
 		return nil, ErrStreamProcessorNotFound
 	}
@@ -669,9 +673,9 @@ func (b *InMemoryBackend) ListStreamProcessors(maxResults int32, nextToken strin
 	b.mu.RLock("ListStreamProcessors")
 	defer b.mu.RUnlock()
 
-	result, outToken := paginateStringMap(
+	result, outToken := paginateTable(
 		b.streamProcessors, maxResults, maxStreamProcessorsPerPage, nextToken,
-		(*storedStreamProcessor).toStreamProcessor,
+		streamProcessorKeyFn, (*storedStreamProcessor).toStreamProcessor,
 	)
 
 	return result, outToken, nil
@@ -682,7 +686,7 @@ func (b *InMemoryBackend) StartStreamProcessor(name string) error {
 	b.mu.Lock("StartStreamProcessor")
 	defer b.mu.Unlock()
 
-	p, exists := b.streamProcessors[name]
+	p, exists := b.streamProcessors.Get(name)
 	if !exists {
 		return ErrStreamProcessorNotFound
 	}
@@ -697,7 +701,7 @@ func (b *InMemoryBackend) StopStreamProcessor(name string) error {
 	b.mu.Lock("StopStreamProcessor")
 	defer b.mu.Unlock()
 
-	p, exists := b.streamProcessors[name]
+	p, exists := b.streamProcessors.Get(name)
 	if !exists {
 		return ErrStreamProcessorNotFound
 	}
@@ -712,7 +716,7 @@ func (b *InMemoryBackend) UpdateStreamProcessor(name string) error {
 	b.mu.Lock("UpdateStreamProcessor")
 	defer b.mu.Unlock()
 
-	if _, exists := b.streamProcessors[name]; !exists {
+	if !b.streamProcessors.Has(name) {
 		return ErrStreamProcessorNotFound
 	}
 
@@ -786,13 +790,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 }
 
 func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
-	for _, c := range b.collections {
+	for _, c := range b.collections.All() {
 		if c.CollectionARN == resourceARN {
 			return true
 		}
 	}
 
-	for _, p := range b.streamProcessors {
+	for _, p := range b.streamProcessors.All() {
 		if p.StreamProcessorARN == resourceARN {
 			return true
 		}
@@ -806,93 +810,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.collections = make(map[string]*storedCollection)
-	b.faces = make(map[string][]*storedFace)
-	b.streamProcessors = make(map[string]*storedStreamProcessor)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.projects = make(map[string]*storedProject)
-	b.projectVersions = make(map[string]*storedProjectVersion)
-	b.projectPolicies = make(map[string]map[string]*storedProjectPolicy)
-	b.datasets = make(map[string]*storedDataset)
 	b.datasetEntries = make(map[string][]string)
-	b.users = make(map[string]map[string]*storedUser)
-	b.livenessSessions = make(map[string]*storedLivenessSession)
-	b.asyncJobs = make(map[string]*storedAsyncJob)
-	b.mediaAnalysisJobs = make(map[string]*storedMediaAnalysisJob)
-}
-
-// Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	colls := make([]*storedCollection, 0, len(b.collections))
-	for _, c := range b.collections {
-		colls = append(colls, c)
-	}
-
-	var faces []*storedFace
-	for _, ff := range b.faces {
-		faces = append(faces, ff...)
-	}
-
-	procs := make([]*storedStreamProcessor, 0, len(b.streamProcessors))
-	for _, p := range b.streamProcessors {
-		procs = append(procs, p)
-	}
-
-	tagsCopy := make(map[string]map[string]string, len(b.tags))
-	for arn, t := range b.tags {
-		tc := make(map[string]string, len(t))
-		maps.Copy(tc, t)
-		tagsCopy[arn] = tc
-	}
-
-	return persistence.MarshalSnapshot(ctx, "rekognition", &snapshot{
-		Collections:      colls,
-		Faces:            faces,
-		StreamProcessors: procs,
-		Tags:             tagsCopy,
-		AccountID:        b.accountID,
-		Region:           b.region,
-	})
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var s snapshot
-
-	if err := persistence.UnmarshalSnapshot(ctx, "rekognition", data, &s); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.accountID = s.AccountID
-	b.region = s.Region
-	b.collections = make(map[string]*storedCollection, len(s.Collections))
-
-	for _, c := range s.Collections {
-		b.collections[c.CollectionID] = c
-	}
-
-	b.faces = make(map[string][]*storedFace)
-
-	for _, f := range s.Faces {
-		b.faces[f.CollectionID] = append(b.faces[f.CollectionID], f)
-	}
-
-	b.streamProcessors = make(map[string]*storedStreamProcessor, len(s.StreamProcessors))
-
-	for _, p := range s.StreamProcessors {
-		b.streamProcessors[p.Name] = p
-	}
-
-	b.tags = s.Tags
-	if b.tags == nil {
-		b.tags = make(map[string]map[string]string)
-	}
-
-	return nil
 }

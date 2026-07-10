@@ -4,14 +4,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -118,11 +120,18 @@ func (d *storedDataset) toDataset() *Dataset {
 	}
 }
 
-// storedUser holds a Rekognition user in a collection.
+// storedUser holds a Rekognition user in a collection. CollectionID is
+// additive (Phase 3.3): the nested map[string]map[string]*storedUser this
+// table replaced implied CollectionID only via its outer key, so the field
+// is added here to give the flattened table a composite key. storedUser is
+// never marshaled to an AWS-facing response directly (see toUser), so no
+// json:"-" hiding is needed -- unlike a live *T type that IS part of the AWS
+// wire response shape.
 type storedUser struct {
-	UserID     string   `json:"userId"`
-	UserStatus string   `json:"userStatus"`
-	FaceIDs    []string `json:"faceIds"`
+	CollectionID string   `json:"collectionId"`
+	UserID       string   `json:"userId"`
+	UserStatus   string   `json:"userStatus"`
+	FaceIDs      []string `json:"faceIds"`
 }
 
 func (u *storedUser) toUser() *User {
@@ -188,7 +197,7 @@ func (b *InMemoryBackend) CreateProject(name string) (*Project, error) {
 
 	arn := b.projectARN(name)
 
-	if _, exists := b.projects[arn]; exists {
+	if b.projects.Has(arn) {
 		return nil, ErrCollectionAlreadyExists
 	}
 
@@ -197,7 +206,7 @@ func (b *InMemoryBackend) CreateProject(name string) (*Project, error) {
 		ProjectARN:        arn,
 		Status:            "CREATING",
 	}
-	b.projects[arn] = p
+	b.projects.Put(p)
 
 	return p.toProject(), nil
 }
@@ -207,11 +216,11 @@ func (b *InMemoryBackend) DeleteProject(projectARN string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 
-	if _, exists := b.projects[projectARN]; !exists {
+	if !b.projects.Has(projectARN) {
 		return ErrProjectNotFound
 	}
 
-	delete(b.projects, projectARN)
+	b.projects.Delete(projectARN)
 
 	return nil
 }
@@ -223,8 +232,8 @@ func (b *InMemoryBackend) DescribeProjects(
 	b.mu.RLock("DescribeProjects")
 	defer b.mu.RUnlock()
 
-	// Collect and sort all project ARN keys.
-	keys := collections.SortedKeys(b.projects)
+	// store.Table.Snapshot returns items ordered by key (ProjectARN), ascending.
+	items := b.projects.Snapshot()
 
 	// Build a filter set if requested.
 	filter := make(map[string]bool, len(projectARNs))
@@ -235,8 +244,8 @@ func (b *InMemoryBackend) DescribeProjects(
 	// Apply nextToken offset.
 	start := 0
 	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
+		for i, v := range items {
+			if v.ProjectARN == nextToken {
 				start = i
 
 				break
@@ -254,19 +263,19 @@ func (b *InMemoryBackend) DescribeProjects(
 	var outToken string
 	count := int32(0)
 
-	for i := start; i < len(keys); i++ {
-		k := keys[i]
-		if len(filter) > 0 && !filter[k] {
+	for i := start; i < len(items); i++ {
+		v := items[i]
+		if len(filter) > 0 && !filter[v.ProjectARN] {
 			continue
 		}
 
 		if count >= limit {
-			outToken = k
+			outToken = v.ProjectARN
 
 			break
 		}
 
-		result = append(result, b.projects[k].toProject())
+		result = append(result, v.toProject())
 		count++
 	}
 
@@ -278,13 +287,13 @@ func (b *InMemoryBackend) CreateProjectVersion(projectARN, versionName string) (
 	b.mu.Lock("CreateProjectVersion")
 	defer b.mu.Unlock()
 
-	if _, exists := b.projects[projectARN]; !exists {
+	if !b.projects.Has(projectARN) {
 		return nil, ErrProjectNotFound
 	}
 
 	arn := b.projectVersionARN(projectARN, versionName)
 
-	if _, exists := b.projectVersions[arn]; exists {
+	if b.projectVersions.Has(arn) {
 		return nil, ErrCollectionAlreadyExists
 	}
 
@@ -295,7 +304,7 @@ func (b *InMemoryBackend) CreateProjectVersion(projectARN, versionName string) (
 		VersionName:       versionName,
 		Status:            "TRAINING_IN_PROGRESS",
 	}
-	b.projectVersions[arn] = v
+	b.projectVersions.Put(v)
 
 	return v.toProjectVersion(), nil
 }
@@ -305,11 +314,11 @@ func (b *InMemoryBackend) DeleteProjectVersion(projectVersionARN string) error {
 	b.mu.Lock("DeleteProjectVersion")
 	defer b.mu.Unlock()
 
-	if _, exists := b.projectVersions[projectVersionARN]; !exists {
+	if !b.projectVersions.Has(projectVersionARN) {
 		return ErrProjectVersionNotFound
 	}
 
-	delete(b.projectVersions, projectVersionARN)
+	b.projectVersions.Delete(projectVersionARN)
 
 	return nil
 }
@@ -323,9 +332,9 @@ func (b *InMemoryBackend) DescribeProjectVersions(
 
 	// Collect and sort version ARN keys that belong to this project.
 	keys := make([]string, 0)
-	for k, v := range b.projectVersions {
+	for _, v := range b.projectVersions.All() {
 		if v.ProjectARN == projectARN {
-			keys = append(keys, k)
+			keys = append(keys, v.ProjectVersionARN)
 		}
 	}
 	sort.Strings(keys)
@@ -359,7 +368,7 @@ func (b *InMemoryBackend) DescribeProjectVersions(
 
 	for i := start; i < len(keys); i++ {
 		k := keys[i]
-		v := b.projectVersions[k]
+		v, _ := b.projectVersions.Get(k)
 
 		if len(filter) > 0 && !filter[v.VersionName] {
 			continue
@@ -385,12 +394,12 @@ func (b *InMemoryBackend) CopyProjectVersion(
 	b.mu.Lock("CopyProjectVersion")
 	defer b.mu.Unlock()
 
-	src, exists := b.projectVersions[sourceProjectVersionARN]
+	src, exists := b.projectVersions.Get(sourceProjectVersionARN)
 	if !exists {
 		return nil, ErrProjectVersionNotFound
 	}
 
-	if _, exists := b.projects[destinationProjectARN]; !exists { //nolint:govet // existing issue.
+	if !b.projects.Has(destinationProjectARN) {
 		return nil, ErrProjectNotFound
 	}
 
@@ -408,7 +417,7 @@ func (b *InMemoryBackend) CopyProjectVersion(
 		VersionName:       name,
 		Status:            "COPYING_IN_PROGRESS",
 	}
-	b.projectVersions[newARN] = v
+	b.projectVersions.Put(v)
 
 	return v.toProjectVersion(), nil
 }
@@ -418,7 +427,7 @@ func (b *InMemoryBackend) StartProjectVersion(projectVersionARN string, minInfer
 	b.mu.Lock("StartProjectVersion")
 	defer b.mu.Unlock()
 
-	v, exists := b.projectVersions[projectVersionARN]
+	v, exists := b.projectVersions.Get(projectVersionARN)
 	if !exists {
 		return ErrProjectVersionNotFound
 	}
@@ -434,7 +443,7 @@ func (b *InMemoryBackend) StopProjectVersion(projectVersionARN string) error {
 	b.mu.Lock("StopProjectVersion")
 	defer b.mu.Unlock()
 
-	v, exists := b.projectVersions[projectVersionARN]
+	v, exists := b.projectVersions.Get(projectVersionARN)
 	if !exists {
 		return ErrProjectVersionNotFound
 	}
@@ -451,14 +460,16 @@ func (b *InMemoryBackend) ListProjectPolicies(
 	b.mu.RLock("ListProjectPolicies")
 	defer b.mu.RUnlock()
 
-	policyMap := b.projectPolicies[projectARN]
-
-	keys := collections.SortedKeys(policyMap)
+	// Index result slices are insertion-ordered, not sorted by PolicyName --
+	// clone (per the Index.Get contract) and sort to match the original
+	// nested-map's collections.SortedKeys(policyName) pagination order.
+	group := slices.Clone(b.projectPoliciesByProject.Get(projectARN))
+	slices.SortFunc(group, func(a, c *storedProjectPolicy) int { return strings.Compare(a.PolicyName, c.PolicyName) })
 
 	start := 0
 	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
+		for i, p := range group {
+			if p.PolicyName == nextToken {
 				start = i
 
 				break
@@ -472,16 +483,16 @@ func (b *InMemoryBackend) ListProjectPolicies(
 		limit = maxResults
 	}
 
-	end := min(start+int(limit), len(keys))
+	end := min(start+int(limit), len(group))
 
 	result := make([]*ProjectPolicy, 0, end-start)
-	for _, k := range keys[start:end] {
-		result = append(result, policyMap[k].toProjectPolicy())
+	for _, p := range group[start:end] {
+		result = append(result, p.toProjectPolicy())
 	}
 
 	var outToken string
-	if end < len(keys) {
-		outToken = keys[end]
+	if end < len(group) {
+		outToken = group[end].PolicyName
 	}
 
 	return result, outToken, nil
@@ -494,31 +505,29 @@ func (b *InMemoryBackend) PutProjectPolicy(
 	b.mu.Lock("PutProjectPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.projects[projectARN]; !exists {
+	if !b.projects.Has(projectARN) {
 		return "", ErrProjectNotFound
-	}
-
-	if b.projectPolicies[projectARN] == nil {
-		b.projectPolicies[projectARN] = make(map[string]*storedProjectPolicy)
 	}
 
 	now := time.Now()
 	newRevID := uuid.NewString()
 
-	existing, exists := b.projectPolicies[projectARN][policyName]
+	key := projectPolicyKey(projectARN, policyName)
+
+	existing, exists := b.projectPolicies.Get(key)
 	if exists {
 		existing.LastUpdatedTimestamp = now
 		existing.PolicyDocument = policyDocument
 		existing.PolicyRevisionID = newRevID
 	} else {
-		b.projectPolicies[projectARN][policyName] = &storedProjectPolicy{
+		b.projectPolicies.Put(&storedProjectPolicy{
 			CreationTimestamp:    now,
 			LastUpdatedTimestamp: now,
 			ProjectARN:           projectARN,
 			PolicyName:           policyName,
 			PolicyRevisionID:     newRevID,
 			PolicyDocument:       policyDocument,
-		}
+		})
 	}
 
 	return newRevID, nil
@@ -531,16 +540,19 @@ func (b *InMemoryBackend) DeleteProjectPolicy(
 	b.mu.Lock("DeleteProjectPolicy")
 	defer b.mu.Unlock()
 
-	policyMap, exists := b.projectPolicies[projectARN]
-	if !exists {
+	// Mirrors the original nested-map's two-level existence check: a project
+	// with no policies at all (never an entry in the outer map) is
+	// indistinguishable from one whose named policy is simply missing.
+	if len(b.projectPoliciesByProject.Get(projectARN)) == 0 {
 		return ErrProjectNotFound
 	}
 
-	if _, exists := policyMap[policyName]; !exists { //nolint:govet // existing issue.
+	key := projectPolicyKey(projectARN, policyName)
+	if !b.projectPolicies.Has(key) {
 		return ErrProjectNotFound
 	}
 
-	delete(policyMap, policyName)
+	b.projectPolicies.Delete(key)
 
 	return nil
 }
@@ -554,7 +566,7 @@ func (b *InMemoryBackend) CreateDataset(projectARN, datasetType string) (*Datase
 	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 
-	if _, exists := b.projects[projectARN]; !exists {
+	if !b.projects.Has(projectARN) {
 		return nil, ErrProjectNotFound
 	}
 
@@ -569,7 +581,7 @@ func (b *InMemoryBackend) CreateDataset(projectARN, datasetType string) (*Datase
 		DatasetType:          datasetType,
 		Status:               "CREATE_COMPLETE",
 	}
-	b.datasets[arn] = ds
+	b.datasets.Put(ds)
 
 	return ds.toDataset(), nil
 }
@@ -579,11 +591,11 @@ func (b *InMemoryBackend) DeleteDataset(datasetARN string) error {
 	b.mu.Lock("DeleteDataset")
 	defer b.mu.Unlock()
 
-	if _, exists := b.datasets[datasetARN]; !exists {
+	if !b.datasets.Has(datasetARN) {
 		return ErrDatasetNotFound
 	}
 
-	delete(b.datasets, datasetARN)
+	b.datasets.Delete(datasetARN)
 	delete(b.datasetEntries, datasetARN)
 
 	return nil
@@ -594,7 +606,7 @@ func (b *InMemoryBackend) DescribeDataset(datasetARN string) (*Dataset, error) {
 	b.mu.RLock("DescribeDataset")
 	defer b.mu.RUnlock()
 
-	ds, exists := b.datasets[datasetARN]
+	ds, exists := b.datasets.Get(datasetARN)
 	if !exists {
 		return nil, ErrDatasetNotFound
 	}
@@ -609,7 +621,7 @@ func (b *InMemoryBackend) ListDatasetEntries(
 	b.mu.RLock("ListDatasetEntries")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.datasets[datasetARN]; !exists {
+	if !b.datasets.Has(datasetARN) {
 		return nil, "", ErrDatasetNotFound
 	}
 
@@ -718,7 +730,7 @@ func (b *InMemoryBackend) ListDatasetLabels(
 ) ([]*DatasetLabel, string, error) {
 	b.mu.RLock("ListDatasetLabels")
 
-	if _, exists := b.datasets[datasetARN]; !exists {
+	if !b.datasets.Has(datasetARN) {
 		b.mu.RUnlock()
 
 		return nil, "", ErrDatasetNotFound
@@ -779,7 +791,7 @@ func (b *InMemoryBackend) UpdateDatasetEntries(datasetARN string, changes []byte
 	b.mu.Lock("UpdateDatasetEntries")
 	defer b.mu.Unlock()
 
-	if _, exists := b.datasets[datasetARN]; !exists {
+	if !b.datasets.Has(datasetARN) {
 		return ErrDatasetNotFound
 	}
 
@@ -794,7 +806,7 @@ func (b *InMemoryBackend) DistributeDatasetEntries(datasets []DatasetDistributio
 	defer b.mu.Unlock()
 
 	for _, d := range datasets {
-		ds, ok := b.datasets[d.DatasetARN]
+		ds, ok := b.datasets.Get(d.DatasetARN)
 		if !ok {
 			return ErrDatasetNotFound
 		}
@@ -815,23 +827,21 @@ func (b *InMemoryBackend) CreateUser(collectionID, userID string) error {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return ErrCollectionNotFound
 	}
 
-	if b.users[collectionID] == nil {
-		b.users[collectionID] = make(map[string]*storedUser)
-	}
-
-	if _, exists := b.users[collectionID][userID]; exists {
+	key := userKey(collectionID, userID)
+	if b.users.Has(key) {
 		return ErrCollectionAlreadyExists
 	}
 
-	b.users[collectionID][userID] = &storedUser{
-		UserID:     userID,
-		UserStatus: "ACTIVE",
-		FaceIDs:    []string{},
-	}
+	b.users.Put(&storedUser{
+		CollectionID: collectionID,
+		UserID:       userID,
+		UserStatus:   "ACTIVE",
+		FaceIDs:      []string{},
+	})
 
 	return nil
 }
@@ -841,20 +851,16 @@ func (b *InMemoryBackend) DeleteUser(collectionID, userID string) error {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return ErrCollectionNotFound
 	}
 
-	userMap := b.users[collectionID]
-	if userMap == nil {
+	key := userKey(collectionID, userID)
+	if !b.users.Has(key) {
 		return ErrUserNotFound
 	}
 
-	if _, exists := userMap[userID]; !exists {
-		return ErrUserNotFound
-	}
-
-	delete(userMap, userID)
+	b.users.Delete(key)
 
 	return nil
 }
@@ -866,18 +872,20 @@ func (b *InMemoryBackend) ListUsers(
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, "", ErrCollectionNotFound
 	}
 
-	userMap := b.users[collectionID]
-
-	keys := collections.SortedKeys(userMap)
+	// Index result slices are insertion-ordered, not sorted by UserID --
+	// clone (per the Index.Get contract) and sort to match the original
+	// nested-map's collections.SortedKeys(userID) pagination order.
+	group := slices.Clone(b.usersByCollection.Get(collectionID))
+	slices.SortFunc(group, func(a, c *storedUser) int { return strings.Compare(a.UserID, c.UserID) })
 
 	start := 0
 	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
+		for i, u := range group {
+			if u.UserID == nextToken {
 				start = i
 
 				break
@@ -891,16 +899,16 @@ func (b *InMemoryBackend) ListUsers(
 		limit = maxResults
 	}
 
-	end := min(start+int(limit), len(keys))
+	end := min(start+int(limit), len(group))
 
 	result := make([]*User, 0, end-start)
-	for _, k := range keys[start:end] {
-		result = append(result, userMap[k].toUser())
+	for _, u := range group[start:end] {
+		result = append(result, u.toUser())
 	}
 
 	var outToken string
-	if end < len(keys) {
-		outToken = keys[end]
+	if end < len(group) {
+		outToken = group[end].UserID
 	}
 
 	return result, outToken, nil
@@ -913,23 +921,18 @@ func (b *InMemoryBackend) AssociateFaces(
 	b.mu.Lock("AssociateFaces")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, nil, ErrCollectionNotFound
 	}
 
-	userMap := b.users[collectionID]
-	if userMap == nil {
-		return nil, nil, ErrUserNotFound
-	}
-
-	user, exists := userMap[userID]
+	user, exists := b.users.Get(userKey(collectionID, userID))
 	if !exists {
 		return nil, nil, ErrUserNotFound
 	}
 
 	// Build a set of known face IDs in this collection.
 	knownFaces := make(map[string]bool)
-	for _, f := range b.faces[collectionID] {
+	for _, f := range b.facesByCollection.Get(collectionID) {
 		knownFaces[f.FaceID] = true
 	}
 
@@ -958,16 +961,11 @@ func (b *InMemoryBackend) DisassociateFaces(
 	b.mu.Lock("DisassociateFaces")
 	defer b.mu.Unlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, nil, ErrCollectionNotFound
 	}
 
-	userMap := b.users[collectionID]
-	if userMap == nil {
-		return nil, nil, ErrUserNotFound
-	}
-
-	user, exists := userMap[userID]
+	user, exists := b.users.Get(userKey(collectionID, userID))
 	if !exists {
 		return nil, nil, ErrUserNotFound
 	}
@@ -1010,12 +1008,12 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 	b.mu.RLock("SearchUsers")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, ErrCollectionNotFound
 	}
 
-	userMap := b.users[collectionID]
-	if userMap == nil {
+	group := b.usersByCollection.Get(collectionID)
+	if len(group) == 0 {
 		return []*UserMatch{}, nil
 	}
 
@@ -1025,7 +1023,7 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 	}
 
 	var matches []*UserMatch
-	for _, u := range userMap {
+	for _, u := range group {
 		if u.UserID == userID {
 			continue
 		}
@@ -1053,12 +1051,12 @@ func (b *InMemoryBackend) SearchUsersByImage(
 	b.mu.RLock("SearchUsersByImage")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.collections[collectionID]; !exists {
+	if !b.collections.Has(collectionID) {
 		return nil, ErrCollectionNotFound
 	}
 
-	userMap := b.users[collectionID]
-	if userMap == nil {
+	group := b.usersByCollection.Get(collectionID)
+	if len(group) == 0 {
 		return []*UserMatch{}, nil
 	}
 
@@ -1068,7 +1066,7 @@ func (b *InMemoryBackend) SearchUsersByImage(
 	}
 
 	var matches []*UserMatch
-	for _, u := range userMap {
+	for _, u := range group {
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
 			Similarity: userSimilarity(imageKey, u),
@@ -1101,11 +1099,11 @@ func (b *InMemoryBackend) CreateFaceLivenessSession() (string, error) {
 
 	confidence := float32(75.0) + float32(h%250)/10.0 //nolint:mnd // confidence range
 
-	b.livenessSessions[sessionID] = &storedLivenessSession{
+	b.livenessSessions.Put(&storedLivenessSession{
 		SessionID:  sessionID,
 		Status:     "SUCCEEDED", //nolint:goconst // existing issue.
 		Confidence: confidence,
-	}
+	})
 
 	return sessionID, nil
 }
@@ -1115,7 +1113,7 @@ func (b *InMemoryBackend) GetFaceLivenessSessionResults(sessionID string) (*Live
 	b.mu.RLock("GetFaceLivenessSessionResults")
 	defer b.mu.RUnlock()
 
-	session, exists := b.livenessSessions[sessionID]
+	session, exists := b.livenessSessions.Get(sessionID)
 	if !exists {
 		return nil, ErrLivenessSessionNotFound
 	}
@@ -1131,27 +1129,36 @@ func (b *InMemoryBackend) GetFaceLivenessSessionResults(sessionID string) (*Live
 // Async Jobs
 // =============================================================================
 
+// evictOneIfAtCapacity deletes an arbitrary entry from t when it is already
+// at (or over) max, mirroring the original map's "evict a random entry"
+// eviction (Go map iteration order is unspecified, matching store.Table's
+// own unspecified Range order).
+func evictOneIfAtCapacity[V any](t *store.Table[V], maxLen int, keyFn func(*V) string) {
+	if t.Len() < maxLen {
+		return
+	}
+
+	t.Range(func(v *V) bool {
+		t.Delete(keyFn(v))
+
+		return false
+	})
+}
+
 // StartAsyncJob creates a new async video analysis job.
 func (b *InMemoryBackend) StartAsyncJob(jobType, collectionID string) (string, error) {
 	b.mu.Lock("StartAsyncJob")
 	defer b.mu.Unlock()
 
-	// Evict a random entry if at capacity.
-	if len(b.asyncJobs) >= maxAsyncJobs {
-		for k := range b.asyncJobs {
-			delete(b.asyncJobs, k)
-
-			break
-		}
-	}
+	evictOneIfAtCapacity(b.asyncJobs, maxAsyncJobs, asyncJobKeyFn)
 
 	jobID := uuid.NewString()
-	b.asyncJobs[jobID] = &storedAsyncJob{
+	b.asyncJobs.Put(&storedAsyncJob{
 		JobID:        jobID,
 		JobType:      jobType,
 		CollectionID: collectionID,
 		JobStatus:    "IN_PROGRESS",
-	}
+	})
 
 	return jobID, nil
 }
@@ -1161,7 +1168,7 @@ func (b *InMemoryBackend) GetAsyncJob(jobID string) (*AsyncJob, error) {
 	b.mu.Lock("GetAsyncJob")
 	defer b.mu.Unlock()
 
-	job, exists := b.asyncJobs[jobID]
+	job, exists := b.asyncJobs.Get(jobID)
 	if !exists {
 		return nil, ErrAsyncJobNotFound
 	}
@@ -1186,22 +1193,15 @@ func (b *InMemoryBackend) StartMediaAnalysisJob(jobName string) (string, error) 
 	b.mu.Lock("StartMediaAnalysisJob")
 	defer b.mu.Unlock()
 
-	// Evict a random entry if at capacity.
-	if len(b.mediaAnalysisJobs) >= maxMediaAnalysisJobs {
-		for k := range b.mediaAnalysisJobs {
-			delete(b.mediaAnalysisJobs, k)
-
-			break
-		}
-	}
+	evictOneIfAtCapacity(b.mediaAnalysisJobs, maxMediaAnalysisJobs, mediaAnalysisJobKeyFn)
 
 	jobID := uuid.NewString()
-	b.mediaAnalysisJobs[jobID] = &storedMediaAnalysisJob{
+	b.mediaAnalysisJobs.Put(&storedMediaAnalysisJob{
 		CreationTimestamp: time.Now(),
 		JobID:             jobID,
 		JobName:           jobName,
 		Status:            "SUCCEEDED",
-	}
+	})
 
 	return jobID, nil
 }
@@ -1211,7 +1211,7 @@ func (b *InMemoryBackend) GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, 
 	b.mu.RLock("GetMediaAnalysisJob")
 	defer b.mu.RUnlock()
 
-	job, exists := b.mediaAnalysisJobs[jobID]
+	job, exists := b.mediaAnalysisJobs.Get(jobID)
 	if !exists {
 		return nil, ErrMediaAnalysisJobNotFound
 	}
@@ -1226,36 +1226,12 @@ func (b *InMemoryBackend) ListMediaAnalysisJobs(
 	b.mu.RLock("ListMediaAnalysisJobs")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.mediaAnalysisJobs)
-
-	start := 0
-	if nextToken != "" {
-		for i, k := range keys {
-			if k == nextToken {
-				start = i
-
-				break
-			}
-		}
-	}
-
 	const maxPerPage = 100
-	limit := int32(maxPerPage)
-	if maxResults > 0 && maxResults < limit {
-		limit = maxResults
-	}
 
-	end := min(start+int(limit), len(keys))
-
-	result := make([]*MediaAnalysisJob, 0, end-start)
-	for _, k := range keys[start:end] {
-		result = append(result, b.mediaAnalysisJobs[k].toMediaAnalysisJob())
-	}
-
-	var outToken string
-	if end < len(keys) {
-		outToken = keys[end]
-	}
+	result, outToken := paginateTable(
+		b.mediaAnalysisJobs, maxResults, maxPerPage, nextToken,
+		mediaAnalysisJobKeyFn, (*storedMediaAnalysisJob).toMediaAnalysisJob,
+	)
 
 	return result, outToken, nil
 }
