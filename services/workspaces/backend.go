@@ -12,7 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -127,62 +127,72 @@ func (w *storedWorkspace) toWorkspace() *Workspace {
 	}
 }
 
-// backendSnapshot holds serializable backend state.
-type backendSnapshot struct {
-	Workspaces map[string]*storedWorkspace  `json:"workspaces"`
-	Tags       map[string]map[string]string `json:"tags"`
-}
-
 // InMemoryBackend implements StorageBackend using in-memory maps.
+//
+// Phase 3.3: every map[string]*T resource field is a *store.Table[T]
+// registered on b.registry (see store_setup.go); registry.SnapshotAll /
+// RestoreAll / ResetAll now drive Reset/Snapshot/Restore below (see
+// persistence.go) instead of per-map hand-written boilerplate. tags,
+// directoryIpGroups, imagePermissions, clientProperties, and appAssociations
+// are left as plain maps -- their values are not *T (a map, a scalar, or a
+// set), so there is no identity for store.Table to key on; see the field
+// comments below and persistence.go's doc comment for which of these were
+// persisted before this refactor and remain so.
 type InMemoryBackend struct {
-	mu                *lockmetrics.RWMutex
-	workspaces        map[string]*storedWorkspace  // workspaceID → workspace
-	tags              map[string]map[string]string // resourceID → tags
-	ipGroups          map[string]*storedIpGroup
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	workspaces     *store.Table[storedWorkspace]
+	ipGroups       *store.Table[storedIpGroup]
+	connAliases    *store.Table[storedConnAlias]
+	customBundles  *store.Table[storedCustomBundle]
+	images         *store.Table[storedImage]
+	pools          *store.Table[storedPool]
+	poolSessions   *store.Table[storedPoolSession]
+	connectAddIns  *store.Table[storedConnectAddIn]
+	clientBranding *store.Table[storedClientBranding]
+	accountLinks   *store.Table[storedAccountLink]
+	applications   *store.Table[storedApplication]
+	dirSettings    *store.Table[storedDirSettings]
+
+	// tags was persisted pre-Phase-3.3 (backendSnapshot.Tags) and remains so;
+	// see persistence.go. Values are plain maps, not *T, so store.Table does
+	// not apply.
+	tags map[string]map[string]string // resourceID → tags
+
+	// directoryIpGroups, imagePermissions, clientProperties, and
+	// appAssociations were NOT persisted pre-Phase-3.3 (backendSnapshot only
+	// carried Workspaces+Tags) and remain unpersisted -- ephemeral,
+	// consistent with the prior behavior. Values are plain maps/scalars, not
+	// *T, so store.Table does not apply either way.
 	directoryIpGroups map[string]map[string]struct{} //nolint:revive,staticcheck // existing issue.
-	connAliases       map[string]*storedConnAlias
-	customBundles     map[string]*storedCustomBundle
-	images            map[string]*storedImage
 	imagePermissions  map[string]map[string]bool
-	pools             map[string]*storedPool
-	poolSessions      map[string]*storedPoolSession
-	connectAddIns     map[string]*storedConnectAddIn
-	clientBranding    map[string]*storedClientBranding
 	clientProperties  map[string]storedClientProps
-	accountLinks      map[string]*storedAccountLink
 	appAssociations   map[string]map[string]struct{}
-	applications      map[string]*storedApplication
-	dirSettings       map[string]*storedDirSettings
-	accountConfig     storedAccountConfig
-	accountID         string
-	region            string
-	counter           int
+
+	accountConfig storedAccountConfig
+	accountID     string
+	region        string
+	counter       int
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		mu:                lockmetrics.New("workspaces"),
-		workspaces:        make(map[string]*storedWorkspace),
+		registry:          store.NewRegistry(),
 		tags:              make(map[string]map[string]string),
-		ipGroups:          make(map[string]*storedIpGroup),
 		directoryIpGroups: make(map[string]map[string]struct{}),
-		connAliases:       make(map[string]*storedConnAlias),
-		customBundles:     make(map[string]*storedCustomBundle),
-		images:            make(map[string]*storedImage),
 		imagePermissions:  make(map[string]map[string]bool),
-		pools:             make(map[string]*storedPool),
-		poolSessions:      make(map[string]*storedPoolSession),
-		connectAddIns:     make(map[string]*storedConnectAddIn),
-		clientBranding:    make(map[string]*storedClientBranding),
 		clientProperties:  make(map[string]storedClientProps),
-		accountLinks:      make(map[string]*storedAccountLink),
 		appAssociations:   make(map[string]map[string]struct{}),
-		applications:      make(map[string]*storedApplication),
-		dirSettings:       make(map[string]*storedDirSettings),
 		accountID:         accountID,
 		region:            region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // regionFor returns the region from ctx when present, falling back to b.region.
@@ -205,7 +215,7 @@ func (b *InMemoryBackend) CreateWorkspace(
 	b.mu.Lock("CreateWorkspace")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dirSettings[spec.DirectoryID]; !ok {
+	if !b.dirSettings.Has(spec.DirectoryID) {
 		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
 			"directory %q is not registered", spec.DirectoryID)
 	}
@@ -237,7 +247,7 @@ func (b *InMemoryBackend) CreateWorkspace(
 		Region:                      region,
 	}
 
-	b.workspaces[workspaceID] = w
+	b.workspaces.Put(w)
 	b.tags[workspaceID] = storedTags
 
 	return w.toWorkspace(), nil
@@ -291,7 +301,7 @@ func (b *InMemoryBackend) filterWorkspaces(
 
 	var matched []*storedWorkspace
 
-	for _, w := range b.workspaces {
+	for _, w := range b.workspaces.All() {
 		if region != "" && w.Region != "" && w.Region != region {
 			continue
 		}
@@ -404,9 +414,9 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 	}
 
 	if len(workspaceIDs) == 0 {
-		result := make([]*WorkspaceConnectionStatus, 0, len(b.workspaces))
+		result := make([]*WorkspaceConnectionStatus, 0, b.workspaces.Len())
 
-		for _, w := range b.workspaces {
+		for _, w := range b.workspaces.All() {
 			result = append(result, &WorkspaceConnectionStatus{
 				WorkspaceID:       w.WorkspaceID,
 				ConnectionState:   connectionStateFor(w.State),
@@ -420,7 +430,7 @@ func (b *InMemoryBackend) GetWorkspacesConnectionStatus(
 	result := make([]*WorkspaceConnectionStatus, 0, len(workspaceIDs))
 
 	for _, id := range workspaceIDs {
-		w, ok := b.workspaces[id]
+		w, ok := b.workspaces.Get(id)
 		if !ok {
 			continue
 		}
@@ -467,7 +477,7 @@ func (b *InMemoryBackend) ModifyWorkspaceProperties(
 	b.mu.Lock("ModifyWorkspaceProperties")
 	defer b.mu.Unlock()
 
-	w, ok := b.workspaces[workspaceID]
+	w, ok := b.workspaces.Get(workspaceID)
 	if !ok {
 		return ErrWorkspaceNotFound
 	}
@@ -483,7 +493,7 @@ func (b *InMemoryBackend) ModifyWorkspaceState(workspaceID, state string) error 
 	b.mu.Lock("ModifyWorkspaceState")
 	defer b.mu.Unlock()
 
-	w, ok := b.workspaces[workspaceID]
+	w, ok := b.workspaces.Get(workspaceID)
 	if !ok {
 		return ErrWorkspaceNotFound
 	}
@@ -521,7 +531,7 @@ func (b *InMemoryBackend) StartWorkspaces(workspaceIDs []string) ([]FailedReques
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
-		w, ok := b.workspaces[id]
+		w, ok := b.workspaces.Get(id)
 		if !ok {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
@@ -548,7 +558,7 @@ func (b *InMemoryBackend) StopWorkspaces(workspaceIDs []string) ([]FailedRequest
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
-		w, ok := b.workspaces[id]
+		w, ok := b.workspaces.Get(id)
 		if !ok {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
@@ -575,7 +585,7 @@ func (b *InMemoryBackend) TerminateWorkspaces(workspaceIDs []string) ([]FailedRe
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
-		if _, ok := b.workspaces[id]; !ok {
+		if !b.workspaces.Has(id) {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
 				ErrorCode:    errResourceNotFound,
@@ -586,7 +596,7 @@ func (b *InMemoryBackend) TerminateWorkspaces(workspaceIDs []string) ([]FailedRe
 		}
 
 		delete(b.tags, id)
-		delete(b.workspaces, id)
+		b.workspaces.Delete(id)
 	}
 
 	return failures, nil
@@ -601,7 +611,7 @@ func (b *InMemoryBackend) collectFailures(
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
-		if _, ok := b.workspaces[id]; !ok {
+		if !b.workspaces.Has(id) {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
 				ErrorCode:    errCode,
@@ -648,7 +658,7 @@ func (b *InMemoryBackend) CreateTags(resourceID string, tags map[string]string) 
 	maps.Copy(b.tags[resourceID], tags)
 
 	// Keep workspace tags in sync so DescribeWorkspaces reflects CreateTags changes.
-	if w, ok := b.workspaces[resourceID]; ok {
+	if w, ok := b.workspaces.Get(resourceID); ok {
 		if w.Tags == nil {
 			w.Tags = make(map[string]string)
 		}
@@ -667,7 +677,7 @@ func (b *InMemoryBackend) DeleteTags(resourceID string, tagKeys []string) error 
 	for _, k := range tagKeys {
 		delete(b.tags[resourceID], k)
 
-		if w, ok := b.workspaces[resourceID]; ok {
+		if w, ok := b.workspaces.Get(resourceID); ok {
 			delete(w.Tags, k)
 		}
 	}
@@ -758,7 +768,7 @@ func (b *InMemoryBackend) DescribeWorkspaceBundles(
 
 	// Include custom bundles when the caller wants all bundles or account-specific bundles.
 	if owner != ownerAmazon {
-		for _, bun := range b.customBundles {
+		for _, bun := range b.customBundles.All() {
 			bundles = append(bundles, &WorkspaceBundle{
 				BundleID:    bun.BundleID,
 				Name:        bun.Name,
@@ -834,7 +844,8 @@ func (b *InMemoryBackend) DescribeWorkspaceDirectories(
 	filter := buildFilter(directoryIDs)
 	var result []*WorkspaceDirectory
 
-	for id, ds := range b.dirSettings {
+	for _, ds := range b.dirSettings.All() {
+		id := ds.DirectoryID
 		if !matchesFilter(filter, id) {
 			continue
 		}
@@ -916,59 +927,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.workspaces = make(map[string]*storedWorkspace)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.ipGroups = make(map[string]*storedIpGroup)
 	b.directoryIpGroups = make(map[string]map[string]struct{})
-	b.connAliases = make(map[string]*storedConnAlias)
-	b.customBundles = make(map[string]*storedCustomBundle)
-	b.images = make(map[string]*storedImage)
 	b.imagePermissions = make(map[string]map[string]bool)
-	b.pools = make(map[string]*storedPool)
-	b.poolSessions = make(map[string]*storedPoolSession)
-	b.connectAddIns = make(map[string]*storedConnectAddIn)
-	b.clientBranding = make(map[string]*storedClientBranding)
 	b.clientProperties = make(map[string]storedClientProps)
-	b.accountLinks = make(map[string]*storedAccountLink)
 	b.appAssociations = make(map[string]map[string]struct{})
-	b.applications = make(map[string]*storedApplication)
-	b.dirSettings = make(map[string]*storedDirSettings)
 	b.accountConfig = storedAccountConfig{}
 	b.counter = 0
-}
-
-// Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "workspaces", backendSnapshot{
-		Workspaces: b.workspaces,
-		Tags:       b.tags,
-	})
-}
-
-// Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	var snap backendSnapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "workspaces", data, &snap); err != nil {
-		return err
-	}
-
-	if snap.Workspaces != nil {
-		b.workspaces = snap.Workspaces
-	} else {
-		b.workspaces = make(map[string]*storedWorkspace)
-	}
-
-	if snap.Tags != nil {
-		b.tags = snap.Tags
-	} else {
-		b.tags = make(map[string]map[string]string)
-	}
-
-	return nil
 }
