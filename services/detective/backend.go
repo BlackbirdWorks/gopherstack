@@ -1,10 +1,10 @@
 package detective
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -163,17 +163,6 @@ type storedOrgAdmin struct {
 	GraphARN       string    `json:"graphArn"`
 }
 
-// snapshot holds serializable backend state.
-type snapshot struct {
-	Graphs         map[string]*storedGraph                    `json:"graphs"`
-	Members        map[string]map[string]*storedMember        `json:"members"`
-	Tags           map[string]map[string]string               `json:"tags"`
-	Investigations map[string]map[string]*storedInvestigation `json:"investigations"`
-	Datasources    map[string]map[string]string               `json:"datasources"`
-	OrgConfigs     map[string]bool                            `json:"orgConfigs"`
-	OrgAdmins      []*storedOrgAdmin                          `json:"orgAdmins"`
-}
-
 // validateTags enforces AWS tag limits: key 1-128 chars, value 0-256 chars, max 50 tags.
 func validateTags(tags map[string]string) error {
 	if len(tags) > maxTagCount {
@@ -216,33 +205,42 @@ func validateEmail(email string) bool {
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
+//
+// graphs, members, and investigations are store.Table-backed (see
+// store_setup.go); tags, datasources, and orgConfigs remain plain maps since
+// their values are not *T; orgAdmins remains a plain order-sensitive slice.
 type InMemoryBackend struct {
-	mu             *lockmetrics.RWMutex
-	graphs         map[string]*storedGraph
-	members        map[string]map[string]*storedMember
-	tags           map[string]map[string]string
-	investigations map[string]map[string]*storedInvestigation
-	datasources    map[string]map[string]string
-	orgConfigs     map[string]bool
-	accountID      string
-	region         string
-	orgAdmins      []*storedOrgAdmin
+	members               *store.Table[storedMember]
+	mu                    *lockmetrics.RWMutex
+	registry              *store.Registry
+	graphs                *store.Table[storedGraph]
+	membersByGraph        *store.Index[storedMember]
+	investigations        *store.Table[storedInvestigation]
+	investigationsByGraph *store.Index[storedInvestigation]
+	tags                  map[string]map[string]string
+	datasources           map[string]map[string]string
+	orgConfigs            map[string]bool
+	accountID             string
+	region                string
+	orgAdmins             []*storedOrgAdmin
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:             lockmetrics.New("detective"),
-		accountID:      accountID,
-		region:         region,
-		graphs:         make(map[string]*storedGraph),
-		members:        make(map[string]map[string]*storedMember),
-		tags:           make(map[string]map[string]string),
-		investigations: make(map[string]map[string]*storedInvestigation),
-		datasources:    make(map[string]map[string]string),
-		orgAdmins:      nil,
-		orgConfigs:     make(map[string]bool),
+	b := &InMemoryBackend{
+		mu:          lockmetrics.New("detective"),
+		registry:    store.NewRegistry(),
+		accountID:   accountID,
+		region:      region,
+		tags:        make(map[string]map[string]string),
+		datasources: make(map[string]map[string]string),
+		orgAdmins:   nil,
+		orgConfigs:  make(map[string]bool),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) graphARN(id string) string {
@@ -258,8 +256,8 @@ func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
 	b.mu.Lock("CreateGraph")
 	defer b.mu.Unlock()
 
-	for _, g := range b.graphs {
-		cp := g.toGraph()
+	if existing := b.graphs.All(); len(existing) > 0 {
+		cp := existing[0].toGraph()
 
 		return &cp, nil
 	}
@@ -276,8 +274,7 @@ func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
 		CreatedTime: now,
 		Tags:        graphTags,
 	}
-	b.graphs[arn] = g
-	b.members[arn] = make(map[string]*storedMember)
+	b.graphs.Put(g)
 
 	if len(graphTags) > 0 {
 		b.tags[arn] = make(map[string]string)
@@ -294,12 +291,16 @@ func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
 	b.mu.Lock("DeleteGraph")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
-	delete(b.graphs, graphARN)
-	delete(b.members, graphARN)
+	b.graphs.Delete(graphARN)
+
+	for _, m := range slices.Clone(b.membersByGraph.Get(graphARN)) {
+		b.members.Delete(memberKey(m.GraphARN, m.AccountID))
+	}
+
 	delete(b.tags, graphARN)
 
 	return nil
@@ -391,15 +392,15 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 	b.mu.RLock("ListGraphs")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.graphs)
+	graphs := b.graphs.Snapshot()
 
 	start, err := decodePageToken(nextToken)
 	if err != nil {
 		return nil, "", err
 	}
 
-	if start > len(arns) {
-		start = len(arns)
+	if start > len(graphs) {
+		start = len(graphs)
 	}
 
 	limit := int(maxResults)
@@ -407,17 +408,16 @@ func (b *InMemoryBackend) ListGraphs(maxResults int32, nextToken string) ([]*Gra
 		limit = maxGraphsPerPage
 	}
 
-	end := min(start+limit, len(arns))
+	end := min(start+limit, len(graphs))
 
 	result := make([]*Graph, 0, end-start)
-	for _, a := range arns[start:end] {
-		g := b.graphs[a]
+	for _, g := range graphs[start:end] {
 		cp := g.toGraph()
 		result = append(result, &cp)
 	}
 
 	var outToken string
-	if end < len(arns) {
+	if end < len(graphs) {
 		outToken = encodePageToken(end)
 	}
 
@@ -447,11 +447,10 @@ func (b *InMemoryBackend) CreateMembers(
 	b.mu.Lock("CreateMembers")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, nil, ErrGraphNotFound
 	}
 
-	memberMap := b.members[graphARN]
 	now := time.Now().UTC()
 
 	var members []*MemberDetail
@@ -467,7 +466,7 @@ func (b *InMemoryBackend) CreateMembers(
 			continue
 		}
 
-		if existing, ok := memberMap[acc.AccountID]; ok {
+		if existing, ok := b.members.Get(memberKey(graphARN, acc.AccountID)); ok {
 			cp := existing.toMemberDetail()
 			members = append(members, &cp)
 
@@ -483,7 +482,7 @@ func (b *InMemoryBackend) CreateMembers(
 			Status:          memberStatusInvited,
 			UpdatedTime:     now,
 		}
-		memberMap[acc.AccountID] = m
+		b.members.Put(m)
 		cp := m.toMemberDetail()
 		members = append(members, &cp)
 	}
@@ -499,17 +498,16 @@ func (b *InMemoryBackend) DeleteMembers(
 	b.mu.Lock("DeleteMembers")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, nil, ErrGraphNotFound
 	}
-
-	memberMap := b.members[graphARN]
 
 	deleted := make([]string, 0, len(accountIDs))
 	unprocessed := make([]UnprocessedAccount, 0)
 
 	for _, id := range accountIDs {
-		if _, ok := memberMap[id]; !ok {
+		key := memberKey(graphARN, id)
+		if !b.members.Has(key) {
 			unprocessed = append(unprocessed, UnprocessedAccount{
 				AccountID: id,
 				Reason:    "Member account not found in behavior graph", //nolint:goconst // existing issue.
@@ -517,7 +515,7 @@ func (b *InMemoryBackend) DeleteMembers(
 
 			continue
 		}
-		delete(memberMap, id)
+		b.members.Delete(key)
 		deleted = append(deleted, id)
 	}
 
@@ -532,17 +530,15 @@ func (b *InMemoryBackend) GetMembers(
 	b.mu.RLock("GetMembers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, nil, ErrGraphNotFound
 	}
-
-	memberMap := b.members[graphARN]
 
 	var members []*MemberDetail
 	var unprocessed []UnprocessedAccount
 
 	for _, id := range accountIDs {
-		if m, ok := memberMap[id]; ok {
+		if m, ok := b.members.Get(memberKey(graphARN, id)); ok {
 			cp := m.toMemberDetail()
 			members = append(members, &cp)
 		} else {
@@ -565,20 +561,20 @@ func (b *InMemoryBackend) ListMembers(
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, "", ErrGraphNotFound
 	}
 
-	memberMap := b.members[graphARN]
-	ids := collections.SortedKeys(memberMap)
+	items := slices.Clone(b.membersByGraph.Get(graphARN))
+	sort.Slice(items, func(i, j int) bool { return items[i].AccountID < items[j].AccountID })
 
 	start, err := decodePageToken(nextToken)
 	if err != nil {
 		return nil, "", err
 	}
 
-	if start > len(ids) {
-		start = len(ids)
+	if start > len(items) {
+		start = len(items)
 	}
 
 	limit := int(maxResults)
@@ -586,17 +582,16 @@ func (b *InMemoryBackend) ListMembers(
 		limit = maxMembersPerPage
 	}
 
-	end := min(start+limit, len(ids))
+	end := min(start+limit, len(items))
 
 	result := make([]*MemberDetail, 0, end-start)
-	for _, id := range ids[start:end] {
-		m := memberMap[id]
+	for _, m := range items[start:end] {
 		cp := m.toMemberDetail()
 		result = append(result, &cp)
 	}
 
 	var outToken string
-	if end < len(ids) {
+	if end < len(items) {
 		outToken = encodePageToken(end)
 	}
 
@@ -672,9 +667,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // isKnownResource returns true if the ARN corresponds to a known graph.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) isKnownResource(arn string) bool {
-	_, ok := b.graphs[arn]
-
-	return ok
+	return b.graphs.Has(arn)
 }
 
 // AccountID returns the account ID.
@@ -688,12 +681,11 @@ func (b *InMemoryBackend) AcceptInvitation(graphARN string) error {
 	b.mu.Lock("AcceptInvitation")
 	defer b.mu.Unlock()
 
-	memberMap, ok := b.members[graphARN]
-	if !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
-	m, ok := memberMap[b.accountID]
+	m, ok := b.members.Get(memberKey(graphARN, b.accountID))
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -714,12 +706,11 @@ func (b *InMemoryBackend) RejectInvitation(graphARN string) error {
 	b.mu.Lock("RejectInvitation")
 	defer b.mu.Unlock()
 
-	memberMap, ok := b.members[graphARN]
-	if !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
-	m, ok := memberMap[b.accountID]
+	m, ok := b.members.Get(memberKey(graphARN, b.accountID))
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -728,7 +719,7 @@ func (b *InMemoryBackend) RejectInvitation(graphARN string) error {
 		return fmt.Errorf("%w: member status must be INVITED", ErrValidation)
 	}
 
-	delete(memberMap, b.accountID)
+	b.members.Delete(memberKey(graphARN, b.accountID))
 
 	return nil
 }
@@ -738,12 +729,11 @@ func (b *InMemoryBackend) DisassociateMembership(graphARN string) error {
 	b.mu.Lock("DisassociateMembership")
 	defer b.mu.Unlock()
 
-	memberMap, ok := b.members[graphARN]
-	if !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
-	m, ok := memberMap[b.accountID]
+	m, ok := b.members.Get(memberKey(graphARN, b.accountID))
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -752,7 +742,7 @@ func (b *InMemoryBackend) DisassociateMembership(graphARN string) error {
 		return fmt.Errorf("%w: member status must be ENABLED", ErrValidation)
 	}
 
-	delete(memberMap, b.accountID)
+	b.members.Delete(memberKey(graphARN, b.accountID))
 
 	return nil
 }
@@ -763,10 +753,9 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 	defer b.mu.RUnlock()
 
 	var invitations []*MemberDetail
-	for graphARN, memberMap := range b.members {
-		if m, ok := memberMap[b.accountID]; ok && (m.Status == memberStatusInvited || m.Status == memberStatusEnabled) {
+	for _, m := range b.members.All() {
+		if m.AccountID == b.accountID && (m.Status == memberStatusInvited || m.Status == memberStatusEnabled) {
 			cp := m.toMemberDetail()
-			_ = graphARN
 			invitations = append(invitations, &cp)
 		}
 	}
@@ -814,7 +803,7 @@ func (b *InMemoryBackend) StartInvestigation(
 	b.mu.Lock("StartInvestigation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return "", ErrGraphNotFound
 	}
 
@@ -834,11 +823,7 @@ func (b *InMemoryBackend) StartInvestigation(
 		Status:          investigationStatusRunning,
 	}
 
-	if b.investigations[graphARN] == nil {
-		b.investigations[graphARN] = make(map[string]*storedInvestigation)
-	}
-
-	b.investigations[graphARN][id] = inv
+	b.investigations.Put(inv)
 
 	return id, nil
 }
@@ -848,12 +833,11 @@ func (b *InMemoryBackend) GetInvestigation(graphARN, investigationID string) (*I
 	b.mu.RLock("GetInvestigation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, ErrGraphNotFound
 	}
 
-	invMap := b.investigations[graphARN]
-	inv, ok := invMap[investigationID]
+	inv, ok := b.investigations.Get(investigationKey(graphARN, investigationID))
 	if !ok {
 		return nil, ErrMemberNotFound
 	}
@@ -872,17 +856,17 @@ func (b *InMemoryBackend) ListInvestigations(
 	b.mu.RLock("ListInvestigations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, "", ErrGraphNotFound
 	}
 
-	invMap := b.investigations[graphARN]
-	ids := collections.SortedKeys(invMap)
+	items := slices.Clone(b.investigationsByGraph.Get(graphARN))
+	sort.Slice(items, func(i, j int) bool { return items[i].InvestigationID < items[j].InvestigationID })
 
 	start := 0
 	if nextToken != "" {
-		for i, id := range ids {
-			if id == nextToken {
+		for i, inv := range items {
+			if inv.InvestigationID == nextToken {
 				start = i
 
 				break
@@ -895,17 +879,17 @@ func (b *InMemoryBackend) ListInvestigations(
 		limit = maxInvestigationsPerPage
 	}
 
-	end := min(start+limit, len(ids))
+	end := min(start+limit, len(items))
 
 	result := make([]*InvestigationDetail, 0, end-start)
-	for _, id := range ids[start:end] {
-		d := invMap[id].toDetail()
+	for _, inv := range items[start:end] {
+		d := inv.toDetail()
 		result = append(result, &d)
 	}
 
 	var outToken string
-	if end < len(ids) {
-		outToken = ids[end]
+	if end < len(items) {
+		outToken = items[end].InvestigationID
 	}
 
 	return result, outToken, nil
@@ -920,12 +904,11 @@ func (b *InMemoryBackend) UpdateInvestigationState(graphARN, investigationID, st
 	b.mu.Lock("UpdateInvestigationState")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
-	invMap := b.investigations[graphARN]
-	inv, ok := invMap[investigationID]
+	inv, ok := b.investigations.Get(investigationKey(graphARN, investigationID))
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -944,12 +927,11 @@ func (b *InMemoryBackend) ListIndicators(
 	b.mu.RLock("ListIndicators")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, "", ErrGraphNotFound
 	}
 
-	invMap := b.investigations[graphARN]
-	inv, ok := invMap[investigationID]
+	inv, ok := b.investigations.Get(investigationKey(graphARN, investigationID))
 	if !ok {
 		return nil, "", ErrMemberNotFound
 	}
@@ -999,7 +981,7 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 	b.mu.RLock("ListDatasourcePackages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, "", ErrGraphNotFound
 	}
 
@@ -1042,7 +1024,7 @@ func (b *InMemoryBackend) UpdateDatasourcePackages(graphARN string, packages []s
 	b.mu.Lock("UpdateDatasourcePackages")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
@@ -1065,16 +1047,15 @@ func (b *InMemoryBackend) BatchGetGraphMemberDatasources(
 	b.mu.RLock("BatchGetGraphMemberDatasources")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return nil, nil, ErrGraphNotFound
 	}
 
-	memberMap := b.members[graphARN]
 	var results []MembershipDatasources
 	var unprocessed []UnprocessedAccount
 
 	for _, id := range accountIDs {
-		if _, ok := memberMap[id]; !ok {
+		if !b.members.Has(memberKey(graphARN, id)) {
 			unprocessed = append(unprocessed, UnprocessedAccount{
 				AccountID: id,
 				Reason:    "Member account not found in behavior graph",
@@ -1109,7 +1090,7 @@ func (b *InMemoryBackend) BatchGetMembershipDatasources(
 	var unprocessed []UnprocessedGraph
 
 	for _, graphARN := range graphARNs {
-		if _, ok := b.graphs[graphARN]; !ok {
+		if !b.graphs.Has(graphARN) {
 			unprocessed = append(unprocessed, UnprocessedGraph{
 				GraphArn: graphARN,
 				Reason:   "Graph not found",
@@ -1143,10 +1124,8 @@ func (b *InMemoryBackend) EnableOrganizationAdminAccount(accountID string) error
 	defer b.mu.Unlock()
 
 	var graphARN string
-	for arn := range b.graphs {
-		graphARN = arn
-
-		break
+	if all := b.graphs.All(); len(all) > 0 {
+		graphARN = all[0].Arn
 	}
 
 	now := time.Now().UTC()
@@ -1219,7 +1198,7 @@ func (b *InMemoryBackend) DescribeOrganizationConfiguration(graphARN string) (bo
 	b.mu.RLock("DescribeOrganizationConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return false, ErrGraphNotFound
 	}
 
@@ -1231,7 +1210,7 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(graphARN string, autoE
 	b.mu.Lock("UpdateOrganizationConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.graphs[graphARN]; !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
@@ -1245,12 +1224,11 @@ func (b *InMemoryBackend) StartMonitoringMember(graphARN, accountID string) erro
 	b.mu.Lock("StartMonitoringMember")
 	defer b.mu.Unlock()
 
-	memberMap, ok := b.members[graphARN]
-	if !ok {
+	if !b.graphs.Has(graphARN) {
 		return ErrGraphNotFound
 	}
 
-	m, ok := memberMap[accountID]
+	m, ok := b.members.Get(memberKey(graphARN, accountID))
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -1271,78 +1249,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.graphs = make(map[string]*storedGraph)
-	b.members = make(map[string]map[string]*storedMember)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.investigations = make(map[string]map[string]*storedInvestigation)
 	b.datasources = make(map[string]map[string]string)
 	b.orgAdmins = nil
 	b.orgConfigs = make(map[string]bool)
-}
-
-// Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "detective", snapshot{
-		Graphs:         b.graphs,
-		Members:        b.members,
-		Tags:           b.tags,
-		Investigations: b.investigations,
-		Datasources:    b.datasources,
-		OrgAdmins:      b.orgAdmins,
-		OrgConfigs:     b.orgConfigs,
-	})
-}
-
-// Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	var snap snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "detective", data, &snap); err != nil {
-		return err
-	}
-
-	if snap.Graphs != nil {
-		b.graphs = snap.Graphs
-	} else {
-		b.graphs = make(map[string]*storedGraph)
-	}
-
-	if snap.Members != nil {
-		b.members = snap.Members
-	} else {
-		b.members = make(map[string]map[string]*storedMember)
-	}
-
-	if snap.Tags != nil {
-		b.tags = snap.Tags
-	} else {
-		b.tags = make(map[string]map[string]string)
-	}
-
-	if snap.Investigations != nil {
-		b.investigations = snap.Investigations
-	} else {
-		b.investigations = make(map[string]map[string]*storedInvestigation)
-	}
-
-	if snap.Datasources != nil {
-		b.datasources = snap.Datasources
-	} else {
-		b.datasources = make(map[string]map[string]string)
-	}
-
-	b.orgAdmins = snap.OrgAdmins
-
-	if snap.OrgConfigs != nil {
-		b.orgConfigs = snap.OrgConfigs
-	} else {
-		b.orgConfigs = make(map[string]bool)
-	}
-
-	return nil
 }

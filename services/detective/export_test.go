@@ -8,7 +8,7 @@ import "time"
 func SeedGraph(b *InMemoryBackend, arnStr string) {
 	b.mu.Lock("SeedGraph")
 	defer b.mu.Unlock()
-	b.graphs[arnStr] = &storedGraph{Arn: arnStr, CreatedTime: time.Now().UTC()}
+	b.graphs.Put(&storedGraph{Arn: arnStr, CreatedTime: time.Now().UTC()})
 }
 
 // GraphCount returns the number of stored behavior graphs.
@@ -16,7 +16,7 @@ func GraphCount(b *InMemoryBackend) int {
 	b.mu.RLock("GraphCount")
 	defer b.mu.RUnlock()
 
-	return len(b.graphs)
+	return b.graphs.Len()
 }
 
 // MemberCount returns the number of members in a graph.
@@ -24,7 +24,7 @@ func MemberCount(b *InMemoryBackend, graphARN string) int {
 	b.mu.RLock("MemberCount")
 	defer b.mu.RUnlock()
 
-	return len(b.members[graphARN])
+	return len(b.membersByGraph.Get(graphARN))
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
