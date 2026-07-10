@@ -7,6 +7,12 @@ import (
 
 // StorageBackend defines the operations supported by the AppConfigData in-memory backend.
 type StorageBackend interface {
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks AppConfigData up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+
 	// SetConfiguration stores or updates configuration content for a profile.
 	SetConfiguration(app, env, profile, content, contentType string) error
 	// StartSession creates a new retrieval session and returns the initial token.

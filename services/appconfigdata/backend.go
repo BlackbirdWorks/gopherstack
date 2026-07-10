@@ -8,33 +8,48 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 // graceEntry holds the response cached for a rotated token during the grace period.
 // A client that retries with an old token receives the same response it would have
 // gotten on the first successful poll, preventing duplicate-delivery confusion.
+//
+// Token holds the rotated (old) token this entry is cached under -- the identity
+// field the graceTokens table is keyed by (see graceEntryTableKeyFn in
+// store_setup.go). Unlike the hidden-identity DTOs in services/ses and
+// services/codecommit (which tag their identity field json:"-" because the
+// *live* type is also serialized straight to an AWS API response, where that
+// field must not leak), graceEntry has no AWS wire representation at all --
+// it is never marshaled to anything but a persistence snapshot -- so Token
+// carries no json tag and simply round-trips through store.Table's plain
+// JSON marshaling like every other field. Every field was promoted from
+// unexported to exported so encoding/json (used by store.Table's
+// snapshot/restore) can see them at all -- graceEntry itself stays
+// unexported and package-private.
 type graceEntry struct {
-	expiresAt    time.Time
-	nextToken    string
-	contentType  string
-	contentHash  string
-	versionLabel string
-	content      []byte
+	ExpiresAt    time.Time
+	NextToken    string
+	ContentType  string
+	ContentHash  string
+	VersionLabel string
+	Token        string
+	Content      []byte
 }
 
 // InMemoryBackend implements StorageBackend for AppConfigData.
 type InMemoryBackend struct {
-	profiles    map[string]*ConfigurationProfile
-	sessions    map[string]*Session
-	graceTokens map[string]*graceEntry // rotated token → cached response
+	profiles    *store.Table[ConfigurationProfile]
+	sessions    *store.Table[Session]
+	graceTokens *store.Table[graceEntry] // keyed by rotated token → cached response
+	registry    *store.Registry
 	mu          *lockmetrics.RWMutex
 	signingKey  []byte       // HMAC-SHA256 key for token integrity verification
 	lastSweepAt atomic.Int64 // unix nanoseconds; accessed without the lock
@@ -54,13 +69,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 		key = sum[:]
 	}
 
-	return &InMemoryBackend{
-		profiles:    make(map[string]*ConfigurationProfile),
-		sessions:    make(map[string]*Session),
-		graceTokens: make(map[string]*graceEntry),
-		mu:          lockmetrics.New("appconfigdata"),
-		signingKey:  key,
+	b := &InMemoryBackend{
+		registry:   store.NewRegistry(),
+		mu:         lockmetrics.New("appconfigdata"),
+		signingKey: key,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 func profileKey(app, env, profile string) string {
@@ -168,7 +184,7 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 	now := time.Now().UTC()
 	hash := normalizedContentHash(content, contentType)
 
-	existing := b.profiles[key]
+	existing, _ := b.profiles.Get(key)
 	var history []ConfigVersion
 	var nextVersion int
 	var changed bool
@@ -197,7 +213,7 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 
 	versionLabel := fmt.Sprintf("v%d", nextVersion)
 
-	b.profiles[key] = &ConfigurationProfile{
+	b.profiles.Put(&ConfigurationProfile{
 		ApplicationIdentifier:          app,
 		EnvironmentIdentifier:          env,
 		ConfigurationProfileIdentifier: profile,
@@ -208,7 +224,7 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 		VersionNumber:                  nextVersion,
 		UpdatedAt:                      now,
 		History:                        history,
-	}
+	})
 
 	if changed {
 		b.totalChanges.Add(1)
@@ -235,7 +251,7 @@ func (b *InMemoryBackend) StartSession(
 
 	// Require an active deployment — no configuration published yet means 404 on AWS.
 	key := profileKey(app, env, profile)
-	if _, exists := b.profiles[key]; !exists {
+	if !b.profiles.Has(key) {
 		return "", ErrNoActiveDeployment
 	}
 
@@ -250,7 +266,7 @@ func (b *InMemoryBackend) StartSession(
 	}
 
 	now := time.Now().UTC()
-	b.sessions[token] = &Session{
+	b.sessions.Put(&Session{
 		Token:                          token,
 		TokenFamilyID:                  familyID,
 		ApplicationIdentifier:          app,
@@ -260,7 +276,7 @@ func (b *InMemoryBackend) StartSession(
 		LastAccessedAt:                 now,
 		ExpiresAt:                      now.Add(sessionAbsoluteMaxTTL),
 		PollIntervalInSeconds:          pollIntervalInSeconds,
-	}
+	})
 
 	telemetry.RecordWorkerItems("appconfigdata", "Sessions", 1)
 
@@ -273,13 +289,13 @@ func (b *InMemoryBackend) StartSession(
 func (b *InMemoryBackend) validateSession(
 	token string, now time.Time,
 ) (*Session, *ConfigurationProfile, error) {
-	sess, ok := b.sessions[token]
+	sess, ok := b.sessions.Get(token)
 	if !ok {
 		return nil, nil, ErrSessionNotFound
 	}
 
 	if now.After(sess.ExpiresAt) {
-		delete(b.sessions, token)
+		b.sessions.Delete(token)
 
 		return nil, nil, ErrTokenExpired
 	}
@@ -292,16 +308,16 @@ func (b *InMemoryBackend) validateSession(
 	}
 
 	if !b.verifyTokenMAC(token, sess.TokenFamilyID) {
-		delete(b.sessions, token)
+		b.sessions.Delete(token)
 
 		return nil, nil, ErrTokenCorrupted
 	}
 
 	key := profileKey(sess.ApplicationIdentifier, sess.EnvironmentIdentifier, sess.ConfigurationProfileIdentifier)
-	profile := b.profiles[key]
+	profile, _ := b.profiles.Get(key)
 
 	if profile == nil {
-		delete(b.sessions, token)
+		b.sessions.Delete(token)
 
 		return nil, nil, ErrResourceRemoved
 	}
@@ -323,14 +339,14 @@ func (b *InMemoryBackend) GetLatestConfiguration(
 	now := time.Now().UTC()
 
 	// Fast path: check grace tokens first to serve idempotent retries.
-	if grace, ok := b.graceTokens[token]; ok {
-		if now.Before(grace.expiresAt) {
+	if grace, ok := b.graceTokens.Get(token); ok {
+		if now.Before(grace.ExpiresAt) {
 			b.totalPolls.Add(1)
 
-			return grace.content, grace.contentType, grace.nextToken, grace.contentHash, grace.versionLabel, nil
+			return grace.Content, grace.ContentType, grace.NextToken, grace.ContentHash, grace.VersionLabel, nil
 		}
 		// Grace period expired; fall through to the normal "not found" path.
-		delete(b.graceTokens, token)
+		b.graceTokens.Delete(token)
 	}
 
 	sess, profile, err := b.validateSession(token, now)
@@ -366,18 +382,19 @@ func (b *InMemoryBackend) GetLatestConfiguration(
 	newSess.PollCount = sess.PollCount + 1
 	newSess.PreviousContentHash = hash
 
-	delete(b.sessions, token)
-	b.sessions[nextToken] = &newSess
+	b.sessions.Delete(token)
+	b.sessions.Put(&newSess)
 
 	// Keep the old token alive for a short grace period (retry idempotency).
-	b.graceTokens[token] = &graceEntry{
-		nextToken:    nextToken,
-		content:      content,
-		contentType:  contentType,
-		contentHash:  hash,
-		versionLabel: versionLabel,
-		expiresAt:    now.Add(tokenGracePeriod),
-	}
+	b.graceTokens.Put(&graceEntry{
+		Token:        token,
+		NextToken:    nextToken,
+		Content:      content,
+		ContentType:  contentType,
+		ContentHash:  hash,
+		VersionLabel: versionLabel,
+		ExpiresAt:    now.Add(tokenGracePeriod),
+	})
 
 	b.totalPolls.Add(1)
 
@@ -389,8 +406,9 @@ func (b *InMemoryBackend) ListProfiles() []ConfigurationProfile {
 	b.mu.RLock("ListProfiles")
 	defer b.mu.RUnlock()
 
-	out := make([]ConfigurationProfile, 0, len(b.profiles))
-	for _, p := range b.profiles {
+	profiles := b.profiles.All()
+	out := make([]ConfigurationProfile, 0, len(profiles))
+	for _, p := range profiles {
 		out = append(out, *p)
 	}
 
@@ -403,8 +421,8 @@ func (b *InMemoryBackend) LookupSession(token string) *Session {
 	b.mu.RLock("LookupSession")
 	defer b.mu.RUnlock()
 
-	sess := b.sessions[token]
-	if sess == nil {
+	sess, ok := b.sessions.Get(token)
+	if !ok {
 		return nil
 	}
 
@@ -418,8 +436,9 @@ func (b *InMemoryBackend) ListSessions() []Session {
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
-	out := make([]Session, 0, len(b.sessions))
-	for _, s := range b.sessions {
+	sessions := b.sessions.All()
+	out := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
 		out = append(out, *s)
 	}
 
@@ -432,8 +451,9 @@ func (b *InMemoryBackend) ListSessionsSafe() []SafeSession {
 	b.mu.RLock("ListSessionsSafe")
 	defer b.mu.RUnlock()
 
-	out := make([]SafeSession, 0, len(b.sessions))
-	for _, s := range b.sessions {
+	sessions := b.sessions.All()
+	out := make([]SafeSession, 0, len(sessions))
+	for _, s := range sessions {
 		out = append(out, SafeSession{
 			CreatedAt:                      s.CreatedAt,
 			LastAccessedAt:                 s.LastAccessedAt,
@@ -457,13 +477,7 @@ func (b *InMemoryBackend) EndSession(token string) bool {
 	b.mu.Lock("EndSession")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sessions[token]; !ok {
-		return false
-	}
-
-	delete(b.sessions, token)
-
-	return true
+	return b.sessions.Delete(token)
 }
 
 // DeleteProfile removes a configuration profile and its associated sessions.
@@ -472,18 +486,18 @@ func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 	defer b.mu.Unlock()
 
 	key := profileKey(app, env, profile)
-	if _, ok := b.profiles[key]; !ok {
+	if !b.profiles.Delete(key) {
 		return false
 	}
 
-	delete(b.profiles, key)
-
 	// Remove sessions linked to this profile.
-	maps.DeleteFunc(b.sessions, func(_ string, s *Session) bool {
-		return s.ApplicationIdentifier == app &&
+	for _, s := range b.sessions.All() {
+		if s.ApplicationIdentifier == app &&
 			s.EnvironmentIdentifier == env &&
-			s.ConfigurationProfileIdentifier == profile
-	})
+			s.ConfigurationProfileIdentifier == profile {
+			b.sessions.Delete(s.Token)
+		}
+	}
 
 	return true
 }
@@ -491,8 +505,8 @@ func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 // GetStats returns aggregate service statistics.
 func (b *InMemoryBackend) GetStats() ServiceStats {
 	b.mu.RLock("GetStats")
-	sc := len(b.sessions)
-	pc := len(b.profiles)
+	sc := b.sessions.Len()
+	pc := b.profiles.Len()
 	b.mu.RUnlock()
 
 	ns := b.lastSweepAt.Load()
@@ -518,18 +532,35 @@ func (b *InMemoryBackend) SweepExpiredSessions(ctx context.Context, ttl time.Dur
 	now := time.Now().UTC()
 
 	b.mu.Lock("SweepExpiredSessions")
-	beforeCount := len(b.sessions)
-	maps.DeleteFunc(b.sessions, func(_ string, s *Session) bool {
+	beforeCount := b.sessions.Len()
+
+	var expiredSessions []string
+	for _, s := range b.sessions.All() {
 		idleExpired := now.Sub(s.LastAccessedAt) > ttl
 		absoluteExpired := now.After(s.ExpiresAt)
 
-		return idleExpired || absoluteExpired
-	})
+		if idleExpired || absoluteExpired {
+			expiredSessions = append(expiredSessions, s.Token)
+		}
+	}
+
+	for _, tok := range expiredSessions {
+		b.sessions.Delete(tok)
+	}
+
 	// Purge grace tokens whose window has closed.
-	maps.DeleteFunc(b.graceTokens, func(_ string, g *graceEntry) bool {
-		return now.After(g.expiresAt)
-	})
-	afterCount := len(b.sessions)
+	var expiredGrace []string
+	for _, g := range b.graceTokens.All() {
+		if now.After(g.ExpiresAt) {
+			expiredGrace = append(expiredGrace, g.Token)
+		}
+	}
+
+	for _, tok := range expiredGrace {
+		b.graceTokens.Delete(tok)
+	}
+
+	afterCount := b.sessions.Len()
 	b.mu.Unlock()
 
 	b.lastSweepAt.Store(now.UnixNano())
