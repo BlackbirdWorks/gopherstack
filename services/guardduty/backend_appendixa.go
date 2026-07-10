@@ -11,7 +11,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- error sentinels ---
@@ -58,6 +57,12 @@ type AdminAccount struct {
 	InvitationID       string `json:"invitationId"`
 	InvitedAt          string `json:"invitedAt"`
 	RelationshipStatus string `json:"relationshipStatus"`
+	// detectorID is the store.Table composite-key qualifier (see
+	// adminAccountTableKeyFn in store_setup.go); it has no wire shape of its
+	// own -- AdminAccount carries no identity field, so this was added
+	// purely for the table's key -- and is carried through persistence via
+	// byDetectorDTO (see persistence.go).
+	detectorID string
 }
 
 // OrgAdminAccount represents an organization admin account.
@@ -68,10 +73,13 @@ type OrgAdminAccount struct {
 
 // OrgConfig holds org-level GuardDuty configuration.
 type OrgConfig struct {
-	DataSources               map[string]any `json:"dataSources"`
-	Features                  []OrgFeature   `json:"features"`
-	AutoEnable                bool           `json:"autoEnable"`
-	MemberAccountLimitReached bool           `json:"memberAccountLimitReached"`
+	DataSources map[string]any `json:"dataSources"`
+	// detectorID is the store.Table composite-key qualifier (see
+	// orgConfigTableKeyFn in store_setup.go); see AdminAccount.detectorID.
+	detectorID                string
+	Features                  []OrgFeature `json:"features"`
+	AutoEnable                bool         `json:"autoEnable"`
+	MemberAccountLimitReached bool         `json:"memberAccountLimitReached"`
 }
 
 // OrgFeature holds org-level feature configuration.
@@ -115,6 +123,10 @@ type MalwareScan struct {
 type MalwareScanSettings struct {
 	ScanResourceCriteria    map[string]any `json:"scanResourceCriteria"`
 	EbsSnapshotPreservation string         `json:"ebsSnapshotPreservation"`
+	// detectorID is the store.Table composite-key qualifier (see
+	// malwareScanSettingsTableKeyFn in store_setup.go); see
+	// AdminAccount.detectorID.
+	detectorID string
 }
 
 // MalwareProtectionPlan represents a malware protection plan.
@@ -171,7 +183,7 @@ func (b *InMemoryBackend) CreateMembers(
 	var created []*Member
 	var unprocessed []map[string]any
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		for _, acc := range accountDetails {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": acc["accountId"],   //nolint:goconst // existing issue.
@@ -180,10 +192,6 @@ func (b *InMemoryBackend) CreateMembers(
 		}
 
 		return nil, unprocessed
-	}
-
-	if b.members[detectorID] == nil {
-		b.members[detectorID] = make(map[string]*Member)
 	}
 
 	for _, acc := range accountDetails {
@@ -199,7 +207,7 @@ func (b *InMemoryBackend) CreateMembers(
 			continue
 		}
 
-		if _, exists := b.members[detectorID][accountID]; exists {
+		if b.members.Has(detectorKey(detectorID, accountID)) {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": accountID,
 				"result":    "ResourceConflictException",
@@ -217,7 +225,7 @@ func (b *InMemoryBackend) CreateMembers(
 			RelationshipStatus: "Created",
 			UpdatedAt:          now,
 		}
-		b.members[detectorID][accountID] = m
+		b.members.Put(m)
 		created = append(created, m)
 	}
 
@@ -231,24 +239,11 @@ func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) 
 
 	var unprocessed []map[string]any
 
-	if b.members[detectorID] == nil {
-		for _, id := range accountIDs {
+	for _, id := range accountIDs {
+		if !b.members.Delete(detectorKey(detectorID, id)) {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": id,
 				"result":    "ResourceNotFoundException", //nolint:goconst // existing issue.
-			})
-		}
-
-		return unprocessed
-	}
-
-	for _, id := range accountIDs {
-		if _, ok := b.members[detectorID][id]; ok {
-			delete(b.members[detectorID], id)
-		} else {
-			unprocessed = append(unprocessed, map[string]any{
-				"accountId": id,
-				"result":    "ResourceNotFoundException",
 			})
 		}
 	}
@@ -265,13 +260,11 @@ func (b *InMemoryBackend) GetMembers(detectorID string, accountIDs []string) ([]
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if b.members[detectorID] != nil {
-			if m, ok := b.members[detectorID][id]; ok {
-				cp := *m
-				found = append(found, &cp)
+		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
+			cp := *m
+			found = append(found, &cp)
 
-				continue
-			}
+			continue
 		}
 
 		unprocessed = append(unprocessed, map[string]any{
@@ -296,18 +289,16 @@ func (b *InMemoryBackend) InviteMembers(detectorID string, accountIDs []string) 
 		b.memberSeq++
 		invitationID := fmt.Sprintf("%s-invite-%d", b.accountID, b.memberSeq)
 
-		b.invitations[invitationID] = &Invitation{
+		b.invitations.Put(&Invitation{
 			AccountID:          id,
 			InvitationID:       invitationID,
 			InvitedAt:          now,
 			RelationshipStatus: "Invited",
-		}
+		})
 
-		if b.members[detectorID] != nil {
-			if m, ok := b.members[detectorID][id]; ok {
-				m.RelationshipStatus = "Invited"
-				m.InvitedAt = now
-			}
+		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
+			m.RelationshipStatus = "Invited"
+			m.InvitedAt = now
 		}
 	}
 
@@ -319,13 +310,13 @@ func (b *InMemoryBackend) ListMembers(detectorID string, onlyAssociated bool) ([
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
 	var all []*Member
 
-	for _, m := range b.members[detectorID] {
+	for _, m := range b.membersByDetector.Get(detectorID) {
 		if onlyAssociated && m.RelationshipStatus != "Enabled" { //nolint:goconst // existing issue.
 			continue
 		}
@@ -347,12 +338,10 @@ func (b *InMemoryBackend) StartMonitoringMembers(detectorID string, accountIDs [
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if b.members[detectorID] != nil {
-			if m, ok := b.members[detectorID][id]; ok {
-				m.RelationshipStatus = "Enabled"
+		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
+			m.RelationshipStatus = "Enabled"
 
-				continue
-			}
+			continue
 		}
 
 		unprocessed = append(unprocessed, map[string]any{
@@ -372,12 +361,10 @@ func (b *InMemoryBackend) StopMonitoringMembers(detectorID string, accountIDs []
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if b.members[detectorID] != nil {
-			if m, ok := b.members[detectorID][id]; ok {
-				m.RelationshipStatus = "Disabled"
+		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
+			m.RelationshipStatus = "Disabled"
 
-				continue
-			}
+			continue
 		}
 
 		unprocessed = append(unprocessed, map[string]any{
@@ -397,12 +384,10 @@ func (b *InMemoryBackend) DisassociateMembers(detectorID string, accountIDs []st
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if b.members[detectorID] != nil {
-			if m, ok := b.members[detectorID][id]; ok {
-				m.RelationshipStatus = "Removed"
+		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
+			m.RelationshipStatus = "Removed"
 
-				continue
-			}
+			continue
 		}
 
 		unprocessed = append(unprocessed, map[string]any{
@@ -426,16 +411,14 @@ func (b *InMemoryBackend) GetMemberDetectors(
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if b.members[detectorID] != nil {
-			if m, ok := b.members[detectorID][id]; ok {
-				memberDetails = append(memberDetails, map[string]any{
-					"accountId":  m.AccountID,
-					"detectorId": m.DetectorID, //nolint:goconst // existing issue.
-					"features":   []any{},      //nolint:goconst // existing issue.
-				})
+		if m, ok := b.members.Get(detectorKey(detectorID, id)); ok {
+			memberDetails = append(memberDetails, map[string]any{
+				"accountId":  m.AccountID,
+				"detectorId": m.DetectorID, //nolint:goconst // existing issue.
+				"features":   []any{},      //nolint:goconst // existing issue.
+			})
 
-				continue
-			}
+			continue
 		}
 
 		unprocessed = append(unprocessed, map[string]any{
@@ -458,7 +441,7 @@ func (b *InMemoryBackend) UpdateMemberDetectors(
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
-		if b.members[detectorID] == nil || b.members[detectorID][id] == nil {
+		if !b.members.Has(detectorKey(detectorID, id)) {
 			unprocessed = append(unprocessed, map[string]any{
 				"accountId": id,
 				"result":    "ResourceNotFoundException",
@@ -476,17 +459,19 @@ func (b *InMemoryBackend) AcceptAdministratorInvitation(detectorID, administrato
 	b.mu.Lock("AcceptAdministratorInvitation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	b.adminAccounts[detectorID] = &AdminAccount{
+	acc := &AdminAccount{
 		AccountID:          administratorID,
 		InvitationID:       invitationID,
 		InvitedAt:          now,
 		RelationshipStatus: "Enabled",
 	}
+	acc.detectorID = detectorID
+	b.adminAccounts.Put(acc)
 
 	return nil
 }
@@ -496,17 +481,19 @@ func (b *InMemoryBackend) AcceptInvitation(detectorID, masterID, invitationID st
 	b.mu.Lock("AcceptInvitation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	b.adminAccounts[detectorID] = &AdminAccount{
+	acc := &AdminAccount{
 		AccountID:          masterID,
 		InvitationID:       invitationID,
 		InvitedAt:          now,
 		RelationshipStatus: "Enabled",
 	}
+	acc.detectorID = detectorID
+	b.adminAccounts.Put(acc)
 
 	return nil
 }
@@ -516,12 +503,12 @@ func (b *InMemoryBackend) GetAdministratorAccount(detectorID string) (*AdminAcco
 	b.mu.RLock("GetAdministratorAccount")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	a := b.adminAccounts[detectorID]
-	if a == nil {
+	a, ok := b.adminAccounts.Get(detectorID)
+	if !ok {
 		return &AdminAccount{}, nil
 	}
 
@@ -535,12 +522,12 @@ func (b *InMemoryBackend) GetMasterAccount(detectorID string) (*AdminAccount, er
 	b.mu.RLock("GetMasterAccount")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	a := b.adminAccounts[detectorID]
-	if a == nil {
+	a, ok := b.adminAccounts.Get(detectorID)
+	if !ok {
 		return &AdminAccount{}, nil
 	}
 
@@ -554,11 +541,11 @@ func (b *InMemoryBackend) DisassociateFromAdministratorAccount(detectorID string
 	b.mu.Lock("DisassociateFromAdministratorAccount")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	delete(b.adminAccounts, detectorID)
+	b.adminAccounts.Delete(detectorID)
 
 	return nil
 }
@@ -568,11 +555,11 @@ func (b *InMemoryBackend) DisassociateFromMasterAccount(detectorID string) error
 	b.mu.Lock("DisassociateFromMasterAccount")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	delete(b.adminAccounts, detectorID)
+	b.adminAccounts.Delete(detectorID)
 
 	return nil
 }
@@ -584,11 +571,11 @@ func (b *InMemoryBackend) DeclineInvitations(accountIDs []string) []map[string]a
 
 	var unprocessed []map[string]any
 
-	for invID, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		for _, id := range accountIDs {
 			if inv.AccountID == id {
 				inv.RelationshipStatus = "Declined"
-				delete(b.invitations, invID)
+				b.invitations.Delete(inv.InvitationID)
 			}
 		}
 	}
@@ -603,10 +590,10 @@ func (b *InMemoryBackend) DeleteInvitations(accountIDs []string) []map[string]an
 
 	var unprocessed []map[string]any
 
-	for invID, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		for _, id := range accountIDs {
 			if inv.AccountID == id {
-				delete(b.invitations, invID)
+				b.invitations.Delete(inv.InvitationID)
 			}
 		}
 	}
@@ -619,7 +606,7 @@ func (b *InMemoryBackend) GetInvitationsCount() int {
 	b.mu.RLock("GetInvitationsCount")
 	defer b.mu.RUnlock()
 
-	return len(b.invitations)
+	return b.invitations.Len()
 }
 
 // ListInvitations returns all pending invitations.
@@ -627,13 +614,13 @@ func (b *InMemoryBackend) ListInvitations() []*Invitation {
 	b.mu.RLock("ListInvitations")
 	defer b.mu.RUnlock()
 
-	all := make([]*Invitation, 0, len(b.invitations))
-	for _, inv := range b.invitations {
+	items := b.invitations.Snapshot()
+	all := make([]*Invitation, 0, len(items))
+
+	for _, inv := range items {
 		cp := *inv
 		all = append(all, &cp)
 	}
-
-	sort.Slice(all, func(i, j int) bool { return all[i].InvitationID < all[j].InvitationID })
 
 	return all
 }
@@ -645,10 +632,10 @@ func (b *InMemoryBackend) EnableOrganizationAdminAccount(adminAccountID string) 
 	b.mu.Lock("EnableOrganizationAdminAccount")
 	defer b.mu.Unlock()
 
-	b.orgAdminAccounts[adminAccountID] = &OrgAdminAccount{
+	b.orgAdminAccounts.Put(&OrgAdminAccount{
 		AdminAccountID: adminAccountID,
 		AdminStatus:    "ENABLED",
-	}
+	})
 
 	return nil
 }
@@ -658,7 +645,7 @@ func (b *InMemoryBackend) DisableOrganizationAdminAccount(adminAccountID string)
 	b.mu.Lock("DisableOrganizationAdminAccount")
 	defer b.mu.Unlock()
 
-	delete(b.orgAdminAccounts, adminAccountID)
+	b.orgAdminAccounts.Delete(adminAccountID)
 
 	return nil
 }
@@ -668,13 +655,13 @@ func (b *InMemoryBackend) ListOrganizationAdminAccounts() []*OrgAdminAccount {
 	b.mu.RLock("ListOrganizationAdminAccounts")
 	defer b.mu.RUnlock()
 
-	all := make([]*OrgAdminAccount, 0, len(b.orgAdminAccounts))
-	for _, a := range b.orgAdminAccounts {
+	items := b.orgAdminAccounts.Snapshot()
+	all := make([]*OrgAdminAccount, 0, len(items))
+
+	for _, a := range items {
 		cp := *a
 		all = append(all, &cp)
 	}
-
-	sort.Slice(all, func(i, j int) bool { return all[i].AdminAccountID < all[j].AdminAccountID })
 
 	return all
 }
@@ -684,12 +671,12 @@ func (b *InMemoryBackend) DescribeOrganizationConfiguration(detectorID string) (
 	b.mu.RLock("DescribeOrganizationConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	cfg := b.orgConfigs[detectorID]
-	if cfg == nil {
+	cfg, ok := b.orgConfigs.Get(detectorID)
+	if !ok {
 		return &OrgConfig{DataSources: map[string]any{}, Features: []OrgFeature{}}, nil
 	}
 
@@ -707,13 +694,14 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 	b.mu.Lock("UpdateOrganizationConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	existing := b.orgConfigs[detectorID]
-	if existing == nil {
+	existing, ok := b.orgConfigs.Get(detectorID)
+	if !ok {
 		existing = &OrgConfig{DataSources: map[string]any{}}
+		existing.detectorID = detectorID
 	}
 
 	existing.AutoEnable = autoEnable
@@ -721,7 +709,7 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 		existing.Features = features
 	}
 
-	b.orgConfigs[detectorID] = existing
+	b.orgConfigs.Put(existing)
 
 	return nil
 }
@@ -735,7 +723,7 @@ func (b *InMemoryBackend) GetOrganizationStatistics() map[string]any {
 		"organizationDetails": map[string]any{
 			"organizationStatistics": map[string]any{
 				"totalAccountsCount":   1,
-				"memberAccountsCount":  len(b.orgAdminAccounts),
+				"memberAccountsCount":  b.orgAdminAccounts.Len(),
 				"enabledAccountsCount": 0,
 				"countByFeature":       []any{},
 			},
@@ -753,7 +741,7 @@ func (b *InMemoryBackend) CreatePublishingDestination(
 	b.mu.Lock("CreatePublishingDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
@@ -765,7 +753,7 @@ func (b *InMemoryBackend) CreatePublishingDestination(
 		DestinationProperties: props,
 		DetectorID:            detectorID,
 	}
-	b.publishingDestinations[detectorID][id] = dest
+	b.publishingDestinations.Put(dest)
 
 	return dest, nil
 }
@@ -775,15 +763,13 @@ func (b *InMemoryBackend) DeletePublishingDestination(detectorID, destID string)
 	b.mu.Lock("DeletePublishingDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	if _, ok := b.publishingDestinations[detectorID][destID]; !ok {
+	if !b.publishingDestinations.Delete(detectorKey(detectorID, destID)) {
 		return ErrPublishingDestNotFound
 	}
-
-	delete(b.publishingDestinations[detectorID], destID)
 
 	return nil
 }
@@ -793,11 +779,11 @@ func (b *InMemoryBackend) DescribePublishingDestination(detectorID, destID strin
 	b.mu.RLock("DescribePublishingDestination")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	dest, ok := b.publishingDestinations[detectorID][destID]
+	dest, ok := b.publishingDestinations.Get(detectorKey(detectorID, destID))
 	if !ok {
 		return nil, ErrPublishingDestNotFound
 	}
@@ -812,12 +798,14 @@ func (b *InMemoryBackend) ListPublishingDestinations(detectorID string) ([]*Publ
 	b.mu.RLock("ListPublishingDestinations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	all := make([]*PublishingDestination, 0, len(b.publishingDestinations[detectorID]))
-	for _, dest := range b.publishingDestinations[detectorID] {
+	items := b.publishingDestinationsByDetector.Get(detectorID)
+	all := make([]*PublishingDestination, 0, len(items))
+
+	for _, dest := range items {
 		cp := *dest
 		all = append(all, &cp)
 	}
@@ -835,11 +823,11 @@ func (b *InMemoryBackend) UpdatePublishingDestination(
 	b.mu.Lock("UpdatePublishingDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	dest, ok := b.publishingDestinations[detectorID][destID]
+	dest, ok := b.publishingDestinations.Get(detectorKey(detectorID, destID))
 	if !ok {
 		return ErrPublishingDestNotFound
 	}
@@ -856,13 +844,13 @@ func (b *InMemoryBackend) DescribeMalwareScans(detectorID string) ([]*MalwareSca
 	b.mu.RLock("DescribeMalwareScans")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
 	var all []*MalwareScan
 
-	for _, scan := range b.malwareScans {
+	for _, scan := range b.malwareScans.All() {
 		if scan.DetectorID == detectorID {
 			cp := *scan
 			all = append(all, &cp)
@@ -879,13 +867,13 @@ func (b *InMemoryBackend) ListMalwareScans() []*MalwareScan {
 	b.mu.RLock("ListMalwareScans")
 	defer b.mu.RUnlock()
 
-	all := make([]*MalwareScan, 0, len(b.malwareScans))
-	for _, scan := range b.malwareScans {
+	items := b.malwareScans.Snapshot()
+	all := make([]*MalwareScan, 0, len(items))
+
+	for _, scan := range items {
 		cp := *scan
 		all = append(all, &cp)
 	}
-
-	sort.Slice(all, func(i, j int) bool { return all[i].ScanID < all[j].ScanID })
 
 	return all
 }
@@ -898,7 +886,7 @@ func (b *InMemoryBackend) StartMalwareScan(resourceARN string) (string, error) {
 	scanID := strings.ReplaceAll(uuid.New().String(), "-", "")
 	now := time.Now().UTC()
 
-	b.malwareScans[scanID] = &MalwareScan{
+	b.malwareScans.Put(&MalwareScan{
 		ScanID:        scanID,
 		AccountID:     b.accountID,
 		ScanStatus:    "RUNNING",
@@ -909,7 +897,7 @@ func (b *InMemoryBackend) StartMalwareScan(resourceARN string) (string, error) {
 		},
 		ResourceDetails: map[string]any{"instanceArn": resourceARN},
 		Findings:        []any{},
-	}
+	})
 
 	return scanID, nil
 }
@@ -919,7 +907,7 @@ func (b *InMemoryBackend) GetMalwareScan(scanID string) (*MalwareScan, error) {
 	b.mu.RLock("GetMalwareScan")
 	defer b.mu.RUnlock()
 
-	scan, ok := b.malwareScans[scanID]
+	scan, ok := b.malwareScans.Get(scanID)
 	if !ok {
 		return nil, ErrMalwareScanNotFound
 	}
@@ -934,12 +922,12 @@ func (b *InMemoryBackend) GetMalwareScanSettings(detectorID string) (*MalwareSca
 	b.mu.RLock("GetMalwareScanSettings")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	settings := b.malwareScanSettings[detectorID]
-	if settings == nil {
+	settings, ok := b.malwareScanSettings.Get(detectorID)
+	if !ok {
 		return &MalwareScanSettings{
 			EbsSnapshotPreservation: "NO_RETENTION",
 			ScanResourceCriteria:    map[string]any{},
@@ -959,11 +947,12 @@ func (b *InMemoryBackend) UpdateMalwareScanSettings(
 	b.mu.Lock("UpdateMalwareScanSettings")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	b.malwareScanSettings[detectorID] = settings
+	settings.detectorID = detectorID
+	b.malwareScanSettings.Put(settings)
 
 	return nil
 }
@@ -973,7 +962,7 @@ func (b *InMemoryBackend) GetUsageStatistics(detectorID string) (map[string]any,
 	b.mu.RLock("GetUsageStatistics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
@@ -992,7 +981,7 @@ func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string) (map[stri
 	b.mu.RLock("GetRemainingFreeTrialDays")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
@@ -1014,7 +1003,7 @@ func (b *InMemoryBackend) GetCoverageStatistics(detectorID string) (map[string]a
 	b.mu.RLock("GetCoverageStatistics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
@@ -1031,7 +1020,7 @@ func (b *InMemoryBackend) ListCoverage(detectorID string) ([]map[string]any, err
 	b.mu.RLock("ListCoverage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
@@ -1066,7 +1055,7 @@ func (b *InMemoryBackend) CreateMalwareProtectionPlan(
 		Actions:                 actions,
 		Tags:                    tags,
 	}
-	b.malwareProtectionPlans[planID] = plan
+	b.malwareProtectionPlans.Put(plan)
 
 	if tags != nil {
 		b.tags[planARN] = maps.Clone(tags)
@@ -1080,13 +1069,13 @@ func (b *InMemoryBackend) DeleteMalwareProtectionPlan(planID string) error {
 	b.mu.Lock("DeleteMalwareProtectionPlan")
 	defer b.mu.Unlock()
 
-	plan, ok := b.malwareProtectionPlans[planID]
+	plan, ok := b.malwareProtectionPlans.Get(planID)
 	if !ok {
 		return ErrMalwareProtPlanNotFound
 	}
 
 	delete(b.tags, plan.Arn)
-	delete(b.malwareProtectionPlans, planID)
+	b.malwareProtectionPlans.Delete(planID)
 
 	return nil
 }
@@ -1096,7 +1085,7 @@ func (b *InMemoryBackend) GetMalwareProtectionPlan(planID string) (*MalwareProte
 	b.mu.RLock("GetMalwareProtectionPlan")
 	defer b.mu.RUnlock()
 
-	plan, ok := b.malwareProtectionPlans[planID]
+	plan, ok := b.malwareProtectionPlans.Get(planID)
 	if !ok {
 		return nil, ErrMalwareProtPlanNotFound
 	}
@@ -1111,15 +1100,13 @@ func (b *InMemoryBackend) ListMalwareProtectionPlans() []*MalwareProtectionPlan 
 	b.mu.RLock("ListMalwareProtectionPlans")
 	defer b.mu.RUnlock()
 
-	all := make([]*MalwareProtectionPlan, 0, len(b.malwareProtectionPlans))
-	for _, plan := range b.malwareProtectionPlans {
+	items := b.malwareProtectionPlans.Snapshot()
+	all := make([]*MalwareProtectionPlan, 0, len(items))
+
+	for _, plan := range items {
 		cp := *plan
 		all = append(all, &cp)
 	}
-
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].MalwareProtectionPlanID < all[j].MalwareProtectionPlanID
-	})
 
 	return all
 }
@@ -1132,7 +1119,7 @@ func (b *InMemoryBackend) UpdateMalwareProtectionPlan(
 	b.mu.Lock("UpdateMalwareProtectionPlan")
 	defer b.mu.Unlock()
 
-	plan, ok := b.malwareProtectionPlans[planID]
+	plan, ok := b.malwareProtectionPlans.Get(planID)
 	if !ok {
 		return ErrMalwareProtPlanNotFound
 	}
@@ -1177,11 +1164,11 @@ func (b *InMemoryBackend) CreateThreatEntitySet(
 	b.mu.Lock("CreateThreatEntitySet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	for _, existing := range b.threatEntitySets[detectorID] {
+	for _, existing := range b.threatEntitySetsByDetector.Get(detectorID) {
 		if existing.Name == name {
 			return nil, ErrThreatEntitySetAlreadyExists
 		}
@@ -1205,7 +1192,7 @@ func (b *InMemoryBackend) CreateThreatEntitySet(
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	b.threatEntitySets[detectorID][id] = s
+	b.threatEntitySets.Put(s)
 
 	return s, nil
 }
@@ -1215,11 +1202,11 @@ func (b *InMemoryBackend) GetThreatEntitySet(detectorID, setID string) (*ThreatE
 	b.mu.RLock("GetThreatEntitySet")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	s, ok := b.threatEntitySets[detectorID][setID]
+	s, ok := b.threatEntitySets.Get(detectorKey(detectorID, setID))
 	if !ok {
 		return nil, ErrThreatEntitySetNotFound
 	}
@@ -1234,11 +1221,18 @@ func (b *InMemoryBackend) ListThreatEntitySets(detectorID string) ([]string, err
 	b.mu.RLock("ListThreatEntitySets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := collections.SortedKeys(b.threatEntitySets[detectorID])
+	items := b.threatEntitySetsByDetector.Get(detectorID)
+	ids := make([]string, len(items))
+
+	for i, s := range items {
+		ids[i] = s.ThreatEntitySetID
+	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }
@@ -1251,11 +1245,11 @@ func (b *InMemoryBackend) UpdateThreatEntitySet(
 	b.mu.Lock("UpdateThreatEntitySet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	s, ok := b.threatEntitySets[detectorID][setID]
+	s, ok := b.threatEntitySets.Get(detectorKey(detectorID, setID))
 	if !ok {
 		return ErrThreatEntitySetNotFound
 	}
@@ -1286,15 +1280,13 @@ func (b *InMemoryBackend) DeleteThreatEntitySet(detectorID, setID string) error 
 	b.mu.Lock("DeleteThreatEntitySet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	if _, ok := b.threatEntitySets[detectorID][setID]; !ok {
+	if !b.threatEntitySets.Delete(detectorKey(detectorID, setID)) {
 		return ErrThreatEntitySetNotFound
 	}
-
-	delete(b.threatEntitySets[detectorID], setID)
 
 	return nil
 }
@@ -1312,11 +1304,11 @@ func (b *InMemoryBackend) CreateTrustedEntitySet(
 	b.mu.Lock("CreateTrustedEntitySet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	for _, existing := range b.trustedEntitySets[detectorID] {
+	for _, existing := range b.trustedEntitySetsByDetector.Get(detectorID) {
 		if existing.Name == name {
 			return nil, ErrTrustedEntitySetAlreadyExists
 		}
@@ -1340,7 +1332,7 @@ func (b *InMemoryBackend) CreateTrustedEntitySet(
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	b.trustedEntitySets[detectorID][id] = s
+	b.trustedEntitySets.Put(s)
 
 	return s, nil
 }
@@ -1350,11 +1342,11 @@ func (b *InMemoryBackend) GetTrustedEntitySet(detectorID, setID string) (*Truste
 	b.mu.RLock("GetTrustedEntitySet")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	s, ok := b.trustedEntitySets[detectorID][setID]
+	s, ok := b.trustedEntitySets.Get(detectorKey(detectorID, setID))
 	if !ok {
 		return nil, ErrTrustedEntitySetNotFound
 	}
@@ -1369,11 +1361,18 @@ func (b *InMemoryBackend) ListTrustedEntitySets(detectorID string) ([]string, er
 	b.mu.RLock("ListTrustedEntitySets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := collections.SortedKeys(b.trustedEntitySets[detectorID])
+	items := b.trustedEntitySetsByDetector.Get(detectorID)
+	ids := make([]string, len(items))
+
+	for i, s := range items {
+		ids[i] = s.TrustedEntitySetID
+	}
+
+	sort.Strings(ids)
 
 	return ids, nil
 }
@@ -1386,11 +1385,11 @@ func (b *InMemoryBackend) UpdateTrustedEntitySet(
 	b.mu.Lock("UpdateTrustedEntitySet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	s, ok := b.trustedEntitySets[detectorID][setID]
+	s, ok := b.trustedEntitySets.Get(detectorKey(detectorID, setID))
 	if !ok {
 		return ErrTrustedEntitySetNotFound
 	}
@@ -1421,15 +1420,13 @@ func (b *InMemoryBackend) DeleteTrustedEntitySet(detectorID, setID string) error
 	b.mu.Lock("DeleteTrustedEntitySet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	if _, ok := b.trustedEntitySets[detectorID][setID]; !ok {
+	if !b.trustedEntitySets.Delete(detectorKey(detectorID, setID)) {
 		return ErrTrustedEntitySetNotFound
 	}
-
-	delete(b.trustedEntitySets[detectorID], setID)
 
 	return nil
 }
