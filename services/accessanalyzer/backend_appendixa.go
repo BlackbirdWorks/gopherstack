@@ -89,7 +89,7 @@ func (b *InMemoryBackend) ApplyArchiveRule(analyzerArn, ruleName string) error {
 
 	var analyzer *Analyzer
 
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == analyzerArn {
 			analyzer = a
 
@@ -101,16 +101,15 @@ func (b *InMemoryBackend) ApplyArchiveRule(analyzerArn, ruleName string) error {
 		return ErrAnalyzerNotFound
 	}
 
-	rules := b.archiveRules[analyzer.Name]
 	if ruleName != "" {
-		if _, ok := rules[ruleName]; !ok {
+		if !b.archiveRules.Has(archiveRuleKey(analyzer.Name, ruleName)) {
 			return ErrArchiveRuleNotFound
 		}
 	}
 
 	now := time.Now().UTC()
 
-	for _, f := range b.findings[analyzer.Name] {
+	for _, f := range b.findingsByAnalyzer.Get(analyzer.Name) {
 		if f.Status != FindingStatusActive {
 			continue
 		}
@@ -138,7 +137,7 @@ func (b *InMemoryBackend) StartPolicyGeneration(principalArn string) (*PolicyGen
 		CompletedOn:  &completed,
 	}
 
-	b.policyGenerations[pg.JobID] = pg
+	b.policyGenerations.Put(pg)
 
 	return copyPolicyGeneration(pg), nil
 }
@@ -148,7 +147,7 @@ func (b *InMemoryBackend) GetPolicyGeneration(jobID string) (*PolicyGeneration, 
 	b.mu.RLock("GetPolicyGeneration")
 	defer b.mu.RUnlock()
 
-	pg, ok := b.policyGenerations[jobID]
+	pg, ok := b.policyGenerations.Get(jobID)
 	if !ok {
 		return nil, ErrPolicyGenerationNotFound
 	}
@@ -161,7 +160,7 @@ func (b *InMemoryBackend) CancelPolicyGeneration(jobID string) error {
 	b.mu.Lock("CancelPolicyGeneration")
 	defer b.mu.Unlock()
 
-	pg, ok := b.policyGenerations[jobID]
+	pg, ok := b.policyGenerations.Get(jobID)
 	if !ok {
 		return ErrPolicyGenerationNotFound
 	}
@@ -176,9 +175,10 @@ func (b *InMemoryBackend) ListPolicyGenerations(principalArn string) ([]*PolicyG
 	b.mu.RLock("ListPolicyGenerations")
 	defer b.mu.RUnlock()
 
-	result := make([]*PolicyGeneration, 0, len(b.policyGenerations))
+	all := b.policyGenerations.All()
+	result := make([]*PolicyGeneration, 0, len(all))
 
-	for _, pg := range b.policyGenerations {
+	for _, pg := range all {
 		if principalArn != "" && pg.PrincipalArn != principalArn {
 			continue
 		}
@@ -200,7 +200,7 @@ func (b *InMemoryBackend) CreateAccessPreview(analyzerArn string) (*AccessPrevie
 
 	var found bool
 
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == analyzerArn {
 			found = true
 
@@ -220,7 +220,7 @@ func (b *InMemoryBackend) CreateAccessPreview(analyzerArn string) (*AccessPrevie
 		CreatedAt:   now,
 	}
 
-	b.accessPreviews[ap.ID] = ap
+	b.accessPreviews.Put(ap)
 
 	return copyAccessPreview(ap), nil
 }
@@ -230,7 +230,7 @@ func (b *InMemoryBackend) GetAccessPreview(accessPreviewID string) (*AccessPrevi
 	b.mu.RLock("GetAccessPreview")
 	defer b.mu.RUnlock()
 
-	ap, ok := b.accessPreviews[accessPreviewID]
+	ap, ok := b.accessPreviews.Get(accessPreviewID)
 	if !ok {
 		return nil, ErrAccessPreviewNotFound
 	}
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) ListAccessPreviews(analyzerArn string) ([]*AccessPrevi
 
 	result := make([]*AccessPreview, 0)
 
-	for _, ap := range b.accessPreviews {
+	for _, ap := range b.accessPreviews.All() {
 		if analyzerArn != "" && ap.AnalyzerArn != analyzerArn {
 			continue
 		}
@@ -269,7 +269,7 @@ func (b *InMemoryBackend) ListAccessPreviewFindings(
 	b.mu.RLock("ListAccessPreviewFindings")
 	defer b.mu.RUnlock()
 
-	ap, ok := b.accessPreviews[accessPreviewID]
+	ap, ok := b.accessPreviews.Get(accessPreviewID)
 	if !ok {
 		return nil, "", ErrAccessPreviewNotFound
 	}
@@ -277,7 +277,7 @@ func (b *InMemoryBackend) ListAccessPreviewFindings(
 	// Find the analyzer by ARN.
 	var analyzerName string
 
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == ap.AnalyzerArn {
 			analyzerName = a.Name
 
@@ -289,9 +289,10 @@ func (b *InMemoryBackend) ListAccessPreviewFindings(
 		return []*Finding{}, "", nil
 	}
 
-	findings := make([]*Finding, 0, len(b.findings[analyzerName]))
+	group := b.findingsByAnalyzer.Get(analyzerName)
+	findings := make([]*Finding, 0, len(group))
 
-	for _, f := range b.findings[analyzerName] {
+	for _, f := range group {
 		findings = append(findings, copyFinding(f))
 	}
 
@@ -325,9 +326,7 @@ func (b *InMemoryBackend) GetAnalyzedResource(analyzerArn, resourceArn string) (
 	b.mu.RLock("GetAnalyzedResource")
 	defer b.mu.RUnlock()
 
-	key := analyzerArn + "|" + resourceArn
-
-	ar, ok := b.analyzedResources[key]
+	ar, ok := b.analyzedResources.Get(analyzedResourceKey(analyzerArn, resourceArn))
 	if !ok {
 		return nil, ErrAnalyzedResourceNotFound
 	}
@@ -348,7 +347,7 @@ func (b *InMemoryBackend) ListAnalyzedResources(
 
 	result := make([]*AnalyzedResource, 0)
 
-	for _, ar := range b.analyzedResources {
+	for _, ar := range b.analyzedResources.All() {
 		if ar.AnalyzerArn != analyzerArn {
 			continue
 		}
@@ -405,8 +404,7 @@ func (b *InMemoryBackend) AddAnalyzedResource(
 		UpdatedAt:    now,
 	}
 
-	key := analyzerArn + "|" + resourceArn
-	b.analyzedResources[key] = ar
+	b.analyzedResources.Put(ar)
 
 	cp := *ar
 
@@ -420,7 +418,7 @@ func (b *InMemoryBackend) GetFindingV2(analyzerArn, findingID string) (*Finding,
 
 	var analyzerName string
 
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == analyzerArn {
 			analyzerName = a.Name
 
@@ -432,8 +430,8 @@ func (b *InMemoryBackend) GetFindingV2(analyzerArn, findingID string) (*Finding,
 		return nil, ErrAnalyzerNotFound
 	}
 
-	f, ok := b.findings[analyzerName][findingID]
-	if !ok {
+	f, ok := b.findings.Get(findingID)
+	if !ok || findingAnalyzerIndexKeyFn(f) != analyzerName {
 		return nil, ErrFindingNotFound
 	}
 
@@ -451,7 +449,7 @@ func (b *InMemoryBackend) ListFindingsV2(
 
 	var analyzerName string
 
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == analyzerArn {
 			analyzerName = a.Name
 
@@ -463,9 +461,10 @@ func (b *InMemoryBackend) ListFindingsV2(
 		return nil, "", ErrAnalyzerNotFound
 	}
 
-	findings := make([]*Finding, 0, len(b.findings[analyzerName]))
+	group := b.findingsByAnalyzer.Get(analyzerName)
+	findings := make([]*Finding, 0, len(group))
 
-	for _, f := range b.findings[analyzerName] {
+	for _, f := range group {
 		if status != "" && string(f.Status) != status {
 			continue
 		}
@@ -505,7 +504,7 @@ func (b *InMemoryBackend) GetFindingsStatistics(analyzerArn string) (map[string]
 
 	var analyzerName string
 
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == analyzerArn {
 			analyzerName = a.Name
 
@@ -523,7 +522,7 @@ func (b *InMemoryBackend) GetFindingsStatistics(analyzerArn string) (map[string]
 		string(FindingStatusResolved): 0,
 	}
 
-	for _, f := range b.findings[analyzerName] {
+	for _, f := range b.findingsByAnalyzer.Get(analyzerName) {
 		counts[string(f.Status)]++
 	}
 
@@ -547,7 +546,7 @@ func (b *InMemoryBackend) GenerateFindingRecommendation(analyzerArn, findingID s
 		CompletedAt:        &completed,
 	}
 
-	b.findingRecommendations[findingID] = rec
+	b.findingRecommendations.Put(rec)
 
 	return nil
 }
@@ -559,7 +558,7 @@ func (b *InMemoryBackend) GetFindingRecommendation(
 	b.mu.RLock("GetFindingRecommendation")
 	defer b.mu.RUnlock()
 
-	rec, ok := b.findingRecommendations[findingID]
+	rec, ok := b.findingRecommendations.Get(findingID)
 	if !ok {
 		return nil, ErrFindingNotFound
 	}
@@ -585,7 +584,7 @@ func (b *InMemoryBackend) UpdateAnalyzer(name string) (*Analyzer, error) {
 	b.mu.RLock("UpdateAnalyzer")
 	defer b.mu.RUnlock()
 
-	a, ok := b.analyzers[name]
+	a, ok := b.analyzers.Get(name)
 	if !ok {
 		return nil, ErrAnalyzerNotFound
 	}
