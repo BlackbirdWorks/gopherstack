@@ -189,7 +189,7 @@ func (b *InMemoryBackend) AssociateFileSystemAliases(fileSystemID string, aliase
 	b.mu.Lock("AssociateFileSystemAliases")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if !b.fileSystems.Has(fileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
 
@@ -216,7 +216,7 @@ func (b *InMemoryBackend) DisassociateFileSystemAliases(
 	b.mu.Lock("DisassociateFileSystemAliases")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if !b.fileSystems.Has(fileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
 
@@ -246,7 +246,7 @@ func (b *InMemoryBackend) DescribeFileSystemAliases(
 	b.mu.RLock("DescribeFileSystemAliases")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if !b.fileSystems.Has(fileSystemID) {
 		return nil, "", ErrFileSystemNotFound
 	}
 
@@ -309,7 +309,7 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 	b.mu.Lock("CreateDataRepositoryAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[input.FileSystemID]; !ok {
+	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
 
@@ -329,7 +329,7 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 		ResourceARN:        arn,
 	}
 
-	b.dataRepositoryAssocs[id] = a
+	b.dataRepositoryAssocs.Put(a)
 	b.tags[arn] = tags
 
 	return a.toPublic(), nil
@@ -340,12 +340,12 @@ func (b *InMemoryBackend) DeleteDataRepositoryAssociation(associationID string) 
 	b.mu.Lock("DeleteDataRepositoryAssociation")
 	defer b.mu.Unlock()
 
-	a, ok := b.dataRepositoryAssocs[associationID]
+	a, ok := b.dataRepositoryAssocs.Get(associationID)
 	if !ok {
 		return ErrDataRepositoryAssociationNotFound
 	}
 
-	delete(b.dataRepositoryAssocs, associationID)
+	b.dataRepositoryAssocs.Delete(associationID)
 	delete(b.tags, a.ResourceARN)
 
 	return nil
@@ -368,7 +368,7 @@ func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // e
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			a, ok := b.dataRepositoryAssocs[id]
+			a, ok := b.dataRepositoryAssocs.Get(id)
 			if !ok {
 				return nil, "", ErrDataRepositoryAssociationNotFound
 			}
@@ -376,9 +376,7 @@ func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // e
 			all = append(all, a)
 		}
 	} else {
-		for _, a := range b.dataRepositoryAssocs {
-			all = append(all, a)
-		}
+		all = b.dataRepositoryAssocs.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].AssociationID < all[j].AssociationID })
 	}
@@ -408,7 +406,7 @@ func (b *InMemoryBackend) UpdateDataRepositoryAssociation(
 	b.mu.Lock("UpdateDataRepositoryAssociation")
 	defer b.mu.Unlock()
 
-	a, ok := b.dataRepositoryAssocs[input.AssociationID]
+	a, ok := b.dataRepositoryAssocs.Get(input.AssociationID)
 	if !ok {
 		return nil, ErrDataRepositoryAssociationNotFound
 	}
@@ -444,7 +442,7 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 	b.mu.Lock("CreateDataRepositoryTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[input.FileSystemID]; !ok {
+	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
 
@@ -464,7 +462,7 @@ func (b *InMemoryBackend) CreateDataRepositoryTask(input *createDataRepositoryTa
 		ResourceARN:  arn,
 	}
 
-	b.dataRepositoryTasks[id] = t
+	b.dataRepositoryTasks.Put(t)
 	b.tags[arn] = tags
 
 	return t.toPublic(), nil
@@ -475,7 +473,7 @@ func (b *InMemoryBackend) CancelDataRepositoryTask(taskID string) error {
 	b.mu.Lock("CancelDataRepositoryTask")
 	defer b.mu.Unlock()
 
-	t, ok := b.dataRepositoryTasks[taskID]
+	t, ok := b.dataRepositoryTasks.Get(taskID)
 	if !ok {
 		return ErrDataRepositoryTaskNotFound
 	}
@@ -502,7 +500,7 @@ func (b *InMemoryBackend) DescribeDataRepositoryTasks( //nolint:dupl // existing
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			t, ok := b.dataRepositoryTasks[id]
+			t, ok := b.dataRepositoryTasks.Get(id)
 			if !ok {
 				return nil, "", ErrDataRepositoryTaskNotFound
 			}
@@ -510,9 +508,7 @@ func (b *InMemoryBackend) DescribeDataRepositoryTasks( //nolint:dupl // existing
 			all = append(all, t)
 		}
 	} else {
-		for _, t := range b.dataRepositoryTasks {
-			all = append(all, t)
-		}
+		all = b.dataRepositoryTasks.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].TaskID < all[j].TaskID })
 	}
@@ -567,7 +563,7 @@ func (b *InMemoryBackend) CreateFileCache(input *createFileCacheInput) (*FileCac
 		StorageCapacityGiB: input.StorageCapacityGiB,
 	}
 
-	b.fileCaches[id] = c
+	b.fileCaches.Put(c)
 	b.tags[arn] = tags
 
 	return c.toPublic(), nil
@@ -578,12 +574,12 @@ func (b *InMemoryBackend) DeleteFileCache(fileCacheID string) error {
 	b.mu.Lock("DeleteFileCache")
 	defer b.mu.Unlock()
 
-	c, ok := b.fileCaches[fileCacheID]
+	c, ok := b.fileCaches.Get(fileCacheID)
 	if !ok {
 		return ErrFileCacheNotFound
 	}
 
-	delete(b.fileCaches, fileCacheID)
+	b.fileCaches.Delete(fileCacheID)
 	delete(b.tags, c.ResourceARN)
 
 	return nil
@@ -606,7 +602,7 @@ func (b *InMemoryBackend) DescribeFileCaches( //nolint:dupl // existing issue.
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			c, ok := b.fileCaches[id]
+			c, ok := b.fileCaches.Get(id)
 			if !ok {
 				return nil, "", ErrFileCacheNotFound
 			}
@@ -614,9 +610,7 @@ func (b *InMemoryBackend) DescribeFileCaches( //nolint:dupl // existing issue.
 			all = append(all, c)
 		}
 	} else {
-		for _, c := range b.fileCaches {
-			all = append(all, c)
-		}
+		all = b.fileCaches.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].FileCacheID < all[j].FileCacheID })
 	}
@@ -643,7 +637,7 @@ func (b *InMemoryBackend) UpdateFileCache(input *updateFileCacheInput) (*FileCac
 	b.mu.Lock("UpdateFileCache")
 	defer b.mu.Unlock()
 
-	c, ok := b.fileCaches[input.FileCacheID]
+	c, ok := b.fileCaches.Get(input.FileCacheID)
 	if !ok {
 		return nil, ErrFileCacheNotFound
 	}
@@ -678,7 +672,7 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
-	if _, ok := b.volumes[input.VolumeID]; !ok {
+	if !b.volumes.Has(input.VolumeID) {
 		return nil, ErrVolumeNotFound
 	}
 
@@ -697,7 +691,7 @@ func (b *InMemoryBackend) CreateSnapshot(input *createSnapshotInput) (*Snapshot,
 		ResourceARN:  arn,
 	}
 
-	b.snapshots[id] = s
+	b.snapshots.Put(s)
 	b.tags[arn] = tags
 
 	return s.toPublic(), nil
@@ -708,12 +702,12 @@ func (b *InMemoryBackend) DeleteSnapshot(snapshotID string) error {
 	b.mu.Lock("DeleteSnapshot")
 	defer b.mu.Unlock()
 
-	s, ok := b.snapshots[snapshotID]
+	s, ok := b.snapshots.Get(snapshotID)
 	if !ok {
 		return ErrSnapshotNotFound
 	}
 
-	delete(b.snapshots, snapshotID)
+	b.snapshots.Delete(snapshotID)
 	delete(b.tags, s.ResourceARN)
 
 	return nil
@@ -736,7 +730,7 @@ func (b *InMemoryBackend) DescribeSnapshots( //nolint:dupl // existing issue.
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			s, ok := b.snapshots[id]
+			s, ok := b.snapshots.Get(id)
 			if !ok {
 				return nil, "", ErrSnapshotNotFound
 			}
@@ -744,9 +738,7 @@ func (b *InMemoryBackend) DescribeSnapshots( //nolint:dupl // existing issue.
 			all = append(all, s)
 		}
 	} else {
-		for _, s := range b.snapshots {
-			all = append(all, s)
-		}
+		all = b.snapshots.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].SnapshotID < all[j].SnapshotID })
 	}
@@ -773,7 +765,7 @@ func (b *InMemoryBackend) UpdateSnapshot(input *updateSnapshotInput) (*Snapshot,
 	b.mu.Lock("UpdateSnapshot")
 	defer b.mu.Unlock()
 
-	s, ok := b.snapshots[input.SnapshotID]
+	s, ok := b.snapshots.Get(input.SnapshotID)
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}
@@ -795,7 +787,7 @@ func (b *InMemoryBackend) CopySnapshotAndUpdateVolume(input *copySnapshotAndUpda
 	b.mu.Lock("CopySnapshotAndUpdateVolume")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[input.VolumeID]
+	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, ErrVolumeNotFound
 	}
@@ -830,7 +822,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 	b.mu.Lock("CreateStorageVirtualMachine")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[input.FileSystemID]; !ok {
+	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
 
@@ -851,7 +843,7 @@ func (b *InMemoryBackend) CreateStorageVirtualMachine(
 		RootVolumeSecurityStyle: input.RootVolumeSecurityStyle,
 	}
 
-	b.storageVirtualMachines[id] = svm
+	b.storageVirtualMachines.Put(svm)
 	b.tags[arn] = tags
 
 	return svm.toPublic(), nil
@@ -862,12 +854,12 @@ func (b *InMemoryBackend) DeleteStorageVirtualMachine(svmID string) error {
 	b.mu.Lock("DeleteStorageVirtualMachine")
 	defer b.mu.Unlock()
 
-	svm, ok := b.storageVirtualMachines[svmID]
+	svm, ok := b.storageVirtualMachines.Get(svmID)
 	if !ok {
 		return ErrStorageVirtualMachineNotFound
 	}
 
-	delete(b.storageVirtualMachines, svmID)
+	b.storageVirtualMachines.Delete(svmID)
 	delete(b.tags, svm.ResourceARN)
 
 	return nil
@@ -890,7 +882,7 @@ func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // exist
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			svm, ok := b.storageVirtualMachines[id]
+			svm, ok := b.storageVirtualMachines.Get(id)
 			if !ok {
 				return nil, "", ErrStorageVirtualMachineNotFound
 			}
@@ -898,9 +890,7 @@ func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // exist
 			all = append(all, svm)
 		}
 	} else {
-		for _, svm := range b.storageVirtualMachines {
-			all = append(all, svm)
-		}
+		all = b.storageVirtualMachines.All()
 
 		sort.Slice(all, func(i, j int) bool {
 			return all[i].StorageVirtualMachineID < all[j].StorageVirtualMachineID
@@ -931,7 +921,7 @@ func (b *InMemoryBackend) UpdateStorageVirtualMachine(
 	b.mu.Lock("UpdateStorageVirtualMachine")
 	defer b.mu.Unlock()
 
-	svm, ok := b.storageVirtualMachines[input.StorageVirtualMachineID]
+	svm, ok := b.storageVirtualMachines.Get(input.StorageVirtualMachineID)
 	if !ok {
 		return nil, ErrStorageVirtualMachineNotFound
 	}
@@ -969,13 +959,13 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 	defer b.mu.Unlock()
 
 	if input.FileSystemID != "" {
-		if _, ok := b.fileSystems[input.FileSystemID]; !ok {
+		if !b.fileSystems.Has(input.FileSystemID) {
 			return nil, ErrFileSystemNotFound
 		}
 	}
 
 	if input.StorageVirtualMachineID != "" {
-		if _, ok := b.storageVirtualMachines[input.StorageVirtualMachineID]; !ok {
+		if !b.storageVirtualMachines.Has(input.StorageVirtualMachineID) {
 			return nil, ErrStorageVirtualMachineNotFound
 		}
 	}
@@ -997,7 +987,7 @@ func (b *InMemoryBackend) CreateVolume(input *createVolumeInput) (*Volume, error
 		ResourceARN:             arn,
 	}
 
-	b.volumes[id] = v
+	b.volumes.Put(v)
 	b.tags[arn] = tags
 
 	return v.toPublic(), nil
@@ -1020,7 +1010,7 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 	b.mu.Lock("CreateVolumeFromBackup")
 	defer b.mu.Unlock()
 
-	src, ok := b.backups[input.BackupID]
+	src, ok := b.backups.Get(input.BackupID)
 	if !ok {
 		return nil, ErrBackupNotFound
 	}
@@ -1047,7 +1037,7 @@ func (b *InMemoryBackend) CreateVolumeFromBackup(input *createVolumeFromBackupIn
 		ResourceARN:             arn,
 	}
 
-	b.volumes[id] = v
+	b.volumes.Put(v)
 	b.tags[arn] = tags
 
 	return v.toPublic(), nil
@@ -1058,12 +1048,12 @@ func (b *InMemoryBackend) DeleteVolume(volumeID string) error {
 	b.mu.Lock("DeleteVolume")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[volumeID]
+	v, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return ErrVolumeNotFound
 	}
 
-	delete(b.volumes, volumeID)
+	b.volumes.Delete(volumeID)
 	delete(b.tags, v.ResourceARN)
 
 	return nil
@@ -1086,7 +1076,7 @@ func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			v, ok := b.volumes[id]
+			v, ok := b.volumes.Get(id)
 			if !ok {
 				return nil, "", ErrVolumeNotFound
 			}
@@ -1094,9 +1084,7 @@ func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
 			all = append(all, v)
 		}
 	} else {
-		for _, v := range b.volumes {
-			all = append(all, v)
-		}
+		all = b.volumes.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].VolumeID < all[j].VolumeID })
 	}
@@ -1123,12 +1111,12 @@ func (b *InMemoryBackend) RestoreVolumeFromSnapshot(input *restoreVolumeFromSnap
 	b.mu.Lock("RestoreVolumeFromSnapshot")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[input.VolumeID]
+	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, ErrVolumeNotFound
 	}
 
-	if _, ok := b.snapshots[input.SnapshotID]; !ok { //nolint:govet // existing issue.
+	if !b.snapshots.Has(input.SnapshotID) {
 		return nil, ErrSnapshotNotFound
 	}
 
@@ -1145,7 +1133,7 @@ func (b *InMemoryBackend) UpdateVolume(input *updateVolumeInput) (*Volume, error
 	b.mu.Lock("UpdateVolume")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[input.VolumeID]
+	v, ok := b.volumes.Get(input.VolumeID)
 	if !ok {
 		return nil, ErrVolumeNotFound
 	}
@@ -1183,7 +1171,7 @@ func (b *InMemoryBackend) CreateAndAttachS3AccessPoint(
 	b.mu.Lock("CreateAndAttachS3AccessPoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[input.FileSystemID]; !ok {
+	if !b.fileSystems.Has(input.FileSystemID) {
 		return nil, ErrFileSystemNotFound
 	}
 
@@ -1201,7 +1189,7 @@ func (b *InMemoryBackend) CreateAndAttachS3AccessPoint(
 		ResourceARN:  arn,
 	}
 
-	b.s3AccessPoints[input.Name] = ap
+	b.s3AccessPoints.Put(ap)
 	b.tags[arn] = tags
 
 	return ap.toPublic(), nil
@@ -1212,12 +1200,12 @@ func (b *InMemoryBackend) DetachAndDeleteS3AccessPoint(name, fileSystemID string
 	b.mu.Lock("DetachAndDeleteS3AccessPoint")
 	defer b.mu.Unlock()
 
-	ap, ok := b.s3AccessPoints[name]
+	ap, ok := b.s3AccessPoints.Get(name)
 	if !ok || ap.FileSystemID != fileSystemID {
 		return ErrS3AccessPointNotFound
 	}
 
-	delete(b.s3AccessPoints, name)
+	b.s3AccessPoints.Delete(name)
 	delete(b.tags, ap.ResourceARN)
 
 	return nil
@@ -1240,7 +1228,7 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // exi
 
 	if len(names) > 0 {
 		for _, name := range names {
-			ap, ok := b.s3AccessPoints[name]
+			ap, ok := b.s3AccessPoints.Get(name)
 			if !ok {
 				return nil, "", ErrS3AccessPointNotFound
 			}
@@ -1248,9 +1236,7 @@ func (b *InMemoryBackend) DescribeS3AccessPointAttachments( //nolint:dupl // exi
 			all = append(all, ap)
 		}
 	} else {
-		for _, ap := range b.s3AccessPoints {
-			all = append(all, ap)
-		}
+		all = b.s3AccessPoints.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	}
@@ -1304,7 +1290,7 @@ func (b *InMemoryBackend) ReleaseFileSystemNfsV3Locks(fileSystemID string) error
 	b.mu.RLock("ReleaseFileSystemNfsV3Locks")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if !b.fileSystems.Has(fileSystemID) {
 		return ErrFileSystemNotFound
 	}
 
@@ -1316,7 +1302,7 @@ func (b *InMemoryBackend) StartMisconfiguredStateRecovery(fileSystemID string) e
 	b.mu.Lock("StartMisconfiguredStateRecovery")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	if !b.fileSystems.Has(fileSystemID) {
 		return ErrFileSystemNotFound
 	}
 
