@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -125,10 +126,11 @@ type arnEntry struct {
 
 // InMemoryBackend stores Amazon Forecast state with concurrency-safe transitions.
 type InMemoryBackend struct {
-	resources   map[resourceKind]map[string]*Resource
+	resources   map[resourceKind]*store.Table[Resource]
 	evaluations map[string][]MonitorEvaluation
 	tags        map[string]map[string]string
 	arnIndex    map[string]arnEntry // ARN → (kind, name) for O(1) cross-kind lookup
+	registry    *store.Registry
 	accountID   string
 	region      string
 	mu          sync.RWMutex
@@ -143,14 +145,17 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region = defaultRegion
 	}
 
-	return &InMemoryBackend{
-		resources:   make(map[resourceKind]map[string]*Resource),
+	b := &InMemoryBackend{
 		evaluations: make(map[string][]MonitorEvaluation),
 		tags:        make(map[string]map[string]string),
 		arnIndex:    make(map[string]arnEntry),
+		registry:    store.NewRegistry(),
 		accountID:   accountID,
 		region:      region,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all in-memory Forecast state. It supports the
@@ -159,7 +164,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.resources = make(map[resourceKind]map[string]*Resource)
+	b.registry.ResetAll()
 	b.evaluations = make(map[string][]MonitorEvaluation)
 	b.tags = make(map[string]map[string]string)
 	b.arnIndex = make(map[string]arnEntry)
@@ -194,8 +199,8 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	items := b.ensureKind(kind)
-	if _, ok := items[name]; ok {
+	table := b.resources[kind]
+	if table.Has(name) {
 		return nil, fmt.Errorf("%w: %s %q", ErrAlreadyExists, kind, name)
 	}
 
@@ -214,7 +219,7 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 		Status:    status,
 		Kind:      kind,
 	}
-	items[name] = resource
+	table.Put(resource)
 	b.arnIndex[resource.ARN] = arnEntry{kind: kind, name: name}
 	if kind == kindMonitor {
 		b.evaluations[resource.ARN] = []MonitorEvaluation{newEvaluation(resource)}
@@ -268,7 +273,7 @@ func (b *InMemoryBackend) delete(kind resourceKind, nameOrARN string) error {
 		return fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
-	delete(b.resources[kind], resource.Name)
+	b.resources[kind].Delete(resource.Name)
 	delete(b.arnIndex, resource.ARN)
 	delete(b.evaluations, resource.ARN)
 	delete(b.tags, resource.ARN)
@@ -280,7 +285,7 @@ func (b *InMemoryBackend) list(kind resourceKind) []*Resource {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	items := b.resources[kind]
+	items := b.resources[kind].All()
 	result := make([]*Resource, 0, len(items))
 	for _, resource := range items {
 		result = append(result, cloneResource(resource))
@@ -305,27 +310,19 @@ func (b *InMemoryBackend) listMonitorEvaluations(monitorARN string) ([]MonitorEv
 	return result, nil
 }
 
-func (b *InMemoryBackend) ensureKind(kind resourceKind) map[string]*Resource {
-	if b.resources[kind] == nil {
-		b.resources[kind] = make(map[string]*Resource)
-	}
-
-	return b.resources[kind]
-}
-
 func (b *InMemoryBackend) lookupLocked(kind resourceKind, nameOrARN string) (*Resource, bool) {
-	items := b.resources[kind]
+	table := b.resources[kind]
 
-	// Fast path: the map is keyed by name, so a name lookup is O(1).
-	if resource, ok := items[nameOrARN]; ok {
+	// Fast path: the table is keyed by name, so a name lookup is O(1).
+	if resource, ok := table.Get(nameOrARN); ok {
 		return resource, true
 	}
 
 	// ARN lookup: every ARN is built deterministically as
 	// arn:...:forecast:region:account:<kind>/<name>, so reverse it to the name
-	// and look that up directly rather than scanning the whole kind map.
+	// and look that up directly rather than scanning the whole kind's table.
 	if name, ok := b.nameFromARN(kind, nameOrARN); ok {
-		if resource, found := items[name]; found && resource.ARN == nameOrARN {
+		if resource, found := table.Get(name); found && resource.ARN == nameOrARN {
 			return resource, true
 		}
 	}
@@ -405,7 +402,7 @@ func (b *InMemoryBackend) UpdateResourceStatus(resourceARN, newStatus string) er
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceARN)
 	}
 
-	resource := b.resources[entry.kind][entry.name]
+	resource, _ := b.resources[entry.kind].Get(entry.name)
 	resource.Status = newStatus
 	resource.UpdatedAt = time.Now().UTC()
 
@@ -438,23 +435,25 @@ func (b *InMemoryBackend) deleteTreeLocked(targetARN string) {
 		current := queue[0]
 		queue = queue[1:]
 
-		for _, items := range b.resources {
-			for _, r := range items {
+		for _, table := range b.resources {
+			table.Range(func(r *Resource) bool {
 				if _, already := toDelete[r.ARN]; already {
-					continue
+					return true
 				}
 
 				if arnReferencedBy(r, current) {
 					toDelete[r.ARN] = struct{}{}
 					queue = append(queue, r.ARN)
 				}
-			}
+
+				return true
+			})
 		}
 	}
 
 	for arnToDelete := range toDelete {
 		if entry, ok := b.arnIndex[arnToDelete]; ok {
-			delete(b.resources[entry.kind], entry.name)
+			b.resources[entry.kind].Delete(entry.name)
 			delete(b.arnIndex, arnToDelete)
 			delete(b.evaluations, arnToDelete)
 			delete(b.tags, arnToDelete)
