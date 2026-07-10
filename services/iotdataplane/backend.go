@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ErrNoBroker is returned when no MQTT broker has been wired.
@@ -111,38 +112,61 @@ func isShadowReservedName(name string) bool {
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // shadowEntry holds shadow state, per-field metadata timestamps, version and update time.
+// thingName and shadowName are unexported identity fields set once at creation (never
+// mutated afterward) purely so store.Table's keyFn / secondary index can derive keys from
+// the value -- see store_setup.go. shadowEntry carries no exported fields at all, so it is
+// never JSON-marshaled directly; shadowEntrySnap (persistence.go) is its serialisable form.
 type shadowEntry struct {
+	updatedAt    time.Time
 	desired      map[string]json.RawMessage // nil = not set
 	reported     map[string]json.RawMessage // nil = not set
 	metaDesired  map[string]int64           // field → epoch seconds of last update
 	metaReported map[string]int64           // field → epoch seconds of last update
-	updatedAt    time.Time
+	thingName    string
+	shadowName   string
 	version      int
 }
 
 // connectionEntry holds the state for a registered MQTT client connection.
+// clientID is an unexported identity field set once at creation purely so store.Table's
+// keyFn can derive a key from the value -- see store_setup.go. connectionEntry carries no
+// exported fields, so it is never JSON-marshaled directly; connectionEntrySnap
+// (persistence.go) is its serialisable form.
 type connectionEntry struct {
 	connectedAt time.Time
+	clientID    string
 	sourceIP    string
 }
 
 // InMemoryBackend implements the IoT Data Plane backend.
+//
+// shadows and connections are "dirty" store.Table-backed collections (shadowEntry /
+// connectionEntry carry no exported fields, so they can't round-trip a direct JSON
+// marshal) and are NOT registered on registry -- persistence.go drives them through an
+// ephemeral DTO registry instead. retainedMessages is a "clean" table (RetainedMessage
+// already carries its own identity as a real field, Topic) and IS registered on registry,
+// so persistence.go drives it through registry.SnapshotAll()/RestoreAll() directly. See
+// store_setup.go for the full registration.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	broker           MQTTPublisher
-	shadows          map[string]map[string]*shadowEntry // thingName -> shadowName -> entry
-	connections      map[string]*connectionEntry        // clientID -> entry
-	retainedMessages map[string]*RetainedMessage        // topic -> message
+	registry         *store.Registry
+	shadows          *store.Table[shadowEntry]     // key: thingName#shadowName
+	shadowsByThing   *store.Index[shadowEntry]     // secondary index keyed by thingName
+	connections      *store.Table[connectionEntry] // key: clientID
+	retainedMessages *store.Table[RetainedMessage] // key: topic; registered on registry
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:               lockmetrics.New("iotdataplane"),
-		shadows:          make(map[string]map[string]*shadowEntry),
-		connections:      make(map[string]*connectionEntry),
-		retainedMessages: make(map[string]*RetainedMessage),
+	b := &InMemoryBackend{
+		mu:       lockmetrics.New("iotdataplane"),
+		registry: store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state, including shadows, connections, and retained messages.
@@ -150,9 +174,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.shadows = make(map[string]map[string]*shadowEntry)
-	b.connections = make(map[string]*connectionEntry)
-	b.retainedMessages = make(map[string]*RetainedMessage)
+	b.registry.ResetAll()
+	b.shadows.Reset()
+	b.connections.Reset()
 }
 
 // SetBroker wires the MQTT broker for publishing (called during CLI startup).
@@ -408,12 +432,7 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 	b.mu.RLock("GetThingShadow")
 	defer b.mu.RUnlock()
 
-	thingShadows, ok := b.shadows[thingName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
-	}
-
-	entry, ok := thingShadows[shadowName]
+	entry, ok := b.shadows.Get(shadowKey(thingName, shadowName))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
@@ -519,13 +538,9 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	b.mu.Lock("UpdateThingShadow")
 	defer b.mu.Unlock()
 
-	if _, ok := b.shadows[thingName]; !ok {
-		b.shadows[thingName] = make(map[string]*shadowEntry)
-	}
+	current, _ := b.shadows.Get(shadowKey(thingName, shadowName))
 
-	current := b.shadows[thingName][shadowName]
-
-	if current == nil && len(b.shadows[thingName]) >= maxShadowsPerThing {
+	if current == nil && len(b.shadowsByThing.Get(thingName)) >= maxShadowsPerThing {
 		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
 			ErrValidation, maxShadowsPerThing, thingName)
 	}
@@ -561,6 +576,8 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	}
 
 	newEntry := &shadowEntry{
+		thingName:    thingName,
+		shadowName:   shadowName,
 		version:      newVersion,
 		updatedAt:    now,
 		desired:      newDesired,
@@ -574,7 +591,7 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 		return nil, err
 	}
 
-	b.shadows[thingName][shadowName] = newEntry
+	b.shadows.Put(newEntry)
 
 	return resp, nil
 }
@@ -616,13 +633,10 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 	b.mu.Lock("DeleteThingShadow")
 	defer b.mu.Unlock()
 
-	thingShadows, ok := b.shadows[thingName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
-	}
+	key := shadowKey(thingName, shadowName)
 
-	entry, hasShadow := thingShadows[shadowName]
-	if !hasShadow {
+	entry, ok := b.shadows.Get(key)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
@@ -635,11 +649,7 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 		})
 	}
 
-	delete(thingShadows, shadowName)
-
-	if len(thingShadows) == 0 {
-		delete(b.shadows, thingName)
-	}
+	b.shadows.Delete(key)
 
 	return payload, nil
 }
@@ -654,15 +664,12 @@ func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, 
 	b.mu.RLock("ListNamedShadowsForThing")
 	defer b.mu.RUnlock()
 
-	thingShadows, ok := b.shadows[thingName]
-	if !ok {
-		return []string{}, nil
-	}
+	group := b.shadowsByThing.Get(thingName)
 
-	names := make([]string, 0, len(thingShadows))
-	for name := range thingShadows {
-		if name != "" {
-			names = append(names, name)
+	names := make([]string, 0, len(group))
+	for _, entry := range group {
+		if entry.shadowName != "" {
+			names = append(names, entry.shadowName)
 		}
 	}
 
@@ -676,7 +683,12 @@ func (b *InMemoryBackend) ListThingsWithShadows() []string {
 	b.mu.RLock("ListThingsWithShadows")
 	defer b.mu.RUnlock()
 
-	return sortedKeys(b.shadows)
+	seen := make(map[string]struct{})
+	for _, entry := range b.shadows.All() {
+		seen[entry.thingName] = struct{}{}
+	}
+
+	return sortedKeys(seen)
 }
 
 // RegisterConnection adds a client connection to the backend.
@@ -694,14 +706,15 @@ func (b *InMemoryBackend) RegisterConnection(clientID, sourceIP string) error {
 	b.mu.Lock("RegisterConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.connections[clientID]; exists {
+	if b.connections.Has(clientID) {
 		return fmt.Errorf("%w: %s", ErrConnectionExists, clientID)
 	}
 
-	b.connections[clientID] = &connectionEntry{
+	b.connections.Put(&connectionEntry{
+		clientID:    clientID,
 		connectedAt: time.Now(),
 		sourceIP:    sourceIP,
-	}
+	})
 
 	return nil
 }
@@ -717,7 +730,7 @@ func (b *InMemoryBackend) DeleteConnection(clientID string) error {
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	delete(b.connections, clientID)
+	b.connections.Delete(clientID)
 
 	return nil
 }
@@ -727,10 +740,12 @@ func (b *InMemoryBackend) ListConnections() []*Connection {
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
-	out := make([]*Connection, 0, len(b.connections))
-	for clientID, entry := range b.connections {
+	all := b.connections.All()
+	out := make([]*Connection, 0, len(all))
+
+	for _, entry := range all {
 		out = append(out, &Connection{
-			ClientID:    clientID,
+			ClientID:    entry.clientID,
 			SourceIP:    entry.sourceIP,
 			ConnectedAt: entry.connectedAt,
 		})
@@ -748,7 +763,7 @@ func (b *InMemoryBackend) AddConnectionInternal(clientID string) {
 	b.mu.Lock("AddConnectionInternal")
 	defer b.mu.Unlock()
 
-	b.connections[clientID] = &connectionEntry{connectedAt: time.Now()}
+	b.connections.Put(&connectionEntry{clientID: clientID, connectedAt: time.Now()})
 }
 
 // AddShadowInternal seeds a shadow entry for testing purposes.
@@ -758,13 +773,11 @@ func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, docume
 	b.mu.Lock("AddShadowInternal")
 	defer b.mu.Unlock()
 
-	if _, ok := b.shadows[thingName]; !ok {
-		b.shadows[thingName] = make(map[string]*shadowEntry)
-	}
-
 	entry := &shadowEntry{
-		version:   1,
-		updatedAt: time.Now(),
+		thingName:  thingName,
+		shadowName: shadowName,
+		version:    1,
+		updatedAt:  time.Now(),
 	}
 
 	// Best-effort parse of state.desired / state.reported from the seeded document.
@@ -784,7 +797,7 @@ func (b *InMemoryBackend) AddShadowInternal(thingName, shadowName string, docume
 		}
 	}
 
-	b.shadows[thingName][shadowName] = entry
+	b.shadows.Put(entry)
 }
 
 // StoreRetainedMessage saves a retained MQTT message for the given topic.
@@ -800,25 +813,25 @@ func (b *InMemoryBackend) StoreRetainedMessage(topic string, payload []byte, qos
 	defer b.mu.Unlock()
 
 	if len(payload) == 0 {
-		delete(b.retainedMessages, topic)
+		b.retainedMessages.Delete(topic)
 
 		return nil
 	}
 
 	// LRU eviction: when the cap is reached and the topic is new, evict the oldest entry.
-	if _, exists := b.retainedMessages[topic]; !exists && len(b.retainedMessages) >= maxRetainedMessages {
+	if !b.retainedMessages.Has(topic) && b.retainedMessages.Len() >= maxRetainedMessages {
 		b.evictOldestRetained()
 	}
 
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
 
-	b.retainedMessages[topic] = &RetainedMessage{
+	b.retainedMessages.Put(&RetainedMessage{
 		Topic:            topic,
 		Payload:          cp,
 		Qos:              qos,
 		LastModifiedTime: time.Now().UnixMilli(),
-	}
+	})
 
 	return nil
 }
@@ -830,15 +843,15 @@ func (b *InMemoryBackend) evictOldestRetained() {
 
 	var oldestTime int64 = -1
 
-	for topic, msg := range b.retainedMessages {
+	for _, msg := range b.retainedMessages.All() {
 		if oldestTime < 0 || msg.LastModifiedTime < oldestTime {
 			oldestTime = msg.LastModifiedTime
-			oldestTopic = topic
+			oldestTopic = msg.Topic
 		}
 	}
 
 	if oldestTopic != "" {
-		delete(b.retainedMessages, oldestTopic)
+		b.retainedMessages.Delete(oldestTopic)
 	}
 }
 
@@ -848,7 +861,7 @@ func (b *InMemoryBackend) GetRetainedMessage(topic string) (*RetainedMessage, er
 	b.mu.RLock("GetRetainedMessage")
 	defer b.mu.RUnlock()
 
-	msg, ok := b.retainedMessages[topic]
+	msg, ok := b.retainedMessages.Get(topic)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRetainedMessageNotFound, topic)
 	}
@@ -867,11 +880,10 @@ func (b *InMemoryBackend) ListRetainedMessages() ([]*RetainedMessage, error) {
 	b.mu.RLock("ListRetainedMessages")
 	defer b.mu.RUnlock()
 
-	topics := sortedKeys(b.retainedMessages)
-	result := make([]*RetainedMessage, 0, len(topics))
+	msgs := b.retainedMessages.Snapshot()
+	result := make([]*RetainedMessage, 0, len(msgs))
 
-	for _, topic := range topics {
-		msg := b.retainedMessages[topic]
+	for _, msg := range msgs {
 		cp := *msg
 		if len(msg.Payload) > 0 {
 			cp.Payload = make([]byte, len(msg.Payload))
