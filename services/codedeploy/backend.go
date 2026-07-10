@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -326,32 +328,48 @@ type DeploymentConfig struct {
 }
 
 // InMemoryBackend is the in-memory store for CodeDeploy resources.
+//
+// deployments and deploymentConfigs carry a real, wire-visible identity
+// field and no live *tags.Tags field, so each registers directly on
+// b.registry as a "clean" *store.Table.
+//
+// applications, deploymentGroups, and onPremisesInstances each carry a live
+// *tags.Tags field marked json:"-", so each is a "dirty" table (store.New
+// only, NOT store.Register-ed onto b.registry -- see store_setup.go)
+// round-tripped through a DTO wrapper in persistence.go. deploymentGroups
+// was previously nested by application; it flattens to one *store.Table
+// keyed by the composite "appName/dgName" string (see dgKey in
+// store_setup.go), with deploymentGroupsByApp replacing the old
+// map[string]map[string]*DeploymentGroup nesting for per-application scans.
+//
+// githubTokens is deliberately NOT converted: it is an identity-less set
+// (map[string]struct{}), so there is no *T value for store.Table to key on.
+// It remains a plain map, unchanged by this refactor.
 type InMemoryBackend struct {
-	applications        map[string]*Application
-	deploymentGroups    map[string]map[string]*DeploymentGroup // appName -> dgName -> DG
-	deployments         map[string]*Deployment
-	onPremisesInstances map[string]*OnPremisesInstance
-	deploymentConfigs   map[string]*DeploymentConfig
-	githubTokens        map[string]struct{}
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	registry              *store.Registry
+	applications          *store.Table[Application]
+	deploymentGroups      *store.Table[DeploymentGroup]
+	deploymentGroupsByApp *store.Index[DeploymentGroup]
+	deployments           *store.Table[Deployment]
+	onPremisesInstances   *store.Table[OnPremisesInstance]
+	deploymentConfigs     *store.Table[DeploymentConfig]
+	githubTokens          map[string]struct{}
+	mu                    *lockmetrics.RWMutex
+	accountID             string
+	region                string
 }
 
 // NewInMemoryBackend creates a new in-memory CodeDeploy backend with pre-seeded default configs.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		applications:        make(map[string]*Application),
-		deploymentGroups:    make(map[string]map[string]*DeploymentGroup),
-		deployments:         make(map[string]*Deployment),
-		onPremisesInstances: make(map[string]*OnPremisesInstance),
-		deploymentConfigs:   make(map[string]*DeploymentConfig),
-		githubTokens:        make(map[string]struct{}),
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("codedeploy"),
+		registry:     store.NewRegistry(),
+		githubTokens: make(map[string]struct{}),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("codedeploy"),
 	}
 
+	registerAllTables(b)
 	b.seedDefaultConfigs()
 
 	return b
@@ -449,7 +467,7 @@ func (b *InMemoryBackend) seedDefaultConfigs() {
 	for _, cfg := range defaults {
 		cfg.DeploymentConfigID = uuid.NewString()
 		cfg.CreateTime = now
-		b.deploymentConfigs[cfg.DeploymentConfigName] = cfg
+		b.deploymentConfigs.Put(cfg)
 	}
 }
 
@@ -458,31 +476,28 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, app := range b.applications {
+	for _, app := range b.applications.All() {
 		if app.Tags != nil {
 			app.Tags.Close()
 		}
 	}
 
-	for _, dgs := range b.deploymentGroups {
-		for _, dg := range dgs {
-			if dg.Tags != nil {
-				dg.Tags.Close()
-			}
+	for _, dg := range b.deploymentGroups.All() {
+		if dg.Tags != nil {
+			dg.Tags.Close()
 		}
 	}
 
-	for _, inst := range b.onPremisesInstances {
+	for _, inst := range b.onPremisesInstances.All() {
 		if inst.Tags != nil {
 			inst.Tags.Close()
 		}
 	}
 
-	b.applications = make(map[string]*Application)
-	b.deploymentGroups = make(map[string]map[string]*DeploymentGroup)
-	b.deployments = make(map[string]*Deployment)
-	b.onPremisesInstances = make(map[string]*OnPremisesInstance)
-	b.deploymentConfigs = make(map[string]*DeploymentConfig)
+	b.registry.ResetAll()
+	b.applications.Reset()
+	b.deploymentGroups.Reset()
+	b.onPremisesInstances.Reset()
 	b.githubTokens = make(map[string]struct{})
 
 	b.seedDefaultConfigs()
@@ -525,7 +540,7 @@ func (b *InMemoryBackend) CreateApplication(name, computePlatform string, kv map
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[name]; ok {
+	if b.applications.Has(name) {
 		return nil, fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -552,7 +567,7 @@ func (b *InMemoryBackend) CreateApplication(name, computePlatform string, kv map
 		CreationTime:    time.Now().UTC(),
 		Tags:            t,
 	}
-	b.applications[name] = app
+	b.applications.Put(app)
 
 	cp := *app
 
@@ -564,7 +579,7 @@ func (b *InMemoryBackend) GetApplication(name string) (*Application, error) {
 	b.mu.RLock("GetApplication")
 	defer b.mu.RUnlock()
 
-	app, ok := b.applications[name]
+	app, ok := b.applications.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, name)
 	}
@@ -579,7 +594,13 @@ func (b *InMemoryBackend) ListApplications() []string {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.applications)
+	// Table.Snapshot returns entries sorted by primary key, which for
+	// applications is ApplicationName, so this is already alphabetical.
+	items := b.applications.Snapshot()
+	names := make([]string, len(items))
+	for i, app := range items {
+		names[i] = app.ApplicationName
+	}
 
 	return names
 }
@@ -589,8 +610,9 @@ func (b *InMemoryBackend) ListApplicationDetails() []*Application {
 	b.mu.RLock("ListApplicationDetails")
 	defer b.mu.RUnlock()
 
-	list := make([]*Application, 0, len(b.applications))
-	for _, app := range b.applications {
+	all := b.applications.All()
+	list := make([]*Application, 0, len(all))
+	for _, app := range all {
 		cp := *app
 		list = append(list, &cp)
 	}
@@ -603,18 +625,21 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[name]
+	app, ok := b.applications.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
 	}
 
 	app.Tags.Close()
-	for _, dg := range b.deploymentGroups[name] {
+
+	// slices.Clone before the delete loop: deleting from b.deploymentGroups
+	// mutates the same byApplication index bucket this slice is a view of.
+	for _, dg := range slices.Clone(b.deploymentGroupsByApp.Get(name)) {
 		dg.Tags.Close()
+		b.deploymentGroups.Delete(dgKey(dg.ApplicationName, dg.DeploymentGroupName))
 	}
 
-	delete(b.applications, name)
-	delete(b.deploymentGroups, name)
+	b.applications.Delete(name)
 
 	return nil
 }
@@ -648,15 +673,13 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 	b.mu.Lock("CreateDeploymentGroup")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[appName]
+	app, ok := b.applications.Get(appName)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	if dgs, hasDG := b.deploymentGroups[appName]; hasDG {
-		if _, exists := dgs[dgName]; exists {
-			return nil, fmt.Errorf("%w: deployment group %s already exists", ErrDeploymentGroupAlreadyExists, dgName)
-		}
+	if b.deploymentGroups.Has(dgKey(appName, dgName)) {
+		return nil, fmt.Errorf("%w: deployment group %s already exists", ErrDeploymentGroupAlreadyExists, dgName)
 	}
 
 	dgID := uuid.NewString()
@@ -695,11 +718,7 @@ func (b *InMemoryBackend) CreateDeploymentGroup(
 		TerminationHookEnabled:           input.TerminationHookEnabled,
 	}
 
-	if _, hasDGs := b.deploymentGroups[appName]; !hasDGs {
-		b.deploymentGroups[appName] = make(map[string]*DeploymentGroup)
-	}
-
-	b.deploymentGroups[appName][dgName] = dg
+	b.deploymentGroups.Put(dg)
 
 	cp := *dg
 
@@ -711,12 +730,7 @@ func (b *InMemoryBackend) GetDeploymentGroup(appName, dgName string) (*Deploymen
 	b.mu.RLock("GetDeploymentGroup")
 	defer b.mu.RUnlock()
 
-	dgs, ok := b.deploymentGroups[appName]
-	if !ok {
-		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
-	}
-
-	dg, ok := dgs[dgName]
+	dg, ok := b.deploymentGroups.Get(dgKey(appName, dgName))
 	if !ok {
 		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
@@ -735,16 +749,13 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 	b.mu.Lock("UpdateDeploymentGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return false, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	dgs, ok := b.deploymentGroups[appName]
-	if !ok {
-		return false, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, currentDGName)
-	}
+	oldKey := dgKey(appName, currentDGName)
 
-	dg, ok := dgs[currentDGName]
+	dg, ok := b.deploymentGroups.Get(oldKey)
 	if !ok {
 		return false, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, currentDGName)
 	}
@@ -782,9 +793,12 @@ func (b *InMemoryBackend) UpdateDeploymentGroup(
 	dg.TerminationHookEnabled = input.TerminationHookEnabled
 
 	if newDGName != "" && newDGName != currentDGName {
+		// DeploymentGroupName is part of the store.Table primary key (see
+		// dgKey), so Put-after-in-place-mutate would leave a stale entry at
+		// oldKey: delete first, then mutate, then Put under the new key.
+		b.deploymentGroups.Delete(oldKey)
 		dg.DeploymentGroupName = newDGName
-		dgs[newDGName] = dg
-		delete(dgs, currentDGName)
+		b.deploymentGroups.Put(dg)
 	}
 
 	return hooksNotCleanedUp, nil
@@ -795,16 +809,17 @@ func (b *InMemoryBackend) ListDeploymentGroups(appName string) ([]string, error)
 	b.mu.RLock("ListDeploymentGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	dgs, ok := b.deploymentGroups[appName]
-	if !ok {
-		return []string{}, nil
+	entries := b.deploymentGroupsByApp.Get(appName)
+	names := make([]string, 0, len(entries))
+	for _, dg := range entries {
+		names = append(names, dg.DeploymentGroupName)
 	}
 
-	names := collections.SortedKeys(dgs)
+	sort.Strings(names)
 
 	return names, nil
 }
@@ -814,17 +829,13 @@ func (b *InMemoryBackend) ListDeploymentGroupDetails(appName string) ([]*Deploym
 	b.mu.RLock("ListDeploymentGroupDetails")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	dgs, ok := b.deploymentGroups[appName]
-	if !ok {
-		return []*DeploymentGroup{}, nil
-	}
-
-	list := make([]*DeploymentGroup, 0, len(dgs))
-	for _, dg := range dgs {
+	entries := b.deploymentGroupsByApp.Get(appName)
+	list := make([]*DeploymentGroup, 0, len(entries))
+	for _, dg := range entries {
 		cp := *dg
 		list = append(list, &cp)
 	}
@@ -837,22 +848,19 @@ func (b *InMemoryBackend) DeleteDeploymentGroup(appName, dgName string) error {
 	b.mu.Lock("DeleteDeploymentGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	dgs, ok := b.deploymentGroups[appName]
+	key := dgKey(appName, dgName)
+
+	dg, ok := b.deploymentGroups.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
-	dg, exists := dgs[dgName]
-	if !exists {
-		return fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
-	}
-
 	dg.Tags.Close()
-	delete(dgs, dgName)
+	b.deploymentGroups.Delete(key)
 
 	return nil
 }
@@ -872,17 +880,12 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	dgs, ok := b.deploymentGroups[appName]
+	dg, ok := b.deploymentGroups.Get(dgKey(appName, dgName))
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
-	}
-
-	dg, exists := dgs[dgName]
-	if !exists {
 		return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
@@ -911,7 +914,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 	}
-	b.deployments[deployID] = d
+	b.deployments.Put(d)
 
 	cp := *d
 
@@ -923,7 +926,7 @@ func (b *InMemoryBackend) GetDeployment(deploymentID string) (*Deployment, error
 	b.mu.RLock("GetDeployment")
 	defer b.mu.RUnlock()
 
-	d, ok := b.deployments[deploymentID]
+	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
@@ -952,9 +955,10 @@ func (b *InMemoryBackend) ListDeployments(filter DeploymentFilter) []string {
 		statusSet[s] = struct{}{}
 	}
 
-	ids := make([]string, 0, len(b.deployments))
+	all := b.deployments.All()
+	ids := make([]string, 0, len(all))
 
-	for id, d := range b.deployments {
+	for _, d := range all {
 		if filter.ApplicationName != "" && d.ApplicationName != filter.ApplicationName {
 			continue
 		}
@@ -977,7 +981,7 @@ func (b *InMemoryBackend) ListDeployments(filter DeploymentFilter) []string {
 			continue
 		}
 
-		ids = append(ids, id)
+		ids = append(ids, d.DeploymentID)
 	}
 
 	sort.Strings(ids)
@@ -1078,7 +1082,7 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceARN string) (*tags.Tags
 
 	switch resourceType {
 	case "application":
-		app, ok := b.applications[resourceID]
+		app, ok := b.applications.Get(resourceID)
 		if !ok {
 			return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, resourceID)
 		}
@@ -1092,12 +1096,7 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceARN string) (*tags.Tags
 			return nil, fmt.Errorf("%w: invalid deployment group ARN %s", ErrNotFound, resourceARN)
 		}
 
-		dgs, ok := b.deploymentGroups[appName]
-		if !ok {
-			return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
-		}
-
-		dg, ok := dgs[dgName]
+		dg, ok := b.deploymentGroups.Get(dgKey(appName, dgName))
 		if !ok {
 			return nil, fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 		}
@@ -1166,7 +1165,7 @@ func (b *InMemoryBackend) AddTagsToOnPremisesInstances(instanceNames []string, k
 	defer b.mu.Unlock()
 
 	for _, name := range instanceNames {
-		inst, ok := b.onPremisesInstances[name]
+		inst, ok := b.onPremisesInstances.Get(name)
 		if !ok {
 			t := tags.New("codedeploy.onprem." + name + ".tags")
 			inst = &OnPremisesInstance{
@@ -1174,7 +1173,7 @@ func (b *InMemoryBackend) AddTagsToOnPremisesInstances(instanceNames []string, k
 				RegisterTime: time.Now().UTC(),
 				Tags:         t,
 			}
-			b.onPremisesInstances[name] = inst
+			b.onPremisesInstances.Put(inst)
 		}
 
 		inst.Tags.Merge(kv)
@@ -1189,7 +1188,7 @@ func (b *InMemoryBackend) BatchGetApplicationRevisions(appName string, count int
 	b.mu.RLock("BatchGetApplicationRevisions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return "", fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
@@ -1210,7 +1209,7 @@ func (b *InMemoryBackend) BatchGetApplications(names []string) []*Application {
 	result := make([]*Application, 0, len(names))
 
 	for _, name := range names {
-		app, ok := b.applications[name]
+		app, ok := b.applications.Get(name)
 		if !ok {
 			continue
 		}
@@ -1228,15 +1227,14 @@ func (b *InMemoryBackend) BatchGetDeploymentGroups(appName string, dgNames []str
 	b.mu.RLock("BatchGetDeploymentGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	dgs := b.deploymentGroups[appName]
 	result := make([]*DeploymentGroup, 0, len(dgNames))
 
 	for _, name := range dgNames {
-		dg, ok := dgs[name]
+		dg, ok := b.deploymentGroups.Get(dgKey(appName, name))
 		if !ok {
 			continue
 		}
@@ -1257,7 +1255,7 @@ func (b *InMemoryBackend) BatchGetDeploymentInstances(
 	b.mu.RLock("BatchGetDeploymentInstances")
 	defer b.mu.RUnlock()
 
-	d, ok := b.deployments[deploymentID]
+	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
@@ -1283,7 +1281,7 @@ func (b *InMemoryBackend) BatchGetDeploymentTargets(
 	b.mu.RLock("BatchGetDeploymentTargets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.deployments[deploymentID]; !ok {
+	if !b.deployments.Has(deploymentID) {
 		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
@@ -1310,7 +1308,7 @@ func (b *InMemoryBackend) BatchGetDeployments(deploymentIDs []string) []*Deploym
 	result := make([]*Deployment, 0, len(deploymentIDs))
 
 	for _, id := range deploymentIDs {
-		d, ok := b.deployments[id]
+		d, ok := b.deployments.Get(id)
 		if !ok {
 			continue
 		}
@@ -1331,7 +1329,7 @@ func (b *InMemoryBackend) BatchGetOnPremisesInstances(instanceNames []string) []
 	result := make([]*OnPremisesInstance, 0, len(instanceNames))
 
 	for _, name := range instanceNames {
-		inst, ok := b.onPremisesInstances[name]
+		inst, ok := b.onPremisesInstances.Get(name)
 		if !ok {
 			continue
 		}
@@ -1348,7 +1346,7 @@ func (b *InMemoryBackend) ContinueDeployment(deploymentID string) error {
 	b.mu.Lock("ContinueDeployment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deployments[deploymentID]; !ok {
+	if !b.deployments.Has(deploymentID) {
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
@@ -1365,7 +1363,7 @@ func (b *InMemoryBackend) CreateDeploymentConfig(
 	b.mu.Lock("CreateDeploymentConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deploymentConfigs[name]; ok {
+	if b.deploymentConfigs.Has(name) {
 		return nil, fmt.Errorf("%w: deployment config %s already exists", ErrDeploymentConfigAlreadyExists, name)
 	}
 
@@ -1387,7 +1385,7 @@ func (b *InMemoryBackend) CreateDeploymentConfig(
 		TrafficRoutingConfig: trafficRouting,
 		ZonalConfig:          zonalConfig,
 	}
-	b.deploymentConfigs[name] = cfg
+	b.deploymentConfigs.Put(cfg)
 
 	cp := *cfg
 
@@ -1425,7 +1423,7 @@ func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
 		app.CreationTime = time.Now().UTC()
 	}
 
-	b.applications[app.ApplicationName] = app
+	b.applications.Put(app)
 }
 
 // AddDeploymentGroupInternal adds a deployment group directly to the backend without validation.
@@ -1440,11 +1438,7 @@ func (b *InMemoryBackend) AddDeploymentGroupInternal(dg *DeploymentGroup) {
 		dg.DeploymentGroupID = uuid.NewString()
 	}
 
-	if _, ok := b.deploymentGroups[dg.ApplicationName]; !ok {
-		b.deploymentGroups[dg.ApplicationName] = make(map[string]*DeploymentGroup)
-	}
-
-	b.deploymentGroups[dg.ApplicationName][dg.DeploymentGroupName] = dg
+	b.deploymentGroups.Put(dg)
 }
 
 // AddDeploymentInternal adds a deployment directly to the backend without validation.
@@ -1461,7 +1455,7 @@ func (b *InMemoryBackend) AddDeploymentInternal(d *Deployment) {
 		d.CreateTime = time.Now().UTC()
 	}
 
-	b.deployments[d.DeploymentID] = d
+	b.deployments.Put(d)
 }
 
 // AddOnPremisesInstanceInternal adds an on-premises instance directly to the backend.
@@ -1476,15 +1470,16 @@ func (b *InMemoryBackend) AddOnPremisesInstanceInternal(inst *OnPremisesInstance
 		inst.RegisterTime = time.Now().UTC()
 	}
 
-	b.onPremisesInstances[inst.InstanceName] = inst
+	b.onPremisesInstances.Put(inst)
 }
 
-// UpdateApplication renames a CodeDeploy application, updating all referencing deployments.
+// UpdateApplication renames a CodeDeploy application, updating all referencing deployment
+// groups and deployments.
 func (b *InMemoryBackend) UpdateApplication(name, newName string) error {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[name]
+	app, ok := b.applications.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
 	}
@@ -1493,21 +1488,32 @@ func (b *InMemoryBackend) UpdateApplication(name, newName string) error {
 		return nil
 	}
 
-	if _, exists := b.applications[newName]; exists {
+	if b.applications.Has(newName) {
 		return fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, newName)
 	}
 
+	// ApplicationName is the store.Table primary key, so Put-after-in-place-
+	// mutate would leave a stale entry at the old key: delete, mutate, Put.
+	b.applications.Delete(name)
 	app.ApplicationName = newName
-	b.applications[newName] = app
-	delete(b.applications, name)
+	b.applications.Put(app)
 
-	if dgs, ok2 := b.deploymentGroups[name]; ok2 {
-		b.deploymentGroups[newName] = dgs
-		delete(b.deploymentGroups, name)
+	// Move all deployment groups for this application to the new app name.
+	// DeploymentGroup.ApplicationName is both part of the deploymentGroups
+	// primary key (see dgKey) and the deploymentGroupsByApp index key, so
+	// each affected group needs the same delete/mutate/Put treatment.
+	// slices.Clone before the delete loop: deleting mutates the same
+	// byApplication index bucket this slice is a view of.
+	for _, dg := range slices.Clone(b.deploymentGroupsByApp.Get(name)) {
+		b.deploymentGroups.Delete(dgKey(dg.ApplicationName, dg.DeploymentGroupName))
+		dg.ApplicationName = newName
+		b.deploymentGroups.Put(dg)
 	}
 
-	// Update all existing deployments that reference the old application name.
-	for _, d := range b.deployments {
+	// Update all existing deployments that reference the old application
+	// name. ApplicationName is not part of Deployment's primary key
+	// (DeploymentID is), so in-place mutation is safe here.
+	for _, d := range b.deployments.All() {
 		if d.ApplicationName == name {
 			d.ApplicationName = newName
 		}
@@ -1521,7 +1527,7 @@ func (b *InMemoryBackend) StopDeployment(deploymentID string) error {
 	b.mu.Lock("StopDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.deployments[deploymentID]
+	d, ok := b.deployments.Get(deploymentID)
 	if !ok {
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
@@ -1536,7 +1542,7 @@ func (b *InMemoryBackend) GetDeploymentConfig(name string) (*DeploymentConfig, e
 	b.mu.RLock("GetDeploymentConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.deploymentConfigs[name]
+	cfg, ok := b.deploymentConfigs.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: deployment config %s not found", ErrDeploymentConfigNotFound, name)
 	}
@@ -1551,7 +1557,13 @@ func (b *InMemoryBackend) ListDeploymentConfigs() []string {
 	b.mu.RLock("ListDeploymentConfigs")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.deploymentConfigs)
+	// Table.Snapshot returns entries sorted by primary key, which for
+	// deploymentConfigs is DeploymentConfigName, so this is already alphabetical.
+	items := b.deploymentConfigs.Snapshot()
+	names := make([]string, len(items))
+	for i, cfg := range items {
+		names[i] = cfg.DeploymentConfigName
+	}
 
 	return names
 }
@@ -1562,7 +1574,7 @@ func (b *InMemoryBackend) DeleteDeploymentConfig(name string) error {
 	b.mu.Lock("DeleteDeploymentConfig")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.deploymentConfigs[name]
+	cfg, ok := b.deploymentConfigs.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: deployment config %s not found", ErrDeploymentConfigNotFound, name)
 	}
@@ -1571,7 +1583,7 @@ func (b *InMemoryBackend) DeleteDeploymentConfig(name string) error {
 		return fmt.Errorf("%w: cannot delete built-in deployment config %s", ErrDeploymentConfigInUse, name)
 	}
 
-	delete(b.deploymentConfigs, name)
+	b.deploymentConfigs.Delete(name)
 
 	return nil
 }
@@ -1582,7 +1594,7 @@ func (b *InMemoryBackend) RemoveTagsFromOnPremisesInstances(instanceNames []stri
 	defer b.mu.Unlock()
 
 	for _, name := range instanceNames {
-		inst, ok := b.onPremisesInstances[name]
+		inst, ok := b.onPremisesInstances.Get(name)
 		if !ok {
 			continue
 		}
@@ -1611,18 +1623,18 @@ func (b *InMemoryBackend) RegisterOnPremisesInstance(name, iamSessionArn, iamUse
 		return fmt.Errorf("%w: one of iamSessionArn or iamUserArn must be set", ErrIamArnRequired)
 	}
 
-	if _, ok := b.onPremisesInstances[name]; ok {
+	if b.onPremisesInstances.Has(name) {
 		return nil
 	}
 
 	t := tags.New("codedeploy.onprem." + name + ".tags")
-	b.onPremisesInstances[name] = &OnPremisesInstance{
+	b.onPremisesInstances.Put(&OnPremisesInstance{
 		InstanceName:  name,
 		IamSessionArn: iamSessionArn,
 		IamUserArn:    iamUserArn,
 		RegisterTime:  time.Now().UTC(),
 		Tags:          t,
-	}
+	})
 
 	return nil
 }
@@ -1632,7 +1644,7 @@ func (b *InMemoryBackend) DeregisterOnPremisesInstance(name string) error {
 	b.mu.Lock("DeregisterOnPremisesInstance")
 	defer b.mu.Unlock()
 
-	inst, ok := b.onPremisesInstances[name]
+	inst, ok := b.onPremisesInstances.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: instance %s not found", ErrOnPremisesInstanceNotFound, name)
 	}
@@ -1648,7 +1660,7 @@ func (b *InMemoryBackend) GetOnPremisesInstance(name string) (*OnPremisesInstanc
 	b.mu.RLock("GetOnPremisesInstance")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.onPremisesInstances[name]
+	inst, ok := b.onPremisesInstances.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrOnPremisesInstanceNotFound, name)
 	}
@@ -1663,8 +1675,9 @@ func (b *InMemoryBackend) ListOnPremisesInstances(registrationStatus string, tag
 	b.mu.RLock("ListOnPremisesInstances")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.onPremisesInstances))
-	for name, inst := range b.onPremisesInstances {
+	all := b.onPremisesInstances.All()
+	names := make([]string, 0, len(all))
+	for _, inst := range all {
 		if registrationStatus == "Deregistered" && inst.DeregisterTime == nil {
 			continue
 		}
@@ -1674,7 +1687,7 @@ func (b *InMemoryBackend) ListOnPremisesInstances(registrationStatus string, tag
 		if len(tagFilters) > 0 && !matchesTagFilters(inst.Tags, tagFilters) {
 			continue
 		}
-		names = append(names, name)
+		names = append(names, inst.InstanceName)
 	}
 
 	sort.Strings(names)
@@ -1734,7 +1747,7 @@ func (b *InMemoryBackend) AddDeploymentConfigInternal(cfg *DeploymentConfig) {
 		cfg.CreateTime = time.Now().UTC()
 	}
 
-	b.deploymentConfigs[cfg.DeploymentConfigName] = cfg
+	b.deploymentConfigs.Put(cfg)
 }
 
 // ListGitHubAccountTokenNames returns all stored GitHub account token names.

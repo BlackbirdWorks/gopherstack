@@ -6,7 +6,7 @@ func (b *InMemoryBackend) ApplicationCount() int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.applications)
+	return b.applications.Len()
 }
 
 // DeploymentGroupCount returns the number of deployment groups for an application.
@@ -15,7 +15,7 @@ func (b *InMemoryBackend) DeploymentGroupCount(appName string) int {
 	b.mu.RLock("DeploymentGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.deploymentGroups[appName])
+	return len(b.deploymentGroupsByApp.Get(appName))
 }
 
 // DeploymentCount returns the number of deployments stored in the backend.
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) DeploymentCount() int {
 	b.mu.RLock("DeploymentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.deployments)
+	return b.deployments.Len()
 }
 
 // OnPremisesInstanceCount returns the number of on-premises instances stored in the backend.
@@ -33,7 +33,7 @@ func (b *InMemoryBackend) OnPremisesInstanceCount() int {
 	b.mu.RLock("OnPremisesInstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.onPremisesInstances)
+	return b.onPremisesInstances.Len()
 }
 
 // DeploymentConfigCount returns the number of deployment configs stored in the backend.
@@ -42,5 +42,5 @@ func (b *InMemoryBackend) DeploymentConfigCount() int {
 	b.mu.RLock("DeploymentConfigCount")
 	defer b.mu.RUnlock()
 
-	return len(b.deploymentConfigs)
+	return b.deploymentConfigs.Len()
 }
