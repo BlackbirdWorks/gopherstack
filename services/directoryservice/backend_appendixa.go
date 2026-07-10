@@ -3,6 +3,7 @@ package directoryservice
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -37,7 +38,13 @@ type storedIpRoute struct { //nolint:revive,staticcheck // existing issue.
 	IPRouteStatus string    `json:"ipRouteStatus"`
 }
 
+// storedRegion holds an AWS Directory Service "Region" (multi-region
+// replication) resource. Its own region field below is the AWS *request*
+// region (the outer half of the store.Table composite key; see
+// storedDirectory.region), which is distinct from RegionName (the DS
+// replication-region resource attribute itself).
 type storedRegion struct {
+	region      string
 	LaunchTime  time.Time `json:"launchTime"`
 	DirectoryID string    `json:"directoryId"`
 	RegionName  string    `json:"regionName"`
@@ -46,6 +53,9 @@ type storedRegion struct {
 }
 
 type storedSchemaExtension struct {
+	// region is the AWS region this schema extension belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region      string
 	StartTime   time.Time `json:"startTime"`
 	EndTime     time.Time `json:"endTime"`
 	ExtensionID string    `json:"extensionId"`
@@ -55,6 +65,9 @@ type storedSchemaExtension struct {
 }
 
 type storedConditionalForwarder struct {
+	// region is the AWS region this conditional forwarder belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region           string
 	DirectoryID      string   `json:"directoryId"`
 	RemoteDomainName string   `json:"remoteDomainName"`
 	ReplicationScope string   `json:"replicationScope"`
@@ -62,12 +75,18 @@ type storedConditionalForwarder struct {
 }
 
 type storedLogSubscription struct {
+	// region is the AWS region this log subscription belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region                      string
 	SubscriptionCreatedDateTime time.Time `json:"subscriptionCreatedDateTime"`
 	DirectoryID                 string    `json:"directoryId"`
 	LogGroupName                string    `json:"logGroupName"`
 }
 
 type storedEventTopic struct {
+	// region is the AWS region this event topic belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region          string
 	CreatedDateTime time.Time `json:"createdDateTime"`
 	DirectoryID     string    `json:"directoryId"`
 	TopicName       string    `json:"topicName"`
@@ -76,6 +95,9 @@ type storedEventTopic struct {
 }
 
 type storedDomainController struct {
+	// region is the AWS region this domain controller belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region           string
 	LaunchTime       time.Time `json:"launchTime"`
 	ControllerID     string    `json:"controllerId"`
 	DirectoryID      string    `json:"directoryId"`
@@ -84,6 +106,9 @@ type storedDomainController struct {
 }
 
 type storedTrust struct {
+	// region is the AWS region this trust belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region               string
 	CreatedDateTime      time.Time `json:"createdDateTime"`
 	LastUpdatedDateTime  time.Time `json:"lastUpdatedDateTime"`
 	StateLastUpdatedTime time.Time `json:"stateLastUpdatedDateTime"`
@@ -98,6 +123,9 @@ type storedTrust struct {
 }
 
 type storedSharedDirectory struct {
+	// region is the AWS region this shared directory belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region              string
 	CreatedDateTime     time.Time `json:"createdDateTime"`
 	LastUpdatedDateTime time.Time `json:"lastUpdatedDateTime"`
 	SharedDirectoryID   string    `json:"sharedDirectoryId"`
@@ -110,6 +138,9 @@ type storedSharedDirectory struct {
 }
 
 type storedCertificate struct {
+	// region is the AWS region this certificate belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region             string
 	RegisteredDateTime time.Time `json:"registeredDateTime"`
 	ExpiryDateTime     time.Time `json:"expiryDateTime"`
 	CertificateID      string    `json:"certificateId"`
@@ -121,6 +152,9 @@ type storedCertificate struct {
 }
 
 type storedLDAPSSetting struct {
+	// region is the AWS region this LDAPS setting belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region                    string
 	LastUpdatedDateTime       time.Time `json:"lastUpdatedDateTime"`
 	CertificateExpiryDateTime time.Time `json:"certificateExpiryDateTime"`
 	DirectoryID               string    `json:"directoryId"`
@@ -130,6 +164,9 @@ type storedLDAPSSetting struct {
 }
 
 type storedClientAuthSetting struct {
+	// region is the AWS region this client auth setting belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region              string
 	LastUpdatedDateTime time.Time `json:"lastUpdatedDateTime"`
 	DirectoryID         string    `json:"directoryId"`
 	AuthType            string    `json:"authType"`
@@ -137,6 +174,9 @@ type storedClientAuthSetting struct {
 }
 
 type storedRadiusSettings struct {
+	// region is the AWS region these RADIUS settings belong to; see
+	// storedDirectory.region for the composite-key rationale.
+	region                 string
 	DirectoryID            string   `json:"directoryId"`
 	AuthenticationProtocol string   `json:"authenticationProtocol"`
 	DisplayLabel           string   `json:"displayLabel"`
@@ -148,6 +188,10 @@ type storedRadiusSettings struct {
 	UseSameUsername        bool     `json:"useSameUsername"`
 }
 
+// storedADAssessment reuses its existing exported Region field (already
+// populated with the AWS request region for the API's own
+// ADAssessmentInfo.Region output) as the composite-key region component; see
+// adAssessmentKeyFn in store_setup.go.
 type storedADAssessment struct {
 	StartTime    time.Time `json:"startTime"`
 	AssessmentID string    `json:"assessmentId"`
@@ -180,6 +224,9 @@ type storedUpdateInfo struct {
 }
 
 type storedHybridADUpdate struct {
+	// region is the AWS region this hybrid AD update belongs to; see
+	// storedDirectory.region for the composite-key rationale.
+	region      string
 	RequestID   string `json:"requestId"`
 	DirectoryID string `json:"directoryId"`
 	Status      string `json:"status"`
@@ -404,6 +451,291 @@ type HybridADUpdateEntry struct {
 	Status      string
 }
 
+// The following accessor helpers mirror the ones in backend.go, one set per
+// converted Appendix-A resource table. Callers must hold b.mu.
+
+func (b *InMemoryBackend) dsRegionGet(region, directoryID, regionName string) (*storedRegion, bool) {
+	return b.dsRegions.Get(regionKey(region, dsRegionID(directoryID, regionName)))
+}
+
+func (b *InMemoryBackend) dsRegionPut(v *storedRegion) { b.dsRegions.Put(v) }
+
+func (b *InMemoryBackend) dsRegionsInRegion(region string) []*storedRegion {
+	return b.dsRegionsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) schemaExtensionGet(region, id string) (*storedSchemaExtension, bool) {
+	return b.schemaExtensions.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) schemaExtensionPut(v *storedSchemaExtension) { b.schemaExtensions.Put(v) }
+
+func (b *InMemoryBackend) schemaExtensionsInRegion(region string) []*storedSchemaExtension {
+	return b.schemaExtensionsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) conditionalForwarderGet(
+	region, directoryID, remoteDomainName string,
+) (*storedConditionalForwarder, bool) {
+	return b.conditionalForwarders.Get(regionKey(region, conditionalForwarderID(directoryID, remoteDomainName)))
+}
+
+func (b *InMemoryBackend) conditionalForwarderPut(v *storedConditionalForwarder) {
+	b.conditionalForwarders.Put(v)
+}
+
+func (b *InMemoryBackend) conditionalForwarderDelete(region, directoryID, remoteDomainName string) {
+	b.conditionalForwarders.Delete(regionKey(region, conditionalForwarderID(directoryID, remoteDomainName)))
+}
+
+func (b *InMemoryBackend) conditionalForwardersInRegion(region string) []*storedConditionalForwarder {
+	return b.conditionalForwardersByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) logSubscriptionGet(region, directoryID, logGroupName string) (*storedLogSubscription, bool) {
+	return b.logSubscriptions.Get(regionKey(region, logSubscriptionID(directoryID, logGroupName)))
+}
+
+func (b *InMemoryBackend) logSubscriptionPut(v *storedLogSubscription) { b.logSubscriptions.Put(v) }
+
+func (b *InMemoryBackend) logSubscriptionsInRegion(region string) []*storedLogSubscription {
+	return b.logSubscriptionsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) eventTopicGet(region, directoryID, topicName string) (*storedEventTopic, bool) {
+	return b.eventTopics.Get(regionKey(region, eventTopicID(directoryID, topicName)))
+}
+
+func (b *InMemoryBackend) eventTopicPut(v *storedEventTopic) { b.eventTopics.Put(v) }
+
+func (b *InMemoryBackend) eventTopicDelete(region, directoryID, topicName string) {
+	b.eventTopics.Delete(regionKey(region, eventTopicID(directoryID, topicName)))
+}
+
+func (b *InMemoryBackend) eventTopicsInRegion(region string) []*storedEventTopic {
+	return b.eventTopicsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) domainControllerGet(region, id string) (*storedDomainController, bool) {
+	return b.domainControllers.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) domainControllerPut(v *storedDomainController) { b.domainControllers.Put(v) }
+
+func (b *InMemoryBackend) domainControllerDelete(region, id string) {
+	b.domainControllers.Delete(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) domainControllersInRegion(region string) []*storedDomainController {
+	return b.domainControllersByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) trustGet(region, id string) (*storedTrust, bool) {
+	return b.trusts.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) trustPut(v *storedTrust) { b.trusts.Put(v) }
+
+func (b *InMemoryBackend) trustDelete(region, id string) { b.trusts.Delete(regionKey(region, id)) }
+
+func (b *InMemoryBackend) trustsInRegion(region string) []*storedTrust {
+	return b.trustsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) sharedDirectoryGet(region, id string) (*storedSharedDirectory, bool) {
+	return b.sharedDirectories.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) sharedDirectoryPut(v *storedSharedDirectory) { b.sharedDirectories.Put(v) }
+
+func (b *InMemoryBackend) sharedDirectoriesInRegion(region string) []*storedSharedDirectory {
+	return b.sharedDirectoriesByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) certificateGet(region, id string) (*storedCertificate, bool) {
+	return b.certificates.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) certificatePut(v *storedCertificate) { b.certificates.Put(v) }
+
+func (b *InMemoryBackend) certificateDelete(region, id string) {
+	b.certificates.Delete(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) certificatesInRegion(region string) []*storedCertificate {
+	return b.certificatesByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) ldapsSettingGet(region, directoryID, ldapsType string) (*storedLDAPSSetting, bool) {
+	return b.ldapsSettings.Get(regionKey(region, ldapsSettingID(directoryID, ldapsType)))
+}
+
+func (b *InMemoryBackend) ldapsSettingPut(v *storedLDAPSSetting) { b.ldapsSettings.Put(v) }
+
+func (b *InMemoryBackend) ldapsSettingsInRegion(region string) []*storedLDAPSSetting {
+	return b.ldapsSettingsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) clientAuthSettingGet(region, directoryID, authType string) (*storedClientAuthSetting, bool) {
+	return b.clientAuthSettings.Get(regionKey(region, clientAuthSettingID(directoryID, authType)))
+}
+
+func (b *InMemoryBackend) clientAuthSettingPut(v *storedClientAuthSetting) {
+	b.clientAuthSettings.Put(v)
+}
+
+func (b *InMemoryBackend) clientAuthSettingsInRegion(region string) []*storedClientAuthSetting {
+	return b.clientAuthSettingsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) radiusSettingsGet(region, directoryID string) (*storedRadiusSettings, bool) {
+	return b.radiusSettings.Get(regionKey(region, directoryID))
+}
+
+func (b *InMemoryBackend) radiusSettingsPut(v *storedRadiusSettings) { b.radiusSettings.Put(v) }
+
+func (b *InMemoryBackend) radiusSettingsDelete(region, directoryID string) {
+	b.radiusSettings.Delete(regionKey(region, directoryID))
+}
+
+func (b *InMemoryBackend) adAssessmentGet(region, id string) (*storedADAssessment, bool) {
+	return b.adAssessments.Get(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) adAssessmentPut(v *storedADAssessment) { b.adAssessments.Put(v) }
+
+func (b *InMemoryBackend) adAssessmentDelete(region, id string) {
+	b.adAssessments.Delete(regionKey(region, id))
+}
+
+func (b *InMemoryBackend) adAssessmentsInRegion(region string) []*storedADAssessment {
+	return b.adAssessmentsByRegion.Get(region)
+}
+
+func (b *InMemoryBackend) hybridADUpdatePut(v *storedHybridADUpdate) { b.hybridADUpdates.Put(v) }
+
+func (b *InMemoryBackend) hybridADUpdatesInRegion(region string) []*storedHybridADUpdate {
+	return b.hybridADUpdatesByRegion.Get(region)
+}
+
+// cascadeDeleteDirectory removes all resources that belong to directoryID
+// from every table/raw map scoped to region. Must be called with the backend
+// lock held.
+func (b *InMemoryBackend) cascadeDeleteDirectory(region, directoryID string) {
+	for _, snap := range slices.Clone(b.snapshotsInRegion(region)) {
+		if snap.DirectoryID == directoryID {
+			b.snapshotDelete(region, snap.SnapshotID)
+		}
+	}
+
+	b.cascadeDeleteRawMaps(region, directoryID)
+	b.cascadeDeleteCoreTables(region, directoryID)
+	b.cascadeDeleteForwardingTables(region, directoryID)
+	b.cascadeDeleteTrustTables(region, directoryID)
+	b.cascadeDeleteSettingsTables(region, directoryID)
+}
+
+// cascadeDeleteRawMaps clears the six raw region-nested maps' entries for
+// directoryID. Split out of cascadeDeleteDirectory to keep its cognitive
+// complexity low.
+func (b *InMemoryBackend) cascadeDeleteRawMaps(region, directoryID string) {
+	delete(b.ipRoutesStore(region), directoryID)
+	b.radiusSettingsDelete(region, directoryID)
+	delete(b.dirDataAccessStore(region), directoryID)
+	delete(b.caEnrollmentStore(region), directoryID)
+	delete(b.dirSettingsStore(region), directoryID)
+	delete(b.updateInfoEntriesStore(region), directoryID)
+}
+
+// cascadeDeleteCoreTables removes dsRegions/schemaExtensions entries owned by
+// directoryID. Split out of cascadeDeleteDirectory to keep its cognitive
+// complexity low.
+func (b *InMemoryBackend) cascadeDeleteCoreTables(region, directoryID string) {
+	for _, r := range slices.Clone(b.dsRegionsInRegion(region)) {
+		if r.DirectoryID == directoryID {
+			b.dsRegions.Delete(regionKey(region, dsRegionID(r.DirectoryID, r.RegionName)))
+		}
+	}
+	for _, e := range slices.Clone(b.schemaExtensionsInRegion(region)) {
+		if e.DirectoryID == directoryID {
+			b.schemaExtensions.Delete(regionKey(region, e.ExtensionID))
+		}
+	}
+}
+
+// cascadeDeleteForwardingTables removes conditionalForwarders/logSubscriptions/
+// eventTopics/domainControllers entries owned by directoryID. Split out of
+// cascadeDeleteDirectory to keep its cognitive complexity low.
+func (b *InMemoryBackend) cascadeDeleteForwardingTables(region, directoryID string) {
+	for _, f := range slices.Clone(b.conditionalForwardersInRegion(region)) {
+		if f.DirectoryID == directoryID {
+			b.conditionalForwarderDelete(region, f.DirectoryID, f.RemoteDomainName)
+		}
+	}
+	for _, s := range slices.Clone(b.logSubscriptionsInRegion(region)) {
+		if s.DirectoryID == directoryID {
+			b.logSubscriptions.Delete(regionKey(region, logSubscriptionID(s.DirectoryID, s.LogGroupName)))
+		}
+	}
+	for _, t := range slices.Clone(b.eventTopicsInRegion(region)) {
+		if t.DirectoryID == directoryID {
+			b.eventTopicDelete(region, t.DirectoryID, t.TopicName)
+		}
+	}
+	for _, dc := range slices.Clone(b.domainControllersInRegion(region)) {
+		if dc.DirectoryID == directoryID {
+			b.domainControllerDelete(region, dc.ControllerID)
+		}
+	}
+}
+
+// cascadeDeleteTrustTables removes trusts/sharedDirectories/certificates/
+// ldapsSettings entries owned by directoryID. Split out of
+// cascadeDeleteDirectory to keep its cognitive complexity low.
+func (b *InMemoryBackend) cascadeDeleteTrustTables(region, directoryID string) {
+	for _, t := range slices.Clone(b.trustsInRegion(region)) {
+		if t.DirectoryID == directoryID {
+			b.trustDelete(region, t.TrustID)
+		}
+	}
+	for _, sd := range slices.Clone(b.sharedDirectoriesInRegion(region)) {
+		if sd.OwnerDirectoryID == directoryID {
+			b.sharedDirectories.Delete(regionKey(region, sd.SharedDirectoryID))
+		}
+	}
+	for _, c := range slices.Clone(b.certificatesInRegion(region)) {
+		if c.DirectoryID == directoryID {
+			b.certificateDelete(region, c.CertificateID)
+		}
+	}
+	for _, l := range slices.Clone(b.ldapsSettingsInRegion(region)) {
+		if l.DirectoryID == directoryID {
+			b.ldapsSettings.Delete(regionKey(region, ldapsSettingID(l.DirectoryID, l.LDAPSType)))
+		}
+	}
+}
+
+// cascadeDeleteSettingsTables removes clientAuthSettings/adAssessments/
+// hybridADUpdates entries owned by directoryID. Split out of
+// cascadeDeleteDirectory to keep its cognitive complexity low.
+func (b *InMemoryBackend) cascadeDeleteSettingsTables(region, directoryID string) {
+	for _, a := range slices.Clone(b.clientAuthSettingsInRegion(region)) {
+		if a.DirectoryID == directoryID {
+			b.clientAuthSettings.Delete(regionKey(region, clientAuthSettingID(a.DirectoryID, a.AuthType)))
+		}
+	}
+	for _, a := range slices.Clone(b.adAssessmentsInRegion(region)) {
+		if a.DirectoryID == directoryID {
+			b.adAssessmentDelete(region, a.AssessmentID)
+		}
+	}
+	for _, h := range slices.Clone(b.hybridADUpdatesInRegion(region)) {
+		if h.DirectoryID == directoryID {
+			b.hybridADUpdates.Delete(regionKey(region, h.RequestID))
+		}
+	}
+}
+
 // --- IP Routes ---
 
 // AddIpRoutes adds CIDR IP routes to a directory.
@@ -417,14 +749,13 @@ func (b *InMemoryBackend) AddIpRoutes( //nolint:revive,staticcheck // existing i
 	b.mu.Lock("AddIpRoutes")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
+	ipRoutes := b.ipRoutesStore(region)
 	now := time.Now().UTC()
-	existing := st.ipRoutes[directoryID]
+	existing := ipRoutes[directoryID]
 	existingSet := make(map[string]bool, len(existing))
 	for _, r := range existing {
 		existingSet[r.CidrIP] = true
@@ -432,7 +763,7 @@ func (b *InMemoryBackend) AddIpRoutes( //nolint:revive,staticcheck // existing i
 
 	for _, r := range routes {
 		if !existingSet[r.CidrIP] {
-			st.ipRoutes[directoryID] = append(st.ipRoutes[directoryID], storedIpRoute{
+			ipRoutes[directoryID] = append(ipRoutes[directoryID], storedIpRoute{
 				DirectoryID:   directoryID,
 				CidrIP:        r.CidrIP,
 				Description:   r.Description,
@@ -456,9 +787,7 @@ func (b *InMemoryBackend) RemoveIpRoutes( //nolint:revive,staticcheck // existin
 	b.mu.Lock("RemoveIpRoutes")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
@@ -467,13 +796,14 @@ func (b *InMemoryBackend) RemoveIpRoutes( //nolint:revive,staticcheck // existin
 		remove[c] = true
 	}
 
-	filtered := st.ipRoutes[directoryID][:0]
-	for _, r := range st.ipRoutes[directoryID] {
+	ipRoutes := b.ipRoutesStore(region)
+	filtered := ipRoutes[directoryID][:0]
+	for _, r := range ipRoutes[directoryID] {
 		if !remove[r.CidrIP] {
 			filtered = append(filtered, r)
 		}
 	}
-	st.ipRoutes[directoryID] = filtered
+	ipRoutes[directoryID] = filtered
 
 	return nil
 }
@@ -490,13 +820,11 @@ func (b *InMemoryBackend) ListIpRoutes( //nolint:revive,staticcheck // existing 
 	b.mu.RLock("ListIpRoutes")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
-	stored := st.ipRoutes[directoryID]
+	stored := b.ipRoutesStore(region)[directoryID]
 	sorted := make([]storedIpRoute, len(stored))
 	copy(sorted, stored)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].CidrIP < sorted[j].CidrIP })
@@ -546,24 +874,22 @@ func (b *InMemoryBackend) AddRegion(ctx context.Context, directoryID, regionName
 	b.mu.Lock("AddRegion")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + regionName
-	if _, exists := st.regions[key]; exists {
+	if _, exists := b.dsRegionGet(region, directoryID, regionName); exists {
 		return ErrAliasAlreadyExists
 	}
 
-	st.regions[key] = &storedRegion{
+	b.dsRegionPut(&storedRegion{
+		region:      region,
 		DirectoryID: directoryID,
 		RegionName:  regionName,
 		RegionType:  "Additional",
 		Status:      "Active",
 		LaunchTime:  time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -575,15 +901,13 @@ func (b *InMemoryBackend) RemoveRegion(ctx context.Context, directoryID string) 
 	b.mu.Lock("RemoveRegion")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	for key, r := range st.regions {
+	for _, r := range slices.Clone(b.dsRegionsInRegion(region)) {
 		if r.DirectoryID == directoryID {
-			delete(st.regions, key)
+			b.dsRegions.Delete(regionKey(region, dsRegionID(r.DirectoryID, r.RegionName)))
 		}
 	}
 
@@ -600,14 +924,12 @@ func (b *InMemoryBackend) DescribeRegions(
 	b.mu.RLock("DescribeRegions")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
 	var all []storedRegion
-	for _, r := range st.regions {
+	for _, r := range b.dsRegionsInRegion(region) {
 		if r.DirectoryID != directoryID {
 			continue
 		}
@@ -620,7 +942,13 @@ func (b *InMemoryBackend) DescribeRegions(
 
 	result := make([]RegionDescription, 0, len(all))
 	for _, r := range all {
-		result = append(result, RegionDescription(r))
+		result = append(result, RegionDescription{
+			LaunchTime:  r.LaunchTime,
+			DirectoryID: r.DirectoryID,
+			RegionName:  r.RegionName,
+			RegionType:  r.RegionType,
+			Status:      r.Status,
+		})
 	}
 
 	return result, "", nil
@@ -638,22 +966,21 @@ func (b *InMemoryBackend) StartSchemaExtension(
 	b.mu.Lock("StartSchemaExtension")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
 	id := fmt.Sprintf("e-%s", uuid.NewString()[:10])
 	now := time.Now().UTC()
-	st.schemaExtensions[id] = &storedSchemaExtension{
+	b.schemaExtensionPut(&storedSchemaExtension{
+		region:      region,
 		ExtensionID: id,
 		DirectoryID: directoryID,
 		Description: description,
 		Status:      "Completed",
 		StartTime:   now,
 		EndTime:     now,
-	}
+	})
 
 	return id, nil
 }
@@ -665,7 +992,7 @@ func (b *InMemoryBackend) CancelSchemaExtension(ctx context.Context, directoryID
 	b.mu.Lock("CancelSchemaExtension")
 	defer b.mu.Unlock()
 
-	ext, ok := b.state(region).schemaExtensions[schemaExtensionID]
+	ext, ok := b.schemaExtensionGet(region, schemaExtensionID)
 	if !ok || ext.DirectoryID != directoryID {
 		return ErrSchemaExtensionNotFound
 	}
@@ -687,14 +1014,12 @@ func (b *InMemoryBackend) ListSchemaExtensions(
 	b.mu.RLock("ListSchemaExtensions")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
 	var all []storedSchemaExtension
-	for _, e := range st.schemaExtensions {
+	for _, e := range b.schemaExtensionsInRegion(region) {
 		if e.DirectoryID == directoryID {
 			all = append(all, *e)
 		}
@@ -720,7 +1045,14 @@ func (b *InMemoryBackend) ListSchemaExtensions(
 	end := min(start+pageSize, len(all))
 	result := make([]SchemaExtension, 0, end-start)
 	for _, e := range all[start:end] {
-		result = append(result, SchemaExtension(e))
+		result = append(result, SchemaExtension{
+			StartTime:   e.StartTime,
+			EndTime:     e.EndTime,
+			ExtensionID: e.ExtensionID,
+			DirectoryID: e.DirectoryID,
+			Description: e.Description,
+			Status:      e.Status,
+		})
 	}
 
 	var outToken string
@@ -744,23 +1076,21 @@ func (b *InMemoryBackend) CreateConditionalForwarder(
 	b.mu.Lock("CreateConditionalForwarder")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + remoteDomainName
-	if _, exists := st.conditionalForwarders[key]; exists {
+	if _, exists := b.conditionalForwarderGet(region, directoryID, remoteDomainName); exists {
 		return ErrAliasAlreadyExists
 	}
 
-	st.conditionalForwarders[key] = &storedConditionalForwarder{
+	b.conditionalForwarderPut(&storedConditionalForwarder{
+		region:           region,
 		DirectoryID:      directoryID,
 		RemoteDomainName: remoteDomainName,
 		DNSIPAddrs:       dnsIPAddrs,
 		ReplicationScope: "Domain",
-	}
+	})
 
 	return nil
 }
@@ -776,8 +1106,7 @@ func (b *InMemoryBackend) UpdateConditionalForwarder(
 	b.mu.Lock("UpdateConditionalForwarder")
 	defer b.mu.Unlock()
 
-	key := directoryID + ":" + remoteDomainName
-	fwd, ok := b.state(region).conditionalForwarders[key]
+	fwd, ok := b.conditionalForwarderGet(region, directoryID, remoteDomainName)
 	if !ok {
 		return ErrConditionalForwarderNotFound
 	}
@@ -794,13 +1123,11 @@ func (b *InMemoryBackend) DeleteConditionalForwarder(ctx context.Context, direct
 	b.mu.Lock("DeleteConditionalForwarder")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-	key := directoryID + ":" + remoteDomainName
-	if _, ok := st.conditionalForwarders[key]; !ok {
+	if _, ok := b.conditionalForwarderGet(region, directoryID, remoteDomainName); !ok {
 		return ErrConditionalForwarderNotFound
 	}
 
-	delete(st.conditionalForwarders, key)
+	b.conditionalForwarderDelete(region, directoryID, remoteDomainName)
 
 	return nil
 }
@@ -816,9 +1143,7 @@ func (b *InMemoryBackend) DescribeConditionalForwarders(
 	b.mu.RLock("DescribeConditionalForwarders")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, ErrDirectoryNotFound
 	}
 
@@ -828,7 +1153,7 @@ func (b *InMemoryBackend) DescribeConditionalForwarders(
 	}
 
 	var result []ConditionalForwarder
-	for _, fwd := range st.conditionalForwarders {
+	for _, fwd := range b.conditionalForwardersInRegion(region) {
 		if fwd.DirectoryID != directoryID {
 			continue
 		}
@@ -858,22 +1183,20 @@ func (b *InMemoryBackend) CreateLogSubscription(ctx context.Context, directoryID
 	b.mu.Lock("CreateLogSubscription")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + logGroupName
-	if _, exists := st.logSubscriptions[key]; exists {
+	if _, exists := b.logSubscriptionGet(region, directoryID, logGroupName); exists {
 		return ErrAliasAlreadyExists
 	}
 
-	st.logSubscriptions[key] = &storedLogSubscription{
+	b.logSubscriptionPut(&storedLogSubscription{
+		region:                      region,
 		DirectoryID:                 directoryID,
 		LogGroupName:                logGroupName,
 		SubscriptionCreatedDateTime: time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -885,15 +1208,13 @@ func (b *InMemoryBackend) DeleteLogSubscription(ctx context.Context, directoryID
 	b.mu.Lock("DeleteLogSubscription")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	for key, sub := range st.logSubscriptions {
+	for _, sub := range slices.Clone(b.logSubscriptionsInRegion(region)) {
 		if sub.DirectoryID == directoryID {
-			delete(st.logSubscriptions, key)
+			b.logSubscriptions.Delete(regionKey(region, logSubscriptionID(sub.DirectoryID, sub.LogGroupName)))
 		}
 	}
 
@@ -913,7 +1234,7 @@ func (b *InMemoryBackend) ListLogSubscriptions(
 	defer b.mu.RUnlock()
 
 	var all []storedLogSubscription
-	for _, sub := range b.state(region).logSubscriptions {
+	for _, sub := range b.logSubscriptionsInRegion(region) {
 		if directoryID != "" && sub.DirectoryID != directoryID {
 			continue
 		}
@@ -960,24 +1281,22 @@ func (b *InMemoryBackend) RegisterEventTopic(ctx context.Context, directoryID, t
 	b.mu.Lock("RegisterEventTopic")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + topicName
-	if _, exists := st.eventTopics[key]; exists {
+	if _, exists := b.eventTopicGet(region, directoryID, topicName); exists {
 		return ErrAliasAlreadyExists
 	}
 
-	st.eventTopics[key] = &storedEventTopic{
+	b.eventTopicPut(&storedEventTopic{
+		region:          region,
 		DirectoryID:     directoryID,
 		TopicName:       topicName,
 		TopicARN:        arn.Build("sns", region, b.accountID, topicName),
 		Status:          "Registered",
 		CreatedDateTime: time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -989,13 +1308,11 @@ func (b *InMemoryBackend) DeregisterEventTopic(ctx context.Context, directoryID,
 	b.mu.Lock("DeregisterEventTopic")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-	key := directoryID + ":" + topicName
-	if _, ok := st.eventTopics[key]; !ok {
+	if _, ok := b.eventTopicGet(region, directoryID, topicName); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	delete(st.eventTopics, key)
+	b.eventTopicDelete(region, directoryID, topicName)
 
 	return nil
 }
@@ -1017,7 +1334,7 @@ func (b *InMemoryBackend) DescribeEventTopics(
 	}
 
 	var result []EventTopic
-	for _, topic := range b.state(region).eventTopics {
+	for _, topic := range b.eventTopicsInRegion(region) {
 		if directoryID != "" && topic.DirectoryID != directoryID {
 			continue
 		}
@@ -1052,9 +1369,7 @@ func (b *InMemoryBackend) DescribeDomainControllers(
 	b.mu.RLock("DescribeDomainControllers")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
@@ -1064,14 +1379,14 @@ func (b *InMemoryBackend) DescribeDomainControllers(
 	}
 
 	var ids []string
-	for id, dc := range st.domainControllers {
+	for _, dc := range b.domainControllersInRegion(region) {
 		if dc.DirectoryID != directoryID {
 			continue
 		}
-		if len(filterSet) > 0 && !filterSet[id] {
+		if len(filterSet) > 0 && !filterSet[dc.ControllerID] {
 			continue
 		}
-		ids = append(ids, id)
+		ids = append(ids, dc.ControllerID)
 	}
 	sort.Strings(ids)
 
@@ -1094,7 +1409,7 @@ func (b *InMemoryBackend) DescribeDomainControllers(
 	end := min(start+pageSize, len(ids))
 	result := make([]DomainController, 0, end-start)
 	for _, id := range ids[start:end] {
-		dc := st.domainControllers[id]
+		dc, _ := b.domainControllerGet(region, id)
 		result = append(result, DomainController{
 			ControllerID:     dc.ControllerID,
 			DirectoryID:      dc.DirectoryID,
@@ -1123,15 +1438,13 @@ func (b *InMemoryBackend) UpdateNumberOfDomainControllers(
 	b.mu.Lock("UpdateNumberOfDomainControllers")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
 	// Count current controllers.
 	var current int32
-	for _, dc := range st.domainControllers {
+	for _, dc := range b.domainControllersInRegion(region) {
 		if dc.DirectoryID == directoryID {
 			current++
 		}
@@ -1140,26 +1453,27 @@ func (b *InMemoryBackend) UpdateNumberOfDomainControllers(
 	// Add controllers if desired > current.
 	for i := current; i < desiredNumber; i++ {
 		id := fmt.Sprintf("dc-%s", uuid.NewString()[:10])
-		st.domainControllers[id] = &storedDomainController{
+		b.domainControllerPut(&storedDomainController{
+			region:           region,
 			ControllerID:     id,
 			DirectoryID:      directoryID,
 			Status:           "Active",
 			AvailabilityZone: "us-east-1a",
 			LaunchTime:       time.Now().UTC(),
-		}
+		})
 	}
 
 	// Remove controllers if desired < current.
 	if desiredNumber < current {
 		var toRemove []string
-		for id, dc := range st.domainControllers {
+		for _, dc := range b.domainControllersInRegion(region) {
 			if dc.DirectoryID == directoryID {
-				toRemove = append(toRemove, id)
+				toRemove = append(toRemove, dc.ControllerID)
 			}
 		}
 		sort.Strings(toRemove)
 		for i := int32(len(toRemove)) - 1; i >= desiredNumber; i-- { //nolint:gosec // existing issue.
-			delete(st.domainControllers, toRemove[i])
+			b.domainControllerDelete(region, toRemove[i])
 		}
 	}
 
@@ -1178,15 +1492,14 @@ func (b *InMemoryBackend) CreateTrust(
 	b.mu.Lock("CreateTrust")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
 	id := fmt.Sprintf("t-%s", uuid.NewString()[:10])
 	now := time.Now().UTC()
-	st.trusts[id] = &storedTrust{
+	b.trustPut(&storedTrust{
+		region:               region,
 		TrustID:              id,
 		DirectoryID:          directoryID,
 		RemoteDomainName:     remoteDomainName,
@@ -1197,7 +1510,7 @@ func (b *InMemoryBackend) CreateTrust(
 		CreatedDateTime:      now,
 		LastUpdatedDateTime:  now,
 		StateLastUpdatedTime: now,
-	}
+	})
 
 	return id, nil
 }
@@ -1209,13 +1522,11 @@ func (b *InMemoryBackend) DeleteTrust(ctx context.Context, trustID string) (stri
 	b.mu.Lock("DeleteTrust")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.trusts[trustID]; !ok {
+	if _, ok := b.trustGet(region, trustID); !ok {
 		return "", ErrTrustNotFound
 	}
 
-	delete(st.trusts, trustID)
+	b.trustDelete(region, trustID)
 
 	return trustID, nil
 }
@@ -1238,16 +1549,15 @@ func (b *InMemoryBackend) DescribeTrusts(
 		filterSet[id] = true
 	}
 
-	st := b.state(region)
 	var ids []string
-	for id, t := range st.trusts {
+	for _, t := range b.trustsInRegion(region) {
 		if directoryID != "" && t.DirectoryID != directoryID {
 			continue
 		}
-		if len(filterSet) > 0 && !filterSet[id] {
+		if len(filterSet) > 0 && !filterSet[t.TrustID] {
 			continue
 		}
-		ids = append(ids, id)
+		ids = append(ids, t.TrustID)
 	}
 	sort.Strings(ids)
 
@@ -1270,7 +1580,7 @@ func (b *InMemoryBackend) DescribeTrusts(
 	end := min(start+pageSize, len(ids))
 	result := make([]TrustInfo, 0, end-start)
 	for _, id := range ids[start:end] {
-		t := st.trusts[id]
+		t, _ := b.trustGet(region, id)
 		result = append(result, TrustInfo{
 			TrustID:              t.TrustID,
 			DirectoryID:          t.DirectoryID,
@@ -1301,7 +1611,7 @@ func (b *InMemoryBackend) UpdateTrust(ctx context.Context, trustID, selectiveAut
 	b.mu.Lock("UpdateTrust")
 	defer b.mu.Unlock()
 
-	t, ok := b.state(region).trusts[trustID]
+	t, ok := b.trustGet(region, trustID)
 	if !ok {
 		return "", ErrTrustNotFound
 	}
@@ -1321,7 +1631,7 @@ func (b *InMemoryBackend) VerifyTrust(ctx context.Context, trustID string) (stri
 	b.mu.Lock("VerifyTrust")
 	defer b.mu.Unlock()
 
-	t, ok := b.state(region).trusts[trustID]
+	t, ok := b.trustGet(region, trustID)
 	if !ok {
 		return "", ErrTrustNotFound
 	}
@@ -1345,15 +1655,14 @@ func (b *InMemoryBackend) ShareDirectory(
 	b.mu.Lock("ShareDirectory")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
 	id := fmt.Sprintf("d-%s", uuid.NewString()[:10])
 	now := time.Now().UTC()
-	st.sharedDirectories[id] = &storedSharedDirectory{
+	b.sharedDirectoryPut(&storedSharedDirectory{
+		region:              region,
 		SharedDirectoryID:   id,
 		OwnerDirectoryID:    directoryID,
 		OwnerAccountID:      b.accountID,
@@ -1363,7 +1672,7 @@ func (b *InMemoryBackend) ShareDirectory(
 		ShareNotes:          shareNotes,
 		CreatedDateTime:     now,
 		LastUpdatedDateTime: now,
-	}
+	})
 
 	return id, nil
 }
@@ -1375,12 +1684,12 @@ func (b *InMemoryBackend) UnshareDirectory(ctx context.Context, directoryID, tar
 	b.mu.Lock("UnshareDirectory")
 	defer b.mu.Unlock()
 
-	for id, sd := range b.state(region).sharedDirectories {
+	for _, sd := range b.sharedDirectoriesInRegion(region) {
 		if sd.OwnerDirectoryID == directoryID && sd.SharedAccountID == targetID {
 			sd.ShareStatus = "Deleted"
 			sd.LastUpdatedDateTime = time.Now().UTC()
 
-			return id, nil
+			return sd.SharedDirectoryID, nil
 		}
 	}
 
@@ -1394,7 +1703,7 @@ func (b *InMemoryBackend) AcceptSharedDirectory(ctx context.Context, sharedDirec
 	b.mu.Lock("AcceptSharedDirectory")
 	defer b.mu.Unlock()
 
-	sd, ok := b.state(region).sharedDirectories[sharedDirectoryID]
+	sd, ok := b.sharedDirectoryGet(region, sharedDirectoryID)
 	if !ok {
 		return "", ErrSharedDirectoryNotFound
 	}
@@ -1412,7 +1721,7 @@ func (b *InMemoryBackend) RejectSharedDirectory(ctx context.Context, sharedDirec
 	b.mu.Lock("RejectSharedDirectory")
 	defer b.mu.Unlock()
 
-	sd, ok := b.state(region).sharedDirectories[sharedDirectoryID]
+	sd, ok := b.sharedDirectoryGet(region, sharedDirectoryID)
 	if !ok {
 		return "", ErrSharedDirectoryNotFound
 	}
@@ -1441,16 +1750,15 @@ func (b *InMemoryBackend) DescribeSharedDirectories(
 		filterSet[id] = true
 	}
 
-	st := b.state(region)
 	var ids []string
-	for id, sd := range st.sharedDirectories {
+	for _, sd := range b.sharedDirectoriesInRegion(region) {
 		if ownerDirID != "" && sd.OwnerDirectoryID != ownerDirID {
 			continue
 		}
-		if len(filterSet) > 0 && !filterSet[id] {
+		if len(filterSet) > 0 && !filterSet[sd.SharedDirectoryID] {
 			continue
 		}
-		ids = append(ids, id)
+		ids = append(ids, sd.SharedDirectoryID)
 	}
 	sort.Strings(ids)
 
@@ -1473,7 +1781,7 @@ func (b *InMemoryBackend) DescribeSharedDirectories(
 	end := min(start+pageSize, len(ids))
 	result := make([]SharedDirInfo, 0, end-start)
 	for _, id := range ids[start:end] {
-		sd := st.sharedDirectories[id]
+		sd, _ := b.sharedDirectoryGet(region, id)
 		result = append(result, SharedDirInfo{
 			SharedDirectoryID:   sd.SharedDirectoryID,
 			OwnerDirectoryID:    sd.OwnerDirectoryID,
@@ -1507,15 +1815,14 @@ func (b *InMemoryBackend) RegisterCertificate(
 	b.mu.Lock("RegisterCertificate")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
 	id := fmt.Sprintf("c-%s", uuid.NewString()[:10])
 	now := time.Now().UTC()
-	st.certificates[id] = &storedCertificate{
+	b.certificatePut(&storedCertificate{
+		region:             region,
 		CertificateID:      id,
 		DirectoryID:        directoryID,
 		CertData:           certData,
@@ -1524,7 +1831,7 @@ func (b *InMemoryBackend) RegisterCertificate(
 		State:              "Registered",
 		RegisteredDateTime: now,
 		ExpiryDateTime:     now.Add(365 * 24 * time.Hour),
-	}
+	})
 
 	return id, nil
 }
@@ -1536,13 +1843,12 @@ func (b *InMemoryBackend) DeregisterCertificate(ctx context.Context, directoryID
 	b.mu.Lock("DeregisterCertificate")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-	cert, ok := st.certificates[certID]
+	cert, ok := b.certificateGet(region, certID)
 	if !ok || cert.DirectoryID != directoryID {
 		return ErrCertNotFound
 	}
 
-	delete(st.certificates, certID)
+	b.certificateDelete(region, certID)
 
 	return nil
 }
@@ -1559,16 +1865,14 @@ func (b *InMemoryBackend) ListCertificates(
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
 	var ids []string
-	for id, cert := range st.certificates {
+	for _, cert := range b.certificatesInRegion(region) {
 		if cert.DirectoryID == directoryID {
-			ids = append(ids, id)
+			ids = append(ids, cert.CertificateID)
 		}
 	}
 	sort.Strings(ids)
@@ -1592,7 +1896,7 @@ func (b *InMemoryBackend) ListCertificates(
 	end := min(start+pageSize, len(ids))
 	result := make([]CertInfo, 0, end-start)
 	for _, id := range ids[start:end] {
-		cert := st.certificates[id]
+		cert, _ := b.certificateGet(region, id)
 		result = append(result, CertInfo{
 			CertificateID:  cert.CertificateID,
 			CommonName:     cert.CommonName,
@@ -1617,7 +1921,7 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, directoryID, 
 	b.mu.RLock("DescribeCertificate")
 	defer b.mu.RUnlock()
 
-	cert, ok := b.state(region).certificates[certID]
+	cert, ok := b.certificateGet(region, certID)
 	if !ok || cert.DirectoryID != directoryID {
 		return nil, ErrCertNotFound
 	}
@@ -1643,25 +1947,23 @@ func (b *InMemoryBackend) EnableLDAPS(ctx context.Context, directoryID, ldapsTyp
 	b.mu.Lock("EnableLDAPS")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + ldapsType
 	now := time.Now().UTC()
-	if existing, ok := st.ldapsSettings[key]; ok {
+	if existing, ok := b.ldapsSettingGet(region, directoryID, ldapsType); ok {
 		existing.State = "Enabled" //nolint:goconst // existing issue.
 		existing.LastUpdatedDateTime = now
 	} else {
-		st.ldapsSettings[key] = &storedLDAPSSetting{
+		b.ldapsSettingPut(&storedLDAPSSetting{
+			region:                    region,
 			DirectoryID:               directoryID,
 			LDAPSType:                 ldapsType,
 			State:                     "Enabled",
 			LastUpdatedDateTime:       now,
 			CertificateExpiryDateTime: now.Add(365 * 24 * time.Hour),
-		}
+		})
 	}
 
 	return nil
@@ -1674,14 +1976,11 @@ func (b *InMemoryBackend) DisableLDAPS(ctx context.Context, directoryID, ldapsTy
 	b.mu.Lock("DisableLDAPS")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + ldapsType
-	if setting, ok := st.ldapsSettings[key]; ok {
+	if setting, ok := b.ldapsSettingGet(region, directoryID, ldapsType); ok {
 		setting.State = "Disabled"
 		setting.LastUpdatedDateTime = time.Now().UTC()
 	}
@@ -1701,14 +2000,12 @@ func (b *InMemoryBackend) DescribeLDAPSSettings(
 	b.mu.RLock("DescribeLDAPSSettings")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
 	var result []LDAPSSetting
-	for _, s := range st.ldapsSettings {
+	for _, s := range b.ldapsSettingsInRegion(region) {
 		if s.DirectoryID != directoryID {
 			continue
 		}
@@ -1738,24 +2035,22 @@ func (b *InMemoryBackend) EnableClientAuthentication(ctx context.Context, direct
 	b.mu.Lock("EnableClientAuthentication")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + authType
 	now := time.Now().UTC()
-	if existing, ok := st.clientAuthSettings[key]; ok {
+	if existing, ok := b.clientAuthSettingGet(region, directoryID, authType); ok {
 		existing.Status = "Enabled"
 		existing.LastUpdatedDateTime = now
 	} else {
-		st.clientAuthSettings[key] = &storedClientAuthSetting{
+		b.clientAuthSettingPut(&storedClientAuthSetting{
+			region:              region,
 			DirectoryID:         directoryID,
 			AuthType:            authType,
 			Status:              "Enabled",
 			LastUpdatedDateTime: now,
-		}
+		})
 	}
 
 	return nil
@@ -1768,24 +2063,22 @@ func (b *InMemoryBackend) DisableClientAuthentication(ctx context.Context, direc
 	b.mu.Lock("DisableClientAuthentication")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	key := directoryID + ":" + authType
 	now := time.Now().UTC()
-	if existing, ok := st.clientAuthSettings[key]; ok {
+	if existing, ok := b.clientAuthSettingGet(region, directoryID, authType); ok {
 		existing.Status = "Disabled"
 		existing.LastUpdatedDateTime = now
 	} else {
-		st.clientAuthSettings[key] = &storedClientAuthSetting{
+		b.clientAuthSettingPut(&storedClientAuthSetting{
+			region:              region,
 			DirectoryID:         directoryID,
 			AuthType:            authType,
 			Status:              "Disabled",
 			LastUpdatedDateTime: now,
-		}
+		})
 	}
 
 	return nil
@@ -1803,14 +2096,12 @@ func (b *InMemoryBackend) DescribeClientAuthenticationSettings(
 	b.mu.RLock("DescribeClientAuthenticationSettings")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
 	var result []ClientAuthInfo
-	for _, s := range st.clientAuthSettings {
+	for _, s := range b.clientAuthSettingsInRegion(region) {
 		if s.DirectoryID != directoryID {
 			continue
 		}
@@ -1838,15 +2129,14 @@ func (b *InMemoryBackend) EnableRadius(ctx context.Context, directoryID string, 
 	b.mu.Lock("EnableRadius")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
 	servers := make([]string, len(settings.RadiusServers))
 	copy(servers, settings.RadiusServers)
-	st.radiusSettings[directoryID] = &storedRadiusSettings{
+	b.radiusSettingsPut(&storedRadiusSettings{
+		region:                 region,
 		DirectoryID:            directoryID,
 		AuthenticationProtocol: settings.AuthenticationProtocol,
 		DisplayLabel:           settings.DisplayLabel,
@@ -1856,7 +2146,7 @@ func (b *InMemoryBackend) EnableRadius(ctx context.Context, directoryID string, 
 		RadiusRetries:          settings.RadiusRetries,
 		RadiusTimeout:          settings.RadiusTimeout,
 		UseSameUsername:        settings.UseSameUsername,
-	}
+	})
 
 	return nil
 }
@@ -1868,13 +2158,11 @@ func (b *InMemoryBackend) DisableRadius(ctx context.Context, directoryID string)
 	b.mu.Lock("DisableRadius")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	delete(st.radiusSettings, directoryID)
+	b.radiusSettingsDelete(region, directoryID)
 
 	return nil
 }
@@ -1886,18 +2174,15 @@ func (b *InMemoryBackend) UpdateRadius(ctx context.Context, directoryID string, 
 	b.mu.Lock("UpdateRadius")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
 	servers := make([]string, len(settings.RadiusServers))
 	copy(servers, settings.RadiusServers)
-	existing, ok := st.radiusSettings[directoryID]
+	existing, ok := b.radiusSettingsGet(region, directoryID)
 	if !ok {
-		st.radiusSettings[directoryID] = &storedRadiusSettings{}
-		existing = st.radiusSettings[directoryID]
+		existing = &storedRadiusSettings{region: region}
 	}
 	existing.DirectoryID = directoryID
 	existing.AuthenticationProtocol = settings.AuthenticationProtocol
@@ -1908,6 +2193,7 @@ func (b *InMemoryBackend) UpdateRadius(ctx context.Context, directoryID string, 
 	existing.RadiusRetries = settings.RadiusRetries
 	existing.RadiusTimeout = settings.RadiusTimeout
 	existing.UseSameUsername = settings.UseSameUsername
+	b.radiusSettingsPut(existing)
 
 	return nil
 }
@@ -1921,13 +2207,11 @@ func (b *InMemoryBackend) EnableDirectoryDataAccess(ctx context.Context, directo
 	b.mu.Lock("EnableDirectoryDataAccess")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	st.dirDataAccess[directoryID] = true
+	b.dirDataAccessStore(region)[directoryID] = true
 
 	return nil
 }
@@ -1939,13 +2223,11 @@ func (b *InMemoryBackend) DisableDirectoryDataAccess(ctx context.Context, direct
 	b.mu.Lock("DisableDirectoryDataAccess")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	st.dirDataAccess[directoryID] = false
+	b.dirDataAccessStore(region)[directoryID] = false
 
 	return nil
 }
@@ -1960,13 +2242,11 @@ func (b *InMemoryBackend) DescribeDirectoryDataAccess(
 	b.mu.RLock("DescribeDirectoryDataAccess")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, ErrDirectoryNotFound
 	}
 
-	enabled := st.dirDataAccess[directoryID]
+	enabled := b.dirDataAccessStore(region)[directoryID]
 
 	return &DirectoryDataAccessStatus{DirectoryID: directoryID, Enabled: enabled}, nil
 }
@@ -1980,13 +2260,11 @@ func (b *InMemoryBackend) EnableCAEnrollmentPolicy(ctx context.Context, director
 	b.mu.Lock("EnableCAEnrollmentPolicy")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	st.caEnrollment[directoryID] = true
+	b.caEnrollmentStore(region)[directoryID] = true
 
 	return nil
 }
@@ -1998,13 +2276,11 @@ func (b *InMemoryBackend) DisableCAEnrollmentPolicy(ctx context.Context, directo
 	b.mu.Lock("DisableCAEnrollmentPolicy")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
-	st.caEnrollment[directoryID] = false
+	b.caEnrollmentStore(region)[directoryID] = false
 
 	return nil
 }
@@ -2019,13 +2295,11 @@ func (b *InMemoryBackend) DescribeCAEnrollmentPolicy(
 	b.mu.RLock("DescribeCAEnrollmentPolicy")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, ErrDirectoryNotFound
 	}
 
-	enabled := st.caEnrollment[directoryID]
+	enabled := b.caEnrollmentStore(region)[directoryID]
 
 	return &CAEnrollmentPolicy{DirectoryID: directoryID, Enabled: enabled}, nil
 }
@@ -2039,21 +2313,19 @@ func (b *InMemoryBackend) StartADAssessment(ctx context.Context, directoryID str
 	b.mu.Lock("StartADAssessment")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
 	id := fmt.Sprintf("a-%s", uuid.NewString()[:10])
-	st.adAssessments[id] = &storedADAssessment{
+	b.adAssessmentPut(&storedADAssessment{
 		AssessmentID: id,
 		DirectoryID:  directoryID,
 		Status:       "Completed",
 		AssessType:   "Operational",
 		Region:       region,
 		StartTime:    time.Now().UTC(),
-	}
+	})
 
 	return id, nil
 }
@@ -2065,13 +2337,12 @@ func (b *InMemoryBackend) DeleteADAssessment(ctx context.Context, directoryID, a
 	b.mu.Lock("DeleteADAssessment")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-	a, ok := st.adAssessments[assessmentID]
+	a, ok := b.adAssessmentGet(region, assessmentID)
 	if !ok || a.DirectoryID != directoryID {
 		return ErrAssessmentNotFound
 	}
 
-	delete(st.adAssessments, assessmentID)
+	b.adAssessmentDelete(region, assessmentID)
 
 	return nil
 }
@@ -2086,7 +2357,7 @@ func (b *InMemoryBackend) DescribeADAssessment(
 	b.mu.RLock("DescribeADAssessment")
 	defer b.mu.RUnlock()
 
-	a, ok := b.state(region).adAssessments[assessmentID]
+	a, ok := b.adAssessmentGet(region, assessmentID)
 	if !ok || a.DirectoryID != directoryID {
 		return nil, ErrAssessmentNotFound
 	}
@@ -2113,13 +2384,12 @@ func (b *InMemoryBackend) ListADAssessments(
 	b.mu.RLock("ListADAssessments")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
 	var ids []string
-	for id, a := range st.adAssessments {
+	for _, a := range b.adAssessmentsInRegion(region) {
 		if directoryID != "" && a.DirectoryID != directoryID {
 			continue
 		}
-		ids = append(ids, id)
+		ids = append(ids, a.AssessmentID)
 	}
 	sort.Strings(ids)
 
@@ -2142,7 +2412,7 @@ func (b *InMemoryBackend) ListADAssessments(
 	end := min(start+pageSize, len(ids))
 	result := make([]ADAssessmentInfo, 0, end-start)
 	for _, id := range ids[start:end] {
-		a := st.adAssessments[id]
+		a, _ := b.adAssessmentGet(region, id)
 		result = append(result, ADAssessmentInfo{
 			AssessmentID: a.AssessmentID,
 			DirectoryID:  a.DirectoryID,
@@ -2179,17 +2449,17 @@ func (b *InMemoryBackend) CreateHybridAD(
 		return nil, "", ErrInvalidParameter
 	}
 
-	st := b.state(region)
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, nil, tags)
-	st.directories[d.DirectoryID] = d
-	st.aliases[d.Alias] = d.DirectoryID
+	d := b.newStoredDirectory(region, name, shortName, description, DirectoryTypeMicrosoftAD, "", edition, nil, tags)
+	b.directoryPut(d)
+	b.aliasesStore(region)[d.Alias] = d.DirectoryID
 
 	requestID := uuid.NewString()
-	st.hybridADUpdates[requestID] = &storedHybridADUpdate{
+	b.hybridADUpdatePut(&storedHybridADUpdate{
+		region:      region,
 		RequestID:   requestID,
 		DirectoryID: d.DirectoryID,
 		Status:      "Updated", //nolint:goconst // existing issue.
-	}
+	})
 
 	cp := d.toDirectory()
 
@@ -2203,18 +2473,17 @@ func (b *InMemoryBackend) UpdateHybridAD(ctx context.Context, directoryID string
 	b.mu.Lock("UpdateHybridAD")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
 	requestID := uuid.NewString()
-	st.hybridADUpdates[requestID] = &storedHybridADUpdate{
+	b.hybridADUpdatePut(&storedHybridADUpdate{
+		region:      region,
 		RequestID:   requestID,
 		DirectoryID: directoryID,
 		Status:      "Updated",
-	}
+	})
 
 	return requestID, nil
 }
@@ -2229,14 +2498,12 @@ func (b *InMemoryBackend) DescribeHybridADUpdate(
 	b.mu.RLock("DescribeHybridADUpdate")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, ErrDirectoryNotFound
 	}
 
 	var result []HybridADUpdateEntry
-	for _, u := range st.hybridADUpdates {
+	for _, u := range b.hybridADUpdatesInRegion(region) {
 		if u.DirectoryID == directoryID {
 			result = append(result, HybridADUpdateEntry{
 				RequestID:   u.RequestID,
@@ -2262,7 +2529,7 @@ func (b *InMemoryBackend) CreateComputer(
 	b.mu.RLock("CreateComputer")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.state(region).directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, ErrDirectoryNotFound
 	}
 
@@ -2289,15 +2556,14 @@ func (b *InMemoryBackend) UpdateSettings(
 	b.mu.Lock("UpdateSettings")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return "", ErrDirectoryNotFound
 	}
 
+	dirSettings := b.dirSettingsStore(region)
 	now := time.Now().UTC()
 	existing := make(map[string]*storedDirectorySetting)
-	for _, s := range st.dirSettings[directoryID] {
+	for _, s := range dirSettings[directoryID] {
 		existing[s.Name] = s
 	}
 
@@ -2316,7 +2582,7 @@ func (b *InMemoryBackend) UpdateSettings(
 				Status:              "Updated",
 				LastUpdatedDateTime: now,
 			}
-			st.dirSettings[directoryID] = append(st.dirSettings[directoryID], ns)
+			dirSettings[directoryID] = append(dirSettings[directoryID], ns)
 		}
 	}
 
@@ -2333,13 +2599,11 @@ func (b *InMemoryBackend) DescribeSettings(
 	b.mu.RLock("DescribeSettings")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
-	settings := st.dirSettings[directoryID]
+	settings := b.dirSettingsStore(region)[directoryID]
 	var filtered []storedDirectorySetting
 	for _, s := range settings {
 		if status != "" && s.Status != status {
@@ -2364,14 +2628,13 @@ func (b *InMemoryBackend) UpdateDirectorySetup(ctx context.Context, directoryID,
 	b.mu.Lock("UpdateDirectorySetup")
 	defer b.mu.Unlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
 	now := time.Now().UTC()
-	st.updateInfoEntries[directoryID] = append(st.updateInfoEntries[directoryID], &storedUpdateInfo{
+	entries := b.updateInfoEntriesStore(region)
+	entries[directoryID] = append(entries[directoryID], &storedUpdateInfo{
 		DirectoryID:         directoryID,
 		UpdateType:          updateType,
 		Status:              "Updated",
@@ -2394,14 +2657,12 @@ func (b *InMemoryBackend) DescribeUpdateDirectory(
 	b.mu.RLock("DescribeUpdateDirectory")
 	defer b.mu.RUnlock()
 
-	st := b.state(region)
-
-	if _, ok := st.directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return nil, "", ErrDirectoryNotFound
 	}
 
 	var result []UpdateInfoEntry
-	for _, u := range st.updateInfoEntries[directoryID] {
+	for _, u := range b.updateInfoEntriesStore(region)[directoryID] {
 		if updateType != "" && u.UpdateType != updateType {
 			continue
 		}
@@ -2430,7 +2691,7 @@ func (b *InMemoryBackend) ResetUserPassword(ctx context.Context, directoryID, _,
 	b.mu.RLock("ResetUserPassword")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.state(region).directories[directoryID]; !ok {
+	if _, ok := b.directoryGet(region, directoryID); !ok {
 		return ErrDirectoryNotFound
 	}
 
@@ -2458,10 +2719,8 @@ func (b *InMemoryBackend) ConnectDirectory(
 		return nil, ErrInvalidParameter
 	}
 
-	st := b.state(region)
-
 	var count int32
-	for _, d := range st.directories {
+	for _, d := range b.directoriesInRegion(region) {
 		if DirectoryType(d.DirType) == DirectoryTypeADConnector {
 			count++
 		}
@@ -2470,9 +2729,9 @@ func (b *InMemoryBackend) ConnectDirectory(
 		return nil, ErrDirectoryLimitExceeded
 	}
 
-	d := b.newStoredDirectory(name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
-	st.directories[d.DirectoryID] = d
-	st.aliases[d.Alias] = d.DirectoryID
+	d := b.newStoredDirectory(region, name, shortName, description, DirectoryTypeADConnector, size, "", nil, tags)
+	b.directoryPut(d)
+	b.aliasesStore(region)[d.Alias] = d.DirectoryID
 
 	cp := d.toDirectory()
 
