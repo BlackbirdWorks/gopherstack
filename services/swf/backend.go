@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -260,6 +261,12 @@ type StartWorkflowExecutionInput struct {
 }
 
 // activeActivityTaskRecord tracks an activity task that has been dispatched to a poller.
+// TaskToken has no wire-visible home on this record (the token is the caller-facing
+// identity, never round-tripped through an AWS response body here); it exists purely so
+// store.Table's keyFn can derive a key from the value (see store_setup.go). It is tagged
+// json:"-" because activeActivityTasks is a "dirty" table -- persistence.go instead
+// round-trips it through a dedicated activeActivityTaskDTO that carries the token as a
+// real JSON field, so it survives the round trip despite being excluded here.
 type activeActivityTaskRecord struct {
 	ActivityType     ActivityTaskActivityType
 	Domain           string
@@ -267,15 +274,19 @@ type activeActivityTaskRecord struct {
 	RunID            string
 	ActivityID       string
 	TaskList         string
+	TaskToken        string `json:"-"`
 	ScheduledEventID int64
 	StartedEventID   int64
 }
 
 // activeDecisionTaskRecord tracks a decision task token dispatched to a poller.
+// TaskToken carries the same store.Table keyFn / persistence caveats as
+// [activeActivityTaskRecord.TaskToken] above.
 type activeDecisionTaskRecord struct {
 	Domain     string
 	WorkflowID string
 	RunID      string
+	TaskToken  string `json:"-"`
 }
 
 // CompleteWorkflowExecutionDecisionAttrs holds attributes for CompleteWorkflowExecution.
@@ -316,36 +327,57 @@ type Decision struct {
 }
 
 // InMemoryBackend is the in-memory store for SWF resources.
+//
+// domains, workflows, activities, and executions are "clean" store.Table-backed
+// collections (Phase 3.3 of the datalayer refactor): each value type already carries its
+// own identity as real, wire-visible JSON fields (Domain/Name/Version or
+// Domain/WorkflowID), so each is registered directly on registry -- see store_setup.go.
+// workflows/activities/executions additionally carry a companion byDomain store.Index
+// (workflowsByDomain/activitiesByDomain/executionsByDomain) replacing the linear
+// full-table scan+filter the old flat maps needed for every domain-scoped List/Count op.
+//
+// activeActivityTasks/activeDecisionTasks are "dirty" store.Table-backed collections:
+// their key (taskToken) has no home on the value type, so each gained a TaskToken field
+// tagged json:"-" purely for store.Table's keyFn (see the type docs above) and is NOT
+// registered on registry -- persistence.go instead round-trips them through an ephemeral
+// DTO registry, exactly as the "dirty" tables in services/ses and services/codeartifact do.
+//
+// history, activityQueues, decisionQueues, and tags are deliberately left as plain maps:
+// history/activityQueues/decisionQueues are ORDER-SENSITIVE (event histories and FIFO
+// task queues, where store.Index's swap-with-last removal would silently reorder pending
+// entries), and tags's values (map[string]string) are not *T, which store.Table requires.
 type InMemoryBackend struct {
-	domains             map[string]*Domain
-	workflows           map[string]*WorkflowType             // key: domain+":"+name+":"+version
-	activities          map[string]*ActivityType             // key: domain+":"+name+":"+version
-	executions          map[string]*WorkflowExecution        // key: domain+":"+workflowID
-	history             map[string][]HistoryEvent            // key: domain+":"+workflowID
-	activityQueues      map[string][]*ActivityTask           // key: domain+":"+taskList
-	decisionQueues      map[string][]*DecisionTask           // key: domain+":"+taskList
-	activeActivityTasks map[string]*activeActivityTaskRecord // key: taskToken
-	activeDecisionTasks map[string]*activeDecisionTaskRecord // key: taskToken
-	tags                map[string]map[string]string         // key: resourceARN
+	registry            *store.Registry
+	domains             *store.Table[Domain]
+	workflows           *store.Table[WorkflowType] // key: domain+":"+name+":"+version
+	workflowsByDomain   *store.Index[WorkflowType]
+	activities          *store.Table[ActivityType] // key: domain+":"+name+":"+version
+	activitiesByDomain  *store.Index[ActivityType]
+	executions          *store.Table[WorkflowExecution] // key: domain+":"+workflowID
+	executionsByDomain  *store.Index[WorkflowExecution]
+	activeActivityTasks *store.Table[activeActivityTaskRecord] // key: taskToken
+	activeDecisionTasks *store.Table[activeDecisionTaskRecord] // key: taskToken
+	history             map[string][]HistoryEvent              // key: domain+":"+workflowID
+	activityQueues      map[string][]*ActivityTask             // key: domain+":"+taskList
+	decisionQueues      map[string][]*DecisionTask             // key: domain+":"+taskList
+	tags                map[string]map[string]string           // key: resourceARN
 	mu                  *lockmetrics.RWMutex
 	executionOrder      []string // FIFO order of execution keys for eviction
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		domains:             make(map[string]*Domain),
-		workflows:           make(map[string]*WorkflowType),
-		activities:          make(map[string]*ActivityType),
-		executions:          make(map[string]*WorkflowExecution),
-		history:             make(map[string][]HistoryEvent),
-		activityQueues:      make(map[string][]*ActivityTask),
-		decisionQueues:      make(map[string][]*DecisionTask),
-		activeActivityTasks: make(map[string]*activeActivityTaskRecord),
-		activeDecisionTasks: make(map[string]*activeDecisionTaskRecord),
-		tags:                make(map[string]map[string]string),
-		mu:                  lockmetrics.New("swf"),
+	b := &InMemoryBackend{
+		registry:       store.NewRegistry(),
+		history:        make(map[string][]HistoryEvent),
+		activityQueues: make(map[string][]*ActivityTask),
+		decisionQueues: make(map[string][]*DecisionTask),
+		tags:           make(map[string]map[string]string),
+		mu:             lockmetrics.New("swf"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state.
@@ -353,15 +385,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.domains = make(map[string]*Domain)
-	b.workflows = make(map[string]*WorkflowType)
-	b.activities = make(map[string]*ActivityType)
-	b.executions = make(map[string]*WorkflowExecution)
+	b.registry.ResetAll()
+	b.activeActivityTasks.Reset()
+	b.activeDecisionTasks.Reset()
 	b.history = make(map[string][]HistoryEvent)
 	b.activityQueues = make(map[string][]*ActivityTask)
 	b.decisionQueues = make(map[string][]*DecisionTask)
-	b.activeActivityTasks = make(map[string]*activeActivityTaskRecord)
-	b.activeDecisionTasks = make(map[string]*activeDecisionTaskRecord)
 	b.tags = make(map[string]map[string]string)
 	b.executionOrder = nil
 }
@@ -496,8 +525,7 @@ func (b *InMemoryBackend) AddWorkflowTypeInternal(domain, name, version, status 
 	b.mu.Lock("AddWorkflowTypeInternal")
 	defer b.mu.Unlock()
 
-	key := domain + ":" + name + ":" + version
-	b.workflows[key] = &WorkflowType{Domain: domain, Name: name, Version: version, Status: status}
+	b.workflows.Put(&WorkflowType{Domain: domain, Name: name, Version: version, Status: status})
 }
 
 // AddActivityTypeInternal seeds an activity type directly for testing.
@@ -505,8 +533,7 @@ func (b *InMemoryBackend) AddActivityTypeInternal(domain, name, version, status 
 	b.mu.Lock("AddActivityTypeInternal")
 	defer b.mu.Unlock()
 
-	key := domain + ":" + name + ":" + version
-	b.activities[key] = &ActivityType{Domain: domain, Name: name, Version: version, Status: status}
+	b.activities.Put(&ActivityType{Domain: domain, Name: name, Version: version, Status: status})
 }
 
 // RegisterDomain registers a new SWF domain with the given retention period.
@@ -525,7 +552,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 	b.mu.Lock("RegisterDomain")
 	defer b.mu.Unlock()
 
-	if d, ok := b.domains[name]; ok {
+	if d, ok := b.domains.Get(name); ok {
 		if d.Status == statusDeprecated {
 			return fmt.Errorf("%w: %s", ErrDeprecated, name)
 		}
@@ -533,13 +560,13 @@ func (b *InMemoryBackend) RegisterDomain(name, description, retention string) er
 		return fmt.Errorf("%w: %s", ErrAlreadyExists, name)
 	}
 
-	b.domains[name] = &Domain{
+	b.domains.Put(&Domain{
 		Name:                                   name,
 		Description:                            description,
 		Status:                                 statusRegistered,
 		Arn:                                    domainARN(defaultRegion, defaultAccountID, name),
 		WorkflowExecutionRetentionPeriodInDays: retention,
-	}
+	})
 
 	return nil
 }
@@ -554,8 +581,8 @@ func (b *InMemoryBackend) ListDomains(registrationStatus string) ([]Domain, erro
 	b.mu.RLock("ListDomains")
 	defer b.mu.RUnlock()
 
-	out := make([]Domain, 0, len(b.domains))
-	for _, d := range b.domains {
+	out := make([]Domain, 0, b.domains.Len())
+	for _, d := range b.domains.All() {
 		if registrationStatus == "" || d.Status == registrationStatus {
 			out = append(out, *d)
 		}
@@ -569,7 +596,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
-	d, ok := b.domains[name]
+	d, ok := b.domains.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
@@ -583,7 +610,7 @@ func (b *InMemoryBackend) DeprecateDomain(name string) error {
 	b.mu.Lock("DeprecateDomain")
 	defer b.mu.Unlock()
 
-	d, ok := b.domains[name]
+	d, ok := b.domains.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
@@ -600,7 +627,7 @@ func (b *InMemoryBackend) UndeprecateDomain(name string) error {
 	b.mu.Lock("UndeprecateDomain")
 	defer b.mu.Unlock()
 
-	d, ok := b.domains[name]
+	d, ok := b.domains.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
@@ -640,11 +667,11 @@ func (b *InMemoryBackend) RegisterWorkflowType(
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
-	if _, ok := b.workflows[key]; ok {
+	if b.workflows.Has(key) {
 		return fmt.Errorf("%w: %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 
-	b.workflows[key] = &WorkflowType{
+	b.workflows.Put(&WorkflowType{
 		Domain:       domain,
 		Name:         name,
 		Version:      version,
@@ -652,7 +679,7 @@ func (b *InMemoryBackend) RegisterWorkflowType(
 		Description:  description,
 		CreationDate: float64(time.Now().UnixMilli()) / milliDivisor,
 		Defaults:     defaults,
-	}
+	})
 
 	return nil
 }
@@ -668,11 +695,10 @@ func (b *InMemoryBackend) ListWorkflowTypes(
 	b.mu.RLock("ListWorkflowTypes")
 	defer b.mu.RUnlock()
 
-	out := make([]WorkflowType, 0, len(b.workflows))
-	for _, wt := range b.workflows {
-		if wt.Domain != domain {
-			continue
-		}
+	byDomain := b.workflowsByDomain.Get(domain)
+	out := make([]WorkflowType, 0, len(byDomain))
+
+	for _, wt := range byDomain {
 		if registrationStatus != "" && wt.Status != registrationStatus {
 			continue
 		}
@@ -690,7 +716,7 @@ func (b *InMemoryBackend) DescribeWorkflowType(
 	defer b.mu.RUnlock()
 
 	key := domain + ":" + name + ":" + version
-	wt, ok := b.workflows[key]
+	wt, ok := b.workflows.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
 	}
@@ -705,7 +731,7 @@ func (b *InMemoryBackend) DeprecateWorkflowType(domain, name, version string) er
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
-	wt, ok := b.workflows[key]
+	wt, ok := b.workflows.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
 	}
@@ -723,7 +749,7 @@ func (b *InMemoryBackend) UndeprecateWorkflowType(domain, name, version string) 
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
-	wt, ok := b.workflows[key]
+	wt, ok := b.workflows.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: workflow type %s/%s not found", ErrNotFound, name, version)
 	}
@@ -766,11 +792,11 @@ func (b *InMemoryBackend) RegisterActivityType(
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
-	if _, ok := b.activities[key]; ok {
+	if b.activities.Has(key) {
 		return fmt.Errorf("%w: activity type %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 
-	b.activities[key] = &ActivityType{
+	b.activities.Put(&ActivityType{
 		Domain:       domain,
 		Name:         name,
 		Version:      version,
@@ -778,7 +804,7 @@ func (b *InMemoryBackend) RegisterActivityType(
 		Description:  description,
 		CreationDate: float64(time.Now().UnixMilli()) / milliDivisor,
 		Defaults:     defaults,
-	}
+	})
 
 	return nil
 }
@@ -794,11 +820,10 @@ func (b *InMemoryBackend) ListActivityTypes(
 	b.mu.RLock("ListActivityTypes")
 	defer b.mu.RUnlock()
 
-	out := make([]ActivityType, 0, len(b.activities))
-	for _, at := range b.activities {
-		if at.Domain != domain {
-			continue
-		}
+	byDomain := b.activitiesByDomain.Get(domain)
+	out := make([]ActivityType, 0, len(byDomain))
+
+	for _, at := range byDomain {
 		if registrationStatus != "" && at.Status != registrationStatus {
 			continue
 		}
@@ -816,7 +841,7 @@ func (b *InMemoryBackend) DescribeActivityType(
 	defer b.mu.RUnlock()
 
 	key := domain + ":" + name + ":" + version
-	at, ok := b.activities[key]
+	at, ok := b.activities.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
 	}
@@ -831,7 +856,7 @@ func (b *InMemoryBackend) DeprecateActivityType(domain, name, version string) er
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
-	at, ok := b.activities[key]
+	at, ok := b.activities.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
 	}
@@ -849,7 +874,7 @@ func (b *InMemoryBackend) UndeprecateActivityType(domain, name, version string) 
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
-	at, ok := b.activities[key]
+	at, ok := b.activities.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: activity type %s/%s not found", ErrNotFound, name, version)
 	}
@@ -954,10 +979,7 @@ func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string, filter Exec
 	defer b.mu.RUnlock()
 
 	count := 0
-	for _, e := range b.executions {
-		if e.Domain != domain {
-			continue
-		}
+	for _, e := range b.executionsByDomain.Get(domain) {
 		if filter.matchOpen(e) {
 			count++
 		}
@@ -972,10 +994,7 @@ func (b *InMemoryBackend) CountClosedWorkflowExecutions(domain string, filter Ex
 	defer b.mu.RUnlock()
 
 	count := 0
-	for _, e := range b.executions {
-		if e.Domain != domain {
-			continue
-		}
+	for _, e := range b.executionsByDomain.Get(domain) {
 		if filter.matchClosed(e) {
 			count++
 		}
@@ -1026,7 +1045,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 	b.mu.Lock("StartWorkflowExecution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domains[input.Domain]; !ok {
+	if !b.domains.Has(input.Domain) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, input.Domain)
 	}
 
@@ -1039,7 +1058,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 
 	if input.WorkflowTypeName != "" {
 		key := input.Domain + ":" + input.WorkflowTypeName + ":" + input.WorkflowTypeVersion
-		wt, ok := b.workflows[key]
+		wt, ok := b.workflows.Get(key)
 		if !ok {
 			return nil, fmt.Errorf("%w: workflow type %s/%s not found",
 				ErrNotFound, input.WorkflowTypeName, input.WorkflowTypeVersion)
@@ -1078,16 +1097,16 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 	key := input.Domain + ":" + input.WorkflowID
 
 	// Reject if there is already an open (RUNNING) execution for this workflowId.
-	if existing, exists := b.executions[key]; exists && existing.Status == statusRunning {
+	if existing, exists := b.executions.Get(key); exists && existing.Status == statusRunning {
 		return nil, fmt.Errorf("%w: %s", ErrWorkflowAlreadyStarted, input.WorkflowID)
 	}
 
-	if _, exists := b.executions[key]; !exists {
+	if !b.executions.Has(key) {
 		b.executionOrder = append(b.executionOrder, key)
 		if len(b.executionOrder) >= maxWorkflowExecutions {
 			oldest := b.executionOrder[0]
 			b.executionOrder = b.executionOrder[1:]
-			delete(b.executions, oldest)
+			b.executions.Delete(oldest)
 			delete(b.history, oldest)
 		}
 	}
@@ -1110,7 +1129,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 		TaskStartToCloseTimeout:      taskTimeout,
 		TaskPriority:                 input.TaskPriority,
 	}
-	b.executions[key] = exec
+	b.executions.Put(exec)
 
 	attrKey := eventAttrKey("WorkflowExecutionStarted")
 	attrs := map[string]any{
@@ -1144,7 +1163,7 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 	defer b.mu.Unlock()
 
 	key := domain + ":" + workflowID
-	exec, ok := b.executions[key]
+	exec, ok := b.executions.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
@@ -1186,7 +1205,7 @@ func (b *InMemoryBackend) DescribeWorkflowExecution(
 	defer b.mu.RUnlock()
 
 	key := domain + ":" + workflowID
-	exec, ok := b.executions[key]
+	exec, ok := b.executions.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
@@ -1230,7 +1249,7 @@ func (b *InMemoryBackend) GetWorkflowExecutionHistory(
 // Caller must hold at least RLock.
 func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string]int {
 	activityCount := 0
-	for _, rec := range b.activeActivityTasks {
+	for _, rec := range b.activeActivityTasks.All() {
 		if rec.Domain == domain && rec.WorkflowID == workflowID {
 			activityCount++
 		}
@@ -1260,11 +1279,10 @@ func (b *InMemoryBackend) ListOpenWorkflowExecutions(
 	b.mu.RLock("ListOpenWorkflowExecutions")
 	defer b.mu.RUnlock()
 
-	out := make([]WorkflowExecution, 0, len(b.executions))
-	for _, e := range b.executions {
-		if e.Domain != domain {
-			continue
-		}
+	byDomain := b.executionsByDomain.Get(domain)
+	out := make([]WorkflowExecution, 0, len(byDomain))
+
+	for _, e := range byDomain {
 		if filter.matchOpen(e) {
 			out = append(out, *e)
 		}
@@ -1281,11 +1299,10 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(
 	b.mu.RLock("ListClosedWorkflowExecutions")
 	defer b.mu.RUnlock()
 
-	out := make([]WorkflowExecution, 0, len(b.executions))
-	for _, e := range b.executions {
-		if e.Domain != domain {
-			continue
-		}
+	byDomain := b.executionsByDomain.Get(domain)
+	out := make([]WorkflowExecution, 0, len(byDomain))
+
+	for _, e := range byDomain {
 		if filter.matchClosed(e) {
 			out = append(out, *e)
 		}
@@ -1378,7 +1395,7 @@ func (b *InMemoryBackend) validateDomainARNLocked(arn string) error {
 		return fmt.Errorf("%w: invalid SWF domain ARN: %s", ErrValidation, arn)
 	}
 	domainName := m[1]
-	if _, ok := b.domains[domainName]; !ok {
+	if !b.domains.Has(domainName) {
 		return fmt.Errorf("%w: domain %s not found for ARN %s", ErrNotFound, domainName, arn)
 	}
 
@@ -1412,7 +1429,7 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 	)
 	task.StartedEventID = startedEventID
 
-	b.activeActivityTasks[token] = &activeActivityTaskRecord{
+	b.activeActivityTasks.Put(&activeActivityTaskRecord{
 		Domain:           domain,
 		WorkflowID:       task.WorkflowID,
 		RunID:            task.RunID,
@@ -1421,7 +1438,8 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 		ScheduledEventID: task.ScheduledEventID,
 		StartedEventID:   startedEventID,
 		TaskList:         taskList,
-	}
+		TaskToken:        token,
+	})
 
 	return &task
 }
@@ -1445,11 +1463,12 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	b.decisionQueues[key] = queue[1:]
 	task.TaskToken = uuid.New().String()
 
-	b.activeDecisionTasks[task.TaskToken] = &activeDecisionTaskRecord{
+	b.activeDecisionTasks.Put(&activeDecisionTaskRecord{
 		Domain:     domain,
 		WorkflowID: task.WorkflowID,
 		RunID:      task.RunID,
-	}
+		TaskToken:  task.TaskToken,
+	})
 
 	histEvents := b.history[domain+":"+task.WorkflowID]
 	if len(histEvents) > 0 {
@@ -1462,7 +1481,7 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	}
 
 	// Populate workflow type from execution if known.
-	if exec, ok := b.executions[domain+":"+task.WorkflowID]; ok {
+	if exec, ok := b.executions.Get(domain + ":" + task.WorkflowID); ok {
 		task.WorkflowTypeName = exec.WorkflowTypeName
 		task.WorkflowTypeVersion = exec.WorkflowTypeVersion
 	}
@@ -1476,12 +1495,12 @@ func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, e
 	b.mu.RLock("RecordActivityTaskHeartbeat")
 	defer b.mu.RUnlock()
 
-	rec, ok := b.activeActivityTasks[taskToken]
+	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
 		return false, fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
 	}
 
-	exec, ok := b.executions[rec.Domain+":"+rec.WorkflowID]
+	exec, ok := b.executions.Get(rec.Domain + ":" + rec.WorkflowID)
 	if !ok {
 		return false, nil
 	}
@@ -1496,7 +1515,7 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	defer b.mu.Unlock()
 
 	key := domain + ":" + workflowID
-	exec, ok := b.executions[key]
+	exec, ok := b.executions.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
@@ -1539,11 +1558,11 @@ func (b *InMemoryBackend) RespondActivityTaskCanceled(taskToken, details string)
 	b.mu.Lock("RespondActivityTaskCanceled")
 	defer b.mu.Unlock()
 
-	rec, ok := b.activeActivityTasks[taskToken]
+	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
 		return fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
 	}
-	delete(b.activeActivityTasks, taskToken)
+	b.activeActivityTasks.Delete(taskToken)
 
 	attrKey := eventAttrKey("ActivityTaskCanceled")
 	attrs := map[string]any{
@@ -1564,11 +1583,11 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 	b.mu.Lock("RespondActivityTaskCompleted")
 	defer b.mu.Unlock()
 
-	rec, ok := b.activeActivityTasks[taskToken]
+	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
 		return fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
 	}
-	delete(b.activeActivityTasks, taskToken)
+	b.activeActivityTasks.Delete(taskToken)
 
 	attrKey := eventAttrKey("ActivityTaskCompleted")
 	attrs := map[string]any{
@@ -1589,11 +1608,11 @@ func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details s
 	b.mu.Lock("RespondActivityTaskFailed")
 	defer b.mu.Unlock()
 
-	rec, ok := b.activeActivityTasks[taskToken]
+	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
 		return fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
 	}
-	delete(b.activeActivityTasks, taskToken)
+	b.activeActivityTasks.Delete(taskToken)
 
 	attrKey := eventAttrKey("ActivityTaskFailed")
 	attrs := map[string]any{
@@ -1618,14 +1637,14 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 	b.mu.Lock("RespondDecisionTaskCompleted")
 	defer b.mu.Unlock()
 
-	rec, ok := b.activeDecisionTasks[taskToken]
+	rec, ok := b.activeDecisionTasks.Get(taskToken)
 	if !ok {
 		return fmt.Errorf("%w: decision task token %s not found", ErrNotFound, taskToken)
 	}
-	delete(b.activeDecisionTasks, taskToken)
+	b.activeDecisionTasks.Delete(taskToken)
 
 	key := rec.Domain + ":" + rec.WorkflowID
-	exec, ok := b.executions[key]
+	exec, ok := b.executions.Get(key)
 	if !ok {
 		return nil
 	}
@@ -1773,7 +1792,7 @@ func (b *InMemoryBackend) processDecisionLocked(domain, workflowID string, exec 
 // enqueueDecisionTaskLocked adds a decision task for the execution's task list.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) enqueueDecisionTaskLocked(domain, workflowID string) {
-	exec, ok := b.executions[domain+":"+workflowID]
+	exec, ok := b.executions.Get(domain + ":" + workflowID)
 	if !ok || exec.TaskList == "" {
 		return
 	}
@@ -1792,7 +1811,7 @@ func (b *InMemoryBackend) SignalWorkflowExecution(
 	defer b.mu.Unlock()
 
 	key := domain + ":" + workflowID
-	exec, ok := b.executions[key]
+	exec, ok := b.executions.Get(key)
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
