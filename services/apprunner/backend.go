@@ -1,7 +1,6 @@
 package apprunner
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"strings"
@@ -11,10 +10,9 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -335,58 +333,64 @@ func (d *storedCustomDomain) toCustomDomain() CustomDomain {
 	}
 }
 
-// snapshot holds serializable backend state.
-type snapshot struct {
-	Services                  map[string]*storedService                    `json:"services"`
-	AutoScalingConfigurations map[string]*storedAutoScalingConfiguration   `json:"autoScalingConfigurations"`
-	Connections               map[string]*storedConnection                 `json:"connections"`
-	ObservabilityConfigs      map[string]*storedObservabilityConfiguration `json:"observabilityConfigs"`
-	VpcConnectors             map[string]*storedVpcConnector               `json:"vpcConnectors"`
-	VpcIngressConnections     map[string]*storedVpcIngressConnection       `json:"vpcIngressConnections"`
-	CustomDomains             map[string][]*storedCustomDomain             `json:"customDomains"`
-	Tags                      map[string]map[string]string                 `json:"tags"`
-}
-
 // InMemoryBackend implements StorageBackend using in-memory maps.
+//
+// Every map[string]*T resource field is a *store.Table[T] registered on
+// registry (see store_setup.go for the registration and the rationale for
+// which fields became Table/Index-backed vs. stayed raw maps). asgByName and
+// obsByName are left as raw, order-sensitive slice-maps: they track ASG /
+// observability-config revisions in ascending-revision order (the last
+// element is "latest"), and [store.Index] does not preserve insertion order
+// across removals (it swap-removes), so converting them to an Index would
+// silently break the "latest == last element" invariant ListAutoScaling/
+// ListObservabilityConfigurations relies on. customDomains is left raw for
+// the same reason (order-preserving append/splice, no sort). tags is left
+// raw because its values are map[string]string, not *T.
 type InMemoryBackend struct {
-	mu                    *lockmetrics.RWMutex
-	services              map[string]*storedService                    // serviceArn → service
-	byName                map[string]string                            // serviceName → serviceArn
-	autoScalingConfigs    map[string]*storedAutoScalingConfiguration   // arn → asg config
-	asgByName             map[string][]*storedAutoScalingConfiguration // name → revisions (sorted ascending)
-	connections           map[string]*storedConnection                 // arn → connection
-	connByName            map[string]string                            // name → arn
-	observabilityConfigs  map[string]*storedObservabilityConfiguration // arn → obs config
-	obsByName             map[string][]*storedObservabilityConfiguration
-	vpcConnectors         map[string]*storedVpcConnector         // arn → vpc connector
-	vpcIngressConnections map[string]*storedVpcIngressConnection // arn → vic
-	vicByName             map[string]string                      // name → arn
-	customDomains         map[string][]*storedCustomDomain       // serviceArn → domains
-	tags                  map[string]map[string]string           // resourceArn → tags
-	accountID             string
-	region                string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	services *store.Table[storedService]
+	byName   *store.Index[storedService]
+
+	autoScalingConfigs *store.Table[storedAutoScalingConfiguration]
+	// asgByName maps name to revisions (ascending); left raw, see type doc.
+	asgByName map[string][]*storedAutoScalingConfiguration
+
+	connections *store.Table[storedConnection]
+	connByName  *store.Index[storedConnection]
+
+	observabilityConfigs *store.Table[storedObservabilityConfiguration]
+	// obsByName maps name to revisions (ascending); left raw, see type doc.
+	obsByName map[string][]*storedObservabilityConfiguration
+
+	vpcConnectors *store.Table[storedVpcConnector]
+
+	vpcIngressConnections *store.Table[storedVpcIngressConnection]
+	vicByName             *store.Index[storedVpcIngressConnection]
+
+	customDomains map[string][]*storedCustomDomain // serviceArn → domains; left raw, see type doc.
+	tags          map[string]map[string]string     // resourceArn → tags; left raw, see type doc.
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                    lockmetrics.New("apprunner"),
-		accountID:             accountID,
-		region:                region,
-		services:              make(map[string]*storedService),
-		byName:                make(map[string]string),
-		autoScalingConfigs:    make(map[string]*storedAutoScalingConfiguration),
-		asgByName:             make(map[string][]*storedAutoScalingConfiguration),
-		connections:           make(map[string]*storedConnection),
-		connByName:            make(map[string]string),
-		observabilityConfigs:  make(map[string]*storedObservabilityConfiguration),
-		obsByName:             make(map[string][]*storedObservabilityConfiguration),
-		vpcConnectors:         make(map[string]*storedVpcConnector),
-		vpcIngressConnections: make(map[string]*storedVpcIngressConnection),
-		vicByName:             make(map[string]string),
-		customDomains:         make(map[string][]*storedCustomDomain),
-		tags:                  make(map[string]map[string]string),
+	b := &InMemoryBackend{
+		mu:            lockmetrics.New("apprunner"),
+		registry:      store.NewRegistry(),
+		accountID:     accountID,
+		region:        region,
+		asgByName:     make(map[string][]*storedAutoScalingConfiguration),
+		obsByName:     make(map[string][]*storedObservabilityConfiguration),
+		customDomains: make(map[string][]*storedCustomDomain),
+		tags:          make(map[string]map[string]string),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) serviceARN(id string) string {
@@ -464,7 +468,7 @@ func (b *InMemoryBackend) CreateService(
 	b.mu.Lock("CreateService")
 	defer b.mu.Unlock()
 
-	if _, exists := b.byName[name]; exists {
+	if existing := b.byName.Get(name); len(existing) > 0 {
 		return nil, fmt.Errorf("service %s already exists: %w", name, ErrAlreadyExists)
 	}
 
@@ -497,8 +501,7 @@ func (b *InMemoryBackend) CreateService(
 		Tags:        svcTags,
 	}
 	b.addOperation(svc, opTypeCreate)
-	b.services[svcArn] = svc
-	b.byName[name] = svcArn
+	b.services.Put(svc)
 
 	if len(svcTags) > 0 {
 		b.tags[svcArn] = make(map[string]string)
@@ -515,7 +518,7 @@ func (b *InMemoryBackend) DescribeService(serviceArn string) (*Service, error) {
 	b.mu.RLock("DescribeService")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -530,7 +533,7 @@ func (b *InMemoryBackend) UpdateService(serviceArn, cpu, memory, imageURI string
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -567,7 +570,7 @@ func (b *InMemoryBackend) DeleteService(serviceArn string) (*Service, error) {
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -578,8 +581,7 @@ func (b *InMemoryBackend) DeleteService(serviceArn string) (*Service, error) {
 
 	cp := svc.toService()
 
-	delete(b.byName, svc.ServiceName)
-	delete(b.services, serviceArn)
+	b.services.Delete(serviceArn)
 	delete(b.tags, serviceArn)
 
 	return &cp, nil
@@ -590,11 +592,11 @@ func (b *InMemoryBackend) ListServices(maxResults int32, nextToken string) ([]*S
 	b.mu.RLock("ListServices")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.services)
+	items := b.services.Snapshot()
 
-	all := make([]*ServiceSummary, 0, len(arns))
-	for _, a := range arns {
-		s := b.services[a].toSummary()
+	all := make([]*ServiceSummary, 0, len(items))
+	for _, svc := range items {
+		s := svc.toSummary()
 		all = append(all, &s)
 	}
 
@@ -609,7 +611,7 @@ func (b *InMemoryBackend) PauseService(serviceArn string) (*Service, error) {
 	b.mu.Lock("PauseService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -635,7 +637,7 @@ func (b *InMemoryBackend) ResumeService(serviceArn string) (*Service, error) {
 	b.mu.Lock("ResumeService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -661,7 +663,7 @@ func (b *InMemoryBackend) StartDeployment(serviceArn string) (string, error) {
 	b.mu.Lock("StartDeployment")
 	defer b.mu.Unlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return "", fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -688,7 +690,7 @@ func (b *InMemoryBackend) ListOperations(
 	b.mu.RLock("ListOperations")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, "", fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
@@ -707,22 +709,22 @@ func (b *InMemoryBackend) ListOperations(
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) resourceExists(resourceArn string) bool {
-	if _, ok := b.services[resourceArn]; ok {
+	if b.services.Has(resourceArn) {
 		return true
 	}
-	if _, ok := b.autoScalingConfigs[resourceArn]; ok {
+	if b.autoScalingConfigs.Has(resourceArn) {
 		return true
 	}
-	if _, ok := b.connections[resourceArn]; ok {
+	if b.connections.Has(resourceArn) {
 		return true
 	}
-	if _, ok := b.observabilityConfigs[resourceArn]; ok {
+	if b.observabilityConfigs.Has(resourceArn) {
 		return true
 	}
-	if _, ok := b.vpcConnectors[resourceArn]; ok {
+	if b.vpcConnectors.Has(resourceArn) {
 		return true
 	}
-	if _, ok := b.vpcIngressConnections[resourceArn]; ok {
+	if b.vpcIngressConnections.Has(resourceArn) {
 		return true
 	}
 
@@ -787,126 +789,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.services = make(map[string]*storedService)
-	b.byName = make(map[string]string)
-	b.autoScalingConfigs = make(map[string]*storedAutoScalingConfiguration)
+	b.registry.ResetAll()
 	b.asgByName = make(map[string][]*storedAutoScalingConfiguration)
-	b.connections = make(map[string]*storedConnection)
-	b.connByName = make(map[string]string)
-	b.observabilityConfigs = make(map[string]*storedObservabilityConfiguration)
 	b.obsByName = make(map[string][]*storedObservabilityConfiguration)
-	b.vpcConnectors = make(map[string]*storedVpcConnector)
-	b.vpcIngressConnections = make(map[string]*storedVpcIngressConnection)
-	b.vicByName = make(map[string]string)
 	b.customDomains = make(map[string][]*storedCustomDomain)
 	b.tags = make(map[string]map[string]string)
-}
-
-// Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "apprunner", snapshot{
-		Services:                  b.services,
-		AutoScalingConfigurations: b.autoScalingConfigs,
-		Connections:               b.connections,
-		ObservabilityConfigs:      b.observabilityConfigs,
-		VpcConnectors:             b.vpcConnectors,
-		VpcIngressConnections:     b.vpcIngressConnections,
-		CustomDomains:             b.customDomains,
-		Tags:                      b.tags,
-	})
-}
-
-// Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:gocognit // existing issue.
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	var snap snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "apprunner", data, &snap); err != nil {
-		return err
-	}
-
-	if snap.Services != nil {
-		b.services = snap.Services
-		b.byName = make(map[string]string, len(snap.Services))
-		for a, svc := range snap.Services {
-			b.byName[svc.ServiceName] = a
-		}
-	} else {
-		b.services = make(map[string]*storedService)
-		b.byName = make(map[string]string)
-	}
-
-	if snap.AutoScalingConfigurations != nil {
-		b.autoScalingConfigs = snap.AutoScalingConfigurations
-		b.asgByName = make(map[string][]*storedAutoScalingConfiguration)
-		for _, cfg := range snap.AutoScalingConfigurations {
-			b.asgByName[cfg.AutoScalingConfigurationName] = append(
-				b.asgByName[cfg.AutoScalingConfigurationName], cfg,
-			)
-		}
-	} else {
-		b.autoScalingConfigs = make(map[string]*storedAutoScalingConfiguration)
-		b.asgByName = make(map[string][]*storedAutoScalingConfiguration)
-	}
-
-	if snap.Connections != nil {
-		b.connections = snap.Connections
-		b.connByName = make(map[string]string, len(snap.Connections))
-		for a, conn := range snap.Connections {
-			b.connByName[conn.ConnectionName] = a
-		}
-	} else {
-		b.connections = make(map[string]*storedConnection)
-		b.connByName = make(map[string]string)
-	}
-
-	if snap.ObservabilityConfigs != nil {
-		b.observabilityConfigs = snap.ObservabilityConfigs
-		b.obsByName = make(map[string][]*storedObservabilityConfiguration)
-		for _, cfg := range snap.ObservabilityConfigs {
-			b.obsByName[cfg.ObservabilityConfigurationName] = append(
-				b.obsByName[cfg.ObservabilityConfigurationName], cfg,
-			)
-		}
-	} else {
-		b.observabilityConfigs = make(map[string]*storedObservabilityConfiguration)
-		b.obsByName = make(map[string][]*storedObservabilityConfiguration)
-	}
-
-	if snap.VpcConnectors != nil {
-		b.vpcConnectors = snap.VpcConnectors
-	} else {
-		b.vpcConnectors = make(map[string]*storedVpcConnector)
-	}
-
-	if snap.VpcIngressConnections != nil {
-		b.vpcIngressConnections = snap.VpcIngressConnections
-		b.vicByName = make(map[string]string, len(snap.VpcIngressConnections))
-		for a, vic := range snap.VpcIngressConnections {
-			b.vicByName[vic.VpcIngressConnectionName] = a
-		}
-	} else {
-		b.vpcIngressConnections = make(map[string]*storedVpcIngressConnection)
-		b.vicByName = make(map[string]string)
-	}
-
-	if snap.CustomDomains != nil {
-		b.customDomains = snap.CustomDomains
-	} else {
-		b.customDomains = make(map[string][]*storedCustomDomain)
-	}
-
-	if snap.Tags != nil {
-		b.tags = snap.Tags
-	} else {
-		b.tags = make(map[string]map[string]string)
-	}
-
-	return nil
 }
 
 // --- AutoScalingConfiguration operations ---
@@ -951,7 +838,7 @@ func (b *InMemoryBackend) CreateAutoScalingConfiguration(
 		CreatedAt:                        now,
 	}
 
-	b.autoScalingConfigs[asgArn] = cfg
+	b.autoScalingConfigs.Put(cfg)
 	b.asgByName[name] = append(revisions, cfg)
 
 	if len(tags) > 0 {
@@ -969,7 +856,7 @@ func (b *InMemoryBackend) DescribeAutoScalingConfiguration(asgArn string) (*Auto
 	b.mu.RLock("DescribeAutoScalingConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.autoScalingConfigs[asgArn]
+	cfg, ok := b.autoScalingConfigs.Get(asgArn)
 	if !ok {
 		return nil, fmt.Errorf("auto scaling configuration %s not found: %w", asgArn, ErrNotFound)
 	}
@@ -984,7 +871,7 @@ func (b *InMemoryBackend) DeleteAutoScalingConfiguration(asgArn string) (*AutoSc
 	b.mu.Lock("DeleteAutoScalingConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.autoScalingConfigs[asgArn]
+	cfg, ok := b.autoScalingConfigs.Get(asgArn)
 	if !ok {
 		return nil, fmt.Errorf("auto scaling configuration %s not found: %w", asgArn, ErrNotFound)
 	}
@@ -993,7 +880,7 @@ func (b *InMemoryBackend) DeleteAutoScalingConfiguration(asgArn string) (*AutoSc
 	cfg.DeletedAt = time.Now().UTC()
 	cp := cfg.toASG()
 
-	delete(b.autoScalingConfigs, asgArn)
+	b.autoScalingConfigs.Delete(asgArn)
 	delete(b.tags, asgArn)
 
 	revisions := b.asgByName[cfg.AutoScalingConfigurationName]
@@ -1023,13 +910,12 @@ func (b *InMemoryBackend) ListAutoScalingConfigurations( //nolint:dupl // existi
 	b.mu.RLock("ListAutoScalingConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.autoScalingConfigs)
+	items := b.autoScalingConfigs.Snapshot()
 
-	all := make([]*AutoScalingConfigurationSummary, 0, len(arns))
+	all := make([]*AutoScalingConfigurationSummary, 0, len(items))
 	seen := make(map[string]struct{})
 
-	for _, a := range arns {
-		cfg := b.autoScalingConfigs[a]
+	for _, cfg := range items {
 		if nameFilter != "" && cfg.AutoScalingConfigurationName != nameFilter {
 			continue
 		}
@@ -1063,14 +949,16 @@ func (b *InMemoryBackend) UpdateDefaultAutoScalingConfiguration(asgArn string) (
 	b.mu.Lock("UpdateDefaultAutoScalingConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.autoScalingConfigs[asgArn]
+	cfg, ok := b.autoScalingConfigs.Get(asgArn)
 	if !ok {
 		return nil, fmt.Errorf("auto scaling configuration %s not found: %w", asgArn, ErrNotFound)
 	}
 
-	for _, c := range b.autoScalingConfigs {
+	b.autoScalingConfigs.Range(func(c *storedAutoScalingConfiguration) bool {
 		c.IsDefault = false
-	}
+
+		return true
+	})
 
 	cfg.IsDefault = true
 	cp := cfg.toASG()
@@ -1087,7 +975,7 @@ func (b *InMemoryBackend) ListServicesForAutoScalingConfiguration(
 	b.mu.RLock("ListServicesForAutoScalingConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.autoScalingConfigs[asgArn]; !ok {
+	if !b.autoScalingConfigs.Has(asgArn) {
 		return nil, "", fmt.Errorf("auto scaling configuration %s not found: %w", asgArn, ErrNotFound)
 	}
 
@@ -1105,7 +993,7 @@ func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[s
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.connByName[name]; exists {
+	if existing := b.connByName.Get(name); len(existing) > 0 {
 		return nil, fmt.Errorf("connection %s already exists: %w", name, ErrAlreadyExists)
 	}
 
@@ -1121,8 +1009,7 @@ func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[s
 		CreatedAt:      now,
 	}
 
-	b.connections[connArn] = conn
-	b.connByName[name] = connArn
+	b.connections.Put(conn)
 
 	if len(tags) > 0 {
 		b.tags[connArn] = make(map[string]string)
@@ -1139,7 +1026,7 @@ func (b *InMemoryBackend) DeleteConnection(connArn string) (*Connection, error) 
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	conn, ok := b.connections[connArn]
+	conn, ok := b.connections.Get(connArn)
 	if !ok {
 		return nil, fmt.Errorf("connection %s not found: %w", connArn, ErrNotFound)
 	}
@@ -1147,8 +1034,7 @@ func (b *InMemoryBackend) DeleteConnection(connArn string) (*Connection, error) 
 	conn.Status = connStatusDeleted
 	cp := conn.toConnection()
 
-	delete(b.connections, connArn)
-	delete(b.connByName, conn.ConnectionName)
+	b.connections.Delete(connArn)
 	delete(b.tags, connArn)
 
 	return &cp, nil
@@ -1163,11 +1049,10 @@ func (b *InMemoryBackend) ListConnections(
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.connections)
+	items := b.connections.Snapshot()
 
-	all := make([]*ConnectionSummary, 0, len(arns))
-	for _, a := range arns {
-		conn := b.connections[a]
+	all := make([]*ConnectionSummary, 0, len(items))
+	for _, conn := range items {
 		if nameFilter != "" && conn.ConnectionName != nameFilter {
 			continue
 		}
@@ -1211,7 +1096,7 @@ func (b *InMemoryBackend) CreateObservabilityConfiguration(
 		CreatedAt:                          now,
 	}
 
-	b.observabilityConfigs[obsArn] = cfg
+	b.observabilityConfigs.Put(cfg)
 	b.obsByName[name] = append(revisions, cfg)
 
 	if len(tags) > 0 {
@@ -1229,7 +1114,7 @@ func (b *InMemoryBackend) DescribeObservabilityConfiguration(obsArn string) (*Ob
 	b.mu.RLock("DescribeObservabilityConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.observabilityConfigs[obsArn]
+	cfg, ok := b.observabilityConfigs.Get(obsArn)
 	if !ok {
 		return nil, fmt.Errorf("observability configuration %s not found: %w", obsArn, ErrNotFound)
 	}
@@ -1244,7 +1129,7 @@ func (b *InMemoryBackend) DeleteObservabilityConfiguration(obsArn string) (*Obse
 	b.mu.Lock("DeleteObservabilityConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.observabilityConfigs[obsArn]
+	cfg, ok := b.observabilityConfigs.Get(obsArn)
 	if !ok {
 		return nil, fmt.Errorf("observability configuration %s not found: %w", obsArn, ErrNotFound)
 	}
@@ -1253,7 +1138,7 @@ func (b *InMemoryBackend) DeleteObservabilityConfiguration(obsArn string) (*Obse
 	cfg.DeletedAt = time.Now().UTC()
 	cp := cfg.toObs()
 
-	delete(b.observabilityConfigs, obsArn)
+	b.observabilityConfigs.Delete(obsArn)
 	delete(b.tags, obsArn)
 
 	revisions := b.obsByName[cfg.ObservabilityConfigurationName]
@@ -1284,13 +1169,12 @@ func (b *InMemoryBackend) ListObservabilityConfigurations( //nolint:dupl // exis
 	b.mu.RLock("ListObservabilityConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.observabilityConfigs)
+	items := b.observabilityConfigs.Snapshot()
 
-	all := make([]*ObservabilityConfigurationSummary, 0, len(arns))
+	all := make([]*ObservabilityConfigurationSummary, 0, len(items))
 	seen := make(map[string]struct{})
 
-	for _, a := range arns {
-		cfg := b.observabilityConfigs[a]
+	for _, cfg := range items {
 		if nameFilter != "" && cfg.ObservabilityConfigurationName != nameFilter {
 			continue
 		}
@@ -1331,11 +1215,13 @@ func (b *InMemoryBackend) CreateVpcConnector(
 	defer b.mu.Unlock()
 
 	existing := 0
-	for _, vc := range b.vpcConnectors {
+	b.vpcConnectors.Range(func(vc *storedVpcConnector) bool {
 		if vc.VpcConnectorName == name {
 			existing++
 		}
-	}
+
+		return true
+	})
 
 	revision := int32(existing + 1)
 	id := newID()
@@ -1357,7 +1243,7 @@ func (b *InMemoryBackend) CreateVpcConnector(
 		CreatedAt:            now,
 	}
 
-	b.vpcConnectors[vcArn] = vc
+	b.vpcConnectors.Put(vc)
 
 	if len(tags) > 0 {
 		b.tags[vcArn] = make(map[string]string)
@@ -1374,7 +1260,7 @@ func (b *InMemoryBackend) DescribeVpcConnector(vcArn string) (*VpcConnector, err
 	b.mu.RLock("DescribeVpcConnector")
 	defer b.mu.RUnlock()
 
-	vc, ok := b.vpcConnectors[vcArn]
+	vc, ok := b.vpcConnectors.Get(vcArn)
 	if !ok {
 		return nil, fmt.Errorf("vpc connector %s not found: %w", vcArn, ErrNotFound)
 	}
@@ -1389,7 +1275,7 @@ func (b *InMemoryBackend) DeleteVpcConnector(vcArn string) (*VpcConnector, error
 	b.mu.Lock("DeleteVpcConnector")
 	defer b.mu.Unlock()
 
-	vc, ok := b.vpcConnectors[vcArn]
+	vc, ok := b.vpcConnectors.Get(vcArn)
 	if !ok {
 		return nil, fmt.Errorf("vpc connector %s not found: %w", vcArn, ErrNotFound)
 	}
@@ -1398,7 +1284,7 @@ func (b *InMemoryBackend) DeleteVpcConnector(vcArn string) (*VpcConnector, error
 	vc.DeletedAt = time.Now().UTC()
 	cp := vc.toVpcConnector()
 
-	delete(b.vpcConnectors, vcArn)
+	b.vpcConnectors.Delete(vcArn)
 	delete(b.tags, vcArn)
 
 	return &cp, nil
@@ -1409,11 +1295,11 @@ func (b *InMemoryBackend) ListVpcConnectors(maxResults int32, nextToken string) 
 	b.mu.RLock("ListVpcConnectors")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.vpcConnectors)
+	items := b.vpcConnectors.Snapshot()
 
-	all := make([]*VpcConnector, 0, len(arns))
-	for _, a := range arns {
-		cp := b.vpcConnectors[a].toVpcConnector()
+	all := make([]*VpcConnector, 0, len(items))
+	for _, vc := range items {
+		cp := vc.toVpcConnector()
 		all = append(all, &cp)
 	}
 
@@ -1433,7 +1319,7 @@ func (b *InMemoryBackend) CreateVpcIngressConnection(
 	b.mu.Lock("CreateVpcIngressConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.vicByName[name]; exists {
+	if existing := b.vicByName.Get(name); len(existing) > 0 {
 		return nil, fmt.Errorf("vpc ingress connection %s already exists: %w", name, ErrAlreadyExists)
 	}
 
@@ -1455,8 +1341,7 @@ func (b *InMemoryBackend) CreateVpcIngressConnection(
 		CreatedAt:                now,
 	}
 
-	b.vpcIngressConnections[vicArn] = vic
-	b.vicByName[name] = vicArn
+	b.vpcIngressConnections.Put(vic)
 
 	if len(tags) > 0 {
 		b.tags[vicArn] = make(map[string]string)
@@ -1473,7 +1358,7 @@ func (b *InMemoryBackend) DescribeVpcIngressConnection(vicArn string) (*VpcIngre
 	b.mu.RLock("DescribeVpcIngressConnection")
 	defer b.mu.RUnlock()
 
-	vic, ok := b.vpcIngressConnections[vicArn]
+	vic, ok := b.vpcIngressConnections.Get(vicArn)
 	if !ok {
 		return nil, fmt.Errorf("vpc ingress connection %s not found: %w", vicArn, ErrNotFound)
 	}
@@ -1488,7 +1373,7 @@ func (b *InMemoryBackend) DeleteVpcIngressConnection(vicArn string) (*VpcIngress
 	b.mu.Lock("DeleteVpcIngressConnection")
 	defer b.mu.Unlock()
 
-	vic, ok := b.vpcIngressConnections[vicArn]
+	vic, ok := b.vpcIngressConnections.Get(vicArn)
 	if !ok {
 		return nil, fmt.Errorf("vpc ingress connection %s not found: %w", vicArn, ErrNotFound)
 	}
@@ -1497,8 +1382,7 @@ func (b *InMemoryBackend) DeleteVpcIngressConnection(vicArn string) (*VpcIngress
 	vic.DeletedAt = time.Now().UTC()
 	cp := vic.toVIC()
 
-	delete(b.vpcIngressConnections, vicArn)
-	delete(b.vicByName, vic.VpcIngressConnectionName)
+	b.vpcIngressConnections.Delete(vicArn)
 	delete(b.tags, vicArn)
 
 	return &cp, nil
@@ -1513,11 +1397,10 @@ func (b *InMemoryBackend) ListVpcIngressConnections(
 	b.mu.RLock("ListVpcIngressConnections")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.vpcIngressConnections)
+	items := b.vpcIngressConnections.Snapshot()
 
-	all := make([]*VpcIngressConnectionSummary, 0, len(arns))
-	for _, a := range arns {
-		vic := b.vpcIngressConnections[a]
+	all := make([]*VpcIngressConnectionSummary, 0, len(items))
+	for _, vic := range items {
 		if serviceArnFilter != "" && vic.ServiceArn != serviceArnFilter {
 			continue
 		}
@@ -1541,7 +1424,7 @@ func (b *InMemoryBackend) UpdateVpcIngressConnection(
 	b.mu.Lock("UpdateVpcIngressConnection")
 	defer b.mu.Unlock()
 
-	vic, ok := b.vpcIngressConnections[vicArn]
+	vic, ok := b.vpcIngressConnections.Get(vicArn)
 	if !ok {
 		return nil, fmt.Errorf("vpc ingress connection %s not found: %w", vicArn, ErrNotFound)
 	}
@@ -1569,7 +1452,7 @@ func (b *InMemoryBackend) AssociateCustomDomain(
 	b.mu.Lock("AssociateCustomDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.services[serviceArn]; !ok {
+	if !b.services.Has(serviceArn) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
@@ -1596,7 +1479,7 @@ func (b *InMemoryBackend) DisassociateCustomDomain(serviceArn, domainName string
 	b.mu.Lock("DisassociateCustomDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.services[serviceArn]; !ok {
+	if !b.services.Has(serviceArn) {
 		return nil, fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}
 
@@ -1622,7 +1505,7 @@ func (b *InMemoryBackend) DescribeCustomDomains(
 	b.mu.RLock("DescribeCustomDomains")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return nil, "", "", fmt.Errorf("service %s not found: %w", serviceArn, ErrNotFound)
 	}

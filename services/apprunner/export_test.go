@@ -5,7 +5,47 @@ func ServiceCount(b *InMemoryBackend) int {
 	b.mu.RLock("ServiceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.services)
+	return b.services.Len()
+}
+
+// AutoScalingConfigCount returns the number of stored auto scaling configs.
+func AutoScalingConfigCount(b *InMemoryBackend) int {
+	b.mu.RLock("AutoScalingConfigCount")
+	defer b.mu.RUnlock()
+
+	return b.autoScalingConfigs.Len()
+}
+
+// ConnectionCount returns the number of stored connections.
+func ConnectionCount(b *InMemoryBackend) int {
+	b.mu.RLock("ConnectionCount")
+	defer b.mu.RUnlock()
+
+	return b.connections.Len()
+}
+
+// ObservabilityConfigCount returns the number of stored observability configs.
+func ObservabilityConfigCount(b *InMemoryBackend) int {
+	b.mu.RLock("ObservabilityConfigCount")
+	defer b.mu.RUnlock()
+
+	return b.observabilityConfigs.Len()
+}
+
+// VpcConnectorCount returns the number of stored VPC connectors.
+func VpcConnectorCount(b *InMemoryBackend) int {
+	b.mu.RLock("VpcConnectorCount")
+	defer b.mu.RUnlock()
+
+	return b.vpcConnectors.Len()
+}
+
+// VpcIngressConnectionCount returns the number of stored VPC ingress connections.
+func VpcIngressConnectionCount(b *InMemoryBackend) int {
+	b.mu.RLock("VpcIngressConnectionCount")
+	defer b.mu.RUnlock()
+
+	return b.vpcIngressConnections.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
@@ -19,7 +59,7 @@ func ServiceOperationStats(b *InMemoryBackend, serviceArn string) (int, int) {
 	b.mu.RLock("ServiceOperationStats")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.services[serviceArn]
+	svc, ok := b.services.Get(serviceArn)
 	if !ok {
 		return 0, 0
 	}
