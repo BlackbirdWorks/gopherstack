@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -329,8 +331,17 @@ type InMemoryBackend struct {
 	s3             S3Storer
 	lambda         LambdaInvoker
 	kinesisBackend KinesisReader
-	// streams maps region → stream name → delivery stream for region isolation.
-	streams map[string]map[string]*DeliveryStream
+	registry       *store.Registry
+	// streams is a single flat table of every delivery stream, composite-keyed by
+	// "region|name" (see regionKey/deliveryStreamKeyFn in store_setup.go) so that
+	// same-named streams stay isolated across regions exactly as the old
+	// map[region]map[name]*DeliveryStream nesting did.
+	streams *store.Table[DeliveryStream]
+	// streamsByRegion groups streams entries have registered exactly like the old
+	// per-region outer map key did, so a region-scoped "list everything" (what
+	// ListDeliveryStreamsByType and FlushAll need) stays an O(region size) index
+	// lookup instead of an O(all regions) scan.
+	streamsByRegion *store.Index[DeliveryStream]
 	// pollerCancel maps region → stream name → cancel func for active Kinesis source pollers.
 	pollerCancel map[string]map[string]context.CancelFunc
 	// sortedNamesCache caches the alphabetically sorted stream names per region so
@@ -364,8 +375,8 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		svcCtx = context.Background()
 	}
 
-	return &InMemoryBackend{
-		streams:          make(map[string]map[string]*DeliveryStream),
+	b := &InMemoryBackend{
+		registry:         store.NewRegistry(),
 		pollerCancel:     make(map[string]map[string]context.CancelFunc),
 		sortedNamesCache: make(map[string][]string),
 		pendingFlush:     make(map[string]map[string]struct{}),
@@ -374,6 +385,9 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		mu:               lockmetrics.New("firehose"),
 		svcCtx:           svcCtx,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -387,16 +401,6 @@ func getRegionFromContext(ctx context.Context, b *InMemoryBackend) string {
 	}
 
 	return b.region
-}
-
-// regionStore returns the stream map for region, lazily creating it.
-// Must be called with the lock held.
-func (b *InMemoryBackend) regionStore(region string) map[string]*DeliveryStream {
-	if b.streams[region] == nil {
-		b.streams[region] = make(map[string]*DeliveryStream)
-	}
-
-	return b.streams[region]
 }
 
 // pollerStore returns the poller-cancel map for region, lazily creating it.
@@ -473,9 +477,8 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 	b.mu.Lock("CreateDeliveryStream")
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	if _, ok := streams[input.Name]; ok {
+	if _, ok := b.streams.Get(regionKey(region, input.Name)); ok {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, input.Name)
@@ -513,7 +516,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(
 		LastUpdateTimestamp:     now,
 		lastFlush:               now,
 	}
-	streams[input.Name] = s
+	b.streams.Put(s)
 	b.invalidateNamesCacheLocked(region)
 
 	// Collect Kinesis poller info while holding the lock.
@@ -542,9 +545,8 @@ func (b *InMemoryBackend) DeleteDeliveryStream(ctx context.Context, name string)
 	b.mu.Lock("DeleteDeliveryStream")
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		b.mu.Unlock()
 
@@ -555,7 +557,7 @@ func (b *InMemoryBackend) DeleteDeliveryStream(ctx context.Context, name string)
 		s.Tags.Close()
 	}
 
-	delete(streams, name)
+	b.streams.Delete(regionKey(region, name))
 	b.invalidateNamesCacheLocked(region)
 	b.clearPendingFlushLocked(region, name)
 
@@ -579,9 +581,8 @@ func (b *InMemoryBackend) DescribeDeliveryStream(ctx context.Context, name strin
 	defer b.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
@@ -619,11 +620,12 @@ func (b *InMemoryBackend) ListDeliveryStreamsByType(ctx context.Context, streamT
 	b.mu.Lock("ListDeliveryStreams")
 	defer b.mu.Unlock()
 
-	streams := b.regionStore(region)
+	items := b.streamsByRegion.Get(region)
 
 	sorted, ok := b.sortedNamesCache[region]
 	if !ok {
-		sorted = collections.SortedKeys(streams)
+		sorted = collections.Map(items, func(s *DeliveryStream) string { return s.Name })
+		sort.Strings(sorted)
 		b.sortedNamesCache[region] = sorted
 	}
 
@@ -634,9 +636,14 @@ func (b *InMemoryBackend) ListDeliveryStreamsByType(ctx context.Context, streamT
 		return out
 	}
 
+	byName := make(map[string]*DeliveryStream, len(items))
+	for _, s := range items {
+		byName[s.Name] = s
+	}
+
 	filtered := make([]string, 0, len(sorted))
 	for _, name := range sorted {
-		s := streams[name]
+		s := byName[name]
 		if s == nil {
 			continue
 		}
@@ -666,9 +673,8 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, streamName string, data
 	b.mu.Lock("PutRecord")
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[streamName]
+	s, ok := b.streams.Get(regionKey(region, streamName))
 	if !ok {
 		b.mu.Unlock()
 
@@ -745,9 +751,8 @@ func (b *InMemoryBackend) PutRecordBatch(ctx context.Context, streamName string,
 	b.mu.Lock("PutRecordBatch")
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[streamName]
+	s, ok := b.streams.Get(regionKey(region, streamName))
 	if !ok {
 		b.mu.Unlock()
 
@@ -875,9 +880,8 @@ func (b *InMemoryBackend) UpdateDestination(
 	defer b.mu.Unlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[streamName]
+	s, ok := b.streams.Get(regionKey(region, streamName))
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, streamName)
 	}
@@ -920,11 +924,10 @@ func (b *InMemoryBackend) FlushAll(ctx context.Context) {
 		region string
 		name   string
 	}
-	var refs []streamRef
-	for region, streams := range b.streams {
-		for name := range streams {
-			refs = append(refs, streamRef{region: region, name: name})
-		}
+	all := b.streams.All()
+	refs := make([]streamRef, 0, len(all))
+	for _, s := range all {
+		refs = append(refs, streamRef{region: s.Region, name: s.Name})
 	}
 	b.mu.RUnlock()
 
@@ -957,10 +960,9 @@ func (b *InMemoryBackend) intervalFlusher(ctx context.Context) {
 			// Only inspect streams flagged as holding buffered records, rather than
 			// scanning every region×stream on each tick.
 			for region, pending := range b.pendingFlush {
-				streams := b.streams[region]
 				for name := range pending {
-					s := streams[name]
-					if s != nil && b.shouldFlushByIntervalLocked(s) {
+					s, ok := b.streams.Get(regionKey(region, name))
+					if ok && b.shouldFlushByIntervalLocked(s) {
 						refs = append(refs, streamRef{region: region, name: name})
 					}
 				}
@@ -1335,7 +1337,7 @@ func (b *InMemoryBackend) recordFailedRecords(region, streamName string, n int) 
 	b.mu.Lock("recordFailedRecords")
 	defer b.mu.Unlock()
 
-	if s := b.regionStore(region)[streamName]; s != nil {
+	if s, ok := b.streams.Get(regionKey(region, streamName)); ok {
 		s.Metrics.FailedRecords += int64(n)
 	}
 }
@@ -1362,8 +1364,7 @@ func (b *InMemoryBackend) logDeliveryIssue(
 func (b *InMemoryBackend) flushStream(ctx context.Context, region, streamName string) {
 	b.mu.Lock("flushStream")
 
-	streams := b.regionStore(region)
-	s, ok := streams[streamName]
+	s, ok := b.streams.Get(regionKey(region, streamName))
 	if !ok {
 		b.mu.Unlock()
 
@@ -1563,9 +1564,8 @@ func (b *InMemoryBackend) ListTagsForDeliveryStream(ctx context.Context, name st
 	defer b.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
@@ -1579,9 +1579,8 @@ func (b *InMemoryBackend) TagDeliveryStream(ctx context.Context, name string, kv
 	defer b.mu.Unlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
@@ -1597,9 +1596,8 @@ func (b *InMemoryBackend) UntagDeliveryStream(ctx context.Context, name string, 
 	defer b.mu.Unlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
@@ -1622,9 +1620,8 @@ func (b *InMemoryBackend) StartDeliveryStreamEncryption(
 	defer b.mu.Unlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
@@ -1654,9 +1651,8 @@ func (b *InMemoryBackend) StopDeliveryStreamEncryption(ctx context.Context, name
 	defer b.mu.Unlock()
 
 	region := getRegionFromContext(ctx, b)
-	streams := b.regionStore(region)
 
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
@@ -1672,15 +1668,13 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, streams := range b.streams {
-		for _, s := range streams {
-			if s.Tags != nil {
-				s.Tags.Close()
-			}
+	for _, s := range b.streams.All() {
+		if s.Tags != nil {
+			s.Tags.Close()
 		}
 	}
 
-	b.streams = make(map[string]map[string]*DeliveryStream)
+	b.registry.ResetAll()
 }
 
 // AddStreamInternal deep-copies s into the backend, used for seeding test data.
@@ -1689,11 +1683,16 @@ func (b *InMemoryBackend) AddStreamInternal(s *DeliveryStream) {
 	defer b.mu.Unlock()
 
 	cp := streamCopy(s)
-	region := s.Region
-	if region == "" {
-		region = b.region
+	if cp.Region == "" {
+		// A store.Table key is a pure function of the value (see store_setup.go's
+		// deliveryStreamKeyFn), so -- unlike the old map[region]map[name]*DeliveryStream,
+		// where a caller-omitted Region only affected which outer-map bucket the entry
+		// landed in -- cp.Region itself must be defaulted here for the entry to be
+		// keyed (and therefore later found by DescribeDeliveryStream et al.) under the
+		// backend's own region.
+		cp.Region = b.region
 	}
-	b.regionStore(region)[s.Name] = cp
+	b.streams.Put(cp)
 }
 
 // streamCopy returns a shallow copy of s with pointer fields independently copied.

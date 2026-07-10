@@ -3,16 +3,37 @@ package firehose
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// firehoseSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change to the registered streams table's value type or
+// backendSnapshot itself would make an older snapshot unsafe to decode as the
+// current shape. Restore compares this against the persisted value and
+// discards (registry.ResetAll, not a partial decode) any mismatch -- see
+// Restore below. The pre-Phase-3.3 snapshot format had no version field at
+// all, so an old snapshot decodes with Version == 0, which is guaranteed to
+// mismatch firehoseSnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const firehoseSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the Firehose backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// [store.Registry.SnapshotAll] -- here just the single "streams" table (see
+// store_setup.go). DeliveryStream is directly JSON-serializable (it already
+// carries a proper `json:"region"` tag on the field store.Table's composite
+// key is derived from), so no DTO layer is needed the way services/ses or
+// services/neptune required for region-nested types with a hidden field.
 type backendSnapshot struct {
-	Streams   map[string]map[string]*DeliveryStream `json:"streams"`
-	AccountID string                                `json:"accountID"`
-	Region    string                                `json:"region"`
+	Tables    map[string]json.RawMessage `json:"tables"`
+	AccountID string                     `json:"accountID"`
+	Region    string                     `json:"region"`
+	Version   int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -21,15 +42,23 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// Snapshot has no context parameter; fall back to the default logger.
+		logger.Load(ctx).WarnContext(ctx, "firehose: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Streams:   b.streams,
+		Version:   firehoseSnapshotVersion,
+		Tables:    tables,
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		// Snapshot has no context parameter; fall back to the default logger.
 		logger.Load(ctx).WarnContext(ctx, "firehose: failed to marshal snapshot", "error", err)
 
 		return nil
@@ -52,33 +81,46 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	// Close Tags on any streams that are being replaced to prevent
 	// Prometheus registry leaks.
-	for _, streams := range b.streams {
-		for _, s := range streams {
-			if s.Tags != nil {
-				s.Tags.Close()
-			}
+	for _, s := range b.streams.All() {
+		if s.Tags != nil {
+			s.Tags.Close()
 		}
 	}
 
-	if snap.Streams == nil {
-		snap.Streams = make(map[string]map[string]*DeliveryStream)
+	if snap.Version != firehoseSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"firehose: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", firehoseSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.accountID = snap.AccountID
+		b.region = snap.Region
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("firehose: restore snapshot tables: %w", err)
 	}
 
 	now := time.Now()
-	for _, streams := range snap.Streams {
-		for _, s := range streams {
-			s.lastFlush = now
+	for _, s := range b.streams.All() {
+		s.lastFlush = now
 
-			// Recalculate bufferSizeBytes because it is not persisted (unexported field).
-			// Without this, size-based flush thresholds would never fire after a restore.
-			s.bufferSizeBytes = 0
-			for _, rec := range s.Records {
-				s.bufferSizeBytes += len(rec)
-			}
+		// Recalculate bufferSizeBytes because it is not persisted (unexported field).
+		// Without this, size-based flush thresholds would never fire after a restore.
+		s.bufferSizeBytes = 0
+		for _, rec := range s.Records {
+			s.bufferSizeBytes += len(rec)
 		}
 	}
 
-	b.streams = snap.Streams
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
