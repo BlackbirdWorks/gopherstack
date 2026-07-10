@@ -12,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // subscriptionCommitmentDays is the default Shield Advanced subscription commitment period.
@@ -251,22 +252,36 @@ type AttackStatisticsItem struct {
 
 // ALARConfig holds Application Layer Automatic Response configuration for a protection.
 type ALARConfig struct {
+	// ResourceARN identifies the protected resource this ALAR configuration
+	// applies to. It is tagged json:"-" because ALARConfig has no natural
+	// identity field of its own -- it was only ever reached via the external
+	// map[string]*ALARConfig key. The alarConfigs Table's keyFn derives its
+	// key from this field (see store_setup.go), and persistence.go's
+	// alarConfigDTO carries it as a real JSON field so Snapshot/Restore
+	// round-trips correctly.
+	ResourceARN string `json:"-"`
 	// Action is either "BLOCK" or "COUNT".
 	Action  string `json:"action"`
 	Enabled bool   `json:"enabled"`
 }
 
 // InMemoryBackend is an in-memory store for Shield Advanced resources.
+//
+// protections, protectionGroups, and attacks are *store.Table[T] (see
+// store_setup.go), with the former one-to-one ARN/name reverse-lookup maps
+// replaced by companion *store.Index values on protections. alarConfigs is
+// also a *store.Table[ALARConfig] but is not registered on registry -- see
+// store_setup.go's file doc comment.
 type InMemoryBackend struct {
-	protections      map[string]*Protection
-	protectionGroups map[string]*ProtectionGroup
-	attacks          map[string]*Attack
-	// alarConfigs maps ResourceArn -> ALARConfig
-	alarConfigs               map[string]*ALARConfig
+	protections               *store.Table[Protection]
+	protectionsByResourceARN  *store.Index[Protection]
+	protectionsByName         *store.Index[Protection]
+	protectionGroups          *store.Table[ProtectionGroup]
+	attacks                   *store.Table[Attack]
+	alarConfigs               *store.Table[ALARConfig]
+	registry                  *store.Registry
 	subscription              *Subscription
 	drtAccess                 *DRTAccess
-	resourceARNIndex          map[string]string
-	nameIndex                 map[string]string
 	mu                        *lockmetrics.RWMutex
 	accountID                 string
 	region                    string
@@ -276,17 +291,16 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory Shield backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		protections:      make(map[string]*Protection),
-		protectionGroups: make(map[string]*ProtectionGroup),
-		attacks:          make(map[string]*Attack),
-		alarConfigs:      make(map[string]*ALARConfig),
-		resourceARNIndex: make(map[string]string),
-		nameIndex:        make(map[string]string),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("shield"),
+	b := &InMemoryBackend{
+		registry:  store.NewRegistry(),
+		accountID: accountID,
+		region:    region,
+		mu:        lockmetrics.New("shield"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -300,7 +314,7 @@ func (b *InMemoryBackend) GetALARConfig(resourceARN string) *ALARConfig {
 	b.mu.RLock("GetALARConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.alarConfigs[resourceARN]
+	cfg, ok := b.alarConfigs.Get(resourceARN)
 	if !ok {
 		return nil
 	}
@@ -374,11 +388,11 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 		)
 	}
 
-	if _, exists := b.nameIndex[name]; exists {
+	if matches := b.protectionsByName.Get(name); len(matches) > 0 {
 		return nil, fmt.Errorf("%w: protection %q already exists", ErrProtectionAlreadyExists, name)
 	}
 
-	if _, exists := b.resourceARNIndex[resourceARN]; exists {
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) > 0 {
 		return nil, fmt.Errorf("%w: protection for resource %s already exists", ErrProtectionAlreadyExists, resourceARN)
 	}
 
@@ -392,27 +406,9 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 		CreationTime:  time.Now(),
 		Tags:          cloneTags(tags),
 	}
-	b.protections[id] = p
-	b.evictIndexLocked(b.resourceARNIndex)
-	b.evictIndexLocked(b.nameIndex)
-	b.resourceARNIndex[resourceARN] = id
-	b.nameIndex[name] = id
+	b.protections.Put(p)
 
 	return cloneProtection(p), nil
-}
-
-// evictIndexLocked removes a random entry from idx when it is at the cap.
-// Must be called with the write lock held.
-func (b *InMemoryBackend) evictIndexLocked(idx map[string]string) {
-	if len(idx) < maxIndexEntries {
-		return
-	}
-
-	for k := range idx {
-		delete(idx, k)
-
-		break
-	}
 }
 
 // DescribeProtection returns a protection by ID or resource ARN.
@@ -421,7 +417,7 @@ func (b *InMemoryBackend) DescribeProtection(protectionID, resourceARN string) (
 	defer b.mu.RUnlock()
 
 	if protectionID != "" {
-		p, ok := b.protections[protectionID]
+		p, ok := b.protections.Get(protectionID)
 		if !ok {
 			return nil, fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 		}
@@ -429,8 +425,8 @@ func (b *InMemoryBackend) DescribeProtection(protectionID, resourceARN string) (
 		return cloneProtection(p), nil
 	}
 
-	if pid, ok := b.resourceARNIndex[resourceARN]; ok {
-		return cloneProtection(b.protections[pid]), nil
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) > 0 {
+		return cloneProtection(matches[0]), nil
 	}
 
 	return nil, fmt.Errorf("%w: no protection for resource %q", ErrProtectionNotFound, resourceARN)
@@ -441,14 +437,9 @@ func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 	b.mu.Lock("DeleteProtection")
 	defer b.mu.Unlock()
 
-	if p, ok := b.protections[protectionID]; ok {
-		delete(b.resourceARNIndex, p.ResourceARN)
-		delete(b.nameIndex, p.Name)
-	} else {
+	if !b.protections.Delete(protectionID) {
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
-
-	delete(b.protections, protectionID)
 
 	return nil
 }
@@ -458,9 +449,10 @@ func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 func (b *InMemoryBackend) ListProtections() []*Protection {
 	b.mu.RLock("ListProtections")
 
-	list := make([]*Protection, 0, len(b.protections))
+	items := b.protections.All()
+	list := make([]*Protection, 0, len(items))
 
-	for _, p := range b.protections {
+	for _, p := range items {
 		list = append(list, cloneProtection(p))
 	}
 
@@ -485,11 +477,6 @@ const (
 	maxTagsPerResource = 50
 	maxTagKeyLen       = 128
 	maxTagValueLen     = 256
-)
-
-const (
-	// maxIndexEntries caps nameIndex and resourceARNIndex to prevent unbounded growth.
-	maxIndexEntries = 10_000
 )
 
 // TagResource adds tags to a protection, keyed by Shield protection ARN or resource ARN.
@@ -573,8 +560,8 @@ func (b *InMemoryBackend) resolveTaggableProtection(resourceARN string) (*Protec
 	}
 
 	// Fall back to resource ARN index.
-	if pid, ok := b.resourceARNIndex[resourceARN]; ok {
-		return b.protections[pid], nil
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) > 0 {
+		return matches[0], nil
 	}
 
 	return nil, fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, resourceARN)
@@ -593,7 +580,9 @@ func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protec
 		return nil
 	}
 
-	return b.protections[parts[1]]
+	p, _ := b.protections.Get(parts[1])
+
+	return p
 }
 
 // cloneTags returns a deep copy of the given tag map.
@@ -608,12 +597,8 @@ func cloneTags(tags map[string]string) map[string]string {
 // Reset clears all Shield protections and subscription state atomically.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
-	b.protections = make(map[string]*Protection)
-	b.protectionGroups = make(map[string]*ProtectionGroup)
-	b.attacks = make(map[string]*Attack)
-	b.alarConfigs = make(map[string]*ALARConfig)
-	b.resourceARNIndex = make(map[string]string)
-	b.nameIndex = make(map[string]string)
+	b.registry.ResetAll()
+	b.alarConfigs.Reset()
 	b.subscription = nil
 	b.drtAccess = nil
 	b.emergencyContacts = nil
@@ -631,11 +616,11 @@ func (b *InMemoryBackend) EnableApplicationLayerAutomaticResponse(resourceARN, a
 		return fmt.Errorf("%w: Shield Advanced subscription is required", ErrSubscriptionRequired)
 	}
 
-	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) == 0 {
 		return fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
 	}
 
-	b.alarConfigs[resourceARN] = &ALARConfig{Enabled: true, Action: action}
+	b.alarConfigs.Put(&ALARConfig{ResourceARN: resourceARN, Enabled: true, Action: action})
 
 	return nil
 }
@@ -645,11 +630,11 @@ func (b *InMemoryBackend) DisableApplicationLayerAutomaticResponse(resourceARN s
 	b.mu.Lock("DisableApplicationLayerAutomaticResponse")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) == 0 {
 		return fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
 	}
 
-	delete(b.alarConfigs, resourceARN)
+	b.alarConfigs.Delete(resourceARN)
 
 	return nil
 }
@@ -659,11 +644,11 @@ func (b *InMemoryBackend) UpdateApplicationLayerAutomaticResponse(resourceARN, a
 	b.mu.Lock("UpdateApplicationLayerAutomaticResponse")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) == 0 {
 		return fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
 	}
 
-	cfg, ok := b.alarConfigs[resourceARN]
+	cfg, ok := b.alarConfigs.Get(resourceARN)
 	if !ok || !cfg.Enabled {
 		return fmt.Errorf(
 			"%w: ALAR is not enabled for resource %q; enable it first",
@@ -707,15 +692,17 @@ func (b *InMemoryBackend) ListResourcesInProtectionGroup(protectionGroupID strin
 	b.mu.RLock("ListResourcesInProtectionGroup")
 	defer b.mu.RUnlock()
 
-	pg, ok := b.protectionGroups[protectionGroupID]
+	pg, ok := b.protectionGroups.Get(protectionGroupID)
 	if !ok {
 		return nil, fmt.Errorf("%w: protection group %q not found", ErrProtectionGroupNotFound, protectionGroupID)
 	}
 
 	switch pg.Pattern {
 	case PatternAll:
-		arns := make([]string, 0, len(b.protections))
-		for _, p := range b.protections {
+		items := b.protections.All()
+		arns := make([]string, 0, len(items))
+
+		for _, p := range items {
 			arns = append(arns, p.ResourceARN)
 		}
 
@@ -725,11 +712,14 @@ func (b *InMemoryBackend) ListResourcesInProtectionGroup(protectionGroupID strin
 
 	case PatternByResourceType:
 		arns := make([]string, 0)
-		for _, p := range b.protections {
+
+		b.protections.Range(func(p *Protection) bool {
 			if resourceARNMatchesType(p.ResourceARN, pg.ResourceType) {
 				arns = append(arns, p.ResourceARN)
 			}
-		}
+
+			return true
+		})
 
 		slices.Sort(arns)
 
@@ -758,9 +748,7 @@ func (b *InMemoryBackend) AddProtectionInternal(name, resourceARN string) *Prote
 		CreationTime:  time.Now(),
 		Tags:          make(map[string]string),
 	}
-	b.protections[id] = p
-	b.resourceARNIndex[resourceARN] = id
-	b.nameIndex[name] = id
+	b.protections.Put(p)
 
 	return cloneProtection(p)
 }
@@ -892,7 +880,7 @@ func (b *InMemoryBackend) AssociateHealthCheck(protectionID, healthCheckARN stri
 	b.mu.Lock("AssociateHealthCheck")
 	defer b.mu.Unlock()
 
-	p, ok := b.protections[protectionID]
+	p, ok := b.protections.Get(protectionID)
 	if !ok {
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
@@ -911,7 +899,7 @@ func (b *InMemoryBackend) DisassociateHealthCheck(protectionID, healthCheckARN s
 	b.mu.Lock("DisassociateHealthCheck")
 	defer b.mu.Unlock()
 
-	p, ok := b.protections[protectionID]
+	p, ok := b.protections.Get(protectionID)
 	if !ok {
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
@@ -1071,7 +1059,7 @@ func (b *InMemoryBackend) CreateProtectionGroup(
 		return nil, fmt.Errorf("%w: ResourceType is required when Pattern is BY_RESOURCE_TYPE", ErrValidation)
 	}
 
-	if _, exists := b.protectionGroups[id]; exists {
+	if b.protectionGroups.Has(id) {
 		return nil, fmt.Errorf("%w: protection group %q already exists", ErrProtectionGroupAlreadyExists, id)
 	}
 
@@ -1086,7 +1074,7 @@ func (b *InMemoryBackend) CreateProtectionGroup(
 		Members:            append([]string(nil), members...),
 		CreationTime:       time.Now(),
 	}
-	b.protectionGroups[id] = pg
+	b.protectionGroups.Put(pg)
 
 	return cloneProtectionGroup(pg), nil
 }
@@ -1096,7 +1084,7 @@ func (b *InMemoryBackend) DescribeProtectionGroup(id string) (*ProtectionGroup, 
 	b.mu.RLock("DescribeProtectionGroup")
 	defer b.mu.RUnlock()
 
-	pg, ok := b.protectionGroups[id]
+	pg, ok := b.protectionGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: protection group %q not found", ErrProtectionGroupNotFound, id)
 	}
@@ -1109,9 +1097,10 @@ func (b *InMemoryBackend) DescribeProtectionGroup(id string) (*ProtectionGroup, 
 func (b *InMemoryBackend) ListProtectionGroups() []*ProtectionGroup {
 	b.mu.RLock("ListProtectionGroups")
 
-	list := make([]*ProtectionGroup, 0, len(b.protectionGroups))
+	items := b.protectionGroups.All()
+	list := make([]*ProtectionGroup, 0, len(items))
 
-	for _, pg := range b.protectionGroups {
+	for _, pg := range items {
 		list = append(list, cloneProtectionGroup(pg))
 	}
 
@@ -1140,7 +1129,7 @@ func (b *InMemoryBackend) UpdateProtectionGroup(
 	b.mu.Lock("UpdateProtectionGroup")
 	defer b.mu.Unlock()
 
-	pg, ok := b.protectionGroups[id]
+	pg, ok := b.protectionGroups.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: protection group %q not found", ErrProtectionGroupNotFound, id)
 	}
@@ -1180,9 +1169,10 @@ func (b *InMemoryBackend) ListAttacks(resourceARNs []string, startTime, endTime 
 		arnSet[a] = struct{}{}
 	}
 
-	list := make([]*Attack, 0, len(b.attacks))
+	items := b.attacks.All()
+	list := make([]*Attack, 0, len(items))
 
-	for _, a := range b.attacks {
+	for _, a := range items {
 		if len(arnSet) > 0 {
 			if _, ok := arnSet[a.ResourceARN]; !ok {
 				continue
@@ -1225,11 +1215,9 @@ func (b *InMemoryBackend) DeleteProtectionGroup(protectionGroupID string) error 
 	b.mu.Lock("DeleteProtectionGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.protectionGroups[protectionGroupID]; !ok {
+	if !b.protectionGroups.Delete(protectionGroupID) {
 		return fmt.Errorf("%w: protection group %q not found", ErrProtectionGroupNotFound, protectionGroupID)
 	}
-
-	delete(b.protectionGroups, protectionGroupID)
 
 	return nil
 }
@@ -1252,7 +1240,7 @@ func (b *InMemoryBackend) AddAttackInternal(attackID, resourceARN string) *Attac
 			{MitigationName: "Shield Advanced mitigation"},
 		},
 	}
-	b.attacks[attackID] = a
+	b.attacks.Put(a)
 
 	cp := *a
 
@@ -1284,7 +1272,7 @@ func (b *InMemoryBackend) SimulateAttack(resourceARN string, attackVectorTypes [
 	b.mu.Lock("SimulateAttack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourceARNIndex[resourceARN]; !ok {
+	if matches := b.protectionsByResourceARN.Get(resourceARN); len(matches) == 0 {
 		return nil, fmt.Errorf("%w: no protection found for resource %q", ErrProtectionNotFound, resourceARN)
 	}
 
@@ -1310,7 +1298,7 @@ func (b *InMemoryBackend) SimulateAttack(resourceARN string, attackVectorTypes [
 			{MitigationName: "Shield Advanced mitigation"},
 		},
 	}
-	b.attacks[id] = a
+	b.attacks.Put(a)
 
 	cp := *a
 	cp.AttackVectors = append([]AttackVector(nil), a.AttackVectors...)
@@ -1335,7 +1323,7 @@ func (b *InMemoryBackend) AddProtectionGroupInternal(id, aggregation, pattern st
 		Members:            []string{},
 		CreationTime:       time.Now(),
 	}
-	b.protectionGroups[id] = pg
+	b.protectionGroups.Put(pg)
 
 	return cloneProtectionGroup(pg)
 }
@@ -1345,7 +1333,7 @@ func (b *InMemoryBackend) DescribeAttack(attackID string) (*Attack, error) {
 	b.mu.RLock("DescribeAttack")
 	defer b.mu.RUnlock()
 
-	a, ok := b.attacks[attackID]
+	a, ok := b.attacks.Get(attackID)
 	if !ok {
 		return nil, fmt.Errorf("%w: attack %q not found", ErrAttackNotFound, attackID)
 	}
@@ -1416,7 +1404,7 @@ func (b *InMemoryBackend) DescribeAttackStatistics() *AttackStatistics {
 
 	buckets := make(map[string]*attackStatsBucket)
 
-	for _, a := range b.attacks {
+	for _, a := range b.attacks.All() {
 		if a.StartTime.Before(from) || a.StartTime.After(now) {
 			continue
 		}

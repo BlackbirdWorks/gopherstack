@@ -3,99 +3,90 @@ package shield
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-type backendSnapshot struct {
-	Protections               map[string]*Protection      `json:"protections"`
-	ProtectionGroups          map[string]*ProtectionGroup `json:"protectionGroups"`
-	Attacks                   map[string]*Attack          `json:"attacks"`
-	ALARConfigs               map[string]*ALARConfig      `json:"alarConfigs,omitempty"`
-	Subscription              *Subscription               `json:"subscription,omitempty"`
-	DRTAccess                 *DRTAccess                  `json:"drtAccess,omitempty"`
-	AccountID                 string                      `json:"accountID"`
-	Region                    string                      `json:"region"`
-	ProactiveEngagementStatus string                      `json:"proactiveEngagementStatus,omitempty"`
-	EmergencyContacts         []EmergencyContact          `json:"emergencyContacts,omitempty"`
+// shieldSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to backendSnapshot (or a value type held by one of
+// the registered tables, or alarConfigDTO) would make an older snapshot
+// unsafe to decode as the current shape. Restore compares this against the
+// persisted value and discards (ResetAll, not a partial decode) any mismatch
+// -- see Restore. The pre-Phase-3.3 snapshot format had no version field at
+// all, so an old snapshot decodes with Version == 0, which is guaranteed to
+// mismatch shieldSnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const shieldSnapshotVersion = 1
+
+// alarConfigDTO is the on-disk shape of one alarConfigs entry. ALARConfig's
+// ResourceARN field is tagged json:"-" (see backend.go), so a direct
+// json.Marshal of *ALARConfig would silently drop the very field the value
+// is keyed by; alarConfigDTO carries it as a real JSON field instead so
+// Snapshot/Restore round-trips correctly. See store_setup.go's file doc
+// comment for why alarConfigs is not registered on b.registry alongside the
+// "clean" tables.
+type alarConfigDTO struct {
+	ResourceARN string     `json:"resourceARN"`
+	Config      ALARConfig `json:"config"`
 }
 
-func ensureNonNilMaps(s *backendSnapshot) {
-	if s.Protections == nil {
-		s.Protections = make(map[string]*Protection)
-	}
-
-	if s.ProtectionGroups == nil {
-		s.ProtectionGroups = make(map[string]*ProtectionGroup)
-	}
-
-	if s.Attacks == nil {
-		s.Attacks = make(map[string]*Attack)
-	}
+// backendSnapshot is the top-level on-disk shape for the Shield backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// b.registry.SnapshotAll() (the "clean" tables: protections, protectionGroups,
+// attacks). ALARConfigs is the one table left un-registered (see
+// alarConfigDTO). Version guards against decoding a snapshot from an
+// incompatible (older or newer) build of this backend as though it were the
+// current shape; see Restore.
+type backendSnapshot struct {
+	Tables                    map[string]json.RawMessage `json:"tables"`
+	Subscription              *Subscription              `json:"subscription,omitempty"`
+	DRTAccess                 *DRTAccess                 `json:"drtAccess,omitempty"`
+	AccountID                 string                     `json:"accountID"`
+	Region                    string                     `json:"region"`
+	ProactiveEngagementStatus string                     `json:"proactiveEngagementStatus,omitempty"`
+	ALARConfigs               []alarConfigDTO            `json:"alarConfigs,omitempty"`
+	EmergencyContacts         []EmergencyContact         `json:"emergencyContacts,omitempty"`
+	Version                   int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
-// All mutable maps are deep-copied so the snapshot is isolated from subsequent mutations.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Deep-copy protections so mutations after snapshot cannot corrupt it.
-	protectionsCopy := make(map[string]*Protection, len(b.protections))
-	for k, v := range b.protections {
-		protectionsCopy[k] = cloneProtection(v)
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "shield: snapshot table marshal failed", "error", err)
+
+		return nil
 	}
 
-	groupsCopy := make(map[string]*ProtectionGroup, len(b.protectionGroups))
-	for k, v := range b.protectionGroups {
-		groupsCopy[k] = cloneProtectionGroup(v)
-	}
+	alarItems := b.alarConfigs.Snapshot()
+	alarDTOs := make([]alarConfigDTO, 0, len(alarItems))
 
-	attacksCopy := make(map[string]*Attack, len(b.attacks))
-
-	for k, a := range b.attacks {
-		cp := *a
-		attacksCopy[k] = &cp
-	}
-
-	var drtCopy *DRTAccess
-	if b.drtAccess != nil {
-		cp := *b.drtAccess
-		cp.LogBucketList = append([]string(nil), b.drtAccess.LogBucketList...)
-		drtCopy = &cp
-	}
-
-	alarCopy := make(map[string]*ALARConfig, len(b.alarConfigs))
-	for k, v := range b.alarConfigs {
-		cp := *v
-		alarCopy[k] = &cp
+	for _, cfg := range alarItems {
+		alarDTOs = append(alarDTOs, alarConfigDTO{ResourceARN: cfg.ResourceARN, Config: *cfg})
 	}
 
 	snap := backendSnapshot{
-		Protections:               protectionsCopy,
-		ProtectionGroups:          groupsCopy,
-		Attacks:                   attacksCopy,
-		ALARConfigs:               alarCopy,
+		Version:                   shieldSnapshotVersion,
+		Tables:                    tables,
+		ALARConfigs:               alarDTOs,
 		Subscription:              b.subscription,
-		DRTAccess:                 drtCopy,
+		DRTAccess:                 b.drtAccess,
 		EmergencyContacts:         append([]EmergencyContact(nil), b.emergencyContacts...),
 		ProactiveEngagementStatus: b.proactiveEngagementStatus,
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "shield: failed to marshal snapshot", "error", err)
-
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "shield", &snap)
 }
 
-// Restore loads backend state from a JSON snapshot and rebuilds indexes.
+// Restore loads backend state from a JSON snapshot.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
@@ -103,35 +94,52 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	ensureNonNilMaps(&snap)
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.protections = snap.Protections
-	b.protectionGroups = snap.ProtectionGroups
-	b.attacks = snap.Attacks
+	if snap.Version != shieldSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"shield: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", shieldSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.alarConfigs.Reset()
+		b.subscription = nil
+		b.drtAccess = nil
+		b.emergencyContacts = nil
+		b.proactiveEngagementStatus = ""
+		b.accountID = snap.AccountID
+		b.region = snap.Region
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("shield: restore snapshot tables: %w", err)
+	}
+
+	alarConfigs := make([]*ALARConfig, 0, len(snap.ALARConfigs))
+
+	for _, dto := range snap.ALARConfigs {
+		cfg := dto.Config
+		cfg.ResourceARN = dto.ResourceARN
+		alarConfigs = append(alarConfigs, &cfg)
+	}
+
+	b.alarConfigs.Restore(alarConfigs)
+
 	b.subscription = snap.Subscription
 	b.drtAccess = snap.DRTAccess
 	b.emergencyContacts = snap.EmergencyContacts
 	b.proactiveEngagementStatus = snap.ProactiveEngagementStatus
 	b.accountID = snap.AccountID
 	b.region = snap.Region
-
-	if snap.ALARConfigs != nil {
-		b.alarConfigs = snap.ALARConfigs
-	} else {
-		b.alarConfigs = make(map[string]*ALARConfig)
-	}
-
-	// Rebuild O(1) indexes.
-	b.resourceARNIndex = make(map[string]string, len(snap.Protections))
-	b.nameIndex = make(map[string]string, len(snap.Protections))
-
-	for id, p := range snap.Protections {
-		b.resourceARNIndex[p.ResourceARN] = id
-		b.nameIndex[p.Name] = id
-	}
 
 	return nil
 }

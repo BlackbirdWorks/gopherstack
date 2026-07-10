@@ -5,7 +5,7 @@ func ProtectionCount(b *InMemoryBackend) int {
 	b.mu.RLock("ProtectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.protections)
+	return b.protections.Len()
 }
 
 // ProtectionGroupCount returns the number of stored protection groups.
@@ -13,7 +13,7 @@ func ProtectionGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("ProtectionGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.protectionGroups)
+	return b.protectionGroups.Len()
 }
 
 // AttackCount returns the number of stored attacks.
@@ -21,7 +21,7 @@ func AttackCount(b *InMemoryBackend) int {
 	b.mu.RLock("AttackCount")
 	defer b.mu.RUnlock()
 
-	return len(b.attacks)
+	return b.attacks.Len()
 }
 
 // EmergencyContactCount returns the number of stored emergency contacts.
