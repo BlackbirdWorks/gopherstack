@@ -82,7 +82,7 @@ func (b *InMemoryBackend) CreateAppBlock(name, description string, tags map[stri
 	b.mu.Lock("CreateAppBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.appBlocks[name]; ok {
+	if b.appBlocks.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) CreateAppBlock(name, description string, tags map[stri
 		Description: description,
 		State:       appBlockStateInactive,
 	}
-	b.appBlocks[name] = ab
+	b.appBlocks.Put(ab)
 	b.tags[arn] = storedTags
 
 	return ab.toAppBlock(), nil
@@ -109,13 +109,13 @@ func (b *InMemoryBackend) DeleteAppBlock(name string) error {
 	b.mu.Lock("DeleteAppBlock")
 	defer b.mu.Unlock()
 
-	ab, ok := b.appBlocks[name]
+	ab, ok := b.appBlocks.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
 
 	delete(b.tags, ab.Arn)
-	delete(b.appBlocks, name)
+	b.appBlocks.Delete(name)
 
 	return nil
 }
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) DescribeAppBlocks(names []string) ([]*AppBlock, error)
 		var result []*AppBlock
 
 		for _, name := range names {
-			ab, ok := b.appBlocks[name]
+			ab, ok := b.appBlocks.Get(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -140,8 +140,8 @@ func (b *InMemoryBackend) DescribeAppBlocks(names []string) ([]*AppBlock, error)
 		return result, nil
 	}
 
-	result := make([]*AppBlock, 0, len(b.appBlocks))
-	for _, ab := range b.appBlocks {
+	result := make([]*AppBlock, 0, b.appBlocks.Len())
+	for _, ab := range b.appBlocks.All() {
 		result = append(result, ab.toAppBlock())
 	}
 
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 	b.mu.Lock("CreateAppBlockBuilder")
 	defer b.mu.Unlock()
 
-	if _, ok := b.appBlockBuilders[name]; ok {
+	if b.appBlockBuilders.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -178,7 +178,7 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 		InstanceType: instanceType,
 		State:        builderStateStopped,
 	}
-	b.appBlockBuilders[name] = bb
+	b.appBlockBuilders.Put(bb)
 	b.tags[arn] = storedTags
 
 	return bb.toAppBlockBuilder(), nil
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) DeleteAppBlockBuilder(name string) error {
 	b.mu.Lock("DeleteAppBlockBuilder")
 	defer b.mu.Unlock()
 
-	bb, ok := b.appBlockBuilders[name]
+	bb, ok := b.appBlockBuilders.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) DeleteAppBlockBuilder(name string) error {
 	}
 
 	delete(b.tags, bb.Arn)
-	delete(b.appBlockBuilders, name)
+	b.appBlockBuilders.Delete(name)
 	delete(b.appBlockBuilderAssoc, name)
 
 	return nil
@@ -214,7 +214,7 @@ func (b *InMemoryBackend) DescribeAppBlockBuilders(names []string) ([]*AppBlockB
 		var result []*AppBlockBuilder
 
 		for _, name := range names {
-			bb, ok := b.appBlockBuilders[name]
+			bb, ok := b.appBlockBuilders.Get(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -225,8 +225,8 @@ func (b *InMemoryBackend) DescribeAppBlockBuilders(names []string) ([]*AppBlockB
 		return result, nil
 	}
 
-	result := make([]*AppBlockBuilder, 0, len(b.appBlockBuilders))
-	for _, bb := range b.appBlockBuilders {
+	result := make([]*AppBlockBuilder, 0, b.appBlockBuilders.Len())
+	for _, bb := range b.appBlockBuilders.All() {
 		result = append(result, bb.toAppBlockBuilder())
 	}
 
@@ -238,7 +238,7 @@ func (b *InMemoryBackend) StartAppBlockBuilder(name string) error {
 	b.mu.Lock("StartAppBlockBuilder")
 	defer b.mu.Unlock()
 
-	bb, ok := b.appBlockBuilders[name]
+	bb, ok := b.appBlockBuilders.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -257,7 +257,7 @@ func (b *InMemoryBackend) StopAppBlockBuilder(name string) error {
 	b.mu.Lock("StopAppBlockBuilder")
 	defer b.mu.Unlock()
 
-	bb, ok := b.appBlockBuilders[name]
+	bb, ok := b.appBlockBuilders.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -276,7 +276,7 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(name, description, instanceType 
 	b.mu.Lock("UpdateAppBlockBuilder")
 	defer b.mu.Unlock()
 
-	bb, ok := b.appBlockBuilders[name]
+	bb, ok := b.appBlockBuilders.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -297,7 +297,7 @@ func (b *InMemoryBackend) CreateAppBlockBuilderStreamingURL(name string) (string
 	b.mu.RLock("CreateAppBlockBuilderStreamingURL")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.appBlockBuilders[name]; !ok {
+	if !b.appBlockBuilders.Has(name) {
 		return "", ErrNotFound
 	}
 
@@ -309,11 +309,11 @@ func (b *InMemoryBackend) AssociateAppBlockBuilderAppBlock(builderName, appBlock
 	b.mu.Lock("AssociateAppBlockBuilderAppBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.appBlockBuilders[builderName]; !ok {
+	if !b.appBlockBuilders.Has(builderName) {
 		return ErrNotFound
 	}
 
-	if _, ok := b.appBlocks[appBlockName]; !ok {
+	if !b.appBlocks.Has(appBlockName) {
 		return ErrNotFound
 	}
 
@@ -331,11 +331,11 @@ func (b *InMemoryBackend) DisassociateAppBlockBuilderAppBlock(builderName, appBl
 	b.mu.Lock("DisassociateAppBlockBuilderAppBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.appBlockBuilders[builderName]; !ok {
+	if !b.appBlockBuilders.Has(builderName) {
 		return ErrNotFound
 	}
 
-	if _, ok := b.appBlocks[appBlockName]; !ok {
+	if !b.appBlocks.Has(appBlockName) {
 		return ErrNotFound
 	}
 
@@ -361,7 +361,7 @@ func (b *InMemoryBackend) DescribeAppBlockBuilderAppBlockAssociations(
 		}
 
 		for abName := range appBlocks {
-			ab, ok := b.appBlocks[abName]
+			ab, ok := b.appBlocks.Get(abName)
 			if !ok {
 				continue
 			}
