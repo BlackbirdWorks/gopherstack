@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -88,10 +89,12 @@ type SQLStatementResult struct {
 //
 // All resource maps are nested by region (outer key = region) so that
 // same-named resources are isolated across regions. The per-region inner maps
-// are created lazily via the *Store helpers. Callers must hold b.mu while
-// accessing the inner maps.
+// / tables are created lazily via the *Store helpers. Callers must hold b.mu
+// while accessing them. See store_setup.go for why transactions is a
+// map[string]*store.Table[Transaction] while executedStatements and
+// txCounter remain plain maps.
 type InMemoryBackend struct {
-	transactions       map[string]map[string]*Transaction
+	transactions       map[string]*store.Table[Transaction]
 	executedStatements map[string][]ExecutedStatement
 	txCounter          map[string]int
 	engine             *sqlEngine
@@ -103,7 +106,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory RDS Data backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		transactions:       make(map[string]map[string]*Transaction),
+		transactions:       make(map[string]*store.Table[Transaction]),
 		executedStatements: make(map[string][]ExecutedStatement),
 		txCounter:          make(map[string]int),
 		engine:             newSQLEngine(),
@@ -122,11 +125,19 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // The *Store helpers return the per-region inner map, lazily creating it.
 // Callers must hold b.mu.
 
-func (b *InMemoryBackend) transactionsStore(region string) map[string]*Transaction {
+func (b *InMemoryBackend) transactionsStore(region string) *store.Table[Transaction] {
 	if b.transactions[region] == nil {
-		b.transactions[region] = make(map[string]*Transaction)
+		b.transactions[region] = store.New(transactionKeyFn)
 	}
 
+	return b.transactions[region]
+}
+
+// transactionRegion returns the per-region transaction [store.Table] for
+// region without creating it, or nil if region has no transactions yet. Safe
+// to call under either b.mu.RLock or b.mu.Lock -- used by read-only paths
+// (ListTransactions) so a lazy allocation never races under a shared RLock.
+func (b *InMemoryBackend) transactionRegion(region string) *store.Table[Transaction] {
 	return b.transactions[region]
 }
 
@@ -143,7 +154,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.transactions = make(map[string]map[string]*Transaction)
+	b.transactions = make(map[string]*store.Table[Transaction])
 	b.executedStatements = make(map[string][]ExecutedStatement)
 	b.txCounter = make(map[string]int)
 	b.engine.reset()
@@ -181,7 +192,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 	region := getRegion(ctx, b.defaultRegion)
 
 	if transactionID != "" {
-		if _, ok := b.transactionsStore(region)[transactionID]; !ok {
+		if !b.transactionsStore(region).Has(transactionID) {
 			return nil, nil, 0, fmt.Errorf(
 				"%w: transaction %s not found",
 				ErrTransactionNotFound,
@@ -216,7 +227,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	region := getRegion(ctx, b.defaultRegion)
 
 	if transactionID != "" {
-		if _, ok := b.transactionsStore(region)[transactionID]; !ok {
+		if !b.transactionsStore(region).Has(transactionID) {
 			return nil, fmt.Errorf(
 				"%w: transaction %s not found",
 				ErrTransactionNotFound,
@@ -258,10 +269,10 @@ func (b *InMemoryBackend) BeginTransaction(ctx context.Context, resourceARN stri
 	b.txCounter[region]++
 	id := fmt.Sprintf("txn-%06d", b.txCounter[region])
 
-	b.transactionsStore(region)[id] = &Transaction{
+	b.transactionsStore(region).Put(&Transaction{
 		TransactionID: id,
 		Status:        transactionStatusActive,
-	}
+	})
 
 	// Open a matching engine-side transaction so statements tagged with this ID
 	// share atomic visibility. A failure here is non-fatal: such statements
@@ -280,13 +291,13 @@ func (b *InMemoryBackend) CommitTransaction(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.transactionsStore(region)
+	tbl := b.transactionsStore(region)
 
-	if _, ok := store[transactionID]; !ok {
+	if !tbl.Has(transactionID) {
 		return "", fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
 	}
 
-	delete(store, transactionID)
+	tbl.Delete(transactionID)
 	b.engine.finalizeTx(transactionID, true)
 
 	return transactionStatusCommitted, nil
@@ -301,13 +312,13 @@ func (b *InMemoryBackend) RollbackTransaction(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.transactionsStore(region)
+	tbl := b.transactionsStore(region)
 
-	if _, ok := store[transactionID]; !ok {
+	if !tbl.Has(transactionID) {
 		return "", fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
 	}
 
-	delete(store, transactionID)
+	tbl.Delete(transactionID)
 	b.engine.finalizeTx(transactionID, false)
 
 	return transactionStatusRolledBack, nil
@@ -354,11 +365,17 @@ func (b *InMemoryBackend) ListTransactions(ctx context.Context) map[string]Trans
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.transactions[region]
-	result := make(map[string]Transaction, len(store))
+	tbl := b.transactionRegion(region)
 
-	for k, v := range store {
-		result[k] = *v
+	if tbl == nil {
+		return map[string]Transaction{}
+	}
+
+	items := tbl.All()
+	result := make(map[string]Transaction, len(items))
+
+	for _, v := range items {
+		result[v.TransactionID] = *v
 	}
 
 	return result
@@ -370,10 +387,10 @@ func (b *InMemoryBackend) AddTransactionInternal(txID string) {
 	b.mu.Lock("AddTransactionInternal")
 	defer b.mu.Unlock()
 
-	b.transactionsStore(b.defaultRegion)[txID] = &Transaction{
+	b.transactionsStore(b.defaultRegion).Put(&Transaction{
 		TransactionID: txID,
 		Status:        transactionStatusActive,
-	}
+	})
 }
 
 // errIsValidation reports whether err wraps ErrValidation.
