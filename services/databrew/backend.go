@@ -12,8 +12,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -228,20 +228,32 @@ type Schedule struct {
 
 // InMemoryBackend stores DataBrew state in memory.
 //
-// All resource maps are nested by region (outer key = region) so that
-// same-named resources are isolated across regions. The per-region inner maps
-// are created lazily via the *Store helpers. Callers must hold b.mu while
-// accessing the inner maps.
+// All resource collections are nested by region (outer key = region) so that
+// same-named resources are isolated across regions. datasets/recipes/
+// projects/jobs/rulesets/schedules each hold one *store.Table[T] per region,
+// created lazily via the *Table accessors in store_setup.go — mirroring the
+// lazy map creation the hand-rolled *Store helpers did before the Phase 3.3
+// pkgs/store conversion (see store_setup.go's package doc for why jobRuns is
+// NOT converted). Callers must hold b.mu while accessing any of them.
 type InMemoryBackend struct {
-	svcCtx        context.Context
-	schedules     map[string]map[string]*Schedule
-	projects      map[string]map[string]*Project
-	jobs          map[string]map[string]*Job
-	jobRuns       map[string]map[string][]*JobRun
-	rulesets      map[string]map[string]*Ruleset
-	datasets      map[string]map[string]*Dataset
+	svcCtx    context.Context
+	schedules map[string]*store.Table[Schedule]
+	projects  map[string]*store.Table[Project]
+	jobs      map[string]*store.Table[Job]
+	// jobRuns holds one map[jobName][]*JobRun per region. It is left as a
+	// plain (non-store.Table) map: each job's run history is an
+	// ORDER-SENSITIVE slice (chronological append order; ListJobRuns reverses
+	// it), and store.Table/store.Index do not preserve insertion order — see
+	// pkgs/store's package doc and .claude/memories on this rollout.
+	jobRuns map[string]map[string][]*JobRun
+	// registry is the lifecycle registry for every *store.Table this backend
+	// owns; Reset/Snapshot/Restore drive it via ResetAll/SnapshotAll/RestoreAll
+	// instead of hand-written per-map boilerplate. See store_setup.go.
+	registry      *store.Registry
+	rulesets      map[string]*store.Table[Ruleset]
+	datasets      map[string]*store.Table[Dataset]
 	mu            *lockmetrics.RWMutex
-	recipes       map[string]map[string]*Recipe
+	recipes       map[string]*store.Table[Recipe]
 	cancel        context.CancelFunc
 	accountID     string
 	defaultRegion string
@@ -268,13 +280,14 @@ func NewInMemoryBackendWithContext(
 	ctx, cancel := context.WithCancel(svcCtx)
 
 	return &InMemoryBackend{
-		datasets:      make(map[string]map[string]*Dataset),
-		recipes:       make(map[string]map[string]*Recipe),
-		projects:      make(map[string]map[string]*Project),
-		jobs:          make(map[string]map[string]*Job),
+		registry:      store.NewRegistry(),
+		datasets:      make(map[string]*store.Table[Dataset]),
+		recipes:       make(map[string]*store.Table[Recipe]),
+		projects:      make(map[string]*store.Table[Project]),
+		jobs:          make(map[string]*store.Table[Job]),
 		jobRuns:       make(map[string]map[string][]*JobRun),
-		rulesets:      make(map[string]map[string]*Ruleset),
-		schedules:     make(map[string]map[string]*Schedule),
+		rulesets:      make(map[string]*store.Table[Ruleset]),
+		schedules:     make(map[string]*store.Table[Schedule]),
 		mu:            lockmetrics.New("databrew"),
 		accountID:     accountID,
 		defaultRegion: region,
@@ -283,63 +296,14 @@ func NewInMemoryBackendWithContext(
 	}
 }
 
-// The *Store helpers return the per-region inner map, lazily creating it.
+// jobRunsStore returns the per-region jobName -> runs map, lazily creating it.
 // Callers must hold b.mu.
-
-func (b *InMemoryBackend) datasetsStore(region string) map[string]*Dataset {
-	if b.datasets[region] == nil {
-		b.datasets[region] = make(map[string]*Dataset)
-	}
-
-	return b.datasets[region]
-}
-
-func (b *InMemoryBackend) recipesStore(region string) map[string]*Recipe {
-	if b.recipes[region] == nil {
-		b.recipes[region] = make(map[string]*Recipe)
-	}
-
-	return b.recipes[region]
-}
-
-func (b *InMemoryBackend) projectsStore(region string) map[string]*Project {
-	if b.projects[region] == nil {
-		b.projects[region] = make(map[string]*Project)
-	}
-
-	return b.projects[region]
-}
-
-func (b *InMemoryBackend) jobsStore(region string) map[string]*Job {
-	if b.jobs[region] == nil {
-		b.jobs[region] = make(map[string]*Job)
-	}
-
-	return b.jobs[region]
-}
-
 func (b *InMemoryBackend) jobRunsStore(region string) map[string][]*JobRun {
 	if b.jobRuns[region] == nil {
 		b.jobRuns[region] = make(map[string][]*JobRun)
 	}
 
 	return b.jobRuns[region]
-}
-
-func (b *InMemoryBackend) rulesetsStore(region string) map[string]*Ruleset {
-	if b.rulesets[region] == nil {
-		b.rulesets[region] = make(map[string]*Ruleset)
-	}
-
-	return b.rulesets[region]
-}
-
-func (b *InMemoryBackend) schedulesStore(region string) map[string]*Schedule {
-	if b.schedules[region] == nil {
-		b.schedules[region] = make(map[string]*Schedule)
-	}
-
-	return b.schedules[region]
 }
 
 // runDelayed schedules fn to run after delay on a tracked goroutine. The
@@ -383,19 +347,8 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
-	b.datasets = make(map[string]map[string]*Dataset)
-	b.recipes = make(map[string]map[string]*Recipe)
-	b.projects = make(map[string]map[string]*Project)
-	b.jobs = make(map[string]map[string]*Job)
+	b.registry.ResetAll()
 	b.jobRuns = make(map[string]map[string][]*JobRun)
-	b.rulesets = make(map[string]map[string]*Ruleset)
-	b.schedules = make(map[string]map[string]*Schedule)
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	keys := collections.SortedKeys(m)
-
-	return keys
 }
 
 func (b *InMemoryBackend) datasetARN(region, name string) string {
@@ -435,8 +388,8 @@ func (b *InMemoryBackend) CreateDataset(
 	if name == "" {
 		return nil, ErrValidation
 	}
-	store := b.datasetsStore(region)
-	if _, ok := store[name]; ok {
+	t := b.datasetsTable(region)
+	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	source := "S3"
@@ -451,7 +404,7 @@ func (b *InMemoryBackend) CreateDataset(
 		Source: source, CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()),
 	}
-	store[name] = ds
+	t.Put(ds)
 
 	return ds, nil
 }
@@ -460,8 +413,7 @@ func (b *InMemoryBackend) DescribeDataset(ctx context.Context, name string) (*Da
 	b.mu.RLock("DescribeDataset")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.datasetsStore(region)
-	ds, ok := store[name]
+	ds, ok := b.datasetsTable(region).Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -480,13 +432,14 @@ func (b *InMemoryBackend) ListDatasets(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.datasetsStore(region)
-	keys := sortedKeys(store)
+	t := b.datasetsTable(region)
+	keys := snapshotKeys(t, datasetKeyFn)
 	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
 	out := make([]*Dataset, 0, len(pageKeys))
 	for _, k := range pageKeys {
-		cp := *store[k]
-		cp.Tags = maps.Clone(store[k].Tags)
+		v, _ := t.Get(k)
+		cp := *v
+		cp.Tags = maps.Clone(v.Tags)
 		out = append(out, &cp)
 	}
 
@@ -502,8 +455,7 @@ func (b *InMemoryBackend) UpdateDataset(
 	b.mu.Lock("UpdateDataset")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.datasetsStore(region)
-	ds, ok := store[name]
+	ds, ok := b.datasetsTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -519,11 +471,9 @@ func (b *InMemoryBackend) DeleteDataset(ctx context.Context, name string) error 
 	b.mu.Lock("DeleteDataset")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.datasetsStore(region)
-	if _, ok := store[name]; !ok {
+	if !b.datasetsTable(region).Delete(name) {
 		return ErrNotFound
 	}
-	delete(store, name)
 
 	return nil
 }
@@ -540,8 +490,8 @@ func (b *InMemoryBackend) CreateRecipe(
 	if name == "" {
 		return nil, ErrValidation
 	}
-	store := b.recipesStore(region)
-	if _, ok := store[name]; ok {
+	t := b.recipesTable(region)
+	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	r := &Recipe{
@@ -549,7 +499,7 @@ func (b *InMemoryBackend) CreateRecipe(
 		Steps: steps, Tags: maps.Clone(tags), RecipeVersion: "0.1",
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
 	}
-	store[name] = r
+	t.Put(r)
 
 	return r, nil
 }
@@ -558,8 +508,7 @@ func (b *InMemoryBackend) DescribeRecipe(ctx context.Context, name string) (*Rec
 	b.mu.RLock("DescribeRecipe")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.recipesStore(region)
-	r, ok := store[name]
+	r, ok := b.recipesTable(region).Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -579,14 +528,15 @@ func (b *InMemoryBackend) ListRecipes(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.recipesStore(region)
-	keys := sortedKeys(store)
+	t := b.recipesTable(region)
+	keys := snapshotKeys(t, recipeKeyFn)
 	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
 	out := make([]*Recipe, 0, len(pageKeys))
 	for _, k := range pageKeys {
-		cp := *store[k]
-		cp.Tags = maps.Clone(store[k].Tags)
-		cp.Steps = append([]RecipeStep(nil), store[k].Steps...)
+		v, _ := t.Get(k)
+		cp := *v
+		cp.Tags = maps.Clone(v.Tags)
+		cp.Steps = append([]RecipeStep(nil), v.Steps...)
 		out = append(out, &cp)
 	}
 
@@ -597,8 +547,7 @@ func (b *InMemoryBackend) PublishRecipe(ctx context.Context, name, description s
 	b.mu.Lock("PublishRecipe")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.recipesStore(region)
-	r, ok := store[name]
+	r, ok := b.recipesTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -620,8 +569,7 @@ func (b *InMemoryBackend) UpdateRecipe(
 	b.mu.Lock("UpdateRecipe")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.recipesStore(region)
-	r, ok := store[name]
+	r, ok := b.recipesTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -638,11 +586,9 @@ func (b *InMemoryBackend) DeleteRecipe(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteRecipe")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.recipesStore(region)
-	if _, ok := store[name]; !ok {
+	if !b.recipesTable(region).Delete(name) {
 		return ErrNotFound
 	}
-	delete(store, name)
 
 	return nil
 }
@@ -659,8 +605,8 @@ func (b *InMemoryBackend) CreateProject(
 	if name == "" {
 		return nil, ErrValidation
 	}
-	store := b.projectsStore(region)
-	if _, ok := store[name]; ok {
+	t := b.projectsTable(region)
+	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	if sample.Type != "" && sample.Type != "FIRST_N" && sample.Type != "LAST_N" &&
@@ -673,7 +619,7 @@ func (b *InMemoryBackend) CreateProject(
 		Tags: maps.Clone(tags), SessionStatus: "READY",
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
 	}
-	store[name] = p
+	t.Put(p)
 
 	return p, nil
 }
@@ -682,8 +628,7 @@ func (b *InMemoryBackend) DescribeProject(ctx context.Context, name string) (*Pr
 	b.mu.RLock("DescribeProject")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.projectsStore(region)
-	p, ok := store[name]
+	p, ok := b.projectsTable(region).Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -702,13 +647,14 @@ func (b *InMemoryBackend) ListProjects(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.projectsStore(region)
-	keys := sortedKeys(store)
+	t := b.projectsTable(region)
+	keys := snapshotKeys(t, projectKeyFn)
 	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
 	out := make([]*Project, 0, len(pageKeys))
 	for _, k := range pageKeys {
-		cp := *store[k]
-		cp.Tags = maps.Clone(store[k].Tags)
+		v, _ := t.Get(k)
+		cp := *v
+		cp.Tags = maps.Clone(v.Tags)
 		out = append(out, &cp)
 	}
 
@@ -723,8 +669,7 @@ func (b *InMemoryBackend) UpdateProject(
 	b.mu.Lock("UpdateProject")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.projectsStore(region)
-	p, ok := store[name]
+	p, ok := b.projectsTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -748,11 +693,9 @@ func (b *InMemoryBackend) DeleteProject(ctx context.Context, name string) error 
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.projectsStore(region)
-	if _, ok := store[name]; !ok {
+	if !b.projectsTable(region).Delete(name) {
 		return ErrNotFound
 	}
-	delete(store, name)
 
 	return nil
 }
@@ -769,8 +712,8 @@ func (b *InMemoryBackend) CreateJob(
 	if name == "" {
 		return nil, ErrValidation
 	}
-	store := b.jobsStore(region)
-	if _, ok := store[name]; ok {
+	t := b.jobsTable(region)
+	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	j := &Job{
@@ -783,7 +726,7 @@ func (b *InMemoryBackend) CreateJob(
 	if recipeName != "" {
 		j.RecipeReference = &RecipeRef{Name: recipeName, RecipeVersion: "LATEST_WORKING"}
 	}
-	store[name] = j
+	t.Put(j)
 
 	return j, nil
 }
@@ -792,8 +735,7 @@ func (b *InMemoryBackend) DescribeJob(ctx context.Context, name string) (*Job, e
 	b.mu.RLock("DescribeJob")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.jobsStore(region)
-	j, ok := store[name]
+	j, ok := b.jobsTable(region).Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -815,11 +757,11 @@ func (b *InMemoryBackend) ListJobs(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.jobsStore(region)
-	keys := sortedKeys(store)
+	t := b.jobsTable(region)
+	keys := snapshotKeys(t, jobKeyFn)
 	var filtered []string
 	for _, k := range keys {
-		j := store[k]
+		j, _ := t.Get(k)
 		if datasetName != "" && j.DatasetName != datasetName {
 			continue
 		}
@@ -831,9 +773,10 @@ func (b *InMemoryBackend) ListJobs(
 	pageKeys, next := paginateKeys(filtered, maxResults, nextToken)
 	out := make([]*Job, 0, len(pageKeys))
 	for _, k := range pageKeys {
-		cp := *store[k]
-		cp.Tags = maps.Clone(store[k].Tags)
-		cp.Outputs = append([]Output(nil), store[k].Outputs...)
+		v, _ := t.Get(k)
+		cp := *v
+		cp.Tags = maps.Clone(v.Tags)
+		cp.Outputs = append([]Output(nil), v.Outputs...)
 		out = append(out, &cp)
 	}
 
@@ -849,8 +792,7 @@ func (b *InMemoryBackend) UpdateJob(
 	b.mu.Lock("UpdateJob")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.jobsStore(region)
-	j, ok := store[name]
+	j, ok := b.jobsTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -878,11 +820,9 @@ func (b *InMemoryBackend) DeleteJob(ctx context.Context, name string) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	jobStore := b.jobsStore(region)
-	if _, ok := jobStore[name]; !ok {
+	if !b.jobsTable(region).Delete(name) {
 		return ErrNotFound
 	}
-	delete(jobStore, name)
 	runStore := b.jobRunsStore(region)
 	delete(runStore, name)
 
@@ -902,8 +842,7 @@ func (b *InMemoryBackend) StartJobRun(ctx context.Context, jobName string) (*Job
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	jobStore := b.jobsStore(region)
-	if _, ok := jobStore[jobName]; !ok {
+	if !b.jobsTable(region).Has(jobName) {
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobName)
 	}
 
@@ -961,8 +900,7 @@ func (b *InMemoryBackend) ListJobRuns(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	jobStore := b.jobsStore(region)
-	if _, ok := jobStore[jobName]; !ok {
+	if !b.jobsTable(region).Has(jobName) {
 		return nil, "", fmt.Errorf("%w: job %q", ErrNotFound, jobName)
 	}
 
@@ -1022,8 +960,8 @@ func (b *InMemoryBackend) CreateRuleset(
 	if name == "" {
 		return nil, ErrValidation
 	}
-	store := b.rulesetsStore(region)
-	if _, ok := store[name]; ok {
+	t := b.rulesetsTable(region)
+	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	rs := &Ruleset{
@@ -1032,7 +970,7 @@ func (b *InMemoryBackend) CreateRuleset(
 		Tags: maps.Clone(tags), CreateDate: float64(time.Now().Unix()),
 		LastModifiedDate: float64(time.Now().Unix()),
 	}
-	store[name] = rs
+	t.Put(rs)
 
 	return rs, nil
 }
@@ -1041,8 +979,7 @@ func (b *InMemoryBackend) DescribeRuleset(ctx context.Context, name string) (*Ru
 	b.mu.RLock("DescribeRuleset")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.rulesetsStore(region)
-	rs, ok := store[name]
+	rs, ok := b.rulesetsTable(region).Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1062,14 +999,15 @@ func (b *InMemoryBackend) ListRulesets(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.rulesetsStore(region)
-	keys := sortedKeys(store)
+	t := b.rulesetsTable(region)
+	keys := snapshotKeys(t, rulesetKeyFn)
 	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
 	out := make([]*Ruleset, 0, len(pageKeys))
 	for _, k := range pageKeys {
-		cp := *store[k]
-		cp.Tags = maps.Clone(store[k].Tags)
-		cp.Rules = append([]Rule(nil), store[k].Rules...)
+		v, _ := t.Get(k)
+		cp := *v
+		cp.Tags = maps.Clone(v.Tags)
+		cp.Rules = append([]Rule(nil), v.Rules...)
 		out = append(out, &cp)
 	}
 
@@ -1084,8 +1022,7 @@ func (b *InMemoryBackend) UpdateRuleset(
 	b.mu.Lock("UpdateRuleset")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.rulesetsStore(region)
-	rs, ok := store[name]
+	rs, ok := b.rulesetsTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1100,11 +1037,9 @@ func (b *InMemoryBackend) DeleteRuleset(ctx context.Context, name string) error 
 	b.mu.Lock("DeleteRuleset")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.rulesetsStore(region)
-	if _, ok := store[name]; !ok {
+	if !b.rulesetsTable(region).Delete(name) {
 		return ErrNotFound
 	}
-	delete(store, name)
 
 	return nil
 }
@@ -1122,8 +1057,8 @@ func (b *InMemoryBackend) CreateSchedule(
 	if name == "" {
 		return nil, ErrValidation
 	}
-	store := b.schedulesStore(region)
-	if _, ok := store[name]; ok {
+	t := b.schedulesTable(region)
+	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 	sc := &Schedule{
@@ -1131,7 +1066,7 @@ func (b *InMemoryBackend) CreateSchedule(
 		CronExpression: cron, Tags: maps.Clone(tags),
 		CreateDate: float64(time.Now().Unix()), LastModifiedDate: float64(time.Now().Unix()),
 	}
-	store[name] = sc
+	t.Put(sc)
 
 	return sc, nil
 }
@@ -1140,8 +1075,7 @@ func (b *InMemoryBackend) DescribeSchedule(ctx context.Context, name string) (*S
 	b.mu.RLock("DescribeSchedule")
 	defer b.mu.RUnlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.schedulesStore(region)
-	sc, ok := store[name]
+	sc, ok := b.schedulesTable(region).Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1161,14 +1095,15 @@ func (b *InMemoryBackend) ListSchedules(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.schedulesStore(region)
-	keys := sortedKeys(store)
+	t := b.schedulesTable(region)
+	keys := snapshotKeys(t, scheduleKeyFn)
 	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
 	out := make([]*Schedule, 0, len(pageKeys))
 	for _, k := range pageKeys {
-		cp := *store[k]
-		cp.Tags = maps.Clone(store[k].Tags)
-		cp.JobNames = append([]string(nil), store[k].JobNames...)
+		v, _ := t.Get(k)
+		cp := *v
+		cp.Tags = maps.Clone(v.Tags)
+		cp.JobNames = append([]string(nil), v.JobNames...)
 		out = append(out, &cp)
 	}
 
@@ -1184,8 +1119,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 	b.mu.Lock("UpdateSchedule")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.schedulesStore(region)
-	sc, ok := store[name]
+	sc, ok := b.schedulesTable(region).Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -1200,11 +1134,9 @@ func (b *InMemoryBackend) DeleteSchedule(ctx context.Context, name string) error
 	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.schedulesStore(region)
-	if _, ok := store[name]; !ok {
+	if !b.schedulesTable(region).Delete(name) {
 		return ErrNotFound
 	}
-	delete(store, name)
 
 	return nil
 }
@@ -1267,32 +1199,32 @@ func (b *InMemoryBackend) FindTagsByArn(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	for _, ds := range b.datasetsStore(region) {
+	for _, ds := range b.datasetsTable(region).All() {
 		if ds.Arn == arnVal {
 			return maps.Clone(ds.Tags), nil
 		}
 	}
-	for _, r := range b.recipesStore(region) {
+	for _, r := range b.recipesTable(region).All() {
 		if r.Arn == arnVal {
 			return maps.Clone(r.Tags), nil
 		}
 	}
-	for _, p := range b.projectsStore(region) {
+	for _, p := range b.projectsTable(region).All() {
 		if p.Arn == arnVal {
 			return maps.Clone(p.Tags), nil
 		}
 	}
-	for _, j := range b.jobsStore(region) {
+	for _, j := range b.jobsTable(region).All() {
 		if j.Arn == arnVal {
 			return maps.Clone(j.Tags), nil
 		}
 	}
-	for _, rs := range b.rulesetsStore(region) {
+	for _, rs := range b.rulesetsTable(region).All() {
 		if rs.Arn == arnVal {
 			return maps.Clone(rs.Tags), nil
 		}
 	}
-	for _, sc := range b.schedulesStore(region) {
+	for _, sc := range b.schedulesTable(region).All() {
 		if sc.Arn == arnVal {
 			return maps.Clone(sc.Tags), nil
 		}
@@ -1351,7 +1283,7 @@ func (b *InMemoryBackend) updateDatasetTags(
 	region, arnVal string,
 	apply func(map[string]string) map[string]string,
 ) bool {
-	for _, x := range b.datasetsStore(region) {
+	for _, x := range b.datasetsTable(region).All() {
 		if x.Arn == arnVal {
 			x.Tags = apply(x.Tags)
 
@@ -1366,7 +1298,7 @@ func (b *InMemoryBackend) updateRecipeTags(
 	region, arnVal string,
 	apply func(map[string]string) map[string]string,
 ) bool {
-	for _, x := range b.recipesStore(region) {
+	for _, x := range b.recipesTable(region).All() {
 		if x.Arn == arnVal {
 			x.Tags = apply(x.Tags)
 
@@ -1381,7 +1313,7 @@ func (b *InMemoryBackend) updateProjectTags(
 	region, arnVal string,
 	apply func(map[string]string) map[string]string,
 ) bool {
-	for _, x := range b.projectsStore(region) {
+	for _, x := range b.projectsTable(region).All() {
 		if x.Arn == arnVal {
 			x.Tags = apply(x.Tags)
 
@@ -1396,7 +1328,7 @@ func (b *InMemoryBackend) updateJobTags(
 	region, arnVal string,
 	apply func(map[string]string) map[string]string,
 ) bool {
-	for _, x := range b.jobsStore(region) {
+	for _, x := range b.jobsTable(region).All() {
 		if x.Arn == arnVal {
 			x.Tags = apply(x.Tags)
 
@@ -1411,7 +1343,7 @@ func (b *InMemoryBackend) updateRulesetTags(
 	region, arnVal string,
 	apply func(map[string]string) map[string]string,
 ) bool {
-	for _, x := range b.rulesetsStore(region) {
+	for _, x := range b.rulesetsTable(region).All() {
 		if x.Arn == arnVal {
 			x.Tags = apply(x.Tags)
 
@@ -1426,7 +1358,7 @@ func (b *InMemoryBackend) updateScheduleTags(
 	region, arnVal string,
 	apply func(map[string]string) map[string]string,
 ) bool {
-	for _, x := range b.schedulesStore(region) {
+	for _, x := range b.schedulesTable(region).All() {
 		if x.Arn == arnVal {
 			x.Tags = apply(x.Tags)
 

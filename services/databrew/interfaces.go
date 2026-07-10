@@ -8,6 +8,12 @@ type StorageBackend interface {
 	AccountID() string
 	Reset()
 
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks DataBrew up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+
 	// Dataset operations.
 	CreateDataset(
 		ctx context.Context,
