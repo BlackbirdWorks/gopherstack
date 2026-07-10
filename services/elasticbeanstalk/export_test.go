@@ -6,12 +6,7 @@ func (b *InMemoryBackend) ApplicationCount() int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, store := range b.applications {
-		total += len(store)
-	}
-
-	return total
+	return b.applications.Len()
 }
 
 // EnvironmentCount returns the total number of environments across all regions.
@@ -20,12 +15,7 @@ func (b *InMemoryBackend) EnvironmentCount() int {
 	b.mu.RLock("EnvironmentCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, store := range b.environments {
-		total += len(store)
-	}
-
-	return total
+	return b.environments.Len()
 }
 
 // AppVersionCount returns the total number of application versions across all regions.
@@ -34,12 +24,7 @@ func (b *InMemoryBackend) AppVersionCount() int {
 	b.mu.RLock("AppVersionCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, store := range b.appVersions {
-		total += len(store)
-	}
-
-	return total
+	return b.appVersions.Len()
 }
 
 // ConfigTemplateCount returns the total number of configuration templates across all regions.
@@ -48,12 +33,7 @@ func (b *InMemoryBackend) ConfigTemplateCount() int {
 	b.mu.RLock("ConfigTemplateCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, store := range b.configTemplates {
-		total += len(store)
-	}
-
-	return total
+	return b.configTemplates.Len()
 }
 
 // PlatformVersionCount returns the total number of platform versions across all regions.
@@ -62,12 +42,7 @@ func (b *InMemoryBackend) PlatformVersionCount() int {
 	b.mu.RLock("PlatformVersionCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, store := range b.platformVersions {
-		total += len(store)
-	}
-
-	return total
+	return b.platformVersions.Len()
 }
 
 // HandlerOpsLen returns the number of operations registered in the handler's dispatch table.
