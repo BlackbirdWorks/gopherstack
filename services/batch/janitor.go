@@ -76,23 +76,24 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.advanceJobs(ctx)
 }
 
+// jobDefEvictKey identifies a job definition to evict: region plus the
+// composite store.Table key derived from it (see regionKey in backend.go).
+type jobDefEvictKey struct {
+	region, tableKey string
+}
+
 // sweepInactiveJobDefinitions removes job definitions that have been in INACTIVE
 // status for longer than InactiveJobDefTTL. Orphaned revision counters (names
 // with no remaining definitions) are also removed to prevent unbounded growth.
 func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 	cutoff := time.Now().Add(-j.InactiveJobDefTTL)
 
-	type evictKey struct {
-		region, name string
-	}
-	var toEvict []evictKey
+	var toEvict []jobDefEvictKey
 
 	j.Backend.mu.RLock("BatchJanitorInactiveDefs")
-	for region, defs := range j.Backend.jobDefinitions {
-		for arnKey, jd := range defs {
-			if jd.Status == jobDefStatusInactive && jd.DeregisteredAt != nil && jd.DeregisteredAt.Before(cutoff) {
-				toEvict = append(toEvict, evictKey{region, arnKey})
-			}
+	for _, jd := range j.Backend.jobDefinitions.All() {
+		if jd.Status == jobDefStatusInactive && jd.DeregisteredAt != nil && jd.DeregisteredAt.Before(cutoff) {
+			toEvict = append(toEvict, jobDefEvictKey{jd.region, regionKey(jd.region, jd.JobDefinitionArn)})
 		}
 	}
 	j.Backend.mu.RUnlock()
@@ -103,9 +104,7 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 
 	j.Backend.mu.Lock("BatchJanitorInactiveDefsDel")
 	for _, k := range toEvict {
-		if defs, ok := j.Backend.jobDefinitions[k.region]; ok {
-			delete(defs, k.name)
-		}
+		j.Backend.jobDefinitions.Delete(k.tableKey)
 	}
 
 	regionsSet := make(map[string]struct{})
@@ -114,9 +113,8 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 	}
 
 	for region := range regionsSet {
-		defs := j.Backend.jobDefinitions[region]
-		surviving := make(map[string]struct{}, len(defs))
-		for _, jd := range defs {
+		surviving := make(map[string]struct{})
+		for _, jd := range j.Backend.jobDefinitionsByRegion.Get(region) {
 			surviving[jd.JobDefinitionName] = struct{}{}
 		}
 
@@ -136,31 +134,31 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 	logger.Load(ctx).InfoContext(ctx, "Batch janitor: INACTIVE job definitions evicted", "count", count)
 }
 
+// jobEvictKey identifies a job to evict: region plus job ID.
+type jobEvictKey struct {
+	region, id string
+}
+
 // sweepCompletedJobs removes completed or failed Batch jobs whose StoppedAt
 // timestamp is older than CompletedJobTTL. This mirrors AWS Batch behavior where
 // job history is retained for a limited period before automatic removal.
 func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 	cutoffMs := time.Now().Add(-j.CompletedJobTTL).UnixMilli()
 
-	type evictKey struct {
-		region, id, arn string
-	}
-	var toEvict []evictKey
+	var toEvict []jobEvictKey
 
 	j.Backend.mu.RLock("BatchJanitorCompletedJobs")
-	for region, jobs := range j.Backend.jobs {
-		for id, job := range jobs {
-			if !isTerminalJobStatus(job.Status) {
-				continue
-			}
+	for _, job := range j.Backend.jobs.All() {
+		if !isTerminalJobStatus(job.Status) {
+			continue
+		}
 
-			if job.StoppedAt == nil {
-				continue
-			}
+		if job.StoppedAt == nil {
+			continue
+		}
 
-			if *job.StoppedAt < cutoffMs {
-				toEvict = append(toEvict, evictKey{region, id, job.JobARN})
-			}
+		if *job.StoppedAt < cutoffMs {
+			toEvict = append(toEvict, jobEvictKey{job.region, job.JobID})
 		}
 	}
 	j.Backend.mu.RUnlock()
@@ -171,12 +169,9 @@ func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
 
 	j.Backend.mu.Lock("BatchJanitorCompletedJobsDel")
 	for _, k := range toEvict {
-		if jobs, ok := j.Backend.jobs[k.region]; ok {
-			delete(jobs, k.id)
-		}
-		if jobsByARN, ok := j.Backend.jobsByARN[k.region]; ok {
-			delete(jobsByARN, k.arn)
-		}
+		// Table.Delete also removes the job from the byRegion/byARN/byQueue
+		// indexes, replacing the old manual jobsByARN cleanup.
+		j.Backend.jobs.Delete(regionKey(k.region, k.id))
 	}
 	j.Backend.mu.Unlock()
 
@@ -198,28 +193,24 @@ func (j *Janitor) getJobsToAdvance() ([]advanceKey, []advanceKey) {
 	j.Backend.mu.RLock("BatchJanitorAdvanceJobsLock")
 	defer j.Backend.mu.RUnlock()
 
-	for region, jobsMap := range j.Backend.jobs {
-		for id, job := range jobsMap {
-			switch job.Status {
-			case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
-				toAdvance = append(toAdvance, advanceKey{region, id, jobStatusRunning})
-			case jobStatusRunning:
-				if job.StoppedAt == nil {
-					toAdvance = append(toAdvance, advanceKey{region, id, jobStatusSucceeded})
-				}
+	for _, job := range j.Backend.jobs.All() {
+		switch job.Status {
+		case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
+			toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusRunning})
+		case jobStatusRunning:
+			if job.StoppedAt == nil {
+				toAdvance = append(toAdvance, advanceKey{job.region, job.JobID, jobStatusSucceeded})
 			}
 		}
 	}
 
-	for region, serviceJobsMap := range j.Backend.serviceJobs {
-		for id, job := range serviceJobsMap {
-			switch job.Status {
-			case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
-				toAdvanceSvc = append(toAdvanceSvc, advanceKey{region, id, jobStatusRunning})
-			case jobStatusRunning:
-				if job.StoppedAt == nil {
-					toAdvanceSvc = append(toAdvanceSvc, advanceKey{region, id, jobStatusSucceeded})
-				}
+	for _, job := range j.Backend.serviceJobs.All() {
+		switch job.Status {
+		case jobStatusSubmitted, jobStatusPending, jobStatusRunnable, jobStatusStarting:
+			toAdvanceSvc = append(toAdvanceSvc, advanceKey{job.region, job.ServiceJobID, jobStatusRunning})
+		case jobStatusRunning:
+			if job.StoppedAt == nil {
+				toAdvanceSvc = append(toAdvanceSvc, advanceKey{job.region, job.ServiceJobID, jobStatusSucceeded})
 			}
 		}
 	}
@@ -243,7 +234,7 @@ func (j *Janitor) advanceJobs(_ context.Context) {
 
 func (j *Janitor) applyAdvanceRegularJobs(toAdvance []advanceKey, now int64) {
 	for _, k := range toAdvance {
-		if job, ok := j.Backend.jobs[k.region][k.id]; ok {
+		if job, ok := j.Backend.jobs.Get(regionKey(k.region, k.id)); ok {
 			job.Status = k.newStatus
 			switch k.newStatus {
 			case jobStatusRunning:
@@ -257,7 +248,7 @@ func (j *Janitor) applyAdvanceRegularJobs(toAdvance []advanceKey, now int64) {
 
 func (j *Janitor) applyAdvanceServiceJobs(toAdvanceSvc []advanceKey, now int64) {
 	for _, k := range toAdvanceSvc {
-		if job, ok := j.Backend.serviceJobs[k.region][k.id]; ok {
+		if job, ok := j.Backend.serviceJobs.Get(regionKey(k.region, k.id)); ok {
 			job.Status = k.newStatus
 			switch k.newStatus {
 			case jobStatusRunning:
