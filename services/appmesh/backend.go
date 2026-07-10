@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -54,49 +55,59 @@ var (
 	ErrResourceNotFound = awserr.New("resource not found for tagging", awserr.ErrNotFound)
 )
 
-// routeKey is a composite key for routes (mesh + virtualRouter + route).
-type routeKey struct {
-	meshName          string
-	virtualRouterName string
-	routeName         string
-}
-
-// gatewayRouteKey is a composite key for gateway routes.
-type gatewayRouteKey struct {
-	meshName           string
-	virtualGatewayName string
-	gatewayRouteName   string
-}
-
 // InMemoryBackend is a thread-safe in-memory App Mesh backend.
+//
+// meshes, virtualNodes, virtualRouters, routes, virtualSvcs, virtualGWs, and
+// gatewayRoutes are store.Table-backed (see store_setup.go for the Phase 3.3
+// datalayer conversion): meshes registers directly on its real, globally
+// unique Name field; virtualNodes/virtualRouters/virtualSvcs/virtualGWs are
+// mesh-nested, so each registers under the composite "meshName|name" key
+// with a byMesh Index answering the per-mesh list scans the old
+// map[string]map[string]*T nesting used to serve directly; routes and
+// gatewayRoutes are nested one level deeper (under a virtual router / virtual
+// gateway within a mesh), so each registers under a three-part composite key
+// with a byRouter/byGateway Index over its two-part parent key. None of these
+// value types needed a hidden field added for the composite key: every
+// parent-identifying component (MeshName, VirtualRouterName,
+// VirtualGatewayName) was already a real, wire-visible field on the value
+// type itself.
+//
+// tags (map[string]map[string]string, keyed by ARN rather than by a *T with
+// its own identity) does not fit store.Table's keyed-collection shape and is
+// left as a plain map; see persistence.go for how it round-trips through
+// Snapshot/Restore alongside the registered tables.
 type InMemoryBackend struct {
-	meshes         map[string]*Mesh
-	virtualNodes   map[string]map[string]*VirtualNode
-	virtualRouters map[string]map[string]*VirtualRouter
-	routes         map[routeKey]*Route
-	virtualSvcs    map[string]map[string]*VirtualService
-	virtualGWs     map[string]map[string]*VirtualGateway
-	gatewayRoutes  map[gatewayRouteKey]*GatewayRoute
-	tags           map[string]map[string]string
-	accountID      string
-	region         string
-	mu             sync.RWMutex
+	registry               *store.Registry
+	meshes                 *store.Table[Mesh]
+	virtualNodes           *store.Table[VirtualNode]
+	virtualNodesByMesh     *store.Index[VirtualNode]
+	virtualRouters         *store.Table[VirtualRouter]
+	virtualRoutersByMesh   *store.Index[VirtualRouter]
+	routes                 *store.Table[Route]
+	routesByRouter         *store.Index[Route]
+	virtualSvcs            *store.Table[VirtualService]
+	virtualSvcsByMesh      *store.Index[VirtualService]
+	virtualGWs             *store.Table[VirtualGateway]
+	virtualGWsByMesh       *store.Index[VirtualGateway]
+	gatewayRoutes          *store.Table[GatewayRoute]
+	gatewayRoutesByGateway *store.Index[GatewayRoute]
+	tags                   map[string]map[string]string
+	accountID              string
+	region                 string
+	mu                     sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		accountID:      accountID,
-		region:         region,
-		meshes:         make(map[string]*Mesh),
-		virtualNodes:   make(map[string]map[string]*VirtualNode),
-		virtualRouters: make(map[string]map[string]*VirtualRouter),
-		routes:         make(map[routeKey]*Route),
-		virtualSvcs:    make(map[string]map[string]*VirtualService),
-		virtualGWs:     make(map[string]map[string]*VirtualGateway),
-		gatewayRoutes:  make(map[gatewayRouteKey]*GatewayRoute),
-		tags:           make(map[string]map[string]string),
+	b := &InMemoryBackend{
+		accountID: accountID,
+		region:    region,
+		registry:  store.NewRegistry(),
+		tags:      make(map[string]map[string]string),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
@@ -105,13 +116,7 @@ func (b *InMemoryBackend) Region() string    { return b.region }
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.meshes = make(map[string]*Mesh)
-	b.virtualNodes = make(map[string]map[string]*VirtualNode)
-	b.virtualRouters = make(map[string]map[string]*VirtualRouter)
-	b.routes = make(map[routeKey]*Route)
-	b.virtualSvcs = make(map[string]map[string]*VirtualService)
-	b.virtualGWs = make(map[string]map[string]*VirtualGateway)
-	b.gatewayRoutes = make(map[gatewayRouteKey]*GatewayRoute)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -183,7 +188,7 @@ func normalizeSpec(spec json.RawMessage) json.RawMessage {
 func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map[string]string) (*Mesh, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[name]; ok {
+	if b.meshes.Has(name) {
 		return nil, ErrMeshAlreadyExists
 	}
 	arn := b.meshARN(name)
@@ -193,7 +198,7 @@ func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map
 		Spec:   normalizeSpec(spec),
 		Status: statusActive,
 	}
-	b.meshes[name] = m
+	b.meshes.Put(m)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -204,7 +209,7 @@ func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map
 func (b *InMemoryBackend) DescribeMesh(name string) (*Mesh, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	m, ok := b.meshes[name]
+	m, ok := b.meshes.Get(name)
 	if !ok {
 		return nil, ErrMeshNotFound
 	}
@@ -215,7 +220,7 @@ func (b *InMemoryBackend) DescribeMesh(name string) (*Mesh, error) {
 func (b *InMemoryBackend) UpdateMesh(name string, spec json.RawMessage) (*Mesh, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	m, ok := b.meshes[name]
+	m, ok := b.meshes.Get(name)
 	if !ok {
 		return nil, ErrMeshNotFound
 	}
@@ -229,15 +234,15 @@ func (b *InMemoryBackend) UpdateMesh(name string, spec json.RawMessage) (*Mesh, 
 func (b *InMemoryBackend) DeleteMesh(name string) (*Mesh, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	m, ok := b.meshes[name]
+	m, ok := b.meshes.Get(name)
 	if !ok {
 		return nil, ErrMeshNotFound
 	}
-	if len(b.virtualNodes[name]) > 0 || len(b.virtualRouters[name]) > 0 ||
-		len(b.virtualSvcs[name]) > 0 || len(b.virtualGWs[name]) > 0 {
+	if len(b.virtualNodesByMesh.Get(name)) > 0 || len(b.virtualRoutersByMesh.Get(name)) > 0 ||
+		len(b.virtualSvcsByMesh.Get(name)) > 0 || len(b.virtualGWsByMesh.Get(name)) > 0 {
 		return nil, ErrMeshInUse
 	}
-	delete(b.meshes, name)
+	b.meshes.Delete(name)
 	delete(b.tags, m.Meta.Arn)
 
 	return m, nil
@@ -246,11 +251,15 @@ func (b *InMemoryBackend) DeleteMesh(name string) (*Mesh, error) {
 func (b *InMemoryBackend) ListMeshes(maxResults int32, nextToken string) ([]*MeshSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	names := sortedKeys(b.meshes)
+	all := b.meshes.Snapshot()
+	names := make([]string, len(all))
+	for i, m := range all {
+		names[i] = m.Name
+	}
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*MeshSummary, 0, len(items))
 	for _, n := range items {
-		m := b.meshes[n]
+		m, _ := b.meshes.Get(n)
 		summaries = append(summaries, &MeshSummary{
 			CreatedAt:     m.Meta.CreatedAt,
 			UpdatedAt:     m.Meta.UpdatedAt,
@@ -267,19 +276,16 @@ func (b *InMemoryBackend) ListMeshes(maxResults int32, nextToken string) ([]*Mes
 
 // ─── VirtualNode ─────────────────────────────────────────────────────────────
 
-//nolint:dupl // create pattern is structurally identical to CreateVirtualRouter but operates on different types
 func (b *InMemoryBackend) CreateVirtualNode(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualNode, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if b.virtualNodes[meshName] == nil {
-		b.virtualNodes[meshName] = make(map[string]*VirtualNode)
-	}
-	if _, ok := b.virtualNodes[meshName][name]; ok {
+	key := meshChildKey(meshName, name)
+	if b.virtualNodes.Has(key) {
 		return nil, ErrVirtualNodeAlreadyExists
 	}
 	arn := b.virtualNodeARN(meshName, name)
@@ -290,7 +296,7 @@ func (b *InMemoryBackend) CreateVirtualNode(
 		Spec:            normalizeSpec(spec),
 		Status:          statusActive,
 	}
-	b.virtualNodes[meshName][name] = vn
+	b.virtualNodes.Put(vn)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -301,10 +307,10 @@ func (b *InMemoryBackend) CreateVirtualNode(
 func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNode, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vn, ok := b.virtualNodes[meshName][name]
+	vn, ok := b.virtualNodes.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualNodeNotFound
 	}
@@ -315,10 +321,10 @@ func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNo
 func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.RawMessage) (*VirtualNode, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vn, ok := b.virtualNodes[meshName][name]
+	vn, ok := b.virtualNodes.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualNodeNotFound
 	}
@@ -332,14 +338,15 @@ func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.Raw
 func (b *InMemoryBackend) DeleteVirtualNode(meshName, name string) (*VirtualNode, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vn, ok := b.virtualNodes[meshName][name]
+	key := meshChildKey(meshName, name)
+	vn, ok := b.virtualNodes.Get(key)
 	if !ok {
 		return nil, ErrVirtualNodeNotFound
 	}
-	delete(b.virtualNodes[meshName], name)
+	b.virtualNodes.Delete(key)
 	delete(b.tags, vn.Meta.Arn)
 
 	return vn, nil
@@ -351,15 +358,19 @@ func (b *InMemoryBackend) ListVirtualNodes(
 ) ([]*VirtualNodeSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
 	}
-	nodes := b.virtualNodes[meshName]
-	names := sortedKeys(nodes)
+	nodes := b.virtualNodesByMesh.Get(meshName)
+	names := make([]string, len(nodes))
+	for i, vn := range nodes {
+		names[i] = vn.VirtualNodeName
+	}
+	sort.Strings(names)
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*VirtualNodeSummary, 0, len(items))
 	for _, n := range items {
-		vn := nodes[n]
+		vn, _ := b.virtualNodes.Get(meshChildKey(meshName, n))
 		summaries = append(summaries, &VirtualNodeSummary{
 			CreatedAt:       vn.Meta.CreatedAt,
 			UpdatedAt:       vn.Meta.UpdatedAt,
@@ -377,19 +388,16 @@ func (b *InMemoryBackend) ListVirtualNodes(
 
 // ─── VirtualRouter ───────────────────────────────────────────────────────────
 
-//nolint:dupl // create pattern is structurally identical to CreateVirtualNode but operates on different types
 func (b *InMemoryBackend) CreateVirtualRouter(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualRouter, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if b.virtualRouters[meshName] == nil {
-		b.virtualRouters[meshName] = make(map[string]*VirtualRouter)
-	}
-	if _, ok := b.virtualRouters[meshName][name]; ok {
+	key := meshChildKey(meshName, name)
+	if b.virtualRouters.Has(key) {
 		return nil, ErrVirtualRouterAlreadyExists
 	}
 	arn := b.virtualRouterARN(meshName, name)
@@ -400,7 +408,7 @@ func (b *InMemoryBackend) CreateVirtualRouter(
 		Spec:              normalizeSpec(spec),
 		Status:            statusActive,
 	}
-	b.virtualRouters[meshName][name] = vr
+	b.virtualRouters.Put(vr)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -411,10 +419,10 @@ func (b *InMemoryBackend) CreateVirtualRouter(
 func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*VirtualRouter, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vr, ok := b.virtualRouters[meshName][name]
+	vr, ok := b.virtualRouters.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualRouterNotFound
 	}
@@ -425,10 +433,10 @@ func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*Virtual
 func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.RawMessage) (*VirtualRouter, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vr, ok := b.virtualRouters[meshName][name]
+	vr, ok := b.virtualRouters.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualRouterNotFound
 	}
@@ -442,19 +450,18 @@ func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.R
 func (b *InMemoryBackend) DeleteVirtualRouter(meshName, name string) (*VirtualRouter, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vr, ok := b.virtualRouters[meshName][name]
+	key := meshChildKey(meshName, name)
+	vr, ok := b.virtualRouters.Get(key)
 	if !ok {
 		return nil, ErrVirtualRouterNotFound
 	}
-	for k := range b.routes {
-		if k.meshName == meshName && k.virtualRouterName == name {
-			return nil, ErrVirtualRouterInUse
-		}
+	if len(b.routesByRouter.Get(meshChildKey(meshName, name))) > 0 {
+		return nil, ErrVirtualRouterInUse
 	}
-	delete(b.virtualRouters[meshName], name)
+	b.virtualRouters.Delete(key)
 	delete(b.tags, vr.Meta.Arn)
 
 	return vr, nil
@@ -466,15 +473,19 @@ func (b *InMemoryBackend) ListVirtualRouters(
 ) ([]*VirtualRouterSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
 	}
-	routers := b.virtualRouters[meshName]
-	names := sortedKeys(routers)
+	routers := b.virtualRoutersByMesh.Get(meshName)
+	names := make([]string, len(routers))
+	for i, vr := range routers {
+		names[i] = vr.VirtualRouterName
+	}
+	sort.Strings(names)
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*VirtualRouterSummary, 0, len(items))
 	for _, n := range items {
-		vr := routers[n]
+		vr, _ := b.virtualRouters.Get(meshChildKey(meshName, n))
 		summaries = append(summaries, &VirtualRouterSummary{
 			CreatedAt:         vr.Meta.CreatedAt,
 			UpdatedAt:         vr.Meta.UpdatedAt,
@@ -497,14 +508,14 @@ func (b *InMemoryBackend) CreateRoute(
 ) (*Route, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualRouters[meshName][virtualRouterName]; !ok {
+	if !b.virtualRouters.Has(meshChildKey(meshName, virtualRouterName)) {
 		return nil, ErrVirtualRouterNotFound
 	}
-	k := routeKey{meshName, virtualRouterName, routeName}
-	if _, ok := b.routes[k]; ok {
+	key := routeCompositeKey(meshName, virtualRouterName, routeName)
+	if b.routes.Has(key) {
 		return nil, ErrRouteAlreadyExists
 	}
 	arn := b.routeARN(meshName, virtualRouterName, routeName)
@@ -516,7 +527,7 @@ func (b *InMemoryBackend) CreateRoute(
 		Spec:              normalizeSpec(spec),
 		Status:            statusActive,
 	}
-	b.routes[k] = r
+	b.routes.Put(r)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -527,13 +538,13 @@ func (b *InMemoryBackend) CreateRoute(
 func (b *InMemoryBackend) DescribeRoute(meshName, virtualRouterName, routeName string) (*Route, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualRouters[meshName][virtualRouterName]; !ok {
+	if !b.virtualRouters.Has(meshChildKey(meshName, virtualRouterName)) {
 		return nil, ErrVirtualRouterNotFound
 	}
-	r, ok := b.routes[routeKey{meshName, virtualRouterName, routeName}]
+	r, ok := b.routes.Get(routeCompositeKey(meshName, virtualRouterName, routeName))
 	if !ok {
 		return nil, ErrRouteNotFound
 	}
@@ -547,14 +558,13 @@ func (b *InMemoryBackend) UpdateRoute(
 ) (*Route, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualRouters[meshName][virtualRouterName]; !ok {
+	if !b.virtualRouters.Has(meshChildKey(meshName, virtualRouterName)) {
 		return nil, ErrVirtualRouterNotFound
 	}
-	k := routeKey{meshName, virtualRouterName, routeName}
-	r, ok := b.routes[k]
+	r, ok := b.routes.Get(routeCompositeKey(meshName, virtualRouterName, routeName))
 	if !ok {
 		return nil, ErrRouteNotFound
 	}
@@ -568,18 +578,18 @@ func (b *InMemoryBackend) UpdateRoute(
 func (b *InMemoryBackend) DeleteRoute(meshName, virtualRouterName, routeName string) (*Route, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualRouters[meshName][virtualRouterName]; !ok {
+	if !b.virtualRouters.Has(meshChildKey(meshName, virtualRouterName)) {
 		return nil, ErrVirtualRouterNotFound
 	}
-	k := routeKey{meshName, virtualRouterName, routeName}
-	r, ok := b.routes[k]
+	key := routeCompositeKey(meshName, virtualRouterName, routeName)
+	r, ok := b.routes.Get(key)
 	if !ok {
 		return nil, ErrRouteNotFound
 	}
-	delete(b.routes, k)
+	b.routes.Delete(key)
 	delete(b.tags, r.Meta.Arn)
 
 	return r, nil
@@ -591,23 +601,22 @@ func (b *InMemoryBackend) ListRoutes(
 ) ([]*RouteSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
 	}
-	if _, ok := b.virtualRouters[meshName][virtualRouterName]; !ok {
+	if !b.virtualRouters.Has(meshChildKey(meshName, virtualRouterName)) {
 		return nil, "", ErrVirtualRouterNotFound
 	}
-	var names []string
-	for k := range b.routes {
-		if k.meshName == meshName && k.virtualRouterName == virtualRouterName {
-			names = append(names, k.routeName)
-		}
+	routes := b.routesByRouter.Get(meshChildKey(meshName, virtualRouterName))
+	names := make([]string, len(routes))
+	for i, r := range routes {
+		names[i] = r.RouteName
 	}
 	sort.Strings(names)
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*RouteSummary, 0, len(items))
 	for _, n := range items {
-		r := b.routes[routeKey{meshName, virtualRouterName, n}]
+		r, _ := b.routes.Get(routeCompositeKey(meshName, virtualRouterName, n))
 		summaries = append(summaries, &RouteSummary{
 			CreatedAt:         r.Meta.CreatedAt,
 			UpdatedAt:         r.Meta.UpdatedAt,
@@ -626,19 +635,16 @@ func (b *InMemoryBackend) ListRoutes(
 
 // ─── VirtualService ──────────────────────────────────────────────────────────
 
-//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualService(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualService, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if b.virtualSvcs[meshName] == nil {
-		b.virtualSvcs[meshName] = make(map[string]*VirtualService)
-	}
-	if _, ok := b.virtualSvcs[meshName][name]; ok {
+	key := meshChildKey(meshName, name)
+	if b.virtualSvcs.Has(key) {
 		return nil, ErrVirtualServiceAlreadyExists
 	}
 	arn := b.virtualServiceARN(meshName, name)
@@ -649,7 +655,7 @@ func (b *InMemoryBackend) CreateVirtualService(
 		Spec:               normalizeSpec(spec),
 		Status:             statusActive,
 	}
-	b.virtualSvcs[meshName][name] = vs
+	b.virtualSvcs.Put(vs)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -660,10 +666,10 @@ func (b *InMemoryBackend) CreateVirtualService(
 func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*VirtualService, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vs, ok := b.virtualSvcs[meshName][name]
+	vs, ok := b.virtualSvcs.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualServiceNotFound
 	}
@@ -674,10 +680,10 @@ func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*Virtua
 func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.RawMessage) (*VirtualService, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vs, ok := b.virtualSvcs[meshName][name]
+	vs, ok := b.virtualSvcs.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualServiceNotFound
 	}
@@ -691,14 +697,15 @@ func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.
 func (b *InMemoryBackend) DeleteVirtualService(meshName, name string) (*VirtualService, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vs, ok := b.virtualSvcs[meshName][name]
+	key := meshChildKey(meshName, name)
+	vs, ok := b.virtualSvcs.Get(key)
 	if !ok {
 		return nil, ErrVirtualServiceNotFound
 	}
-	delete(b.virtualSvcs[meshName], name)
+	b.virtualSvcs.Delete(key)
 	delete(b.tags, vs.Meta.Arn)
 
 	return vs, nil
@@ -710,15 +717,19 @@ func (b *InMemoryBackend) ListVirtualServices(
 ) ([]*VirtualServiceSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
 	}
-	svcs := b.virtualSvcs[meshName]
-	names := sortedKeys(svcs)
+	svcs := b.virtualSvcsByMesh.Get(meshName)
+	names := make([]string, len(svcs))
+	for i, vs := range svcs {
+		names[i] = vs.VirtualServiceName
+	}
+	sort.Strings(names)
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*VirtualServiceSummary, 0, len(items))
 	for _, n := range items {
-		vs := svcs[n]
+		vs, _ := b.virtualSvcs.Get(meshChildKey(meshName, n))
 		summaries = append(summaries, &VirtualServiceSummary{
 			CreatedAt:          vs.Meta.CreatedAt,
 			UpdatedAt:          vs.Meta.UpdatedAt,
@@ -736,19 +747,16 @@ func (b *InMemoryBackend) ListVirtualServices(
 
 // ─── VirtualGateway ──────────────────────────────────────────────────────────
 
-//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualGateway(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualGateway, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if b.virtualGWs[meshName] == nil {
-		b.virtualGWs[meshName] = make(map[string]*VirtualGateway)
-	}
-	if _, ok := b.virtualGWs[meshName][name]; ok {
+	key := meshChildKey(meshName, name)
+	if b.virtualGWs.Has(key) {
 		return nil, ErrVirtualGatewayAlreadyExists
 	}
 	arn := b.virtualGatewayARN(meshName, name)
@@ -759,7 +767,7 @@ func (b *InMemoryBackend) CreateVirtualGateway(
 		Spec:               normalizeSpec(spec),
 		Status:             statusActive,
 	}
-	b.virtualGWs[meshName][name] = vg
+	b.virtualGWs.Put(vg)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -770,10 +778,10 @@ func (b *InMemoryBackend) CreateVirtualGateway(
 func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*VirtualGateway, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vg, ok := b.virtualGWs[meshName][name]
+	vg, ok := b.virtualGWs.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualGatewayNotFound
 	}
@@ -784,10 +792,10 @@ func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*Virtua
 func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.RawMessage) (*VirtualGateway, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vg, ok := b.virtualGWs[meshName][name]
+	vg, ok := b.virtualGWs.Get(meshChildKey(meshName, name))
 	if !ok {
 		return nil, ErrVirtualGatewayNotFound
 	}
@@ -801,19 +809,18 @@ func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.
 func (b *InMemoryBackend) DeleteVirtualGateway(meshName, name string) (*VirtualGateway, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	vg, ok := b.virtualGWs[meshName][name]
+	key := meshChildKey(meshName, name)
+	vg, ok := b.virtualGWs.Get(key)
 	if !ok {
 		return nil, ErrVirtualGatewayNotFound
 	}
-	for k := range b.gatewayRoutes {
-		if k.meshName == meshName && k.virtualGatewayName == name {
-			return nil, ErrVirtualGatewayInUse
-		}
+	if len(b.gatewayRoutesByGateway.Get(meshChildKey(meshName, name))) > 0 {
+		return nil, ErrVirtualGatewayInUse
 	}
-	delete(b.virtualGWs[meshName], name)
+	b.virtualGWs.Delete(key)
 	delete(b.tags, vg.Meta.Arn)
 
 	return vg, nil
@@ -825,15 +832,19 @@ func (b *InMemoryBackend) ListVirtualGateways(
 ) ([]*VirtualGatewaySummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
 	}
-	gws := b.virtualGWs[meshName]
-	names := sortedKeys(gws)
+	gws := b.virtualGWsByMesh.Get(meshName)
+	names := make([]string, len(gws))
+	for i, vg := range gws {
+		names[i] = vg.VirtualGatewayName
+	}
+	sort.Strings(names)
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*VirtualGatewaySummary, 0, len(items))
 	for _, n := range items {
-		vg := gws[n]
+		vg, _ := b.virtualGWs.Get(meshChildKey(meshName, n))
 		summaries = append(summaries, &VirtualGatewaySummary{
 			CreatedAt:          vg.Meta.CreatedAt,
 			UpdatedAt:          vg.Meta.UpdatedAt,
@@ -856,14 +867,14 @@ func (b *InMemoryBackend) CreateGatewayRoute(
 ) (*GatewayRoute, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualGWs[meshName][virtualGatewayName]; !ok {
+	if !b.virtualGWs.Has(meshChildKey(meshName, virtualGatewayName)) {
 		return nil, ErrVirtualGatewayNotFound
 	}
-	k := gatewayRouteKey{meshName, virtualGatewayName, routeName}
-	if _, ok := b.gatewayRoutes[k]; ok {
+	key := gatewayRouteCompositeKey(meshName, virtualGatewayName, routeName)
+	if b.gatewayRoutes.Has(key) {
 		return nil, ErrGatewayRouteAlreadyExists
 	}
 	arn := b.gatewayRouteARN(meshName, virtualGatewayName, routeName)
@@ -875,7 +886,7 @@ func (b *InMemoryBackend) CreateGatewayRoute(
 		Spec:               normalizeSpec(spec),
 		Status:             statusActive,
 	}
-	b.gatewayRoutes[k] = gr
+	b.gatewayRoutes.Put(gr)
 	if len(tags) > 0 {
 		b.tags[arn] = cloneTags(tags)
 	}
@@ -886,13 +897,13 @@ func (b *InMemoryBackend) CreateGatewayRoute(
 func (b *InMemoryBackend) DescribeGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualGWs[meshName][virtualGatewayName]; !ok {
+	if !b.virtualGWs.Has(meshChildKey(meshName, virtualGatewayName)) {
 		return nil, ErrVirtualGatewayNotFound
 	}
-	gr, ok := b.gatewayRoutes[gatewayRouteKey{meshName, virtualGatewayName, routeName}]
+	gr, ok := b.gatewayRoutes.Get(gatewayRouteCompositeKey(meshName, virtualGatewayName, routeName))
 	if !ok {
 		return nil, ErrGatewayRouteNotFound
 	}
@@ -905,14 +916,14 @@ func (b *InMemoryBackend) UpdateGatewayRoute(
 ) (*GatewayRoute, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualGWs[meshName][virtualGatewayName]; !ok {
+	if !b.virtualGWs.Has(meshChildKey(meshName, virtualGatewayName)) {
 		return nil, ErrVirtualGatewayNotFound
 	}
-	k := gatewayRouteKey{meshName, virtualGatewayName, routeName}
-	gr, ok := b.gatewayRoutes[k]
+	key := gatewayRouteCompositeKey(meshName, virtualGatewayName, routeName)
+	gr, ok := b.gatewayRoutes.Get(key)
 	if !ok {
 		return nil, ErrGatewayRouteNotFound
 	}
@@ -926,18 +937,18 @@ func (b *InMemoryBackend) UpdateGatewayRoute(
 func (b *InMemoryBackend) DeleteGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
-	if _, ok := b.virtualGWs[meshName][virtualGatewayName]; !ok {
+	if !b.virtualGWs.Has(meshChildKey(meshName, virtualGatewayName)) {
 		return nil, ErrVirtualGatewayNotFound
 	}
-	k := gatewayRouteKey{meshName, virtualGatewayName, routeName}
-	gr, ok := b.gatewayRoutes[k]
+	key := gatewayRouteCompositeKey(meshName, virtualGatewayName, routeName)
+	gr, ok := b.gatewayRoutes.Get(key)
 	if !ok {
 		return nil, ErrGatewayRouteNotFound
 	}
-	delete(b.gatewayRoutes, k)
+	b.gatewayRoutes.Delete(key)
 	delete(b.tags, gr.Meta.Arn)
 
 	return gr, nil
@@ -949,23 +960,22 @@ func (b *InMemoryBackend) ListGatewayRoutes(
 ) ([]*GatewayRouteSummary, string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if _, ok := b.meshes[meshName]; !ok {
+	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
 	}
-	if _, ok := b.virtualGWs[meshName][virtualGatewayName]; !ok {
+	if !b.virtualGWs.Has(meshChildKey(meshName, virtualGatewayName)) {
 		return nil, "", ErrVirtualGatewayNotFound
 	}
-	var names []string
-	for k := range b.gatewayRoutes {
-		if k.meshName == meshName && k.virtualGatewayName == virtualGatewayName {
-			names = append(names, k.gatewayRouteName)
-		}
+	routes := b.gatewayRoutesByGateway.Get(meshChildKey(meshName, virtualGatewayName))
+	names := make([]string, len(routes))
+	for i, gr := range routes {
+		names[i] = gr.GatewayRouteName
 	}
 	sort.Strings(names)
 	items, next := paginateStrings(names, nextToken, maxResults)
 	summaries := make([]*GatewayRouteSummary, 0, len(items))
 	for _, n := range items {
-		gr := b.gatewayRoutes[gatewayRouteKey{meshName, virtualGatewayName, n}]
+		gr, _ := b.gatewayRoutes.Get(gatewayRouteCompositeKey(meshName, virtualGatewayName, n))
 		summaries = append(summaries, &GatewayRouteSummary{
 			CreatedAt:          gr.Meta.CreatedAt,
 			UpdatedAt:          gr.Meta.UpdatedAt,
@@ -1045,81 +1055,108 @@ func (b *InMemoryBackend) arnExists(arn string) bool {
 }
 
 func (b *InMemoryBackend) arnInMeshes(arn string) bool {
-	for _, m := range b.meshes {
+	found := false
+	b.meshes.Range(func(m *Mesh) bool {
 		if m.Meta.Arn == arn {
-			return true
-		}
-	}
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func (b *InMemoryBackend) arnInVirtualNodes(arn string) bool {
-	for _, vnMap := range b.virtualNodes {
-		for _, vn := range vnMap {
-			if vn.Meta.Arn == arn {
-				return true
-			}
-		}
-	}
+	found := false
+	b.virtualNodes.Range(func(vn *VirtualNode) bool {
+		if vn.Meta.Arn == arn {
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func (b *InMemoryBackend) arnInVirtualRouters(arn string) bool {
-	for _, vrMap := range b.virtualRouters {
-		for _, vr := range vrMap {
-			if vr.Meta.Arn == arn {
-				return true
-			}
-		}
-	}
+	found := false
+	b.virtualRouters.Range(func(vr *VirtualRouter) bool {
+		if vr.Meta.Arn == arn {
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func (b *InMemoryBackend) arnInRoutes(arn string) bool {
-	for _, r := range b.routes {
+	found := false
+	b.routes.Range(func(r *Route) bool {
 		if r.Meta.Arn == arn {
-			return true
-		}
-	}
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func (b *InMemoryBackend) arnInVirtualServices(arn string) bool {
-	for _, vsMap := range b.virtualSvcs {
-		for _, vs := range vsMap {
-			if vs.Meta.Arn == arn {
-				return true
-			}
-		}
-	}
+	found := false
+	b.virtualSvcs.Range(func(vs *VirtualService) bool {
+		if vs.Meta.Arn == arn {
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func (b *InMemoryBackend) arnInVirtualGateways(arn string) bool {
-	for _, vgMap := range b.virtualGWs {
-		for _, vg := range vgMap {
-			if vg.Meta.Arn == arn {
-				return true
-			}
-		}
-	}
+	found := false
+	b.virtualGWs.Range(func(vg *VirtualGateway) bool {
+		if vg.Meta.Arn == arn {
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func (b *InMemoryBackend) arnInGatewayRoutes(arn string) bool {
-	for _, gr := range b.gatewayRoutes {
+	found := false
+	b.gatewayRoutes.Range(func(gr *GatewayRoute) bool {
 		if gr.Meta.Arn == arn {
-			return true
-		}
-	}
+			found = true
 
-	return false
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1129,13 +1166,6 @@ func cloneTags(src map[string]string) map[string]string {
 	maps.Copy(dst, src)
 
 	return dst
-}
-
-// sortedKeys returns a sorted slice of keys from any map[string]V.
-func sortedKeys[V any](m map[string]V) []string {
-	keys := collections.SortedKeys(m)
-
-	return keys
 }
 
 // paginateStrings returns a page of items starting after nextToken and a new nextToken.
