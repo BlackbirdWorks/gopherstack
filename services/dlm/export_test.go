@@ -5,7 +5,7 @@ func PolicyCount(b *InMemoryBackend) int {
 	b.mu.RLock("PolicyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.policies)
+	return b.policies.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
