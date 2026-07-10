@@ -119,6 +119,84 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
+// version doesn't match the current backend is discarded cleanly rather than
+// partially decoded: the backend resets to empty state and Restore returns
+// no error.
+func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
+	t.Parallel()
+
+	b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := b.CreateCertificateAuthority(context.Background(), "ROOT", acmpca.CertificateAuthorityConfiguration{
+		Subject: acmpca.CertificateAuthoritySubject{CommonName: "seed CA"},
+	})
+	require.NoError(t, err)
+
+	// A syntactically valid but version-mismatched snapshot.
+	err = b.Restore(t.Context(), []byte(`{"version":999,"tables":{}}`))
+	require.NoError(t, err)
+
+	assert.Empty(t, b.ListCertificateAuthorities(context.Background(), "", 0).Data)
+}
+
+// TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero verifies that a
+// snapshot with no version field at all (the pre-Phase-3.3 shape) decodes
+// with Version == 0, which mismatches acmpcaSnapshotVersion and is discarded
+// the same way any other incompatible version is -- not partially applied.
+func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
+	t.Parallel()
+
+	b := acmpca.NewInMemoryBackend(testAccountID, testRegion)
+	_, err := b.CreateCertificateAuthority(context.Background(), "ROOT", acmpca.CertificateAuthorityConfiguration{
+		Subject: acmpca.CertificateAuthoritySubject{CommonName: "seed CA"},
+	})
+	require.NoError(t, err)
+
+	// Pre-Phase-3.3 shape: plain region-nested resource maps, no "version" or
+	// "tables" key.
+	err = b.Restore(t.Context(), []byte(
+		`{"cas":{"us-east-1":{"arn:old":{"arn":"arn:old","status":"ACTIVE"}}}}`,
+	))
+	require.NoError(t, err)
+
+	assert.Empty(t, b.ListCertificateAuthorities(context.Background(), "", 0).Data)
+}
+
+// TestInMemoryBackend_RevokeCertificateAfterRestore verifies that
+// certsByCASerial -- deliberately NOT persisted, since it is a derived index
+// of bare strings with no identity of their own -- is correctly rebuilt from
+// the restored certs table, so RevokeCertificate's serial lookup still works
+// after a Snapshot->Restore round trip.
+func TestInMemoryBackend_RevokeCertificateAfterRestore(t *testing.T) {
+	t.Parallel()
+
+	original := acmpca.NewInMemoryBackend(testAccountID, testRegion)
+
+	ca, err := original.CreateCertificateAuthority(
+		context.Background(),
+		"ROOT",
+		acmpca.CertificateAuthorityConfiguration{
+			Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
+		},
+	)
+	require.NoError(t, err)
+
+	csr, err := original.GetCertificateAuthorityCsr(context.Background(), ca.ARN)
+	require.NoError(t, err)
+
+	cert, err := original.IssueCertificate(context.Background(), ca.ARN, csr, 365)
+	require.NoError(t, err)
+
+	fresh := acmpca.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, fresh.Restore(t.Context(), original.Snapshot(t.Context())))
+
+	require.NoError(t, fresh.RevokeCertificate(context.Background(), ca.ARN, cert.Serial, "KEY_COMPROMISE"))
+
+	got, err := fresh.GetCertificate(context.Background(), ca.ARN, cert.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "REVOKED", got.Status)
+}
+
 func TestInMemoryBackend_GetCertificate(t *testing.T) {
 	t.Parallel()
 
