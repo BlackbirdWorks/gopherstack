@@ -3,14 +3,33 @@ package networkmonitor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// networkmonitorSnapshotVersion identifies the shape of [backendSnapshot]. It
+// must be bumped whenever a change to a registered table's value type or
+// backendSnapshot itself would make an older snapshot unsafe to decode as the
+// current shape. Restore compares this against the persisted value and
+// discards (registry.ResetAll, not a partial decode) any mismatch -- see
+// Restore below. This is the first version: the pre-Phase-3.3 snapshot shape
+// (`{"monitors": {...}, "next_probe_seq": N}`, region-nested maps, no version
+// field at all) also fails this check and is discarded rather than misread,
+// matching the safe behaviour across any snapshot-format change.
+const networkmonitorSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the Network Monitor
+// backend. Tables holds one JSON-encoded array per registered store.Table
+// (just "monitors"), produced by [store.Registry.SnapshotAll]. arnIndex is
+// intentionally absent: it was never persisted even before Phase 3.3 --
+// Restore has always rebuilt it fresh from monitors (see below) -- and
+// remains a plain, unconverted map (see store_setup.go for why).
 type backendSnapshot struct {
-	Monitors     map[string]map[string]*Monitor `json:"monitors"`
-	NextProbeSeq int64                          `json:"next_probe_seq"`
+	Tables       map[string]json.RawMessage `json:"tables"`
+	NextProbeSeq int64                      `json:"next_probe_seq"`
+	Version      int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,29 +38,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	monsCopy := make(map[string]map[string]*Monitor, len(b.monitors))
-
-	for region, regionMons := range b.monitors {
-		monsCopy[region] = make(map[string]*Monitor, len(regionMons))
-
-		for k, v := range regionMons {
-			monsCopy[region][k] = monitorCopy(v)
-		}
-	}
-
-	snap := backendSnapshot{
-		Monitors:     monsCopy,
-		NextProbeSeq: b.nextProbeSeq,
-	}
-
-	data, err := json.Marshal(snap)
+	tables, err := b.registry.SnapshotAll()
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "networkmonitor: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "networkmonitor: snapshot table marshal failed", "error", err)
 
 		return nil
 	}
 
-	return data
+	snap := backendSnapshot{
+		Version:      networkmonitorSnapshotVersion,
+		Tables:       tables,
+		NextProbeSeq: b.nextProbeSeq,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "networkmonitor", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -56,20 +66,32 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if snap.Monitors != nil {
-		b.monitors = snap.Monitors
-	} else {
-		b.monitors = make(map[string]map[string]*Monitor)
+	if snap.Version != networkmonitorSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"networkmonitor: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", networkmonitorSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.arnIndex = make(map[string]map[string]string)
+		b.nextProbeSeq = 0
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("networkmonitor: restore snapshot tables: %w", err)
 	}
 
 	b.arnIndex = make(map[string]map[string]string)
 
-	for region, regionMons := range b.monitors {
-		b.arnIndex[region] = make(map[string]string, len(regionMons))
-
-		for name, m := range regionMons {
-			b.arnIndex[region][m.MonitorArn] = name
-		}
+	for _, m := range b.monitors.All() {
+		b.regionARNIndex(m.Region)[m.MonitorArn] = m.MonitorName
 	}
 
 	b.nextProbeSeq = snap.NextProbeSeq

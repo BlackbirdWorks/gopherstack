@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -87,29 +88,39 @@ type StorageBackend interface {
 	ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error)
 	TagResource(ctx context.Context, resourceARN string, tags map[string]string) error
 	UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
-// Resources are nested by region for isolation.
+// Resources are isolated by region via the "region|name" composite key
+// [regionKey] builds (see store_setup.go for the Phase 3.3 datalayer
+// conversion this struct went through).
 type InMemoryBackend struct {
-	monitors      map[string]map[string]*Monitor
-	arnIndex      map[string]map[string]string
-	accountID     string
-	defaultRegion string
-	nextProbeSeq  int64
-	mu            sync.RWMutex
+	registry         *store.Registry
+	monitors         *store.Table[Monitor]
+	monitorsByRegion *store.Index[Monitor]
+	arnIndex         map[string]map[string]string
+	accountID        string
+	defaultRegion    string
+	nextProbeSeq     int64
+	mu               sync.RWMutex
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
-	return &InMemoryBackend{
-		monitors:      make(map[string]map[string]*Monitor),
+	b := &InMemoryBackend{
+		registry:      store.NewRegistry(),
 		arnIndex:      make(map[string]map[string]string),
 		accountID:     accountID,
 		defaultRegion: region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state.
@@ -117,18 +128,15 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.monitors = make(map[string]map[string]*Monitor)
+	b.registry.ResetAll()
 	b.arnIndex = make(map[string]map[string]string)
 	b.nextProbeSeq = 0
 }
 
-func (b *InMemoryBackend) regionMonitors(region string) map[string]*Monitor {
-	if _, ok := b.monitors[region]; !ok {
-		b.monitors[region] = make(map[string]*Monitor)
-	}
-
-	return b.monitors[region]
-}
+// regionKey builds the composite "region|id" primary key store.Table uses
+// for monitors, which were previously nested by region
+// (map[string]map[string]*Monitor).
+func regionKey(region, id string) string { return region + "|" + id }
 
 func (b *InMemoryBackend) regionARNIndex(region string) map[string]string {
 	if _, ok := b.arnIndex[region]; !ok {
@@ -183,9 +191,9 @@ func (b *InMemoryBackend) CreateMonitor(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	rm := b.regionMonitors(region)
+	key := regionKey(region, name)
 
-	if _, exists := rm[name]; exists {
+	if b.monitors.Has(key) {
 		return nil, fmt.Errorf("%w: monitor %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -228,6 +236,7 @@ func (b *InMemoryBackend) CreateMonitor(
 	m := &Monitor{
 		MonitorArn:        monARN,
 		MonitorName:       name,
+		Region:            region,
 		State:             monitorStateActive,
 		AggregationPeriod: period,
 		Probes:            probes,
@@ -236,7 +245,7 @@ func (b *InMemoryBackend) CreateMonitor(
 		ModifiedAt:        &now,
 	}
 
-	rm[name] = m
+	b.monitors.Put(m)
 	b.regionARNIndex(region)[monARN] = name
 
 	return monitorCopy(m), nil
@@ -249,15 +258,15 @@ func (b *InMemoryBackend) DeleteMonitor(ctx context.Context, name string) error 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	rm := b.regionMonitors(region)
+	key := regionKey(region, name)
 
-	m, exists := rm[name]
+	m, exists := b.monitors.Get(key)
 	if !exists {
 		return fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
 	}
 
 	delete(b.regionARNIndex(region), m.MonitorArn)
-	delete(rm, name)
+	b.monitors.Delete(key)
 
 	return nil
 }
@@ -269,9 +278,7 @@ func (b *InMemoryBackend) GetMonitor(ctx context.Context, name string) (*Monitor
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	rm := b.monitors[region]
-
-	m, exists := rm[name]
+	m, exists := b.monitors.Get(regionKey(region, name))
 	if !exists {
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
 	}
@@ -294,9 +301,7 @@ func (b *InMemoryBackend) UpdateMonitor(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	rm := b.monitors[region]
-
-	m, exists := rm[name]
+	m, exists := b.monitors.Get(regionKey(region, name))
 	if !exists {
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, name)
 	}
@@ -319,16 +324,17 @@ func (b *InMemoryBackend) ListMonitors(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	rm := b.monitors[region]
-
-	names := collections.SortedKeys(rm)
+	sorted := slices.Clone(b.monitorsByRegion.Get(region))
+	slices.SortFunc(sorted, func(a, mo *Monitor) int {
+		return strings.Compare(a.MonitorName, mo.MonitorName)
+	})
 
 	// Default startIdx past-the-end so an unrecognised token returns nothing.
 	startIdx := 0
 	if nextToken != "" {
-		startIdx = len(names)
-		for i, n := range names {
-			if n > nextToken {
+		startIdx = len(sorted)
+		for i, m := range sorted {
+			if m.MonitorName > nextToken {
 				startIdx = i
 
 				break
@@ -343,14 +349,14 @@ func (b *InMemoryBackend) ListMonitors(
 	var summaries []monitorSummary
 	var outToken string
 
-	for i := startIdx; i < len(names); i++ {
+	for i := startIdx; i < len(sorted); i++ {
 		if len(summaries) == maxResults {
 			outToken = summaries[len(summaries)-1].MonitorName
 
 			break
 		}
 
-		m := rm[names[i]]
+		m := sorted[i]
 		if state != "" && !strings.EqualFold(m.State, state) {
 			continue
 		}
@@ -392,9 +398,7 @@ func (b *InMemoryBackend) CreateProbe(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	rm := b.monitors[region]
-
-	m, exists := rm[monitorName]
+	m, exists := b.monitors.Get(regionKey(region, monitorName))
 	if !exists {
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, monitorName)
 	}
@@ -436,9 +440,7 @@ func (b *InMemoryBackend) DeleteProbe(ctx context.Context, monitorName, probeID 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	rm := b.monitors[region]
-
-	m, exists := rm[monitorName]
+	m, exists := b.monitors.Get(regionKey(region, monitorName))
 	if !exists {
 		return fmt.Errorf("%w: monitor %q not found", ErrNotFound, monitorName)
 	}
@@ -465,9 +467,7 @@ func (b *InMemoryBackend) GetProbe(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	rm := b.monitors[region]
-
-	m, exists := rm[monitorName]
+	m, exists := b.monitors.Get(regionKey(region, monitorName))
 	if !exists {
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, monitorName)
 	}
@@ -500,9 +500,7 @@ func (b *InMemoryBackend) UpdateProbe(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	rm := b.monitors[region]
-
-	m, exists := rm[monitorName]
+	m, exists := b.monitors.Get(regionKey(region, monitorName))
 	if !exists {
 		return nil, fmt.Errorf("%w: monitor %q not found", ErrNotFound, monitorName)
 	}
@@ -651,10 +649,9 @@ func (b *InMemoryBackend) findResourceByARN(region, resourceARN string) (*Monito
 	}
 
 	resource := parts[arnColonParts-1]
-	rm := b.monitors[region]
 
 	if monitorName, ok := strings.CutPrefix(resource, "monitor/"); ok {
-		m, exists := rm[monitorName]
+		m, exists := b.monitors.Get(regionKey(region, monitorName))
 		if !exists {
 			return nil, nil, fmt.Errorf("%w: resource %q not found", ErrNotFound, resourceARN)
 		}
@@ -670,7 +667,7 @@ func (b *InMemoryBackend) findResourceByARN(region, resourceARN string) (*Monito
 
 		monitorName, probeID := segments[0], segments[1]
 
-		m, exists := rm[monitorName]
+		m, exists := b.monitors.Get(regionKey(region, monitorName))
 		if !exists {
 			return nil, nil, fmt.Errorf("%w: resource %q not found", ErrNotFound, resourceARN)
 		}
