@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -96,11 +96,17 @@ type TranslationJob struct {
 }
 
 // InMemoryBackend stores Translate state for concurrent requests.
+//
+// terminologies, parallelData, and jobs are *store.Table[T]-backed (see
+// store_setup.go and pkgs/store's package doc); tags remains a plain map
+// since its values are map[string]string, not *T, so there is nothing for
+// store.Table to key on.
 type InMemoryBackend struct {
-	terminologies map[string]*Terminology
-	parallelData  map[string]*ParallelData
-	jobs          map[string]*TranslationJob
+	terminologies *store.Table[Terminology]
+	parallelData  *store.Table[ParallelData]
+	jobs          *store.Table[TranslationJob]
 	tags          map[string]map[string]string
+	registry      *store.Registry
 	accountID     string
 	region        string
 	mu            sync.RWMutex
@@ -108,14 +114,15 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend returns an initialized InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		accountID:     accountID,
-		region:        region,
-		terminologies: make(map[string]*Terminology),
-		parallelData:  make(map[string]*ParallelData),
-		jobs:          make(map[string]*TranslationJob),
-		tags:          make(map[string]map[string]string),
+	b := &InMemoryBackend{
+		accountID: accountID,
+		region:    region,
+		registry:  store.NewRegistry(),
+		tags:      make(map[string]map[string]string),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the configured account ID.
@@ -129,9 +136,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.terminologies = make(map[string]*Terminology)
-	b.parallelData = make(map[string]*ParallelData)
-	b.jobs = make(map[string]*TranslationJob)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -205,7 +210,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		srcLang = "en"
 	}
 
-	existing, exists := b.terminologies[name]
+	existing, exists := b.terminologies.Get(name)
 	if exists {
 		existing.Description = description
 		existing.TerminologyData = data
@@ -241,7 +246,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		TargetLanguages: targetLangs,
 		TermCount:       termCount,
 	}
-	b.terminologies[name] = term
+	b.terminologies.Put(term)
 
 	if tags != nil {
 		b.tags[resourceARN] = copyMap(tags)
@@ -255,7 +260,7 @@ func (b *InMemoryBackend) GetTerminology(name string) (*Terminology, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	t, ok := b.terminologies[name]
+	t, ok := b.terminologies.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: terminology %q not found", ErrNotFound, name)
 	}
@@ -270,7 +275,7 @@ func (b *InMemoryBackend) LookupTerminologies(names []string) []*Terminology {
 
 	out := make([]*Terminology, 0, len(names))
 	for _, name := range names {
-		if t, ok := b.terminologies[name]; ok {
+		if t, ok := b.terminologies.Get(name); ok {
 			out = append(out, t)
 		}
 	}
@@ -283,12 +288,12 @@ func (b *InMemoryBackend) DeleteTerminology(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.terminologies[name]; !ok {
+	if !b.terminologies.Has(name) {
 		return fmt.Errorf("%w: terminology %q not found", ErrNotFound, name)
 	}
 
 	resourceARN := b.terminologyARN(name)
-	delete(b.terminologies, name)
+	b.terminologies.Delete(name)
 	delete(b.tags, resourceARN)
 
 	return nil
@@ -299,9 +304,9 @@ func (b *InMemoryBackend) ListTerminologies(maxResults int, nextToken string) ([
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.terminologies)
+	names := sortedNames(b.terminologies.All(), func(t *Terminology) string { return t.Name })
 
-	return paginate(names, func(n string) *Terminology { return b.terminologies[n] }, maxResults, nextToken)
+	return paginate(names, func(n string) *Terminology { return tableGet(b.terminologies, n) }, maxResults, nextToken)
 }
 
 // CreateParallelData creates a new parallel data resource.
@@ -318,7 +323,7 @@ func (b *InMemoryBackend) CreateParallelData(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.parallelData[name]; exists {
+	if b.parallelData.Has(name) {
 		return nil, fmt.Errorf("%w: parallel data %q already exists", ErrConflict, name)
 	}
 
@@ -337,7 +342,7 @@ func (b *InMemoryBackend) CreateParallelData(
 		Status:             "ACTIVE",
 		SourceLanguage:     "en",
 	}
-	b.parallelData[name] = pd
+	b.parallelData.Put(pd)
 
 	if tags != nil {
 		b.tags[resourceARN] = copyMap(tags)
@@ -351,7 +356,7 @@ func (b *InMemoryBackend) GetParallelData(name string) (*ParallelData, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	pd, ok := b.parallelData[name]
+	pd, ok := b.parallelData.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
 	}
@@ -367,7 +372,7 @@ func (b *InMemoryBackend) UpdateParallelData(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	pd, ok := b.parallelData[name]
+	pd, ok := b.parallelData.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
 	}
@@ -387,13 +392,13 @@ func (b *InMemoryBackend) DeleteParallelData(name string) (*ParallelData, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	pd, ok := b.parallelData[name]
+	pd, ok := b.parallelData.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: parallel data %q not found", ErrNotFound, name)
 	}
 
 	resourceARN := b.parallelDataARN(name)
-	delete(b.parallelData, name)
+	b.parallelData.Delete(name)
 	delete(b.tags, resourceARN)
 
 	return pd, nil
@@ -404,9 +409,9 @@ func (b *InMemoryBackend) ListParallelData(maxResults int, nextToken string) ([]
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.parallelData)
+	names := sortedNames(b.parallelData.All(), func(pd *ParallelData) string { return pd.Name })
 
-	return paginate(names, func(n string) *ParallelData { return b.parallelData[n] }, maxResults, nextToken)
+	return paginate(names, func(n string) *ParallelData { return tableGet(b.parallelData, n) }, maxResults, nextToken)
 }
 
 // StartTextTranslationJob creates a new async translation job.
@@ -436,7 +441,7 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 		Tags:              tags,
 		SubmittedAt:       time.Now().UTC(),
 	}
-	b.jobs[jobID] = job
+	b.jobs.Put(job)
 
 	return job, nil
 }
@@ -446,7 +451,7 @@ func (b *InMemoryBackend) StopTextTranslationJob(jobID string) (*TranslationJob,
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	job, ok := b.jobs[jobID]
+	job, ok := b.jobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobID)
 	}
@@ -467,7 +472,7 @@ func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*Translation
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	job, ok := b.jobs[jobID]
+	job, ok := b.jobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobID)
 	}
@@ -484,17 +489,17 @@ func (b *InMemoryBackend) ListTextTranslationJobs(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.jobs))
+	ids := make([]string, 0, b.jobs.Len())
 
-	for id, job := range b.jobs {
+	for _, job := range b.jobs.All() {
 		if statusFilter == "" || strings.EqualFold(job.JobStatus, statusFilter) {
-			ids = append(ids, id)
+			ids = append(ids, job.JobID)
 		}
 	}
 
 	sort.Strings(ids)
 
-	return paginate(ids, func(id string) *TranslationJob { return b.jobs[id] }, maxResults, nextToken)
+	return paginate(ids, func(id string) *TranslationJob { return tableGet(b.jobs, id) }, maxResults, nextToken)
 }
 
 // TagResource adds or replaces tags on a resource.
@@ -545,19 +550,57 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 // arnExists checks whether the ARN corresponds to any stored resource.
 func (b *InMemoryBackend) arnExists(resourceARN string) bool {
-	for _, t := range b.terminologies {
+	found := false
+
+	b.terminologies.Range(func(t *Terminology) bool {
 		if t.ARN == resourceARN {
-			return true
+			found = true
+
+			return false
 		}
+
+		return true
+	})
+
+	if found {
+		return true
 	}
 
-	for _, pd := range b.parallelData {
+	b.parallelData.Range(func(pd *ParallelData) bool {
 		if pd.ARN == resourceARN {
-			return true
+			found = true
+
+			return false
 		}
+
+		return true
+	})
+
+	return found
+}
+
+// sortedNames extracts a key from every item via keyFn and returns the
+// resulting names in ascending sorted order, matching the deterministic
+// ordering collections.SortedKeys previously gave callers iterating the raw
+// map[string]*V this table replaced.
+func sortedNames[V any](items []*V, keyFn func(*V) string) []string {
+	names := make([]string, 0, len(items))
+	for _, v := range items {
+		names = append(names, keyFn(v))
 	}
 
-	return false
+	sort.Strings(names)
+
+	return names
+}
+
+// tableGet looks up id in t, returning nil if absent. It adapts
+// [store.Table.Get]'s (value, ok) result to the single-value getter shape
+// [paginate] expects.
+func tableGet[V any](t *store.Table[V], id string) *V {
+	v, _ := t.Get(id)
+
+	return v
 }
 
 func copyMap(m map[string]string) map[string]string {
