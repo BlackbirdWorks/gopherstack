@@ -18,7 +18,7 @@ func StackCount(b *InMemoryBackend) int {
 	b.mu.RLock("StackCount")
 	defer b.mu.RUnlock()
 
-	return len(b.stacks)
+	return b.stacks.Len()
 }
 
 // LayerCount returns the number of stored layers.
@@ -26,7 +26,7 @@ func LayerCount(b *InMemoryBackend) int {
 	b.mu.RLock("LayerCount")
 	defer b.mu.RUnlock()
 
-	return len(b.layers)
+	return b.layers.Len()
 }
 
 // InstanceCount returns the number of stored instances.
@@ -34,7 +34,7 @@ func InstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("InstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.instances)
+	return b.instances.Len()
 }
 
 // AppCount returns the number of stored apps.
@@ -42,7 +42,7 @@ func AppCount(b *InMemoryBackend) int {
 	b.mu.RLock("AppCount")
 	defer b.mu.RUnlock()
 
-	return len(b.apps)
+	return b.apps.Len()
 }
 
 // DeploymentCount returns the number of stored deployments.
@@ -50,7 +50,7 @@ func DeploymentCount(b *InMemoryBackend) int {
 	b.mu.RLock("DeploymentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.deployments)
+	return b.deployments.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
@@ -63,7 +63,7 @@ func UserProfileCount(b *InMemoryBackend) int {
 	b.mu.RLock("UserProfileCount")
 	defer b.mu.RUnlock()
 
-	return len(b.userProfiles)
+	return b.userProfiles.Len()
 }
 
 // ElasticLBCount returns the number of stored elastic load balancers.
@@ -71,7 +71,7 @@ func ElasticLBCount(b *InMemoryBackend) int {
 	b.mu.RLock("ElasticLBCount")
 	defer b.mu.RUnlock()
 
-	return len(b.elasticLBs)
+	return b.elasticLBs.Len()
 }
 
 // ElasticIPCount returns the number of stored elastic IPs.
@@ -79,7 +79,7 @@ func ElasticIPCount(b *InMemoryBackend) int {
 	b.mu.RLock("ElasticIPCount")
 	defer b.mu.RUnlock()
 
-	return len(b.elasticIPs)
+	return b.elasticIPs.Len()
 }
 
 // VolumeCount returns the number of stored volumes.
@@ -87,7 +87,7 @@ func VolumeCount(b *InMemoryBackend) int {
 	b.mu.RLock("VolumeCount")
 	defer b.mu.RUnlock()
 
-	return len(b.volumes)
+	return b.volumes.Len()
 }
 
 // RdsDBInstanceCount returns the number of stored RDS DB instances.
@@ -95,7 +95,7 @@ func RdsDBInstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("RdsDBInstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.rdsDBInstances)
+	return b.rdsDBInstances.Len()
 }
 
 // EcsClusterCount returns the number of stored ECS clusters.
@@ -103,5 +103,5 @@ func EcsClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("EcsClusterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.ecsClusters)
+	return b.ecsClusters.Len()
 }
