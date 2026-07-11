@@ -40,9 +40,9 @@ func (a *schedEventBusAdapter) PutSchedulerEvent(
 			Time:         &now,
 		},
 	}
-	a.backend.PutEvents(ctx, entries)
+	_, err := a.backend.PutEvents(ctx, entries)
 
-	return nil
+	return err
 }
 
 type schedKinesisAdapter struct {

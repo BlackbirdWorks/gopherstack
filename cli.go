@@ -3361,7 +3361,10 @@ func (a *s3EventBridgeAdapter) PublishS3Event(
 	ctx context.Context,
 	source, detailType, detail string,
 ) {
-	a.backend.PutEvents(ctx, []ebbackend.EventEntry{
+	// Best-effort S3 -> EventBridge forwarding: PublishS3Event has no error
+	// channel (s3.EventBridgePublisher is fire-and-forget), so the PutEvents
+	// error (added by the Phase 3.3 store conversion) is explicitly discarded.
+	_, _ = a.backend.PutEvents(ctx, []ebbackend.EventEntry{
 		{Source: source, DetailType: detailType, Detail: detail},
 	})
 }
