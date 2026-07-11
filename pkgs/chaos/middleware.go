@@ -51,7 +51,7 @@ func extractServiceFromRequest(r interface {
 		return ""
 	}
 
-	return strings.ToLower(parts[3])
+	return sanitizeName(strings.ToLower(parts[3]))
 }
 
 // extractRegionFromRequest extracts the AWS region from the SigV4 Authorization
@@ -68,12 +68,12 @@ func extractRegionFromRequest(r interface {
 			parts := strings.Split(credOnly, "/")
 
 			if len(parts) >= minSigV4CredentialParts {
-				return parts[2]
+				return sanitizeName(parts[2])
 			}
 		}
 	}
 
-	return r.Header("X-Amz-Region")
+	return sanitizeName(r.Header("X-Amz-Region"))
 }
 
 // extractOperationFromRequest tries to determine the AWS operation name from
@@ -96,10 +96,10 @@ func extractOperationFromRequest(r interface {
 	// Format is "DynamoDB_20120810.GetItem" or "Logs_20140328.CreateLogGroup".
 	_, op, found := strings.Cut(target, ".")
 	if !found {
-		return target
+		return sanitizeName(target)
 	}
 
-	return op
+	return sanitizeName(op)
 }
 
 // echoRequestAdapter wraps an echo.Context to implement the header interface
@@ -199,4 +199,19 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 			return next(c)
 		}
 	}
+}
+
+// sanitizeName cleans up strings extracted from headers by removing any characters
+// that are not alphanumeric, hyphen, underscore, or period. This also breaks the
+// taint for static analysis tools like CodeQL which flag raw header values in logs.
+func sanitizeName(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+			b.WriteRune(c)
+		}
+	}
+
+	return b.String()
 }
