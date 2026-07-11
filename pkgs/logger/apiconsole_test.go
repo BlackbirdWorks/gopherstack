@@ -510,6 +510,50 @@ func TestAPIConsoleMiddleware_GlobalBuffer(t *testing.T) {
 	}
 }
 
+func TestAPIConsoleMiddleware_RedactsSensitiveHeaders(t *testing.T) {
+	t.Parallel()
+
+	const path = "/api/redact-secrets-test"
+
+	e := echo.New()
+	e.Use(logger.APIConsoleMiddleware())
+	e.GET(path, func(c *echo.Context) error {
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	// Secrets that must never be captured in clear text.
+	req.Header.Set("Authorization", "Bearer super-secret-token")
+	req.Header.Set("X-Amz-Security-Token", "IQoJb3-session-token")
+	req.Header.Set("X-Amz-Credential", "AKIA.../20260711/us-east-1/s3/aws4_request")
+	req.Header.Set("Cookie", "session=deadbeef")
+	req.Header.Set("X-Api-Key", "key-12345")
+	// A benign header that must be preserved verbatim.
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var captured *logger.CapturedRequest
+	for _, r := range logger.GlobalRingBuffer.GetAll() {
+		if r.Path == path {
+			captured = r
+		}
+	}
+	require.NotNil(t, captured, "expected request captured in GlobalRingBuffer")
+
+	for _, h := range []string{
+		"Authorization", "X-Amz-Security-Token", "X-Amz-Credential",
+		"Cookie", "X-Api-Key",
+	} {
+		assert.Equal(t, "[REDACTED]", captured.Headers[h],
+			"sensitive header %q must be redacted", h)
+	}
+	// Non-sensitive header retained verbatim.
+	assert.Equal(t, "application/json", captured.Headers["Content-Type"])
+}
+
 // itoa converts a non-negative int to its decimal string representation
 // without importing strconv, keeping this file dependency-light.
 func itoa(n int) string {
