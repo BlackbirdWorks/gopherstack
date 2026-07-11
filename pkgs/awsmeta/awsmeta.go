@@ -79,7 +79,7 @@ func Partition(ctx context.Context) string {
 func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 	if r == nil {
 		m := defaults()
-		m.Region = defaultRegion
+		m.Region = httputils.SanitizeHeaderString(defaultRegion)
 
 		return m
 	}
@@ -88,11 +88,11 @@ func FromRequest(r *http.Request, defaultRegion string) *Metadata {
 		Account:   DefaultAccount,
 		Region:    httputils.ExtractRegionFromRequest(r, defaultRegion),
 		Partition: DefaultPartition,
-		RequestID: r.Header.Get("X-Amz-Request-Id"),
+		RequestID: httputils.SanitizeHeaderString(r.Header.Get("X-Amz-Request-Id")),
 	}
 
 	if v := r.Header.Get("X-Amz-Account-Id"); v != "" {
-		m.Account = v
+		m.Account = httputils.SanitizeHeaderString(v)
 	}
 
 	return m

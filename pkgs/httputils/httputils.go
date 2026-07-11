@@ -311,16 +311,16 @@ func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
 		if len(parts) > 1 {
 			credParts := strings.Split(parts[1], "/")
 			if len(credParts) >= minSigV4CredentialParts {
-				return credParts[2]
+				return SanitizeHeaderString(credParts[2])
 			}
 		}
 	}
 
 	if region := r.Header.Get("X-Amz-Region"); region != "" {
-		return region
+		return SanitizeHeaderString(region)
 	}
 
-	return defaultRegion
+	return SanitizeHeaderString(defaultRegion)
 }
 
 // ExtractServiceFromRequest extracts the AWS service name from the SigV4 Authorization
@@ -332,10 +332,25 @@ func ExtractServiceFromRequest(r *http.Request) string {
 		if len(parts) > 1 {
 			credParts := strings.Split(parts[1], "/")
 			if len(credParts) > sigV4ServiceIndex {
-				return credParts[sigV4ServiceIndex]
+				return SanitizeHeaderString(credParts[sigV4ServiceIndex])
 			}
 		}
 	}
 
 	return ""
+}
+
+// SanitizeHeaderString removes all characters except alphanumeric, hyphens,
+// underscores, and periods. This breaks the taint for static analysis tools
+// like CodeQL which flag raw header values in logs.
+func SanitizeHeaderString(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+			b.WriteRune(c)
+		}
+	}
+
+	return b.String()
 }
