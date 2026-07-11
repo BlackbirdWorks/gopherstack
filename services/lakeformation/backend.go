@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -38,6 +39,14 @@ const (
 
 // transactionInfo holds transaction metadata.
 type transactionInfo struct {
+	// ID is the transaction ID this value is keyed by in the transactions
+	// Table (see store_setup.go). It is tagged json:"-" because the
+	// transactions Table is a "dirty" table -- persistence.go instead
+	// round-trips it through a dedicated transactionSnapshot DTO that carries
+	// the ID as a real JSON field, so it survives the round trip despite
+	// being excluded here. It must never change after the transaction is
+	// created (store.Table's keyFn purity requirement).
+	ID           string `json:"-"`
 	Status       string `json:"Status"`
 	Type         string `json:"Type,omitempty"`
 	StartTime    string `json:"StartTime,omitempty"`
@@ -176,39 +185,20 @@ type StorageBackend interface {
 	) ([]TaggedTable, string)
 }
 
-// lfTagKey uniquely identifies a LF tag by catalog and key.
-type lfTagKey struct {
-	CatalogID string
-	TagKey    string
-}
-
-// dataCellsFilterKey uniquely identifies a DataCellsFilter.
-type dataCellsFilterKey struct {
-	TableCatalogID string
-	DatabaseName   string
-	TableName      string
-	Name           string
-}
-
-// lfTagExpressionKey uniquely identifies an LF-tag expression.
-type lfTagExpressionKey struct {
-	CatalogID string
-	Name      string
-}
-
 // InMemoryBackend is the in-memory backend for Lake Formation.
 type InMemoryBackend struct {
 	dataLakeSettings       *DataLakeSettings
 	resourceLFTags         map[string][]LFTagPair
-	lfTags                 map[lfTagKey]*LFTag
-	transactions           map[string]*transactionInfo
-	dataCellsFilters       map[dataCellsFilterKey]*DataCellsFilter
-	lfTagExpressions       map[lfTagExpressionKey]*LFTagExpression
-	resources              map[string]*ResourceInfo
+	lfTags                 *store.Table[LFTag]
+	transactions           *store.Table[transactionInfo]
+	dataCellsFilters       *store.Table[DataCellsFilter]
+	lfTagExpressions       *store.Table[LFTagExpression]
+	resources              *store.Table[ResourceInfo]
 	queries                map[string]string
-	identityCenterConfigs  map[string]*IdentityCenterConfiguration
-	permissionsMap         map[string]*PermissionEntry
+	identityCenterConfigs  *store.Table[IdentityCenterConfiguration]
+	permissionsMap         *store.Table[PermissionEntry]
 	mu                     *lockmetrics.RWMutex
+	registry               *store.Registry
 	tableStorageOptimizers map[string][]StorageOptimizer
 	tableObjects           map[string][]PartitionedTableObjectsList
 	permissionsList        []*PermissionEntry
@@ -219,23 +209,21 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new in-memory Lake Formation backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		dataLakeSettings:       &DataLakeSettings{},
-		resources:              make(map[string]*ResourceInfo),
-		permissionsMap:         make(map[string]*PermissionEntry),
 		permissionsList:        make([]*PermissionEntry, 0),
-		lfTags:                 make(map[lfTagKey]*LFTag),
-		transactions:           make(map[string]*transactionInfo),
-		dataCellsFilters:       make(map[dataCellsFilterKey]*DataCellsFilter),
-		lfTagExpressions:       make(map[lfTagExpressionKey]*LFTagExpression),
-		identityCenterConfigs:  make(map[string]*IdentityCenterConfiguration),
 		lakeFormationOptIns:    make([]*LFOptIn, 0),
 		resourceLFTags:         make(map[string][]LFTagPair),
 		queries:                make(map[string]string),
 		tableStorageOptimizers: make(map[string][]StorageOptimizer),
 		tableObjects:           make(map[string][]PartitionedTableObjectsList),
 		mu:                     lockmetrics.New("lakeformation"),
+		registry:               store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset restores the backend to a clean initial state.
@@ -243,19 +231,24 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.resetTablesLocked()
 	b.dataLakeSettings = &DataLakeSettings{}
-	b.resources = make(map[string]*ResourceInfo)
-	b.permissionsMap = make(map[string]*PermissionEntry)
 	b.permissionsList = make([]*PermissionEntry, 0)
-	b.lfTags = make(map[lfTagKey]*LFTag)
-	b.transactions = make(map[string]*transactionInfo)
-	b.dataCellsFilters = make(map[dataCellsFilterKey]*DataCellsFilter)
-	b.lfTagExpressions = make(map[lfTagExpressionKey]*LFTagExpression)
-	b.identityCenterConfigs = make(map[string]*IdentityCenterConfiguration)
 	b.lakeFormationOptIns = make([]*LFOptIn, 0)
 	b.resourceLFTags = make(map[string][]LFTagPair)
 	b.queries = make(map[string]string)
 	b.tableStorageOptimizers = make(map[string][]StorageOptimizer)
+}
+
+// resetTablesLocked resets every store.Table-backed resource field to empty:
+// the "clean" tables via one b.registry.ResetAll() call, plus the "dirty"
+// transactions table and the permissionsMap derived cache individually since
+// neither is registered on b.registry (see store_setup.go). The caller MUST
+// hold b.mu for writing.
+func (b *InMemoryBackend) resetTablesLocked() {
+	b.registry.ResetAll()
+	b.transactions.Reset()
+	b.permissionsMap.Reset()
 }
 
 // AddLFTagInternal seeds an LF-tag directly for testing.
@@ -266,11 +259,11 @@ func (b *InMemoryBackend) AddLFTagInternal(catalogID, tagKey string, tagValues [
 	vals := make([]string, len(tagValues))
 	copy(vals, tagValues)
 
-	b.lfTags[lfTagKey{CatalogID: catalogID, TagKey: tagKey}] = &LFTag{
+	b.lfTags.Put(&LFTag{
 		CatalogID: catalogID,
 		TagKey:    tagKey,
 		TagValues: vals,
-	}
+	})
 }
 
 // AddResourceInternal seeds a registered resource directly for testing.
@@ -279,11 +272,11 @@ func (b *InMemoryBackend) AddResourceInternal(resourceArn, roleArn string) {
 	defer b.mu.Unlock()
 
 	now := time.Now()
-	b.resources[resourceArn] = &ResourceInfo{
+	b.resources.Put(&ResourceInfo{
 		ResourceArn:  resourceArn,
 		RoleArn:      roleArn,
 		LastModified: &now,
-	}
+	})
 }
 
 // AddPermissionInternal seeds a permission entry directly for testing.
@@ -299,23 +292,14 @@ func (b *InMemoryBackend) AddDataCellsFilterInternal(filter *DataCellsFilter) {
 	b.mu.Lock("AddDataCellsFilterInternal")
 	defer b.mu.Unlock()
 
-	k := dataCellsFilterKey{
-		TableCatalogID: filter.TableCatalogID,
-		DatabaseName:   filter.DatabaseName,
-		TableName:      filter.TableName,
-		Name:           filter.Name,
-	}
-
 	cp := *filter
-	b.dataCellsFilters[k] = &cp
+	b.dataCellsFilters.Put(&cp)
 }
 
 // AddLFTagExpressionInternal seeds an LFTagExpression directly for testing.
 func (b *InMemoryBackend) AddLFTagExpressionInternal(expr *LFTagExpression) {
 	b.mu.Lock("AddLFTagExpressionInternal")
 	defer b.mu.Unlock()
-
-	k := lfTagExpressionKey{CatalogID: expr.CatalogID, Name: expr.Name}
 
 	cp := *expr
 
@@ -324,7 +308,7 @@ func (b *InMemoryBackend) AddLFTagExpressionInternal(expr *LFTagExpression) {
 		copy(cp.Expression, expr.Expression)
 	}
 
-	b.lfTagExpressions[k] = &cp
+	b.lfTagExpressions.Put(&cp)
 }
 
 // GetDataLakeSettings returns the current data lake settings.
@@ -356,7 +340,7 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 	b.mu.Lock("RegisterResource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resources[resourceArn]; ok {
+	if b.resources.Has(resourceArn) {
 		return awserr.New(
 			"resource already registered: "+resourceArn,
 			awserr.ErrAlreadyExists,
@@ -364,11 +348,11 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 	}
 
 	now := time.Now()
-	b.resources[resourceArn] = &ResourceInfo{
+	b.resources.Put(&ResourceInfo{
 		ResourceArn:  resourceArn,
 		RoleArn:      roleArn,
 		LastModified: &now,
-	}
+	})
 
 	return nil
 }
@@ -382,14 +366,14 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 	b.mu.Lock("DeregisterResource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resources[resourceArn]; !ok {
+	if !b.resources.Has(resourceArn) {
 		return awserr.New(
 			"resource not found: "+resourceArn,
 			awserr.ErrNotFound,
 		)
 	}
 
-	delete(b.resources, resourceArn)
+	b.resources.Delete(resourceArn)
 
 	// Clean up all permissions associated with this resource.
 	newList := make([]*PermissionEntry, 0, len(b.permissionsList))
@@ -397,7 +381,7 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 		if !permissionMatchesARN(p, resourceArn) {
 			newList = append(newList, p)
 		} else {
-			delete(b.permissionsMap, permissionKey(p))
+			b.permissionsMap.Delete(permissionKey(p))
 		}
 	}
 	b.permissionsList = newList
@@ -414,7 +398,7 @@ func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, e
 	b.mu.RLock("DescribeResource")
 	defer b.mu.RUnlock()
 
-	info, ok := b.resources[resourceArn]
+	info, ok := b.resources.Get(resourceArn)
 	if !ok {
 		return nil, awserr.New(
 			"resource not found: "+resourceArn,
@@ -432,8 +416,8 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
 
-	all := make([]*ResourceInfo, 0, len(b.resources))
-	for _, v := range b.resources {
+	all := make([]*ResourceInfo, 0, b.resources.Len())
+	for _, v := range b.resources.All() {
 		all = append(all, copyResourceInfo(v))
 	}
 
@@ -469,13 +453,13 @@ func (b *InMemoryBackend) grantPermissionsLocked(entry *PermissionEntry) error {
 		}
 	}
 	key := permissionKey(entry)
-	if existing, ok := b.permissionsMap[key]; ok {
+	if existing, ok := b.permissionsMap.Get(key); ok {
 		mergeStringSlice(&existing.Permissions, entry.Permissions)
 		mergeStringSlice(&existing.PermissionsWithGrantOption, entry.PermissionsWithGrantOption)
 
 		return nil
 	}
-	b.permissionsMap[key] = entry
+	b.permissionsMap.Put(entry)
 	b.permissionsList = append(b.permissionsList, entry)
 	sort.Slice(b.permissionsList, func(i, j int) bool {
 		pi := principalID(b.permissionsList[i].Principal)
@@ -512,7 +496,7 @@ func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error 
 		return fmt.Errorf("invalid entry: %w", ErrValidation)
 	}
 	key := permissionKey(entry)
-	p, ok := b.permissionsMap[key]
+	p, ok := b.permissionsMap.Get(key)
 	if !ok {
 		return nil
 	}
@@ -527,7 +511,7 @@ func (b *InMemoryBackend) revokePermissionsLocked(entry *PermissionEntry) error 
 
 		return nil
 	}
-	delete(b.permissionsMap, key)
+	b.permissionsMap.Delete(key)
 	newList := make([]*PermissionEntry, 0, len(b.permissionsList)-1)
 	for _, lp := range b.permissionsList {
 		if permissionKey(lp) != key {
@@ -587,9 +571,9 @@ func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []stri
 	b.mu.Lock("CreateLFTag")
 	defer b.mu.Unlock()
 
-	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
+	k := lfTagKeyStr(catalogID, tagKey)
 
-	if _, ok := b.lfTags[k]; ok {
+	if b.lfTags.Has(k) {
 		return awserr.New(
 			"LF tag already exists: "+tagKey,
 			awserr.ErrAlreadyExists,
@@ -599,11 +583,11 @@ func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []stri
 	vals := make([]string, len(tagValues))
 	copy(vals, tagValues)
 
-	b.lfTags[k] = &LFTag{
+	b.lfTags.Put(&LFTag{
 		CatalogID: catalogID,
 		TagKey:    tagKey,
 		TagValues: vals,
-	}
+	})
 
 	return nil
 }
@@ -617,16 +601,16 @@ func (b *InMemoryBackend) DeleteLFTag(catalogID, tagKey string) error {
 	b.mu.Lock("DeleteLFTag")
 	defer b.mu.Unlock()
 
-	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
+	k := lfTagKeyStr(catalogID, tagKey)
 
-	if _, ok := b.lfTags[k]; !ok {
+	if !b.lfTags.Has(k) {
 		return awserr.New(
 			"LF tag not found: "+tagKey,
 			awserr.ErrNotFound,
 		)
 	}
 
-	delete(b.lfTags, k)
+	b.lfTags.Delete(k)
 
 	return nil
 }
@@ -640,9 +624,9 @@ func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
 	b.mu.RLock("GetLFTag")
 	defer b.mu.RUnlock()
 
-	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
+	k := lfTagKeyStr(catalogID, tagKey)
 
-	tag, ok := b.lfTags[k]
+	tag, ok := b.lfTags.Get(k)
 	if !ok {
 		return nil, awserr.New(
 			"LF tag not found: "+tagKey,
@@ -663,9 +647,9 @@ func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, 
 	b.mu.Lock("UpdateLFTag")
 	defer b.mu.Unlock()
 
-	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
+	k := lfTagKeyStr(catalogID, tagKey)
 
-	tag, ok := b.lfTags[k]
+	tag, ok := b.lfTags.Get(k)
 	if !ok {
 		return awserr.New(
 			"LF tag not found: "+tagKey,
@@ -696,10 +680,10 @@ func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken
 	b.mu.RLock("ListLFTags")
 	defer b.mu.RUnlock()
 
-	all := make([]*LFTag, 0, len(b.lfTags))
+	all := make([]*LFTag, 0, b.lfTags.Len())
 
-	for k, t := range b.lfTags {
-		if catalogID == "" || k.CatalogID == catalogID {
+	for _, t := range b.lfTags.All() {
+		if catalogID == "" || t.CatalogID == catalogID {
 			all = append(all, copyLFTag(t))
 		}
 	}
@@ -982,8 +966,8 @@ func (b *InMemoryBackend) AddLFTagsToResource(catalogID string, resource *Resour
 	existing := b.resourceLFTags[resourceKey]
 
 	for _, pair := range lfTags {
-		k := lfTagKey{CatalogID: catalogID, TagKey: pair.TagKey}
-		tag, ok := b.lfTags[k]
+		k := lfTagKeyStr(catalogID, pair.TagKey)
+		tag, ok := b.lfTags.Get(k)
 		if !ok {
 			failures = append(failures, LFTagError{
 				LFTag: &pair,
@@ -1059,7 +1043,7 @@ func (b *InMemoryBackend) CancelTransaction(transactionID string) error {
 	b.mu.Lock("CancelTransaction")
 	defer b.mu.Unlock()
 
-	if info, ok := b.transactions[transactionID]; ok && info.Status == transactionStatusCommitted {
+	if info, ok := b.transactions.Get(transactionID); ok && info.Status == transactionStatusCommitted {
 		return awserr.New(
 			fmt.Sprintf("transaction %s is already committed", transactionID),
 			awserr.ErrConflict,
@@ -1067,15 +1051,16 @@ func (b *InMemoryBackend) CancelTransaction(transactionID string) error {
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if info, ok := b.transactions[transactionID]; ok {
+	if info, ok := b.transactions.Get(transactionID); ok {
 		info.Status = transactionStatusAborted
 		info.EndTime = now
 	} else {
-		b.transactions[transactionID] = &transactionInfo{
+		b.transactions.Put(&transactionInfo{
+			ID:        transactionID,
 			Status:    transactionStatusAborted,
 			StartTime: now,
 			EndTime:   now,
-		}
+		})
 	}
 
 	return nil
@@ -1087,7 +1072,7 @@ func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error
 	b.mu.Lock("CommitTransaction")
 	defer b.mu.Unlock()
 
-	if info, ok := b.transactions[transactionID]; ok && info.Status == transactionStatusAborted {
+	if info, ok := b.transactions.Get(transactionID); ok && info.Status == transactionStatusAborted {
 		return "", awserr.New(
 			fmt.Sprintf("transaction %s has been cancelled", transactionID),
 			awserr.ErrConflict,
@@ -1095,15 +1080,16 @@ func (b *InMemoryBackend) CommitTransaction(transactionID string) (string, error
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	if info, ok := b.transactions[transactionID]; ok {
+	if info, ok := b.transactions.Get(transactionID); ok {
 		info.Status = transactionStatusCommitted
 		info.EndTime = now
 	} else {
-		b.transactions[transactionID] = &transactionInfo{
+		b.transactions.Put(&transactionInfo{
+			ID:        transactionID,
 			Status:    transactionStatusCommitted,
 			StartTime: now,
 			EndTime:   now,
-		}
+		})
 	}
 
 	return transactionStatusCommitted, nil
@@ -1134,14 +1120,9 @@ func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
 	b.mu.Lock("CreateDataCellsFilter")
 	defer b.mu.Unlock()
 
-	k := dataCellsFilterKey{
-		TableCatalogID: filter.TableCatalogID,
-		DatabaseName:   filter.DatabaseName,
-		TableName:      filter.TableName,
-		Name:           filter.Name,
-	}
+	k := dataCellsFilterKeyStr(filter.TableCatalogID, filter.DatabaseName, filter.TableName, filter.Name)
 
-	if _, ok := b.dataCellsFilters[k]; ok {
+	if b.dataCellsFilters.Has(k) {
 		return awserr.New(
 			"data cells filter already exists: "+filter.Name,
 			awserr.ErrAlreadyExists,
@@ -1149,7 +1130,7 @@ func (b *InMemoryBackend) CreateDataCellsFilter(filter *DataCellsFilter) error {
 	}
 
 	cp := *filter
-	b.dataCellsFilters[k] = &cp
+	b.dataCellsFilters.Put(&cp)
 
 	return nil
 }
@@ -1159,7 +1140,7 @@ func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID str
 	b.mu.Lock("CreateLFTagExpression")
 	defer b.mu.Unlock()
 
-	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+	k := lfTagExpressionKeyStr(catalogID, name)
 
 	// Validate each tag in the expression has a TagKey.
 	for i, tag := range expression {
@@ -1168,7 +1149,7 @@ func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID str
 		}
 	}
 
-	if _, ok := b.lfTagExpressions[k]; ok {
+	if b.lfTagExpressions.Has(k) {
 		return awserr.New(
 			"LF-tag expression already exists: "+name,
 			awserr.ErrAlreadyExists,
@@ -1178,12 +1159,12 @@ func (b *InMemoryBackend) CreateLFTagExpression(name, description, catalogID str
 	expr := make([]LFTag, len(expression))
 	copy(expr, expression)
 
-	b.lfTagExpressions[k] = &LFTagExpression{
+	b.lfTagExpressions.Put(&LFTagExpression{
 		Name:        name,
 		Description: description,
 		CatalogID:   catalogID,
 		Expression:  expr,
-	}
+	})
 
 	return nil
 }
@@ -1198,7 +1179,7 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
 	b.mu.Lock("CreateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.identityCenterConfigs[catalogID]; ok {
+	if b.identityCenterConfigs.Has(catalogID) {
 		return "", awserr.New(
 			"identity center configuration already exists for catalog: "+catalogID,
 			awserr.ErrAlreadyExists,
@@ -1211,13 +1192,13 @@ func (b *InMemoryBackend) CreateLakeFormationIdentityCenterConfiguration(
 		catalogID,
 	)
 
-	b.identityCenterConfigs[catalogID] = &IdentityCenterConfiguration{
+	b.identityCenterConfigs.Put(&IdentityCenterConfiguration{
 		CatalogID:         catalogID,
 		InstanceArn:       instanceArn,
 		ApplicationArn:    appArn,
 		ExternalFiltering: externalFiltering,
 		ShareRecipients:   shareRecipients,
-	}
+	})
 
 	return appArn, nil
 }
@@ -1253,21 +1234,16 @@ func (b *InMemoryBackend) DeleteDataCellsFilter(tableCatalogID, databaseName, ta
 	b.mu.Lock("DeleteDataCellsFilter")
 	defer b.mu.Unlock()
 
-	k := dataCellsFilterKey{
-		TableCatalogID: tableCatalogID,
-		DatabaseName:   databaseName,
-		TableName:      tableName,
-		Name:           name,
-	}
+	k := dataCellsFilterKeyStr(tableCatalogID, databaseName, tableName, name)
 
-	if _, ok := b.dataCellsFilters[k]; !ok {
+	if !b.dataCellsFilters.Has(k) {
 		return awserr.New(
 			"data cells filter not found: "+name,
 			awserr.ErrNotFound,
 		)
 	}
 
-	delete(b.dataCellsFilters, k)
+	b.dataCellsFilters.Delete(k)
 
 	return nil
 }
@@ -1277,16 +1253,16 @@ func (b *InMemoryBackend) DeleteLFTagExpression(name, catalogID string) error {
 	b.mu.Lock("DeleteLFTagExpression")
 	defer b.mu.Unlock()
 
-	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
+	k := lfTagExpressionKeyStr(catalogID, name)
 
-	if _, ok := b.lfTagExpressions[k]; !ok {
+	if !b.lfTagExpressions.Has(k) {
 		return awserr.New(
 			"LF-tag expression not found: "+name,
 			awserr.ErrNotFound,
 		)
 	}
 
-	delete(b.lfTagExpressions, k)
+	b.lfTagExpressions.Delete(k)
 
 	return nil
 }
@@ -1442,7 +1418,7 @@ func (b *InMemoryBackend) UpdateResource(resourceArn, roleArn string) error {
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
-	info, ok := b.resources[resourceArn]
+	info, ok := b.resources.Get(resourceArn)
 	if !ok {
 		return awserr.New(
 			"resource not found: "+resourceArn,
@@ -1468,11 +1444,12 @@ func (b *InMemoryBackend) StartTransaction(transactionType string) string {
 	b.mu.Lock("StartTransaction")
 	defer b.mu.Unlock()
 
-	b.transactions[id] = &transactionInfo{
+	b.transactions.Put(&transactionInfo{
+		ID:        id,
 		Status:    transactionStatusActive,
 		Type:      transactionType,
 		StartTime: time.Now().UTC().Format(time.RFC3339),
-	}
+	})
 
 	return id
 }
@@ -1505,14 +1482,14 @@ func (b *InMemoryBackend) cleanupStaleTransactions(ctx context.Context, l *slog.
 	b.mu.Lock("JanitorCleanup")
 	now := time.Now()
 	staleCount := 0
-	for id, info := range b.transactions {
+	for _, info := range b.transactions.All() {
 		refTimeStr := info.LastExtended
 		if refTimeStr == "" {
 			refTimeStr = info.StartTime
 		}
 		t, err := time.Parse(time.RFC3339, refTimeStr)
 		if err == nil && now.Sub(t) > janitorTimeout {
-			delete(b.transactions, id)
+			b.transactions.Delete(info.ID)
 			staleCount++
 		}
 	}
@@ -1531,7 +1508,7 @@ func (b *InMemoryBackend) DescribeTransaction(transactionID string) (*Transactio
 	b.mu.RLock("DescribeTransaction")
 	defer b.mu.RUnlock()
 
-	info, ok := b.transactions[transactionID]
+	info, ok := b.transactions.Get(transactionID)
 	if !ok {
 		return nil, awserr.New(
 			"transaction not found: "+transactionID,
@@ -1554,9 +1531,9 @@ func (b *InMemoryBackend) ListTransactions(
 	b.mu.RLock("ListTransactions")
 	defer b.mu.RUnlock()
 
-	all := make([]*Transaction, 0, len(b.transactions))
+	all := make([]*Transaction, 0, b.transactions.Len())
 
-	for id, info := range b.transactions {
+	for _, info := range b.transactions.All() {
 		if statusFilter != "" && statusFilter != "ALL" {
 			if statusFilter == "COMPLETED" {
 				// COMPLETED means both COMMITTED and ABORTED.
@@ -1569,7 +1546,7 @@ func (b *InMemoryBackend) ListTransactions(
 		}
 
 		all = append(all, &Transaction{
-			TransactionID:        id,
+			TransactionID:        info.ID,
 			TransactionStatus:    info.Status,
 			TransactionStartTime: info.StartTime,
 			TransactionEndTime:   info.EndTime,
@@ -1676,9 +1653,9 @@ func (b *InMemoryBackend) ListDataCellsFilter(
 	b.mu.RLock("ListDataCellsFilter")
 	defer b.mu.RUnlock()
 
-	all := make([]*DataCellsFilter, 0, len(b.dataCellsFilters))
+	all := make([]*DataCellsFilter, 0, b.dataCellsFilters.Len())
 
-	for _, v := range b.dataCellsFilters {
+	for _, v := range b.dataCellsFilters.All() {
 		if tableCatalogID != "" && v.TableCatalogID != tableCatalogID {
 			continue
 		}
@@ -1714,10 +1691,10 @@ func (b *InMemoryBackend) ListLFTagExpressions(
 	b.mu.RLock("ListLFTagExpressions")
 	defer b.mu.RUnlock()
 
-	all := make([]*LFTagExpression, 0, len(b.lfTagExpressions))
+	all := make([]*LFTagExpression, 0, b.lfTagExpressions.Len())
 
-	for k, v := range b.lfTagExpressions {
-		if catalogID != "" && k.CatalogID != catalogID {
+	for _, v := range b.lfTagExpressions.All() {
+		if catalogID != "" && v.CatalogID != catalogID {
 			continue
 		}
 
@@ -1832,10 +1809,10 @@ func (b *InMemoryBackend) ListLakeFormationOptIns(
 func (b *InMemoryBackend) DeleteLakeFormationIdentityCenterConfiguration(catalogID string) error {
 	b.mu.Lock("DeleteLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
-	if _, ok := b.identityCenterConfigs[catalogID]; !ok {
+	if !b.identityCenterConfigs.Has(catalogID) {
 		return awserr.New("identity center configuration not found for catalog: "+catalogID, awserr.ErrNotFound)
 	}
-	delete(b.identityCenterConfigs, catalogID)
+	b.identityCenterConfigs.Delete(catalogID)
 
 	return nil
 }
@@ -1846,7 +1823,7 @@ func (b *InMemoryBackend) DescribeLakeFormationIdentityCenterConfiguration(
 ) (*IdentityCenterConfiguration, error) {
 	b.mu.RLock("DescribeLakeFormationIdentityCenterConfiguration")
 	defer b.mu.RUnlock()
-	cfg, ok := b.identityCenterConfigs[catalogID]
+	cfg, ok := b.identityCenterConfigs.Get(catalogID)
 	if !ok {
 		return nil, awserr.New("identity center configuration not found for catalog: "+catalogID, awserr.ErrNotFound)
 	}
@@ -1866,13 +1843,13 @@ func (b *InMemoryBackend) UpdateLakeFormationIdentityCenterConfiguration(
 
 	b.mu.Lock("UpdateLakeFormationIdentityCenterConfiguration")
 	defer b.mu.Unlock()
-	cfg, ok := b.identityCenterConfigs[catalogID]
+	cfg, ok := b.identityCenterConfigs.Get(catalogID)
 	if !ok {
-		b.identityCenterConfigs[catalogID] = &IdentityCenterConfiguration{
+		b.identityCenterConfigs.Put(&IdentityCenterConfiguration{
 			CatalogID:         catalogID,
 			ExternalFiltering: externalFiltering,
 			ApplicationStatus: appStatus,
-		}
+		})
 
 		return nil
 	}
@@ -1893,7 +1870,7 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 	}
 	b.mu.Lock("ExtendTransaction")
 	defer b.mu.Unlock()
-	info, ok := b.transactions[transactionID]
+	info, ok := b.transactions.Get(transactionID)
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
@@ -1901,7 +1878,6 @@ func (b *InMemoryBackend) ExtendTransaction(transactionID string) error {
 		return awserr.New(fmt.Sprintf("transaction %s is not active", transactionID), awserr.ErrConflict)
 	}
 	info.LastExtended = time.Now().UTC().Format(time.RFC3339)
-	b.transactions[transactionID] = info
 
 	return nil
 }
@@ -1914,7 +1890,7 @@ func (b *InMemoryBackend) DeleteObjectsOnCancel(transactionID string) error {
 	}
 	b.mu.RLock("DeleteObjectsOnCancel")
 	defer b.mu.RUnlock()
-	info, ok := b.transactions[transactionID]
+	info, ok := b.transactions.Get(transactionID)
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}
@@ -1937,10 +1913,8 @@ func (b *InMemoryBackend) GetDataCellsFilter(
 	}
 	b.mu.RLock("GetDataCellsFilter")
 	defer b.mu.RUnlock()
-	k := dataCellsFilterKey{
-		TableCatalogID: tableCatalogID, DatabaseName: databaseName, TableName: tableName, Name: name,
-	}
-	f, ok := b.dataCellsFilters[k]
+	k := dataCellsFilterKeyStr(tableCatalogID, databaseName, tableName, name)
+	f, ok := b.dataCellsFilters.Get(k)
 	if !ok {
 		return nil, awserr.New("data cells filter not found: "+name, awserr.ErrNotFound)
 	}
@@ -1968,17 +1942,12 @@ func (b *InMemoryBackend) UpdateDataCellsFilter(filter *DataCellsFilter) error {
 	}
 	b.mu.Lock("UpdateDataCellsFilter")
 	defer b.mu.Unlock()
-	k := dataCellsFilterKey{
-		TableCatalogID: filter.TableCatalogID,
-		DatabaseName:   filter.DatabaseName,
-		TableName:      filter.TableName,
-		Name:           filter.Name,
-	}
-	if _, ok := b.dataCellsFilters[k]; !ok {
+	k := dataCellsFilterKeyStr(filter.TableCatalogID, filter.DatabaseName, filter.TableName, filter.Name)
+	if !b.dataCellsFilters.Has(k) {
 		return awserr.New("data cells filter not found: "+filter.Name, awserr.ErrNotFound)
 	}
 	cp := *filter
-	b.dataCellsFilters[k] = &cp
+	b.dataCellsFilters.Put(&cp)
 
 	return nil
 }
@@ -1990,8 +1959,8 @@ func (b *InMemoryBackend) GetLFTagExpression(name, catalogID string) (*LFTagExpr
 	}
 	b.mu.RLock("GetLFTagExpression")
 	defer b.mu.RUnlock()
-	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
-	expr, ok := b.lfTagExpressions[k]
+	k := lfTagExpressionKeyStr(catalogID, name)
+	expr, ok := b.lfTagExpressions.Get(k)
 	if !ok {
 		return nil, awserr.New("LF-tag expression not found: "+name, awserr.ErrNotFound)
 	}
@@ -2011,8 +1980,8 @@ func (b *InMemoryBackend) UpdateLFTagExpression(name, catalogID, description str
 	}
 	b.mu.Lock("UpdateLFTagExpression")
 	defer b.mu.Unlock()
-	k := lfTagExpressionKey{CatalogID: catalogID, Name: name}
-	expr, ok := b.lfTagExpressions[k]
+	k := lfTagExpressionKeyStr(catalogID, name)
+	expr, ok := b.lfTagExpressions.Get(k)
 	if !ok {
 		return awserr.New("LF-tag expression not found: "+name, awserr.ErrNotFound)
 	}
@@ -2073,7 +2042,7 @@ func (b *InMemoryBackend) UpdateTableObjects(
 	}
 	b.mu.Lock("UpdateTableObjects")
 	defer b.mu.Unlock()
-	info, ok := b.transactions[transactionID]
+	info, ok := b.transactions.Get(transactionID)
 	if !ok {
 		return awserr.New("transaction not found: "+transactionID, awserr.ErrNotFound)
 	}

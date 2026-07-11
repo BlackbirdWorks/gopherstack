@@ -67,18 +67,20 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b := j.Backend
 
-	b.mu.Lock()
+	b.mu.Lock("SessionSweep")
 
 	var expired []string
 
-	for id, session := range b.sessions {
+	b.sessions.Range(func(session *SessionInfo) bool {
 		if isSessionExpired(session) {
-			expired = append(expired, id)
+			expired = append(expired, session.AccessKeyID)
 		}
-	}
+
+		return true
+	})
 
 	for _, id := range expired {
-		delete(b.sessions, id)
+		b.sessions.Delete(id)
 	}
 
 	b.mu.Unlock()

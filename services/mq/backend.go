@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -450,24 +451,27 @@ type Configuration struct {
 
 // InMemoryBackend stores Amazon MQ state in memory.
 type InMemoryBackend struct {
-	brokers        map[string]*Broker
-	configurations map[string]*Configuration
+	brokers        *store.Table[Broker]
+	configurations *store.Table[Configuration]
 	tags           map[string]map[string]string
 	mu             *lockmetrics.RWMutex
+	registry       *store.Registry
 	accountID      string
 	region         string
 }
 
 // NewInMemoryBackend creates a new in-memory Amazon MQ backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		brokers:        make(map[string]*Broker),
-		configurations: make(map[string]*Configuration),
-		tags:           make(map[string]map[string]string),
-		accountID:      accountID,
-		region:         region,
-		mu:             lockmetrics.New("mq"),
+	b := &InMemoryBackend{
+		tags:      make(map[string]map[string]string),
+		accountID: accountID,
+		region:    region,
+		mu:        lockmetrics.New("mq"),
+		registry:  store.NewRegistry(),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the region configured for this backend.
@@ -481,8 +485,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.brokers = make(map[string]*Broker)
-	b.configurations = make(map[string]*Configuration)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -549,10 +552,8 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 	}
 
 	// Check for duplicate by name.
-	for _, br := range b.brokers {
-		if br.BrokerName == name {
-			return nil, fmt.Errorf("%w: broker %s already exists", ErrAlreadyExists, name)
-		}
+	if b.lookupBrokerByName(name) != nil {
+		return nil, fmt.Errorf("%w: broker %s already exists", ErrAlreadyExists, name)
 	}
 
 	if deploymentMode == "" {
@@ -613,7 +614,7 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 
 	applyCreateBrokerOptions(br, opts)
 
-	b.brokers[id] = br
+	b.brokers.Put(br)
 	b.tags[brokerArn] = tagsCopy
 
 	return b.copyBroker(br), nil
@@ -690,13 +691,37 @@ func resolveStorageType(engineType, requested string) (string, error) {
 // findBrokerByCreatorRequestID returns a broker matching the given idempotency token.
 // Caller must hold a lock.
 func (b *InMemoryBackend) findBrokerByCreatorRequestID(reqID string) *Broker {
-	for _, br := range b.brokers {
-		if br.CreatorRequestID == reqID {
-			return br
-		}
-	}
+	var found *Broker
 
-	return nil
+	b.brokers.Range(func(br *Broker) bool {
+		if br.CreatorRequestID == reqID {
+			found = br
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
+}
+
+// lookupBrokerByName returns a broker matching the given name exactly, or nil.
+// Caller must hold a lock.
+func (b *InMemoryBackend) lookupBrokerByName(name string) *Broker {
+	var found *Broker
+
+	b.brokers.Range(func(br *Broker) bool {
+		if br.BrokerName == name {
+			found = br
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // logGroupName builds a deterministic CloudWatch log group name for a broker channel.
@@ -728,7 +753,7 @@ func (b *InMemoryBackend) DescribeBroker(brokerID string) (*Broker, error) {
 	}
 
 	if br.BrokerState == BrokerStateDeleting {
-		delete(b.brokers, br.BrokerID)
+		b.brokers.Delete(br.BrokerID)
 		delete(b.tags, br.BrokerArn)
 
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
@@ -745,11 +770,12 @@ func (b *InMemoryBackend) ListBrokers() []*Broker {
 	b.mu.Lock("ListBrokers")
 	defer b.mu.Unlock()
 
-	list := make([]*Broker, 0, len(b.brokers))
+	all := b.brokers.All()
+	list := make([]*Broker, 0, len(all))
 
-	for id, br := range b.brokers {
+	for _, br := range all {
 		if br.BrokerState == BrokerStateDeleting {
-			delete(b.brokers, id)
+			b.brokers.Delete(br.BrokerID)
 			delete(b.tags, br.BrokerArn)
 
 			continue
@@ -969,17 +995,11 @@ func applyUpdateBrokerOptions(br *Broker, opts *UpdateBrokerOptions) {
 
 // lookupBroker finds a broker by ID or by name; caller must hold a lock.
 func (b *InMemoryBackend) lookupBroker(brokerID string) *Broker {
-	if br, ok := b.brokers[brokerID]; ok {
+	if br, ok := b.brokers.Get(brokerID); ok {
 		return br
 	}
 
-	for _, br := range b.brokers {
-		if br.BrokerName == brokerID {
-			return br
-		}
-	}
-
-	return nil
+	return b.lookupBrokerByName(brokerID)
 }
 
 // copyBroker returns a shallow copy of a broker with deep-copied slices/maps.
@@ -1164,10 +1184,20 @@ func (b *InMemoryBackend) CreateConfiguration(
 		return nil, fmt.Errorf("%w: engineType must be ACTIVEMQ or RABBITMQ, got %q", ErrValidation, engineType)
 	}
 
-	for _, c := range b.configurations {
+	var duplicate bool
+
+	b.configurations.Range(func(c *Configuration) bool {
 		if c.Name == name {
-			return nil, fmt.Errorf("%w: configuration %s already exists", ErrAlreadyExists, name)
+			duplicate = true
+
+			return false
 		}
+
+		return true
+	})
+
+	if duplicate {
+		return nil, fmt.Errorf("%w: configuration %s already exists", ErrAlreadyExists, name)
 	}
 
 	if engineVersion == "" {
@@ -1205,7 +1235,7 @@ func (b *InMemoryBackend) CreateConfiguration(
 		Data:           map[int32]string{1: defaultConfigurationData(engineType)},
 	}
 
-	b.configurations[id] = cfg
+	b.configurations.Put(cfg)
 	b.tags[configArn] = tagsCopy
 
 	return b.copyConfiguration(cfg), nil
@@ -1233,7 +1263,7 @@ func (b *InMemoryBackend) DescribeConfiguration(configID string) (*Configuration
 	b.mu.RLock("DescribeConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.configurations[configID]
+	cfg, ok := b.configurations.Get(configID)
 	if !ok {
 		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}
@@ -1246,8 +1276,10 @@ func (b *InMemoryBackend) ListConfigurations() []*Configuration {
 	b.mu.RLock("ListConfigurations")
 	defer b.mu.RUnlock()
 
-	list := make([]*Configuration, 0, len(b.configurations))
-	for _, c := range b.configurations {
+	all := b.configurations.All()
+	list := make([]*Configuration, 0, len(all))
+
+	for _, c := range all {
 		list = append(list, b.copyConfiguration(c))
 	}
 
@@ -1268,7 +1300,7 @@ func (b *InMemoryBackend) UpdateConfiguration(configID, description, data string
 	b.mu.Lock("UpdateConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.configurations[configID]
+	cfg, ok := b.configurations.Get(configID)
 	if !ok {
 		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}
@@ -1325,12 +1357,12 @@ func (b *InMemoryBackend) DeleteConfiguration(configID string) error {
 	b.mu.Lock("DeleteConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configurations[configID]; !ok {
+	cfg, ok := b.configurations.Get(configID)
+	if !ok {
 		return fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}
 
-	cfg := b.configurations[configID]
-	delete(b.configurations, configID)
+	b.configurations.Delete(configID)
 	delete(b.tags, cfg.Arn)
 
 	return nil
@@ -1344,7 +1376,7 @@ func (b *InMemoryBackend) DescribeConfigurationRevision(
 	b.mu.RLock("DescribeConfigurationRevision")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.configurations[configID]
+	cfg, ok := b.configurations.Get(configID)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}
@@ -1366,7 +1398,7 @@ func (b *InMemoryBackend) ListConfigurationRevisions(configID string) ([]Configu
 	b.mu.RLock("ListConfigurationRevisions")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.configurations[configID]
+	cfg, ok := b.configurations.Get(configID)
 	if !ok {
 		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}

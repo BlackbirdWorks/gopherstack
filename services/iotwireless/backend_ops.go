@@ -56,9 +56,7 @@ func (b *InMemoryBackend) StartFuotaTask(accountID, region, id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	ft, ok := b.fuotaTasks[key]
+	ft, ok := b.fuotaTasks.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return ErrFuotaTaskNotFound
 	}
@@ -90,9 +88,7 @@ func (b *InMemoryBackend) ListMulticastGroupsByFuotaTask(
 		return []*MulticastGroup{}
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: mgID}
-
-	mg, ok := b.multicastGroups[key]
+	mg, ok := b.multicastGroups.Get(compositeKey(accountID, region, mgID))
 	if !ok {
 		return []*MulticastGroup{}
 	}
@@ -158,8 +154,7 @@ func (b *InMemoryBackend) DisassociateWirelessGatewayFromCertificate(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
-	if _, ok := b.gateways[key]; !ok {
+	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
 		return ErrGatewayNotFound
 	}
 
@@ -175,8 +170,7 @@ func (b *InMemoryBackend) DisassociateWirelessGatewayFromThing(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
-	if _, ok := b.gateways[key]; !ok {
+	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
 		return ErrGatewayNotFound
 	}
 
@@ -192,8 +186,7 @@ func (b *InMemoryBackend) GetWirelessGatewayCertificate(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
-	if _, ok := b.gateways[key]; !ok {
+	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
 		return "", ErrGatewayNotFound
 	}
 
@@ -214,9 +207,7 @@ func (b *InMemoryBackend) UpdateWirelessDevice(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	d, ok := b.devices[key]
+	d, ok := b.devices.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return ErrDeviceNotFound
 	}
@@ -241,8 +232,7 @@ func (b *InMemoryBackend) DisassociateWirelessDeviceFromThing(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: wirelessDeviceID}
-	if _, ok := b.devices[key]; !ok {
+	if !b.devices.Has(compositeKey(accountID, region, wirelessDeviceID)) {
 		return ErrDeviceNotFound
 	}
 
@@ -372,7 +362,7 @@ func (b *InMemoryBackend) CreateWirelessGatewayTask(
 		Status:            "PENDING",
 	}
 
-	b.gatewayTasks[gatewayID] = task
+	b.gatewayTasks.Put(task)
 
 	return task, nil
 }
@@ -382,7 +372,7 @@ func (b *InMemoryBackend) GetWirelessGatewayTask(gatewayID string) (*GatewayTask
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	task, ok := b.gatewayTasks[gatewayID]
+	task, ok := b.gatewayTasks.Get(gatewayID)
 	if !ok {
 		return nil, ErrGatewayTaskNotFound
 	}
@@ -397,11 +387,9 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTask(gatewayID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.gatewayTasks[gatewayID]; !ok {
+	if !b.gatewayTasks.Delete(gatewayID) {
 		return ErrGatewayTaskNotFound
 	}
-
-	delete(b.gatewayTasks, gatewayID)
 
 	return nil
 }
@@ -424,7 +412,7 @@ func (b *InMemoryBackend) CreateWirelessGatewayTaskDefinition(
 		AutoCreateTasks: autoCreateTasks,
 	}
 
-	b.gatewayTaskDefs[id] = def
+	b.gatewayTaskDefs.Put(def)
 
 	return def, nil
 }
@@ -436,7 +424,7 @@ func (b *InMemoryBackend) GetWirelessGatewayTaskDefinition(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	def, ok := b.gatewayTaskDefs[id]
+	def, ok := b.gatewayTaskDefs.Get(id)
 	if !ok {
 		return nil, ErrGatewayTaskDefNotFound
 	}
@@ -451,9 +439,10 @@ func (b *InMemoryBackend) ListWirelessGatewayTaskDefinitions() []*GatewayTaskDef
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*GatewayTaskDefinition, 0, len(b.gatewayTaskDefs))
+	all := b.gatewayTaskDefs.All()
+	result := make([]*GatewayTaskDefinition, 0, len(all))
 
-	for _, def := range b.gatewayTaskDefs {
+	for _, def := range all {
 		cp := *def
 		result = append(result, &cp)
 	}
@@ -466,11 +455,9 @@ func (b *InMemoryBackend) DeleteWirelessGatewayTaskDefinition(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.gatewayTaskDefs[id]; !ok {
+	if !b.gatewayTaskDefs.Delete(id) {
 		return ErrGatewayTaskDefNotFound
 	}
-
-	delete(b.gatewayTaskDefs, id)
 
 	return nil
 }
@@ -599,7 +586,7 @@ func (b *InMemoryBackend) StartWirelessDeviceImportTask(
 		CreatedAt:       time.Now(),
 	}
 
-	b.importTasks[id] = task
+	b.importTasks.Put(task)
 
 	return copyImportTask(task), nil
 }
@@ -623,7 +610,7 @@ func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
 		CreatedAt:        time.Now(),
 	}
 
-	b.singleImportTasks[arn] = task
+	b.singleImportTasks.Put(task)
 
 	return copySingleImportTask(task), nil
 }
@@ -633,7 +620,7 @@ func (b *InMemoryBackend) GetWirelessDeviceImportTask(id string) (*WirelessDevic
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	task, ok := b.importTasks[id]
+	task, ok := b.importTasks.Get(id)
 	if !ok {
 		return nil, ErrImportTaskNotFound
 	}
@@ -646,11 +633,9 @@ func (b *InMemoryBackend) DeleteWirelessDeviceImportTask(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.importTasks[id]; !ok {
+	if !b.importTasks.Delete(id) {
 		return ErrImportTaskNotFound
 	}
-
-	delete(b.importTasks, id)
 
 	return nil
 }
@@ -660,7 +645,7 @@ func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id, destinationName str
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	task, ok := b.importTasks[id]
+	task, ok := b.importTasks.Get(id)
 	if !ok {
 		return ErrImportTaskNotFound
 	}
@@ -677,9 +662,10 @@ func (b *InMemoryBackend) ListWirelessDeviceImportTasks() []*WirelessDeviceImpor
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*WirelessDeviceImportTask, 0, len(b.importTasks))
+	all := b.importTasks.All()
+	result := make([]*WirelessDeviceImportTask, 0, len(all))
 
-	for _, task := range b.importTasks {
+	for _, task := range all {
 		result = append(result, copyImportTask(task))
 	}
 
@@ -721,12 +707,12 @@ func (b *InMemoryBackend) PutPositionConfiguration(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.positionConfigs[resourceID] = &PositionConfigEntry{
+	b.positionConfigs.Put(&PositionConfigEntry{
 		ResourceIdentifier: resourceID,
 		ResourceType:       resourceType,
 		Destination:        destination,
 		Solvers:            annotateSemtechGnssSolver(solvers),
-	}
+	})
 
 	return nil
 }
@@ -737,7 +723,7 @@ func (b *InMemoryBackend) GetPositionConfiguration(resourceID string) (*Position
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	e, ok := b.positionConfigs[resourceID]
+	e, ok := b.positionConfigs.Get(resourceID)
 	if !ok {
 		return nil, false
 	}
@@ -753,9 +739,10 @@ func (b *InMemoryBackend) ListPositionConfigurations(resourceType string) []*Pos
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*PositionConfigEntry, 0, len(b.positionConfigs))
+	all := b.positionConfigs.All()
+	result := make([]*PositionConfigEntry, 0, len(all))
 
-	for _, e := range b.positionConfigs {
+	for _, e := range all {
 		if resourceType != "" && e.ResourceType != resourceType {
 			continue
 		}
@@ -804,7 +791,7 @@ func (b *InMemoryBackend) GetResourceEventConfiguration(identifier string) (*Res
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	e, ok := b.resourceEventConfigs[identifier]
+	e, ok := b.resourceEventConfigs.Get(identifier)
 	if !ok {
 		return nil, false
 	}
@@ -822,12 +809,12 @@ func (b *InMemoryBackend) UpdateResourceEventConfiguration(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.resourceEventConfigs[identifier] = &ResourceEventConfigEntry{
+	b.resourceEventConfigs.Put(&ResourceEventConfigEntry{
 		Identifier:     identifier,
 		IdentifierType: identifierType,
 		PartnerType:    partnerType,
 		Config:         *doc,
-	}
+	})
 }
 
 // ListEventConfigurations returns all stored per-resource event
@@ -838,9 +825,10 @@ func (b *InMemoryBackend) ListEventConfigurations(resourceType string) []*Resour
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*ResourceEventConfigEntry, 0, len(b.resourceEventConfigs))
+	all := b.resourceEventConfigs.All()
+	result := make([]*ResourceEventConfigEntry, 0, len(all))
 
-	for _, e := range b.resourceEventConfigs {
+	for _, e := range all {
 		if resourceType != "" && !strings.HasPrefix(e.IdentifierType, resourceType) {
 			continue
 		}

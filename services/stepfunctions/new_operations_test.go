@@ -280,7 +280,7 @@ func TestStartSyncExecution(t *testing.T) {
 			definition: exprPassDef,
 			input:      `{}`,
 			wantErr:    true,
-			errIs:      stepfunctions.ErrInvalidExecutionType,
+			errIs:      stepfunctions.ErrStateMachineTypeNotSupported,
 		},
 		{
 			name:    "nonexistent_sm",

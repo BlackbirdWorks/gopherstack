@@ -203,7 +203,7 @@ func (b *InMemoryBackend) CreateAccountCustomization(
 	defer b.mu.Unlock()
 
 	key := accountCustomizationKey(accountID, namespace)
-	if _, exists := b.accountCustomizations[key]; exists {
+	if b.accountCustomizations.Has(key) {
 		return nil, ErrAccountCustomizationAlreadyExists
 	}
 
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) CreateAccountCustomization(
 		DefaultTheme:                      defaultTheme,
 		DefaultEmailCustomizationTemplate: defaultEmailCustomizationTemplate,
 	}
-	b.accountCustomizations[key] = c
+	b.accountCustomizations.Put(c)
 
 	return c.toAccountCustomization(), nil
 }
@@ -222,7 +222,7 @@ func (b *InMemoryBackend) DescribeAccountCustomization(accountID, namespace stri
 	b.mu.RLock("DescribeAccountCustomization")
 	defer b.mu.RUnlock()
 
-	c, ok := b.accountCustomizations[accountCustomizationKey(accountID, namespace)]
+	c, ok := b.accountCustomizations.Get(accountCustomizationKey(accountID, namespace))
 	if !ok {
 		return nil, ErrAccountCustomizationNotFound
 	}
@@ -238,7 +238,7 @@ func (b *InMemoryBackend) UpdateAccountCustomization(
 	defer b.mu.Unlock()
 
 	key := accountCustomizationKey(accountID, namespace)
-	c, ok := b.accountCustomizations[key]
+	c, ok := b.accountCustomizations.Get(key)
 	if !ok {
 		return nil, ErrAccountCustomizationNotFound
 	}
@@ -259,10 +259,9 @@ func (b *InMemoryBackend) DeleteAccountCustomization(accountID, namespace string
 	defer b.mu.Unlock()
 
 	key := accountCustomizationKey(accountID, namespace)
-	if _, ok := b.accountCustomizations[key]; !ok {
+	if !b.accountCustomizations.Delete(key) {
 		return ErrAccountCustomizationNotFound
 	}
-	delete(b.accountCustomizations, key)
 
 	return nil
 }

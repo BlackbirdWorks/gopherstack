@@ -101,12 +101,15 @@ func jobMatchesFilter(j *Job, f ListBackupJobsFilter) bool {
 
 // ListBackupJobsFiltered returns backup jobs matching the filter, with pagination.
 // Returns (jobs, nextToken).
+//
+//nolint:dupl // structurally identical to ListCopyJobsFiltered but operates on a different type
 func (b *InMemoryBackend) ListBackupJobsFiltered(f ListBackupJobsFilter) ([]*Job, string) {
 	b.mu.RLock("ListBackupJobsFiltered")
 	defer b.mu.RUnlock()
 
-	list := make([]*Job, 0, len(b.jobs))
-	for _, j := range b.jobs {
+	all := b.jobs.All()
+	list := make([]*Job, 0, len(all))
+	for _, j := range all {
 		if !jobMatchesFilter(j, f) {
 			continue
 		}
@@ -172,11 +175,11 @@ func (b *InMemoryBackend) ListRecoveryPointsFiltered(
 	b.mu.RLock("ListRecoveryPointsFiltered")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.vaults[vaultName]; !ok {
+	if !b.vaults.Has(vaultName) {
 		return nil, "", fmt.Errorf("%w: vault %s not found", ErrNotFound, vaultName)
 	}
 
-	pts := b.recoveryPoints[vaultName]
+	pts := b.recoveryPointsByVault.Get(vaultName)
 	list := make([]*RecoveryPoint, 0, len(pts))
 	for _, rp := range pts {
 		if !rpMatchesFilter(rp, f) {
@@ -246,12 +249,15 @@ func copyJobMatchesFilter(j *CopyJob, f ListCopyJobsFilter) bool {
 }
 
 // ListCopyJobsFiltered returns copy jobs matching the filter, with pagination.
+//
+//nolint:dupl // structurally identical to ListBackupJobsFiltered but operates on a different type
 func (b *InMemoryBackend) ListCopyJobsFiltered(f ListCopyJobsFilter) ([]*CopyJob, string) {
 	b.mu.RLock("ListCopyJobsFiltered")
 	defer b.mu.RUnlock()
 
-	list := make([]*CopyJob, 0, len(b.copyJobs))
-	for _, j := range b.copyJobs {
+	all := b.copyJobs.All()
+	list := make([]*CopyJob, 0, len(all))
+	for _, j := range all {
 		if !copyJobMatchesFilter(j, f) {
 			continue
 		}
@@ -289,8 +295,9 @@ func (b *InMemoryBackend) ListBackupVaultsFiltered(f ListVaultsFilter) ([]*Vault
 	b.mu.RLock("ListBackupVaultsFiltered")
 	defer b.mu.RUnlock()
 
-	list := make([]*Vault, 0, len(b.vaults))
-	for _, v := range b.vaults {
+	all := b.vaults.All()
+	list := make([]*Vault, 0, len(all))
+	for _, v := range all {
 		// Filter by vault type: logically air-gapped vaults have MinRetentionDays > 0.
 		if f.VaultType == VaultTypeAirGapped && v.MinRetentionDays == 0 {
 			continue
@@ -327,8 +334,9 @@ func (b *InMemoryBackend) ListBackupPlansPaged(f ListPlansFilter) ([]*Plan, stri
 	b.mu.RLock("ListBackupPlansPaged")
 	defer b.mu.RUnlock()
 
-	list := make([]*Plan, 0, len(b.plans))
-	for _, p := range b.plans {
+	all := b.plans.All()
+	list := make([]*Plan, 0, len(all))
+	for _, p := range all {
 		cp := *p
 		cp.Rules = make([]Rule, len(p.Rules))
 		copy(cp.Rules, p.Rules)
@@ -355,7 +363,7 @@ func (b *InMemoryBackend) DeleteBackupPlanChecked(idOrName string) (*Plan, error
 	defer b.mu.Unlock()
 
 	var planName string
-	if _, ok := b.plans[idOrName]; ok {
+	if b.plans.Has(idOrName) {
 		planName = idOrName
 	} else if name, ok2 := b.planIDIndex[idOrName]; ok2 {
 		planName = name
@@ -363,10 +371,10 @@ func (b *InMemoryBackend) DeleteBackupPlanChecked(idOrName string) (*Plan, error
 		return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, idOrName)
 	}
 
-	p := b.plans[planName]
+	p, _ := b.plans.Get(planName)
 
 	// AWS requires all selections to be deleted before the plan can be deleted.
-	if sels := b.selections[p.BackupPlanID]; len(sels) > 0 {
+	if sels := b.selectionsByPlan.Get(p.BackupPlanID); len(sels) > 0 {
 		return nil, fmt.Errorf(
 			"%w: backup plan %s has %d active selection(s); delete them first",
 			ErrValidation,
@@ -377,8 +385,17 @@ func (b *InMemoryBackend) DeleteBackupPlanChecked(idOrName string) (*Plan, error
 
 	delete(b.planARNIndex, p.BackupPlanArn)
 	delete(b.planIDIndex, p.BackupPlanID)
-	delete(b.plans, planName)
-	delete(b.selections, p.BackupPlanID)
+	b.plans.Delete(planName)
+
+	// Cascade-delete any remaining selections for this plan. Clone the
+	// index's result first: deleting from the table while ranging over the
+	// live index slice would mutate it out from under the loop. The check
+	// above already guarantees this is empty in practice; this mirrors the
+	// original delete(b.selections, planID) wipe defensively.
+	for _, sel := range slices.Clone(b.selectionsByPlan.Get(p.BackupPlanID)) {
+		b.selections.Delete(selectionKey(sel.BackupPlanID, sel.SelectionID))
+	}
+
 	cp := *p
 	p.Tags.Close()
 
@@ -392,7 +409,7 @@ func (b *InMemoryBackend) IsVaultLocked(vaultName string) bool {
 	b.mu.RLock("IsVaultLocked")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.vaultLockConfigs[vaultName]
+	cfg, ok := b.vaultLockConfigs.Get(vaultName)
 	if !ok {
 		return false
 	}
@@ -405,7 +422,7 @@ func (b *InMemoryBackend) DeleteBackupVaultChecked(name string) error {
 	b.mu.Lock("DeleteBackupVaultChecked")
 	defer b.mu.Unlock()
 
-	v, ok := b.vaults[name]
+	v, ok := b.vaults.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: vault %s not found", ErrNotFound, name)
 	}
@@ -418,7 +435,7 @@ func (b *InMemoryBackend) DeleteBackupVaultChecked(name string) error {
 	}
 
 	// Locked vaults cannot be deleted.
-	if cfg, ok2 := b.vaultLockConfigs[name]; ok2 {
+	if cfg, ok2 := b.vaultLockConfigs.Get(name); ok2 {
 		if cfg.LockDate != nil && time.Now().UTC().After(*cfg.LockDate) {
 			return fmt.Errorf(
 				"%w: vault %s is locked and cannot be deleted",
@@ -428,10 +445,10 @@ func (b *InMemoryBackend) DeleteBackupVaultChecked(name string) error {
 	}
 
 	delete(b.vaultARNIndex, v.BackupVaultArn)
-	delete(b.vaults, name)
-	delete(b.vaultLockConfigs, name)
-	delete(b.vaultAccessPolicies, name)
-	delete(b.vaultNotifications, name)
+	b.vaults.Delete(name)
+	b.vaultLockConfigs.Delete(name)
+	b.vaultAccessPolicies.Delete(name)
+	b.vaultNotifications.Delete(name)
 	v.Tags.Close()
 
 	return nil
@@ -445,7 +462,7 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	b.mu.Lock("CompleteBackupJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobs[jobID]
+	job, ok := b.jobs.Get(jobID)
 	if !ok {
 		return fmt.Errorf("%w: backup job %s not found", ErrNotFound, jobID)
 	}
@@ -466,13 +483,9 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 	rpArn := "arn:aws:backup:" + b.region + ":" + b.accountID + ":recovery-point:" + rpID
 	job.RecoveryPointArn = rpArn
 
-	vault, ok2 := b.vaults[job.BackupVaultName]
+	vault, ok2 := b.vaults.Get(job.BackupVaultName)
 	if !ok2 {
 		return nil // vault deleted between job start and completion
-	}
-
-	if b.recoveryPoints[job.BackupVaultName] == nil {
-		b.recoveryPoints[job.BackupVaultName] = make(map[string]*RecoveryPoint)
 	}
 
 	rp := &RecoveryPoint{
@@ -490,16 +503,16 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 		IsEncrypted:       vault.EncryptionKeyArn != "",
 		EncryptionKeyArn:  vault.EncryptionKeyArn,
 	}
-	b.recoveryPoints[job.BackupVaultName][rpArn] = rp
+	b.recoveryPoints.Put(rp)
 	vault.NumberOfRecoveryPoints++
 
 	// Update protected resource record.
-	b.protectedResources[job.ResourceArn] = &ProtectedResource{
+	b.protectedResources.Put(&ProtectedResource{
 		ResourceArn:     job.ResourceArn,
 		ResourceType:    job.ResourceType,
 		BackupVaultName: job.BackupVaultName,
 		LastBackupTime:  now,
-	}
+	})
 
 	return nil
 }

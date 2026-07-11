@@ -1271,9 +1271,14 @@ func TestEC2Handler_DescribeInstanceAttribute(t *testing.T) {
 			want: struct{ bodyContains string }{bodyContains: "false"},
 		},
 		{
-			name: "source_dest_check_returns_false",
+			// AWS defaults sourceDestCheck to true for VPC instances (it must
+			// be explicitly disabled, e.g. for NAT instances); the handler
+			// previously hardcoded "false" regardless of state, which this
+			// test encoded as correct. Fixed to read the primary ENI's real
+			// sourceDestCheck flag (defaulting to true).
+			name: "source_dest_check_returns_true",
 			args: struct{ attr string }{attr: "sourceDestCheck"},
-			want: struct{ bodyContains string }{bodyContains: "false"},
+			want: struct{ bodyContains string }{bodyContains: "true"},
 		},
 	}
 

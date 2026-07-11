@@ -97,7 +97,6 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 	table.StreamViewType = viewType
 	table.StreamCreatedAt = now
 	table.StreamARN = db.buildStreamARNInRegion(tableName, region, now)
-	newARN := table.StreamARN
 	// Initialize the first shard when enabling streams (clearing any prior shard history).
 	table.streamShards = []StreamShard{
 		{
@@ -109,7 +108,7 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 
 	// Update the reverse index under db.mu (after releasing table lock to preserve lock ordering).
 	db.mu.Lock("EnableStream.streamARNIndex")
-	db.streamARNIndex[newARN] = table
+	db.streamARNIndex.Put(table)
 	db.mu.Unlock()
 
 	return nil
@@ -137,7 +136,7 @@ func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error
 	// Remove from reverse index under db.mu (after releasing table lock to preserve lock ordering).
 	if oldARN != "" {
 		db.mu.Lock("DisableStream.streamARNIndex")
-		delete(db.streamARNIndex, oldARN)
+		db.streamARNIndex.Delete(oldARN)
 		db.mu.Unlock()
 	}
 
@@ -624,9 +623,10 @@ func (db *InMemoryDB) collectEnabledStreams(requestRegion, filterTable string) [
 	// Snapshot under db.mu (read lock). This avoids holding db.mu while also
 	// acquiring table.mu, which would invert the lock order.
 	db.mu.RLock("ListStreams")
-	entries := make([]arnEntry, 0, len(db.streamARNIndex))
-	for a, t := range db.streamARNIndex {
-		entries = append(entries, arnEntry{table: t, arn: a})
+	all := db.streamARNIndex.All()
+	entries := make([]arnEntry, 0, len(all))
+	for _, t := range all {
+		entries = append(entries, arnEntry{table: t, arn: t.StreamARN})
 	}
 	db.mu.RUnlock()
 
@@ -942,7 +942,7 @@ func toByteSliceSliceFrom(v any) ([][]byte, error) {
 // findTableByStreamARN looks up a table by stream ARN using the reverse index.
 // Must be called with db.mu held.
 func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
-	if t, ok := db.streamARNIndex[streamARN]; ok {
+	if t, ok := db.streamARNIndex.Get(streamARN); ok {
 		return t
 	}
 

@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -86,6 +87,11 @@ const (
 	maxEventBusesPerAccount = 200
 	// maxRulesPerBus is the AWS limit for rules per event bus.
 	maxRulesPerBus = 300
+
+	// putTargetsFailedEntryErrorCode is the FailedEntry.ErrorCode PutTargets
+	// uses for every per-target validation failure (bad Id, InputTransformer,
+	// target-type-specific parameters, RetryPolicy bounds).
+	putTargetsFailedEntryErrorCode = "InvalidParameter"
 )
 
 type ruleIndexKey struct {
@@ -112,7 +118,7 @@ type StorageBackend interface {
 		ruleName, eventBusName, nextToken string,
 		limit int,
 	) ([]Target, string, error)
-	PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
+	PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	GetEventLog(ctx context.Context) []EventLogEntry
 	ActivateEventSource(ctx context.Context, name string) error
 	DeactivateEventSource(ctx context.Context, name string) error
@@ -144,7 +150,7 @@ type StorageBackend interface {
 	DescribePartnerEventSource(ctx context.Context, name string) (*PartnerEventSource, error)
 	DeletePartnerEventSource(ctx context.Context, name string) error
 	ListPartnerEventSources(ctx context.Context, namePrefix, nextToken string) ([]PartnerEventSource, string, error)
-	PutPartnerEvents(ctx context.Context, entries []EventEntry) []EventResultEntry
+	PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error)
 	DescribeReplay(ctx context.Context, name string) (*Replay, error)
 	ListReplays(ctx context.Context, namePrefix, nextToken string) ([]Replay, string, error)
 	StartReplay(ctx context.Context, input StartReplayInput) (*Replay, error)
@@ -186,29 +192,48 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	ctx context.Context
 	mu  *lockmetrics.RWMutex
-	// Region-isolated stores. The outer key is the AWS region; the inner keys are
-	// region-free (bus name, rule name, resource name, etc).
-	connections     map[string]map[string]*Connection
-	rules           map[string]map[string]map[string]*Rule
-	targets         map[string]map[string]map[string]*Target
-	eventSources    map[string]map[string]*EventSource
-	replays         map[string]map[string]*Replay
-	apiDestinations map[string]map[string]*APIDestination
+	// registry is the lifecycle registry for every PERSISTED *store.Table
+	// below -- see store_setup.go's package doc for why eventbridge
+	// (region-scoped, with rules/targets nested one level deeper still)
+	// needs the lazy getOrCreateTable/getOrCreateNestedTable/
+	// getOrCreateGlobalTable helpers rather than the flat static
+	// registration ec2/sqs use. persistence.go drives Snapshot/Restore
+	// through this registry only.
+	registry *store.Registry
+	// auxRegistry holds pipes/registries/schemas: also *store.Table-backed,
+	// but deliberately NOT snapshotted (see store_setup.go's package doc) --
+	// they were never part of backendSnapshot before this conversion, and
+	// this preserves that byte-for-byte.
+	auxRegistry *store.Registry
+	// Region-isolated stores. The outer key is the AWS region; the leaf
+	// *store.Table is keyed by the resource's own identity field (bus name,
+	// rule name, resource name, etc), matching the map key it replaces.
+	connections     map[string]*store.Table[Connection]
+	rules           map[string]map[string]*store.Table[Rule]
+	targets         map[string]map[string]*store.Table[Target]
+	eventSources    map[string]*store.Table[EventSource]
+	replays         map[string]*store.Table[Replay]
+	apiDestinations map[string]*store.Table[APIDestination]
 	cancel          context.CancelFunc
 	deliveryTargets *DeliveryTargets
-	endpoints       map[string]map[string]*Endpoint
-	buses           map[string]map[string]*EventBus
-	partnerSources  map[string]map[string]*PartnerEventSource
-	archives        map[string]map[string]*Archive
+	endpoints       map[string]*store.Table[Endpoint]
+	buses           map[string]*store.Table[EventBus]
+	partnerSources  map[string]*store.Table[PartnerEventSource]
+	archives        map[string]*store.Table[Archive]
 	archivedEvents  map[string]map[string][]EventEntry
 	busePolicies    map[string]map[string]*EventBusPolicy
-	pipes           map[string]*Pipe
-	registries      map[string]*SchemaRegistry
-	schemas         map[string]map[string]*Schema // registryName → schemaName → Schema
-	schemaVersions  map[string][]*SchemaVersion   // "registryName/schemaName" → ordered versions
-	codeBindings    map[string]*CodeBinding       // "registryName/schemaName/language" → binding
-	workerSem       chan struct{}
-	ruleIndex       map[string]map[string]map[ruleIndexKey]map[string]*Rule
+	// pipes and registries are NOT region-scoped -- a single backend holds
+	// one global Pipe/SchemaRegistry catalogue -- so they are single Tables,
+	// lazily registered by getOrCreateGlobalTable (see store_setup.go).
+	pipes      *store.Table[Pipe]
+	registries *store.Table[SchemaRegistry]
+	// schemas is keyed by registryName (also global, not region-scoped, but
+	// one dynamic dimension deep like a per-region resource).
+	schemas        map[string]*store.Table[Schema]
+	schemaVersions map[string][]*SchemaVersion // "registryName/schemaName" → ordered versions
+	codeBindings   map[string]*CodeBinding     // "registryName/schemaName/language" → binding
+	workerSem      chan struct{}
+	ruleIndex      map[string]map[string]map[ruleIndexKey]map[string]*Rule
 	// targetsByARN indexes (region → ARN → set of "busKey/ruleName" targetKeys)
 	// for O(1) ListRuleNamesByTarget lookups. Kept consistent on PutTargets /
 	// RemoveTargets / DeleteRule / DeleteEventBus / Reset.
@@ -254,21 +279,21 @@ func NewInMemoryBackendWithContext(
 	b := &InMemoryBackend{
 		accountID:       accountID,
 		region:          region,
-		buses:           make(map[string]map[string]*EventBus),
-		rules:           make(map[string]map[string]map[string]*Rule),
-		targets:         make(map[string]map[string]map[string]*Target),
-		eventSources:    make(map[string]map[string]*EventSource),
-		replays:         make(map[string]map[string]*Replay),
-		apiDestinations: make(map[string]map[string]*APIDestination),
-		archives:        make(map[string]map[string]*Archive),
+		registry:        store.NewRegistry(),
+		auxRegistry:     store.NewRegistry(),
+		buses:           make(map[string]*store.Table[EventBus]),
+		rules:           make(map[string]map[string]*store.Table[Rule]),
+		targets:         make(map[string]map[string]*store.Table[Target]),
+		eventSources:    make(map[string]*store.Table[EventSource]),
+		replays:         make(map[string]*store.Table[Replay]),
+		apiDestinations: make(map[string]*store.Table[APIDestination]),
+		archives:        make(map[string]*store.Table[Archive]),
 		archivedEvents:  make(map[string]map[string][]EventEntry),
-		connections:     make(map[string]map[string]*Connection),
-		endpoints:       make(map[string]map[string]*Endpoint),
-		partnerSources:  make(map[string]map[string]*PartnerEventSource),
+		connections:     make(map[string]*store.Table[Connection]),
+		endpoints:       make(map[string]*store.Table[Endpoint]),
+		partnerSources:  make(map[string]*store.Table[PartnerEventSource]),
 		busePolicies:    make(map[string]map[string]*EventBusPolicy),
-		pipes:           make(map[string]*Pipe),
-		registries:      make(map[string]*SchemaRegistry),
-		schemas:         make(map[string]map[string]*Schema),
+		schemas:         make(map[string]*store.Table[Schema]),
 		schemaVersions:  make(map[string][]*SchemaVersion),
 		codeBindings:    make(map[string]*CodeBinding),
 		deliveryTargets: &DeliveryTargets{},
@@ -282,11 +307,11 @@ func NewInMemoryBackendWithContext(
 		targetsByARN:    make(map[string]map[string]map[string]struct{}),
 	}
 	// Create the default event bus in the backend's own region.
-	b.busesStore(b.region)[defaultEventBusName] = &EventBus{
+	b.busesTable(b.region).Put(&EventBus{
 		Name:        defaultEventBusName,
 		Arn:         b.busARN(b.region, defaultEventBusName),
 		CreatedTime: time.Now(),
-	}
+	})
 
 	return b
 }
@@ -393,34 +418,45 @@ func (b *InMemoryBackend) targetKey(busName, ruleName string) string {
 	return ebBusKey(busName) + "/" + ruleName
 }
 
-// busesStore returns the bus map for the given region, lazily creating it.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) busesStore(region string) map[string]*EventBus {
-	if b.buses[region] == nil {
-		b.buses[region] = make(map[string]*EventBus)
-	}
-
-	return b.buses[region]
+// busesTable returns the *store.Table[EventBus] for the given region, lazily
+// creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) busesTable(region string) *store.Table[EventBus] {
+	return getOrCreateTable(b.registry, b.buses, "buses", region, eventBusKeyFn)
 }
 
-// rulesStore returns the rules map for the given region, lazily creating it.
+// rulesStore returns the region's bus->Table[Rule] map, lazily creating the
+// per-region entry (but NOT any per-bus Table -- use ruleTableFor for that).
 // Callers must hold b.mu.
-func (b *InMemoryBackend) rulesStore(region string) map[string]map[string]*Rule {
+func (b *InMemoryBackend) rulesStore(region string) map[string]*store.Table[Rule] {
 	if b.rules[region] == nil {
-		b.rules[region] = make(map[string]map[string]*Rule)
+		b.rules[region] = make(map[string]*store.Table[Rule])
 	}
 
 	return b.rules[region]
 }
 
-// targetsStore returns the targets map for the given region, lazily creating it.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) targetsStore(region string) map[string]map[string]*Target {
+// ruleTableFor returns the *store.Table[Rule] for the given region and bus
+// key, lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) ruleTableFor(region, busKey string) *store.Table[Rule] {
+	return getOrCreateNestedTable(b.registry, b.rules, "rules", region, busKey, ruleKeyFn)
+}
+
+// targetsStore returns the region's parentKey->Table[Target] map, lazily
+// creating the per-region entry (but NOT any per-parent Table -- use
+// targetTableFor for that). Callers must hold b.mu.
+func (b *InMemoryBackend) targetsStore(region string) map[string]*store.Table[Target] {
 	if b.targets[region] == nil {
-		b.targets[region] = make(map[string]map[string]*Target)
+		b.targets[region] = make(map[string]*store.Table[Target])
 	}
 
 	return b.targets[region]
+}
+
+// targetTableFor returns the *store.Table[Target] for the given region and
+// target parent key (bus/rule, see targetKey), lazily creating and
+// registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) targetTableFor(region, parentKey string) *store.Table[Target] {
+	return getOrCreateNestedTable(b.registry, b.targets, "targets", region, parentKey, targetKeyFnV)
 }
 
 // targetsByARNStore returns (lazily creating) the per-region ARN→targetKeys index.
@@ -461,8 +497,8 @@ func (b *InMemoryBackend) arnIndexRemoveTarget(region, arn, targetKey string) {
 
 // arnIndexRemoveRule removes all ARN entries for the given targetKey (i.e. a rule was deleted).
 // Callers must hold b.mu.
-func (b *InMemoryBackend) arnIndexRemoveRule(region, targetKey string, tMap map[string]*Target) {
-	if tMap == nil {
+func (b *InMemoryBackend) arnIndexRemoveRule(region, targetKey string, tTable *store.Table[Target]) {
+	if tTable == nil {
 		return
 	}
 
@@ -471,7 +507,7 @@ func (b *InMemoryBackend) arnIndexRemoveRule(region, targetKey string, tMap map[
 		return
 	}
 
-	for _, t := range tMap {
+	for _, t := range tTable.All() {
 		delete(idx[t.Arn], targetKey)
 		if len(idx[t.Arn]) == 0 {
 			delete(idx, t.Arn)
@@ -489,44 +525,28 @@ func (b *InMemoryBackend) ruleIndexStore(region string) map[string]map[ruleIndex
 	return b.ruleIndex[region]
 }
 
-// eventSourcesStore returns the event source map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) eventSourcesStore(region string) map[string]*EventSource {
-	if b.eventSources[region] == nil {
-		b.eventSources[region] = make(map[string]*EventSource)
-	}
-
-	return b.eventSources[region]
+// eventSourcesTable returns the *store.Table[EventSource] for the given
+// region, lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) eventSourcesTable(region string) *store.Table[EventSource] {
+	return getOrCreateTable(b.registry, b.eventSources, "eventSources", region, eventSourceKeyFn)
 }
 
-// replaysStore returns the replay map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) replaysStore(region string) map[string]*Replay {
-	if b.replays[region] == nil {
-		b.replays[region] = make(map[string]*Replay)
-	}
-
-	return b.replays[region]
+// replaysTable returns the *store.Table[Replay] for the given region, lazily
+// creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) replaysTable(region string) *store.Table[Replay] {
+	return getOrCreateTable(b.registry, b.replays, "replays", region, replayKeyFn)
 }
 
-// apiDestinationsStore returns the API destination map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) apiDestinationsStore(region string) map[string]*APIDestination {
-	if b.apiDestinations[region] == nil {
-		b.apiDestinations[region] = make(map[string]*APIDestination)
-	}
-
-	return b.apiDestinations[region]
+// apiDestinationsTable returns the *store.Table[APIDestination] for the given
+// region, lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) apiDestinationsTable(region string) *store.Table[APIDestination] {
+	return getOrCreateTable(b.registry, b.apiDestinations, "apiDestinations", region, apiDestinationKeyFn)
 }
 
-// archivesStore returns the archive map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) archivesStore(region string) map[string]*Archive {
-	if b.archives[region] == nil {
-		b.archives[region] = make(map[string]*Archive)
-	}
-
-	return b.archives[region]
+// archivesTable returns the *store.Table[Archive] for the given region,
+// lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) archivesTable(region string) *store.Table[Archive] {
+	return getOrCreateTable(b.registry, b.archives, "archives", region, archiveKeyFn)
 }
 
 // archivedEventsStore returns the archived-events map for the given region.
@@ -539,34 +559,55 @@ func (b *InMemoryBackend) archivedEventsStore(region string) map[string][]EventE
 	return b.archivedEvents[region]
 }
 
-// connectionsStore returns the connection map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) connectionsStore(region string) map[string]*Connection {
-	if b.connections[region] == nil {
-		b.connections[region] = make(map[string]*Connection)
-	}
-
-	return b.connections[region]
+// connectionsTable returns the *store.Table[Connection] for the given region,
+// lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) connectionsTable(region string) *store.Table[Connection] {
+	return getOrCreateTable(b.registry, b.connections, "connections", region, connectionKeyFn)
 }
 
-// endpointsStore returns the endpoint map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) endpointsStore(region string) map[string]*Endpoint {
-	if b.endpoints[region] == nil {
-		b.endpoints[region] = make(map[string]*Endpoint)
-	}
-
-	return b.endpoints[region]
+// endpointsTable returns the *store.Table[Endpoint] for the given region,
+// lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) endpointsTable(region string) *store.Table[Endpoint] {
+	return getOrCreateTable(b.registry, b.endpoints, "endpoints", region, endpointKeyFn)
 }
 
-// partnerSourcesStore returns the partner event source map for the given region.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) partnerSourcesStore(region string) map[string]*PartnerEventSource {
-	if b.partnerSources[region] == nil {
-		b.partnerSources[region] = make(map[string]*PartnerEventSource)
+// partnerSourcesTable returns the *store.Table[PartnerEventSource] for the
+// given region, lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) partnerSourcesTable(region string) *store.Table[PartnerEventSource] {
+	return getOrCreateTable(b.registry, b.partnerSources, "partnerSources", region, partnerEventSourceKeyFn)
+}
+
+// pipesTable returns the backend's single, global *store.Table[Pipe], lazily
+// creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) pipesTable() *store.Table[Pipe] {
+	return getOrCreateGlobalTable(b.auxRegistry, &b.pipes, "pipes", pipeKeyFn)
+}
+
+// registriesTable returns the backend's single, global
+// *store.Table[SchemaRegistry], lazily creating and registering it. Callers
+// must hold b.mu.
+func (b *InMemoryBackend) registriesTable() *store.Table[SchemaRegistry] {
+	return getOrCreateGlobalTable(b.auxRegistry, &b.registries, "registries", schemaRegistryKeyFn)
+}
+
+// schemasTableFor returns the *store.Table[Schema] for the given registry,
+// lazily creating and registering it. Callers must hold b.mu.
+func (b *InMemoryBackend) schemasTableFor(registryName string) *store.Table[Schema] {
+	return getOrCreateTable(b.auxRegistry, b.schemas, "schemas", registryName, schemaKeyFn)
+}
+
+// getSchema is a nil-safe read of a registry's schema table: it returns
+// (nil, false) rather than panicking when the registry has no schemas table
+// yet (a plain nil-map read would have been safe pre-conversion; a nil
+// *store.Table[Schema] method call is not). Callers must hold b.mu (for
+// reading or writing).
+func (b *InMemoryBackend) getSchema(registryName, schemaName string) (*Schema, bool) {
+	t := b.schemas[registryName]
+	if t == nil {
+		return nil, false
 	}
 
-	return b.partnerSources[region]
+	return t.Get(schemaName)
 }
 
 // busePoliciesStore returns the event bus policy map for the given region.
@@ -709,16 +750,16 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
 
-	buses := b.busesStore(region)
-	if _, exists := buses[ebBusKey(name)]; exists {
+	buses := b.busesTable(region)
+	if buses.Has(ebBusKey(name)) {
 		return nil, fmt.Errorf("%w: Event bus %s already exists", ErrEventBusAlreadyExists, name)
 	}
 
 	// Count custom buses across all regions — the AWS limit is per-account, not per-region.
 	customBusCount := 0
 	for _, regionBuses := range b.buses {
-		for busName := range regionBuses {
-			if busName != defaultEventBusName {
+		for _, bus := range regionBuses.All() {
+			if bus.Name != defaultEventBusName {
 				customBusCount++
 			}
 		}
@@ -737,7 +778,7 @@ func (b *InMemoryBackend) CreateEventBus(ctx context.Context, name, description 
 		Description: description,
 		CreatedTime: time.Now(),
 	}
-	buses[ebBusKey(name)] = bus
+	buses.Put(bus)
 
 	return bus, nil
 }
@@ -755,20 +796,20 @@ func (b *InMemoryBackend) DeleteEventBus(ctx context.Context, name string) error
 	defer b.mu.Unlock()
 
 	busKey := ebBusKey(name)
-	buses := b.busesStore(region)
-	if _, exists := buses[busKey]; !exists {
+	buses := b.busesTable(region)
+	if !buses.Has(busKey) {
 		return fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
 
-	delete(buses, busKey)
+	buses.Delete(busKey)
 	delete(b.ruleIndexStore(region), busKey)
 
 	// Clean up all rules and targets for this bus.
 	rules := b.rulesStore(region)
 	targets := b.targetsStore(region)
 	if busRules, ok := rules[busKey]; ok {
-		for ruleName := range busRules {
-			tk := b.targetKey(name, ruleName)
+		for _, rule := range busRules.All() {
+			tk := b.targetKey(name, rule.Name)
 			b.arnIndexRemoveRule(region, tk, targets[tk])
 			delete(targets, tk)
 		}
@@ -792,7 +833,7 @@ func (b *InMemoryBackend) ListEventBuses(
 	defer b.mu.RUnlock()
 
 	all := make([]EventBus, 0)
-	for _, bus := range b.busesStore(region) {
+	for _, bus := range b.busesTable(region).All() {
 		if namePrefix == "" || strings.HasPrefix(bus.Name, namePrefix) {
 			all = append(all, *bus)
 		}
@@ -816,7 +857,7 @@ func (b *InMemoryBackend) DescribeEventBus(ctx context.Context, name string) (*E
 	b.mu.RLock("DescribeEventBus")
 	defer b.mu.RUnlock()
 
-	bus, exists := b.busesStore(region)[ebBusKey(name)]
+	bus, exists := b.busesTable(region).Get(ebBusKey(name))
 	if !exists {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
@@ -896,7 +937,7 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.busesStore(region)[busKey]; !exists {
+	if !b.busesTable(region).Has(busKey) {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -905,14 +946,11 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		state = ruleStateEnabled
 	}
 
-	rules := b.rulesStore(region)
-	if rules[busKey] == nil {
-		rules[busKey] = make(map[string]*Rule)
-	}
+	ruleTable := b.ruleTableFor(region, busKey)
 
 	// Enforce per-bus rule limit only for new rules (not updates).
-	if _, exists := rules[busKey][input.Name]; !exists {
-		if len(rules[busKey]) >= maxRulesPerBus {
+	if !ruleTable.Has(input.Name) {
+		if ruleTable.Len() >= maxRulesPerBus {
 			return nil, fmt.Errorf(
 				"%w: event bus %s has reached the maximum of %d rules",
 				ErrResourceLimitExceeded,
@@ -935,10 +973,10 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 		compiledPattern:    compiled,
 	}
 
-	if existing, exists := rules[busKey][input.Name]; exists {
+	if existing, exists := ruleTable.Get(input.Name); exists {
 		b.removeRuleFromIndex(region, busKey, existing)
 	}
-	rules[busKey][input.Name] = rule
+	ruleTable.Put(rule)
 	b.addRuleToIndex(region, busKey, rule)
 
 	return rule, nil
@@ -961,13 +999,13 @@ func (b *InMemoryBackend) DeleteRule(ctx context.Context, name, eventBusName str
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	rule, ruleExists := busRules[name]
+	rule, ruleExists := busRules.Get(name)
 	if !ruleExists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
 	b.removeRuleFromIndex(region, busKey, rule)
-	delete(busRules, name)
+	busRules.Delete(name)
 	// Also remove targets for this rule.
 	targetKey := b.targetKey(eventBusName, name)
 	b.arnIndexRemoveRule(region, targetKey, b.targetsStore(region)[targetKey])
@@ -993,8 +1031,12 @@ func (b *InMemoryBackend) ListRules(ctx context.Context,
 	defer b.mu.RUnlock()
 
 	busRules := b.rulesStore(region)[busKey]
-	all := make([]Rule, 0, len(busRules))
-	for _, r := range busRules {
+	var busRulesAll []*Rule
+	if busRules != nil {
+		busRulesAll = busRules.All()
+	}
+	all := make([]Rule, 0, len(busRulesAll))
+	for _, r := range busRulesAll {
 		if namePrefix == "" || strings.HasPrefix(r.Name, namePrefix) {
 			all = append(all, *r)
 		}
@@ -1024,7 +1066,7 @@ func (b *InMemoryBackend) DescribeRule(ctx context.Context, name, eventBusName s
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	rule, exists := busRules[name]
+	rule, exists := busRules.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -1060,7 +1102,7 @@ func (b *InMemoryBackend) setRuleState(ctx context.Context, name, eventBusName, 
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	rule, exists := busRules[name]
+	rule, exists := busRules.Get(name)
 	if !exists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
@@ -1094,18 +1136,15 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
-	if _, ruleExists := busRules[ruleName]; !ruleExists {
+	if !busRules.Has(ruleName) {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
-	targetsStore := b.targetsStore(region)
 	key := b.targetKey(eventBusName, ruleName)
-	if targetsStore[key] == nil {
-		targetsStore[key] = make(map[string]*Target)
-	}
+	targetTable := b.targetTableFor(region, key)
 
 	// Reject if adding these targets would exceed the per-rule limit.
-	if len(targetsStore[key])+len(targets) > maxTargetsPerRule {
+	if targetTable.Len()+len(targets) > maxTargetsPerRule {
 		return nil, fmt.Errorf(
 			"%w: rule %s already has the maximum number of targets (%d)",
 			ErrInvalidParameter,
@@ -1119,7 +1158,7 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 		if t.ID == "" {
 			failed = append(failed, FailedEntry{
 				TargetID:     t.ID,
-				ErrorCode:    "InvalidParameter",
+				ErrorCode:    putTargetsFailedEntryErrorCode,
 				ErrorMessage: "Target Id is required",
 			})
 
@@ -1129,19 +1168,28 @@ func (b *InMemoryBackend) PutTargets(ctx context.Context,
 			if err := validateInputTransformer(t.InputTransformer); err != nil {
 				failed = append(failed, FailedEntry{
 					TargetID:     t.ID,
-					ErrorCode:    "InvalidParameter",
+					ErrorCode:    putTargetsFailedEntryErrorCode,
 					ErrorMessage: err.Error(),
 				})
 
 				continue
 			}
 		}
+		if err := validateTargetTypeParameters(&t); err != nil {
+			failed = append(failed, FailedEntry{
+				TargetID:     t.ID,
+				ErrorCode:    putTargetsFailedEntryErrorCode,
+				ErrorMessage: err.Error(),
+			})
+
+			continue
+		}
 		// Maintain ARN index: remove old entry if this target ID already exists with a different ARN.
-		if existingTarget, targetExists := targetsStore[key][t.ID]; targetExists && existingTarget.Arn != t.Arn {
+		if existingTarget, targetExists := targetTable.Get(t.ID); targetExists && existingTarget.Arn != t.Arn {
 			b.arnIndexRemoveTarget(region, existingTarget.Arn, key)
 		}
 		cp := t
-		targetsStore[key][t.ID] = &cp
+		targetTable.Put(&cp)
 		b.arnIndexAdd(region, t.Arn, key)
 	}
 
@@ -1167,7 +1215,11 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 
 	var failed []FailedEntry
 	for _, id := range ids {
-		t, exists := ruleTargets[id]
+		var t *Target
+		var exists bool
+		if ruleTargets != nil {
+			t, exists = ruleTargets.Get(id)
+		}
 		if !exists {
 			failed = append(failed, FailedEntry{
 				TargetID:     id,
@@ -1178,7 +1230,7 @@ func (b *InMemoryBackend) RemoveTargets(ctx context.Context,
 			continue
 		}
 		b.arnIndexRemoveTarget(region, t.Arn, key)
-		delete(ruleTargets, id)
+		ruleTargets.Delete(id)
 	}
 
 	return failed, nil
@@ -1201,8 +1253,12 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 
 	key := b.targetKey(eventBusName, ruleName)
 	ruleTargets := b.targetsStore(region)[key]
-	all := make([]Target, 0, len(ruleTargets))
-	for _, t := range ruleTargets {
+	var ruleTargetsAll []*Target
+	if ruleTargets != nil {
+		ruleTargetsAll = ruleTargets.All()
+	}
+	all := make([]Target, 0, len(ruleTargetsAll))
+	for _, t := range ruleTargetsAll {
 		all = append(all, *t)
 	}
 
@@ -1213,6 +1269,51 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 	return page, outToken, nil
 }
 
+// maxPutEventsEntries is AWS's per-request cap on PutEvents/PutPartnerEvents
+// entries (Entries: Array Members Minimum 1, Maximum 10).
+const maxPutEventsEntries = 10
+
+// anyPutEventsEntryComplete reports whether at least one entry in the batch
+// carries all three of Source, DetailType, and Detail. AWS requires these on
+// every entry to deliver it; an entry missing one fails individually, but if
+// NONE of the entries have all three, AWS fails the entire request instead
+// of returning an all-failed per-entry result (see PutEventsRequestEntry.Detail
+// doc in aws-sdk-go-v2/service/eventbridge/types).
+func anyPutEventsEntryComplete(entries []EventEntry) bool {
+	for _, e := range entries {
+		if e.Source != "" && e.DetailType != "" && e.Detail != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// putEventsInvalidArgumentErrorCode is the EventResultEntry.ErrorCode AWS
+// uses for a PutEvents entry missing a required field (Source, DetailType,
+// or Detail).
+const putEventsInvalidArgumentErrorCode = "InvalidArgument"
+
+// validatePutEventsEntry checks the three fields AWS requires on every
+// PutEvents entry (Source, DetailType, Detail). It returns
+// (errorCode, errorMessage, ok=false) with the AWS "InvalidArgument" error
+// code/message for the first missing field, or ("", "", true) when valid.
+func validatePutEventsEntry(e EventEntry) (string, string, bool) {
+	switch {
+	case e.Source == "":
+		return putEventsInvalidArgumentErrorCode,
+			"Parameter Source is not valid. Reason: Source is a required argument.", false
+	case e.DetailType == "":
+		return putEventsInvalidArgumentErrorCode,
+			"Parameter DetailType is not valid. Reason: DetailType is a required argument.", false
+	case e.Detail == "":
+		return putEventsInvalidArgumentErrorCode,
+			"Parameter Detail is not valid. Reason: Detail is a required argument.", false
+	default:
+		return "", "", true
+	}
+}
+
 // PutEvents records events in the event log and returns result entries.
 //
 // AWS EventBridge constrains PutEvents requests to 256 KiB of total entry
@@ -1220,7 +1321,31 @@ func (b *InMemoryBackend) ListTargetsByRule(ctx context.Context,
 // entry). Entries that, combined with what's been accepted so far, would
 // exceed the cap are rejected individually with the AWS error code
 // `EventSizeLimitExceeded`. The remaining entries continue to be accepted.
-func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
+//
+// AWS also requires between 1 and 10 entries per request (a whole-request
+// ValidationException-equivalent otherwise) and requires Source, DetailType,
+// and Detail on every entry (a per-entry InvalidArgument failure, or a
+// whole-request failure if no entry in the batch has all three).
+func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("%w: at least 1 entry is required", ErrInvalidParameter)
+	}
+
+	if len(entries) > maxPutEventsEntries {
+		return nil, fmt.Errorf(
+			"%w: entries must not have more than %d items",
+			ErrInvalidParameter,
+			maxPutEventsEntries,
+		)
+	}
+
+	if !anyPutEventsEntryComplete(entries) {
+		return nil, fmt.Errorf(
+			"%w: at least one entry must include Source, DetailType, and Detail",
+			ErrInvalidParameter,
+		)
+	}
+
 	const maxBatchBytes = 256 * 1024
 
 	region := getRegionFromContext(ctx, b.region)
@@ -1231,6 +1356,12 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 	accepted := make([]EventEntry, 0, len(entries))
 	totalBytes := 0
 	for _, entry := range entries {
+		if errCode, msg, ok := validatePutEventsEntry(entry); !ok {
+			results = append(results, EventResultEntry{ErrorCode: errCode, ErrorMessage: msg})
+
+			continue
+		}
+
 		entryBytes := putEventsEntryBytes(entry)
 		if totalBytes+entryBytes > maxBatchBytes {
 			results = append(results, EventResultEntry{
@@ -1295,7 +1426,7 @@ func (b *InMemoryBackend) PutEvents(ctx context.Context, entries []EventEntry) [
 		})
 	}
 
-	return results
+	return results, nil
 }
 
 // GetEventLog returns a copy of the current event log.
@@ -1371,22 +1502,33 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.buses = make(map[string]map[string]*EventBus)
-	b.rules = make(map[string]map[string]map[string]*Rule)
-	b.targets = make(map[string]map[string]map[string]*Target)
+	// b.registry is recreated from scratch rather than reused: every
+	// currently-registered *store.Table[V] is about to be orphaned anyway
+	// because every map field below is also reallocated to a brand-new
+	// map[string]*store.Table[V] -- the old *store.Table[V] instances become
+	// garbage, but that's fine, each will be recreated (and re-registered) the
+	// next time its region/parent is touched (store.Register panics on a
+	// duplicate name, so reusing the old registry here would panic on that
+	// re-registration). Mirrors the services/ssm conversion.
+	b.registry = store.NewRegistry()
+	b.auxRegistry = store.NewRegistry()
+
+	b.buses = make(map[string]*store.Table[EventBus])
+	b.rules = make(map[string]map[string]*store.Table[Rule])
+	b.targets = make(map[string]map[string]*store.Table[Target])
 	b.eventLog = nil
-	b.eventSources = make(map[string]map[string]*EventSource)
-	b.replays = make(map[string]map[string]*Replay)
-	b.apiDestinations = make(map[string]map[string]*APIDestination)
-	b.archives = make(map[string]map[string]*Archive)
+	b.eventSources = make(map[string]*store.Table[EventSource])
+	b.replays = make(map[string]*store.Table[Replay])
+	b.apiDestinations = make(map[string]*store.Table[APIDestination])
+	b.archives = make(map[string]*store.Table[Archive])
 	b.archivedEvents = make(map[string]map[string][]EventEntry)
-	b.connections = make(map[string]map[string]*Connection)
-	b.endpoints = make(map[string]map[string]*Endpoint)
-	b.partnerSources = make(map[string]map[string]*PartnerEventSource)
+	b.connections = make(map[string]*store.Table[Connection])
+	b.endpoints = make(map[string]*store.Table[Endpoint])
+	b.partnerSources = make(map[string]*store.Table[PartnerEventSource])
 	b.busePolicies = make(map[string]map[string]*EventBusPolicy)
-	b.pipes = make(map[string]*Pipe)
-	b.registries = make(map[string]*SchemaRegistry)
-	b.schemas = make(map[string]map[string]*Schema)
+	b.pipes = nil
+	b.registries = nil
+	b.schemas = make(map[string]*store.Table[Schema])
 	b.schemaVersions = make(map[string][]*SchemaVersion)
 	b.codeBindings = make(map[string]*CodeBinding)
 	b.ruleIndex = make(map[string]map[string]map[ruleIndexKey]map[string]*Rule)
@@ -1395,11 +1537,11 @@ func (b *InMemoryBackend) Reset() {
 	b.apiDestLimiters = sync.Map{}
 
 	// Re-create the default event bus so it is always available after reset.
-	b.busesStore(b.region)[defaultEventBusName] = &EventBus{
+	b.busesTable(b.region).Put(&EventBus{
 		Name:        defaultEventBusName,
 		Arn:         b.busARN(b.region, defaultEventBusName),
 		CreatedTime: time.Now(),
-	}
+	})
 }
 
 // ActivateEventSource activates a partner event source.
@@ -1413,7 +1555,7 @@ func (b *InMemoryBackend) ActivateEventSource(ctx context.Context, name string) 
 	b.mu.Lock("ActivateEventSource")
 	defer b.mu.Unlock()
 
-	src, exists := b.eventSourcesStore(region)[name]
+	src, exists := b.eventSourcesTable(region).Get(name)
 	if !exists {
 		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
@@ -1434,7 +1576,7 @@ func (b *InMemoryBackend) DeactivateEventSource(ctx context.Context, name string
 	b.mu.Lock("DeactivateEventSource")
 	defer b.mu.Unlock()
 
-	src, exists := b.eventSourcesStore(region)[name]
+	src, exists := b.eventSourcesTable(region).Get(name)
 	if !exists {
 		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
@@ -1457,7 +1599,7 @@ func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 	b.mu.Lock("CreatePartnerEventSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.partnerSourcesStore(region)[name]; exists {
+	if b.partnerSourcesTable(region).Has(name) {
 		return nil, fmt.Errorf("%w: partner event source %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -1466,7 +1608,7 @@ func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 		Name:    name,
 		Account: account,
 	}
-	b.partnerSourcesStore(region)[name] = src
+	b.partnerSourcesTable(region).Put(src)
 
 	// Mirror as a PENDING EventSource in the customer account — matches AWS
 	// behaviour where creating a partner source causes it to appear in the
@@ -1479,7 +1621,7 @@ func (b *InMemoryBackend) CreatePartnerEventSource(ctx context.Context,
 		Name:         name,
 		State:        "PENDING",
 	}
-	b.eventSourcesStore(region)[name] = esrc
+	b.eventSourcesTable(region).Put(esrc)
 
 	cp := *src
 
@@ -1497,7 +1639,7 @@ func (b *InMemoryBackend) CancelReplay(ctx context.Context, replayName string) (
 	b.mu.Lock("CancelReplay")
 	defer b.mu.Unlock()
 
-	replay, exists := b.replaysStore(region)[replayName]
+	replay, exists := b.replaysTable(region).Get(replayName)
 	if !exists {
 		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, replayName)
 	}
@@ -1550,7 +1692,7 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 	b.mu.Lock("CreateAPIDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.apiDestinationsStore(region)[input.Name]; exists {
+	if b.apiDestinationsTable(region).Has(input.Name) {
 		return nil, fmt.Errorf(
 			"%w: API destination %s already exists",
 			ErrAlreadyExists,
@@ -1571,7 +1713,7 @@ func (b *InMemoryBackend) CreateAPIDestination(ctx context.Context,
 		LastModifiedTime:             now,
 		Name:                         input.Name,
 	}
-	b.apiDestinationsStore(region)[input.Name] = dst
+	b.apiDestinationsTable(region).Put(dst)
 
 	cp := *dst
 
@@ -1608,7 +1750,7 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 	b.mu.Lock("CreateArchive")
 	defer b.mu.Unlock()
 
-	if _, exists := b.archivesStore(region)[input.ArchiveName]; exists {
+	if b.archivesTable(region).Has(input.ArchiveName) {
 		return nil, fmt.Errorf("%w: archive %s already exists", ErrAlreadyExists, input.ArchiveName)
 	}
 
@@ -1622,7 +1764,7 @@ func (b *InMemoryBackend) CreateArchive(ctx context.Context, input CreateArchive
 		RetentionDays:  input.RetentionDays,
 		State:          "ENABLED",
 	}
-	b.archivesStore(region)[input.ArchiveName] = archive
+	b.archivesTable(region).Put(archive)
 
 	cp := *archive
 
@@ -1651,7 +1793,7 @@ func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConn
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	if _, exists := b.connectionsStore(region)[input.Name]; exists {
+	if b.connectionsTable(region).Has(input.Name) {
 		return nil, fmt.Errorf("%w: connection %s already exists", ErrAlreadyExists, input.Name)
 	}
 
@@ -1667,7 +1809,7 @@ func (b *InMemoryBackend) CreateConnection(ctx context.Context, input CreateConn
 		LastModifiedTime:  now,
 		Name:              input.Name,
 	}
-	b.connectionsStore(region)[input.Name] = conn
+	b.connectionsTable(region).Put(conn)
 
 	cp := *conn
 
@@ -1685,7 +1827,7 @@ func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpoi
 	b.mu.Lock("CreateEndpoint")
 	defer b.mu.Unlock()
 
-	if _, exists := b.endpointsStore(region)[input.Name]; exists {
+	if b.endpointsTable(region).Has(input.Name) {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, input.Name)
 	}
 
@@ -1709,7 +1851,7 @@ func (b *InMemoryBackend) CreateEndpoint(ctx context.Context, input CreateEndpoi
 		RoutingConfig:     input.RoutingConfig,
 		State:             stateActive,
 	}
-	b.endpointsStore(region)[input.Name] = ep
+	b.endpointsTable(region).Put(ep)
 
 	cp := *ep
 
@@ -1727,7 +1869,7 @@ func (b *InMemoryBackend) DeauthorizeConnection(ctx context.Context, name string
 	b.mu.Lock("DeauthorizeConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.connectionsStore(region)[name]
+	conn, exists := b.connectionsTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
 	}
@@ -1750,12 +1892,12 @@ func (b *InMemoryBackend) DeleteAPIDestination(ctx context.Context, name string)
 	b.mu.Lock("DeleteAPIDestination")
 	defer b.mu.Unlock()
 
-	store := b.apiDestinationsStore(region)
-	if _, exists := store[name]; !exists {
+	store := b.apiDestinationsTable(region)
+	if !store.Has(name) {
 		return fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1771,12 +1913,12 @@ func (b *InMemoryBackend) DeleteArchive(ctx context.Context, name string) error 
 	b.mu.Lock("DeleteArchive")
 	defer b.mu.Unlock()
 
-	store := b.archivesStore(region)
-	if _, exists := store[name]; !exists {
+	store := b.archivesTable(region)
+	if !store.Has(name) {
 		return fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 	delete(b.archivedEventsStore(region), name)
 
 	return nil
@@ -1793,7 +1935,7 @@ func (b *InMemoryBackend) DescribeArchive(ctx context.Context, name string) (*Ar
 	b.mu.RLock("DescribeArchive")
 	defer b.mu.RUnlock()
 
-	archive, exists := b.archivesStore(region)[name]
+	archive, exists := b.archivesTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, name)
 	}
@@ -1810,9 +1952,9 @@ func (b *InMemoryBackend) ListArchives(ctx context.Context, namePrefix, nextToke
 	b.mu.RLock("ListArchives")
 	defer b.mu.RUnlock()
 
-	store := b.archivesStore(region)
-	all := make([]Archive, 0, len(store))
-	for _, a := range store {
+	store := b.archivesTable(region)
+	all := make([]Archive, 0, store.Len())
+	for _, a := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(a.ArchiveName, namePrefix) {
 			all = append(all, *a)
 		}
@@ -1836,7 +1978,7 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 	b.mu.Lock("UpdateArchive")
 	defer b.mu.Unlock()
 
-	archive, exists := b.archivesStore(region)[input.ArchiveName]
+	archive, exists := b.archivesTable(region).Get(input.ArchiveName)
 	if !exists {
 		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, input.ArchiveName)
 	}
@@ -1867,12 +2009,12 @@ func (b *InMemoryBackend) DeleteConnection(ctx context.Context, name string) err
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	store := b.connectionsStore(region)
-	if _, exists := store[name]; !exists {
+	store := b.connectionsTable(region)
+	if !store.Has(name) {
 		return fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1888,7 +2030,7 @@ func (b *InMemoryBackend) DescribeConnection(ctx context.Context, name string) (
 	b.mu.RLock("DescribeConnection")
 	defer b.mu.RUnlock()
 
-	conn, exists := b.connectionsStore(region)[name]
+	conn, exists := b.connectionsTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, name)
 	}
@@ -1907,9 +2049,9 @@ func (b *InMemoryBackend) ListConnections(ctx context.Context,
 	b.mu.RLock("ListConnections")
 	defer b.mu.RUnlock()
 
-	store := b.connectionsStore(region)
-	all := make([]Connection, 0, len(store))
-	for _, c := range store {
+	store := b.connectionsTable(region)
+	all := make([]Connection, 0, store.Len())
+	for _, c := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(c.Name, namePrefix) {
 			all = append(all, *c)
 		}
@@ -1933,7 +2075,7 @@ func (b *InMemoryBackend) UpdateConnection(ctx context.Context, input UpdateConn
 	b.mu.Lock("UpdateConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.connectionsStore(region)[input.Name]
+	conn, exists := b.connectionsTable(region).Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, input.Name)
 	}
@@ -1966,12 +2108,12 @@ func (b *InMemoryBackend) DeleteEndpoint(ctx context.Context, name string) error
 	b.mu.Lock("DeleteEndpoint")
 	defer b.mu.Unlock()
 
-	store := b.endpointsStore(region)
-	if _, exists := store[name]; !exists {
+	store := b.endpointsTable(region)
+	if !store.Has(name) {
 		return fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1987,7 +2129,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 	b.mu.RLock("DescribeEndpoint")
 	defer b.mu.RUnlock()
 
-	ep, exists := b.endpointsStore(region)[name]
+	ep, exists := b.endpointsTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, name)
 	}
@@ -2004,9 +2146,9 @@ func (b *InMemoryBackend) ListEndpoints(ctx context.Context, namePrefix, nextTok
 	b.mu.RLock("ListEndpoints")
 	defer b.mu.RUnlock()
 
-	store := b.endpointsStore(region)
-	all := make([]Endpoint, 0, len(store))
-	for _, ep := range store {
+	store := b.endpointsTable(region)
+	all := make([]Endpoint, 0, store.Len())
+	for _, ep := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(ep.Name, namePrefix) {
 			all = append(all, *ep)
 		}
@@ -2030,7 +2172,7 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, input UpdateEndpoi
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 
-	ep, exists := b.endpointsStore(region)[input.Name]
+	ep, exists := b.endpointsTable(region).Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, input.Name)
 	}
@@ -2068,7 +2210,7 @@ func (b *InMemoryBackend) DescribeAPIDestination(ctx context.Context, name strin
 	b.mu.RLock("DescribeAPIDestination")
 	defer b.mu.RUnlock()
 
-	dst, exists := b.apiDestinationsStore(region)[name]
+	dst, exists := b.apiDestinationsTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: API destination %s not found", ErrNotFound, name)
 	}
@@ -2087,9 +2229,9 @@ func (b *InMemoryBackend) ListAPIDestinations(ctx context.Context,
 	b.mu.RLock("ListAPIDestinations")
 	defer b.mu.RUnlock()
 
-	store := b.apiDestinationsStore(region)
-	all := make([]APIDestination, 0, len(store))
-	for _, d := range store {
+	store := b.apiDestinationsTable(region)
+	all := make([]APIDestination, 0, store.Len())
+	for _, d := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(d.Name, namePrefix) {
 			all = append(all, *d)
 		}
@@ -2115,7 +2257,7 @@ func (b *InMemoryBackend) UpdateAPIDestination(ctx context.Context,
 	b.mu.Lock("UpdateAPIDestination")
 	defer b.mu.Unlock()
 
-	dst, exists := b.apiDestinationsStore(region)[input.Name]
+	dst, exists := b.apiDestinationsTable(region).Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: API destination %s not found", ErrNotFound, input.Name)
 	}
@@ -2153,7 +2295,7 @@ func (b *InMemoryBackend) DescribeEventSource(ctx context.Context, name string) 
 	b.mu.RLock("DescribeEventSource")
 	defer b.mu.RUnlock()
 
-	src, exists := b.eventSourcesStore(region)[name]
+	src, exists := b.eventSourcesTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
@@ -2172,9 +2314,9 @@ func (b *InMemoryBackend) ListEventSources(ctx context.Context,
 	b.mu.RLock("ListEventSources")
 	defer b.mu.RUnlock()
 
-	store := b.eventSourcesStore(region)
-	all := make([]EventSource, 0, len(store))
-	for _, s := range store {
+	store := b.eventSourcesTable(region)
+	all := make([]EventSource, 0, store.Len())
+	for _, s := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(s.Name, namePrefix) {
 			all = append(all, *s)
 		}
@@ -2198,7 +2340,7 @@ func (b *InMemoryBackend) DescribePartnerEventSource(ctx context.Context, name s
 	b.mu.RLock("DescribePartnerEventSource")
 	defer b.mu.RUnlock()
 
-	src, exists := b.partnerSourcesStore(region)[name]
+	src, exists := b.partnerSourcesTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: partner event source %s not found", ErrNotFound, name)
 	}
@@ -2219,12 +2361,12 @@ func (b *InMemoryBackend) DeletePartnerEventSource(ctx context.Context, name str
 	b.mu.Lock("DeletePartnerEventSource")
 	defer b.mu.Unlock()
 
-	store := b.partnerSourcesStore(region)
-	if _, exists := store[name]; !exists {
+	store := b.partnerSourcesTable(region)
+	if !store.Has(name) {
 		return fmt.Errorf("%w: partner event source %s not found", ErrNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -2238,9 +2380,9 @@ func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 	b.mu.RLock("ListPartnerEventSources")
 	defer b.mu.RUnlock()
 
-	store := b.partnerSourcesStore(region)
-	all := make([]PartnerEventSource, 0, len(store))
-	for _, s := range store {
+	store := b.partnerSourcesTable(region)
+	all := make([]PartnerEventSource, 0, store.Len())
+	for _, s := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(s.Name, namePrefix) {
 			all = append(all, *s)
 		}
@@ -2254,7 +2396,7 @@ func (b *InMemoryBackend) ListPartnerEventSources(ctx context.Context,
 }
 
 // PutPartnerEvents records partner events (same as PutEvents but intended for partner sources).
-func (b *InMemoryBackend) PutPartnerEvents(ctx context.Context, entries []EventEntry) []EventResultEntry {
+func (b *InMemoryBackend) PutPartnerEvents(ctx context.Context, entries []EventEntry) ([]EventResultEntry, error) {
 	return b.PutEvents(ctx, entries)
 }
 
@@ -2269,7 +2411,7 @@ func (b *InMemoryBackend) DescribeReplay(ctx context.Context, name string) (*Rep
 	b.mu.RLock("DescribeReplay")
 	defer b.mu.RUnlock()
 
-	replay, exists := b.replaysStore(region)[name]
+	replay, exists := b.replaysTable(region).Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: replay %s not found", ErrNotFound, name)
 	}
@@ -2286,9 +2428,9 @@ func (b *InMemoryBackend) ListReplays(ctx context.Context, namePrefix, nextToken
 	b.mu.RLock("ListReplays")
 	defer b.mu.RUnlock()
 
-	store := b.replaysStore(region)
-	all := make([]Replay, 0, len(store))
-	for _, r := range store {
+	store := b.replaysTable(region)
+	all := make([]Replay, 0, store.Len())
+	for _, r := range store.All() {
 		if namePrefix == "" || strings.HasPrefix(r.ReplayName, namePrefix) {
 			all = append(all, *r)
 		}
@@ -2323,8 +2465,8 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 
 	b.mu.Lock("StartReplay")
 
-	replays := b.replaysStore(region)
-	if _, exists := replays[input.ReplayName]; exists {
+	replays := b.replaysTable(region)
+	if replays.Has(input.ReplayName) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: replay %s already exists", ErrAlreadyExists, input.ReplayName)
@@ -2333,7 +2475,7 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 	// Validate destination ARN points to a known event bus.
 	if input.Destination != nil && input.Destination.Arn != "" {
 		found := false
-		for _, bus := range b.busesStore(region) {
+		for _, bus := range b.busesTable(region).All() {
 			if bus.Arn == input.Destination.Arn {
 				found = true
 
@@ -2354,9 +2496,9 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 	// Find the archive by ARN (EventSourceArn points to an archive ARN).
 	var archiveName string
 	var archivePattern string
-	for name, archive := range b.archivesStore(region) {
+	for _, archive := range b.archivesTable(region).All() {
 		if archive.ArchiveArn == input.EventSourceArn {
-			archiveName = name
+			archiveName = archive.ArchiveName
 			archivePattern = archive.EventPattern
 
 			break
@@ -2373,7 +2515,7 @@ func (b *InMemoryBackend) StartReplay(ctx context.Context, input StartReplayInpu
 		State:           replayStateStarting,
 		StateReason:     input.Description,
 	}
-	replays[input.ReplayName] = replay
+	replays.Put(replay)
 
 	// Collect archived events to replay filtered by time window and event pattern.
 	eventsToReplay := b.filterArchivedEvents(
@@ -2463,7 +2605,7 @@ func (b *InMemoryBackend) scheduleReplayWorker(
 		}
 
 		b.mu.Lock("StartReplay-complete")
-		if r, ok := b.replaysStore(region)[replayName]; ok && r.State == replayStateStarting {
+		if r, ok := b.replaysTable(region).Get(replayName); ok && r.State == replayStateStarting {
 			r.State = "COMPLETED"
 			r.ReplayEndTime = time.Now()
 		}
@@ -2538,7 +2680,7 @@ func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventB
 	b.mu.Lock("UpdateEventBus")
 	defer b.mu.Unlock()
 
-	bus, exists := b.busesStore(region)[busKey]
+	bus, exists := b.busesTable(region).Get(busKey)
 	if !exists {
 		return nil, fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
@@ -2563,7 +2705,7 @@ func (b *InMemoryBackend) PutPermission(ctx context.Context, input PutPermission
 	b.mu.Lock("PutPermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.busesStore(region)[busKey]; !exists {
+	if _, exists := b.busesTable(region).Get(busKey); !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -2616,7 +2758,7 @@ func (b *InMemoryBackend) RemovePermission(ctx context.Context, input RemovePerm
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.busesStore(region)[busKey]; !exists {
+	if _, exists := b.busesTable(region).Get(busKey); !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -2649,7 +2791,7 @@ func (b *InMemoryBackend) GetEventBusPolicy(ctx context.Context, eventBusName st
 	b.mu.RLock("GetEventBusPolicy")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.busesStore(region)[busKey]; !exists {
+	if _, exists := b.busesTable(region).Get(busKey); !exists {
 		return "", fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -2683,7 +2825,7 @@ func (b *InMemoryBackend) PutEventBusPolicy(ctx context.Context, input PutEventB
 	b.mu.Lock("PutEventBusPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.busesStore(region)[busKey]; !exists {
+	if _, exists := b.busesTable(region).Get(busKey); !exists {
 		return fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
@@ -2740,7 +2882,7 @@ func (b *InMemoryBackend) CreatePipe(
 	b.mu.Lock("CreatePipe")
 	defer b.mu.Unlock()
 
-	if _, exists := b.pipes[input.Name]; exists {
+	if b.pipesTable().Has(input.Name) {
 		return nil, fmt.Errorf("%w: pipe %s already exists", ErrAlreadyExists, input.Name)
 	}
 
@@ -2758,7 +2900,7 @@ func (b *InMemoryBackend) CreatePipe(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.pipes[input.Name] = pipe
+	b.pipesTable().Put(pipe)
 
 	cp := *pipe
 	// Transition CREATING → RUNNING immediately (in-process simulation).
@@ -2776,13 +2918,13 @@ func (b *InMemoryBackend) DeletePipe(ctx context.Context, name string) error { /
 	b.mu.Lock("DeletePipe")
 	defer b.mu.Unlock()
 
-	pipe, exists := b.pipes[name]
+	pipe, exists := b.pipesTable().Get(name)
 	if !exists {
 		return fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
 
 	pipe.CurrentState = "DELETING"
-	delete(b.pipes, name)
+	b.pipesTable().Delete(name)
 
 	return nil
 }
@@ -2799,7 +2941,7 @@ func (b *InMemoryBackend) DescribePipe(
 	b.mu.RLock("DescribePipe")
 	defer b.mu.RUnlock()
 
-	pipe, exists := b.pipes[name]
+	pipe, exists := b.pipesTable().Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
@@ -2817,8 +2959,8 @@ func (b *InMemoryBackend) ListPipes(
 	b.mu.RLock("ListPipes")
 	defer b.mu.RUnlock()
 
-	all := make([]Pipe, 0, len(b.pipes))
-	for _, p := range b.pipes {
+	all := make([]Pipe, 0, b.pipesTable().Len())
+	for _, p := range b.pipesTable().All() {
 		if namePrefix == "" || strings.HasPrefix(p.Name, namePrefix) {
 			all = append(all, *p)
 		}
@@ -2843,7 +2985,7 @@ func (b *InMemoryBackend) UpdatePipe(
 	b.mu.Lock("UpdatePipe")
 	defer b.mu.Unlock()
 
-	pipe, exists := b.pipes[input.Name]
+	pipe, exists := b.pipesTable().Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, input.Name)
 	}
@@ -2883,7 +3025,7 @@ func (b *InMemoryBackend) captureEventInArchives(region string, entry EventEntry
 	busARN := b.busARN(region, busName)
 	envelope := buildEventEnvelope(entry)
 	archivedEvents := b.archivedEventsStore(region)
-	for _, archive := range b.archivesStore(region) {
+	for _, archive := range b.archivesTable(region).All() {
 		if archive.EventSourceArn != busARN {
 			continue
 		}
@@ -2907,7 +3049,7 @@ func (b *InMemoryBackend) AddEventSourceInternal(src *EventSource) {
 	defer b.mu.Unlock()
 
 	cp := *src
-	b.eventSourcesStore(b.region)[src.Name] = &cp
+	b.eventSourcesTable(b.region).Put(&cp)
 }
 
 // AddReplayInternal adds a replay directly for testing.
@@ -2920,7 +3062,7 @@ func (b *InMemoryBackend) AddReplayInternal(replay *Replay) {
 	}
 
 	cp := *replay
-	b.replaysStore(b.region)[replay.ReplayName] = &cp
+	b.replaysTable(b.region).Put(&cp)
 }
 
 // AddAPIDestinationInternal adds an API destination directly for testing.
@@ -2929,7 +3071,7 @@ func (b *InMemoryBackend) AddAPIDestinationInternal(dst *APIDestination) {
 	defer b.mu.Unlock()
 
 	cp := *dst
-	b.apiDestinationsStore(b.region)[dst.Name] = &cp
+	b.apiDestinationsTable(b.region).Put(&cp)
 }
 
 // AddArchiveInternal adds an archive directly for testing.
@@ -2938,7 +3080,7 @@ func (b *InMemoryBackend) AddArchiveInternal(archive *Archive) {
 	defer b.mu.Unlock()
 
 	cp := *archive
-	b.archivesStore(b.region)[archive.ArchiveName] = &cp
+	b.archivesTable(b.region).Put(&cp)
 }
 
 // AddConnectionInternal adds a connection directly for testing.
@@ -2947,7 +3089,7 @@ func (b *InMemoryBackend) AddConnectionInternal(conn *Connection) {
 	defer b.mu.Unlock()
 
 	cp := *conn
-	b.connectionsStore(b.region)[conn.Name] = &cp
+	b.connectionsTable(b.region).Put(&cp)
 }
 
 // AddEndpointInternal adds an endpoint directly for testing.
@@ -2956,7 +3098,7 @@ func (b *InMemoryBackend) AddEndpointInternal(ep *Endpoint) {
 	defer b.mu.Unlock()
 
 	cp := *ep
-	b.endpointsStore(b.region)[ep.Name] = &cp
+	b.endpointsTable(b.region).Put(&cp)
 }
 
 // AddPartnerSourceInternal adds a partner event source directly for testing.
@@ -2965,7 +3107,7 @@ func (b *InMemoryBackend) AddPartnerSourceInternal(src *PartnerEventSource) {
 	defer b.mu.Unlock()
 
 	cp := *src
-	b.partnerSourcesStore(b.region)[src.Name] = &cp
+	b.partnerSourcesTable(b.region).Put(&cp)
 }
 
 // isValidHTTPMethod reports whether method is a supported API Destination HTTP method.
@@ -3195,7 +3337,11 @@ func (b *InMemoryBackend) ResolveAPIDestination(destARN string) (*ResolvedAPIDes
 	b.mu.RLock("ResolveAPIDestination")
 	defer b.mu.RUnlock()
 
-	dest, ok := b.apiDestinations[region][name]
+	destTable := b.apiDestinations[region]
+	if destTable == nil {
+		return nil, false
+	}
+	dest, ok := destTable.Get(name)
 	if !ok {
 		return nil, false
 	}
@@ -3211,8 +3357,10 @@ func (b *InMemoryBackend) ResolveAPIDestination(destARN string) (*ResolvedAPIDes
 		connRegion = region
 	}
 	connName := arnResourceName(dest.ConnectionArn, "connection")
-	if conn, connOK := b.connections[connRegion][connName]; connOK {
-		applyConnectionAuthToResolved(resolved, conn)
+	if connTable := b.connections[connRegion]; connTable != nil {
+		if conn, connOK := connTable.Get(connName); connOK {
+			applyConnectionAuthToResolved(resolved, conn)
+		}
 	}
 
 	return resolved, true
@@ -3395,7 +3543,7 @@ func (b *InMemoryBackend) CreateRegistry(
 	b.mu.Lock("CreateRegistry")
 	defer b.mu.Unlock()
 
-	if _, exists := b.registries[input.RegistryName]; exists {
+	if b.registriesTable().Has(input.RegistryName) {
 		return nil, fmt.Errorf(
 			"%w: registry %s already exists",
 			ErrAlreadyExists,
@@ -3409,7 +3557,7 @@ func (b *InMemoryBackend) CreateRegistry(
 		Description:  input.Description,
 		Tags:         input.Tags,
 	}
-	b.registries[input.RegistryName] = reg
+	b.registriesTable().Put(reg)
 
 	cp := *reg
 
@@ -3436,11 +3584,11 @@ func (b *InMemoryBackend) DeleteRegistry(
 	b.mu.Lock("DeleteRegistry")
 	defer b.mu.Unlock()
 
-	if _, exists := b.registries[registryName]; !exists {
+	if !b.registriesTable().Has(registryName) {
 		return fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
 
-	delete(b.registries, registryName)
+	b.registriesTable().Delete(registryName)
 	delete(b.schemas, registryName)
 
 	// Remove all version and code binding records for this registry's schemas.
@@ -3471,7 +3619,7 @@ func (b *InMemoryBackend) DescribeRegistry(
 	b.mu.RLock("DescribeRegistry")
 	defer b.mu.RUnlock()
 
-	reg, exists := b.registries[registryName]
+	reg, exists := b.registriesTable().Get(registryName)
 	if !exists {
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
@@ -3488,8 +3636,8 @@ func (b *InMemoryBackend) ListRegistries(ctx context.Context, //nolint:revive //
 	b.mu.RLock("ListRegistries")
 	defer b.mu.RUnlock()
 
-	all := make([]SchemaRegistry, 0, len(b.registries))
-	for _, reg := range b.registries {
+	all := make([]SchemaRegistry, 0, b.registriesTable().Len())
+	for _, reg := range b.registriesTable().All() {
 		if namePrefix == "" || strings.HasPrefix(reg.RegistryName, namePrefix) {
 			all = append(all, *reg)
 		}
@@ -3514,7 +3662,7 @@ func (b *InMemoryBackend) UpdateRegistry(
 	b.mu.Lock("UpdateRegistry")
 	defer b.mu.Unlock()
 
-	reg, exists := b.registries[input.RegistryName]
+	reg, exists := b.registriesTable().Get(input.RegistryName)
 	if !exists {
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
@@ -3560,15 +3708,13 @@ func (b *InMemoryBackend) CreateSchema(
 	b.mu.Lock("CreateSchema")
 	defer b.mu.Unlock()
 
-	if _, exists := b.registries[input.RegistryName]; !exists {
+	if !b.registriesTable().Has(input.RegistryName) {
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
 
-	if b.schemas[input.RegistryName] == nil {
-		b.schemas[input.RegistryName] = make(map[string]*Schema)
-	}
+	schemaTable := b.schemasTableFor(input.RegistryName)
 
-	if _, exists := b.schemas[input.RegistryName][input.SchemaName]; exists {
+	if schemaTable.Has(input.SchemaName) {
 		return nil, fmt.Errorf(
 			"%w: schema %s already exists in registry %s",
 			ErrAlreadyExists,
@@ -3590,7 +3736,7 @@ func (b *InMemoryBackend) CreateSchema(
 		VersionCreatedDate: now,
 		Tags:               input.Tags,
 	}
-	b.schemas[input.RegistryName][input.SchemaName] = schema
+	schemaTable.Put(schema)
 
 	// Record version 1.
 	versionKey := b.schemaVersionKey(input.RegistryName, input.SchemaName)
@@ -3626,11 +3772,11 @@ func (b *InMemoryBackend) DeleteSchema(
 	b.mu.Lock("DeleteSchema")
 	defer b.mu.Unlock()
 
-	if _, exists := b.registries[registryName]; !exists {
+	if !b.registriesTable().Has(registryName) {
 		return fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
 
-	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
+	if _, ok := b.getSchema(registryName, schemaName); !ok {
 		return fmt.Errorf(
 			"%w: schema %s not found in registry %s",
 			ErrNotFound,
@@ -3639,7 +3785,9 @@ func (b *InMemoryBackend) DeleteSchema(
 		)
 	}
 
-	delete(b.schemas[registryName], schemaName)
+	if t := b.schemas[registryName]; t != nil {
+		t.Delete(schemaName)
+	}
 
 	versionKey := b.schemaVersionKey(registryName, schemaName)
 	delete(b.schemaVersions, versionKey)
@@ -3669,11 +3817,12 @@ func (b *InMemoryBackend) DescribeSchema(ctx context.Context, //nolint:revive //
 	b.mu.RLock("DescribeSchema")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.registries[registryName]; !exists {
+	if !b.registriesTable().Has(registryName) {
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
 
-	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
+	schema, ok := b.getSchema(registryName, schemaName)
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: schema %s not found in registry %s",
 			ErrNotFound,
@@ -3681,8 +3830,6 @@ func (b *InMemoryBackend) DescribeSchema(ctx context.Context, //nolint:revive //
 			registryName,
 		)
 	}
-
-	schema := b.schemas[registryName][schemaName]
 
 	// If a specific version is requested, fetch that version's content.
 	if schemaVersion != "" && schemaVersion != schema.SchemaVersion {
@@ -3718,12 +3865,17 @@ func (b *InMemoryBackend) ListSchemas(ctx context.Context, //nolint:revive // ex
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.registries[registryName]; !exists {
+	if !b.registriesTable().Has(registryName) {
 		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
 
-	all := make([]Schema, 0, len(b.schemas[registryName]))
-	for _, s := range b.schemas[registryName] {
+	schemaTable := b.schemas[registryName]
+	var schemaAll []*Schema
+	if schemaTable != nil {
+		schemaAll = schemaTable.All()
+	}
+	all := make([]Schema, 0, len(schemaAll))
+	for _, s := range schemaAll {
 		if namePrefix == "" || strings.HasPrefix(s.SchemaName, namePrefix) {
 			all = append(all, *s)
 		}
@@ -3747,14 +3899,18 @@ func (b *InMemoryBackend) SearchSchemas(ctx context.Context, //nolint:revive // 
 	b.mu.RLock("SearchSchemas")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.registries[registryName]; !exists {
+	if !b.registriesTable().Has(registryName) {
 		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
 
 	all := make([]Schema, 0)
 	lower := strings.ToLower(keywords)
 
-	for _, s := range b.schemas[registryName] {
+	var schemaAll []*Schema
+	if schemaTable := b.schemas[registryName]; schemaTable != nil {
+		schemaAll = schemaTable.All()
+	}
+	for _, s := range schemaAll {
 		if keywords == "" ||
 			strings.Contains(strings.ToLower(s.SchemaName), lower) ||
 			strings.Contains(strings.ToLower(s.Content), lower) {
@@ -3785,12 +3941,12 @@ func (b *InMemoryBackend) UpdateSchema(
 	b.mu.Lock("UpdateSchema")
 	defer b.mu.Unlock()
 
-	if _, exists := b.registries[input.RegistryName]; !exists {
+	if !b.registriesTable().Has(input.RegistryName) {
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
 
-	if b.schemas[input.RegistryName] == nil ||
-		b.schemas[input.RegistryName][input.SchemaName] == nil {
+	schema, ok := b.getSchema(input.RegistryName, input.SchemaName)
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: schema %s not found in registry %s",
 			ErrNotFound,
@@ -3798,8 +3954,6 @@ func (b *InMemoryBackend) UpdateSchema(
 			input.RegistryName,
 		)
 	}
-
-	schema := b.schemas[input.RegistryName][input.SchemaName]
 
 	now := time.Now()
 
@@ -3855,11 +4009,11 @@ func (b *InMemoryBackend) ListSchemaVersions(ctx context.Context, //nolint:reviv
 	b.mu.RLock("ListSchemaVersions")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.registries[registryName]; !exists {
+	if !b.registriesTable().Has(registryName) {
 		return nil, "", fmt.Errorf("%w: registry %s not found", ErrNotFound, registryName)
 	}
 
-	if b.schemas[registryName] == nil || b.schemas[registryName][schemaName] == nil {
+	if _, ok := b.getSchema(registryName, schemaName); !ok {
 		return nil, "", fmt.Errorf(
 			"%w: schema %s not found in registry %s",
 			ErrNotFound,
@@ -3982,11 +4136,7 @@ func (b *InMemoryBackend) DeleteSchemaVersion(ctx context.Context, //nolint:revi
 func (b *InMemoryBackend) maybeUpdateSchemaAfterVersionDelete(
 	registryName, schemaName, schemaVersion, versionKey string,
 ) {
-	if b.schemas[registryName] == nil {
-		return
-	}
-
-	schema, ok := b.schemas[registryName][schemaName]
+	schema, ok := b.getSchema(registryName, schemaName)
 	if !ok || schema.SchemaVersion != schemaVersion {
 		return
 	}
@@ -4044,12 +4194,12 @@ func (b *InMemoryBackend) PutCodeBinding(
 	b.mu.Lock("PutCodeBinding")
 	defer b.mu.Unlock()
 
-	if _, exists := b.registries[input.RegistryName]; !exists {
+	if !b.registriesTable().Has(input.RegistryName) {
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
 
-	if b.schemas[input.RegistryName] == nil ||
-		b.schemas[input.RegistryName][input.SchemaName] == nil {
+	schema, ok := b.getSchema(input.RegistryName, input.SchemaName)
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: schema %s not found in registry %s",
 			ErrNotFound,
@@ -4057,8 +4207,6 @@ func (b *InMemoryBackend) PutCodeBinding(
 			input.RegistryName,
 		)
 	}
-
-	schema := b.schemas[input.RegistryName][input.SchemaName]
 
 	schemaVer := input.SchemaVersion
 	if schemaVer == "" {

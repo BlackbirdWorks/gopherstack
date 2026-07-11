@@ -7,7 +7,7 @@ func NamespaceCount(b *InMemoryBackend) int {
 	b.mu.RLock("NamespaceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.namespaces)
+	return b.namespaces.Len()
 }
 
 // ServiceCount returns the number of services in the backend (test use only).
@@ -15,7 +15,7 @@ func ServiceCount(b *InMemoryBackend) int {
 	b.mu.RLock("ServiceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.services)
+	return b.services.Len()
 }
 
 // InstanceCount returns the number of instances in the backend (test use only).
@@ -23,7 +23,7 @@ func InstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("InstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.instances)
+	return b.instances.Len()
 }
 
 // OperationCount returns the number of operations in the backend (test use only).
@@ -31,7 +31,7 @@ func OperationCount(b *InMemoryBackend) int {
 	b.mu.RLock("OperationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.operations)
+	return b.operations.Len()
 }
 
 // ServiceAttributeCount returns the number of service attribute entries (test use only).
@@ -57,9 +57,7 @@ func AddNamespaceInternal(b *InMemoryBackend, ns *Namespace) {
 	b.mu.Lock("AddNamespaceInternal")
 	defer b.mu.Unlock()
 
-	b.namespaces[ns.ID] = ns
-	b.nsARNIndex[ns.ARN] = ns.ID
-	b.nsNameIndex[ns.Name] = ns.ID
+	b.namespaces.Put(ns)
 }
 
 // AddServiceInternal directly seeds a service into the backend (test use only).
@@ -67,16 +65,7 @@ func AddServiceInternal(b *InMemoryBackend, svc *Service) {
 	b.mu.Lock("AddServiceInternal")
 	defer b.mu.Unlock()
 
-	b.services[svc.ID] = svc
-	b.svcARNIndex[svc.ARN] = svc.ID
-
-	if b.instancesByService[svc.ID] == nil {
-		b.instancesByService[svc.ID] = make(map[string]*Instance)
-	}
-
-	if svc.NamespaceID != "" {
-		b.svcByNsAndName[svc.NamespaceID+":"+svc.Name] = svc.ID
-	}
+	b.services.Put(svc)
 }
 
 // AddInstanceInternal directly seeds an instance into the backend (test use only).
@@ -84,14 +73,7 @@ func AddInstanceInternal(b *InMemoryBackend, inst *Instance) {
 	b.mu.Lock("AddInstanceInternal")
 	defer b.mu.Unlock()
 
-	key := instanceKey(inst.ServiceID, inst.ID)
-	b.instances[key] = inst
-
-	if b.instancesByService[inst.ServiceID] == nil {
-		b.instancesByService[inst.ServiceID] = make(map[string]*Instance)
-	}
-
-	b.instancesByService[inst.ServiceID][inst.ID] = inst
+	b.instances.Put(inst)
 }
 
 // NewNamespaceForTest creates a Namespace value for seeding in tests.

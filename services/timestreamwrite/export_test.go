@@ -6,7 +6,7 @@ func DatabaseCount(b *InMemoryBackend) int {
 	b.mu.RLock("DatabaseCount")
 	defer b.mu.RUnlock()
 
-	return len(b.databases)
+	return b.databases.Len()
 }
 
 // TableCount returns the total number of tables across all databases.
@@ -15,13 +15,7 @@ func TableCount(b *InMemoryBackend) int {
 	b.mu.RLock("TableCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, tbls := range b.tables {
-		total += len(tbls)
-	}
-
-	return total
+	return b.tables.Len()
 }
 
 // BatchLoadTaskCount returns the number of batch load tasks stored in the backend.
@@ -30,7 +24,7 @@ func BatchLoadTaskCount(b *InMemoryBackend) int {
 	b.mu.RLock("BatchLoadTaskCount")
 	defer b.mu.RUnlock()
 
-	return len(b.batchLoadTasks)
+	return b.batchLoadTasks.Len()
 }
 
 // TagCount returns the total number of tagged ARNs stored in the backend.

@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // DefaultAnomalyTTL is the default time-to-live for detected anomalies.
@@ -454,13 +455,18 @@ type ForecastResult struct {
 
 // InMemoryBackend is a thread-safe in-memory store for Cost Explorer resources.
 type InMemoryBackend struct {
-	costCategories       map[string]*CostCategory
-	anomalyMonitors      map[string]*AnomalyMonitor
-	anomalySubscriptions map[string]*AnomalySubscription
-	anomalies            map[string]*Anomaly
+	// registry holds every store.Table-backed resource field so their
+	// Reset/Snapshot/Restore collapse to one call each -- every table below
+	// is "clean" (registered directly under its own real, non-json:"-"
+	// identity field, no DTO-registry needed); see store_setup.go.
+	registry             *store.Registry
+	costCategories       *store.Table[CostCategory]
+	anomalyMonitors      *store.Table[AnomalyMonitor]
+	anomalySubscriptions *store.Table[AnomalySubscription]
+	anomalies            *store.Table[Anomaly]
 	mu                   *lockmetrics.RWMutex
-	costAllocationTags   map[string]*CostAllocationTag
-	commitmentAnalyses   map[string]*CommitmentAnalysis
+	costAllocationTags   *store.Table[CostAllocationTag]
+	commitmentAnalyses   *store.Table[CommitmentAnalysis]
 	accountID            string
 	region               string
 	costLedger           []CostEntry
@@ -471,17 +477,13 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		costCategories:       make(map[string]*CostCategory),
-		anomalyMonitors:      make(map[string]*AnomalyMonitor),
-		anomalySubscriptions: make(map[string]*AnomalySubscription),
-		anomalies:            make(map[string]*Anomaly),
-		accountID:            accountID,
-		region:               region,
-		mu:                   lockmetrics.New("ce"),
-		anomalyTTL:           DefaultAnomalyTTL,
-		costAllocationTags:   make(map[string]*CostAllocationTag),
-		commitmentAnalyses:   make(map[string]*CommitmentAnalysis),
+		registry:   store.NewRegistry(),
+		accountID:  accountID,
+		region:     region,
+		mu:         lockmetrics.New("ce"),
+		anomalyTTL: DefaultAnomalyTTL,
 	}
+	registerAllTables(b)
 	b.seedCostLedger()
 
 	return b
@@ -512,9 +514,9 @@ func (b *InMemoryBackend) evictExpiredAnomalies() {
 
 	cutoff := time.Now().UTC().Add(-b.anomalyTTL)
 
-	for id, a := range b.anomalies {
+	for _, a := range b.anomalies.All() {
 		if a.CreationDate.Before(cutoff) {
-			delete(b.anomalies, id)
+			b.anomalies.Delete(a.AnomalyID)
 		}
 	}
 }
@@ -527,14 +529,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.costCategories = make(map[string]*CostCategory)
-	b.anomalyMonitors = make(map[string]*AnomalyMonitor)
-	b.anomalySubscriptions = make(map[string]*AnomalySubscription)
-	b.anomalies = make(map[string]*Anomaly)
+	b.registry.ResetAll()
 	b.costLedger = nil
-	b.costAllocationTags = make(map[string]*CostAllocationTag)
 	b.backfillJobs = nil
-	b.commitmentAnalyses = make(map[string]*CommitmentAnalysis)
 	b.seedCostLedger()
 }
 
@@ -571,7 +568,7 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	defer b.mu.Unlock()
 
 	catARN := b.buildCostCategoryARN(name)
-	if _, exists := b.costCategories[catARN]; exists {
+	if b.costCategories.Has(catARN) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -591,7 +588,7 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 		CreationDate:   time.Now().UTC(),
 		Tags:           tagsCopy,
 	}
-	b.costCategories[catARN] = cat
+	b.costCategories.Put(cat)
 
 	out := *cat
 	out.Rules = make([]CostCategoryRule, len(cat.Rules))
@@ -605,12 +602,12 @@ func (b *InMemoryBackend) DeleteCostCategoryDefinition(catARN string) (*CostCate
 	b.mu.Lock("DeleteCostCategoryDefinition")
 	defer b.mu.Unlock()
 
-	cat, exists := b.costCategories[catARN]
+	cat, exists := b.costCategories.Get(catARN)
 	if !exists {
 		return nil, ErrNotFound
 	}
 
-	delete(b.costCategories, catARN)
+	b.costCategories.Delete(catARN)
 
 	out := *cat
 
@@ -622,7 +619,7 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	b.mu.RLock("DescribeCostCategoryDefinition")
 	defer b.mu.RUnlock()
 
-	cat, exists := b.costCategories[catARN]
+	cat, exists := b.costCategories.Get(catARN)
 	if !exists {
 		return nil, ErrNotFound
 	}
@@ -637,8 +634,9 @@ func (b *InMemoryBackend) ListCostCategoryDefinitions(maxResults int, nextPageTo
 	b.mu.RLock("ListCostCategoryDefinitions")
 	defer b.mu.RUnlock()
 
-	result := make([]*CostCategory, 0, len(b.costCategories))
-	for _, cat := range b.costCategories {
+	all := b.costCategories.All()
+	result := make([]*CostCategory, 0, len(all))
+	for _, cat := range all {
 		out := *cat
 		result = append(result, &out)
 	}
@@ -657,7 +655,7 @@ func (b *InMemoryBackend) UpdateCostCategoryDefinition(
 	b.mu.Lock("UpdateCostCategoryDefinition")
 	defer b.mu.Unlock()
 
-	cat, exists := b.costCategories[catARN]
+	cat, exists := b.costCategories.Get(catARN)
 	if !exists {
 		return nil, ErrNotFound
 	}
@@ -697,21 +695,21 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if cat, ok := b.costCategories[resourceARN]; ok {
+	if cat, ok := b.costCategories.Get(resourceARN); ok {
 		out := make(map[string]string, len(cat.Tags))
 		maps.Copy(out, cat.Tags)
 
 		return out, nil
 	}
 
-	if mon, ok := b.anomalyMonitors[resourceARN]; ok {
+	if mon, ok := b.anomalyMonitors.Get(resourceARN); ok {
 		out := make(map[string]string, len(mon.Tags))
 		maps.Copy(out, mon.Tags)
 
 		return out, nil
 	}
 
-	if sub, ok := b.anomalySubscriptions[resourceARN]; ok {
+	if sub, ok := b.anomalySubscriptions.Get(resourceARN); ok {
 		out := make(map[string]string, len(sub.Tags))
 		maps.Copy(out, sub.Tags)
 
@@ -726,19 +724,19 @@ func (b *InMemoryBackend) TagResource(resourceARN string, resourceTags map[strin
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if cat, ok := b.costCategories[resourceARN]; ok {
+	if cat, ok := b.costCategories.Get(resourceARN); ok {
 		maps.Copy(cat.Tags, resourceTags)
 
 		return nil
 	}
 
-	if mon, ok := b.anomalyMonitors[resourceARN]; ok {
+	if mon, ok := b.anomalyMonitors.Get(resourceARN); ok {
 		maps.Copy(mon.Tags, resourceTags)
 
 		return nil
 	}
 
-	if sub, ok := b.anomalySubscriptions[resourceARN]; ok {
+	if sub, ok := b.anomalySubscriptions.Get(resourceARN); ok {
 		maps.Copy(sub.Tags, resourceTags)
 
 		return nil
@@ -752,7 +750,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if cat, ok := b.costCategories[resourceARN]; ok {
+	if cat, ok := b.costCategories.Get(resourceARN); ok {
 		for _, k := range tagKeys {
 			delete(cat.Tags, k)
 		}
@@ -760,7 +758,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
-	if mon, ok := b.anomalyMonitors[resourceARN]; ok {
+	if mon, ok := b.anomalyMonitors.Get(resourceARN); ok {
 		for _, k := range tagKeys {
 			delete(mon.Tags, k)
 		}
@@ -768,7 +766,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
-	if sub, ok := b.anomalySubscriptions[resourceARN]; ok {
+	if sub, ok := b.anomalySubscriptions.Get(resourceARN); ok {
 		for _, k := range tagKeys {
 			delete(sub.Tags, k)
 		}
@@ -810,7 +808,7 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 		LastUpdatedDate:  now,
 		Tags:             tagsCopy,
 	}
-	b.anomalyMonitors[monARN] = mon
+	b.anomalyMonitors.Put(mon)
 
 	out := *mon
 
@@ -822,11 +820,11 @@ func (b *InMemoryBackend) DeleteAnomalyMonitor(monARN string) error {
 	b.mu.Lock("DeleteAnomalyMonitor")
 	defer b.mu.Unlock()
 
-	if _, exists := b.anomalyMonitors[monARN]; !exists {
+	if !b.anomalyMonitors.Has(monARN) {
 		return ErrNotFound
 	}
 
-	delete(b.anomalyMonitors, monARN)
+	b.anomalyMonitors.Delete(monARN)
 
 	return nil
 }
@@ -842,8 +840,9 @@ func (b *InMemoryBackend) GetAnomalyMonitors(
 	var result []*AnomalyMonitor
 
 	if len(monitorARNList) == 0 {
-		result = make([]*AnomalyMonitor, 0, len(b.anomalyMonitors))
-		for _, mon := range b.anomalyMonitors {
+		all := b.anomalyMonitors.All()
+		result = make([]*AnomalyMonitor, 0, len(all))
+		for _, mon := range all {
 			out := *mon
 			result = append(result, &out)
 		}
@@ -855,7 +854,7 @@ func (b *InMemoryBackend) GetAnomalyMonitors(
 
 		result = make([]*AnomalyMonitor, 0, len(monitorARNList))
 
-		for _, mon := range b.anomalyMonitors {
+		for _, mon := range b.anomalyMonitors.All() {
 			if _, ok := set[mon.MonitorARN]; ok {
 				out := *mon
 				result = append(result, &out)
@@ -875,7 +874,7 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(
 	b.mu.Lock("UpdateAnomalyMonitor")
 	defer b.mu.Unlock()
 
-	mon, exists := b.anomalyMonitors[monARN]
+	mon, exists := b.anomalyMonitors.Get(monARN)
 	if !exists {
 		return nil, ErrNotFound
 	}
@@ -929,7 +928,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 		CreationDate:     time.Now().UTC(),
 		Tags:             tagsCopy,
 	}
-	b.anomalySubscriptions[subARN] = sub
+	b.anomalySubscriptions.Put(sub)
 
 	out := *sub
 
@@ -941,11 +940,11 @@ func (b *InMemoryBackend) DeleteAnomalySubscription(subARN string) error {
 	b.mu.Lock("DeleteAnomalySubscription")
 	defer b.mu.Unlock()
 
-	if _, exists := b.anomalySubscriptions[subARN]; !exists {
+	if !b.anomalySubscriptions.Has(subARN) {
 		return ErrNotFound
 	}
 
-	delete(b.anomalySubscriptions, subARN)
+	b.anomalySubscriptions.Delete(subARN)
 
 	return nil
 }
@@ -964,9 +963,10 @@ func (b *InMemoryBackend) GetAnomalySubscriptions(
 	var result []*AnomalySubscription
 
 	if len(subscriptionARNList) == 0 {
-		result = make([]*AnomalySubscription, 0, len(b.anomalySubscriptions))
+		all := b.anomalySubscriptions.All()
+		result = make([]*AnomalySubscription, 0, len(all))
 
-		for _, sub := range b.anomalySubscriptions {
+		for _, sub := range all {
 			if monitorARN != "" && !containsString(sub.MonitorARNList, monitorARN) {
 				continue
 			}
@@ -982,7 +982,7 @@ func (b *InMemoryBackend) GetAnomalySubscriptions(
 
 		result = make([]*AnomalySubscription, 0, len(subscriptionARNList))
 
-		for _, sub := range b.anomalySubscriptions {
+		for _, sub := range b.anomalySubscriptions.All() {
 			if _, ok := set[sub.SubscriptionARN]; !ok {
 				continue
 			}
@@ -1053,7 +1053,7 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	b.mu.Lock("UpdateAnomalySubscription")
 	defer b.mu.Unlock()
 
-	sub, exists := b.anomalySubscriptions[subARN]
+	sub, exists := b.anomalySubscriptions.Get(subARN)
 	if !exists {
 		return nil, ErrNotFound
 	}
@@ -1095,9 +1095,10 @@ func (b *InMemoryBackend) GetAnomalies(
 	b.mu.RLock("GetAnomalies")
 	defer b.mu.RUnlock()
 
-	result := make([]*Anomaly, 0, len(b.anomalies))
+	all := b.anomalies.All()
+	result := make([]*Anomaly, 0, len(all))
 
-	for _, a := range b.anomalies {
+	for _, a := range all {
 		if monitorARN != "" && a.MonitorARN != monitorARN {
 			continue
 		}
@@ -1138,7 +1139,7 @@ func (b *InMemoryBackend) AddAnomaly(a Anomaly) {
 	}
 
 	cp := a
-	b.anomalies[a.AnomalyID] = &cp
+	b.anomalies.Put(&cp)
 }
 
 // GetCostCategories returns the distinct cost category values stored in the
@@ -1150,7 +1151,7 @@ func (b *InMemoryBackend) GetCostCategories(costCategoryName string) []string {
 	seen := make(map[string]struct{})
 	var values []string
 
-	for _, cat := range b.costCategories {
+	for _, cat := range b.costCategories.All() {
 		if costCategoryName != "" && cat.Name != costCategoryName {
 			continue
 		}
@@ -1938,7 +1939,7 @@ func (b *InMemoryBackend) ListCostAllocationTags(
 
 	var result []*CostAllocationTag
 
-	for _, tag := range b.costAllocationTags {
+	for _, tag := range b.costAllocationTags.All() {
 		if status != "" && tag.Status != status {
 			continue
 		}
@@ -1985,16 +1986,16 @@ func (b *InMemoryBackend) UpdateCostAllocationTagsStatus(
 			continue
 		}
 
-		if tag, ok := b.costAllocationTags[u.TagKey]; ok {
+		if tag, ok := b.costAllocationTags.Get(u.TagKey); ok {
 			tag.Status = u.Status
 			tag.LastUpdatedDate = time.Now().UTC().Format(time.RFC3339)
 		} else {
-			b.costAllocationTags[u.TagKey] = &CostAllocationTag{
+			b.costAllocationTags.Put(&CostAllocationTag{
 				TagKey:          u.TagKey,
 				Status:          u.Status,
 				Type:            "UserDefined",
 				LastUpdatedDate: time.Now().UTC().Format(time.RFC3339),
-			}
+			})
 		}
 	}
 
@@ -2055,7 +2056,7 @@ func (b *InMemoryBackend) CreateCommitmentAnalysis() *CommitmentAnalysis {
 		EstimatedCompletionTime: estimated.Format(time.RFC3339),
 	}
 
-	b.commitmentAnalyses[a.AnalysisID] = a
+	b.commitmentAnalyses.Put(a)
 
 	return a
 }
@@ -2065,7 +2066,7 @@ func (b *InMemoryBackend) GetCommitmentAnalysis(analysisID string) (*CommitmentA
 	b.mu.RLock("GetCommitmentAnalysis")
 	defer b.mu.RUnlock()
 
-	a, ok := b.commitmentAnalyses[analysisID]
+	a, ok := b.commitmentAnalyses.Get(analysisID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2080,8 +2081,9 @@ func (b *InMemoryBackend) ListCommitmentAnalyses() []*CommitmentAnalysis {
 	b.mu.RLock("ListCommitmentAnalyses")
 	defer b.mu.RUnlock()
 
-	result := make([]*CommitmentAnalysis, 0, len(b.commitmentAnalyses))
-	for _, a := range b.commitmentAnalyses {
+	all := b.commitmentAnalyses.All()
+	result := make([]*CommitmentAnalysis, 0, len(all))
+	for _, a := range all {
 		cp := *a
 		result = append(result, &cp)
 	}
@@ -2104,7 +2106,7 @@ func (b *InMemoryBackend) ProvideAnomalyFeedback(anomalyID, feedback string) err
 		return fmt.Errorf("%w: Feedback must be YES, NO, or PLANNED_ACTIVITY", ErrValidation)
 	}
 
-	a, ok := b.anomalies[anomalyID]
+	a, ok := b.anomalies.Get(anomalyID)
 	if !ok {
 		return ErrNotFound
 	}

@@ -72,12 +72,12 @@ func (b *InMemoryBackend) GetSdk(restAPIID, stageName, sdkType string) (*SdkExpo
 	b.mu.RLock("GetSdk")
 	defer b.mu.RUnlock()
 
-	data, ok := b.apis[restAPIID]
+	api, ok := b.restApis.Get(restAPIID)
 	if !ok {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	if _, stageOK := data.stages[stageName]; !stageOK {
+	if !b.stages.Has(stageKey(restAPIID, stageName)) {
 		return nil, fmt.Errorf("%w: stage %s not found", ErrStageNotFound, stageName)
 	}
 
@@ -85,7 +85,8 @@ func (b *InMemoryBackend) GetSdk(restAPIID, stageName, sdkType string) (*SdkExpo
 		return nil, fmt.Errorf("%w: unsupported sdkType %q", ErrInvalidParameter, sdkType)
 	}
 
-	spec := buildOAS30Export(data, stageName)
+	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name}
+	spec := buildOAS30Export(ctx, stageName)
 
 	specJSON, err := json.MarshalIndent(spec, "", "  ")
 	if err != nil {
@@ -291,15 +292,16 @@ func (b *InMemoryBackend) ImportDocumentationParts(
 
 	b.mu.Lock("ImportDocumentationParts")
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		b.mu.Unlock()
 
 		return nil, nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
 	if strings.EqualFold(mode, "overwrite") {
-		d.documentationParts = make(map[string]*DocumentationPart)
+		for _, p := range append([]*DocumentationPart{}, b.documentationPartsByAPI.Get(restAPIID)...) {
+			b.documentationParts.Delete(documentationPartKeyFn(p))
+		}
 	}
 
 	b.mu.Unlock()
@@ -350,13 +352,13 @@ func (b *InMemoryBackend) ImportDocumentationParts(
 func (b *InMemoryBackend) UpdateUsage(usagePlanID, keyID string, dateValues map[string]string) (*UsageData, error) {
 	b.mu.Lock("UpdateUsage")
 
-	if _, ok := b.usagePlans[usagePlanID]; !ok {
+	if !b.usagePlans.Has(usagePlanID) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
 	}
 
-	if _, ok := b.usagePlanKeys[usagePlanID][keyID]; !ok {
+	if !b.usagePlanKeys.Has(usagePlanKeyKey(usagePlanID, keyID)) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)

@@ -179,10 +179,11 @@ func collectBackupSummaries(
 	tableName, backupType string,
 	timeRangeLower, timeRangeUpper *float64,
 ) []models.BackupSummary {
-	summaries := make([]models.BackupSummary, 0, len(db.Backups))
+	all := db.backups.All()
+	summaries := make([]models.BackupSummary, 0, len(all))
 
-	for bkpARN, b := range db.Backups {
-		if db.regionFromARN(bkpARN) != requestRegion {
+	for _, b := range all {
+		if db.regionFromARN(b.BackupArn) != requestRegion {
 			continue
 		}
 
@@ -278,11 +279,7 @@ func (db *InMemoryDB) installRestoredTable(
 ) (*Table, string, error) {
 	db.mu.Lock("RestoreTable")
 
-	if _, rExists := db.Tables[region]; !rExists {
-		db.Tables[region] = make(map[string]*Table)
-	}
-
-	if _, tExists := db.Tables[region][tableName]; tExists {
+	if _, tExists := db.tables.Get(tableKey(region, tableName)); tExists {
 		db.mu.Unlock()
 
 		return nil, "", NewResourceInUseException("table already exists: " + tableName)
@@ -312,7 +309,7 @@ func (db *InMemoryDB) installRestoredTable(
 	newTable.initializeIndexes()
 	newTable.rebuildIndexes()
 
-	db.Tables[region][tableName] = newTable
+	db.tables.Put(newTable)
 	db.mu.Unlock()
 
 	return newTable, newTableID, nil
@@ -338,7 +335,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 	}
 
 	db.mu.RLock("RestoreTableFromBackup.lookup")
-	backup, exists := db.Backups[req.BackupArn]
+	backup, exists := db.backups.Get(req.BackupArn)
 	db.mu.RUnlock()
 
 	if !exists {

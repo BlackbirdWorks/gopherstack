@@ -6,7 +6,7 @@ func ServerCount(b *InMemoryBackend) int {
 	b.mu.RLock("ServerCount")
 	defer b.mu.RUnlock()
 
-	return len(b.servers)
+	return b.servers.Len()
 }
 
 // UserCount returns the total number of users stored across all servers.
@@ -15,12 +15,7 @@ func UserCount(b *InMemoryBackend) int {
 	b.mu.RLock("UserCount")
 	defer b.mu.RUnlock()
 
-	n := 0
-	for _, m := range b.users {
-		n += len(m)
-	}
-
-	return n
+	return b.users.Len()
 }
 
 // AccessCount returns the total number of access entries across all servers.
@@ -29,12 +24,7 @@ func AccessCount(b *InMemoryBackend) int {
 	b.mu.RLock("AccessCount")
 	defer b.mu.RUnlock()
 
-	n := 0
-	for _, m := range b.accesses {
-		n += len(m)
-	}
-
-	return n
+	return b.accesses.Len()
 }
 
 // AgreementCount returns the total number of agreements across all servers.
@@ -43,12 +33,7 @@ func AgreementCount(b *InMemoryBackend) int {
 	b.mu.RLock("AgreementCount")
 	defer b.mu.RUnlock()
 
-	n := 0
-	for _, m := range b.agreements {
-		n += len(m)
-	}
-
-	return n
+	return b.agreements.Len()
 }
 
 // ConnectorCount returns the number of connectors stored in the backend.
@@ -57,7 +42,7 @@ func ConnectorCount(b *InMemoryBackend) int {
 	b.mu.RLock("ConnectorCount")
 	defer b.mu.RUnlock()
 
-	return len(b.connectors)
+	return b.connectors.Len()
 }
 
 // ProfileCount returns the number of profiles stored in the backend.
@@ -66,7 +51,7 @@ func ProfileCount(b *InMemoryBackend) int {
 	b.mu.RLock("ProfileCount")
 	defer b.mu.RUnlock()
 
-	return len(b.profiles)
+	return b.profiles.Len()
 }
 
 // WebAppCount returns the number of web apps stored in the backend.
@@ -75,7 +60,7 @@ func WebAppCount(b *InMemoryBackend) int {
 	b.mu.RLock("WebAppCount")
 	defer b.mu.RUnlock()
 
-	return len(b.webApps)
+	return b.webApps.Len()
 }
 
 // WorkflowCount returns the number of workflows stored in the backend.
@@ -84,7 +69,7 @@ func WorkflowCount(b *InMemoryBackend) int {
 	b.mu.RLock("WorkflowCount")
 	defer b.mu.RUnlock()
 
-	return len(b.workflows)
+	return b.workflows.Len()
 }
 
 // CertificateCount returns the number of certificates stored in the backend.
@@ -93,7 +78,7 @@ func CertificateCount(b *InMemoryBackend) int {
 	b.mu.RLock("CertificateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.certificates)
+	return b.certificates.Len()
 }
 
 // HostKeyCount returns the total number of host keys stored across all servers.
@@ -102,12 +87,7 @@ func HostKeyCount(b *InMemoryBackend) int {
 	b.mu.RLock("HostKeyCount")
 	defer b.mu.RUnlock()
 
-	n := 0
-	for _, m := range b.hostKeys {
-		n += len(m)
-	}
-
-	return n
+	return b.hostKeys.Len()
 }
 
 // SSHPublicKeyCount returns the total number of SSH public keys stored across all users and servers.
@@ -116,14 +96,7 @@ func SSHPublicKeyCount(b *InMemoryBackend) int {
 	b.mu.RLock("SSHPublicKeyCount")
 	defer b.mu.RUnlock()
 
-	n := 0
-	for _, userMap := range b.sshPublicKeys {
-		for _, keyMap := range userMap {
-			n += len(keyMap)
-		}
-	}
-
-	return n
+	return b.sshPublicKeys.Len()
 }
 
 // HandlerOpsLen returns the number of operations pre-built in the handler dispatch map.

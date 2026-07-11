@@ -35,6 +35,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -208,35 +209,66 @@ type functionURLServer struct {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
-	cwLogs                   CWLogsBackend
-	s3Fetcher                S3CodeFetcher
-	docker                   container.Runtime
-	dnsRegistrar             DNSRegistrar
-	ctx                      context.Context
-	logSem                   chan struct{}
-	fisFaults                map[string]*FISInvocationFault
-	versionCounters          map[string]int
-	functions                map[string]*FunctionConfiguration
-	functionURLServers       map[string]*functionURLServer
-	functionURLConfigs       map[string]*FunctionURLConfig
-	versions                 map[string][]*FunctionVersion
-	eventInvokeConfigs       map[string]*FunctionEventInvokeConfig
-	functionConcurrencies    map[string]int
-	kinesisPoller            *EventSourcePoller
-	pollerCancel             context.CancelFunc
-	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
-	layers                   map[string][]*LayerVersion
-	eventSourceMappings      map[string]*EventSourceMapping
-	esmByFunctionARN         map[string]map[string]struct{}
-	versionIndex             map[string]map[string]*FunctionVersion
-	cleanupSem               chan struct{}
-	layerVersionCounters     map[string]int64
-	layerPolicies            map[string]map[int64]map[string]*LayerVersionStatement
-	aliases                  map[string]map[string]*FunctionAlias
-	permissions              map[string]map[string]*FunctionPermission
-	codeSigningConfigs       map[string]*CodeSigningConfig
-	fnCodeSigningConfigs     map[string]string
-	capacityProviders        map[string]*CapacityProvider
+	cwLogs             CWLogsBackend
+	s3Fetcher          S3CodeFetcher
+	docker             container.Runtime
+	dnsRegistrar       DNSRegistrar
+	ctx                context.Context
+	logSem             chan struct{}
+	fisFaults          map[string]*FISInvocationFault
+	versionCounters    map[string]int
+	functions          *store.Table[FunctionConfiguration]
+	functionURLServers map[string]*functionURLServer
+	functionURLConfigs *store.Table[FunctionURLConfig]
+	versions           map[string][]*FunctionVersion
+	// eventInvokeConfigs stays a plain map (not a store.Table): its only
+	// identity field, FunctionArn, is copied from the owning
+	// FunctionConfiguration.FunctionArn at Put time, and a large share of this
+	// package's own test fixtures construct FunctionConfiguration without
+	// ever setting FunctionArn (it is optional unless the FunctionURL/
+	// EventInvokeConfig/CapacityProvider surface is being exercised) --
+	// keying a Table off it would silently mis-key every such config to "".
+	// WAS persisted before this refactor and remains a raw field on
+	// backendSnapshot.
+	eventInvokeConfigs    map[string]*FunctionEventInvokeConfig
+	functionConcurrencies map[string]int
+	kinesisPoller         *EventSourcePoller
+	pollerCancel          context.CancelFunc
+	// provisionedConcurrencies is keyed by FunctionArn (buildAliasARN:
+	// function+qualifier composite); provisionedConcurrenciesByFunction
+	// indexes it by bare function name for ListProvisionedConcurrencyConfigs
+	// and the function-delete cascade. Registered on b.ephemeralRegistry, not
+	// b.registry -- see store_setup.go's package doc: this was never
+	// persisted before the conversion and must stay that way.
+	provisionedConcurrencies           *store.Table[ProvisionedConcurrencyConfig]
+	provisionedConcurrenciesByFunction *store.Index[ProvisionedConcurrencyConfig]
+	layers                             map[string][]*LayerVersion
+	eventSourceMappings                *store.Table[EventSourceMapping]
+	esmByFunctionARN                   map[string]map[string]struct{}
+	versionIndex                       map[string]map[string]*FunctionVersion
+	cleanupSem                         chan struct{}
+	layerVersionCounters               map[string]int64
+	layerPolicies                      map[string]map[int64]map[string]*LayerVersionStatement
+	// aliases is keyed by aliasKey(functionName, aliasName);
+	// aliasesByFunction indexes it by bare function name for ListAliases and
+	// the function-delete cascade.
+	aliases           *store.Table[FunctionAlias]
+	aliasesByFunction *store.Index[FunctionAlias]
+	// permissions is keyed by permissionKeyFn (permissionMapKey(FunctionName,
+	// Qualifier)+"|"+StatementID); permissionsByTarget indexes it by
+	// permissionMapKey(FunctionName, Qualifier) for GetPolicy.
+	permissions          *store.Table[FunctionPermission]
+	permissionsByTarget  *store.Index[FunctionPermission]
+	codeSigningConfigs   *store.Table[CodeSigningConfig]
+	fnCodeSigningConfigs map[string]string
+	capacityProviders    *store.Table[CapacityProvider]
+	// registry holds every table that was already persisted before this
+	// refactor (see backendSnapshot in persistence.go); ephemeralRegistry
+	// holds tables with a pure key function that were NOT previously
+	// persisted. Both are swept by Reset(); only registry feeds Snapshot/
+	// Restore. See store_setup.go's package doc for the full rationale.
+	registry                 *store.Registry
+	ephemeralRegistry        *store.Registry
 	runtimeManagementConfigs map[string]*RuntimeManagementConfig
 	functionRecursionConfigs map[string]*FunctionRecursionConfig
 	functionScalingConfigs   map[string]*FunctionScalingConfig
@@ -310,18 +342,14 @@ func NewInMemoryBackendWithContext(
 		svcCtx = context.Background()
 	}
 
-	return &InMemoryBackend{
-		functions:                make(map[string]*FunctionConfiguration),
+	b := &InMemoryBackend{
 		runtimes:                 make(map[string]*functionRuntime),
-		eventSourceMappings:      make(map[string]*EventSourceMapping),
 		esmByFunctionARN:         make(map[string]map[string]struct{}),
 		versionIndex:             make(map[string]map[string]*FunctionVersion),
 		cleanupSem:               make(chan struct{}, maxCleanupConcurrency),
 		logSem:                   make(chan struct{}, maxConcurrentInvocationLogs),
-		functionURLConfigs:       make(map[string]*FunctionURLConfig),
 		functionURLServers:       make(map[string]*functionURLServer),
 		versions:                 make(map[string][]*FunctionVersion),
-		aliases:                  make(map[string]map[string]*FunctionAlias),
 		versionCounters:          make(map[string]int),
 		layers:                   make(map[string][]*LayerVersion),
 		layerVersionCounters:     make(map[string]int64),
@@ -329,12 +357,8 @@ func NewInMemoryBackendWithContext(
 		eventInvokeConfigs:       make(map[string]*FunctionEventInvokeConfig),
 		functionConcurrencies:    make(map[string]int),
 		activeConcurrencies:      make(map[string]int),
-		provisionedConcurrencies: make(map[string]map[string]*ProvisionedConcurrencyConfig),
 		fisFaults:                make(map[string]*FISInvocationFault),
-		permissions:              make(map[string]map[string]*FunctionPermission),
-		codeSigningConfigs:       make(map[string]*CodeSigningConfig),
 		fnCodeSigningConfigs:     make(map[string]string),
-		capacityProviders:        make(map[string]*CapacityProvider),
 		runtimeManagementConfigs: make(map[string]*RuntimeManagementConfig),
 		functionRecursionConfigs: make(map[string]*FunctionRecursionConfig),
 		functionScalingConfigs:   make(map[string]*FunctionScalingConfig),
@@ -348,7 +372,13 @@ func NewInMemoryBackendWithContext(
 		region:                   region,
 		ctx:                      svcCtx,
 		mu:                       lockmetrics.New("lambda"),
+		registry:                 store.NewRegistry(),
+		ephemeralRegistry:        store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Close shuts down all active function URL servers and runtime API servers.
@@ -483,13 +513,23 @@ func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
 // esmFunctionName normalizes a function reference (bare name or full function ARN)
 // to the bare function name used for event-source-mapping indexing.
 func esmFunctionName(functionName string) string {
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-
-		return parts[len(parts)-1]
+	if !strings.HasPrefix(functionName, "arn:aws:lambda:") {
+		return functionName
 	}
 
-	return functionName
+	// Bug fix (parity-sweep-3): previously took the last colon-separated
+	// segment of the ARN, which for a qualified ARN
+	// (arn:...:function:my-func:PROD) returned just "PROD" — discarding the
+	// actual function name and causing the mapping to be registered (and the
+	// poller to invoke) a nonexistent function named after the qualifier.
+	// Preserve the "name:qualifier" suffix so the mapping keeps routing to
+	// the specific version/alias, matching real Lambda's FunctionArn echo.
+	name, qualifier := functionNameAndQualifierFromARN(functionName)
+	if qualifier != "" {
+		return name + ":" + qualifier
+	}
+
+	return name
 }
 
 // CreateEventSourceMapping creates a new event source mapping.
@@ -555,7 +595,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		FunctionResponseTypes:               input.FunctionResponseTypes,
 	}
 
-	b.eventSourceMappings[id] = m
+	b.eventSourceMappings.Put(m)
 
 	if b.esmByFunctionARN[fnARN] == nil {
 		b.esmByFunctionARN[fnARN] = make(map[string]struct{})
@@ -574,7 +614,7 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 	b.mu.RLock("GetEventSourceMapping")
 	defer b.mu.RUnlock()
 
-	m, ok := b.eventSourceMappings[uuid]
+	m, ok := b.eventSourceMappings.Get(uuid)
 	if !ok {
 		return nil, ErrESMNotFound
 	}
@@ -602,15 +642,12 @@ func (b *InMemoryBackend) ListEventSourceMappings(
 		ids := b.esmByFunctionARN[fnARN]
 		result = make([]*EventSourceMapping, 0, len(ids))
 		for id := range ids {
-			if m, ok := b.eventSourceMappings[id]; ok {
+			if m, ok := b.eventSourceMappings.Get(id); ok {
 				result = append(result, m)
 			}
 		}
 	} else {
-		result = make([]*EventSourceMapping, 0, len(b.eventSourceMappings))
-		for _, m := range b.eventSourceMappings {
-			result = append(result, m)
-		}
+		result = b.eventSourceMappings.All()
 	}
 
 	// Apply optional EventSourceArn filter.
@@ -636,12 +673,12 @@ func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMappi
 	b.mu.Lock("DeleteEventSourceMapping")
 	defer b.mu.Unlock()
 
-	m, ok := b.eventSourceMappings[id]
+	m, ok := b.eventSourceMappings.Get(id)
 	if !ok {
 		return nil, ErrESMNotFound
 	}
 
-	delete(b.eventSourceMappings, id)
+	b.eventSourceMappings.Delete(id)
 	if ids := b.esmByFunctionARN[m.FunctionARN]; ids != nil {
 		delete(ids, id)
 		if len(ids) == 0 {
@@ -672,13 +709,13 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 ) (*FunctionURLConfig, error) {
 	b.mu.Lock("CreateFunctionURLConfig.check")
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(functionName); !ok {
 		b.mu.Unlock()
 
 		return nil, ErrFunctionNotFound
 	}
 
-	if _, exists := b.functionURLConfigs[functionName]; exists {
+	if _, exists := b.functionURLConfigs.Get(functionName); exists {
 		b.mu.Unlock()
 
 		return nil, ErrFunctionAlreadyExists
@@ -711,7 +748,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 	b.mu.Lock("CreateFunctionURLConfig.commit")
 	defer b.mu.Unlock()
 
-	if _, exists := b.functionURLConfigs[functionName]; exists {
+	if _, exists := b.functionURLConfigs.Get(functionName); exists {
 		// Another goroutine won the race. Our server was already committed to
 		// b.functionURLServers by allocateAndStartURLServerUnlocked; remove it
 		// under the lock and schedule shutdown outside.
@@ -736,7 +773,7 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(
 		return nil, ErrFunctionAlreadyExists
 	}
 
-	b.functionURLConfigs[functionName] = cfg
+	b.functionURLConfigs.Put(cfg)
 
 	return cfg, nil
 }
@@ -804,7 +841,7 @@ func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionUR
 	b.mu.RLock("GetFunctionURLConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.functionURLConfigs[functionName]
+	cfg, ok := b.functionURLConfigs.Get(functionName)
 	if !ok {
 		return nil, ErrFunctionURLNotFound
 	}
@@ -816,13 +853,13 @@ func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionUR
 func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
 	b.mu.Lock("DeleteFunctionURLConfig")
 
-	if _, ok := b.functionURLConfigs[functionName]; !ok {
+	if _, ok := b.functionURLConfigs.Get(functionName); !ok {
 		b.mu.Unlock()
 
 		return ErrFunctionURLNotFound
 	}
 
-	delete(b.functionURLConfigs, functionName)
+	b.functionURLConfigs.Delete(functionName)
 
 	srv := b.functionURLServers[functionName]
 	delete(b.functionURLServers, functionName)
@@ -995,7 +1032,9 @@ func (b *InMemoryBackend) lookupFunctionURLConfig(functionName string) *Function
 	b.mu.RLock("lookupFunctionURLConfig")
 	defer b.mu.RUnlock()
 
-	return b.functionURLConfigs[functionName]
+	cfg, _ := b.functionURLConfigs.Get(functionName)
+
+	return cfg
 }
 
 // functionURLCors returns the CORS config when present.
@@ -1263,7 +1302,7 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
-	if _, exists := b.functions[fn.FunctionName]; exists {
+	if _, exists := b.functions.Get(fn.FunctionName); exists {
 		return ErrFunctionAlreadyExists
 	}
 
@@ -1295,7 +1334,7 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 		b.scheduleFunctionActive(fn.FunctionName, b.activationDelay)
 	}
 
-	b.functions[fn.FunctionName] = fn
+	b.functions.Put(fn)
 
 	return nil
 }
@@ -1347,7 +1386,7 @@ func (b *InMemoryBackend) scheduleFunctionActive(name string, delay time.Duratio
 		b.mu.Lock("scheduleFunctionActive")
 		defer b.mu.Unlock()
 
-		fn, ok := b.functions[name]
+		fn, ok := b.functions.Get(name)
 		if !ok || fn.State != FunctionStatePending {
 			return
 		}
@@ -1364,7 +1403,7 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 	defer b.mu.RUnlock()
 
 	name = extractFunctionName(name)
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -1396,7 +1435,7 @@ func (b *InMemoryBackend) GetFunctionByQualifier(
 	b.mu.RLock("GetFunctionByQualifier")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -1405,16 +1444,14 @@ func (b *InMemoryBackend) GetFunctionByQualifier(
 	resolved := qualifier
 	aliasSuffix := ""
 
-	if aliasMap := b.aliases[name]; aliasMap != nil {
-		if alias, ok := aliasMap[qualifier]; ok {
-			resolved = alias.FunctionVersion
-			aliasSuffix = qualifier
-		}
+	if alias, ok := b.aliases.Get(aliasKey(name, qualifier)); ok {
+		resolved = alias.FunctionVersion
+		aliasSuffix = qualifier
 	}
 
 	if resolved == versionLatest {
 		// Alias points at $LATEST: return the live config but with the alias ARN.
-		fn := b.functions[name]
+		fn, _ := b.functions.Get(name)
 		cfg := versionToConfig(fnToVersion(fn))
 		cfg.FunctionArn = buildVersionARN(b.region, b.accountID, name, aliasSuffix)
 
@@ -1450,10 +1487,7 @@ func (b *InMemoryBackend) ListFunctions(
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
-	fns := make([]*FunctionConfiguration, 0, len(b.functions))
-	for _, fn := range b.functions {
-		fns = append(fns, fn)
-	}
+	fns := b.functions.All()
 
 	sort.Slice(fns, func(i, j int) bool {
 		return fns[i].FunctionName < fns[j].FunctionName
@@ -1472,12 +1506,8 @@ func (b *InMemoryBackend) ListFunctionsAll(
 	b.mu.RLock("ListFunctionsAll")
 	defer b.mu.RUnlock()
 
-	var fns []*FunctionConfiguration
-
 	// Include $LATEST for each function.
-	for _, fn := range b.functions {
-		fns = append(fns, fn)
-	}
+	fns := b.functions.All()
 
 	// Include all published versions.
 	for name, vMap := range b.versionIndex {
@@ -1514,13 +1544,13 @@ func (b *InMemoryBackend) ListFunctionsAll(
 func (b *InMemoryBackend) DeleteFunction(name string) error {
 	b.mu.Lock("DeleteFunction")
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		b.mu.Unlock()
 
 		return ErrFunctionNotFound
 	}
 
-	delete(b.functions, name)
+	b.functions.Delete(name)
 
 	rt := b.runtimes[name]
 	delete(b.runtimes, name)
@@ -1530,7 +1560,7 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 	var esmIDsToRemove []string
 	if ids, ok := b.esmByFunctionARN[fnARN]; ok {
 		for id := range ids {
-			delete(b.eventSourceMappings, id)
+			b.eventSourceMappings.Delete(id)
 			esmIDsToRemove = append(esmIDsToRemove, id)
 		}
 		delete(b.esmByFunctionARN, fnARN)
@@ -1559,13 +1589,13 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	b.mu.Lock("UpdateFunction")
 
-	if _, ok := b.functions[fn.FunctionName]; !ok {
+	if _, ok := b.functions.Get(fn.FunctionName); !ok {
 		b.mu.Unlock()
 
 		return ErrFunctionNotFound
 	}
 
-	b.functions[fn.FunctionName] = fn
+	b.functions.Put(fn)
 
 	// Evict the running runtime so the next invocation gets a fresh container with the
 	// updated code or configuration (mirrors AWS/LocalStack behaviour).
@@ -1617,7 +1647,7 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 	b.mu.Lock("PublishVersion")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -1668,7 +1698,7 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 	defer b.mu.RUnlock()
 
 	if version == versionLatest {
-		fn, ok := b.functions[name]
+		fn, ok := b.functions.Get(name)
 		if !ok {
 			return nil, ErrFunctionNotFound
 		}
@@ -1676,7 +1706,7 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 		return fnToVersion(fn), nil
 	}
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -1697,7 +1727,7 @@ func (b *InMemoryBackend) ListVersionsByFunction(
 	b.mu.RLock("ListVersionsByFunction")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return page.Page[*FunctionVersion]{}, ErrFunctionNotFound
 	}
@@ -1730,7 +1760,7 @@ func (b *InMemoryBackend) CreateAlias(
 	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -1741,11 +1771,7 @@ func (b *InMemoryBackend) CreateAlias(
 		}
 	}
 
-	if _, ok := b.aliases[name]; !ok {
-		b.aliases[name] = make(map[string]*FunctionAlias)
-	}
-
-	if _, exists := b.aliases[name][input.Name]; exists {
+	if _, exists := b.aliases.Get(aliasKey(name, input.Name)); exists {
 		return nil, ErrAliasAlreadyExists
 	}
 
@@ -1758,7 +1784,7 @@ func (b *InMemoryBackend) CreateAlias(
 		RevisionID:      uuid.New().String(),
 	}
 
-	b.aliases[name][input.Name] = alias
+	b.aliases.Put(alias)
 
 	return alias, nil
 }
@@ -1768,16 +1794,11 @@ func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, erro
 	b.mu.RLock("GetAlias")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	aliasMap, ok := b.aliases[name]
-	if !ok {
-		return nil, ErrAliasNotFound
-	}
-
-	alias, ok := aliasMap[aliasName]
+	alias, ok := b.aliases.Get(aliasKey(name, aliasName))
 	if !ok {
 		return nil, ErrAliasNotFound
 	}
@@ -1794,14 +1815,14 @@ func (b *InMemoryBackend) ListAliases(
 	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return page.Page[*FunctionAlias]{}, ErrFunctionNotFound
 	}
 
-	aliasMap := b.aliases[name]
-	result := make([]*FunctionAlias, 0, len(aliasMap))
+	forFunction := b.aliasesByFunction.Get(name)
+	result := make([]*FunctionAlias, 0, len(forFunction))
 
-	for _, a := range aliasMap {
+	for _, a := range forFunction {
 		if functionVersion != "" && a.FunctionVersion != functionVersion {
 			continue
 		}
@@ -1824,12 +1845,7 @@ func (b *InMemoryBackend) UpdateAlias(
 	b.mu.Lock("UpdateAlias")
 	defer b.mu.Unlock()
 
-	aliasMap, ok := b.aliases[name]
-	if !ok {
-		return nil, ErrAliasNotFound
-	}
-
-	alias, ok := aliasMap[aliasName]
+	alias, ok := b.aliases.Get(aliasKey(name, aliasName))
 	if !ok {
 		return nil, ErrAliasNotFound
 	}
@@ -1856,16 +1872,9 @@ func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
 	b.mu.Lock("DeleteAlias")
 	defer b.mu.Unlock()
 
-	aliasMap, hasMap := b.aliases[name]
-	if !hasMap {
+	if !b.aliases.Delete(aliasKey(name, aliasName)) {
 		return ErrAliasNotFound
 	}
-
-	if _, hasAlias := aliasMap[aliasName]; !hasAlias {
-		return ErrAliasNotFound
-	}
-
-	delete(aliasMap, aliasName)
 
 	return nil
 }
@@ -1884,6 +1893,43 @@ func extractFunctionName(name string) string {
 	return name
 }
 
+// functionNameAndQualifierFromARN splits a full/partial Lambda function ARN, or
+// the bare "name:qualifier" shorthand AWS also accepts, into the bare function
+// name and an optional version/alias qualifier.
+//
+// Examples:
+//
+//	arn:aws:lambda:us-east-1:000000000000:function:my-func       -> ("my-func", "")
+//	arn:aws:lambda:us-east-1:000000000000:function:my-func:PROD  -> ("my-func", "PROD")
+//	my-func:PROD                                                 -> ("my-func", "PROD")
+//	my-func                                                      -> ("my-func", "")
+//
+// Function names never contain a colon (AWS restricts them to
+// [a-zA-Z0-9-_]+), so any colon in the input unambiguously marks an ARN
+// boundary or an appended qualifier — never returns a false split.
+func functionNameAndQualifierFromARN(name string) (string, string) {
+	parts := strings.Split(name, ":")
+	for i, p := range parts {
+		if p == "function" && i+1 < len(parts) {
+			fnName := parts[i+1]
+			qualifier := ""
+			if i+2 < len(parts) {
+				qualifier = parts[i+2]
+			}
+
+			return fnName, qualifier
+		}
+	}
+
+	// Not an ARN with a "function:" segment. Support the bare "name:qualifier"
+	// shorthand (e.g. AddPermission/RemovePermission's "my-function:v1" format).
+	if before, after, ok := strings.Cut(name, ":"); ok && before != "" && after != "" {
+		return before, after
+	}
+
+	return name, ""
+}
+
 // resolveQualifier resolves a function name with an optional qualifier to a FunctionConfiguration.
 // Qualifier may be a version number, alias name, or "$LATEST" (default when empty).
 // Returns the resolved function config.
@@ -1898,10 +1944,8 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	// TOCTOU races with concurrent alias/version updates.
 	b.mu.RLock("resolveQualifier")
 
-	if aliasMap := b.aliases[name]; aliasMap != nil {
-		if alias, ok := aliasMap[qualifier]; ok {
-			qualifier = selectAliasVersion(alias)
-		}
+	if alias, ok := b.aliases.Get(aliasKey(name, qualifier)); ok {
+		qualifier = selectAliasVersion(alias)
 	}
 
 	// Now qualifier is a version number. Find the version snapshot.
@@ -3808,7 +3852,7 @@ func (b *InMemoryBackend) PutFunctionEventInvokeConfig(
 	b.mu.Lock("PutFunctionEventInvokeConfig")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -3837,7 +3881,7 @@ func (b *InMemoryBackend) GetFunctionEventInvokeConfig(
 	b.mu.RLock("GetFunctionEventInvokeConfig")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -3858,7 +3902,7 @@ func (b *InMemoryBackend) UpdateFunctionEventInvokeConfig(
 	b.mu.Lock("UpdateFunctionEventInvokeConfig")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -3895,7 +3939,7 @@ func (b *InMemoryBackend) DeleteFunctionEventInvokeConfig(name string) error {
 	b.mu.Lock("DeleteFunctionEventInvokeConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return ErrFunctionNotFound
 	}
 
@@ -3916,7 +3960,7 @@ func (b *InMemoryBackend) ListFunctionEventInvokeConfigs(
 	b.mu.RLock("ListFunctionEventInvokeConfigs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, "", ErrFunctionNotFound
 	}
 
@@ -3966,7 +4010,7 @@ func (b *InMemoryBackend) PutFunctionConcurrency(
 	b.mu.Lock("PutFunctionConcurrency")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -3989,7 +4033,7 @@ func (b *InMemoryBackend) GetFunctionConcurrency(name string) (*FunctionConcurre
 	b.mu.RLock("GetFunctionConcurrency")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -4007,7 +4051,7 @@ func (b *InMemoryBackend) DeleteFunctionConcurrency(name string) error {
 	b.mu.Lock("DeleteFunctionConcurrency")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return ErrFunctionNotFound
 	}
@@ -4028,7 +4072,7 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 	b.mu.Lock("PutProvisionedConcurrencyConfig")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -4045,10 +4089,6 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 			"%w: provisioned concurrency is not supported for $LATEST",
 			ErrInvalidParameterValue,
 		)
-	}
-
-	if _, exists := b.provisionedConcurrencies[name]; !exists {
-		b.provisionedConcurrencies[name] = make(map[string]*ProvisionedConcurrencyConfig)
 	}
 
 	cfg := &ProvisionedConcurrencyConfig{
@@ -4075,7 +4115,7 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 		b.scheduleProvisionedConcurrencyReady(name, qualifier, b.pcActivationDelay)
 	}
 
-	b.provisionedConcurrencies[name][qualifier] = cfg
+	b.provisionedConcurrencies.Put(cfg)
 
 	return cfg, nil
 }
@@ -4103,24 +4143,22 @@ func (b *InMemoryBackend) scheduleProvisionedConcurrencyReady(name, qualifier st
 		b.mu.Lock("provisionedConcurrencyReady")
 		defer b.mu.Unlock()
 
-		qualifiers, ok := b.provisionedConcurrencies[name]
+		key := buildAliasARN(b.region, b.accountID, name, qualifier)
+
+		cfg, ok := b.provisionedConcurrencies.Get(key)
 		if !ok {
 			return
 		}
 
-		cfg, ok := qualifiers[qualifier]
-		if !ok {
-			return
-		}
-
-		// Copy-on-write: replace the map entry with a new config so any caller
+		// Copy-on-write: replace the table entry with a new config so any caller
 		// holding the previous pointer (returned live by Get) never observes a
-		// concurrent field write.
+		// concurrent field write. FunctionArn (the table's key) is preserved
+		// unchanged, so Put replaces the same entry in place.
 		updated := *cfg
 		updated.Status = provisionedConcurrencyReady
 		updated.AvailableProvisionedConcurrentExecutions = updated.RequestedProvisionedConcurrentExecutions
 		updated.LastModified = time.Now().UTC().Format(time.RFC3339)
-		qualifiers[qualifier] = &updated
+		b.provisionedConcurrencies.Put(&updated)
 	})
 }
 
@@ -4131,16 +4169,11 @@ func (b *InMemoryBackend) GetProvisionedConcurrencyConfig(
 	b.mu.RLock("GetProvisionedConcurrencyConfig")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	qualifiers, ok := b.provisionedConcurrencies[name]
-	if !ok {
-		return nil, ErrProvisionedConcurrencyConfigNotFound
-	}
-
-	cfg, ok := qualifiers[qualifier]
+	cfg, ok := b.provisionedConcurrencies.Get(buildAliasARN(b.region, b.accountID, name, qualifier))
 	if !ok {
 		return nil, ErrProvisionedConcurrencyConfigNotFound
 	}
@@ -4153,23 +4186,12 @@ func (b *InMemoryBackend) DeleteProvisionedConcurrencyConfig(name, qualifier str
 	b.mu.Lock("DeleteProvisionedConcurrencyConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return ErrFunctionNotFound
 	}
 
-	qualifiers, ok := b.provisionedConcurrencies[name]
-	if !ok {
+	if !b.provisionedConcurrencies.Delete(buildAliasARN(b.region, b.accountID, name, qualifier)) {
 		return ErrProvisionedConcurrencyConfigNotFound
-	}
-
-	if _, exists := qualifiers[qualifier]; !exists {
-		return ErrProvisionedConcurrencyConfigNotFound
-	}
-
-	delete(qualifiers, qualifier)
-
-	if len(qualifiers) == 0 {
-		delete(b.provisionedConcurrencies, name)
 	}
 
 	return nil
@@ -4182,18 +4204,13 @@ func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(
 	b.mu.RLock("ListProvisionedConcurrencyConfigs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	qualifiers := b.provisionedConcurrencies[name]
-	configs := make([]*ProvisionedConcurrencyConfig, 0, len(qualifiers))
+	configs := b.provisionedConcurrenciesByFunction.Get(name)
 
-	for _, cfg := range qualifiers {
-		configs = append(configs, cfg)
-	}
-
-	return configs, nil
+	return append([]*ProvisionedConcurrencyConfig(nil), configs...), nil
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
@@ -4214,28 +4231,28 @@ func (b *InMemoryBackend) Reset() {
 		rts = append(rts, rt)
 	}
 
-	b.functions = make(map[string]*FunctionConfiguration)
-	b.aliases = make(map[string]map[string]*FunctionAlias)
+	// Table/Index-backed resources collapse to two registry sweeps instead of
+	// one make() per map -- see store_setup.go for what each registry holds.
+	// b.permissions is deliberately NOT on either registry (see store_setup.go
+	// and persistence.go's DTO handling) so it is reset explicitly.
+	b.registry.ResetAll()
+	b.ephemeralRegistry.ResetAll()
+	b.permissions.Reset()
+
 	b.versionCounters = make(map[string]int)
 	b.versions = make(map[string][]*FunctionVersion)
 	b.layers = make(map[string][]*LayerVersion)
 	b.layerVersionCounters = make(map[string]int64)
 	b.layerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
-	b.eventSourceMappings = make(map[string]*EventSourceMapping)
 	b.esmByFunctionARN = make(map[string]map[string]struct{})
 	b.versionIndex = make(map[string]map[string]*FunctionVersion)
 	b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
 	b.functionConcurrencies = make(map[string]int)
 	b.activeConcurrencies = make(map[string]int)
-	b.provisionedConcurrencies = make(map[string]map[string]*ProvisionedConcurrencyConfig)
 	b.fisFaults = make(map[string]*FISInvocationFault)
 	b.runtimes = make(map[string]*functionRuntime)
 	b.functionURLServers = make(map[string]*functionURLServer)
-	b.functionURLConfigs = make(map[string]*FunctionURLConfig)
-	b.permissions = make(map[string]map[string]*FunctionPermission)
-	b.codeSigningConfigs = make(map[string]*CodeSigningConfig)
 	b.fnCodeSigningConfigs = make(map[string]string)
-	b.capacityProviders = make(map[string]*CapacityProvider)
 	b.runtimeManagementConfigs = make(map[string]*RuntimeManagementConfig)
 	b.functionRecursionConfigs = make(map[string]*FunctionRecursionConfig)
 	b.functionScalingConfigs = make(map[string]*FunctionScalingConfig)
@@ -4298,10 +4315,11 @@ func (b *InMemoryBackend) collectAndDeleteFunctions(cutoff time.Time) (
 	var urlServers []*functionURLServer
 	var rts []*functionRuntime
 
-	for name, fn := range b.functions {
+	for _, fn := range b.functions.All() {
 		if !fn.CreatedAt.Before(cutoff) {
 			continue
 		}
+		name := fn.FunctionName
 		purgedFunctions = append(purgedFunctions, name)
 		if srv, ok := b.functionURLServers[name]; ok {
 			urlServers = append(urlServers, srv)
@@ -4318,32 +4336,37 @@ func (b *InMemoryBackend) collectAndDeleteFunctions(cutoff time.Time) (
 // deleteFunctionMapsLocked removes all map entries for a function.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
-	delete(b.functions, name)
+	b.functions.Delete(name)
 	delete(b.runtimes, name)
 	delete(b.functionURLServers, name)
-	delete(b.functionURLConfigs, name)
-	delete(b.aliases, name)
+	b.functionURLConfigs.Delete(name)
+	b.deleteAliasesForFunctionLocked(name)
 	delete(b.versionCounters, name)
 	delete(b.versions, name)
 	delete(b.eventInvokeConfigs, name)
 	delete(b.functionConcurrencies, name)
 	delete(b.activeConcurrencies, name)
-	delete(b.provisionedConcurrencies, name)
+	b.deleteProvisionedConcurrenciesForFunctionLocked(name)
 	delete(b.fisFaults, name)
-	delete(b.permissions, name)
+	// Removes both the unqualified resource-policy and any qualifier-scoped
+	// policies (e.g. "name:PROD") for the function. Without this, deleting and
+	// recreating a function with the same name would inherit stale
+	// qualifier-scoped policy statements — a real leak since permissionMapKey
+	// scopes policies per qualifier.
+	b.deletePermissionsForFunctionLocked(name)
 	delete(b.fnCodeSigningConfigs, name)
 	delete(b.runtimeManagementConfigs, name)
 	delete(b.functionRecursionConfigs, name)
 	delete(b.functionScalingConfigs, name)
-	for id, m := range b.eventSourceMappings {
+	for _, m := range b.eventSourceMappings.All() {
 		if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
 			if ids, ok := b.esmByFunctionARN[m.FunctionARN]; ok {
-				delete(ids, id)
+				delete(ids, m.UUID)
 				if len(ids) == 0 {
 					delete(b.esmByFunctionARN, m.FunctionARN)
 				}
 			}
-			delete(b.eventSourceMappings, id)
+			b.eventSourceMappings.Delete(m.UUID)
 		}
 	}
 	delete(b.versionIndex, name)
@@ -4377,115 +4400,160 @@ func (b *InMemoryBackend) shutdownPurgedResources(
 
 // --- AddPermission / resource-based policy ---
 
+// permissionMapKey returns the b.permissions map key for a function+qualifier
+// pair. Real Lambda resource policies are scoped per version/alias when
+// AddPermission is called with a Qualifier — the unqualified function-wide
+// policy and each qualified policy are entirely independent documents.
+func permissionMapKey(functionName, qualifier string) string {
+	if qualifier == "" {
+		return functionName
+	}
+
+	return functionName + ":" + qualifier
+}
+
+// qualifierExistsLocked reports whether qualifier resolves to a known alias
+// or published version of name. Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) qualifierExistsLocked(name, qualifier string) bool {
+	if qualifier == "" || qualifier == versionLatest {
+		return true
+	}
+
+	if _, ok := b.aliases.Get(aliasKey(name, qualifier)); ok {
+		return true
+	}
+
+	if vMap := b.versionIndex[name]; vMap != nil {
+		if _, ok := vMap[qualifier]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolvePermissionTarget normalizes the FunctionName/Qualifier pair used by
+// AddPermission, RemovePermission, and GetPolicy. functionName may be a bare
+// name, a full/partial ARN, or the "name:qualifier" shorthand; qualifier is
+// the separate query-string Qualifier (may be empty). An explicit Qualifier
+// query parameter wins over one embedded in functionName.
+func resolvePermissionTarget(functionName, qualifier string) (string, string) {
+	name, arnQualifier := functionNameAndQualifierFromARN(functionName)
+	if qualifier == "" {
+		qualifier = arnQualifier
+	}
+
+	return name, qualifier
+}
+
 // AddPermission adds a permission statement to a function's resource-based policy.
+// When qualifier is non-empty the statement is scoped to that version/alias,
+// matching real Lambda: the invoker must then use the qualified ARN to invoke.
 func (b *InMemoryBackend) AddPermission(
-	functionName string,
+	functionName, qualifier string,
 	input *AddPermissionInput,
 ) (*AddPermissionOutput, error) {
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-		functionName = parts[len(parts)-1]
+	name, qualifier := resolvePermissionTarget(functionName, qualifier)
+
+	if qualifier == versionLatest {
+		return nil, fmt.Errorf(
+			"%w: we currently do not support adding policies for $LATEST",
+			ErrInvalidParameterValue,
+		)
 	}
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	if b.permissions[functionName] == nil {
-		b.permissions[functionName] = make(map[string]*FunctionPermission)
+	if qualifier != "" && !b.qualifierExistsLocked(name, qualifier) {
+		return nil, ErrVersionNotFound
 	}
 
-	if _, exists := b.permissions[functionName][input.StatementID]; exists {
+	key := permissionMapKey(name, qualifier)
+
+	if _, exists := b.permissions.Get(key + "|" + input.StatementID); exists {
 		return nil, ErrFunctionAlreadyExists
 	}
 
 	perm := &FunctionPermission{
-		StatementID:   input.StatementID,
-		Action:        input.Action,
-		Principal:     input.Principal,
-		SourceArn:     input.SourceArn,
-		SourceAccount: input.SourceAccount,
-		Effect:        "Allow",
-		FunctionName:  functionName,
+		StatementID:      input.StatementID,
+		Action:           input.Action,
+		Principal:        input.Principal,
+		SourceArn:        input.SourceArn,
+		SourceAccount:    input.SourceAccount,
+		EventSourceToken: input.EventSourceToken,
+		PrincipalOrgID:   input.PrincipalOrgID,
+		Effect:           "Allow",
+		FunctionName:     name,
+		Qualifier:        qualifier,
 	}
 
-	b.permissions[functionName][input.StatementID] = perm
+	b.permissions.Put(perm)
 
-	resourceArn := arn.Build(
-		"lambda",
-		b.region,
-		b.accountID,
-		fmt.Sprintf("function:%s", functionName),
-	)
+	resource := "function:" + name
+	if qualifier != "" {
+		resource += ":" + qualifier
+	}
+
+	resourceArn := arn.Build("lambda", b.region, b.accountID, resource)
 	stmtJSON := buildPermissionStatementJSON(perm, resourceArn)
 
 	return &AddPermissionOutput{Statement: &stmtJSON}, nil
 }
 
 // RemovePermission removes a permission statement from a function's resource-based policy.
-func (b *InMemoryBackend) RemovePermission(functionName, statementID string) error {
+func (b *InMemoryBackend) RemovePermission(functionName, qualifier, statementID string) error {
 	b.mu.Lock("RemovePermission")
 	defer b.mu.Unlock()
 
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-		functionName = parts[len(parts)-1]
-	}
+	name, qualifier := resolvePermissionTarget(functionName, qualifier)
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return ErrFunctionNotFound
 	}
 
-	perms := b.permissions[functionName]
-	if perms == nil {
+	key := permissionMapKey(name, qualifier)
+
+	if !b.permissions.Delete(key + "|" + statementID) {
 		return ErrFunctionNotFound
 	}
-
-	if _, ok := perms[statementID]; !ok {
-		return ErrFunctionNotFound
-	}
-
-	delete(perms, statementID)
 
 	return nil
 }
 
-// GetPolicy returns the resource-based policy JSON for a function.
-func (b *InMemoryBackend) GetPolicy(functionName string) (*GetPolicyOutput, error) {
+// GetPolicy returns the resource-based policy JSON for a function, scoped to
+// qualifier when non-empty.
+func (b *InMemoryBackend) GetPolicy(functionName, qualifier string) (*GetPolicyOutput, error) {
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
-	if strings.HasPrefix(functionName, "arn:aws:lambda:") {
-		parts := strings.Split(functionName, ":")
-		functionName = parts[len(parts)-1]
-	}
+	name, qualifier := resolvePermissionTarget(functionName, qualifier)
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
-	perms := b.permissions[functionName]
+	perms := b.permissionsForTarget(permissionMapKey(name, qualifier))
 	if len(perms) == 0 {
 		return nil, ErrNoPolicyFound
 	}
 
 	stmts := make([]string, 0, len(perms))
 
-	resourceArn := arn.Build(
-		"lambda",
-		b.region,
-		b.accountID,
-		fmt.Sprintf("function:%s", functionName),
-	)
+	resource := "function:" + name
+	if qualifier != "" {
+		resource += ":" + qualifier
+	}
+
+	resourceArn := arn.Build("lambda", b.region, b.accountID, resource)
 
 	// Sort statements for deterministic output.
-	sortedPerms := make([]*FunctionPermission, 0, len(perms))
-	for _, p := range perms {
-		sortedPerms = append(sortedPerms, p)
-	}
+	sortedPerms := make([]*FunctionPermission, len(perms))
+	copy(sortedPerms, perms)
 	sort.Slice(sortedPerms, func(i, j int) bool {
 		return sortedPerms[i].StatementID < sortedPerms[j].StatementID
 	})
@@ -4520,13 +4588,33 @@ func buildPermissionStatementJSON(p *FunctionPermission, resourceArn string) str
 		p.StatementID, principalJSON, p.Action, resourceArn,
 	)
 
-	// Build Condition block for source constraints.
-	var conditions []string
+	// Build the Condition block. ArnLike and StringEquals are each a single
+	// JSON object — SourceAccount, PrincipalOrgID, and EventSourceToken all
+	// use the StringEquals operator and must be merged into ONE object
+	// (naively appending separate "StringEquals":{...} entries would emit
+	// duplicate JSON keys, which real AWS never does).
+	var arnLike []string
 	if p.SourceArn != "" {
-		conditions = append(conditions, fmt.Sprintf(`"ArnLike":{"AWS:SourceArn":%q}`, p.SourceArn))
+		arnLike = append(arnLike, fmt.Sprintf(`"AWS:SourceArn":%q`, p.SourceArn))
 	}
+
+	var stringEquals []string
 	if p.SourceAccount != "" {
-		conditions = append(conditions, fmt.Sprintf(`"StringEquals":{"AWS:SourceAccount":%q}`, p.SourceAccount))
+		stringEquals = append(stringEquals, fmt.Sprintf(`"AWS:SourceAccount":%q`, p.SourceAccount))
+	}
+	if p.PrincipalOrgID != "" {
+		stringEquals = append(stringEquals, fmt.Sprintf(`"aws:PrincipalOrgID":%q`, p.PrincipalOrgID))
+	}
+	if p.EventSourceToken != "" {
+		stringEquals = append(stringEquals, fmt.Sprintf(`"lambda:EventSourceToken":%q`, p.EventSourceToken))
+	}
+
+	var conditions []string
+	if len(arnLike) > 0 {
+		conditions = append(conditions, `"ArnLike":{`+strings.Join(arnLike, ",")+`}`)
+	}
+	if len(stringEquals) > 0 {
+		conditions = append(conditions, `"StringEquals":{`+strings.Join(stringEquals, ",")+`}`)
 	}
 
 	if len(conditions) > 0 {
@@ -4567,7 +4655,7 @@ func (b *InMemoryBackend) CreateCodeSigningConfig(
 		cfg.CodeSigningPolicies = &CodeSigningPolicies{UntrustedArtifactOnDeployment: "Warn"}
 	}
 
-	b.codeSigningConfigs[cscARN] = cfg
+	b.codeSigningConfigs.Put(cfg)
 
 	return cfg, nil
 }
@@ -4577,7 +4665,7 @@ func (b *InMemoryBackend) GetCodeSigningConfig(cscARN string) (*CodeSigningConfi
 	b.mu.RLock("GetCodeSigningConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.codeSigningConfigs[cscARN]
+	cfg, ok := b.codeSigningConfigs.Get(cscARN)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -4590,11 +4678,11 @@ func (b *InMemoryBackend) DeleteCodeSigningConfig(cscARN string) error {
 	b.mu.Lock("DeleteCodeSigningConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.codeSigningConfigs[cscARN]; !ok {
+	if _, ok := b.codeSigningConfigs.Get(cscARN); !ok {
 		return ErrFunctionNotFound
 	}
 
-	delete(b.codeSigningConfigs, cscARN)
+	b.codeSigningConfigs.Delete(cscARN)
 
 	return nil
 }
@@ -4607,7 +4695,7 @@ func (b *InMemoryBackend) UpdateCodeSigningConfig(
 	b.mu.Lock("UpdateCodeSigningConfig")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.codeSigningConfigs[cscARN]
+	cfg, ok := b.codeSigningConfigs.Get(cscARN)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -4625,7 +4713,7 @@ func (b *InMemoryBackend) UpdateCodeSigningConfig(
 	}
 
 	cfg.LastModified = time.Now().UTC().Format(time.RFC3339)
-	b.codeSigningConfigs[cscARN] = cfg
+	b.codeSigningConfigs.Put(cfg)
 
 	return cfg, nil
 }
@@ -4635,10 +4723,7 @@ func (b *InMemoryBackend) ListCodeSigningConfigs() []*CodeSigningConfig {
 	b.mu.RLock("ListCodeSigningConfigs")
 	defer b.mu.RUnlock()
 
-	cfgs := make([]*CodeSigningConfig, 0, len(b.codeSigningConfigs))
-	for _, cfg := range b.codeSigningConfigs {
-		cfgs = append(cfgs, cfg)
-	}
+	cfgs := b.codeSigningConfigs.All()
 
 	sort.Slice(cfgs, func(i, j int) bool {
 		return cfgs[i].CodeSigningConfigID < cfgs[j].CodeSigningConfigID
@@ -4652,11 +4737,11 @@ func (b *InMemoryBackend) PutFunctionCodeSigningConfig(functionName, cscARN stri
 	b.mu.Lock("PutFunctionCodeSigningConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(functionName); !ok {
 		return ErrFunctionNotFound
 	}
 
-	if _, ok := b.codeSigningConfigs[cscARN]; !ok {
+	if _, ok := b.codeSigningConfigs.Get(cscARN); !ok {
 		return ErrFunctionNotFound
 	}
 
@@ -4670,7 +4755,7 @@ func (b *InMemoryBackend) GetFunctionCodeSigningConfig(functionName string) (str
 	b.mu.RLock("GetFunctionCodeSigningConfig")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(functionName); !ok {
 		return "", ErrFunctionNotFound
 	}
 
@@ -4687,7 +4772,7 @@ func (b *InMemoryBackend) DeleteFunctionCodeSigningConfig(functionName string) e
 	b.mu.Lock("DeleteFunctionCodeSigningConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[functionName]; !ok {
+	if _, ok := b.functions.Get(functionName); !ok {
 		return ErrFunctionNotFound
 	}
 
@@ -4701,7 +4786,7 @@ func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(cscARN string) ([]str
 	b.mu.RLock("ListFunctionsByCodeSigningConfig")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.codeSigningConfigs[cscARN]; !ok {
+	if _, ok := b.codeSigningConfigs.Get(cscARN); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -4709,7 +4794,7 @@ func (b *InMemoryBackend) ListFunctionsByCodeSigningConfig(cscARN string) ([]str
 
 	for fnName, arn := range b.fnCodeSigningConfigs {
 		if arn == cscARN {
-			fn, ok := b.functions[fnName]
+			fn, ok := b.functions.Get(fnName)
 			if ok {
 				arns = append(arns, fn.FunctionArn)
 			}
@@ -4730,7 +4815,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 	b.mu.Lock("CreateCapacityProvider")
 	defer b.mu.Unlock()
 
-	if _, exists := b.capacityProviders[input.Name]; exists {
+	if _, exists := b.capacityProviders.Get(input.Name); exists {
 		return nil, ErrFunctionAlreadyExists
 	}
 
@@ -4743,7 +4828,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		LastModifiedTime:          now,
 	}
 
-	b.capacityProviders[input.Name] = cp
+	b.capacityProviders.Put(cp)
 
 	return cp, nil
 }
@@ -4753,7 +4838,7 @@ func (b *InMemoryBackend) GetCapacityProvider(name string) (*CapacityProvider, e
 	b.mu.RLock("GetCapacityProvider")
 	defer b.mu.RUnlock()
 
-	cp, ok := b.capacityProviders[name]
+	cp, ok := b.capacityProviders.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -4766,11 +4851,11 @@ func (b *InMemoryBackend) DeleteCapacityProvider(name string) error {
 	b.mu.Lock("DeleteCapacityProvider")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityProviders[name]; !ok {
+	if _, ok := b.capacityProviders.Get(name); !ok {
 		return ErrFunctionNotFound
 	}
 
-	delete(b.capacityProviders, name)
+	b.capacityProviders.Delete(name)
 
 	return nil
 }
@@ -4783,7 +4868,7 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 	b.mu.Lock("UpdateCapacityProvider")
 	defer b.mu.Unlock()
 
-	cp, ok := b.capacityProviders[name]
+	cp, ok := b.capacityProviders.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -4793,7 +4878,7 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 	}
 
 	cp.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
-	b.capacityProviders[name] = cp
+	b.capacityProviders.Put(cp)
 
 	return cp, nil
 }
@@ -4803,10 +4888,7 @@ func (b *InMemoryBackend) ListCapacityProviders() []*CapacityProvider {
 	b.mu.RLock("ListCapacityProviders")
 	defer b.mu.RUnlock()
 
-	cps := make([]*CapacityProvider, 0, len(b.capacityProviders))
-	for _, cp := range b.capacityProviders {
-		cps = append(cps, cp)
-	}
+	cps := b.capacityProviders.All()
 
 	sort.Slice(cps, func(i, j int) bool {
 		return cps[i].Name < cps[j].Name
@@ -4827,7 +4909,7 @@ func (b *InMemoryBackend) SeedCapacityProviderFunctionVersions(
 	b.mu.Lock("SeedCapacityProviderFunctionVersions")
 	defer b.mu.Unlock()
 
-	cp, ok := b.capacityProviders[name]
+	cp, ok := b.capacityProviders.Get(name)
 	if !ok {
 		return ErrFunctionNotFound
 	}
@@ -4849,7 +4931,7 @@ func (b *InMemoryBackend) ListFunctionVersionsByCapacityProvider(
 	b.mu.RLock("ListFunctionVersionsByCapacityProvider")
 	defer b.mu.RUnlock()
 
-	cp, ok := b.capacityProviders[name]
+	cp, ok := b.capacityProviders.Get(name)
 	if !ok {
 		return page.Page[string]{}, ErrFunctionNotFound
 	}
@@ -4880,10 +4962,10 @@ func (b *InMemoryBackend) GetAccountSettings() *AccountSettingsOutput {
 	b.mu.RLock("GetAccountSettings")
 	defer b.mu.RUnlock()
 
-	fnCount := len(b.functions)
+	fnCount := b.functions.Len()
 	totalCodeSize := int64(0)
 
-	for _, fn := range b.functions {
+	for _, fn := range b.functions.All() {
 		totalCodeSize += fn.CodeSize
 	}
 
@@ -4917,7 +4999,7 @@ func (b *InMemoryBackend) UpdateFunctionURLConfig(
 	b.mu.Lock("UpdateFunctionURLConfig")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.functionURLConfigs[functionName]
+	cfg, ok := b.functionURLConfigs.Get(functionName)
 	if !ok {
 		return nil, ErrFunctionURLNotFound
 	}
@@ -4931,7 +5013,7 @@ func (b *InMemoryBackend) UpdateFunctionURLConfig(
 	}
 
 	cfg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
-	b.functionURLConfigs[functionName] = cfg
+	b.functionURLConfigs.Put(cfg)
 
 	return cfg, nil
 }
@@ -4941,10 +5023,7 @@ func (b *InMemoryBackend) ListFunctionURLConfigs() []*FunctionURLConfig {
 	b.mu.RLock("ListFunctionURLConfigs")
 	defer b.mu.RUnlock()
 
-	cfgs := make([]*FunctionURLConfig, 0, len(b.functionURLConfigs))
-	for _, cfg := range b.functionURLConfigs {
-		cfgs = append(cfgs, cfg)
-	}
+	cfgs := b.functionURLConfigs.All()
 
 	sort.Slice(cfgs, func(i, j int) bool {
 		return cfgs[i].FunctionArn < cfgs[j].FunctionArn
@@ -5040,7 +5119,7 @@ func (b *InMemoryBackend) UpdateEventSourceMapping(
 ) (*EventSourceMapping, error) {
 	b.mu.Lock("UpdateEventSourceMapping")
 
-	esm, ok := b.eventSourceMappings[id]
+	esm, ok := b.eventSourceMappings.Get(id)
 	if !ok {
 		b.mu.Unlock()
 
@@ -5066,7 +5145,7 @@ func (b *InMemoryBackend) GetRuntimeManagementConfig(
 	b.mu.RLock("GetRuntimeManagementConfig")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -5090,7 +5169,7 @@ func (b *InMemoryBackend) PutRuntimeManagementConfig(
 	b.mu.Lock("PutRuntimeManagementConfig")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -5118,7 +5197,7 @@ func (b *InMemoryBackend) GetFunctionRecursionConfig(
 	b.mu.RLock("GetFunctionRecursionConfig")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -5138,7 +5217,7 @@ func (b *InMemoryBackend) PutFunctionRecursionConfig(
 	b.mu.Lock("PutFunctionRecursionConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return nil, ErrFunctionNotFound
 	}
 
@@ -5157,7 +5236,7 @@ func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*FunctionScalin
 	b.mu.RLock("GetFunctionScalingConfig")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -5181,7 +5260,7 @@ func (b *InMemoryBackend) PutFunctionScalingConfig(
 	b.mu.Lock("PutFunctionScalingConfig")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, ErrFunctionNotFound
 	}
@@ -5212,7 +5291,7 @@ func (b *InMemoryBackend) TagResource(functionName string, tags map[string]strin
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[functionName]
+	fn, ok := b.functions.Get(functionName)
 	if !ok {
 		return ErrFunctionNotFound
 	}
@@ -5228,7 +5307,7 @@ func (b *InMemoryBackend) UntagResource(functionName string, tagKeys []string) e
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[functionName]
+	fn, ok := b.functions.Get(functionName)
 	if !ok {
 		return ErrFunctionNotFound
 	}

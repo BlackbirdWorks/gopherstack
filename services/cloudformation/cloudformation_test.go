@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -563,9 +564,11 @@ func TestBackend_DeleteStack(t *testing.T) {
 			wantStatus: "DELETE_COMPLETE",
 		},
 		{
-			name:      "not_found",
+			// DeleteStack is idempotent in real AWS: it has no modeled "stack
+			// not found" error, so deleting a stack that never existed is a
+			// silent no-op success, not an error.
+			name:      "not_found_is_noop",
 			stackName: "missing",
-			wantErr:   cloudformation.ErrStackNotFound,
 		},
 	}
 
@@ -587,6 +590,10 @@ func TestBackend_DeleteStack(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.wantStatus == "" {
+				return
+			}
 
 			stack, err := b.DescribeStack(tt.stackName)
 			require.NoError(t, err)
@@ -813,7 +820,7 @@ func TestBackend_DescribeStackEvents(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			events, err := b.DescribeStackEvents(tt.stackName)
+			evtPage, err := b.DescribeStackEvents(tt.stackName, "")
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -822,9 +829,57 @@ func TestBackend_DescribeStackEvents(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.NotEmpty(t, events)
+			assert.NotEmpty(t, evtPage.Data)
 		})
 	}
+}
+
+// TestBackend_DescribeStackEvents_Pagination verifies DescribeStackEvents
+// honors NextToken instead of always returning the full event history —
+// previously it ignored pagination entirely and returned every event in one
+// response, unlike real AWS.
+func TestBackend_DescribeStackEvents_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateStack(t.Context(), "evt-page-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+
+	// Each successful UpdateStack on an unchanged plain resource emits 3
+	// events (stack UPDATE_IN_PROGRESS, resource UPDATE_COMPLETE, stack
+	// UPDATE_COMPLETE), so 40 updates comfortably exceeds one default page.
+	for range 40 {
+		_, uerr := b.UpdateStack(t.Context(), "evt-page-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+		require.NoError(t, uerr)
+	}
+
+	firstPage, err := b.DescribeStackEvents("evt-page-stack", "")
+	require.NoError(t, err)
+	require.NotEmpty(t, firstPage.Next, "expected more than one page of events")
+	assert.Len(t, firstPage.Data, 100, "default page size")
+
+	seen := make(map[string]bool, len(firstPage.Data))
+	for _, e := range firstPage.Data {
+		seen[e.EventID] = true
+	}
+
+	token := firstPage.Next
+	var totalAfterFirst int
+
+	for token != "" {
+		next, nerr := b.DescribeStackEvents("evt-page-stack", token)
+		require.NoError(t, nerr)
+
+		for _, e := range next.Data {
+			assert.False(t, seen[e.EventID], "event %s returned on more than one page", e.EventID)
+			seen[e.EventID] = true
+		}
+
+		totalAfterFirst += len(next.Data)
+		token = next.Next
+	}
+
+	assert.Positive(t, totalAfterFirst, "expected additional events beyond the first page")
 }
 
 // ---- Backend: GetTemplate ---------------------------------------------------
@@ -1012,6 +1067,8 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 			wantStatus: "CREATE_COMPLETE",
 		},
 		{
+			// modifiedTemplate adds a resource relative to simpleTemplate, so
+			// this change set carries a real Add change and is AVAILABLE.
 			name: "existing_stack",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
@@ -1023,11 +1080,34 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 					cloudformation.StackOptions{},
 				)
 				require.NoError(t, err)
-				_, err = b.CreateChangeSet(t.Context(), "existing-stack", "upd-cs", simpleTemplate, "", nil)
+				_, err = b.CreateChangeSet(t.Context(), "existing-stack", "upd-cs", modifiedTemplate, "", nil)
 				require.NoError(t, err)
 			},
 			stackName: "existing-stack",
 			csName:    "upd-cs",
+		},
+		{
+			// Re-submitting the identical template yields zero changes, so AWS
+			// marks the change set FAILED/UNAVAILABLE and ExecuteChangeSet must
+			// reject it with InvalidChangeSetStatus rather than silently
+			// re-applying the (unchanged) template.
+			name: "existing_stack_no_changes",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(
+					t.Context(),
+					"nochange-stack",
+					simpleTemplate,
+					nil,
+					cloudformation.StackOptions{},
+				)
+				require.NoError(t, err)
+				_, err = b.CreateChangeSet(t.Context(), "nochange-stack", "noop-cs", simpleTemplate, "", nil)
+				require.NoError(t, err)
+			},
+			stackName: "nochange-stack",
+			csName:    "noop-cs",
+			wantErr:   cloudformation.ErrChangeSetNotExecutable,
 		},
 		{
 			name:      "not_found",
@@ -1063,6 +1143,62 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+// templateWithTopic is simpleTemplate plus an SNS topic instead of the SQS
+// queue modifiedTemplate adds, giving a second, independent real change.
+const templateWithTopic = `{"AWSTemplateFormatVersion":"2010-09-09",` +
+	`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+	`"MyTopic":{"Type":"AWS::SNS::Topic","Properties":{}}}}`
+
+// TestBackend_ExecuteChangeSet_DeletesOtherChangeSets verifies AWS's documented
+// behaviour: "When you execute a change set, CloudFormation deletes all other
+// change sets associated with the stack because they aren't valid for the
+// updated stack" — not just the one that was executed.
+func TestBackend_ExecuteChangeSet_DeletesOtherChangeSets(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateStack(t.Context(), "multi-cs-stack", simpleTemplate, nil, cloudformation.StackOptions{})
+	require.NoError(t, err)
+
+	_, err = b.CreateChangeSet(t.Context(), "multi-cs-stack", "cs-a", modifiedTemplate, "", nil)
+	require.NoError(t, err)
+	_, err = b.CreateChangeSet(t.Context(), "multi-cs-stack", "cs-b", templateWithTopic, "", nil)
+	require.NoError(t, err)
+
+	list, err := b.ListChangeSets("multi-cs-stack", "")
+	require.NoError(t, err)
+	require.Len(t, list.Data, 2)
+
+	require.NoError(t, b.ExecuteChangeSet(t.Context(), "multi-cs-stack", "cs-a"))
+
+	_, err = b.DescribeChangeSet("multi-cs-stack", "cs-a")
+	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound, "executed change set must be gone")
+
+	_, err = b.DescribeChangeSet("multi-cs-stack", "cs-b")
+	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound,
+		"sibling change sets must also be discarded — they no longer apply to the updated stack")
+
+	list, err = b.ListChangeSets("multi-cs-stack", "")
+	require.NoError(t, err)
+	assert.Empty(t, list.Data)
+}
+
+// TestHandler_ExecuteChangeSet_InvalidStatus verifies the wire-level error for
+// executing a non-AVAILABLE change set uses AWS's real error code
+// (InvalidChangeSetStatus), and that ChangeSetNotFound errors use the
+// SDK-modeled code without an "Exception" suffix (the deserializer matches
+// "ChangeSetNotFound", not "ChangeSetNotFoundException").
+func TestHandler_ExecuteChangeSet_InvalidStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=DeleteChangeSet&StackName=no-such-stack&ChangeSetName=no-such-cs")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<Code>ChangeSetNotFound</Code>")
+	assert.NotContains(t, rec.Body.String(), "ChangeSetNotFoundException")
 }
 
 // ---- Backend: ListChangeSets ------------------------------------------------
@@ -1686,6 +1822,55 @@ func TestHandler_DescribeStackEvents(t *testing.T) {
 	}
 }
 
+// TestHandler_DescribeStackEvents_NextToken verifies the wire-level NextToken
+// round-trips: the first response carries a NextToken when more events exist
+// than the default page size, and requesting with that token returns the
+// remaining (disjoint) events.
+func TestHandler_DescribeStackEvents_NextToken(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	postForm(t, h, "Action=CreateStack&StackName=evt-tok-stack&TemplateBody="+simpleTemplate)
+
+	for range 40 {
+		postForm(t, h, "Action=UpdateStack&StackName=evt-tok-stack&TemplateBody="+simpleTemplate)
+	}
+
+	rec := postForm(t, h, "Action=DescribeStackEvents&StackName=evt-tok-stack")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	type eventXML struct {
+		EventID string `xml:"EventId"`
+	}
+	type eventsResult struct {
+		NextToken   string     `xml:"NextToken"`
+		StackEvents []eventXML `xml:"StackEvents>member"`
+	}
+	type resp struct {
+		Result eventsResult `xml:"DescribeStackEventsResult"`
+	}
+
+	var first resp
+	require.NoError(t, xml.NewDecoder(strings.NewReader(rec.Body.String())).Decode(&first))
+	require.NotEmpty(t, first.Result.NextToken, "expected pagination to kick in past the default page size")
+
+	rec2 := postForm(t, h,
+		"Action=DescribeStackEvents&StackName=evt-tok-stack&NextToken="+url.QueryEscape(first.Result.NextToken))
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var second resp
+	require.NoError(t, xml.NewDecoder(strings.NewReader(rec2.Body.String())).Decode(&second))
+	require.NotEmpty(t, second.Result.StackEvents)
+
+	firstIDs := make(map[string]bool, len(first.Result.StackEvents))
+	for _, e := range first.Result.StackEvents {
+		firstIDs[e.EventID] = true
+	}
+	for _, e := range second.Result.StackEvents {
+		assert.False(t, firstIDs[e.EventID], "second page must not repeat first-page events")
+	}
+}
+
 // ---- Handler: GetTemplate ---------------------------------------------------
 
 func TestHandler_GetTemplate(t *testing.T) {
@@ -1843,14 +2028,34 @@ func TestHandler_ExecuteChangeSet(t *testing.T) {
 		wantCode int
 	}{
 		{
+			// A change set created with a real template (real Add changes) is
+			// AVAILABLE and can be executed.
 			name: "success",
 			setup: func(t *testing.T, h *cloudformation.Handler) {
 				t.Helper()
-				postForm(t, h, "Action=CreateChangeSet&StackName=exec-cs-stack&ChangeSetName=exec-cs&TemplateBody=")
+				postFormValues(t, h, url.Values{
+					"Action":        {"CreateChangeSet"},
+					"StackName":     {"exec-cs-stack"},
+					"ChangeSetName": {"exec-cs"},
+					"TemplateBody":  {simpleTemplate},
+				})
 			},
 			form:     "Action=ExecuteChangeSet&StackName=exec-cs-stack&ChangeSetName=exec-cs",
 			wantCode: http.StatusOK,
 			wantBody: "ExecuteChangeSetResponse",
+		},
+		{
+			// An empty TemplateBody produces zero changes, so AWS marks the
+			// change set FAILED/UNAVAILABLE and rejects execution with
+			// InvalidChangeSetStatus rather than silently no-op'ing.
+			name: "unavailable_no_changes",
+			setup: func(t *testing.T, h *cloudformation.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=CreateChangeSet&StackName=exec-cs-empty&ChangeSetName=exec-cs&TemplateBody=")
+			},
+			form:     "Action=ExecuteChangeSet&StackName=exec-cs-empty&ChangeSetName=exec-cs",
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidChangeSetStatus",
 		},
 	}
 

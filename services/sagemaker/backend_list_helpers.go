@@ -9,19 +9,61 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// sagemakerListPaged paginates a store using index-based tokens.
+// tableGet returns the value stored under key in t, or nil if absent. It lets
+// a single-value store.Table lookup be substituted inline (including chained
+// field access, e.g. tableGet(t, key).Field) for the raw map[string]*V index
+// expression it replaces: a missing key yields a nil *V, matching Go's
+// zero-value-on-missing-key map semantics, so callers that previously
+// tolerated a nil result unchanged.
+func tableGet[V any](t *store.Table[V], key string) *V {
+	v, _ := t.Get(key)
+
+	return v
+}
+
+// sagemakerListPaged paginates a store.Table using index-based tokens.
 // clone must return a deep copy of its argument.
 // less defines the sort order.
 func sagemakerListPaged[T any](
-	store map[string]*T,
+	tbl *store.Table[T],
 	nextToken string,
 	clone func(*T) *T,
 	less func(a, b *T) bool,
 ) ([]*T, string) {
-	list := make([]*T, 0, len(store))
-	for _, item := range store {
+	return sagemakerListPagedSlice(tbl.All(), nextToken, clone, less)
+}
+
+// sagemakerListPagedMap paginates a plain map[string]*T using index-based
+// tokens. It preserves the pre-conversion behavior for callers that build a
+// local, already-filtered map (e.g. a subset matching a query filter) rather
+// than listing a store.Table directly.
+func sagemakerListPagedMap[T any](
+	m map[string]*T,
+	nextToken string,
+	clone func(*T) *T,
+	less func(a, b *T) bool,
+) ([]*T, string) {
+	items := make([]*T, 0, len(m))
+	for _, item := range m {
+		items = append(items, item)
+	}
+
+	return sagemakerListPagedSlice(items, nextToken, clone, less)
+}
+
+// sagemakerListPagedSlice is the shared index-based-token pagination core
+// used by sagemakerListPaged and sagemakerListPagedMap.
+func sagemakerListPagedSlice[T any](
+	items []*T,
+	nextToken string,
+	clone func(*T) *T,
+	less func(a, b *T) bool,
+) ([]*T, string) {
+	list := make([]*T, 0, len(items))
+	for _, item := range items {
 		list = append(list, clone(item))
 	}
 
@@ -45,14 +87,17 @@ func sagemakerListPaged[T any](
 	return list[startIdx:end], outToken
 }
 
-// sagemakerListKeyPaged paginates a store using name-key-based tokens.
-// clone must return a deep copy of its argument.
-func sagemakerListKeyPaged[T any](
-	store map[string]*T,
+// sagemakerListKeyPagedMap paginates a plain map[string]*T using name-key-based
+// tokens. It preserves the pre-conversion behavior for the small number of
+// resource collections not (yet) backed by a store.Table — e.g. a Cluster's
+// Nodes, which is itself a value nested inside the Cluster store.Table entry
+// rather than its own top-level registered table.
+func sagemakerListKeyPagedMap[T any](
+	m map[string]*T,
 	nextToken string,
 	clone func(*T) *T,
 ) ([]*T, string) {
-	keys := collections.SortedKeys(store)
+	keys := collections.SortedKeys(m)
 
 	start := 0
 	if nextToken != "" {
@@ -69,12 +114,53 @@ func sagemakerListKeyPaged[T any](
 
 	out := make([]*T, 0, end-start)
 	for _, k := range keys[start:end] {
-		out = append(out, clone(store[k]))
+		out = append(out, clone(m[k]))
 	}
 
 	next := ""
 	if end < len(keys) {
 		next = keys[end]
+	}
+
+	return out, next
+}
+
+// sagemakerListKeyPaged paginates a store.Table using name-key-based tokens.
+// keyFn must reproduce the exact same primary key the table was registered
+// with (i.e. its keyFn), so nextToken values remain meaningful key strings.
+// clone must return a deep copy of its argument.
+func sagemakerListKeyPaged[T any](
+	tbl *store.Table[T],
+	nextToken string,
+	clone func(*T) *T,
+	keyFn func(*T) string,
+) ([]*T, string) {
+	// tbl.Snapshot() is already sorted ascending by the table's own primary
+	// key, i.e. by keyFn(item) — the same order collections.SortedKeys(map)
+	// produced over the raw map this table replaced.
+	items := tbl.Snapshot()
+
+	start := 0
+	if nextToken != "" {
+		for i, item := range items {
+			if keyFn(item) == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := min(start+sagemakerDefaultPageSize, len(items))
+
+	out := make([]*T, 0, end-start)
+	for _, item := range items[start:end] {
+		out = append(out, clone(item))
+	}
+
+	next := ""
+	if end < len(items) {
+		next = keyFn(items[end])
 	}
 
 	return out, next
@@ -86,7 +172,7 @@ func sagemakerCreate[T any](
 	ctx context.Context,
 	b *InMemoryBackend,
 	opName, name, arnResource string,
-	storeOf func(string) map[string]*T,
+	storeOf func(string) *store.Table[T],
 	dupErr func(string) error,
 	build func(arnStr string, now time.Time) *T,
 	clone func(*T) *T,
@@ -95,8 +181,8 @@ func sagemakerCreate[T any](
 	b.mu.Lock(opName)
 	defer b.mu.Unlock()
 
-	store := storeOf(region)
-	if _, ok := store[name]; ok {
+	tbl := storeOf(region)
+	if _, ok := tbl.Get(name); ok {
 		return nil, dupErr(name)
 	}
 
@@ -104,7 +190,7 @@ func sagemakerCreate[T any](
 	now := time.Now()
 
 	item := build(arnStr, now)
-	store[name] = item
+	tbl.Put(item)
 
 	return clone(item), nil
 }

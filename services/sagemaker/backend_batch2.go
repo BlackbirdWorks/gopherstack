@@ -94,7 +94,7 @@ func (b *InMemoryBackend) CreateModelPackageGroup(
 		return nil, fmt.Errorf("%w: ModelPackageGroupName is required", ErrValidation)
 	}
 
-	if _, ok := b.modelPackageGroupsStore(region)[name]; ok {
+	if _, ok := b.modelPackageGroupsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: model package group %q already exists", ErrValidation, name)
 	}
 
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateModelPackageGroup(
 		Tags:                         mergeTags(nil, tags),
 		CreationTime:                 time.Now(),
 	}
-	b.modelPackageGroupsStore(region)[name] = g
+	b.modelPackageGroupsStore(region).Put(g)
 
 	return cloneModelPackageGroup(g), nil
 }
@@ -120,7 +120,7 @@ func (b *InMemoryBackend) DescribeModelPackageGroup(ctx context.Context, name st
 
 	region := getRegion(ctx, b.region)
 
-	g, ok := b.modelPackageGroupsStore(region)[name]
+	g, ok := b.modelPackageGroupsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -135,12 +135,12 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(ctx context.Context, name stri
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.modelPackageGroupsStore(region)[name]; !ok {
+	if _, ok := b.modelPackageGroupsStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
 
 	// AWS rejects deletion when model packages still exist in the group.
-	for _, mp := range b.modelPackagesStore(region) {
+	for _, mp := range b.modelPackagesStore(region).All() {
 		if mp.ModelPackageGroupName == name {
 			return fmt.Errorf("%w: model package group %q has model packages and cannot be deleted",
 				ErrModelPackageGroupHasPackages, name)
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(ctx context.Context, name stri
 	}
 
 	store := b.modelPackageGroupsStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -160,7 +160,12 @@ func (b *InMemoryBackend) ListModelPackageGroups(ctx context.Context, nextToken 
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.modelPackageGroupsStore(region), nextToken, cloneModelPackageGroup)
+	return sagemakerListKeyPaged(
+		b.modelPackageGroupsStore(region),
+		nextToken,
+		cloneModelPackageGroup,
+		func(v *ModelPackageGroup) string { return v.ModelPackageGroupName },
+	)
 }
 
 // ErrModelPackageGroupPolicyNotFound is returned when a model package group
@@ -175,7 +180,7 @@ func (b *InMemoryBackend) GetModelPackageGroupPolicy(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	g, ok := b.modelPackageGroupsStore(region)[name]
+	g, ok := b.modelPackageGroupsStore(region).Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -201,7 +206,7 @@ func (b *InMemoryBackend) PutModelPackageGroupPolicy(
 
 	region := getRegion(ctx, b.region)
 
-	g, ok := b.modelPackageGroupsStore(region)[name]
+	g, ok := b.modelPackageGroupsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -223,7 +228,7 @@ func (b *InMemoryBackend) DeleteModelPackageGroupPolicy(ctx context.Context, nam
 
 	region := getRegion(ctx, b.region)
 
-	g, ok := b.modelPackageGroupsStore(region)[name]
+	g, ok := b.modelPackageGroupsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -254,7 +259,7 @@ func (b *InMemoryBackend) CreateModelPackage(
 
 	mpARN := arn.Build("sagemaker", region, b.accountID, "model-package/"+name)
 
-	if _, ok := b.modelPackagesStore(region)[mpARN]; ok {
+	if _, ok := b.modelPackagesStore(region).Get(mpARN); ok {
 		return nil, fmt.Errorf("%w: model package %q already exists", ErrValidation, name)
 	}
 
@@ -267,7 +272,7 @@ func (b *InMemoryBackend) CreateModelPackage(
 		Tags:                    mergeTags(nil, tags),
 		CreationTime:            time.Now(),
 	}
-	b.modelPackagesStore(region)[mpARN] = mp
+	b.modelPackagesStore(region).Put(mp)
 	b.modelPackageARNIndexStore(region)[name] = mpARN
 
 	return cloneModelPackage(mp), nil
@@ -281,13 +286,13 @@ func (b *InMemoryBackend) DescribeModelPackage(ctx context.Context, nameOrArn st
 	region := getRegion(ctx, b.region)
 
 	// Try direct ARN lookup first.
-	if mp, ok := b.modelPackagesStore(region)[nameOrArn]; ok {
+	if mp, ok := b.modelPackagesStore(region).Get(nameOrArn); ok {
 		return cloneModelPackage(mp), nil
 	}
 
 	// Try name → ARN index.
 	if arnStr, ok := b.modelPackageARNIndexStore(region)[nameOrArn]; ok {
-		if mp, found := b.modelPackagesStore(region)[arnStr]; found {
+		if mp, found := b.modelPackagesStore(region).Get(arnStr); found {
 			return cloneModelPackage(mp), nil
 		}
 	}
@@ -307,15 +312,15 @@ func (b *InMemoryBackend) DeleteModelPackage(ctx context.Context, nameOrArn stri
 		arnStr = v
 	}
 
-	if _, ok := b.modelPackagesStore(region)[arnStr]; !ok {
+	if _, ok := b.modelPackagesStore(region).Get(arnStr); !ok {
 		return fmt.Errorf("%w: model package %q not found", ErrModelPackageNotFound, nameOrArn)
 	}
 
-	mp := b.modelPackagesStore(region)[arnStr]
+	mp := tableGet(b.modelPackagesStore(region), arnStr)
 	arnIdxStore := b.modelPackageARNIndexStore(region)
 	delete(arnIdxStore, mp.ModelPackageName)
 	mpStore := b.modelPackagesStore(region)
-	delete(mpStore, arnStr)
+	mpStore.Delete(arnStr)
 
 	return nil
 }
@@ -331,10 +336,9 @@ func (b *InMemoryBackend) ListModelPackages(
 	region := getRegion(ctx, b.region)
 
 	var arns []string
-	for k := range b.modelPackagesStore(region) {
-		mp := b.modelPackagesStore(region)[k]
+	for _, mp := range b.modelPackagesStore(region).All() {
 		if groupName == "" || mp.ModelPackageGroupName == groupName {
-			arns = append(arns, k)
+			arns = append(arns, mp.ModelPackageArn)
 		}
 	}
 
@@ -355,7 +359,7 @@ func (b *InMemoryBackend) ListModelPackages(
 
 	out := make([]*ModelPackage, 0, end-start)
 	for _, k := range arns[start:end] {
-		out = append(out, cloneModelPackage(b.modelPackagesStore(region)[k]))
+		out = append(out, cloneModelPackage(tableGet(b.modelPackagesStore(region), k)))
 	}
 
 	next := ""
@@ -425,7 +429,7 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", ErrValidation)
 	}
 
-	if _, ok := b.autoMLJobsStore(region)[name]; ok {
+	if _, ok := b.autoMLJobsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: AutoML job %q already exists", ErrValidation, name)
 	}
 
@@ -439,7 +443,7 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 		Tags:            mergeTags(nil, tags),
 		CreationTime:    time.Now(),
 	}
-	b.autoMLJobsStore(region)[name] = j
+	b.autoMLJobsStore(region).Put(j)
 
 	return cloneAutoMLJob(j), nil
 }
@@ -451,7 +455,7 @@ func (b *InMemoryBackend) DescribeAutoMLJob(ctx context.Context, name string) (*
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.autoMLJobsStore(region)[name]
+	j, ok := b.autoMLJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
@@ -466,7 +470,7 @@ func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error 
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.autoMLJobsStore(region)[name]
+	j, ok := b.autoMLJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
@@ -489,7 +493,12 @@ func (b *InMemoryBackend) ListAutoMLJobs(ctx context.Context, nextToken string) 
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.autoMLJobsStore(region), nextToken, cloneAutoMLJob)
+	return sagemakerListKeyPaged(
+		b.autoMLJobsStore(region),
+		nextToken,
+		cloneAutoMLJob,
+		func(v *AutoMLJob) string { return v.AutoMLJobName },
+	)
 }
 
 // SetAutoMLJobExtras sets optional configuration fields on an existing AutoML job
@@ -505,7 +514,7 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.autoMLJobsStore(region)[name]
+	j, ok := b.autoMLJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
@@ -561,7 +570,7 @@ func (b *InMemoryBackend) CreateCodeRepository(
 		return nil, fmt.Errorf("%w: CodeRepositoryName is required", ErrValidation)
 	}
 
-	if _, ok := b.codeRepositoriesStore(region)[name]; ok {
+	if _, ok := b.codeRepositoriesStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: code repository %q already exists", ErrValidation, name)
 	}
 
@@ -576,7 +585,7 @@ func (b *InMemoryBackend) CreateCodeRepository(
 		CreationTime:       now,
 		LastModifiedTime:   now,
 	}
-	b.codeRepositoriesStore(region)[name] = r
+	b.codeRepositoriesStore(region).Put(r)
 
 	return cloneCodeRepository(r), nil
 }
@@ -588,7 +597,7 @@ func (b *InMemoryBackend) DescribeCodeRepository(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	r, ok := b.codeRepositoriesStore(region)[name]
+	r, ok := b.codeRepositoriesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
@@ -607,7 +616,7 @@ func (b *InMemoryBackend) UpdateCodeRepository(
 
 	region := getRegion(ctx, b.region)
 
-	r, ok := b.codeRepositoriesStore(region)[name]
+	r, ok := b.codeRepositoriesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
@@ -628,12 +637,12 @@ func (b *InMemoryBackend) DeleteCodeRepository(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.codeRepositoriesStore(region)[name]; !ok {
+	if _, ok := b.codeRepositoriesStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
 
 	store := b.codeRepositoriesStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -645,7 +654,12 @@ func (b *InMemoryBackend) ListCodeRepositories(ctx context.Context, nextToken st
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.codeRepositoriesStore(region), nextToken, cloneCodeRepository)
+	return sagemakerListKeyPaged(
+		b.codeRepositoriesStore(region),
+		nextToken,
+		cloneCodeRepository,
+		func(v *CodeRepository) string { return v.CodeRepositoryName },
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -685,7 +699,7 @@ func (b *InMemoryBackend) CreateProject(
 		return nil, fmt.Errorf("%w: ProjectName is required", ErrValidation)
 	}
 
-	if _, ok := b.projectsStore(region)[name]; ok {
+	if _, ok := b.projectsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: project %q already exists", ErrValidation, name)
 	}
 
@@ -700,7 +714,7 @@ func (b *InMemoryBackend) CreateProject(
 		Tags:               mergeTags(nil, tags),
 		CreationTime:       time.Now(),
 	}
-	b.projectsStore(region)[name] = p
+	b.projectsStore(region).Put(p)
 
 	return cloneProject(p), nil
 }
@@ -712,7 +726,7 @@ func (b *InMemoryBackend) DescribeProject(ctx context.Context, name string) (*Pr
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.projectsStore(region)[name]
+	p, ok := b.projectsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}
@@ -727,12 +741,12 @@ func (b *InMemoryBackend) DeleteProject(ctx context.Context, name string) error 
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.projectsStore(region)[name]; !ok {
+	if _, ok := b.projectsStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}
 
 	store := b.projectsStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -744,7 +758,12 @@ func (b *InMemoryBackend) ListProjects(ctx context.Context, nextToken string) ([
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.projectsStore(region), nextToken, cloneProject)
+	return sagemakerListKeyPaged(
+		b.projectsStore(region),
+		nextToken,
+		cloneProject,
+		func(v *Project) string { return v.ProjectName },
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -794,7 +813,7 @@ func (b *InMemoryBackend) CreateSpace(
 
 	key := spaceKey(domainID, spaceName)
 
-	if _, ok := b.spacesStore(region)[key]; ok {
+	if _, ok := b.spacesStore(region).Get(key); ok {
 		return nil, fmt.Errorf("%w: space %q already exists in domain %q", ErrValidation, spaceName, domainID)
 	}
 
@@ -810,7 +829,7 @@ func (b *InMemoryBackend) CreateSpace(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.spacesStore(region)[key] = s
+	b.spacesStore(region).Put(s)
 
 	return cloneSpace(s), nil
 }
@@ -822,7 +841,7 @@ func (b *InMemoryBackend) DescribeSpace(ctx context.Context, domainID, spaceName
 
 	region := getRegion(ctx, b.region)
 
-	s, ok := b.spacesStore(region)[spaceKey(domainID, spaceName)]
+	s, ok := b.spacesStore(region).Get(spaceKey(domainID, spaceName))
 	if !ok {
 		return nil, fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
 	}
@@ -839,12 +858,12 @@ func (b *InMemoryBackend) DeleteSpace(ctx context.Context, domainID, spaceName s
 
 	key := spaceKey(domainID, spaceName)
 
-	if _, ok := b.spacesStore(region)[key]; !ok {
+	if _, ok := b.spacesStore(region).Get(key); !ok {
 		return fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
 	}
 
 	store := b.spacesStore(region)
-	delete(store, key)
+	store.Delete(key)
 
 	return nil
 }
@@ -857,9 +876,9 @@ func (b *InMemoryBackend) ListSpaces(ctx context.Context, domainID, nextToken st
 	region := getRegion(ctx, b.region)
 
 	var keys []string
-	for k, s := range b.spacesStore(region) {
+	for _, s := range b.spacesStore(region).All() {
 		if domainID == "" || s.DomainID == domainID {
-			keys = append(keys, k)
+			keys = append(keys, spaceKey(s.DomainID, s.SpaceName))
 		}
 	}
 
@@ -880,7 +899,7 @@ func (b *InMemoryBackend) ListSpaces(ctx context.Context, domainID, nextToken st
 
 	out := make([]*Space, 0, end-start)
 	for _, k := range keys[start:end] {
-		out = append(out, cloneSpace(b.spacesStore(region)[k]))
+		out = append(out, cloneSpace(tableGet(b.spacesStore(region), k)))
 	}
 
 	next := ""
@@ -930,7 +949,7 @@ func (b *InMemoryBackend) CreateImage(
 		return nil, fmt.Errorf("%w: ImageName is required", ErrValidation)
 	}
 
-	if _, ok := b.smImagesStore(region)[name]; ok {
+	if _, ok := b.smImagesStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: image %q already exists", ErrValidation, name)
 	}
 
@@ -947,7 +966,7 @@ func (b *InMemoryBackend) CreateImage(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	b.smImagesStore(region)[name] = img
+	b.smImagesStore(region).Put(img)
 
 	return cloneSMImage(img), nil
 }
@@ -959,7 +978,7 @@ func (b *InMemoryBackend) DescribeImage(ctx context.Context, name string) (*SMIm
 
 	region := getRegion(ctx, b.region)
 
-	img, ok := b.smImagesStore(region)[name]
+	img, ok := b.smImagesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
@@ -989,7 +1008,7 @@ func (b *InMemoryBackend) UpdateImage(
 
 	region := getRegion(ctx, b.region)
 
-	img, ok := b.smImagesStore(region)[name]
+	img, ok := b.smImagesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
@@ -1029,7 +1048,7 @@ func (b *InMemoryBackend) DeleteImage(ctx context.Context, name string) error {
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.smImagesStore(region)[name]; !ok {
+	if _, ok := b.smImagesStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
 
@@ -1039,7 +1058,7 @@ func (b *InMemoryBackend) DeleteImage(ctx context.Context, name string) error {
 	}
 
 	store := b.smImagesStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1051,7 +1070,12 @@ func (b *InMemoryBackend) ListImages(ctx context.Context, nextToken string) ([]*
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.smImagesStore(region), nextToken, cloneSMImage)
+	return sagemakerListKeyPaged(
+		b.smImagesStore(region),
+		nextToken,
+		cloneSMImage,
+		func(v *SMImage) string { return v.ImageName },
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,7 +1114,7 @@ func (b *InMemoryBackend) CreateImageVersion(ctx context.Context, imageName stri
 
 	region := getRegion(ctx, b.region)
 
-	img, ok := b.smImagesStore(region)[imageName]
+	img, ok := b.smImagesStore(region).Get(imageName)
 	if !ok {
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
 	}
@@ -1391,7 +1415,7 @@ func (b *InMemoryBackend) CreateCompilationJob(
 		return nil, fmt.Errorf("%w: CompilationJobName is required", ErrValidation)
 	}
 
-	if _, ok := b.compilationJobsStore(region)[name]; ok {
+	if _, ok := b.compilationJobsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: compilation job %q already exists", ErrValidation, name)
 	}
 
@@ -1407,7 +1431,7 @@ func (b *InMemoryBackend) CreateCompilationJob(
 		CreationTime:         now,
 		LastModifiedTime:     now,
 	}
-	b.compilationJobsStore(region)[name] = j
+	b.compilationJobsStore(region).Put(j)
 
 	return cloneCompilationJob(j), nil
 }
@@ -1419,7 +1443,7 @@ func (b *InMemoryBackend) DescribeCompilationJob(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.compilationJobsStore(region)[name]
+	j, ok := b.compilationJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
@@ -1434,12 +1458,12 @@ func (b *InMemoryBackend) DeleteCompilationJob(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.compilationJobsStore(region)[name]; !ok {
+	if _, ok := b.compilationJobsStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
 
 	store := b.compilationJobsStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1451,7 +1475,7 @@ func (b *InMemoryBackend) StopCompilationJob(ctx context.Context, name string) e
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.compilationJobsStore(region)[name]
+	j, ok := b.compilationJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
@@ -1475,7 +1499,12 @@ func (b *InMemoryBackend) ListCompilationJobs(ctx context.Context, nextToken str
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.compilationJobsStore(region), nextToken, cloneCompilationJob)
+	return sagemakerListKeyPaged(
+		b.compilationJobsStore(region),
+		nextToken,
+		cloneCompilationJob,
+		func(v *CompilationJob) string { return v.CompilationJobName },
+	)
 }
 
 // SetCompilationJobExtras sets optional configuration fields on an existing compilation job
@@ -1492,7 +1521,7 @@ func (b *InMemoryBackend) SetCompilationJobExtras(
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.compilationJobsStore(region)[name]
+	j, ok := b.compilationJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
@@ -1553,7 +1582,7 @@ func (b *InMemoryBackend) CreateMonitoringSchedule(
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", ErrValidation)
 	}
 
-	if _, ok := b.monitoringSchedulesStore(region)[name]; ok {
+	if _, ok := b.monitoringSchedulesStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q already exists", ErrValidation, name)
 	}
 
@@ -1568,7 +1597,7 @@ func (b *InMemoryBackend) CreateMonitoringSchedule(
 		CreationTime:             now,
 		LastModifiedTime:         now,
 	}
-	b.monitoringSchedulesStore(region)[name] = ms
+	b.monitoringSchedulesStore(region).Put(ms)
 
 	return cloneMonitoringSchedule(ms), nil
 }
@@ -1580,7 +1609,7 @@ func (b *InMemoryBackend) DescribeMonitoringSchedule(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	ms, ok := b.monitoringSchedulesStore(region)[name]
+	ms, ok := b.monitoringSchedulesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1595,12 +1624,12 @@ func (b *InMemoryBackend) DeleteMonitoringSchedule(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.monitoringSchedulesStore(region)[name]; !ok {
+	if _, ok := b.monitoringSchedulesStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
 
 	store := b.monitoringSchedulesStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1612,7 +1641,7 @@ func (b *InMemoryBackend) StopMonitoringSchedule(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	ms, ok := b.monitoringSchedulesStore(region)[name]
+	ms, ok := b.monitoringSchedulesStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1635,7 +1664,7 @@ func (b *InMemoryBackend) StartMonitoringSchedule(ctx context.Context, name stri
 
 	region := getRegion(ctx, b.region)
 
-	ms, ok := b.monitoringSchedulesStore(region)[name]
+	ms, ok := b.monitoringSchedulesStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1659,7 +1688,7 @@ func (b *InMemoryBackend) UpdateMonitoringSchedule(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	ms, ok := b.monitoringSchedulesStore(region)[name]
+	ms, ok := b.monitoringSchedulesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1679,7 +1708,12 @@ func (b *InMemoryBackend) ListMonitoringSchedules(
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.monitoringSchedulesStore(region), nextToken, cloneMonitoringSchedule)
+	return sagemakerListKeyPaged(
+		b.monitoringSchedulesStore(region),
+		nextToken,
+		cloneMonitoringSchedule,
+		func(v *MonitoringSchedule) string { return v.MonitoringScheduleName },
+	)
 }
 
 // ---------------------------------------------------------------------------
@@ -1746,14 +1780,14 @@ func (b *InMemoryBackend) CreateWorkteam(ctx context.Context, opts CreateWorktea
 		return nil, fmt.Errorf("%w: WorkteamName is required", ErrValidation)
 	}
 
-	if _, ok := b.workteamsStore(region)[opts.Name]; ok {
+	if _, ok := b.workteamsStore(region).Get(opts.Name); ok {
 		return nil, fmt.Errorf("%w: workteam %q already exists", ErrValidation, opts.Name)
 	}
 
 	var workforceARN string
 
 	if opts.WorkforceName != "" {
-		wf, ok := b.workforcesStore(region)[opts.WorkforceName]
+		wf, ok := b.workforcesStore(region).Get(opts.WorkforceName)
 		if !ok {
 			return nil, fmt.Errorf(
 				"%w: workforce %q not found", ErrWorkforceNotFound, opts.WorkforceName,
@@ -1777,7 +1811,7 @@ func (b *InMemoryBackend) CreateWorkteam(ctx context.Context, opts CreateWorktea
 		CreateDate:        now,
 		LastUpdatedDate:   now,
 	}
-	b.workteamsStore(region)[opts.Name] = w
+	b.workteamsStore(region).Put(w)
 
 	return cloneWorkteam(w), nil
 }
@@ -1796,7 +1830,7 @@ func (b *InMemoryBackend) UpdateWorkteam(ctx context.Context, opts UpdateWorktea
 
 	region := getRegion(ctx, b.region)
 
-	w, ok := b.workteamsStore(region)[opts.Name]
+	w, ok := b.workteamsStore(region).Get(opts.Name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, opts.Name)
 	}
@@ -1821,7 +1855,7 @@ func (b *InMemoryBackend) DescribeWorkteam(ctx context.Context, name string) (*W
 
 	region := getRegion(ctx, b.region)
 
-	w, ok := b.workteamsStore(region)[name]
+	w, ok := b.workteamsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, name)
 	}
@@ -1836,12 +1870,12 @@ func (b *InMemoryBackend) DeleteWorkteam(ctx context.Context, name string) error
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.workteamsStore(region)[name]; !ok {
+	if _, ok := b.workteamsStore(region).Get(name); !ok {
 		return fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, name)
 	}
 
 	store := b.workteamsStore(region)
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -1853,5 +1887,10 @@ func (b *InMemoryBackend) ListWorkteams(ctx context.Context, nextToken string) (
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.workteamsStore(region), nextToken, cloneWorkteam)
+	return sagemakerListKeyPaged(
+		b.workteamsStore(region),
+		nextToken,
+		cloneWorkteam,
+		func(v *Workteam) string { return v.WorkteamName },
+	)
 }

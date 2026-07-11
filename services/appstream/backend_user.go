@@ -107,7 +107,7 @@ func (b *InMemoryBackend) CreateUser(userName, email, firstName, lastName, authT
 	defer b.mu.Unlock()
 
 	key := userKey(userName, authType)
-	if _, ok := b.users[key]; ok {
+	if b.users.Has(key) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) CreateUser(userName, email, firstName, lastName, authT
 		Status:             userStatusCreated,
 		Enabled:            true,
 	}
-	b.users[key] = u
+	b.users.Put(u)
 
 	return u.toUser(), nil
 }
@@ -133,11 +133,11 @@ func (b *InMemoryBackend) DeleteUser(userName, authType string) error {
 	defer b.mu.Unlock()
 
 	key := userKey(userName, authType)
-	if _, ok := b.users[key]; !ok {
+	if !b.users.Has(key) {
 		return ErrNotFound
 	}
 
-	delete(b.users, key)
+	b.users.Delete(key)
 	delete(b.userStackAssoc, key)
 
 	return nil
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) DescribeUsers(authType string) ([]*User, error) {
 
 	var result []*User
 
-	for _, u := range b.users {
+	for _, u := range b.users.All() {
 		if authType != "" && u.AuthenticationType != authType {
 			continue
 		}
@@ -167,7 +167,7 @@ func (b *InMemoryBackend) DisableUser(userName, authType string) error {
 	defer b.mu.Unlock()
 
 	key := userKey(userName, authType)
-	u, ok := b.users[key]
+	u, ok := b.users.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) EnableUser(userName, authType string) error {
 	defer b.mu.Unlock()
 
 	key := userKey(userName, authType)
-	u, ok := b.users[key]
+	u, ok := b.users.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) BatchAssociateUserStack(
 
 	for _, assoc := range associations {
 		key := userKey(assoc.UserName, assoc.AuthenticationType)
-		if _, ok := b.users[key]; !ok {
+		if !b.users.Has(key) {
 			a := assoc
 			errs = append(errs, UserStackAssociationError{
 				UserStackAssociation: &a,
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) BatchDisassociateUserStack(
 
 	for _, assoc := range associations {
 		key := userKey(assoc.UserName, assoc.AuthenticationType)
-		if _, ok := b.users[key]; !ok {
+		if !b.users.Has(key) {
 			a := assoc
 			errs = append(errs, UserStackAssociationError{
 				UserStackAssociation: &a,
@@ -265,7 +265,7 @@ func (b *InMemoryBackend) DescribeUserStackAssociations(
 	var result []*UserStackAssociation
 
 	for uKey, stacks := range b.userStackAssoc {
-		u, ok := b.users[uKey]
+		u, ok := b.users.Get(uKey)
 		if !ok {
 			continue
 		}
@@ -301,7 +301,7 @@ func (b *InMemoryBackend) DescribeSessions(stackName, fleetName, userID string) 
 
 	var result []*Session
 
-	for _, s := range b.sessions {
+	for _, s := range b.sessions.All() {
 		if stackName != "" && s.StackName != stackName {
 			continue
 		}
@@ -325,11 +325,11 @@ func (b *InMemoryBackend) DrainSessionInstance(sessionID string) error {
 	b.mu.Lock("DrainSessionInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sessions[sessionID]; !ok {
+	if !b.sessions.Has(sessionID) {
 		return ErrNotFound
 	}
 
-	delete(b.sessions, sessionID)
+	b.sessions.Delete(sessionID)
 
 	return nil
 }
@@ -339,11 +339,11 @@ func (b *InMemoryBackend) ExpireSession(sessionID string) error {
 	b.mu.Lock("ExpireSession")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sessions[sessionID]; !ok {
+	if !b.sessions.Has(sessionID) {
 		return ErrNotFound
 	}
 
-	delete(b.sessions, sessionID)
+	b.sessions.Delete(sessionID)
 
 	return nil
 }
@@ -353,11 +353,11 @@ func (b *InMemoryBackend) CreateStreamingURL(stackName, fleetName, userID string
 	b.mu.Lock("CreateStreamingURL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackName]; !ok {
+	if !b.stacks.Has(stackName) {
 		return "", ErrNotFound
 	}
 
-	if _, ok := b.fleets[fleetName]; !ok {
+	if !b.fleets.Has(fleetName) {
 		return "", ErrNotFound
 	}
 
@@ -372,7 +372,7 @@ func (b *InMemoryBackend) CreateStreamingURL(stackName, fleetName, userID string
 		ConnectionState:    sessionConnected,
 		AuthenticationType: "API",
 	}
-	b.sessions[sessionID] = s
+	b.sessions.Put(s)
 
 	url := fmt.Sprintf(
 		"https://appstream2.%s.aws.amazon.com/authenticate?param=%s", b.region, sessionID,
@@ -434,11 +434,11 @@ func (b *InMemoryBackend) CreateThemeForStack(stackName string) (*Theme, error) 
 	b.mu.Lock("CreateThemeForStack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackName]; !ok {
+	if !b.stacks.Has(stackName) {
 		return nil, ErrNotFound
 	}
 
-	if _, ok := b.themes[stackName]; ok {
+	if b.themes.Has(stackName) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -447,7 +447,7 @@ func (b *InMemoryBackend) CreateThemeForStack(stackName string) (*Theme, error) 
 		StackName:   stackName,
 		State:       "ENABLED",
 	}
-	b.themes[stackName] = th
+	b.themes.Put(th)
 
 	return th.toTheme(), nil
 }
@@ -457,11 +457,11 @@ func (b *InMemoryBackend) DeleteThemeForStack(stackName string) error {
 	b.mu.Lock("DeleteThemeForStack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.themes[stackName]; !ok {
+	if !b.themes.Has(stackName) {
 		return ErrNotFound
 	}
 
-	delete(b.themes, stackName)
+	b.themes.Delete(stackName)
 
 	return nil
 }
@@ -471,7 +471,7 @@ func (b *InMemoryBackend) DescribeThemeForStack(stackName string) (*Theme, error
 	b.mu.RLock("DescribeThemeForStack")
 	defer b.mu.RUnlock()
 
-	th, ok := b.themes[stackName]
+	th, ok := b.themes.Get(stackName)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -484,7 +484,7 @@ func (b *InMemoryBackend) UpdateThemeForStack(stackName string) (*Theme, error) 
 	b.mu.Lock("UpdateThemeForStack")
 	defer b.mu.Unlock()
 
-	th, ok := b.themes[stackName]
+	th, ok := b.themes.Get(stackName)
 	if !ok {
 		return nil, ErrNotFound
 	}

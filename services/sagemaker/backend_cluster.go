@@ -19,12 +19,12 @@ import (
 func (b *InMemoryBackend) resolveClusterLocked(region, nameOrArn string) (*Cluster, error) {
 	store := b.clustersStore(region)
 
-	if c, ok := store[nameOrArn]; ok {
+	if c, ok := store.Get(nameOrArn); ok {
 		return c, nil
 	}
 
 	if name, ok := b.clusterARNIndexStore(region)[nameOrArn]; ok {
-		if c, found := store[name]; found {
+		if c, found := store.Get(name); found {
 			return c, nil
 		}
 	}
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) CreateCluster(
 	region := getRegion(ctx, b.region)
 	store := b.clustersStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: cluster %q already exists", ErrClusterAlreadyExists, name)
 	}
 
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) CreateCluster(
 		}
 	}
 
-	store[name] = c
+	store.Put(c)
 	b.clusterARNIndexStore(region)[clusterARN] = name
 
 	return cloneCluster(c), nil
@@ -130,18 +130,15 @@ func (b *InMemoryBackend) ListClusters(
 	region := getRegion(ctx, b.region)
 	all := b.clustersStore(region)
 
-	filtered := all
-	if nameContains != "" {
-		filtered = make(map[string]*Cluster, len(all))
+	filtered := make(map[string]*Cluster, all.Len())
 
-		for k, c := range all {
-			if strings.Contains(c.ClusterName, nameContains) {
-				filtered[k] = c
-			}
+	for _, c := range all.All() {
+		if nameContains == "" || strings.Contains(c.ClusterName, nameContains) {
+			filtered[c.ClusterName] = c
 		}
 	}
 
-	return sagemakerListPaged(filtered, nextToken, cloneCluster,
+	return sagemakerListPagedMap(filtered, nextToken, cloneCluster,
 		func(a, b *Cluster) bool { return a.ClusterName < b.ClusterName })
 }
 
@@ -157,7 +154,7 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, nameOrArn string) (
 		return "", err
 	}
 
-	delete(b.clustersStore(region), c.ClusterName)
+	b.clustersStore(region).Delete(c.ClusterName)
 	delete(b.clusterARNIndexStore(region), c.ClusterArn)
 
 	return c.ClusterArn, nil
@@ -349,7 +346,7 @@ func (b *InMemoryBackend) ListClusterNodes(
 		return nil, "", err
 	}
 
-	nodes, next := sagemakerListKeyPaged(c.Nodes, nextToken, func(n *ClusterNode) *ClusterNode {
+	nodes, next := sagemakerListKeyPagedMap(c.Nodes, nextToken, func(n *ClusterNode) *ClusterNode {
 		cp := *n
 
 		return &cp

@@ -11,9 +11,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-// awserrFromDetail converts an ErrorDetail to an error wrapping ErrNotFound.
+// awserrFromDetail converts a batch-operation ErrorDetail into the matching
+// sentinel error so handleError reports the correct wire exception type.
+//
+// Batch partition/table ops (BatchCreatePartition, BatchDeletePartition, ...)
+// return per-item ErrorDetail values with an AWS exception-name string in
+// ErrorCode, but no Go error. The single-item AWS ops (CreatePartition,
+// DeletePartition, ...) are implemented by calling the batch backend method
+// with a one-element slice and surfacing errs[0] as a real error. Previously
+// this always wrapped awserr.ErrNotFound regardless of ErrorCode, so an
+// AlreadyExistsException detail (e.g. CreatePartition on a duplicate) was
+// reported to the client as EntityNotFoundException instead.
 func awserrFromDetail(d ErrorDetail) error {
-	return awserr.New(d.ErrorCode+": "+d.ErrorMessage, awserr.ErrNotFound)
+	msg := d.ErrorCode + ": " + d.ErrorMessage
+
+	switch d.ErrorCode {
+	case "AlreadyExistsException":
+		return awserr.New(msg, awserr.ErrAlreadyExists)
+	case errEntityNotFoundCode:
+		return awserr.New(msg, awserr.ErrNotFound)
+	default:
+		return awserr.New(msg, awserr.ErrInvalidParameter)
+	}
 }
 
 // validateSchemaDefinition checks a schema definition string against its DataFormat.
@@ -469,14 +488,21 @@ type batchGetPartitionInput struct {
 
 // batchGetPartitionOutput holds the result for BatchGetPartition.
 type batchGetPartitionOutput struct {
-	Partitions      []*Partition `json:"Partitions"`
-	UnprocessedKeys []any        `json:"UnprocessedKeys"`
+	Partitions      []*Partition         `json:"Partitions"`
+	UnprocessedKeys []PartitionValueList `json:"UnprocessedKeys"`
 }
 
 // handleBatchGetPartition validates that the referenced database/table exist
-// before returning. AWS Glue returns an EntityNotFoundException when the
-// table is missing rather than silently returning an empty list. The mock
-// backend has no partition storage, so on success the response remains empty.
+// before returning, then looks up each requested partition value list against
+// real backend state. AWS Glue returns an EntityNotFoundException when the
+// table is missing rather than silently returning an empty list; partitions
+// that don't exist are reported back in UnprocessedKeys (per the
+// BatchGetPartitionResponse shape) rather than causing the whole call to fail.
+//
+// Previously this always returned an empty Partitions list regardless of what
+// partitions actually existed in the backend — a disguised stub masked by a
+// stale comment claiming "the mock backend has no partition storage" (it does;
+// see InMemoryBackend.GetPartition/GetPartitions in backend_accuracy.go).
 func (h *Handler) handleBatchGetPartition(
 	_ context.Context,
 	in *batchGetPartitionInput,
@@ -489,7 +515,21 @@ func (h *Handler) handleBatchGetPartition(
 		return nil, err
 	}
 
-	return &batchGetPartitionOutput{Partitions: []*Partition{}, UnprocessedKeys: []any{}}, nil
+	found := make([]*Partition, 0, len(in.PartitionsToGet))
+	unprocessed := make([]PartitionValueList, 0)
+
+	for _, pvl := range in.PartitionsToGet {
+		p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, pvl.Values)
+		if err != nil {
+			unprocessed = append(unprocessed, pvl)
+
+			continue
+		}
+
+		found = append(found, p)
+	}
+
+	return &batchGetPartitionOutput{Partitions: found, UnprocessedKeys: unprocessed}, nil
 }
 
 // batchGetTableOptimizerInput holds input for BatchGetTableOptimizer.

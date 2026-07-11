@@ -6,18 +6,18 @@ import (
 	"encoding/hex"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -58,89 +58,108 @@ var (
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
 )
 
-// regionState holds all HealthOmics resources for a single region.
-type regionState struct {
-	referenceStores       map[string]*ReferenceStore
-	references            map[string]map[string]*ReferenceMetadata
-	referenceImportJobs   map[string]map[string]*ReferenceImportJob
-	sequenceStores        map[string]*SequenceStore
-	readSets              map[string]map[string]*ReadSetMetadata
-	readSetActivationJobs map[string]map[string]*ReadSetActivationJob
-	readSetExportJobs     map[string]map[string]*ReadSetExportJob
-	readSetImportJobs     map[string]map[string]*ReadSetImportJob
-	multipartUploads      map[string]map[string]*MultipartReadSetUpload
-	uploadParts           map[string]map[string][]*ReadSetUploadPart
-	uploadPartData        map[string]map[string]map[string]map[int][]byte // storeID→uploadID→source→partNum→bytes
-	readSetBytes          map[string]map[string][]byte                    // storeID→readSetID→bytes
-	referenceBytes        map[string]map[string][]byte                    // storeID→refID→bytes
-	runGroups             map[string]*RunGroup
-	runs                  map[string]*Run
-	runTasks              map[string]map[string]*RunTask
-	workflows             map[string]*Workflow
-	workflowVersions      map[string]map[string]*WorkflowVersion
-	annotationStores      map[string]*AnnotationStore
-	annotationVersions    map[string]map[string]*AnnotationStoreVersion
-	annotationImportJobs  map[string]*AnnotationImportJob
-	variantStores         map[string]*VariantStore
-	variantImportJobs     map[string]*VariantImportJob
-	shares                map[string]*Share
-	runCaches             map[string]*RunCache
-	runBatches            map[string]*RunBatch
-	configurations        map[string]*Configuration
-	s3AccessPolicies      map[string]*S3AccessPolicy
-	tags                  map[string]map[string]string
-}
-
-func newRegionState() *regionState {
-	return &regionState{
-		referenceStores:       make(map[string]*ReferenceStore),
-		references:            make(map[string]map[string]*ReferenceMetadata),
-		referenceImportJobs:   make(map[string]map[string]*ReferenceImportJob),
-		sequenceStores:        make(map[string]*SequenceStore),
-		readSets:              make(map[string]map[string]*ReadSetMetadata),
-		readSetActivationJobs: make(map[string]map[string]*ReadSetActivationJob),
-		readSetExportJobs:     make(map[string]map[string]*ReadSetExportJob),
-		readSetImportJobs:     make(map[string]map[string]*ReadSetImportJob),
-		multipartUploads:      make(map[string]map[string]*MultipartReadSetUpload),
-		uploadParts:           make(map[string]map[string][]*ReadSetUploadPart),
-		uploadPartData:        make(map[string]map[string]map[string]map[int][]byte),
-		readSetBytes:          make(map[string]map[string][]byte),
-		referenceBytes:        make(map[string]map[string][]byte),
-		runGroups:             make(map[string]*RunGroup),
-		runs:                  make(map[string]*Run),
-		runTasks:              make(map[string]map[string]*RunTask),
-		workflows:             make(map[string]*Workflow),
-		workflowVersions:      make(map[string]map[string]*WorkflowVersion),
-		annotationStores:      make(map[string]*AnnotationStore),
-		annotationVersions:    make(map[string]map[string]*AnnotationStoreVersion),
-		annotationImportJobs:  make(map[string]*AnnotationImportJob),
-		variantStores:         make(map[string]*VariantStore),
-		variantImportJobs:     make(map[string]*VariantImportJob),
-		shares:                make(map[string]*Share),
-		runCaches:             make(map[string]*RunCache),
-		runBatches:            make(map[string]*RunBatch),
-		configurations:        make(map[string]*Configuration),
-		s3AccessPolicies:      make(map[string]*S3AccessPolicy),
-		tags:                  make(map[string]map[string]string),
-	}
-}
-
 // InMemoryBackend is the in-memory backend for HealthOmics.
+//
+// Every resource collection that carries its own identity field (ID, Name, or
+// ShareID) is a directly keyed [store.Table]; every collection that was
+// previously nested by a parent store/workflow/run/annotation-store is a
+// [store.Table] keyed by the composite "parent|id" string (see parentKey),
+// with a companion [store.Index] grouping entries by parent for per-parent
+// scans -- the same pattern services/emr and services/codeartifact use for
+// their region-nested resources. HealthOmics's "region" dimension itself was
+// never actually exercised (every pre-refactor call site read/wrote
+// b.region(b.defaultRegion) only -- WithRegion's context value never reached
+// a lookup), so unlike emr/codeartifact no region qualifier is threaded
+// through these keys; only the genuine parent/child nesting is preserved.
+//
+// uploadParts (order-sensitive: part listing walks it in append order, not
+// sorted order), uploadPartData/readSetBytes/referenceBytes (raw []byte
+// values, not *V), and tags (map[string]string values, not *V) are not
+// eligible for store.Table and remain plain nested maps.
+// Field order below is deliberate: it was determined by running
+// fieldalignment -fix on an isolated scratch copy of this struct (never
+// directly on this package -- see the fieldalignment hazard note in
+// .claude/memories/parity-principles.md-adjacent process docs) and then
+// hand-applied here. It shaves 8 pointer-bytes of padding off the struct;
+// do not reorder without re-checking on a scratch copy.
 type InMemoryBackend struct {
-	regions       map[string]*regionState
+	referenceImportJobs *store.Table[ReferenceImportJob]
+	readSets            *store.Table[ReadSetMetadata]
+
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	referenceStores      *store.Table[ReferenceStore]
+	sequenceStores       *store.Table[SequenceStore]
+	runGroups            *store.Table[RunGroup]
+	runs                 *store.Table[Run]
+	workflows            *store.Table[Workflow]
+	annotationStores     *store.Table[AnnotationStore]
+	annotationImportJobs *store.Table[AnnotationImportJob]
+	variantStores        *store.Table[VariantStore]
+	variantImportJobs    *store.Table[VariantImportJob]
+	shares               *store.Table[Share]
+	runCaches            *store.Table[RunCache]
+	runBatches           *store.Table[RunBatch]
+	configurations       *store.Table[Configuration]
+
+	referenceImportJobsByStore *store.Index[ReferenceImportJob]
+	references                 *store.Table[ReferenceMetadata]
+	referencesByStore          *store.Index[ReferenceMetadata]
+
+	// Left-raw maps: non-*V values or order-sensitive, ineligible for store.Table.
+	tags           map[string]map[string]string
+	referenceBytes map[string]map[string][]byte
+
+	s3AccessPolicies *store.Table[S3AccessPolicy]
+
+	readSetsByStore              *store.Index[ReadSetMetadata]
+	readSetActivationJobs        *store.Table[ReadSetActivationJob]
+	readSetActivationJobsByStore *store.Index[ReadSetActivationJob]
+	readSetExportJobs            *store.Table[ReadSetExportJob]
+	readSetExportJobsByStore     *store.Index[ReadSetExportJob]
+	readSetImportJobs            *store.Table[ReadSetImportJob]
+	readSetImportJobsByStore     *store.Index[ReadSetImportJob]
+	multipartUploads             *store.Table[MultipartReadSetUpload]
+	multipartUploadsByStore      *store.Index[MultipartReadSetUpload]
+
+	runTasks      *store.Table[RunTask]
+	runTasksByRun *store.Index[RunTask]
+
+	workflowVersions           *store.Table[WorkflowVersion]
+	workflowVersionsByWorkflow *store.Index[WorkflowVersion]
+
+	annotationVersions        *store.Table[AnnotationStoreVersion]
+	annotationVersionsByStore *store.Index[AnnotationStoreVersion]
+
+	uploadParts    map[string]map[string][]*ReadSetUploadPart
+	uploadPartData map[string]map[string]map[string]map[int][]byte
+	readSetBytes   map[string]map[string][]byte
+
 	accountID     string
 	defaultRegion string
-	mu            sync.RWMutex
 }
+
+// parentKey builds the composite store.Table primary key ("parent|id") shared
+// by every parent-nested resource collection below.
+func parentKey(parent, id string) string { return parent + "|" + id }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		accountID:     accountID,
 		defaultRegion: region,
-		regions:       make(map[string]*regionState),
+		mu:            lockmetrics.New("omics"),
+		registry:      store.NewRegistry(),
+
+		uploadParts:    make(map[string]map[string][]*ReadSetUploadPart),
+		uploadPartData: make(map[string]map[string]map[string]map[int][]byte),
+		readSetBytes:   make(map[string]map[string][]byte),
+		referenceBytes: make(map[string]map[string][]byte),
+		tags:           make(map[string]map[string]string),
 	}
-	b.regions[region] = newRegionState()
+
+	registerAllTables(b)
 
 	return b
 }
@@ -153,39 +172,16 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
 // Reset clears all stored state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.regions = make(map[string]*regionState)
-	b.regions[b.defaultRegion] = newRegionState()
-}
+	b.registry.ResetAll()
 
-// Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "omics", b.regions)
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	return persistence.UnmarshalSnapshot(ctx, "omics", data, &b.regions)
-}
-
-// region returns the regionState for the given region, creating it if needed.
-func (b *InMemoryBackend) region(r string) *regionState {
-	if s, ok := b.regions[r]; ok {
-		return s
-	}
-
-	s := newRegionState()
-	b.regions[r] = s
-
-	return s
+	b.uploadParts = make(map[string]map[string][]*ReadSetUploadPart)
+	b.uploadPartData = make(map[string]map[string]map[string]map[int][]byte)
+	b.readSetBytes = make(map[string]map[string][]byte)
+	b.referenceBytes = make(map[string]map[string][]byte)
+	b.tags = make(map[string]map[string]string)
 }
 
 func newID() string {
@@ -228,6 +224,32 @@ func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, 
 	return page, outToken
 }
 
+// paginatedCopies sorts ids, paginates them via paginateStrings, then
+// re-fetches and shallow-copies each page member via get. It is the shared
+// tail of every List* operation below: collect candidate IDs (from a
+// [store.Table.All] scan or a [store.Index.Get] group, optionally filtered),
+// then hand off here for the identical sort/paginate/copy sequence every one
+// of them performs.
+func paginatedCopies[T any](
+	ids []string,
+	nextToken string,
+	maxResults int,
+	get func(string) (*T, bool),
+) ([]*T, string) {
+	sort.Strings(ids)
+	page, outToken := paginateStrings(ids, nextToken, maxResults)
+
+	result := make([]*T, 0, len(page))
+
+	for _, id := range page {
+		v, _ := get(id)
+		cp := *v
+		result = append(result, &cp)
+	}
+
+	return result, outToken
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // ReferenceStore
 // ────────────────────────────────────────────────────────────────────────────
@@ -241,7 +263,7 @@ func (b *InMemoryBackend) CreateReferenceStore(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateReferenceStore")
 	defer b.mu.Unlock()
 
 	rs := &ReferenceStore{
@@ -253,14 +275,11 @@ func (b *InMemoryBackend) CreateReferenceStore(
 	}
 	rs.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "referenceStore/"+rs.ID)
 
-	st := b.region(b.defaultRegion)
-	st.referenceStores[rs.ID] = rs
-	st.references[rs.ID] = make(map[string]*ReferenceMetadata)
-	st.referenceImportJobs[rs.ID] = make(map[string]*ReferenceImportJob)
-	st.referenceBytes[rs.ID] = make(map[string][]byte)
+	b.referenceStores.Put(rs)
+	b.referenceBytes[rs.ID] = make(map[string][]byte)
 
 	if tags != nil {
-		st.tags[rs.Arn] = copyTags(tags)
+		b.tags[rs.Arn] = copyTags(tags)
 	}
 
 	result := *rs
@@ -270,33 +289,36 @@ func (b *InMemoryBackend) CreateReferenceStore(
 
 // DeleteReferenceStore deletes a reference store by ID.
 func (b *InMemoryBackend) DeleteReferenceStore(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteReferenceStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rs, ok := st.referenceStores[id]
-
+	rs, ok := b.referenceStores.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: reference store %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, rs.Arn)
-	delete(st.referenceStores, id)
-	delete(st.references, id)
-	delete(st.referenceImportJobs, id)
-	delete(st.referenceBytes, id)
+	delete(b.tags, rs.Arn)
+	b.referenceStores.Delete(id)
+
+	for _, ref := range slices.Clone(b.referencesByStore.Get(id)) {
+		b.references.Delete(parentKey(id, ref.ID))
+	}
+
+	for _, job := range slices.Clone(b.referenceImportJobsByStore.Get(id)) {
+		b.referenceImportJobs.Delete(parentKey(id, job.ID))
+	}
+
+	delete(b.referenceBytes, id)
 
 	return nil
 }
 
 // GetReferenceStore retrieves a reference store by ID.
 func (b *InMemoryBackend) GetReferenceStore(id string) (*ReferenceStore, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReferenceStore")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	rs, ok := st.referenceStores[id]
-
+	rs, ok := b.referenceStores.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: reference store %s not found", ErrNotFound, id)
 	}
@@ -312,29 +334,21 @@ func (b *InMemoryBackend) ListReferenceStores(
 	maxResults int,
 	nextToken string,
 ) ([]*ReferenceStore, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReferenceStores")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := make([]string, 0, len(st.referenceStores))
+	all := b.referenceStores.All()
+	ids := make([]string, 0, len(all))
 
-	for id, rs := range st.referenceStores {
+	for _, rs := range all {
 		if filter != nil && filter.Name != "" && rs.Name != filter.Name {
 			continue
 		}
 
-		ids = append(ids, id)
+		ids = append(ids, rs.ID)
 	}
 
-	sort.Strings(ids)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
-
-	result := make([]*ReferenceStore, 0, len(page))
-
-	for _, id := range page {
-		rs := *st.referenceStores[id]
-		result = append(result, &rs)
-	}
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.referenceStores.Get)
 
 	return result, outToken, nil
 }
@@ -345,24 +359,20 @@ func (b *InMemoryBackend) ListReferenceStores(
 
 // DeleteReference deletes a reference by store ID and reference ID.
 func (b *InMemoryBackend) DeleteReference(referenceStoreID, id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteReference")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.referenceStores[referenceStoreID]; !ok {
+	if !b.referenceStores.Has(referenceStoreID) {
 		return fmt.Errorf("%w: reference store %s not found", ErrNotFound, referenceStoreID)
 	}
 
-	refs := st.references[referenceStoreID]
-	ref, ok := refs[id]
-
+	ref, ok := b.references.Get(parentKey(referenceStoreID, id))
 	if !ok {
 		return fmt.Errorf("%w: reference %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, ref.Arn)
-	delete(refs, id)
+	delete(b.tags, ref.Arn)
+	b.references.Delete(parentKey(referenceStoreID, id))
 
 	return nil
 }
@@ -371,17 +381,14 @@ func (b *InMemoryBackend) DeleteReference(referenceStoreID, id string) error {
 func (b *InMemoryBackend) GetReferenceMetadata(
 	referenceStoreID, id string,
 ) (*ReferenceMetadata, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReferenceMetadata")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.referenceStores[referenceStoreID]; !ok {
+	if !b.referenceStores.Has(referenceStoreID) {
 		return nil, fmt.Errorf("%w: reference store %s not found", ErrNotFound, referenceStoreID)
 	}
 
-	ref, ok := st.references[referenceStoreID][id]
-
+	ref, ok := b.references.Get(parentKey(referenceStoreID, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: reference %s not found", ErrNotFound, id)
 	}
@@ -398,12 +405,10 @@ func (b *InMemoryBackend) ListReferences(
 	maxResults int,
 	nextToken string,
 ) ([]*ReferenceMetadata, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReferences")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.referenceStores[referenceStoreID]; !ok {
+	if !b.referenceStores.Has(referenceStoreID) {
 		return nil, "", fmt.Errorf(
 			"%w: reference store %s not found",
 			ErrNotFound,
@@ -411,26 +416,20 @@ func (b *InMemoryBackend) ListReferences(
 		)
 	}
 
-	refs := st.references[referenceStoreID]
-	ids := make([]string, 0, len(refs))
+	group := b.referencesByStore.Get(referenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	for id, ref := range refs {
+	for _, ref := range group {
 		if filter != nil && filter.Name != "" && ref.Name != filter.Name {
 			continue
 		}
 
-		ids = append(ids, id)
+		ids = append(ids, ref.ID)
 	}
 
-	sort.Strings(ids)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
-
-	result := make([]*ReferenceMetadata, 0, len(page))
-
-	for _, id := range page {
-		r := *refs[id]
-		result = append(result, &r)
-	}
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReferenceMetadata, bool) {
+		return b.references.Get(parentKey(referenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -440,12 +439,10 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 	referenceStoreID, roleARN string,
 	sources []ReferenceImportJobSource,
 ) (*ReferenceImportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartReferenceImportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.referenceStores[referenceStoreID]; !ok {
+	if !b.referenceStores.Has(referenceStoreID) {
 		return nil, fmt.Errorf("%w: reference store %s not found", ErrNotFound, referenceStoreID)
 	}
 
@@ -478,11 +475,11 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 			CreationTime: time.Now().UTC(),
 			UpdateTime:   time.Now().UTC(),
 		}
-		st.references[referenceStoreID][refID] = ref
-		st.referenceBytes[referenceStoreID][refID] = []byte{}
+		b.references.Put(ref)
+		b.referenceBytes[referenceStoreID][refID] = []byte{}
 	}
 
-	st.referenceImportJobs[referenceStoreID][job.ID] = job
+	b.referenceImportJobs.Put(job)
 
 	result := *job
 
@@ -493,17 +490,14 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 func (b *InMemoryBackend) GetReferenceImportJob(
 	referenceStoreID, jobID string,
 ) (*ReferenceImportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReferenceImportJob")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.referenceStores[referenceStoreID]; !ok {
+	if !b.referenceStores.Has(referenceStoreID) {
 		return nil, fmt.Errorf("%w: reference store %s not found", ErrNotFound, referenceStoreID)
 	}
 
-	job, ok := st.referenceImportJobs[referenceStoreID][jobID]
-
+	job, ok := b.referenceImportJobs.Get(parentKey(referenceStoreID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: reference import job %s not found", ErrNotFound, jobID)
 	}
@@ -519,12 +513,10 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*ReferenceImportJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReferenceImportJobs")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.referenceStores[referenceStoreID]; !ok {
+	if !b.referenceStores.Has(referenceStoreID) {
 		return nil, "", fmt.Errorf(
 			"%w: reference store %s not found",
 			ErrNotFound,
@@ -532,16 +524,16 @@ func (b *InMemoryBackend) ListReferenceImportJobs(
 		)
 	}
 
-	jobs := st.referenceImportJobs[referenceStoreID]
-	ids := collections.SortedKeys(jobs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	group := b.referenceImportJobsByStore.Get(referenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	result := make([]*ReferenceImportJob, 0, len(page))
-
-	for _, id := range page {
-		j := *jobs[id]
-		result = append(result, &j)
+	for _, j := range group {
+		ids = append(ids, j.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReferenceImportJob, bool) {
+		return b.referenceImportJobs.Get(parentKey(referenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -559,7 +551,7 @@ func (b *InMemoryBackend) CreateSequenceStore(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateSequenceStore")
 	defer b.mu.Unlock()
 
 	now := time.Now().UTC()
@@ -574,19 +566,13 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	}
 	ss.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "sequenceStore/"+ss.ID)
 
-	st := b.region(b.defaultRegion)
-	st.sequenceStores[ss.ID] = ss
-	st.readSets[ss.ID] = make(map[string]*ReadSetMetadata)
-	st.readSetActivationJobs[ss.ID] = make(map[string]*ReadSetActivationJob)
-	st.readSetExportJobs[ss.ID] = make(map[string]*ReadSetExportJob)
-	st.readSetImportJobs[ss.ID] = make(map[string]*ReadSetImportJob)
-	st.multipartUploads[ss.ID] = make(map[string]*MultipartReadSetUpload)
-	st.uploadParts[ss.ID] = make(map[string][]*ReadSetUploadPart)
-	st.uploadPartData[ss.ID] = make(map[string]map[string]map[int][]byte)
-	st.readSetBytes[ss.ID] = make(map[string][]byte)
+	b.sequenceStores.Put(ss)
+	b.uploadParts[ss.ID] = make(map[string][]*ReadSetUploadPart)
+	b.uploadPartData[ss.ID] = make(map[string]map[string]map[int][]byte)
+	b.readSetBytes[ss.ID] = make(map[string][]byte)
 
 	if tags != nil {
-		st.tags[ss.Arn] = copyTags(tags)
+		b.tags[ss.Arn] = copyTags(tags)
 	}
 
 	result := *ss
@@ -596,38 +582,50 @@ func (b *InMemoryBackend) CreateSequenceStore(
 
 // DeleteSequenceStore deletes a sequence store by ID.
 func (b *InMemoryBackend) DeleteSequenceStore(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSequenceStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	ss, ok := st.sequenceStores[id]
-
+	ss, ok := b.sequenceStores.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: sequence store %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, ss.Arn)
-	delete(st.sequenceStores, id)
-	delete(st.readSets, id)
-	delete(st.readSetActivationJobs, id)
-	delete(st.readSetExportJobs, id)
-	delete(st.readSetImportJobs, id)
-	delete(st.multipartUploads, id)
-	delete(st.uploadParts, id)
-	delete(st.uploadPartData, id)
-	delete(st.readSetBytes, id)
+	delete(b.tags, ss.Arn)
+	b.sequenceStores.Delete(id)
+
+	for _, rs := range slices.Clone(b.readSetsByStore.Get(id)) {
+		b.readSets.Delete(parentKey(id, rs.ID))
+	}
+
+	for _, j := range slices.Clone(b.readSetActivationJobsByStore.Get(id)) {
+		b.readSetActivationJobs.Delete(parentKey(id, j.ID))
+	}
+
+	for _, j := range slices.Clone(b.readSetExportJobsByStore.Get(id)) {
+		b.readSetExportJobs.Delete(parentKey(id, j.ID))
+	}
+
+	for _, j := range slices.Clone(b.readSetImportJobsByStore.Get(id)) {
+		b.readSetImportJobs.Delete(parentKey(id, j.ID))
+	}
+
+	for _, u := range slices.Clone(b.multipartUploadsByStore.Get(id)) {
+		b.multipartUploads.Delete(parentKey(id, u.UploadID))
+	}
+
+	delete(b.uploadParts, id)
+	delete(b.uploadPartData, id)
+	delete(b.readSetBytes, id)
 
 	return nil
 }
 
 // GetSequenceStore retrieves a sequence store by ID.
 func (b *InMemoryBackend) GetSequenceStore(id string) (*SequenceStore, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetSequenceStore")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ss, ok := st.sequenceStores[id]
-
+	ss, ok := b.sequenceStores.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, id)
 	}
@@ -643,29 +641,21 @@ func (b *InMemoryBackend) ListSequenceStores(
 	maxResults int,
 	nextToken string,
 ) ([]*SequenceStore, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListSequenceStores")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := make([]string, 0, len(st.sequenceStores))
+	all := b.sequenceStores.All()
+	ids := make([]string, 0, len(all))
 
-	for id, ss := range st.sequenceStores {
+	for _, ss := range all {
 		if filter != nil && filter.Name != "" && ss.Name != filter.Name {
 			continue
 		}
 
-		ids = append(ids, id)
+		ids = append(ids, ss.ID)
 	}
 
-	sort.Strings(ids)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
-
-	result := make([]*SequenceStore, 0, len(page))
-
-	for _, id := range page {
-		ss := *st.sequenceStores[id]
-		result = append(result, &ss)
-	}
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.sequenceStores.Get)
 
 	return result, outToken, nil
 }
@@ -674,12 +664,10 @@ func (b *InMemoryBackend) ListSequenceStores(
 func (b *InMemoryBackend) UpdateSequenceStore(
 	id, name, description string,
 ) (*SequenceStore, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSequenceStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	ss, ok := st.sequenceStores[id]
-
+	ss, ok := b.sequenceStores.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, id)
 	}
@@ -707,20 +695,17 @@ func (b *InMemoryBackend) BatchDeleteReadSet(
 	sequenceStoreID string,
 	ids []string,
 ) ([]ReadSetBatchError, error) {
-	b.mu.Lock()
+	b.mu.Lock("BatchDeleteReadSet")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	readSets := st.readSets[sequenceStoreID]
 	var errs []ReadSetBatchError
 
 	for _, id := range ids {
-		rs, ok := readSets[id]
+		rs, ok := b.readSets.Get(parentKey(sequenceStoreID, id))
 		if !ok {
 			errs = append(errs, ReadSetBatchError{
 				ID:      id,
@@ -731,8 +716,8 @@ func (b *InMemoryBackend) BatchDeleteReadSet(
 			continue
 		}
 
-		delete(st.tags, rs.Arn)
-		delete(readSets, id)
+		delete(b.tags, rs.Arn)
+		b.readSets.Delete(parentKey(sequenceStoreID, id))
 	}
 
 	return errs, nil
@@ -740,17 +725,14 @@ func (b *InMemoryBackend) BatchDeleteReadSet(
 
 // GetReadSetMetadata retrieves read set metadata.
 func (b *InMemoryBackend) GetReadSetMetadata(sequenceStoreID, id string) (*ReadSetMetadata, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReadSetMetadata")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	rs, ok := st.readSets[sequenceStoreID][id]
-
+	rs, ok := b.readSets.Get(parentKey(sequenceStoreID, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: read set %s not found", ErrNotFound, id)
 	}
@@ -767,19 +749,17 @@ func (b *InMemoryBackend) ListReadSets(
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetMetadata, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReadSets")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	readSets := st.readSets[sequenceStoreID]
-	ids := make([]string, 0, len(readSets))
+	group := b.readSetsByStore.Get(sequenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	for id, rs := range readSets {
+	for _, rs := range group {
 		if filter != nil {
 			if filter.Name != "" && rs.Name != filter.Name {
 				continue
@@ -790,18 +770,12 @@ func (b *InMemoryBackend) ListReadSets(
 			}
 		}
 
-		ids = append(ids, id)
+		ids = append(ids, rs.ID)
 	}
 
-	sort.Strings(ids)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
-
-	result := make([]*ReadSetMetadata, 0, len(page))
-
-	for _, id := range page {
-		rs := *readSets[id]
-		result = append(result, &rs)
-	}
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReadSetMetadata, bool) {
+		return b.readSets.Get(parentKey(sequenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -811,12 +785,10 @@ func (b *InMemoryBackend) StartReadSetActivationJob(
 	sequenceStoreID string,
 	sources []ReadSetActivationJobSource,
 ) (*ReadSetActivationJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartReadSetActivationJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
@@ -829,7 +801,7 @@ func (b *InMemoryBackend) StartReadSetActivationJob(
 	}
 	now := time.Now().UTC()
 	job.CompletionTime = &now
-	st.readSetActivationJobs[sequenceStoreID][job.ID] = job
+	b.readSetActivationJobs.Put(job)
 
 	result := *job
 
@@ -840,17 +812,14 @@ func (b *InMemoryBackend) StartReadSetActivationJob(
 func (b *InMemoryBackend) GetReadSetActivationJob(
 	sequenceStoreID, jobID string,
 ) (*ReadSetActivationJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReadSetActivationJob")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	job, ok := st.readSetActivationJobs[sequenceStoreID][jobID]
-
+	job, ok := b.readSetActivationJobs.Get(parentKey(sequenceStoreID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: activation job %s not found", ErrNotFound, jobID)
 	}
@@ -866,25 +835,23 @@ func (b *InMemoryBackend) ListReadSetActivationJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetActivationJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReadSetActivationJobs")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	jobs := st.readSetActivationJobs[sequenceStoreID]
-	ids := sortedKeys2(jobs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	group := b.readSetActivationJobsByStore.Get(sequenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	result := make([]*ReadSetActivationJob, 0, len(page))
-
-	for _, id := range page {
-		j := *jobs[id]
-		result = append(result, &j)
+	for _, j := range group {
+		ids = append(ids, j.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReadSetActivationJob, bool) {
+		return b.readSetActivationJobs.Get(parentKey(sequenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -894,12 +861,10 @@ func (b *InMemoryBackend) StartReadSetExportJob(
 	sequenceStoreID, destination string,
 	sources []ReadSetExportJobSource,
 ) (*ReadSetExportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartReadSetExportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
@@ -913,7 +878,7 @@ func (b *InMemoryBackend) StartReadSetExportJob(
 	}
 	now := time.Now().UTC()
 	job.CompletionTime = &now
-	st.readSetExportJobs[sequenceStoreID][job.ID] = job
+	b.readSetExportJobs.Put(job)
 
 	result := *job
 
@@ -924,17 +889,14 @@ func (b *InMemoryBackend) StartReadSetExportJob(
 func (b *InMemoryBackend) GetReadSetExportJob(
 	sequenceStoreID, jobID string,
 ) (*ReadSetExportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReadSetExportJob")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	job, ok := st.readSetExportJobs[sequenceStoreID][jobID]
-
+	job, ok := b.readSetExportJobs.Get(parentKey(sequenceStoreID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: export job %s not found", ErrNotFound, jobID)
 	}
@@ -950,25 +912,23 @@ func (b *InMemoryBackend) ListReadSetExportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetExportJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReadSetExportJobs")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	jobs := st.readSetExportJobs[sequenceStoreID]
-	ids := sortedKeys2(jobs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	group := b.readSetExportJobsByStore.Get(sequenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	result := make([]*ReadSetExportJob, 0, len(page))
-
-	for _, id := range page {
-		j := *jobs[id]
-		result = append(result, &j)
+	for _, j := range group {
+		ids = append(ids, j.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReadSetExportJob, bool) {
+		return b.readSetExportJobs.Get(parentKey(sequenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -978,12 +938,10 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 	sequenceStoreID, roleARN string,
 	sources []ReadSetImportJobSource,
 ) (*ReadSetImportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartReadSetImportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
@@ -1019,10 +977,10 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 			Status:       statusActive,
 			CreationTime: time.Now().UTC(),
 		}
-		st.readSets[sequenceStoreID][rsID] = rs
+		b.readSets.Put(rs)
 	}
 
-	st.readSetImportJobs[sequenceStoreID][job.ID] = job
+	b.readSetImportJobs.Put(job)
 
 	result := *job
 
@@ -1033,17 +991,14 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 func (b *InMemoryBackend) GetReadSetImportJob(
 	sequenceStoreID, jobID string,
 ) (*ReadSetImportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReadSetImportJob")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	job, ok := st.readSetImportJobs[sequenceStoreID][jobID]
-
+	job, ok := b.readSetImportJobs.Get(parentKey(sequenceStoreID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: import job %s not found", ErrNotFound, jobID)
 	}
@@ -1059,25 +1014,23 @@ func (b *InMemoryBackend) ListReadSetImportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetImportJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReadSetImportJobs")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	jobs := st.readSetImportJobs[sequenceStoreID]
-	ids := sortedKeys2(jobs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	group := b.readSetImportJobsByStore.Get(sequenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	result := make([]*ReadSetImportJob, 0, len(page))
-
-	for _, id := range page {
-		j := *jobs[id]
-		result = append(result, &j)
+	for _, j := range group {
+		ids = append(ids, j.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*ReadSetImportJob, bool) {
+		return b.readSetImportJobs.Get(parentKey(sequenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -1091,12 +1044,10 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 	sequenceStoreID, name, sequenceType string,
 	tags map[string]string,
 ) (*MultipartReadSetUpload, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateMultipartReadSetUpload")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
@@ -1109,9 +1060,9 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 		Status:          "IN_PROGRESS",
 		CreationTime:    time.Now().UTC(),
 	}
-	st.multipartUploads[sequenceStoreID][upload.UploadID] = upload
-	st.uploadParts[sequenceStoreID][upload.UploadID] = nil
-	st.uploadPartData[sequenceStoreID][upload.UploadID] = make(map[string]map[int][]byte)
+	b.multipartUploads.Put(upload)
+	b.uploadParts[sequenceStoreID][upload.UploadID] = nil
+	b.uploadPartData[sequenceStoreID][upload.UploadID] = make(map[string]map[int][]byte)
 
 	result := *upload
 
@@ -1120,22 +1071,20 @@ func (b *InMemoryBackend) CreateMultipartReadSetUpload(
 
 // AbortMultipartReadSetUpload aborts a multipart read set upload.
 func (b *InMemoryBackend) AbortMultipartReadSetUpload(sequenceStoreID, uploadID string) error {
-	b.mu.Lock()
+	b.mu.Lock("AbortMultipartReadSetUpload")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	if _, ok := st.multipartUploads[sequenceStoreID][uploadID]; !ok {
+	if !b.multipartUploads.Has(parentKey(sequenceStoreID, uploadID)) {
 		return fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
 	}
 
-	delete(st.multipartUploads[sequenceStoreID], uploadID)
-	delete(st.uploadParts[sequenceStoreID], uploadID)
-	delete(st.uploadPartData[sequenceStoreID], uploadID)
+	b.multipartUploads.Delete(parentKey(sequenceStoreID, uploadID))
+	delete(b.uploadParts[sequenceStoreID], uploadID)
+	delete(b.uploadPartData[sequenceStoreID], uploadID)
 
 	return nil
 }
@@ -1144,17 +1093,14 @@ func (b *InMemoryBackend) AbortMultipartReadSetUpload(sequenceStoreID, uploadID 
 func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 	sequenceStoreID, uploadID string,
 ) (*ReadSetMetadata, error) {
-	b.mu.Lock()
+	b.mu.Lock("CompleteMultipartReadSetUpload")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	upload, ok := st.multipartUploads[sequenceStoreID][uploadID]
-
+	upload, ok := b.multipartUploads.Get(parentKey(sequenceStoreID, uploadID))
 	if !ok {
 		return nil, fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
 	}
@@ -1175,10 +1121,10 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 		CreationTime: time.Now().UTC(),
 		Tags:         maps.Clone(upload.Tags),
 	}
-	st.readSets[sequenceStoreID][rsID] = rs
+	b.readSets.Put(rs)
 
 	// Concatenate stored part bytes (SOURCE1 then SOURCE2, in part-number order) as the read set body.
-	partData := st.uploadPartData[sequenceStoreID][uploadID]
+	partData := b.uploadPartData[sequenceStoreID][uploadID]
 	var combined []byte
 	for _, src := range []string{"SOURCE1", "SOURCE2"} {
 		srcParts := partData[src]
@@ -1191,11 +1137,11 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 			combined = append(combined, srcParts[n]...)
 		}
 	}
-	st.readSetBytes[sequenceStoreID][rsID] = combined
+	b.readSetBytes[sequenceStoreID][rsID] = combined
 
-	delete(st.multipartUploads[sequenceStoreID], uploadID)
-	delete(st.uploadParts[sequenceStoreID], uploadID)
-	delete(st.uploadPartData[sequenceStoreID], uploadID)
+	b.multipartUploads.Delete(parentKey(sequenceStoreID, uploadID))
+	delete(b.uploadParts[sequenceStoreID], uploadID)
+	delete(b.uploadPartData[sequenceStoreID], uploadID)
 
 	result := *rs
 
@@ -1208,25 +1154,23 @@ func (b *InMemoryBackend) ListMultipartReadSetUploads(
 	maxResults int,
 	nextToken string,
 ) ([]*MultipartReadSetUpload, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListMultipartReadSetUploads")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	uploads := st.multipartUploads[sequenceStoreID]
-	ids := sortedKeys2(uploads)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	group := b.multipartUploadsByStore.Get(sequenceStoreID)
+	ids := make([]string, 0, len(group))
 
-	result := make([]*MultipartReadSetUpload, 0, len(page))
-
-	for _, id := range page {
-		u := *uploads[id]
-		result = append(result, &u)
+	for _, u := range group {
+		ids = append(ids, u.UploadID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*MultipartReadSetUpload, bool) {
+		return b.multipartUploads.Get(parentKey(sequenceStoreID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -1237,20 +1181,18 @@ func (b *InMemoryBackend) ListReadSetUploadParts(
 	maxResults int,
 	nextToken string,
 ) ([]*ReadSetUploadPart, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListReadSetUploadParts")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return nil, "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	if _, ok := st.multipartUploads[sequenceStoreID][uploadID]; !ok {
+	if !b.multipartUploads.Has(parentKey(sequenceStoreID, uploadID)) {
 		return nil, "", fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
 	}
 
-	parts := st.uploadParts[sequenceStoreID][uploadID]
+	parts := b.uploadParts[sequenceStoreID][uploadID]
 
 	if maxResults <= 0 || maxResults > maxPageSize {
 		maxResults = maxPageSize
@@ -1293,29 +1235,27 @@ func (b *InMemoryBackend) UploadReadSetPart(
 	partSource string,
 	data []byte,
 ) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("UploadReadSetPart")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.sequenceStores[sequenceStoreID]; !ok {
+	if !b.sequenceStores.Has(sequenceStoreID) {
 		return "", fmt.Errorf("%w: sequence store %s not found", ErrNotFound, sequenceStoreID)
 	}
 
-	if _, ok := st.multipartUploads[sequenceStoreID][uploadID]; !ok {
+	if !b.multipartUploads.Has(parentKey(sequenceStoreID, uploadID)) {
 		return "", fmt.Errorf("%w: upload %s not found", ErrNotFound, uploadID)
 	}
 
-	if st.uploadPartData[sequenceStoreID][uploadID] == nil {
-		st.uploadPartData[sequenceStoreID][uploadID] = make(map[string]map[int][]byte)
+	if b.uploadPartData[sequenceStoreID][uploadID] == nil {
+		b.uploadPartData[sequenceStoreID][uploadID] = make(map[string]map[int][]byte)
 	}
-	if st.uploadPartData[sequenceStoreID][uploadID][partSource] == nil {
-		st.uploadPartData[sequenceStoreID][uploadID][partSource] = make(map[int][]byte)
+	if b.uploadPartData[sequenceStoreID][uploadID][partSource] == nil {
+		b.uploadPartData[sequenceStoreID][uploadID][partSource] = make(map[int][]byte)
 	}
-	st.uploadPartData[sequenceStoreID][uploadID][partSource][partNumber] = data
+	b.uploadPartData[sequenceStoreID][uploadID][partSource][partNumber] = data
 
 	// Update or append the upload part metadata.
-	parts := st.uploadParts[sequenceStoreID][uploadID]
+	parts := b.uploadParts[sequenceStoreID][uploadID]
 	found := false
 	for _, p := range parts {
 		if p.PartNumber == partNumber && p.Source == partSource {
@@ -1334,7 +1274,7 @@ func (b *InMemoryBackend) UploadReadSetPart(
 			PartSize:        int64(len(data)),
 			LastUpdatedTime: time.Now().UTC(),
 		})
-		st.uploadParts[sequenceStoreID][uploadID] = parts
+		b.uploadParts[sequenceStoreID][uploadID] = parts
 	}
 
 	sum := sha256.Sum256(data)
@@ -1344,30 +1284,26 @@ func (b *InMemoryBackend) UploadReadSetPart(
 
 // GetReadSetBytes returns the stored binary body for a read set.
 func (b *InMemoryBackend) GetReadSetBytes(sequenceStoreID, id string) ([]byte, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReadSetBytes")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.readSets[sequenceStoreID][id]; !ok {
+	if !b.readSets.Has(parentKey(sequenceStoreID, id)) {
 		return nil, fmt.Errorf("%w: read set %s not found", ErrNotFound, id)
 	}
 
-	return st.readSetBytes[sequenceStoreID][id], nil
+	return b.readSetBytes[sequenceStoreID][id], nil
 }
 
 // GetReferenceBytes returns the stored binary body for a reference.
 func (b *InMemoryBackend) GetReferenceBytes(referenceStoreID, id string) ([]byte, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetReferenceBytes")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.references[referenceStoreID][id]; !ok {
+	if !b.references.Has(parentKey(referenceStoreID, id)) {
 		return nil, fmt.Errorf("%w: reference %s not found", ErrNotFound, id)
 	}
 
-	return st.referenceBytes[referenceStoreID][id], nil
+	return b.referenceBytes[referenceStoreID][id], nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1381,7 +1317,7 @@ func (b *InMemoryBackend) CreateRunGroup(
 	maxGPUs int,
 	tags map[string]string,
 ) (*RunGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateRunGroup")
 	defer b.mu.Unlock()
 
 	id := newID()
@@ -1397,11 +1333,10 @@ func (b *InMemoryBackend) CreateRunGroup(
 	}
 	rg.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "runGroup/"+id)
 
-	st := b.region(b.defaultRegion)
-	st.runGroups[id] = rg
+	b.runGroups.Put(rg)
 
 	if tags != nil {
-		st.tags[rg.Arn] = copyTags(tags)
+		b.tags[rg.Arn] = copyTags(tags)
 	}
 
 	result := *rg
@@ -1411,30 +1346,26 @@ func (b *InMemoryBackend) CreateRunGroup(
 
 // DeleteRunGroup deletes a run group.
 func (b *InMemoryBackend) DeleteRunGroup(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRunGroup")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rg, ok := st.runGroups[id]
-
+	rg, ok := b.runGroups.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run group %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, rg.Arn)
-	delete(st.runGroups, id)
+	delete(b.tags, rg.Arn)
+	b.runGroups.Delete(id)
 
 	return nil
 }
 
 // GetRunGroup retrieves a run group.
 func (b *InMemoryBackend) GetRunGroup(id string) (*RunGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRunGroup")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	rg, ok := st.runGroups[id]
-
+	rg, ok := b.runGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: run group %s not found", ErrNotFound, id)
 	}
@@ -1449,19 +1380,17 @@ func (b *InMemoryBackend) ListRunGroups(
 	maxResults int,
 	nextToken string,
 ) ([]*RunGroup, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRunGroups")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.runGroups)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.runGroups.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*RunGroup, 0, len(page))
-
-	for _, id := range page {
-		rg := *st.runGroups[id]
-		result = append(result, &rg)
+	for _, rg := range all {
+		ids = append(ids, rg.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runGroups.Get)
 
 	return result, outToken, nil
 }
@@ -1472,12 +1401,10 @@ func (b *InMemoryBackend) UpdateRunGroup(
 	maxCPUs, maxRuns, maxDuration int,
 	maxGPUs int,
 ) (*RunGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateRunGroup")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rg, ok := st.runGroups[id]
-
+	rg, ok := b.runGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: run group %s not found", ErrNotFound, id)
 	}
@@ -1517,7 +1444,7 @@ func (b *InMemoryBackend) StartRun(
 	params map[string]any,
 	tags map[string]string,
 ) (*Run, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartRun")
 	defer b.mu.Unlock()
 
 	id := newID()
@@ -1535,12 +1462,10 @@ func (b *InMemoryBackend) StartRun(
 	}
 	run.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "run/"+id)
 
-	st := b.region(b.defaultRegion)
-	st.runs[id] = run
-	st.runTasks[id] = make(map[string]*RunTask)
+	b.runs.Put(run)
 
 	taskID := newID()
-	st.runTasks[id][taskID] = &RunTask{
+	b.runTasks.Put(&RunTask{
 		TaskID:       taskID,
 		RunID:        id,
 		Name:         "task-1",
@@ -1548,10 +1473,10 @@ func (b *InMemoryBackend) StartRun(
 		CPUs:         stubTaskCPUs,
 		Memory:       stubTaskMemory,
 		CreationTime: now,
-	}
+	})
 
 	if tags != nil {
-		st.tags[run.Arn] = copyTags(tags)
+		b.tags[run.Arn] = copyTags(tags)
 	}
 
 	result := *run
@@ -1561,12 +1486,10 @@ func (b *InMemoryBackend) StartRun(
 
 // CancelRun cancels a run.
 func (b *InMemoryBackend) CancelRun(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelRun")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	run, ok := st.runs[id]
-
+	run, ok := b.runs.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
@@ -1582,31 +1505,30 @@ func (b *InMemoryBackend) CancelRun(id string) error {
 
 // DeleteRun deletes a run.
 func (b *InMemoryBackend) DeleteRun(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRun")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	run, ok := st.runs[id]
-
+	run, ok := b.runs.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, run.Arn)
-	delete(st.runs, id)
-	delete(st.runTasks, id)
+	delete(b.tags, run.Arn)
+	b.runs.Delete(id)
+
+	for _, t := range slices.Clone(b.runTasksByRun.Get(id)) {
+		b.runTasks.Delete(parentKey(id, t.TaskID))
+	}
 
 	return nil
 }
 
 // GetRun retrieves a run.
 func (b *InMemoryBackend) GetRun(id string) (*Run, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRun")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	run, ok := st.runs[id]
-
+	run, ok := b.runs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
@@ -1618,36 +1540,31 @@ func (b *InMemoryBackend) GetRun(id string) (*Run, error) {
 
 // ListRuns lists runs.
 func (b *InMemoryBackend) ListRuns(maxResults int, nextToken string) ([]*Run, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRuns")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.runs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.runs.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*Run, 0, len(page))
-
-	for _, id := range page {
-		r := *st.runs[id]
-		result = append(result, &r)
+	for _, r := range all {
+		ids = append(ids, r.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runs.Get)
 
 	return result, outToken, nil
 }
 
 // GetRunTask retrieves a task within a run.
 func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRunTask")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.runs[runID]; !ok {
+	if !b.runs.Has(runID) {
 		return nil, fmt.Errorf("%w: run %s not found", ErrNotFound, runID)
 	}
 
-	task, ok := st.runTasks[runID][taskID]
-
+	task, ok := b.runTasks.Get(parentKey(runID, taskID))
 	if !ok {
 		return nil, fmt.Errorf("%w: task %s not found", ErrNotFound, taskID)
 	}
@@ -1663,25 +1580,23 @@ func (b *InMemoryBackend) ListRunTasks(
 	maxResults int,
 	nextToken string,
 ) ([]*RunTask, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRunTasks")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.runs[runID]; !ok {
+	if !b.runs.Has(runID) {
 		return nil, "", fmt.Errorf("%w: run %s not found", ErrNotFound, runID)
 	}
 
-	tasks := st.runTasks[runID]
-	ids := sortedKeys2(tasks)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	group := b.runTasksByRun.Get(runID)
+	ids := make([]string, 0, len(group))
 
-	result := make([]*RunTask, 0, len(page))
-
-	for _, id := range page {
-		t := *tasks[id]
-		result = append(result, &t)
+	for _, t := range group {
+		ids = append(ids, t.TaskID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, func(id string) (*RunTask, bool) {
+		return b.runTasks.Get(parentKey(runID, id))
+	})
 
 	return result, outToken, nil
 }
@@ -1699,7 +1614,7 @@ func (b *InMemoryBackend) CreateWorkflow(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateWorkflow")
 	defer b.mu.Unlock()
 
 	id := newID()
@@ -1715,12 +1630,10 @@ func (b *InMemoryBackend) CreateWorkflow(
 	}
 	wf.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "workflow/"+id)
 
-	st := b.region(b.defaultRegion)
-	st.workflows[id] = wf
-	st.workflowVersions[id] = make(map[string]*WorkflowVersion)
+	b.workflows.Put(wf)
 
 	if tags != nil {
-		st.tags[wf.Arn] = copyTags(tags)
+		b.tags[wf.Arn] = copyTags(tags)
 	}
 
 	result := *wf
@@ -1730,31 +1643,30 @@ func (b *InMemoryBackend) CreateWorkflow(
 
 // DeleteWorkflow deletes a workflow.
 func (b *InMemoryBackend) DeleteWorkflow(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWorkflow")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	wf, ok := st.workflows[id]
-
+	wf, ok := b.workflows.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: workflow %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, wf.Arn)
-	delete(st.workflows, id)
-	delete(st.workflowVersions, id)
+	delete(b.tags, wf.Arn)
+	b.workflows.Delete(id)
+
+	for _, v := range slices.Clone(b.workflowVersionsByWorkflow.Get(id)) {
+		b.workflowVersions.Delete(parentKey(id, v.VersionName))
+	}
 
 	return nil
 }
 
 // GetWorkflow retrieves a workflow.
 func (b *InMemoryBackend) GetWorkflow(id string) (*Workflow, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWorkflow")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	wf, ok := st.workflows[id]
-
+	wf, ok := b.workflows.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, id)
 	}
@@ -1769,31 +1681,27 @@ func (b *InMemoryBackend) ListWorkflows(
 	maxResults int,
 	nextToken string,
 ) ([]*Workflow, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListWorkflows")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.workflows)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.workflows.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*Workflow, 0, len(page))
-
-	for _, id := range page {
-		wf := *st.workflows[id]
-		result = append(result, &wf)
+	for _, wf := range all {
+		ids = append(ids, wf.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.workflows.Get)
 
 	return result, outToken, nil
 }
 
 // UpdateWorkflow updates a workflow.
 func (b *InMemoryBackend) UpdateWorkflow(id, name, description string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateWorkflow")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	wf, ok := st.workflows[id]
-
+	wf, ok := b.workflows.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: workflow %s not found", ErrNotFound, id)
 	}
@@ -1818,17 +1726,15 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 	workflowID, versionName, description string,
 	tags map[string]string,
 ) (*WorkflowVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateWorkflowVersion")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	wf, ok := st.workflows[workflowID]
-
+	wf, ok := b.workflows.Get(workflowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	if _, exists := st.workflowVersions[workflowID][versionName]; exists {
+	if b.workflowVersions.Has(parentKey(workflowID, versionName)) {
 		return nil, fmt.Errorf(
 			"%w: workflow version %s already exists",
 			ErrAlreadyExists,
@@ -1853,10 +1759,10 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 		fmt.Sprintf("workflow/%s/version/%s", workflowID, versionName),
 	)
 
-	st.workflowVersions[workflowID][versionName] = wv
+	b.workflowVersions.Put(wv)
 
 	if tags != nil {
-		st.tags[wv.Arn] = copyTags(tags)
+		b.tags[wv.Arn] = copyTags(tags)
 	}
 
 	result := *wv
@@ -1866,23 +1772,20 @@ func (b *InMemoryBackend) CreateWorkflowVersion(
 
 // DeleteWorkflowVersion deletes a workflow version.
 func (b *InMemoryBackend) DeleteWorkflowVersion(workflowID, versionName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteWorkflowVersion")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	wv, ok := st.workflowVersions[workflowID][versionName]
-
+	wv, ok := b.workflowVersions.Get(parentKey(workflowID, versionName))
 	if !ok {
 		return fmt.Errorf("%w: workflow version %s not found", ErrNotFound, versionName)
 	}
 
-	delete(st.tags, wv.Arn)
-	delete(st.workflowVersions[workflowID], versionName)
+	delete(b.tags, wv.Arn)
+	b.workflowVersions.Delete(parentKey(workflowID, versionName))
 
 	return nil
 }
@@ -1891,17 +1794,14 @@ func (b *InMemoryBackend) DeleteWorkflowVersion(workflowID, versionName string) 
 func (b *InMemoryBackend) GetWorkflowVersion(
 	workflowID, versionName string,
 ) (*WorkflowVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetWorkflowVersion")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	wv, ok := st.workflowVersions[workflowID][versionName]
-
+	wv, ok := b.workflowVersions.Get(parentKey(workflowID, versionName))
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow version %s not found", ErrNotFound, versionName)
 	}
@@ -1917,42 +1817,37 @@ func (b *InMemoryBackend) ListWorkflowVersions(
 	maxResults int,
 	nextToken string,
 ) ([]*WorkflowVersion, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListWorkflowVersions")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return nil, "", fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	versions := st.workflowVersions[workflowID]
-	names := collections.SortedKeys(versions)
-	page, outToken := paginateStrings(names, nextToken, maxResults)
+	group := b.workflowVersionsByWorkflow.Get(workflowID)
+	names := make([]string, 0, len(group))
 
-	result := make([]*WorkflowVersion, 0, len(page))
-
-	for _, name := range page {
-		wv := *versions[name]
-		result = append(result, &wv)
+	for _, wv := range group {
+		names = append(names, wv.VersionName)
 	}
+
+	result, outToken := paginatedCopies(names, nextToken, maxResults, func(id string) (*WorkflowVersion, bool) {
+		return b.workflowVersions.Get(parentKey(workflowID, id))
+	})
 
 	return result, outToken, nil
 }
 
 // UpdateWorkflowVersion updates a workflow version.
 func (b *InMemoryBackend) UpdateWorkflowVersion(workflowID, versionName, description string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateWorkflowVersion")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
 	}
 
-	wv, ok := st.workflowVersions[workflowID][versionName]
-
+	wv, ok := b.workflowVersions.Get(parentKey(workflowID, versionName))
 	if !ok {
 		return fmt.Errorf("%w: workflow version %s not found", ErrNotFound, versionName)
 	}
@@ -1978,12 +1873,10 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateAnnotationStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, exists := st.annotationStores[name]; exists {
+	if b.annotationStores.Has(name) {
 		return nil, fmt.Errorf("%w: annotation store %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -2001,11 +1894,10 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 		UpdateTime:   now,
 	}
 	as.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "annotationStore/"+name)
-	st.annotationStores[name] = as
-	st.annotationVersions[name] = make(map[string]*AnnotationStoreVersion)
+	b.annotationStores.Put(as)
 
 	if tags != nil {
-		st.tags[as.Arn] = copyTags(tags)
+		b.tags[as.Arn] = copyTags(tags)
 	}
 
 	result := *as
@@ -2015,19 +1907,20 @@ func (b *InMemoryBackend) CreateAnnotationStore(
 
 // DeleteAnnotationStore deletes an annotation store.
 func (b *InMemoryBackend) DeleteAnnotationStore(name string) (*AnnotationStore, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAnnotationStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	as, ok := st.annotationStores[name]
-
+	as, ok := b.annotationStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	delete(st.tags, as.Arn)
-	delete(st.annotationStores, name)
-	delete(st.annotationVersions, name)
+	delete(b.tags, as.Arn)
+	b.annotationStores.Delete(name)
+
+	for _, v := range slices.Clone(b.annotationVersionsByStore.Get(name)) {
+		b.annotationVersions.Delete(parentKey(name, v.VersionName))
+	}
 
 	result := *as
 	result.Status = statusDeleting
@@ -2037,12 +1930,10 @@ func (b *InMemoryBackend) DeleteAnnotationStore(name string) (*AnnotationStore, 
 
 // GetAnnotationStore retrieves an annotation store.
 func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAnnotationStore")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	as, ok := st.annotationStores[name]
-
+	as, ok := b.annotationStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
@@ -2057,19 +1948,17 @@ func (b *InMemoryBackend) ListAnnotationStores(
 	maxResults int,
 	nextToken string,
 ) ([]*AnnotationStore, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAnnotationStores")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	names := sortedKeys2(st.annotationStores)
-	page, outToken := paginateStrings(names, nextToken, maxResults)
+	all := b.annotationStores.All()
+	names := make([]string, 0, len(all))
 
-	result := make([]*AnnotationStore, 0, len(page))
-
-	for _, name := range page {
-		as := *st.annotationStores[name]
-		result = append(result, &as)
+	for _, as := range all {
+		names = append(names, as.Name)
 	}
+
+	result, outToken := paginatedCopies(names, nextToken, maxResults, b.annotationStores.Get)
 
 	return result, outToken, nil
 }
@@ -2078,12 +1967,10 @@ func (b *InMemoryBackend) ListAnnotationStores(
 func (b *InMemoryBackend) UpdateAnnotationStore(
 	name, description string,
 ) (*AnnotationStore, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAnnotationStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	as, ok := st.annotationStores[name]
-
+	as, ok := b.annotationStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
@@ -2103,12 +1990,10 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 	destinationName, roleARN string,
 	items []AnnotationImportItem,
 ) (*AnnotationImportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartAnnotationImportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.annotationStores[destinationName]; !ok {
+	if !b.annotationStores.Has(destinationName) {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, destinationName)
 	}
 
@@ -2122,7 +2007,7 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 		CreationTime:    now,
 		CompletionTime:  &now,
 	}
-	st.annotationImportJobs[job.ID] = job
+	b.annotationImportJobs.Put(job)
 
 	result := *job
 
@@ -2131,12 +2016,10 @@ func (b *InMemoryBackend) StartAnnotationImportJob(
 
 // GetAnnotationImportJob retrieves an annotation import job.
 func (b *InMemoryBackend) GetAnnotationImportJob(jobID string) (*AnnotationImportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAnnotationImportJob")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	job, ok := st.annotationImportJobs[jobID]
-
+	job, ok := b.annotationImportJobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: annotation import job %s not found", ErrNotFound, jobID)
 	}
@@ -2151,31 +2034,27 @@ func (b *InMemoryBackend) ListAnnotationImportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*AnnotationImportJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAnnotationImportJobs")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.annotationImportJobs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.annotationImportJobs.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*AnnotationImportJob, 0, len(page))
-
-	for _, id := range page {
-		j := *st.annotationImportJobs[id]
-		result = append(result, &j)
+	for _, j := range all {
+		ids = append(ids, j.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.annotationImportJobs.Get)
 
 	return result, outToken, nil
 }
 
 // CancelAnnotationImportJob cancels an annotation import job.
 func (b *InMemoryBackend) CancelAnnotationImportJob(jobID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelAnnotationImportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	job, ok := st.annotationImportJobs[jobID]
-
+	job, ok := b.annotationImportJobs.Get(jobID)
 	if !ok {
 		return fmt.Errorf("%w: annotation import job %s not found", ErrNotFound, jobID)
 	}
@@ -2194,17 +2073,15 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 	name, versionName, description string,
 	tags map[string]string,
 ) (*AnnotationStoreVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateAnnotationStoreVersion")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	as, ok := st.annotationStores[name]
-
+	as, ok := b.annotationStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	if _, exists := st.annotationVersions[name][versionName]; exists {
+	if b.annotationVersions.Has(parentKey(name, versionName)) {
 		return nil, fmt.Errorf(
 			"%w: annotation store version %s already exists",
 			ErrAlreadyExists,
@@ -2229,10 +2106,10 @@ func (b *InMemoryBackend) CreateAnnotationStoreVersion(
 		b.accountID,
 		fmt.Sprintf("annotationStore/%s/version/%s", name, versionName),
 	)
-	st.annotationVersions[name][versionName] = v
+	b.annotationVersions.Put(v)
 
 	if tags != nil {
-		st.tags[v.Arn] = copyTags(tags)
+		b.tags[v.Arn] = copyTags(tags)
 	}
 
 	result := *v
@@ -2245,19 +2122,17 @@ func (b *InMemoryBackend) DeleteAnnotationStoreVersions(
 	name string,
 	versionNames []string,
 ) ([]VersionDeleteError, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAnnotationStoreVersions")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.annotationStores[name]; !ok {
+	if !b.annotationStores.Has(name) {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
 	var errs []VersionDeleteError
 
 	for _, vn := range versionNames {
-		v, ok := st.annotationVersions[name][vn]
+		v, ok := b.annotationVersions.Get(parentKey(name, vn))
 		if !ok {
 			errs = append(errs, VersionDeleteError{
 				VersionName: vn,
@@ -2268,8 +2143,8 @@ func (b *InMemoryBackend) DeleteAnnotationStoreVersions(
 			continue
 		}
 
-		delete(st.tags, v.Arn)
-		delete(st.annotationVersions[name], vn)
+		delete(b.tags, v.Arn)
+		b.annotationVersions.Delete(parentKey(name, vn))
 	}
 
 	return errs, nil
@@ -2279,17 +2154,14 @@ func (b *InMemoryBackend) DeleteAnnotationStoreVersions(
 func (b *InMemoryBackend) GetAnnotationStoreVersion(
 	name, versionName string,
 ) (*AnnotationStoreVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAnnotationStoreVersion")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.annotationStores[name]; !ok {
+	if !b.annotationStores.Has(name) {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	v, ok := st.annotationVersions[name][versionName]
-
+	v, ok := b.annotationVersions.Get(parentKey(name, versionName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: annotation store version %s not found",
@@ -2309,25 +2181,23 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(
 	maxResults int,
 	nextToken string,
 ) ([]*AnnotationStoreVersion, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAnnotationStoreVersions")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.annotationStores[name]; !ok {
+	if !b.annotationStores.Has(name) {
 		return nil, "", fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	versions := st.annotationVersions[name]
-	names := sortedKeys2(versions)
-	page, outToken := paginateStrings(names, nextToken, maxResults)
+	group := b.annotationVersionsByStore.Get(name)
+	names := make([]string, 0, len(group))
 
-	result := make([]*AnnotationStoreVersion, 0, len(page))
-
-	for _, vn := range page {
-		v := *versions[vn]
-		result = append(result, &v)
+	for _, v := range group {
+		names = append(names, v.VersionName)
 	}
+
+	result, outToken := paginatedCopies(names, nextToken, maxResults, func(id string) (*AnnotationStoreVersion, bool) {
+		return b.annotationVersions.Get(parentKey(name, id))
+	})
 
 	return result, outToken, nil
 }
@@ -2336,17 +2206,14 @@ func (b *InMemoryBackend) ListAnnotationStoreVersions(
 func (b *InMemoryBackend) UpdateAnnotationStoreVersion(
 	name, versionName, description string,
 ) (*AnnotationStoreVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAnnotationStoreVersion")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.annotationStores[name]; !ok {
+	if !b.annotationStores.Has(name) {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
 	}
 
-	v, ok := st.annotationVersions[name][versionName]
-
+	v, ok := b.annotationVersions.Get(parentKey(name, versionName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: annotation store version %s not found",
@@ -2379,12 +2246,10 @@ func (b *InMemoryBackend) CreateVariantStore(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateVariantStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, exists := st.variantStores[name]; exists {
+	if b.variantStores.Has(name) {
 		return nil, fmt.Errorf("%w: variant store %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -2399,10 +2264,10 @@ func (b *InMemoryBackend) CreateVariantStore(
 		UpdateTime:   now,
 	}
 	vs.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "variantStore/"+name)
-	st.variantStores[name] = vs
+	b.variantStores.Put(vs)
 
 	if tags != nil {
-		st.tags[vs.Arn] = copyTags(tags)
+		b.tags[vs.Arn] = copyTags(tags)
 	}
 
 	result := *vs
@@ -2412,18 +2277,16 @@ func (b *InMemoryBackend) CreateVariantStore(
 
 // DeleteVariantStore deletes a variant store.
 func (b *InMemoryBackend) DeleteVariantStore(name string) (*VariantStore, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVariantStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	vs, ok := st.variantStores[name]
-
+	vs, ok := b.variantStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
 
-	delete(st.tags, vs.Arn)
-	delete(st.variantStores, name)
+	delete(b.tags, vs.Arn)
+	b.variantStores.Delete(name)
 
 	result := *vs
 	result.Status = statusDeleting
@@ -2433,12 +2296,10 @@ func (b *InMemoryBackend) DeleteVariantStore(name string) (*VariantStore, error)
 
 // GetVariantStore retrieves a variant store.
 func (b *InMemoryBackend) GetVariantStore(name string) (*VariantStore, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetVariantStore")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	vs, ok := st.variantStores[name]
-
+	vs, ok := b.variantStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
@@ -2453,31 +2314,27 @@ func (b *InMemoryBackend) ListVariantStores(
 	maxResults int,
 	nextToken string,
 ) ([]*VariantStore, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVariantStores")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	names := sortedKeys2(st.variantStores)
-	page, outToken := paginateStrings(names, nextToken, maxResults)
+	all := b.variantStores.All()
+	names := make([]string, 0, len(all))
 
-	result := make([]*VariantStore, 0, len(page))
-
-	for _, name := range page {
-		vs := *st.variantStores[name]
-		result = append(result, &vs)
+	for _, vs := range all {
+		names = append(names, vs.Name)
 	}
+
+	result, outToken := paginatedCopies(names, nextToken, maxResults, b.variantStores.Get)
 
 	return result, outToken, nil
 }
 
 // UpdateVariantStore updates a variant store.
 func (b *InMemoryBackend) UpdateVariantStore(name, description string) (*VariantStore, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateVariantStore")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	vs, ok := st.variantStores[name]
-
+	vs, ok := b.variantStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
 	}
@@ -2497,12 +2354,10 @@ func (b *InMemoryBackend) StartVariantImportJob(
 	destinationName, roleARN string,
 	items []VariantImportItem,
 ) (*VariantImportJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartVariantImportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.variantStores[destinationName]; !ok {
+	if !b.variantStores.Has(destinationName) {
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, destinationName)
 	}
 
@@ -2516,7 +2371,7 @@ func (b *InMemoryBackend) StartVariantImportJob(
 		CreationTime:    now,
 		CompletionTime:  &now,
 	}
-	st.variantImportJobs[job.ID] = job
+	b.variantImportJobs.Put(job)
 
 	result := *job
 
@@ -2525,12 +2380,10 @@ func (b *InMemoryBackend) StartVariantImportJob(
 
 // GetVariantImportJob retrieves a variant import job.
 func (b *InMemoryBackend) GetVariantImportJob(jobID string) (*VariantImportJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetVariantImportJob")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	job, ok := st.variantImportJobs[jobID]
-
+	job, ok := b.variantImportJobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: variant import job %s not found", ErrNotFound, jobID)
 	}
@@ -2545,31 +2398,27 @@ func (b *InMemoryBackend) ListVariantImportJobs(
 	maxResults int,
 	nextToken string,
 ) ([]*VariantImportJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVariantImportJobs")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.variantImportJobs)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.variantImportJobs.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*VariantImportJob, 0, len(page))
-
-	for _, id := range page {
-		j := *st.variantImportJobs[id]
-		result = append(result, &j)
+	for _, j := range all {
+		ids = append(ids, j.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.variantImportJobs.Get)
 
 	return result, outToken, nil
 }
 
 // CancelVariantImportJob cancels a variant import job.
 func (b *InMemoryBackend) CancelVariantImportJob(jobID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelVariantImportJob")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	job, ok := st.variantImportJobs[jobID]
-
+	job, ok := b.variantImportJobs.Get(jobID)
 	if !ok {
 		return fmt.Errorf("%w: variant import job %s not found", ErrNotFound, jobID)
 	}
@@ -2587,7 +2436,7 @@ func (b *InMemoryBackend) CancelVariantImportJob(jobID string) error {
 func (b *InMemoryBackend) CreateShare(
 	resourceARN, principalSubscriber, name string,
 ) (*Share, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateShare")
 	defer b.mu.Unlock()
 
 	id := newID()
@@ -2600,8 +2449,7 @@ func (b *InMemoryBackend) CreateShare(
 		Status:              "PENDING",
 		CreationTime:        now,
 	}
-	st := b.region(b.defaultRegion)
-	st.shares[id] = share
+	b.shares.Put(share)
 
 	result := *share
 
@@ -2610,12 +2458,10 @@ func (b *InMemoryBackend) CreateShare(
 
 // AcceptShare accepts a share invitation.
 func (b *InMemoryBackend) AcceptShare(shareID string) (*Share, error) {
-	b.mu.Lock()
+	b.mu.Lock("AcceptShare")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	share, ok := st.shares[shareID]
-
+	share, ok := b.shares.Get(shareID)
 	if !ok {
 		return nil, fmt.Errorf("%w: share %s not found", ErrNotFound, shareID)
 	}
@@ -2630,17 +2476,15 @@ func (b *InMemoryBackend) AcceptShare(shareID string) (*Share, error) {
 
 // DeleteShare deletes a share.
 func (b *InMemoryBackend) DeleteShare(shareID string) (*Share, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteShare")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	share, ok := st.shares[shareID]
-
+	share, ok := b.shares.Get(shareID)
 	if !ok {
 		return nil, fmt.Errorf("%w: share %s not found", ErrNotFound, shareID)
 	}
 
-	delete(st.shares, shareID)
+	b.shares.Delete(shareID)
 	result := *share
 	result.Status = "DELETED"
 
@@ -2649,12 +2493,10 @@ func (b *InMemoryBackend) DeleteShare(shareID string) (*Share, error) {
 
 // GetShare retrieves a share.
 func (b *InMemoryBackend) GetShare(shareID string) (*Share, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetShare")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	share, ok := st.shares[shareID]
-
+	share, ok := b.shares.Get(shareID)
 	if !ok {
 		return nil, fmt.Errorf("%w: share %s not found", ErrNotFound, shareID)
 	}
@@ -2670,39 +2512,31 @@ func (b *InMemoryBackend) ListShares(
 	maxResults int,
 	nextToken string,
 ) ([]*Share, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListShares")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	allIDs := sortedKeys2(st.shares)
+	all := b.shares.All()
 
 	var ids []string
 
-	for _, id := range allIDs {
-		s := st.shares[id]
+	for _, s := range all {
 		isSelf := strings.Contains(s.ResourceARN, ":"+b.accountID+":")
 
 		switch resourceOwner {
 		case "SELF":
 			if isSelf {
-				ids = append(ids, id)
+				ids = append(ids, s.ShareID)
 			}
 		case "OTHER":
 			if !isSelf {
-				ids = append(ids, id)
+				ids = append(ids, s.ShareID)
 			}
 		default:
-			ids = append(ids, id)
+			ids = append(ids, s.ShareID)
 		}
 	}
 
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
-	result := make([]*Share, 0, len(page))
-
-	for _, id := range page {
-		s := *st.shares[id]
-		result = append(result, &s)
-	}
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.shares.Get)
 
 	return result, outToken, nil
 }
@@ -2716,7 +2550,7 @@ func (b *InMemoryBackend) CreateRunCache(
 	name, cacheS3Location string,
 	tags map[string]string,
 ) (*RunCache, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateRunCache")
 	defer b.mu.Unlock()
 
 	id := newID()
@@ -2730,11 +2564,10 @@ func (b *InMemoryBackend) CreateRunCache(
 	}
 	rc.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "runCache/"+id)
 
-	st := b.region(b.defaultRegion)
-	st.runCaches[id] = rc
+	b.runCaches.Put(rc)
 
 	if tags != nil {
-		st.tags[rc.Arn] = copyTags(tags)
+		b.tags[rc.Arn] = copyTags(tags)
 	}
 
 	result := *rc
@@ -2744,30 +2577,26 @@ func (b *InMemoryBackend) CreateRunCache(
 
 // DeleteRunCache deletes a run cache.
 func (b *InMemoryBackend) DeleteRunCache(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRunCache")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rc, ok := st.runCaches[id]
-
+	rc, ok := b.runCaches.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run cache %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, rc.Arn)
-	delete(st.runCaches, id)
+	delete(b.tags, rc.Arn)
+	b.runCaches.Delete(id)
 
 	return nil
 }
 
 // GetRunCache retrieves a run cache.
 func (b *InMemoryBackend) GetRunCache(id string) (*RunCache, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRunCache")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	rc, ok := st.runCaches[id]
-
+	rc, ok := b.runCaches.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: run cache %s not found", ErrNotFound, id)
 	}
@@ -2782,31 +2611,27 @@ func (b *InMemoryBackend) ListRunCaches(
 	maxResults int,
 	nextToken string,
 ) ([]*RunCache, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRunCaches")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.runCaches)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.runCaches.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*RunCache, 0, len(page))
-
-	for _, id := range page {
-		rc := *st.runCaches[id]
-		result = append(result, &rc)
+	for _, rc := range all {
+		ids = append(ids, rc.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runCaches.Get)
 
 	return result, outToken, nil
 }
 
 // UpdateRunCache updates a run cache.
 func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateRunCache")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rc, ok := st.runCaches[id]
-
+	rc, ok := b.runCaches.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run cache %s not found", ErrNotFound, id)
 	}
@@ -2828,7 +2653,7 @@ func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
 
 // StartRunBatch starts a new run batch.
 func (b *InMemoryBackend) StartRunBatch(workflowID, roleARN, name string) (*RunBatch, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartRunBatch")
 	defer b.mu.Unlock()
 
 	id := newID()
@@ -2842,8 +2667,7 @@ func (b *InMemoryBackend) StartRunBatch(workflowID, roleARN, name string) (*RunB
 	}
 	rb.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "runBatch/"+id)
 
-	st := b.region(b.defaultRegion)
-	st.runBatches[id] = rb
+	b.runBatches.Put(rb)
 
 	result := *rb
 
@@ -2852,12 +2676,10 @@ func (b *InMemoryBackend) StartRunBatch(workflowID, roleARN, name string) (*RunB
 
 // CancelRunBatch cancels a run batch.
 func (b *InMemoryBackend) CancelRunBatch(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelRunBatch")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rb, ok := st.runBatches[id]
-
+	rb, ok := b.runBatches.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
 	}
@@ -2873,30 +2695,26 @@ func (b *InMemoryBackend) CancelRunBatch(id string) error {
 
 // DeleteRunBatch deletes a single run batch.
 func (b *InMemoryBackend) DeleteRunBatch(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRunBatch")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	rb, ok := st.runBatches[id]
-
+	rb, ok := b.runBatches.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
 	}
 
-	delete(st.tags, rb.Arn)
-	delete(st.runBatches, id)
+	delete(b.tags, rb.Arn)
+	b.runBatches.Delete(id)
 
 	return nil
 }
 
 // GetRunBatch retrieves a run batch.
 func (b *InMemoryBackend) GetRunBatch(id string) (*RunBatch, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRunBatch")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	rb, ok := st.runBatches[id]
-
+	rb, ok := b.runBatches.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
 	}
@@ -2911,33 +2729,30 @@ func (b *InMemoryBackend) ListRunBatches(
 	maxResults int,
 	nextToken string,
 ) ([]*RunBatch, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRunBatches")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	ids := sortedKeys2(st.runBatches)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
+	all := b.runBatches.All()
+	ids := make([]string, 0, len(all))
 
-	result := make([]*RunBatch, 0, len(page))
-
-	for _, id := range page {
-		rb := *st.runBatches[id]
-		result = append(result, &rb)
+	for _, rb := range all {
+		ids = append(ids, rb.ID)
 	}
+
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runBatches.Get)
 
 	return result, outToken, nil
 }
 
 // DeleteRunBatches deletes multiple run batches.
 func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRunBatches")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
 	var errs []RunBatchDeleteError
 
 	for _, id := range ids {
-		rb, ok := st.runBatches[id]
+		rb, ok := b.runBatches.Get(id)
 		if !ok {
 			errs = append(errs, RunBatchDeleteError{
 				ID:      id,
@@ -2948,8 +2763,8 @@ func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError,
 			continue
 		}
 
-		delete(st.tags, rb.Arn)
-		delete(st.runBatches, id)
+		delete(b.tags, rb.Arn)
+		b.runBatches.Delete(id)
 	}
 
 	return errs, nil
@@ -2961,31 +2776,22 @@ func (b *InMemoryBackend) ListRunsInBatch(
 	maxResults int,
 	nextToken string,
 ) ([]*Run, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRunsInBatch")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.runBatches[batchID]; !ok {
+	if !b.runBatches.Has(batchID) {
 		return nil, "", fmt.Errorf("%w: run batch %s not found", ErrNotFound, batchID)
 	}
 
 	var ids []string
 
-	for id, r := range st.runs {
+	for _, r := range b.runs.All() {
 		if r.RunBatchID == batchID {
-			ids = append(ids, id)
+			ids = append(ids, r.ID)
 		}
 	}
 
-	sort.Strings(ids)
-	page, outToken := paginateStrings(ids, nextToken, maxResults)
-	result := make([]*Run, 0, len(page))
-
-	for _, id := range page {
-		r := *st.runs[id]
-		result = append(result, &r)
-	}
+	result, outToken := paginatedCopies(ids, nextToken, maxResults, b.runs.Get)
 
 	return result, outToken, nil
 }
@@ -3000,12 +2806,10 @@ func (b *InMemoryBackend) CreateConfiguration(name, description string) (*Config
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateConfiguration")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, exists := st.configurations[name]; exists {
+	if b.configurations.Has(name) {
 		return nil, fmt.Errorf("%w: configuration %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -3014,7 +2818,7 @@ func (b *InMemoryBackend) CreateConfiguration(name, description string) (*Config
 		Description:  description,
 		CreationTime: time.Now().UTC(),
 	}
-	st.configurations[name] = cfg
+	b.configurations.Put(cfg)
 
 	result := *cfg
 
@@ -3023,28 +2827,24 @@ func (b *InMemoryBackend) CreateConfiguration(name, description string) (*Config
 
 // DeleteConfiguration deletes a configuration.
 func (b *InMemoryBackend) DeleteConfiguration(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteConfiguration")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.configurations[name]; !ok {
+	if !b.configurations.Has(name) {
 		return fmt.Errorf("%w: configuration %s not found", ErrNotFound, name)
 	}
 
-	delete(st.configurations, name)
+	b.configurations.Delete(name)
 
 	return nil
 }
 
 // GetConfiguration retrieves a configuration.
 func (b *InMemoryBackend) GetConfiguration(name string) (*Configuration, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetConfiguration")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	cfg, ok := st.configurations[name]
-
+	cfg, ok := b.configurations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, name)
 	}
@@ -3059,19 +2859,17 @@ func (b *InMemoryBackend) ListConfigurations(
 	maxResults int,
 	nextToken string,
 ) ([]*Configuration, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListConfigurations")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	names := sortedKeys2(st.configurations)
-	page, outToken := paginateStrings(names, nextToken, maxResults)
+	all := b.configurations.All()
+	names := make([]string, 0, len(all))
 
-	result := make([]*Configuration, 0, len(page))
-
-	for _, name := range page {
-		cfg := *st.configurations[name]
-		result = append(result, &cfg)
+	for _, cfg := range all {
+		names = append(names, cfg.Name)
 	}
+
+	result, outToken := paginatedCopies(names, nextToken, maxResults, b.configurations.Get)
 
 	return result, outToken, nil
 }
@@ -3082,26 +2880,23 @@ func (b *InMemoryBackend) ListConfigurations(
 
 // PutS3AccessPolicy stores an S3 access policy.
 func (b *InMemoryBackend) PutS3AccessPolicy(s3AccessPointARN, policy string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutS3AccessPolicy")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-	st.s3AccessPolicies[s3AccessPointARN] = &S3AccessPolicy{
+	b.s3AccessPolicies.Put(&S3AccessPolicy{
 		S3AccessPointARN: s3AccessPointARN,
 		Policy:           policy,
-	}
+	})
 
 	return nil
 }
 
 // GetS3AccessPolicy retrieves an S3 access policy.
 func (b *InMemoryBackend) GetS3AccessPolicy(s3AccessPointARN string) (*S3AccessPolicy, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetS3AccessPolicy")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	p, ok := st.s3AccessPolicies[s3AccessPointARN]
-
+	p, ok := b.s3AccessPolicies.Get(s3AccessPointARN)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: S3 access policy for %s not found",
@@ -3117,16 +2912,14 @@ func (b *InMemoryBackend) GetS3AccessPolicy(s3AccessPointARN string) (*S3AccessP
 
 // DeleteS3AccessPolicy deletes an S3 access policy.
 func (b *InMemoryBackend) DeleteS3AccessPolicy(s3AccessPointARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteS3AccessPolicy")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if _, ok := st.s3AccessPolicies[s3AccessPointARN]; !ok {
+	if !b.s3AccessPolicies.Has(s3AccessPointARN) {
 		return fmt.Errorf("%w: S3 access policy for %s not found", ErrNotFound, s3AccessPointARN)
 	}
 
-	delete(st.s3AccessPolicies, s3AccessPointARN)
+	b.s3AccessPolicies.Delete(s3AccessPointARN)
 
 	return nil
 }
@@ -3137,29 +2930,25 @@ func (b *InMemoryBackend) DeleteS3AccessPolicy(s3AccessPointARN string) error {
 
 // TagResource adds tags to a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
-	if st.tags[resourceARN] == nil {
-		st.tags[resourceARN] = make(map[string]string)
+	if b.tags[resourceARN] == nil {
+		b.tags[resourceARN] = make(map[string]string)
 	}
 
-	maps.Copy(st.tags[resourceARN], tags)
+	maps.Copy(b.tags[resourceARN], tags)
 
 	return nil
 }
 
 // UntagResource removes tags from a resource identified by ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	st := b.region(b.defaultRegion)
-
 	for _, k := range tagKeys {
-		delete(st.tags[resourceARN], k)
+		delete(b.tags[resourceARN], k)
 	}
 
 	return nil
@@ -3167,25 +2956,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // ListTagsForResource returns all tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	st := b.region(b.defaultRegion)
-	tags := st.tags[resourceARN]
+	tags := b.tags[resourceARN]
 
 	if tags == nil {
 		return map[string]string{}, nil
 	}
 
 	return maps.Clone(tags), nil
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────────────────────
-
-func sortedKeys2[V any](m map[string]V) []string {
-	keys := collections.SortedKeys(m)
-
-	return keys
 }

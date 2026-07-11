@@ -348,6 +348,7 @@ func (h *S3Handler) listMultipartUploads(
 		Prefix:             encodeListKey(encodingType, q.Get("prefix")),
 		Delimiter:          encodeListKey(encodingType, q.Get("delimiter")),
 		KeyMarker:          encodeListKey(encodingType, q.Get("key-marker")),
+		UploadIDMarker:     q.Get("upload-id-marker"),
 		MaxUploads:         int(aws.ToInt32(out.MaxUploads)),
 		IsTruncated:        aws.ToBool(out.IsTruncated),
 		NextKeyMarker:      encodeListKey(encodingType, aws.ToString(out.NextKeyMarker)),

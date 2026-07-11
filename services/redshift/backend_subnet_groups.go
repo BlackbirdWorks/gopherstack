@@ -31,7 +31,7 @@ func (b *InMemoryBackend) CreateClusterSubnetGroup(
 	b.mu.Lock("CreateClusterSubnetGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subnetGroups[name]; exists {
+	if _, exists := b.subnetGroups.Get(name); exists {
 		return nil, fmt.Errorf("%w: subnet group %s already exists", ErrSubnetGroupAlreadyExists, name)
 	}
 
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) CreateClusterSubnetGroup(
 		SubnetGroupStatus:      "Complete",
 		Subnets:                subnets,
 	}
-	b.subnetGroups[name] = sg
+	b.subnetGroups.Put(sg)
 
 	return cloneSubnetGroup(sg), nil
 }
@@ -61,11 +61,11 @@ func (b *InMemoryBackend) DeleteClusterSubnetGroup(name string) error {
 	b.mu.Lock("DeleteClusterSubnetGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subnetGroups[name]; !exists {
+	if _, exists := b.subnetGroups.Get(name); !exists {
 		return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
 
-	delete(b.subnetGroups, name)
+	b.subnetGroups.Delete(name)
 
 	return nil
 }
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) DescribeClusterSubnetGroups(name string) ([]ClusterSub
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		sg, exists := b.subnetGroups[name]
+		sg, exists := b.subnetGroups.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 		}
@@ -84,8 +84,8 @@ func (b *InMemoryBackend) DescribeClusterSubnetGroups(name string) ([]ClusterSub
 		return []ClusterSubnetGroup{*cloneSubnetGroup(sg)}, nil
 	}
 
-	result := make([]ClusterSubnetGroup, 0, len(b.subnetGroups))
-	for _, sg := range b.subnetGroups {
+	result := make([]ClusterSubnetGroup, 0, b.subnetGroups.Len())
+	for _, sg := range b.subnetGroups.All() {
 		result = append(result, *cloneSubnetGroup(sg))
 	}
 
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) ModifyClusterSubnetGroup(
 	b.mu.Lock("ModifyClusterSubnetGroup")
 	defer b.mu.Unlock()
 
-	sg, exists := b.subnetGroups[name]
+	sg, exists := b.subnetGroups.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}

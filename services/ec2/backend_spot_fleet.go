@@ -125,12 +125,12 @@ func (b *InMemoryBackend) spawnFleetInstancesLocked(
 	subnetID := spec.SubnetID
 	if subnetID == "" {
 		subnetID = b.findDefaultSubnetID()
-	} else if _, ok := b.subnets[subnetID]; !ok {
+	} else if _, ok := b.subnets.Get(subnetID); !ok {
 		subnetID = b.findDefaultSubnetID()
 	}
 
 	vpcID := ""
-	if sub, ok := b.subnets[subnetID]; ok {
+	if sub, ok := b.subnets.Get(subnetID); ok {
 		vpcID = sub.VPCID
 	}
 
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) spawnFleetInstancesLocked(
 
 		eniID := "eni-" + uuid.New().String()[:17]
 		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces[eniID] = &NetworkInterface{
+		b.networkInterfaces.Put(&NetworkInterface{
 			ID:              eniID,
 			SubnetID:        subnetID,
 			VPCID:           vpcID,
@@ -167,11 +167,12 @@ func (b *InMemoryBackend) spawnFleetInstancesLocked(
 			DeviceIndex:     0,
 			Status:          stateInUse,
 			SourceDestCheck: true,
-		}
-		b.instances[id] = inst
+		})
+		b.instances.Put(inst)
 		b.indexInstanceLocked(inst)
-		b.indexENILocked(eniID, b.networkInterfaces[eniID])
-		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
+		eni, _ := b.networkInterfaces.Get(eniID)
+		b.indexENILocked(eniID, eni)
+		b.indexENIByVPCLocked(eniID, eni)
 
 		fleet.InstanceIDs = append(fleet.InstanceIDs, id)
 		fulfilled += weightedCap
@@ -228,7 +229,7 @@ func (b *InMemoryBackend) RequestSpotFleet(
 	spawned, fulfilled := b.spawnFleetInstancesLocked(fleet, config)
 
 	fleet.FulfilledCapacity = fulfilled
-	b.spotFleets[fleetID] = fleet
+	b.spotFleets.Put(fleet)
 
 	// Add initial history record.
 	b.spotFleetHistory[fleetID] = []SpotFleetHistoryRecord{
@@ -266,9 +267,10 @@ func (b *InMemoryBackend) DescribeSpotFleetRequests(
 		wantSet[id] = struct{}{}
 	}
 
-	results := make([]*SpotFleetRequest, 0, len(b.spotFleets))
+	results := make([]*SpotFleetRequest, 0, b.spotFleets.Len())
 
-	for id, fleet := range b.spotFleets {
+	for _, fleet := range b.spotFleets.All() {
+		id := spotFleetsKeyFn(fleet)
 		if !wantAll {
 			if _, ok := wantSet[id]; !ok {
 				continue
@@ -286,7 +288,7 @@ func (b *InMemoryBackend) DescribeSpotFleetRequests(
 	// Check for requested IDs that don't exist.
 	if !wantAll {
 		for _, id := range fleetIDs {
-			if _, ok := b.spotFleets[id]; !ok {
+			if _, ok := b.spotFleets.Get(id); !ok {
 				return nil, fmt.Errorf("%w: %s", ErrSpotFleetNotFound, id)
 			}
 		}
@@ -318,7 +320,7 @@ func (b *InMemoryBackend) CancelSpotFleetRequests(
 	results := make([]SpotFleetCancelResult, 0, len(fleetIDs))
 
 	for _, id := range fleetIDs {
-		fleet, ok := b.spotFleets[id]
+		fleet, ok := b.spotFleets.Get(id)
 		if !ok {
 			results = append(results, SpotFleetCancelResult{
 				SpotFleetRequestID:            id,
@@ -334,7 +336,7 @@ func (b *InMemoryBackend) CancelSpotFleetRequests(
 
 		if terminateInstances {
 			for _, instID := range fleet.InstanceIDs {
-				if inst, exists := b.instances[instID]; exists {
+				if inst, exists := b.instances.Get(instID); exists {
 					inst.State = StateTerminated
 					inst.TerminatedAt = time.Now().UTC()
 				}
@@ -401,12 +403,12 @@ func (b *InMemoryBackend) scaleFleetUpLocked(
 	subnetID := spec.SubnetID
 	if subnetID == "" {
 		subnetID = b.findDefaultSubnetID()
-	} else if _, ok := b.subnets[subnetID]; !ok {
+	} else if _, ok := b.subnets.Get(subnetID); !ok {
 		subnetID = b.findDefaultSubnetID()
 	}
 
 	vpcID := ""
-	if sub, ok := b.subnets[subnetID]; ok {
+	if sub, ok := b.subnets.Get(subnetID); ok {
 		vpcID = sub.VPCID
 	}
 
@@ -430,7 +432,7 @@ func (b *InMemoryBackend) scaleFleetUpLocked(
 
 		eniID := "eni-" + uuid.New().String()[:17]
 		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces[eniID] = &NetworkInterface{
+		b.networkInterfaces.Put(&NetworkInterface{
 			ID:              eniID,
 			SubnetID:        subnetID,
 			VPCID:           vpcID,
@@ -440,11 +442,12 @@ func (b *InMemoryBackend) scaleFleetUpLocked(
 			DeviceIndex:     0,
 			Status:          stateInUse,
 			SourceDestCheck: true,
-		}
-		b.instances[id] = inst
+		})
+		b.instances.Put(inst)
 		b.indexInstanceLocked(inst)
-		b.indexENILocked(eniID, b.networkInterfaces[eniID])
-		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
+		eni, _ := b.networkInterfaces.Get(eniID)
+		b.indexENILocked(eniID, eni)
+		b.indexENIByVPCLocked(eniID, eni)
 
 		fleet.InstanceIDs = append(fleet.InstanceIDs, id)
 		fleet.FulfilledCapacity += weightedCap
@@ -470,7 +473,7 @@ func (b *InMemoryBackend) scaleFleetDownLocked(
 		instID := fleet.InstanceIDs[lastIdx]
 		fleet.InstanceIDs = fleet.InstanceIDs[:lastIdx]
 
-		if inst, exists := b.instances[instID]; exists {
+		if inst, exists := b.instances.Get(instID); exists {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now().UTC()
 		}
@@ -496,7 +499,7 @@ func (b *InMemoryBackend) ModifySpotFleetRequest(
 	b.mu.Lock("ModifySpotFleetRequest")
 	defer b.mu.Unlock()
 
-	fleet, ok := b.spotFleets[fleetID]
+	fleet, ok := b.spotFleets.Get(fleetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSpotFleetNotFound, fleetID)
 	}
@@ -546,7 +549,7 @@ func (b *InMemoryBackend) DescribeSpotFleetInstances(fleetID string) ([]SpotFlee
 	b.mu.RLock("DescribeSpotFleetInstances")
 	defer b.mu.RUnlock()
 
-	fleet, ok := b.spotFleets[fleetID]
+	fleet, ok := b.spotFleets.Get(fleetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSpotFleetNotFound, fleetID)
 	}
@@ -554,7 +557,7 @@ func (b *InMemoryBackend) DescribeSpotFleetInstances(fleetID string) ([]SpotFlee
 	result := make([]SpotFleetInstance, 0, len(fleet.InstanceIDs))
 
 	for _, instID := range fleet.InstanceIDs {
-		inst, exists := b.instances[instID]
+		inst, exists := b.instances.Get(instID)
 		if !exists {
 			continue
 		}
@@ -587,7 +590,7 @@ func (b *InMemoryBackend) DescribeSpotFleetRequestHistory(
 	b.mu.RLock("DescribeSpotFleetRequestHistory")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.spotFleets[fleetID]; !ok {
+	if _, ok := b.spotFleets.Get(fleetID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSpotFleetNotFound, fleetID)
 	}
 

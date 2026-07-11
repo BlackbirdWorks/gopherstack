@@ -1,7 +1,6 @@
 package macie2
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"regexp"
@@ -15,7 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -84,30 +83,36 @@ type storedFinding struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu              *lockmetrics.RWMutex
-	allowLists      map[string]*storedAllowList      // id → allow list
-	customDataIDs   map[string]*storedCustomDataID   // id → custom data identifier
-	findingsFilters map[string]*storedFindingsFilter // id → findings filter
-	findings        map[string]*storedFinding        // id → finding
-	s3Buckets       map[string]*S3BucketMetadata     // bucketArn → bucket metadata
-	tags            map[string]map[string]string     // resourceARN → tags
-	session         *Session
-	// Appendix A fields
-	classificationJobs    map[string]*ClassificationJob             // jobID → job
-	members               map[string]*Member                        // accountID → member
-	invitations           map[string]*Invitation                    // invitationID → invitation
-	administrator         *AdministratorAccount                     // this account's admin
-	orgAdminAccounts      map[string]*OrgAdminAccount               // accountID → org admin
-	orgConfig             *OrgConfig                                // org configuration
-	autoDiscoveryConfig   *AutoDiscoveryConfig                      // automated discovery config
-	autoDiscoveryAccounts map[string]*AutoDiscoveryAccount          // accountID → auto discovery
-	classExportConfig     *ClassificationExportConfig               // export config
-	classScopes           map[string]*ClassificationScope           // scopeID → scope
-	findingsPubConfig     *FindingsPublicationConfig                // findings publication config
-	resourceProfiles      map[string]*ResourceProfile               // resourceArn → profile
-	resourceDetections    map[string][]ResourceProfileDetection     // resourceArn → detections
-	revealConfig          *RevealConfiguration                      // reveal config
-	sensitivityTemplates  map[string]*SensitivityInspectionTemplate // templateID → template
+	mu *lockmetrics.RWMutex
+	// registry holds every store.Table-backed resource field so their
+	// lifecycle (reset/snapshot/restore) collapses to one Registry call each
+	// -- see store_setup.go's registerAllTables. Every table below is
+	// "clean" (registered directly, no DTO-registry needed): each value
+	// type already carries its own identity as a real (non-json:"-")
+	// field.
+	registry              *store.Registry
+	allowLists            *store.Table[storedAllowList]      // id → allow list
+	customDataIDs         *store.Table[storedCustomDataID]   // id → custom data identifier
+	findingsFilters       *store.Table[storedFindingsFilter] // id → findings filter
+	findings              *store.Table[storedFinding]        // id → finding
+	s3Buckets             *store.Table[S3BucketMetadata]     // bucketArn → bucket metadata
+	tags                  map[string]map[string]string       // resourceARN → tags
+	session               *Session
+	classificationJobs    *store.Table[ClassificationJob]             // jobID → job
+	members               *store.Table[Member]                        // accountID → member
+	invitations           *store.Table[Invitation]                    // invitationID → invitation
+	administrator         *AdministratorAccount                       // this account's admin
+	orgAdminAccounts      *store.Table[OrgAdminAccount]               // accountID → org admin
+	orgConfig             *OrgConfig                                  // org configuration
+	autoDiscoveryConfig   *AutoDiscoveryConfig                        // automated discovery config
+	autoDiscoveryAccounts *store.Table[AutoDiscoveryAccount]          // accountID → auto discovery
+	classExportConfig     *ClassificationExportConfig                 // export config
+	classScopes           *store.Table[ClassificationScope]           // scopeID → scope
+	findingsPubConfig     *FindingsPublicationConfig                  // findings publication config
+	resourceProfiles      *store.Table[ResourceProfile]               // resourceArn → profile
+	resourceDetections    map[string][]ResourceProfileDetection       // resourceArn → detections
+	revealConfig          *RevealConfiguration                        // reveal config
+	sensitivityTemplates  *store.Table[SensitivityInspectionTemplate] // templateID → template
 	paginationSecret      string
 	accountID             string
 	region                string
@@ -115,29 +120,21 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                    lockmetrics.New("macie2"),
-		accountID:             accountID,
-		region:                region,
-		allowLists:            make(map[string]*storedAllowList),
-		customDataIDs:         make(map[string]*storedCustomDataID),
-		findingsFilters:       make(map[string]*storedFindingsFilter),
-		findings:              make(map[string]*storedFinding),
-		s3Buckets:             make(map[string]*S3BucketMetadata),
-		tags:                  make(map[string]map[string]string),
-		classificationJobs:    make(map[string]*ClassificationJob),
-		members:               make(map[string]*Member),
-		invitations:           make(map[string]*Invitation),
-		orgAdminAccounts:      make(map[string]*OrgAdminAccount),
-		orgConfig:             &OrgConfig{AutoEnable: false},
-		autoDiscoveryConfig:   &AutoDiscoveryConfig{Status: "DISABLED"}, //nolint:goconst // existing issue.
-		autoDiscoveryAccounts: make(map[string]*AutoDiscoveryAccount),
-		classScopes:           make(map[string]*ClassificationScope),
-		resourceProfiles:      make(map[string]*ResourceProfile),
-		resourceDetections:    make(map[string][]ResourceProfileDetection),
-		sensitivityTemplates:  make(map[string]*SensitivityInspectionTemplate),
-		paginationSecret:      uuid.New().String(),
+	b := &InMemoryBackend{
+		mu:                  lockmetrics.New("macie2"),
+		accountID:           accountID,
+		region:              region,
+		registry:            store.NewRegistry(),
+		tags:                make(map[string]map[string]string),
+		orgConfig:           &OrgConfig{AutoEnable: false},
+		autoDiscoveryConfig: &AutoDiscoveryConfig{Status: "DISABLED"}, //nolint:goconst // existing issue.
+		resourceDetections:  make(map[string][]ResourceProfileDetection),
+		paginationSecret:    uuid.New().String(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) allowListARN(id string) string {
@@ -252,7 +249,7 @@ func (b *InMemoryBackend) CreateAllowList(
 		},
 	}
 
-	b.allowLists[id] = al
+	b.allowLists.Put(al)
 	if len(tags) > 0 {
 		b.tags[al.Arn] = maps.Clone(tags)
 	}
@@ -273,7 +270,7 @@ func (b *InMemoryBackend) GetAllowList(id string) (*AllowListDetail, error) {
 	b.mu.RLock("GetAllowList")
 	defer b.mu.RUnlock()
 
-	al, ok := b.allowLists[id]
+	al, ok := b.allowLists.Get(id)
 	if !ok {
 		return nil, ErrAllowListNotFound
 	}
@@ -292,7 +289,7 @@ func (b *InMemoryBackend) UpdateAllowList(
 	b.mu.Lock("UpdateAllowList")
 	defer b.mu.Unlock()
 
-	al, ok := b.allowLists[id]
+	al, ok := b.allowLists.Get(id)
 	if !ok {
 		return nil, ErrAllowListNotFound
 	}
@@ -321,11 +318,9 @@ func (b *InMemoryBackend) DeleteAllowList(id string) error {
 	b.mu.Lock("DeleteAllowList")
 	defer b.mu.Unlock()
 
-	if _, ok := b.allowLists[id]; !ok {
+	if !b.allowLists.Delete(id) {
 		return ErrAllowListNotFound
 	}
-
-	delete(b.allowLists, id)
 
 	return nil
 }
@@ -333,7 +328,7 @@ func (b *InMemoryBackend) DeleteAllowList(id string) error {
 // ListAllowLists returns summaries of all allow lists.
 func (b *InMemoryBackend) ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error) {
 	return listPaginated(
-		b, "ListAllowLists", b.allowLists,
+		b, "ListAllowLists", b.allowLists.All(),
 		func(al *storedAllowList) (*AllowListSummary, bool) {
 			return &AllowListSummary{
 				Arn:         al.Arn,
@@ -396,7 +391,7 @@ func (b *InMemoryBackend) CreateCustomDataIdentifier(
 		},
 	}
 
-	b.customDataIDs[id] = cdi
+	b.customDataIDs.Put(cdi)
 	if len(tags) > 0 {
 		b.tags[cdi.Arn] = maps.Clone(tags)
 	}
@@ -409,7 +404,7 @@ func (b *InMemoryBackend) GetCustomDataIdentifier(id string) (*CustomDataIdentif
 	b.mu.RLock("GetCustomDataIdentifier")
 	defer b.mu.RUnlock()
 
-	cdi, ok := b.customDataIDs[id]
+	cdi, ok := b.customDataIDs.Get(id)
 	if !ok || cdi.Deleted {
 		return nil, ErrCustomDataIDNotFound
 	}
@@ -425,7 +420,7 @@ func (b *InMemoryBackend) DeleteCustomDataIdentifier(id string) error {
 	b.mu.Lock("DeleteCustomDataIdentifier")
 	defer b.mu.Unlock()
 
-	cdi, ok := b.customDataIDs[id]
+	cdi, ok := b.customDataIDs.Get(id)
 	if !ok {
 		return ErrCustomDataIDNotFound
 	}
@@ -444,7 +439,7 @@ func (b *InMemoryBackend) ListCustomDataIdentifiers(
 	defer b.mu.RUnlock()
 
 	data, next := mapSortPaginate(
-		b.customDataIDs,
+		b.customDataIDs.All(),
 		func(cdi *storedCustomDataID) (*CustomDataIdentifierSummary, bool) {
 			if cdi.Deleted {
 				return nil, false
@@ -566,7 +561,7 @@ func (b *InMemoryBackend) CreateFindingsFilter(
 		},
 	}
 
-	b.findingsFilters[id] = ff
+	b.findingsFilters.Put(ff)
 	if len(tags) > 0 {
 		b.tags[ff.Arn] = maps.Clone(tags)
 	}
@@ -587,7 +582,7 @@ func (b *InMemoryBackend) GetFindingsFilter(id string) (*FindingsFilterDetail, e
 	b.mu.RLock("GetFindingsFilter")
 	defer b.mu.RUnlock()
 
-	ff, ok := b.findingsFilters[id]
+	ff, ok := b.findingsFilters.Get(id)
 	if !ok {
 		return nil, ErrFindingsFilterNotFound
 	}
@@ -607,7 +602,7 @@ func (b *InMemoryBackend) UpdateFindingsFilter(
 	b.mu.Lock("UpdateFindingsFilter")
 	defer b.mu.Unlock()
 
-	ff, ok := b.findingsFilters[id]
+	ff, ok := b.findingsFilters.Get(id)
 	if !ok {
 		return nil, ErrFindingsFilterNotFound
 	}
@@ -646,11 +641,9 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 	b.mu.Lock("DeleteFindingsFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.findingsFilters[id]; !ok {
+	if !b.findingsFilters.Delete(id) {
 		return ErrFindingsFilterNotFound
 	}
-
-	delete(b.findingsFilters, id)
 
 	return nil
 }
@@ -658,7 +651,7 @@ func (b *InMemoryBackend) DeleteFindingsFilter(id string) error {
 // ListFindingsFilters returns summaries of all findings filters.
 func (b *InMemoryBackend) ListFindingsFilters(limit int, token string) ([]*FindingsFilterSummary, string, error) {
 	return listPaginated(
-		b, "ListFindingsFilters", b.findingsFilters,
+		b, "ListFindingsFilters", b.findingsFilters.All(),
 		func(ff *storedFindingsFilter) (*FindingsFilterSummary, bool) {
 			return &FindingsFilterSummary{
 				Action:      ff.Action,
@@ -685,7 +678,7 @@ func (b *InMemoryBackend) GetFindings(findingIDs []string) ([]*Finding, error) {
 	result := make([]*Finding, 0, len(findingIDs))
 
 	for _, id := range findingIDs {
-		f, ok := b.findings[id]
+		f, ok := b.findings.Get(id)
 		if !ok {
 			return nil, ErrFindingNotFound
 		}
@@ -703,9 +696,9 @@ func (b *InMemoryBackend) ListFindings(criteria map[string]any, limit int, token
 	defer b.mu.RUnlock()
 
 	var filtered []string
-	for id, finding := range b.findings {
+	for _, finding := range b.findings.All() {
 		if matchesFindingCriteria(finding, criteria) {
-			filtered = append(filtered, id)
+			filtered = append(filtered, finding.ID)
 		}
 	}
 
@@ -716,12 +709,12 @@ func (b *InMemoryBackend) ListFindings(criteria map[string]any, limit int, token
 	return data, next, nil
 }
 
-// listPaginated locks for reading, projects/sorts the map, and paginates,
+// listPaginated locks for reading, projects/sorts items, and paginates,
 // returning the page plus continuation token. Shared by the List* methods.
 func listPaginated[T any, R any](
 	b *InMemoryBackend,
 	lockName string,
-	items map[string]T,
+	items []T,
 	mapFn func(T) (R, bool),
 	sortFn func([]R),
 	token string,
@@ -736,7 +729,7 @@ func listPaginated[T any, R any](
 }
 
 func mapSortPaginate[T any, R any](
-	items map[string]T,
+	items []T,
 	mapFn func(T) (R, bool),
 	sortFn func([]R),
 	token string,
@@ -850,7 +843,7 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 
 	for _, ft := range types {
 		id := uuid.New().String()
-		b.findings[id] = &storedFinding{
+		b.findings.Put(&storedFinding{
 			Finding: Finding{
 				AccountID:   b.accountID,
 				Archived:    false,
@@ -864,7 +857,7 @@ func (b *InMemoryBackend) CreateSampleFindings(findingTypes []string) error {
 				Type:        ft,
 				UpdatedAt:   now,
 			},
-		}
+		})
 	}
 
 	return nil
@@ -877,7 +870,7 @@ func (b *InMemoryBackend) GetFindingStatistics(groupBy string, _ map[string]any)
 
 	counts := make(map[string]int64)
 
-	for _, f := range b.findings {
+	for _, f := range b.findings.All() {
 		var key string
 
 		switch groupBy {
@@ -990,17 +983,13 @@ func (b *InMemoryBackend) isKnownARN(arnStr string) bool {
 
 	switch resourceType {
 	case "allow-list":
-		_, exists := b.allowLists[id]
-
-		return exists
+		return b.allowLists.Has(id)
 	case "custom-data-identifier":
-		cdi, exists := b.customDataIDs[id]
+		cdi, exists := b.customDataIDs.Get(id)
 
 		return exists && !cdi.Deleted
 	case "findings-filter":
-		_, exists := b.findingsFilters[id]
-
-		return exists
+		return b.findingsFilters.Has(id)
 	}
 
 	return false
@@ -1018,27 +1007,15 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.session = nil
-	b.allowLists = make(map[string]*storedAllowList)
-	b.customDataIDs = make(map[string]*storedCustomDataID)
-	b.findingsFilters = make(map[string]*storedFindingsFilter)
-	b.findings = make(map[string]*storedFinding)
-	b.s3Buckets = make(map[string]*S3BucketMetadata)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.classificationJobs = make(map[string]*ClassificationJob)
-	b.members = make(map[string]*Member)
-	b.invitations = make(map[string]*Invitation)
 	b.administrator = nil
-	b.orgAdminAccounts = make(map[string]*OrgAdminAccount)
 	b.orgConfig = &OrgConfig{AutoEnable: false}
 	b.autoDiscoveryConfig = &AutoDiscoveryConfig{Status: "DISABLED"}
-	b.autoDiscoveryAccounts = make(map[string]*AutoDiscoveryAccount)
 	b.classExportConfig = nil
-	b.classScopes = make(map[string]*ClassificationScope)
 	b.findingsPubConfig = nil
-	b.resourceProfiles = make(map[string]*ResourceProfile)
 	b.resourceDetections = make(map[string][]ResourceProfileDetection)
 	b.revealConfig = nil
-	b.sensitivityTemplates = make(map[string]*SensitivityInspectionTemplate)
 }
 
 func validateTagInput(tags map[string]string) error {
@@ -1059,97 +1036,7 @@ func validateTagInput(tags map[string]string) error {
 	return nil
 }
 
-type snapshot struct {
-	Session               *Session                                  `json:"session,omitempty"`
-	AllowLists            map[string]*storedAllowList               `json:"allowLists"`
-	CustomDataIDs         map[string]*storedCustomDataID            `json:"customDataIds"`
-	FindingsFilters       map[string]*storedFindingsFilter          `json:"findingsFilters"`
-	Findings              map[string]*storedFinding                 `json:"findings"`
-	S3Buckets             map[string]*S3BucketMetadata              `json:"s3Buckets"`
-	Tags                  map[string]map[string]string              `json:"tags"`
-	ClassificationJobs    map[string]*ClassificationJob             `json:"classificationJobs"`
-	Members               map[string]*Member                        `json:"members"`
-	Invitations           map[string]*Invitation                    `json:"invitations"`
-	Administrator         *AdministratorAccount                     `json:"administrator,omitempty"`
-	OrgAdminAccounts      map[string]*OrgAdminAccount               `json:"orgAdminAccounts"`
-	OrgConfig             *OrgConfig                                `json:"orgConfig,omitempty"`
-	AutoDiscoveryConfig   *AutoDiscoveryConfig                      `json:"autoDiscoveryConfig,omitempty"`
-	AutoDiscoveryAccounts map[string]*AutoDiscoveryAccount          `json:"autoDiscoveryAccounts"`
-	ClassExportConfig     *ClassificationExportConfig               `json:"classExportConfig,omitempty"`
-	ClassScopes           map[string]*ClassificationScope           `json:"classScopes"`
-	FindingsPubConfig     *FindingsPublicationConfig                `json:"findingsPubConfig,omitempty"`
-	ResourceProfiles      map[string]*ResourceProfile               `json:"resourceProfiles"`
-	ResourceDetections    map[string][]ResourceProfileDetection     `json:"resourceDetections"`
-	RevealConfig          *RevealConfiguration                      `json:"revealConfig,omitempty"`
-	SensitivityTemplates  map[string]*SensitivityInspectionTemplate `json:"sensitivityTemplates"`
-}
-
-// Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "macie2", snapshot{
-		Session:               b.session,
-		AllowLists:            b.allowLists,
-		CustomDataIDs:         b.customDataIDs,
-		FindingsFilters:       b.findingsFilters,
-		Findings:              b.findings,
-		S3Buckets:             b.s3Buckets,
-		Tags:                  b.tags,
-		ClassificationJobs:    b.classificationJobs,
-		Members:               b.members,
-		Invitations:           b.invitations,
-		Administrator:         b.administrator,
-		OrgAdminAccounts:      b.orgAdminAccounts,
-		OrgConfig:             b.orgConfig,
-		AutoDiscoveryConfig:   b.autoDiscoveryConfig,
-		AutoDiscoveryAccounts: b.autoDiscoveryAccounts,
-		ClassExportConfig:     b.classExportConfig,
-		ClassScopes:           b.classScopes,
-		FindingsPubConfig:     b.findingsPubConfig,
-		ResourceProfiles:      b.resourceProfiles,
-		ResourceDetections:    b.resourceDetections,
-		RevealConfig:          b.revealConfig,
-		SensitivityTemplates:  b.sensitivityTemplates,
-	})
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var snap snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "macie2", data, &snap); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.session = snap.Session
-	b.allowLists = snap.AllowLists
-	b.customDataIDs = snap.CustomDataIDs
-	b.findingsFilters = snap.FindingsFilters
-	b.findings = snap.Findings
-	b.s3Buckets = snap.S3Buckets
-	b.tags = snap.Tags
-	if b.s3Buckets == nil {
-		b.s3Buckets = make(map[string]*S3BucketMetadata)
-	}
-	b.classificationJobs = snap.ClassificationJobs
-	b.members = snap.Members
-	b.invitations = snap.Invitations
-	b.administrator = snap.Administrator
-	b.orgAdminAccounts = snap.OrgAdminAccounts
-	b.orgConfig = snap.OrgConfig
-	b.autoDiscoveryConfig = snap.AutoDiscoveryConfig
-	b.autoDiscoveryAccounts = snap.AutoDiscoveryAccounts
-	b.classExportConfig = snap.ClassExportConfig
-	b.classScopes = snap.ClassScopes
-	b.findingsPubConfig = snap.FindingsPubConfig
-	b.resourceProfiles = snap.ResourceProfiles
-	b.resourceDetections = snap.ResourceDetections
-	b.revealConfig = snap.RevealConfig
-	b.sensitivityTemplates = snap.SensitivityTemplates
-
-	return nil
-}
+// Snapshot and Restore -- implementing persistence.Persistable for
+// InMemoryBackend -- live in persistence.go alongside the Handler-level
+// delegates, following the services/sesv2 and services/codecommit Phase 3.3
+// pattern.

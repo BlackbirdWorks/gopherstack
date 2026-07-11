@@ -193,13 +193,7 @@ type IpamPrefixListResolverTarget struct {
 // resetIpamDiscoveryMapsLocked re-initialises all maps owned by this file. Must be called
 // with b.mu held.
 func (b *InMemoryBackend) resetIpamDiscoveryMapsLocked() {
-	b.ipamByoasns = make(map[string]*IpamByoasn)
-	b.ipamAsnAssociations = make(map[string]*IpamAsnAssociation)
-	b.ipamVerificationTokens = make(map[string]*IpamExternalResourceVerificationToken)
-	b.ipamResourceCidrs = make(map[string]*IpamResourceCidr)
-	b.ipamPrefixListResolvers = make(map[string]*IpamPrefixListResolver)
 	b.ipamPrefixListResolverVersions = make(map[string][]int64)
-	b.ipamPrefixListResolverTargets = make(map[string]*IpamPrefixListResolverTarget)
 }
 
 // ---- IPAM Resource Discoveries (user-created) ----
@@ -223,7 +217,7 @@ func (b *InMemoryBackend) CreateIpamResourceDiscovery(
 		Description:      description,
 		OperatingRegions: append([]string(nil), operatingRegions...),
 	}
-	b.ipamResourceDiscoveries[id] = d
+	b.ipamResourceDiscoveries.Put(d)
 
 	cp := *d
 	cp.OperatingRegions = append([]string(nil), d.OperatingRegions...)
@@ -242,7 +236,7 @@ func (b *InMemoryBackend) DeleteIpamResourceDiscovery(id string) (*IpamResourceD
 	b.mu.Lock("DeleteIpamResourceDiscovery")
 	defer b.mu.Unlock()
 
-	d, ok := b.ipamResourceDiscoveries[id]
+	d, ok := b.ipamResourceDiscoveries.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamResourceDiscoveryNotFound, id)
 	}
@@ -253,15 +247,14 @@ func (b *InMemoryBackend) DeleteIpamResourceDiscovery(id string) (*IpamResourceD
 		)
 	}
 
-	for _, a := range b.ipamResourceDiscoveryAssocs {
+	for _, a := range b.ipamResourceDiscoveryAssocs.All() {
 		if a.IpamResourceDiscoveryID == id {
 			return nil, fmt.Errorf(
 				"%w: resource discovery %s has existing IPAM associations", ErrIpamResourceDiscoveryInUse, id,
 			)
 		}
 	}
-
-	delete(b.ipamResourceDiscoveries, id)
+	b.ipamResourceDiscoveries.Delete(id)
 
 	cp := *d
 	cp.OperatingRegions = append([]string(nil), d.OperatingRegions...)
@@ -281,12 +274,12 @@ func (b *InMemoryBackend) AssociateIpamResourceDiscovery(
 	b.mu.Lock("AssociateIpamResourceDiscovery")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[ipamID]
+	ipam, ok := b.ipams.Get(ipamID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
-	if _, discoveryOK := b.ipamResourceDiscoveries[discoveryID]; !discoveryOK {
+	if _, discoveryOK := b.ipamResourceDiscoveries.Get(discoveryID); !discoveryOK {
 		return nil, fmt.Errorf("%w: %s", ErrIpamResourceDiscoveryNotFound, discoveryID)
 	}
 
@@ -304,7 +297,7 @@ func (b *InMemoryBackend) AssociateIpamResourceDiscovery(
 	}
 	assoc.IpamResourceDiscoveryAssociationARN = "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
 		":ipam-resource-discovery-association/" + assocID
-	b.ipamResourceDiscoveryAssocs[assocID] = assoc
+	b.ipamResourceDiscoveryAssocs.Put(assoc)
 	ipam.ResourceDiscoveryAssociationCount++
 
 	cp := *assoc
@@ -324,7 +317,7 @@ func (b *InMemoryBackend) DisassociateIpamResourceDiscovery(
 	b.mu.Lock("DisassociateIpamResourceDiscovery")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.ipamResourceDiscoveryAssocs[assocID]
+	assoc, ok := b.ipamResourceDiscoveryAssocs.Get(assocID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamResourceDiscoveryAssociationNotFound, assocID)
 	}
@@ -336,11 +329,10 @@ func (b *InMemoryBackend) DisassociateIpamResourceDiscovery(
 		)
 	}
 
-	if ipam, ipamOK := b.ipams[assoc.IpamID]; ipamOK && ipam.ResourceDiscoveryAssociationCount > 0 {
+	if ipam, ipamOK := b.ipams.Get(assoc.IpamID); ipamOK && ipam.ResourceDiscoveryAssociationCount > 0 {
 		ipam.ResourceDiscoveryAssociationCount--
 	}
-
-	delete(b.ipamResourceDiscoveryAssocs, assocID)
+	b.ipamResourceDiscoveryAssocs.Delete(assocID)
 
 	cp := *assoc
 	cp.State = ipamAssocStateDisassociateComplete
@@ -359,7 +351,7 @@ func (b *InMemoryBackend) ModifyIpamResourceDiscovery(
 	b.mu.Lock("ModifyIpamResourceDiscovery")
 	defer b.mu.Unlock()
 
-	d, ok := b.ipamResourceDiscoveries[id]
+	d, ok := b.ipamResourceDiscoveries.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamResourceDiscoveryNotFound, id)
 	}
@@ -423,8 +415,7 @@ func (b *InMemoryBackend) recordIpamResourceCidrLocked(pool *IpamPool, alloc *Ip
 		return
 	}
 
-	key := ipamResourceCidrKey(alloc.ResourceID, alloc.Cidr)
-	b.ipamResourceCidrs[key] = &IpamResourceCidr{
+	b.ipamResourceCidrs.Put(&IpamResourceCidr{
 		IpamID:          pool.IpamID,
 		IpamPoolID:      pool.IpamPoolID,
 		IpamScopeID:     pool.IpamScopeID,
@@ -435,13 +426,13 @@ func (b *InMemoryBackend) recordIpamResourceCidrLocked(pool *IpamPool, alloc *Ip
 		ResourceOwnerID: alloc.ResourceOwner,
 		ManagementState: "managed",
 		Monitored:       true,
-	}
+	})
 }
 
 // forgetIpamResourceCidrLocked removes the monitored resource CIDR entry backing a released
 // pool allocation. Must be called with b.mu held.
 func (b *InMemoryBackend) forgetIpamResourceCidrLocked(alloc *IpamPoolAllocation) {
-	delete(b.ipamResourceCidrs, ipamResourceCidrKey(alloc.ResourceID, alloc.Cidr))
+	b.ipamResourceCidrs.Delete(ipamResourceCidrKey(alloc.ResourceID, alloc.Cidr))
 }
 
 // GetIpamResourceCidrs returns resource CIDRs monitored by IPAM in the given scope, optionally
@@ -456,13 +447,13 @@ func (b *InMemoryBackend) GetIpamResourceCidrs(
 	b.mu.RLock("GetIpamResourceCidrs")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.ipamScopes[scopeID]; !ok {
+	if _, ok := b.ipamScopes.Get(scopeID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamScopeNotFound, scopeID)
 	}
 
-	out := make([]*IpamResourceCidr, 0, len(b.ipamResourceCidrs))
+	out := make([]*IpamResourceCidr, 0, b.ipamResourceCidrs.Len())
 
-	for _, c := range b.ipamResourceCidrs {
+	for _, c := range b.ipamResourceCidrs.All() {
 		if c.IpamScopeID != scopeID {
 			continue
 		}
@@ -510,7 +501,7 @@ func (b *InMemoryBackend) ModifyIpamResourceCidr(
 
 	key := ipamResourceCidrKey(resourceID, resourceCidr)
 
-	c, ok := b.ipamResourceCidrs[key]
+	c, ok := b.ipamResourceCidrs.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s %s", ErrIpamResourceCidrNotFound, resourceID, resourceCidr)
 	}
@@ -552,7 +543,7 @@ func (b *InMemoryBackend) ProvisionIpamByoasn(ipamID, asn string) (*IpamByoasn, 
 	b.mu.Lock("ProvisionIpamByoasn")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipams[ipamID]; !ok {
+	if _, ok := b.ipams.Get(ipamID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
 
@@ -561,7 +552,7 @@ func (b *InMemoryBackend) ProvisionIpamByoasn(ipamID, asn string) (*IpamByoasn, 
 		IpamID: ipamID,
 		State:  ipamByoasnStateProvisioned,
 	}
-	b.ipamByoasns[asn] = byoasn
+	b.ipamByoasns.Put(byoasn)
 
 	cp := *byoasn
 
@@ -577,12 +568,11 @@ func (b *InMemoryBackend) DeprovisionIpamByoasn(ipamID, asn string) (*IpamByoasn
 	b.mu.Lock("DeprovisionIpamByoasn")
 	defer b.mu.Unlock()
 
-	byoasn, ok := b.ipamByoasns[asn]
+	byoasn, ok := b.ipamByoasns.Get(asn)
 	if !ok || byoasn.IpamID != ipamID {
 		return nil, fmt.Errorf("%w: %s", ErrIpamByoasnNotFound, asn)
 	}
-
-	delete(b.ipamByoasns, asn)
+	b.ipamByoasns.Delete(asn)
 
 	cp := *byoasn
 	cp.State = ipamByoasnStateDeprovisioned
@@ -595,8 +585,8 @@ func (b *InMemoryBackend) DescribeIpamByoasn() []*IpamByoasn {
 	b.mu.RLock("DescribeIpamByoasn")
 	defer b.mu.RUnlock()
 
-	out := make([]*IpamByoasn, 0, len(b.ipamByoasns))
-	for _, a := range b.ipamByoasns {
+	out := make([]*IpamByoasn, 0, b.ipamByoasns.Len())
+	for _, a := range b.ipamByoasns.All() {
 		cp := *a
 		out = append(out, &cp)
 	}
@@ -615,13 +605,12 @@ func (b *InMemoryBackend) AssociateIpamByoasn(asn, cidr string) (*IpamAsnAssocia
 	b.mu.Lock("AssociateIpamByoasn")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipamByoasns[asn]; !ok {
+	if _, ok := b.ipamByoasns.Get(asn); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamByoasnNotFound, asn)
 	}
 
-	key := asn + "|" + cidr
 	assoc := &IpamAsnAssociation{Asn: asn, Cidr: cidr, State: ipamAsnAssocStateAssociated}
-	b.ipamAsnAssociations[key] = assoc
+	b.ipamAsnAssociations.Put(assoc)
 
 	cp := *assoc
 
@@ -638,13 +627,11 @@ func (b *InMemoryBackend) DisassociateIpamByoasn(asn, cidr string) (*IpamAsnAsso
 	defer b.mu.Unlock()
 
 	key := asn + "|" + cidr
-
-	assoc, ok := b.ipamAsnAssociations[key]
+	assoc, ok := b.ipamAsnAssociations.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s / %s", ErrIpamAsnAssociationNotFound, asn, cidr)
 	}
-
-	delete(b.ipamAsnAssociations, key)
+	b.ipamAsnAssociations.Delete(key)
 
 	cp := *assoc
 	cp.State = ipamAsnAssocStateDisassociated
@@ -666,7 +653,7 @@ func (b *InMemoryBackend) CreateIpamExternalResourceVerificationToken(
 	b.mu.Lock("CreateIpamExternalResourceVerificationToken")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[ipamID]
+	ipam, ok := b.ipams.Get(ipamID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
@@ -686,7 +673,7 @@ func (b *InMemoryBackend) CreateIpamExternalResourceVerificationToken(
 		TokenValue: uuid.New().String(),
 		NotAfter:   now.Add(ipamVerificationTokenValidity),
 	}
-	b.ipamVerificationTokens[id] = token
+	b.ipamVerificationTokens.Put(token)
 
 	cp := *token
 
@@ -704,12 +691,11 @@ func (b *InMemoryBackend) DeleteIpamExternalResourceVerificationToken(
 	b.mu.Lock("DeleteIpamExternalResourceVerificationToken")
 	defer b.mu.Unlock()
 
-	token, ok := b.ipamVerificationTokens[id]
+	token, ok := b.ipamVerificationTokens.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamVerificationTokenNotFound, id)
 	}
-
-	delete(b.ipamVerificationTokens, id)
+	b.ipamVerificationTokens.Delete(id)
 
 	cp := *token
 	cp.State = ipamStateDeleteComplete
@@ -730,9 +716,9 @@ func (b *InMemoryBackend) DescribeIpamExternalResourceVerificationTokens(
 		idSet[id] = true
 	}
 
-	out := make([]*IpamExternalResourceVerificationToken, 0, len(b.ipamVerificationTokens))
+	out := make([]*IpamExternalResourceVerificationToken, 0, b.ipamVerificationTokens.Len())
 
-	for _, t := range b.ipamVerificationTokens {
+	for _, t := range b.ipamVerificationTokens.All() {
 		if len(idSet) > 0 && !idSet[t.IpamExternalResourceVerificationTokenID] {
 			continue
 		}
@@ -767,7 +753,7 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolver(
 	b.mu.Lock("CreateIpamPrefixListResolver")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[ipamID]
+	ipam, ok := b.ipams.Get(ipamID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
@@ -788,7 +774,7 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolver(
 		Rules:                     append([]IpamPrefixListResolverRule(nil), rules...),
 		CurrentVersion:            1,
 	}
-	b.ipamPrefixListResolvers[id] = resolver
+	b.ipamPrefixListResolvers.Put(resolver)
 	b.ipamPrefixListResolverVersions[id] = []int64{1}
 
 	return copyIpamPrefixListResolver(resolver), nil
@@ -803,17 +789,17 @@ func (b *InMemoryBackend) DeleteIpamPrefixListResolver(id string) (*IpamPrefixLi
 	b.mu.Lock("DeleteIpamPrefixListResolver")
 	defer b.mu.Unlock()
 
-	resolver, ok := b.ipamPrefixListResolvers[id]
+	resolver, ok := b.ipamPrefixListResolvers.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverNotFound, id)
 	}
-
-	delete(b.ipamPrefixListResolvers, id)
+	b.ipamPrefixListResolvers.Delete(id)
 	delete(b.ipamPrefixListResolverVersions, id)
 
-	for targetID, t := range b.ipamPrefixListResolverTargets {
+	for _, t := range b.ipamPrefixListResolverTargets.All() {
+		targetID := ipamPrefixListResolverTargetsKeyFn(t)
 		if t.IpamPrefixListResolverID == id {
-			delete(b.ipamPrefixListResolverTargets, targetID)
+			b.ipamPrefixListResolverTargets.Delete(targetID)
 		}
 	}
 
@@ -833,9 +819,9 @@ func (b *InMemoryBackend) DescribeIpamPrefixListResolvers(ids []string) []*IpamP
 		idSet[id] = true
 	}
 
-	out := make([]*IpamPrefixListResolver, 0, len(b.ipamPrefixListResolvers))
+	out := make([]*IpamPrefixListResolver, 0, b.ipamPrefixListResolvers.Len())
 
-	for _, r := range b.ipamPrefixListResolvers {
+	for _, r := range b.ipamPrefixListResolvers.All() {
 		if len(idSet) > 0 && !idSet[r.IpamPrefixListResolverID] {
 			continue
 		}
@@ -862,7 +848,7 @@ func (b *InMemoryBackend) ModifyIpamPrefixListResolver(
 	b.mu.Lock("ModifyIpamPrefixListResolver")
 	defer b.mu.Unlock()
 
-	resolver, ok := b.ipamPrefixListResolvers[id]
+	resolver, ok := b.ipamPrefixListResolvers.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverNotFound, id)
 	}
@@ -906,7 +892,7 @@ func (b *InMemoryBackend) GetIpamPrefixListResolverRules(resolverID string) ([]I
 	b.mu.RLock("GetIpamPrefixListResolverRules")
 	defer b.mu.RUnlock()
 
-	resolver, ok := b.ipamPrefixListResolvers[resolverID]
+	resolver, ok := b.ipamPrefixListResolvers.Get(resolverID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverNotFound, resolverID)
 	}
@@ -924,7 +910,7 @@ func (b *InMemoryBackend) GetIpamPrefixListResolverVersions(resolverID string) (
 	b.mu.RLock("GetIpamPrefixListResolverVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.ipamPrefixListResolvers[resolverID]; !ok {
+	if _, ok := b.ipamPrefixListResolvers.Get(resolverID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverNotFound, resolverID)
 	}
 
@@ -947,7 +933,7 @@ func (b *InMemoryBackend) GetIpamPrefixListResolverVersionEntries(resolverID str
 	b.mu.RLock("GetIpamPrefixListResolverVersionEntries")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.ipamPrefixListResolvers[resolverID]; !ok {
+	if _, ok := b.ipamPrefixListResolvers.Get(resolverID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverNotFound, resolverID)
 	}
 
@@ -974,7 +960,7 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolverTarget(
 	b.mu.Lock("CreateIpamPrefixListResolverTarget")
 	defer b.mu.Unlock()
 
-	resolver, ok := b.ipamPrefixListResolvers[resolverID]
+	resolver, ok := b.ipamPrefixListResolvers.Get(resolverID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverNotFound, resolverID)
 	}
@@ -999,8 +985,7 @@ func (b *InMemoryBackend) CreateIpamPrefixListResolverTarget(
 
 	synced := resolver.CurrentVersion
 	target.LastSyncedVersion = &synced
-
-	b.ipamPrefixListResolverTargets[id] = target
+	b.ipamPrefixListResolverTargets.Put(target)
 
 	return copyIpamPrefixListResolverTarget(target), nil
 }
@@ -1014,12 +999,11 @@ func (b *InMemoryBackend) DeleteIpamPrefixListResolverTarget(id string) (*IpamPr
 	b.mu.Lock("DeleteIpamPrefixListResolverTarget")
 	defer b.mu.Unlock()
 
-	target, ok := b.ipamPrefixListResolverTargets[id]
+	target, ok := b.ipamPrefixListResolverTargets.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverTargetNotFound, id)
 	}
-
-	delete(b.ipamPrefixListResolverTargets, id)
+	b.ipamPrefixListResolverTargets.Delete(id)
 
 	cp := copyIpamPrefixListResolverTarget(target)
 	cp.State = ipamStateDeleteComplete
@@ -1040,9 +1024,9 @@ func (b *InMemoryBackend) DescribeIpamPrefixListResolverTargets(
 		idSet[id] = true
 	}
 
-	out := make([]*IpamPrefixListResolverTarget, 0, len(b.ipamPrefixListResolverTargets))
+	out := make([]*IpamPrefixListResolverTarget, 0, b.ipamPrefixListResolverTargets.Len())
 
-	for _, t := range b.ipamPrefixListResolverTargets {
+	for _, t := range b.ipamPrefixListResolverTargets.All() {
 		if resolverID != "" && t.IpamPrefixListResolverID != resolverID {
 			continue
 		}
@@ -1073,7 +1057,7 @@ func (b *InMemoryBackend) ModifyIpamPrefixListResolverTarget(
 	b.mu.Lock("ModifyIpamPrefixListResolverTarget")
 	defer b.mu.Unlock()
 
-	target, ok := b.ipamPrefixListResolverTargets[id]
+	target, ok := b.ipamPrefixListResolverTargets.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPrefixListResolverTargetNotFound, id)
 	}

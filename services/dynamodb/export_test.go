@@ -150,7 +150,7 @@ func (db *InMemoryDB) StreamARNIndexSize() int {
 	db.mu.RLock("StreamARNIndexSize")
 	defer db.mu.RUnlock()
 
-	return len(db.streamARNIndex)
+	return db.streamARNIndex.Len()
 }
 
 // LookupStreamARNIndex looks up a table by stream ARN in the reverse index (for tests).
@@ -158,9 +158,7 @@ func (db *InMemoryDB) LookupStreamARNIndex(streamARN string) (*Table, bool) {
 	db.mu.RLock("LookupStreamARNIndex")
 	defer db.mu.RUnlock()
 
-	t, ok := db.streamARNIndex[streamARN]
-
-	return t, ok
+	return db.streamARNIndex.Get(streamARN)
 }
 
 // SweepTxnTokens exposes sweepTxnTokens for tests.
@@ -253,15 +251,7 @@ func (h *DynamoDBHandler) GetJanitorTaskTimeout() time.Duration {
 // Used in tests to pre-populate Kinesis destinations without going through the HTTP API.
 func (db *InMemoryDB) AddKinesisDestination(tableName, streamARN string) {
 	db.mu.RLock("AddKinesisDestination")
-	regionTables, regionExists := db.Tables[db.defaultRegion]
-
-	var table *Table
-	var tableExists bool
-
-	if regionExists {
-		table, tableExists = regionTables[tableName]
-	}
-
+	table, tableExists := db.tables.Get(tableKey(db.defaultRegion, tableName))
 	db.mu.RUnlock()
 
 	if !tableExists {
@@ -282,12 +272,7 @@ func (db *InMemoryDB) TableExistsInRegion(region, tableName string) bool {
 	db.mu.RLock("TableExistsInRegion")
 	defer db.mu.RUnlock()
 
-	regionTables, ok := db.Tables[region]
-	if !ok {
-		return false
-	}
-
-	_, exists := regionTables[tableName]
+	_, exists := db.tables.Get(tableKey(region, tableName))
 
 	return exists
 }
@@ -296,13 +281,7 @@ func (db *InMemoryDB) TableExistsInRegion(region, tableName string) bool {
 // in the backend's default region. Returns "" if the table is not part of a global table.
 func (db *InMemoryDB) GetTableGlobalTableName(tableName string) string {
 	db.mu.RLock("GetTableGlobalTableName")
-	regionTables, ok := db.Tables[db.defaultRegion]
-
-	var table *Table
-	if ok {
-		table = regionTables[tableName]
-	}
-
+	table, _ := db.tables.Get(tableKey(db.defaultRegion, tableName))
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -356,8 +335,7 @@ func (db *InMemoryDB) AddTxnToken(token string, expiry time.Time) {
 // for the named table (including zero-value / compacted entries).
 func (db *InMemoryDB) StreamRecordCount(tableName string) int {
 	db.mu.RLock("StreamRecordCount")
-	regionTables := db.Tables[db.defaultRegion]
-	tbl := regionTables[tableName]
+	tbl, _ := db.tables.Get(tableKey(db.defaultRegion, tableName))
 	db.mu.RUnlock()
 
 	if tbl == nil {
@@ -373,8 +351,7 @@ func (db *InMemoryDB) StreamRecordCount(tableName string) int {
 // StreamShards returns a copy of the shard genealogy for the named table's stream.
 func (db *InMemoryDB) StreamShards(tableName string) []StreamShard {
 	db.mu.RLock("StreamShards")
-	regionTables := db.Tables[db.defaultRegion]
-	tbl := regionTables[tableName]
+	tbl, _ := db.tables.Get(tableKey(db.defaultRegion, tableName))
 	db.mu.RUnlock()
 
 	if tbl == nil {
@@ -393,8 +370,7 @@ func (db *InMemoryDB) StreamShards(tableName string) []StreamShard {
 // StreamTrimSeq returns the current trim horizon (oldest seq still in buffer) for the named table.
 func (db *InMemoryDB) StreamTrimSeq(tableName string) int64 {
 	db.mu.RLock("StreamTrimSeq")
-	regionTables := db.Tables[db.defaultRegion]
-	tbl := regionTables[tableName]
+	tbl, _ := db.tables.Get(tableKey(db.defaultRegion, tableName))
 	db.mu.RUnlock()
 
 	if tbl == nil {
@@ -454,7 +430,7 @@ func (db *InMemoryDB) ExportCount() int {
 	db.mu.RLock("ExportCount")
 	defer db.mu.RUnlock()
 
-	return len(db.exports)
+	return db.exports.Len()
 }
 
 // ExportDescFields is the exported form of exportDescriptionFields for use in tests.

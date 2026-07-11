@@ -1,7 +1,6 @@
 package inspector2
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,9 +10,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -163,34 +161,80 @@ type AccountStatusResponse struct {
 }
 
 // InMemoryBackend is the in-memory implementation of Inspector2.
+//
+// Every map[string]*T resource collection is a *store.Table[T] registered on
+// registry (see store_setup.go); tags, enabledTypes, and codeSecurityScans
+// remain plain maps because their values are not *T (see store_setup.go's
+// file doc comment for the full persistence audit). Ec2DeepConfig,
+// OrgEc2Config, and OrgConfig were formerly grouped inside a separate
+// *appendixAState pointer purely as a historical artifact of incremental
+// development; Phase 3.3 hoists them (and every appendix-A table) directly
+// onto InMemoryBackend, matching every other converted service.
 type InMemoryBackend struct {
-	mu           *lockmetrics.RWMutex
-	filters      map[string]*Filter
-	findings     map[string]*storedFinding
-	tags         map[string]map[string]string
-	ax           *appendixAState
-	enabledTypes map[string]bool
-	config       Configuration
-	accountID    string
-	region       string
+	codeSecurityScanConfigs        *store.Table[CodeSecurityScanConfiguration]
+	enabledTypes                   map[string]bool
+	filters                        *store.Table[Filter]
+	findings                       *store.Table[storedFinding]
+	codeSecurityIntegrations       *store.Table[CodeSecurityIntegration]
+	cisScanConfigs                 *store.Table[CisScanConfiguration]
+	cisScans                       *store.Table[CisScan]
+	cisScansByConfig               *store.Index[CisScan]
+	sbomExports                    *store.Table[SbomExport]
+	findingsReports                *store.Table[FindingsReport]
+	memberEc2Status                *store.Table[MemberEc2DeepInspectionStatus]
+	members                        *store.Table[Member]
+	registry                       *store.Registry
+	encryptionKeys                 *store.Table[EncryptionKey]
+	delegatedAdmins                *store.Table[DelegatedAdminAccount]
+	cisSessions                    *store.Table[CisSession]
+	scanConfigAssociations         *store.Table[CodeSecurityScanConfigurationAssociation]
+	scanConfigAssociationsByConfig *store.Index[CodeSecurityScanConfigurationAssociation]
+	tags                           map[string]map[string]string
+	mu                             *lockmetrics.RWMutex
+	codeSecurityScans              map[string]map[string]any
+	config                         Configuration
+	accountID                      string
+	region                         string
+	ec2DeepConfig                  Ec2DeepInspectionConfig
+	orgEc2Config                   OrgEc2DeepInspectionConfig
+	orgConfig                      OrgConfiguration
+}
+
+// defaultConfiguration returns the Configuration a fresh backend (or a reset
+// one) starts with.
+func defaultConfiguration() Configuration {
+	return Configuration{
+		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
+		EcrRescanDuration: ecrRescanDurationLifetime,
+	}
+}
+
+// defaultEc2DeepInspectionConfig returns the Ec2DeepInspectionConfig a fresh
+// backend (or a reset one) starts with.
+func defaultEc2DeepInspectionConfig() Ec2DeepInspectionConfig {
+	return Ec2DeepInspectionConfig{
+		Status:       statusDisabled,
+		PackagePaths: []string{},
+	}
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:           lockmetrics.New("inspector2"),
-		filters:      make(map[string]*Filter),
-		findings:     make(map[string]*storedFinding),
-		tags:         make(map[string]map[string]string),
-		ax:           newAppendixAState(),
-		enabledTypes: make(map[string]bool),
-		config: Configuration{
-			Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
-			EcrRescanDuration: ecrRescanDurationLifetime,
-		},
-		accountID: accountID,
-		region:    region,
+	b := &InMemoryBackend{
+		mu:                lockmetrics.New("inspector2"),
+		registry:          store.NewRegistry(),
+		tags:              make(map[string]map[string]string),
+		enabledTypes:      make(map[string]bool),
+		codeSecurityScans: make(map[string]map[string]any),
+		config:            defaultConfiguration(),
+		ec2DeepConfig:     defaultEc2DeepInspectionConfig(),
+		accountID:         accountID,
+		region:            region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the backend account ID.
@@ -312,10 +356,19 @@ func (b *InMemoryBackend) CreateFilter(
 		return nil, err
 	}
 
-	for _, f := range b.filters {
+	nameTaken := false
+	b.filters.Range(func(f *Filter) bool {
 		if f.Name == name {
-			return nil, ErrFilterAlreadyExists
+			nameTaken = true
+
+			return false
 		}
+
+		return true
+	})
+
+	if nameTaken {
+		return nil, ErrFilterAlreadyExists
 	}
 
 	filterARN := b.buildFilterARN()
@@ -334,7 +387,7 @@ func (b *InMemoryBackend) CreateFilter(
 		Tags:        tags,
 	}
 
-	b.filters[filterARN] = f
+	b.filters.Put(f)
 
 	if len(tags) > 0 {
 		b.tags[filterARN] = maps.Clone(tags)
@@ -355,7 +408,7 @@ func (b *InMemoryBackend) UpdateFilter(
 		return nil, err
 	}
 
-	f, ok := b.filters[filterARN]
+	f, ok := b.filters.Get(filterARN)
 	if !ok {
 		return nil, ErrFilterNotFound
 	}
@@ -386,11 +439,10 @@ func (b *InMemoryBackend) DeleteFilter(filterARN string) error {
 	b.mu.Lock("DeleteFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.filters[filterARN]; !ok {
+	if !b.filters.Delete(filterARN) {
 		return ErrFilterNotFound
 	}
 
-	delete(b.filters, filterARN)
 	delete(b.tags, filterARN)
 
 	return nil
@@ -406,13 +458,9 @@ func (b *InMemoryBackend) ListFilters(arns []string, action string) ([]*Filter, 
 		arnSet[a] = true
 	}
 
-	sortedARNs := collections.SortedKeys(b.filters)
-
 	var result []*Filter
 
-	for _, a := range sortedARNs {
-		f := b.filters[a]
-
+	for _, f := range b.filters.Snapshot() {
 		if len(arnSet) > 0 && !arnSet[f.Arn] {
 			continue
 		}
@@ -515,7 +563,7 @@ func (b *InMemoryBackend) SeedFinding(f Finding) (*Finding, error) {
 	}
 
 	clone := stored
-	b.findings[stored.FindingArn] = &storedFinding{Finding: clone}
+	b.findings.Put(&storedFinding{Finding: clone})
 
 	out := stored
 
@@ -534,7 +582,7 @@ func (b *InMemoryBackend) AddFinding(
 	findingARN := arn.Build(inspector2Service, b.region, b.accountID, "finding/"+id)
 	now := time.Now().UTC()
 
-	b.findings[findingARN] = &storedFinding{
+	b.findings.Put(&storedFinding{
 		Finding: Finding{
 			FindingArn:      findingARN,
 			AccountID:       b.accountID,
@@ -548,7 +596,7 @@ func (b *InMemoryBackend) AddFinding(
 			LastObservedAt:  now,
 			UpdatedAt:       now,
 		},
-	}
+	})
 
 	return findingARN
 }
@@ -675,14 +723,16 @@ func (b *InMemoryBackend) ListFindings(
 
 	fc := parseFindingFilterCriteria(criteria)
 
-	matched := make([]*Finding, 0, len(b.findings))
+	matched := make([]*Finding, 0, b.findings.Len())
 
-	for _, f := range b.findings {
+	b.findings.Range(func(f *storedFinding) bool {
 		if fc.matches(&f.Finding) {
 			clone := f.Finding
 			matched = append(matched, &clone)
 		}
-	}
+
+		return true
+	})
 
 	sort.Slice(matched, func(i, j int) bool {
 		return matched[i].FindingArn < matched[j].FindingArn
@@ -723,10 +773,12 @@ func (b *InMemoryBackend) FindingSeverityCounts() map[string]int64 {
 	b.mu.RLock("FindingSeverityCounts")
 	defer b.mu.RUnlock()
 
-	counts := make(map[string]int64, len(b.findings))
-	for _, f := range b.findings {
+	counts := make(map[string]int64, b.findings.Len())
+	b.findings.Range(func(f *storedFinding) bool {
 		counts[f.Severity.Label]++
-	}
+
+		return true
+	})
 
 	return counts
 }
@@ -785,7 +837,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 	maps.Copy(b.tags[resourceARN], tags)
 
-	if f, ok := b.filters[resourceARN]; ok {
+	if f, ok := b.filters.Get(resourceARN); ok {
 		if f.Tags == nil {
 			f.Tags = make(map[string]string)
 		}
@@ -808,7 +860,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	for _, k := range tagKeys {
 		delete(b.tags[resourceARN], k)
 
-		if f, ok := b.filters[resourceARN]; ok {
+		if f, ok := b.filters.Get(resourceARN); ok {
 			delete(f.Tags, k)
 		}
 	}
@@ -834,7 +886,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // resourceExists returns true if the ARN corresponds to a known resource.
 // Must be called with at least an RLock held.
 func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
-	if _, ok := b.filters[resourceARN]; ok {
+	if b.filters.Has(resourceARN) {
 		return true
 	}
 
@@ -849,76 +901,6 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.filters = make(map[string]*Filter)
-	b.findings = make(map[string]*storedFinding)
-	b.tags = make(map[string]map[string]string)
-	b.ax = newAppendixAState()
-	b.enabledTypes = make(map[string]bool)
-	b.config = Configuration{
-		Ec2ScanMode:       ec2ScanModeEC2SSMAgentBased,
-		EcrRescanDuration: ecrRescanDurationLifetime,
-	}
-}
-
-type backendSnapshot struct {
-	Filters      map[string]*Filter           `json:"filters"`
-	Findings     map[string]*storedFinding    `json:"findings"`
-	Tags         map[string]map[string]string `json:"tags"`
-	Appendix     *appendixAState              `json:"appendix"`
-	EnabledTypes map[string]bool              `json:"enabledTypes"`
-	Config       Configuration                `json:"config"`
-	AccountID    string                       `json:"accountId"`
-	Region       string                       `json:"region"`
-}
-
-// Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	snap := backendSnapshot{
-		Filters:      b.filters,
-		Findings:     b.findings,
-		Tags:         b.tags,
-		Appendix:     b.ax,
-		Config:       b.config,
-		EnabledTypes: b.enabledTypes,
-		AccountID:    b.accountID,
-		Region:       b.region,
-	}
-
-	return persistence.MarshalSnapshot(ctx, "inspector2", snap)
-}
-
-// Restore deserializes the backend state.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	var snap backendSnapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "inspector2", data, &snap); err != nil {
-		return fmt.Errorf("inspector2: restore: %w", err)
-	}
-
-	b.filters = snap.Filters
-	b.findings = snap.Findings
-	b.tags = snap.Tags
-	b.config = snap.Config
-	b.enabledTypes = snap.EnabledTypes
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	if b.enabledTypes == nil {
-		b.enabledTypes = make(map[string]bool)
-	}
-
-	if b.findings == nil {
-		b.findings = make(map[string]*storedFinding)
-	}
-
-	if snap.Appendix != nil {
-		b.ax = snap.Appendix
-	}
-
-	return nil
+	b.registry.ResetAll()
+	b.resetRawState()
 }

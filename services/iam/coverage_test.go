@@ -452,10 +452,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			wantContain: "GetPolicyResponse",
 		},
 		{
-			name:     "GetPolicy_not_found",
-			action:   "GetPolicy",
-			params:   map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/Ghost"},
-			wantCode: http.StatusBadRequest,
+			name:   "GetPolicy_not_found",
+			action: "GetPolicy",
+			params: map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/Ghost"},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:   "GetPolicyVersion_success",

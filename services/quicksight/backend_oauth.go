@@ -3,7 +3,6 @@ package quicksight
 import (
 	"maps"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -45,7 +44,7 @@ func (b *InMemoryBackend) CreateOAuthClientApplication(
 	defer b.mu.Unlock()
 
 	key := oauthAppKey(accountID, clientID)
-	if _, exists := b.oauthClientApps[key]; exists {
+	if b.oauthClientApps.Has(key) {
 		return nil, ErrOAuthClientAppAlreadyExists
 	}
 
@@ -59,7 +58,7 @@ func (b *InMemoryBackend) CreateOAuthClientApplication(
 		Status:          statusCreationSuccessful,
 		Extra:           fields,
 	}
-	b.oauthClientApps[key] = app
+	b.oauthClientApps.Put(app)
 
 	return app.toOAuthClientApplication(), nil
 }
@@ -68,7 +67,7 @@ func (b *InMemoryBackend) DescribeOAuthClientApplication(accountID, clientID str
 	b.mu.RLock("DescribeOAuthClientApplication")
 	defer b.mu.RUnlock()
 
-	app, ok := b.oauthClientApps[oauthAppKey(accountID, clientID)]
+	app, ok := b.oauthClientApps.Get(oauthAppKey(accountID, clientID))
 	if !ok {
 		return nil, ErrOAuthClientAppNotFound
 	}
@@ -83,7 +82,7 @@ func (b *InMemoryBackend) UpdateOAuthClientApplication(
 	b.mu.Lock("UpdateOAuthClientApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.oauthClientApps[oauthAppKey(accountID, clientID)]
+	app, ok := b.oauthClientApps.Get(oauthAppKey(accountID, clientID))
 	if !ok {
 		return nil, ErrOAuthClientAppNotFound
 	}
@@ -108,31 +107,25 @@ func (b *InMemoryBackend) DeleteOAuthClientApplication(accountID, clientID strin
 	defer b.mu.Unlock()
 
 	key := oauthAppKey(accountID, clientID)
-	app, ok := b.oauthClientApps[key]
+	app, ok := b.oauthClientApps.Get(key)
 	if !ok {
 		return nil, ErrOAuthClientAppNotFound
 	}
-	delete(b.oauthClientApps, key)
+	b.oauthClientApps.Delete(key)
 
 	return app.toOAuthClientApplication(), nil
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListOAuthClientApplications(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*OAuthClientApplication, string, error) {
 	b.mu.RLock("ListOAuthClientApplications")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	all := make([]*storedOAuthApp, 0, len(b.oauthClientApps))
-	for k, app := range b.oauthClientApps {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, app)
-		}
-	}
+	all := b.oauthClientApps.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ClientID < all[j].ClientID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {

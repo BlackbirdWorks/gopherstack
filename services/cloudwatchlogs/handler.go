@@ -2099,9 +2099,6 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	case errors.Is(reqErr, ErrSubscriptionFilterLimitExceed):
 		errType = "LimitExceededException"
 		statusCode = http.StatusBadRequest
-	case errors.Is(reqErr, ErrInvalidSequenceToken):
-		errType = "InvalidSequenceTokenException"
-		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrOperationAborted):
 		errType = "OperationAbortedException"
 		statusCode = http.StatusBadRequest

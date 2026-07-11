@@ -7,7 +7,7 @@ func ApplicationCount(b *InMemoryBackend) int {
 	b.mu.RLock("ApplicationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.applications)
+	return b.applications.Len()
 }
 
 // VersionCount returns the number of versions for a given application in the backend (test helper).
@@ -15,7 +15,7 @@ func VersionCount(b *InMemoryBackend, appName string) int {
 	b.mu.RLock("VersionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.appVersions[appName])
+	return len(b.appVersionsByApp.Get(appName))
 }
 
 // TemplateCount returns the number of CloudFormation templates for a given application in the backend (test helper).
@@ -23,7 +23,7 @@ func TemplateCount(b *InMemoryBackend, appName string) int {
 	b.mu.RLock("TemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.cfTemplates[appName])
+	return len(b.cfTemplatesByApp.Get(appName))
 }
 
 // ChangeSetCount returns the number of CloudFormation change sets for a given application in the backend (test helper).
@@ -31,7 +31,7 @@ func ChangeSetCount(b *InMemoryBackend, appName string) int {
 	b.mu.RLock("ChangeSetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.cfChangeSets[appName])
+	return len(b.cfChangeSetsByApp.Get(appName))
 }
 
 // PolicyStatementCount returns the number of policy statements for a given application in the backend (test helper).
@@ -53,13 +53,9 @@ func AddExpiredTemplateInternal(b *InMemoryBackend, appName, semanticVersion str
 	b.mu.Lock("AddExpiredTemplateInternal")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[appName]
+	app, ok := b.applications.Get(appName)
 	if !ok {
 		return nil
-	}
-
-	if b.cfTemplates[appName] == nil {
-		b.cfTemplates[appName] = make(map[string]*CloudFormationTemplate)
 	}
 
 	now := time.Now()
@@ -67,6 +63,7 @@ func AddExpiredTemplateInternal(b *InMemoryBackend, appName, semanticVersion str
 	t := &CloudFormationTemplate{
 		ApplicationID:   app.ApplicationID,
 		TemplateID:      templateID,
+		AppName:         appName,
 		SemanticVersion: semanticVersion,
 		Status:          templateStatusActive,
 		CreationTime:    now.Add(-2 * time.Hour),
@@ -74,7 +71,7 @@ func AddExpiredTemplateInternal(b *InMemoryBackend, appName, semanticVersion str
 		TemplateURL: "https://s3.amazonaws.com/serverlessrepo-templates/" +
 			appName + "/" + templateID + ".template",
 	}
-	b.cfTemplates[appName][templateID] = t
+	b.cfTemplates.Put(t)
 
 	cp := *t
 

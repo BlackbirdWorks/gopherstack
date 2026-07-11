@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -75,9 +76,9 @@ type UpdateHubOptions struct {
 }
 
 // hubsStore returns the region-scoped hub map, creating it lazily.
-func (b *InMemoryBackend) hubsStore(r string) map[string]*Hub {
+func (b *InMemoryBackend) hubsStore(r string) *store.Table[Hub] {
 	if b.hubs[r] == nil {
-		b.hubs[r] = make(map[string]*Hub)
+		b.hubs[r] = store.Register(b.registry, "hubs:"+r, store.New(func(v *Hub) string { return v.HubName }))
 	}
 
 	return b.hubs[r]
@@ -85,11 +86,11 @@ func (b *InMemoryBackend) hubsStore(r string) map[string]*Hub {
 
 // findHubLocked resolves a hub by name or ARN. Callers must hold b.mu.
 func (b *InMemoryBackend) findHubLocked(region, idOrArn string) (*Hub, bool) {
-	if h, ok := b.hubsStore(region)[idOrArn]; ok {
+	if h, ok := b.hubsStore(region).Get(idOrArn); ok {
 		return h, true
 	}
 
-	for _, h := range b.hubsStore(region) {
+	for _, h := range b.hubsStore(region).All() {
 		if h.HubArn == idOrArn {
 			return h, true
 		}
@@ -111,7 +112,7 @@ func (b *InMemoryBackend) CreateHub(
 	region := getRegion(ctx, b.region)
 	store := b.hubsStore(region)
 
-	if _, ok := store[name]; ok {
+	if _, ok := store.Get(name); ok {
 		return nil, fmt.Errorf("%w: hub %q already exists", ErrHubAlreadyExists, name)
 	}
 
@@ -130,7 +131,7 @@ func (b *InMemoryBackend) CreateHub(
 		LastModifiedTime:  now,
 		Tags:              mergeTags(nil, tags),
 	}
-	store[name] = h
+	store.Put(h)
 
 	return cloneHub(h), nil
 }
@@ -158,15 +159,15 @@ func (b *InMemoryBackend) ListHubs(ctx context.Context, nameContains, nextToken 
 	region := getRegion(ctx, b.region)
 	store := b.hubsStore(region)
 
-	filtered := make(map[string]*Hub, len(store))
+	filtered := make(map[string]*Hub, store.Len())
 
-	for k, v := range store {
+	for _, v := range store.All() {
 		if nameContains == "" || strings.Contains(v.HubName, nameContains) {
-			filtered[k] = v
+			filtered[v.HubName] = v
 		}
 	}
 
-	return sagemakerListPaged(filtered, nextToken, cloneHub,
+	return sagemakerListPagedMap(filtered, nextToken, cloneHub,
 		func(a, bb *Hub) bool { return a.HubName < bb.HubName })
 }
 
@@ -211,14 +212,14 @@ func (b *InMemoryBackend) DeleteHub(ctx context.Context, idOrArn string) error {
 		return fmt.Errorf("%w: hub %q not found", ErrHubNotFound, idOrArn)
 	}
 
-	for _, hc := range b.hubContentsStore(region) {
+	for _, hc := range b.hubContentsStore(region).All() {
 		if hc.HubName == h.HubName {
 			return fmt.Errorf("%w: hub %q still has hub content and cannot be deleted",
 				ErrHubNotEmpty, h.HubName)
 		}
 	}
 
-	delete(b.hubsStore(region), h.HubName)
+	b.hubsStore(region).Delete(h.HubName)
 
 	return nil
 }
@@ -277,9 +278,18 @@ type hubContentKey struct {
 }
 
 // hubContentsStore returns the region-scoped hub content map, creating it lazily.
-func (b *InMemoryBackend) hubContentsStore(r string) map[hubContentKey]*HubContent {
+func (b *InMemoryBackend) hubContentsStore(r string) *store.Table[HubContent] {
 	if b.hubContents[r] == nil {
-		b.hubContents[r] = make(map[hubContentKey]*HubContent)
+		b.hubContents[r] = store.Register(b.registry, "hubContents:"+r, store.New(func(v *HubContent) string {
+			return hubContentKeyString(
+				hubContentKey{
+					HubName:           v.HubName,
+					HubContentType:    v.HubContentType,
+					HubContentName:    v.HubContentName,
+					HubContentVersion: v.HubContentVersion,
+				},
+			)
+		}))
 	}
 
 	return b.hubContents[r]
@@ -327,13 +337,13 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 		version = defaultHubContentVersion
 	}
 
-	key := hubContentKey{
+	hcKey := hubContentKey{
 		HubName: h.HubName, HubContentType: in.HubContentType,
 		HubContentName: in.HubContentName, HubContentVersion: version,
 	}
 
 	store := b.hubContentsStore(region)
-	if _, exists := store[key]; exists {
+	if _, exists := store.Get(hubContentKeyString(hcKey)); exists {
 		return nil, fmt.Errorf(
 			"%w: hub content %q version %q already exists in hub %q",
 			ErrHubContentAlreadyExists, in.HubContentName, version, h.HubName,
@@ -345,7 +355,7 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 		HubName:                  h.HubName,
 		HubArn:                   h.HubArn,
 		HubContentName:           in.HubContentName,
-		HubContentArn:            hubContentARN(region, b.accountID, key),
+		HubContentArn:            hubContentARN(region, b.accountID, hcKey),
 		HubContentVersion:        version,
 		HubContentType:           in.HubContentType,
 		DocumentSchemaVersion:    in.DocumentSchemaVersion,
@@ -360,7 +370,7 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 		LastModifiedTime:         now,
 		Tags:                     mergeTags(nil, in.Tags),
 	}
-	store[key] = hc
+	store.Put(hc)
 
 	return cloneHubContent(hc), nil
 }
@@ -370,8 +380,8 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 func (b *InMemoryBackend) latestHubContentLocked(region, hubName, contentType, contentName string) (*HubContent, bool) {
 	var latest *HubContent
 
-	for k, hc := range b.hubContentsStore(region) {
-		if k.HubName != hubName || k.HubContentType != contentType || k.HubContentName != contentName {
+	for _, hc := range b.hubContentsStore(region).All() {
+		if hc.HubName != hubName || hc.HubContentType != contentType || hc.HubContentName != contentName {
 			continue
 		}
 
@@ -404,11 +414,11 @@ func (b *InMemoryBackend) DescribeHubContent(
 	}
 
 	if version != "" {
-		key := hubContentKey{
+		key := hubContentKeyString(hubContentKey{
 			HubName: h.HubName, HubContentType: contentType,
 			HubContentName: contentName, HubContentVersion: version,
-		}
-		if hc, exists := b.hubContentsStore(region)[key]; exists {
+		})
+		if hc, exists := b.hubContentsStore(region).Get(key); exists {
 			return cloneHubContent(hc), nil
 		}
 
@@ -453,12 +463,12 @@ func (b *InMemoryBackend) UpdateHubContent(
 		return nil, fmt.Errorf("%w: hub %q not found", ErrHubNotFound, hubName)
 	}
 
-	key := hubContentKey{
+	key := hubContentKeyString(hubContentKey{
 		HubName: h.HubName, HubContentType: contentType,
 		HubContentName: contentName, HubContentVersion: version,
-	}
+	})
 
-	hc, ok := b.hubContentsStore(region)[key]
+	hc, ok := b.hubContentsStore(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: hub content %q version %q not found in hub %q", ErrHubContentNotFound, contentName, version, h.HubName,
@@ -529,21 +539,21 @@ func (b *InMemoryBackend) ListHubContents(
 
 	latestByName := make(map[string]*HubContent)
 
-	for k, hc := range b.hubContentsStore(region) {
-		if k.HubName != hubName || k.HubContentType != contentType {
+	for _, hc := range b.hubContentsStore(region).All() {
+		if hc.HubName != hubName || hc.HubContentType != contentType {
 			continue
 		}
 
-		if nameContains != "" && !strings.Contains(k.HubContentName, nameContains) {
+		if nameContains != "" && !strings.Contains(hc.HubContentName, nameContains) {
 			continue
 		}
 
-		if cur, exists := latestByName[k.HubContentName]; !exists || hc.CreationTime.After(cur.CreationTime) {
-			latestByName[k.HubContentName] = hc
+		if cur, exists := latestByName[hc.HubContentName]; !exists || hc.CreationTime.After(cur.CreationTime) {
+			latestByName[hc.HubContentName] = hc
 		}
 	}
 
-	return sagemakerListPaged(latestByName, nextToken, cloneHubContent,
+	return sagemakerListPagedMap(latestByName, nextToken, cloneHubContent,
 		func(a, bb *HubContent) bool { return a.HubContentName < bb.HubContentName })
 }
 
@@ -560,15 +570,15 @@ func (b *InMemoryBackend) ListHubContentVersions(
 
 	byVersion := make(map[string]*HubContent)
 
-	for k, hc := range b.hubContentsStore(region) {
-		if k.HubName != hubName || k.HubContentType != contentType || k.HubContentName != contentName {
+	for _, hc := range b.hubContentsStore(region).All() {
+		if hc.HubName != hubName || hc.HubContentType != contentType || hc.HubContentName != contentName {
 			continue
 		}
 
-		byVersion[k.HubContentVersion] = hc
+		byVersion[hc.HubContentVersion] = hc
 	}
 
-	return sagemakerListPaged(byVersion, nextToken, cloneHubContent,
+	return sagemakerListPagedMap(byVersion, nextToken, cloneHubContent,
 		func(a, bb *HubContent) bool { return a.HubContentVersion < bb.HubContentVersion })
 }
 
@@ -581,20 +591,20 @@ func (b *InMemoryBackend) DeleteHubContent(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	key := hubContentKey{
+	key := hubContentKeyString(hubContentKey{
 		HubName: hubName, HubContentType: contentType,
 		HubContentName: contentName, HubContentVersion: version,
-	}
+	})
 
 	store := b.hubContentsStore(region)
-	if _, ok := store[key]; !ok {
+	if _, ok := store.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: hub content %q version %q not found in hub %q",
 			ErrHubContentNotFound, contentName, version, hubName,
 		)
 	}
 
-	delete(store, key)
+	store.Delete(key)
 
 	return nil
 }
@@ -653,13 +663,13 @@ func (b *InMemoryBackend) CreateHubContentReference(
 		version = defaultHubContentVersion
 	}
 
-	key := hubContentKey{
+	hcKey := hubContentKey{
 		HubName: h.HubName, HubContentType: hubContentTypeModelRef,
 		HubContentName: name, HubContentVersion: version,
 	}
 
 	store := b.hubContentsStore(region)
-	if _, exists := store[key]; exists {
+	if _, exists := store.Get(hubContentKeyString(hcKey)); exists {
 		return nil, fmt.Errorf(
 			"%w: hub content reference %q already exists in hub %q", ErrHubContentAlreadyExists, name, h.HubName,
 		)
@@ -670,7 +680,7 @@ func (b *InMemoryBackend) CreateHubContentReference(
 		HubName:                      h.HubName,
 		HubArn:                       h.HubArn,
 		HubContentName:               name,
-		HubContentArn:                hubContentARN(region, b.accountID, key),
+		HubContentArn:                hubContentARN(region, b.accountID, hcKey),
 		HubContentVersion:            version,
 		HubContentType:               hubContentTypeModelRef,
 		DocumentSchemaVersion:        defaultDocumentSchemaVer,
@@ -681,7 +691,7 @@ func (b *InMemoryBackend) CreateHubContentReference(
 		LastModifiedTime:             now,
 		Tags:                         mergeTags(nil, tags),
 	}
-	store[key] = hc
+	store.Put(hc)
 
 	return cloneHubContent(hc), nil
 }
@@ -699,9 +709,12 @@ func (b *InMemoryBackend) DeleteHubContentReference(
 
 	deleted := false
 
-	for k := range store {
-		if k.HubName == hubName && k.HubContentType == contentType && k.HubContentName == contentName {
-			delete(store, k)
+	for _, hc := range store.All() {
+		if hc.HubName == hubName && hc.HubContentType == contentType && hc.HubContentName == contentName {
+			store.Delete(hubContentKeyString(hubContentKey{
+				HubName: hc.HubName, HubContentType: hc.HubContentType,
+				HubContentName: hc.HubContentName, HubContentVersion: hc.HubContentVersion,
+			}))
 
 			deleted = true
 		}
@@ -758,12 +771,12 @@ func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 	var hc *HubContent
 
 	if version != "" {
-		key := hubContentKey{
+		key := hubContentKeyString(hubContentKey{
 			HubName: h.HubName, HubContentType: contentType,
 			HubContentName: contentName, HubContentVersion: version,
-		}
+		})
 
-		found, exists := b.hubContentsStore(region)[key]
+		found, exists := b.hubContentsStore(region).Get(key)
 		if !exists {
 			return nil, fmt.Errorf(
 				"%w: hub content %q version %q not found in hub %q",

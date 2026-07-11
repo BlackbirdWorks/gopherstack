@@ -11,8 +11,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -233,26 +233,33 @@ type storedFeatureTransformation struct {
 
 // InMemoryBackend stores Amazon Personalize state.
 type InMemoryBackend struct {
-	mu                     *lockmetrics.RWMutex
-	datasetGroups          map[string]*DatasetGroup
-	datasets               map[string]*Dataset
-	schemas                map[string]*Schema
-	solutions              map[string]*Solution
-	solutionVersions       map[string]*SolutionVersion
-	campaigns              map[string]*Campaign
-	datasetImportJobs      map[string]*DatasetImportJob
-	datasetExportJobs      map[string]*DatasetExportJob
-	batchInferenceJobs     map[string]*BatchInferenceJob
-	batchSegmentJobs       map[string]*BatchSegmentJob
-	eventTrackers          map[string]*EventTracker
-	filters                map[string]*Filter
-	recommenders           map[string]*Recommender
-	metricAttributions     map[string]*MetricAttribution
-	dataDeletionJobs       map[string]*DataDeletionJob
-	featureTransformations map[string]*storedFeatureTransformation
-	tags                   map[string]map[string]string
-	accountID              string
-	region                 string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	datasetGroups          *store.Table[DatasetGroup]
+	datasets               *store.Table[Dataset]
+	schemas                *store.Table[Schema]
+	solutions              *store.Table[Solution]
+	solutionVersions       *store.Table[SolutionVersion]
+	campaigns              *store.Table[Campaign]
+	datasetImportJobs      *store.Table[DatasetImportJob]
+	datasetExportJobs      *store.Table[DatasetExportJob]
+	batchInferenceJobs     *store.Table[BatchInferenceJob]
+	batchSegmentJobs       *store.Table[BatchSegmentJob]
+	eventTrackers          *store.Table[EventTracker]
+	filters                *store.Table[Filter]
+	recommenders           *store.Table[Recommender]
+	metricAttributions     *store.Table[MetricAttribution]
+	dataDeletionJobs       *store.Table[DataDeletionJob]
+	featureTransformations *store.Table[storedFeatureTransformation]
+
+	// tags is left as a plain map: its value type is map[string]string, not
+	// *T, so it does not fit store.Table's keyed-by-identity-value shape.
+	// See persistence.go.
+	tags map[string]map[string]string
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend returns a stateful Amazon Personalize backend.
@@ -264,43 +271,36 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region = defaultRegion
 	}
 
+	b := &InMemoryBackend{
+		tags:      make(map[string]map[string]string),
+		accountID: accountID,
+		region:    region,
+		mu:        lockmetrics.New("personalize"),
+		registry:  store.NewRegistry(),
+	}
+	registerAllTables(b)
+	b.seedBuiltinFeatureTransformations()
+
+	return b
+}
+
+// seedBuiltinFeatureTransformations (re-)populates featureTransformations
+// with the read-only builtins. Called from NewInMemoryBackend and from Reset
+// (since registry.ResetAll() clears the table along with every other one).
+func (b *InMemoryBackend) seedBuiltinFeatureTransformations() {
 	epoch := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
-	builtinFTs := map[string]*storedFeatureTransformation{}
 	for _, name := range []string{
 		"aws-feature-transformation",
 		"aws-explicit-contextual-bandits-feature-transformation",
 	} {
-		ftArn := arn.Build("personalize", region, accountID, "feature-transformation/"+name)
-		builtinFTs[ftArn] = &storedFeatureTransformation{
+		ftArn := arn.Build("personalize", b.region, b.accountID, "feature-transformation/"+name)
+		b.featureTransformations.Put(&storedFeatureTransformation{
 			ARN:          ftArn,
 			Name:         name,
 			Status:       statusActive,
 			CreationTime: epoch,
 			LastUpdated:  epoch,
-		}
-	}
-
-	return &InMemoryBackend{
-		datasetGroups:          make(map[string]*DatasetGroup),
-		datasets:               make(map[string]*Dataset),
-		schemas:                make(map[string]*Schema),
-		solutions:              make(map[string]*Solution),
-		solutionVersions:       make(map[string]*SolutionVersion),
-		campaigns:              make(map[string]*Campaign),
-		datasetImportJobs:      make(map[string]*DatasetImportJob),
-		datasetExportJobs:      make(map[string]*DatasetExportJob),
-		batchInferenceJobs:     make(map[string]*BatchInferenceJob),
-		batchSegmentJobs:       make(map[string]*BatchSegmentJob),
-		eventTrackers:          make(map[string]*EventTracker),
-		filters:                make(map[string]*Filter),
-		recommenders:           make(map[string]*Recommender),
-		metricAttributions:     make(map[string]*MetricAttribution),
-		dataDeletionJobs:       make(map[string]*DataDeletionJob),
-		featureTransformations: builtinFTs,
-		tags:                   make(map[string]map[string]string),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("personalize"),
+		})
 	}
 }
 
@@ -309,7 +309,7 @@ func (b *InMemoryBackend) GetFeatureTransformation(arnOrName string) (*storedFea
 	b.mu.RLock("GetFeatureTransformation")
 	defer b.mu.RUnlock()
 
-	for _, ft := range b.featureTransformations {
+	for _, ft := range b.featureTransformations.All() {
 		if ft.ARN == arnOrName || ft.Name == arnOrName {
 			return ft, nil
 		}
@@ -324,38 +324,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.datasetGroups = make(map[string]*DatasetGroup)
-	b.datasets = make(map[string]*Dataset)
-	b.schemas = make(map[string]*Schema)
-	b.solutions = make(map[string]*Solution)
-	b.solutionVersions = make(map[string]*SolutionVersion)
-	b.campaigns = make(map[string]*Campaign)
-	b.datasetImportJobs = make(map[string]*DatasetImportJob)
-	b.datasetExportJobs = make(map[string]*DatasetExportJob)
-	b.batchInferenceJobs = make(map[string]*BatchInferenceJob)
-	b.batchSegmentJobs = make(map[string]*BatchSegmentJob)
-	b.eventTrackers = make(map[string]*EventTracker)
-	b.filters = make(map[string]*Filter)
-	b.recommenders = make(map[string]*Recommender)
-	b.metricAttributions = make(map[string]*MetricAttribution)
-	b.dataDeletionJobs = make(map[string]*DataDeletionJob)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	// featureTransformations are read-only builtins; re-seed to restore after reset.
-	epoch := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
-	b.featureTransformations = make(map[string]*storedFeatureTransformation)
-	for _, name := range []string{
-		"aws-feature-transformation",
-		"aws-explicit-contextual-bandits-feature-transformation",
-	} {
-		ftArn := b.personalizeARN("feature-transformation", name)
-		b.featureTransformations[ftArn] = &storedFeatureTransformation{
-			ARN:          ftArn,
-			Name:         name,
-			Status:       statusActive,
-			CreationTime: epoch,
-			LastUpdated:  epoch,
-		}
-	}
+	// featureTransformations are read-only builtins; re-seed to restore after
+	// registry.ResetAll() cleared the table along with every other one.
+	b.seedBuiltinFeatureTransformations()
 }
 
 // Region returns the configured region.
@@ -378,7 +351,7 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.datasetGroups[name]; exists {
+	if b.datasetGroups.Has(name) {
 		return nil, fmt.Errorf("%w: dataset group %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -393,7 +366,7 @@ func (b *InMemoryBackend) CreateDatasetGroup(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.datasetGroups[name] = dg
+	b.datasetGroups.Put(dg)
 	if len(tags) > 0 {
 		b.tags[dg.DatasetGroupArn] = copyStringMap(tags)
 	}
@@ -422,7 +395,7 @@ func (b *InMemoryBackend) DeleteDatasetGroup(nameOrArn string) error {
 	if dg == nil {
 		return fmt.Errorf("%w: dataset group %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.datasetGroups, dg.Name)
+	b.datasetGroups.Delete(dg.Name)
 	delete(b.tags, dg.DatasetGroupArn)
 
 	return nil
@@ -433,16 +406,14 @@ func (b *InMemoryBackend) ListDatasetGroups(maxResults int, nextToken string) ([
 	b.mu.RLock("ListDatasetGroups")
 	defer b.mu.RUnlock()
 
-	names := sortedKeys(b.datasetGroups)
-
-	return paginate(names, func(n string) *DatasetGroup { return b.datasetGroups[n] }, maxResults, nextToken)
+	return paginateItems(b.datasetGroups.Snapshot(), datasetGroupKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findDatasetGroup(nameOrArn string) *DatasetGroup {
-	if dg, ok := b.datasetGroups[nameOrArn]; ok {
+	if dg, ok := b.datasetGroups.Get(nameOrArn); ok {
 		return dg
 	}
-	for _, dg := range b.datasetGroups {
+	for _, dg := range b.datasetGroups.All() {
 		if dg.DatasetGroupArn == nameOrArn {
 			return dg
 		}
@@ -464,7 +435,7 @@ func (b *InMemoryBackend) CreateDataset(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.datasets[name]; exists {
+	if b.datasets.Has(name) {
 		return nil, fmt.Errorf("%w: dataset %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -479,7 +450,7 @@ func (b *InMemoryBackend) CreateDataset(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.datasets[name] = ds
+	b.datasets.Put(ds)
 	if len(tags) > 0 {
 		b.tags[ds.DatasetArn] = copyStringMap(tags)
 	}
@@ -525,7 +496,7 @@ func (b *InMemoryBackend) DeleteDataset(nameOrArn string) error {
 	if ds == nil {
 		return fmt.Errorf("%w: dataset %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.datasets, ds.Name)
+	b.datasets.Delete(ds.Name)
 	delete(b.tags, ds.DatasetArn)
 
 	return nil
@@ -536,22 +507,22 @@ func (b *InMemoryBackend) ListDatasets(datasetGroupArn string, maxResults int, n
 	b.mu.RLock("ListDatasets")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.datasets))
-	for name, ds := range b.datasets {
+	all := b.datasets.Snapshot()
+	filtered := make([]*Dataset, 0, len(all))
+	for _, ds := range all {
 		if datasetGroupArn == "" || ds.DatasetGroupArn == datasetGroupArn {
-			names = append(names, name)
+			filtered = append(filtered, ds)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *Dataset { return b.datasets[n] }, maxResults, nextToken)
+	return paginateItems(filtered, datasetKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findDataset(nameOrArn string) *Dataset {
-	if ds, ok := b.datasets[nameOrArn]; ok {
+	if ds, ok := b.datasets.Get(nameOrArn); ok {
 		return ds
 	}
-	for _, ds := range b.datasets {
+	for _, ds := range b.datasets.All() {
 		if ds.DatasetArn == nameOrArn {
 			return ds
 		}
@@ -570,7 +541,7 @@ func (b *InMemoryBackend) CreateSchema(name, schema, domain string) (*Schema, er
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.schemas[name]; exists {
+	if b.schemas.Has(name) {
 		return nil, fmt.Errorf("%w: schema %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -583,7 +554,7 @@ func (b *InMemoryBackend) CreateSchema(name, schema, domain string) (*Schema, er
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.schemas[name] = s
+	b.schemas.Put(s)
 
 	return s, nil
 }
@@ -609,7 +580,7 @@ func (b *InMemoryBackend) DeleteSchema(nameOrArn string) error {
 	if s == nil {
 		return fmt.Errorf("%w: schema %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.schemas, s.Name)
+	b.schemas.Delete(s.Name)
 
 	return nil
 }
@@ -619,16 +590,14 @@ func (b *InMemoryBackend) ListSchemas(maxResults int, nextToken string) ([]*Sche
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
 
-	names := sortedKeys(b.schemas)
-
-	return paginate(names, func(n string) *Schema { return b.schemas[n] }, maxResults, nextToken)
+	return paginateItems(b.schemas.Snapshot(), schemaKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findSchema(nameOrArn string) *Schema {
-	if s, ok := b.schemas[nameOrArn]; ok {
+	if s, ok := b.schemas.Get(nameOrArn); ok {
 		return s
 	}
-	for _, s := range b.schemas {
+	for _, s := range b.schemas.All() {
 		if s.SchemaArn == nameOrArn {
 			return s
 		}
@@ -651,7 +620,7 @@ func (b *InMemoryBackend) CreateSolution(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.solutions[name]; exists {
+	if b.solutions.Has(name) {
 		return nil, fmt.Errorf("%w: solution %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -667,7 +636,7 @@ func (b *InMemoryBackend) CreateSolution(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.solutions[name] = sol
+	b.solutions.Put(sol)
 	if len(tags) > 0 {
 		b.tags[sol.SolutionArn] = copyStringMap(tags)
 	}
@@ -712,7 +681,7 @@ func (b *InMemoryBackend) DeleteSolution(nameOrArn string) error {
 	if sol == nil {
 		return fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.solutions, sol.Name)
+	b.solutions.Delete(sol.Name)
 	delete(b.tags, sol.SolutionArn)
 
 	return nil
@@ -727,22 +696,22 @@ func (b *InMemoryBackend) ListSolutions(
 	b.mu.RLock("ListSolutions")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.solutions))
-	for name, sol := range b.solutions {
+	all := b.solutions.Snapshot()
+	filtered := make([]*Solution, 0, len(all))
+	for _, sol := range all {
 		if datasetGroupArn == "" || sol.DatasetGroupArn == datasetGroupArn {
-			names = append(names, name)
+			filtered = append(filtered, sol)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *Solution { return b.solutions[n] }, maxResults, nextToken)
+	return paginateItems(filtered, solutionKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findSolution(nameOrArn string) *Solution {
-	if sol, ok := b.solutions[nameOrArn]; ok {
+	if sol, ok := b.solutions.Get(nameOrArn); ok {
 		return sol
 	}
-	for _, sol := range b.solutions {
+	for _, sol := range b.solutions.All() {
 		if sol.SolutionArn == nameOrArn {
 			return sol
 		}
@@ -776,7 +745,7 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.solutionVersions[sv.SolutionVersionArn] = sv
+	b.solutionVersions.Put(sv)
 	if len(tags) > 0 {
 		b.tags[sv.SolutionVersionArn] = copyStringMap(tags)
 	}
@@ -789,7 +758,7 @@ func (b *InMemoryBackend) DescribeSolutionVersion(svArn string) (*SolutionVersio
 	b.mu.RLock("DescribeSolutionVersion")
 	defer b.mu.RUnlock()
 
-	sv, ok := b.solutionVersions[svArn]
+	sv, ok := b.solutionVersions.Get(svArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
 	}
@@ -802,10 +771,10 @@ func (b *InMemoryBackend) DeleteSolutionVersion(svArn string) error {
 	b.mu.Lock("DeleteSolutionVersion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.solutionVersions[svArn]; !ok {
+	if !b.solutionVersions.Has(svArn) {
 		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
 	}
-	delete(b.solutionVersions, svArn)
+	b.solutionVersions.Delete(svArn)
 	delete(b.tags, svArn)
 
 	return nil
@@ -820,15 +789,15 @@ func (b *InMemoryBackend) ListSolutionVersions(
 	b.mu.RLock("ListSolutionVersions")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.solutionVersions))
-	for svArn, sv := range b.solutionVersions {
+	all := b.solutionVersions.Snapshot()
+	filtered := make([]*SolutionVersion, 0, len(all))
+	for _, sv := range all {
 		if solutionArn == "" || sv.SolutionArn == solutionArn {
-			arns = append(arns, svArn)
+			filtered = append(filtered, sv)
 		}
 	}
-	sort.Strings(arns)
 
-	return paginate(arns, func(a string) *SolutionVersion { return b.solutionVersions[a] }, maxResults, nextToken)
+	return paginateItems(filtered, solutionVersionKeyFn, maxResults, nextToken)
 }
 
 // StopSolutionVersionCreation transitions a solution version to STOPPED.
@@ -836,7 +805,7 @@ func (b *InMemoryBackend) StopSolutionVersionCreation(svArn string) error {
 	b.mu.Lock("StopSolutionVersionCreation")
 	defer b.mu.Unlock()
 
-	sv, ok := b.solutionVersions[svArn]
+	sv, ok := b.solutionVersions.Get(svArn)
 	if !ok {
 		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
 	}
@@ -852,7 +821,7 @@ func (b *InMemoryBackend) GetSolutionMetrics(svArn string) (map[string]any, erro
 	b.mu.RLock("GetSolutionMetrics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.solutionVersions[svArn]; !ok {
+	if !b.solutionVersions.Has(svArn) {
 		return nil, fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
 	}
 
@@ -894,7 +863,7 @@ func (b *InMemoryBackend) CreateCampaign(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.campaigns[name]; exists {
+	if b.campaigns.Has(name) {
 		return nil, fmt.Errorf("%w: campaign %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -908,7 +877,7 @@ func (b *InMemoryBackend) CreateCampaign(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.campaigns[name] = c
+	b.campaigns.Put(c)
 	if len(tags) > 0 {
 		b.tags[c.CampaignArn] = copyStringMap(tags)
 	}
@@ -960,7 +929,7 @@ func (b *InMemoryBackend) DeleteCampaign(nameOrArn string) error {
 	if c == nil {
 		return fmt.Errorf("%w: campaign %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.campaigns, c.Name)
+	b.campaigns.Delete(c.Name)
 	delete(b.tags, c.CampaignArn)
 
 	return nil
@@ -971,22 +940,22 @@ func (b *InMemoryBackend) ListCampaigns(solutionArn string, maxResults int, next
 	b.mu.RLock("ListCampaigns")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.campaigns))
-	for name, c := range b.campaigns {
+	all := b.campaigns.Snapshot()
+	filtered := make([]*Campaign, 0, len(all))
+	for _, c := range all {
 		if solutionArn == "" || c.SolutionVersionArn == solutionArn {
-			names = append(names, name)
+			filtered = append(filtered, c)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *Campaign { return b.campaigns[n] }, maxResults, nextToken)
+	return paginateItems(filtered, campaignKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findCampaign(nameOrArn string) *Campaign {
-	if c, ok := b.campaigns[nameOrArn]; ok {
+	if c, ok := b.campaigns.Get(nameOrArn); ok {
 		return c
 	}
-	for _, c := range b.campaigns {
+	for _, c := range b.campaigns.All() {
 		if c.CampaignArn == nameOrArn {
 			return c
 		}
@@ -1008,7 +977,7 @@ func (b *InMemoryBackend) CreateEventTracker(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.eventTrackers[name]; exists {
+	if b.eventTrackers.Has(name) {
 		return nil, fmt.Errorf("%w: event tracker %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -1022,7 +991,7 @@ func (b *InMemoryBackend) CreateEventTracker(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.eventTrackers[name] = et
+	b.eventTrackers.Put(et)
 	if len(tags) > 0 {
 		b.tags[et.EventTrackerArn] = copyStringMap(tags)
 	}
@@ -1051,7 +1020,7 @@ func (b *InMemoryBackend) DeleteEventTracker(nameOrArn string) error {
 	if et == nil {
 		return fmt.Errorf("%w: event tracker %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.eventTrackers, et.Name)
+	b.eventTrackers.Delete(et.Name)
 	delete(b.tags, et.EventTrackerArn)
 
 	return nil
@@ -1066,22 +1035,22 @@ func (b *InMemoryBackend) ListEventTrackers(
 	b.mu.RLock("ListEventTrackers")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.eventTrackers))
-	for name, et := range b.eventTrackers {
+	all := b.eventTrackers.Snapshot()
+	filtered := make([]*EventTracker, 0, len(all))
+	for _, et := range all {
 		if datasetGroupArn == "" || et.DatasetGroupArn == datasetGroupArn {
-			names = append(names, name)
+			filtered = append(filtered, et)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *EventTracker { return b.eventTrackers[n] }, maxResults, nextToken)
+	return paginateItems(filtered, eventTrackerKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findEventTracker(nameOrArn string) *EventTracker {
-	if et, ok := b.eventTrackers[nameOrArn]; ok {
+	if et, ok := b.eventTrackers.Get(nameOrArn); ok {
 		return et
 	}
-	for _, et := range b.eventTrackers {
+	for _, et := range b.eventTrackers.All() {
 		if et.EventTrackerArn == nameOrArn {
 			return et
 		}
@@ -1103,7 +1072,7 @@ func (b *InMemoryBackend) CreateFilter(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.filters[name]; exists {
+	if b.filters.Has(name) {
 		return nil, fmt.Errorf("%w: filter %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -1117,7 +1086,7 @@ func (b *InMemoryBackend) CreateFilter(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.filters[name] = f
+	b.filters.Put(f)
 	if len(tags) > 0 {
 		b.tags[f.FilterArn] = copyStringMap(tags)
 	}
@@ -1146,7 +1115,7 @@ func (b *InMemoryBackend) DeleteFilter(nameOrArn string) error {
 	if f == nil {
 		return fmt.Errorf("%w: filter %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.filters, f.Name)
+	b.filters.Delete(f.Name)
 	delete(b.tags, f.FilterArn)
 
 	return nil
@@ -1157,22 +1126,22 @@ func (b *InMemoryBackend) ListFilters(datasetGroupArn string, maxResults int, ne
 	b.mu.RLock("ListFilters")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.filters))
-	for name, f := range b.filters {
+	all := b.filters.Snapshot()
+	filtered := make([]*Filter, 0, len(all))
+	for _, f := range all {
 		if datasetGroupArn == "" || f.DatasetGroupArn == datasetGroupArn {
-			names = append(names, name)
+			filtered = append(filtered, f)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *Filter { return b.filters[n] }, maxResults, nextToken)
+	return paginateItems(filtered, filterKeyFn, maxResults, nextToken)
 }
 
 func (b *InMemoryBackend) findFilter(nameOrArn string) *Filter {
-	if f, ok := b.filters[nameOrArn]; ok {
+	if f, ok := b.filters.Get(nameOrArn); ok {
 		return f
 	}
-	for _, f := range b.filters {
+	for _, f := range b.filters.All() {
 		if f.FilterArn == nameOrArn {
 			return f
 		}
@@ -1195,7 +1164,7 @@ func (b *InMemoryBackend) CreateRecommender(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.recommenders[name]; exists {
+	if b.recommenders.Has(name) {
 		return nil, fmt.Errorf("%w: recommender %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -1210,7 +1179,7 @@ func (b *InMemoryBackend) CreateRecommender(
 		CreationDateTime:                   now,
 		LastUpdatedDateTime:                now,
 	}
-	b.recommenders[name] = r
+	b.recommenders.Put(r)
 	if len(tags) > 0 {
 		b.tags[r.RecommenderArn] = copyStringMap(tags)
 	}
@@ -1256,7 +1225,7 @@ func (b *InMemoryBackend) DeleteRecommender(nameOrArn string) error {
 	if r == nil {
 		return fmt.Errorf("%w: recommender %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.recommenders, r.Name)
+	b.recommenders.Delete(r.Name)
 	delete(b.tags, r.RecommenderArn)
 
 	return nil
@@ -1271,15 +1240,15 @@ func (b *InMemoryBackend) ListRecommenders(
 	b.mu.RLock("ListRecommenders")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.recommenders))
-	for name, r := range b.recommenders {
+	all := b.recommenders.Snapshot()
+	filtered := make([]*Recommender, 0, len(all))
+	for _, r := range all {
 		if datasetGroupArn == "" || r.DatasetGroupArn == datasetGroupArn {
-			names = append(names, name)
+			filtered = append(filtered, r)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *Recommender { return b.recommenders[n] }, maxResults, nextToken)
+	return paginateItems(filtered, recommenderKeyFn, maxResults, nextToken)
 }
 
 // StartRecommender transitions a recommender to ACTIVE.
@@ -1313,10 +1282,10 @@ func (b *InMemoryBackend) StopRecommender(recommenderArn string) (*Recommender, 
 }
 
 func (b *InMemoryBackend) findRecommender(nameOrArn string) *Recommender {
-	if r, ok := b.recommenders[nameOrArn]; ok {
+	if r, ok := b.recommenders.Get(nameOrArn); ok {
 		return r
 	}
-	for _, r := range b.recommenders {
+	for _, r := range b.recommenders.All() {
 		if r.RecommenderArn == nameOrArn {
 			return r
 		}
@@ -1339,7 +1308,7 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
-	if _, exists := b.metricAttributions[name]; exists {
+	if b.metricAttributions.Has(name) {
 		return nil, fmt.Errorf("%w: metric attribution %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -1353,7 +1322,7 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 		CreationDateTime:     now,
 		LastUpdatedDateTime:  now,
 	}
-	b.metricAttributions[name] = ma
+	b.metricAttributions.Put(ma)
 	if len(tags) > 0 {
 		b.tags[ma.MetricAttributionArn] = copyStringMap(tags)
 	}
@@ -1402,7 +1371,7 @@ func (b *InMemoryBackend) DeleteMetricAttribution(nameOrArn string) error {
 	if ma == nil {
 		return fmt.Errorf("%w: metric attribution %q not found", ErrNotFound, nameOrArn)
 	}
-	delete(b.metricAttributions, ma.Name)
+	b.metricAttributions.Delete(ma.Name)
 	delete(b.tags, ma.MetricAttributionArn)
 
 	return nil
@@ -1417,15 +1386,15 @@ func (b *InMemoryBackend) ListMetricAttributions(
 	b.mu.RLock("ListMetricAttributions")
 	defer b.mu.RUnlock()
 
-	names := make([]string, 0, len(b.metricAttributions))
-	for name, ma := range b.metricAttributions {
+	all := b.metricAttributions.Snapshot()
+	filtered := make([]*MetricAttribution, 0, len(all))
+	for _, ma := range all {
 		if datasetGroupArn == "" || ma.DatasetGroupArn == datasetGroupArn {
-			names = append(names, name)
+			filtered = append(filtered, ma)
 		}
 	}
-	sort.Strings(names)
 
-	return paginate(names, func(n string) *MetricAttribution { return b.metricAttributions[n] }, maxResults, nextToken)
+	return paginateItems(filtered, metricAttributionKeyFn, maxResults, nextToken)
 }
 
 // ListMetricAttributionMetrics returns metrics for a metric attribution with pagination.
@@ -1472,10 +1441,10 @@ func (b *InMemoryBackend) ListMetricAttributionMetrics(
 }
 
 func (b *InMemoryBackend) findMetricAttribution(nameOrArn string) *MetricAttribution {
-	if ma, ok := b.metricAttributions[nameOrArn]; ok {
+	if ma, ok := b.metricAttributions.Get(nameOrArn); ok {
 		return ma
 	}
-	for _, ma := range b.metricAttributions {
+	for _, ma := range b.metricAttributions.All() {
 		if ma.MetricAttributionArn == nameOrArn {
 			return ma
 		}
@@ -1511,7 +1480,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.datasetImportJobs[jobArn] = job
+	b.datasetImportJobs.Put(job)
 	if len(tags) > 0 {
 		b.tags[jobArn] = copyStringMap(tags)
 	}
@@ -1524,7 +1493,7 @@ func (b *InMemoryBackend) DescribeDatasetImportJob(jobArn string) (*DatasetImpor
 	b.mu.RLock("DescribeDatasetImportJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.datasetImportJobs[jobArn]
+	job, ok := b.datasetImportJobs.Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: dataset import job %q not found", ErrNotFound, jobArn)
 	}
@@ -1541,15 +1510,15 @@ func (b *InMemoryBackend) ListDatasetImportJobs(
 	b.mu.RLock("ListDatasetImportJobs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.datasetImportJobs))
-	for arn, job := range b.datasetImportJobs {
+	all := b.datasetImportJobs.Snapshot()
+	filtered := make([]*DatasetImportJob, 0, len(all))
+	for _, job := range all {
 		if datasetArn == "" || job.DatasetArn == datasetArn {
-			arns = append(arns, arn)
+			filtered = append(filtered, job)
 		}
 	}
-	sort.Strings(arns)
 
-	return paginate(arns, func(a string) *DatasetImportJob { return b.datasetImportJobs[a] }, maxResults, nextToken)
+	return paginateItems(filtered, datasetImportJobKeyFn, maxResults, nextToken)
 }
 
 // --- DatasetExportJob ---
@@ -1579,7 +1548,7 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.datasetExportJobs[jobArn] = job
+	b.datasetExportJobs.Put(job)
 	if len(tags) > 0 {
 		b.tags[jobArn] = copyStringMap(tags)
 	}
@@ -1592,7 +1561,7 @@ func (b *InMemoryBackend) DescribeDatasetExportJob(jobArn string) (*DatasetExpor
 	b.mu.RLock("DescribeDatasetExportJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.datasetExportJobs[jobArn]
+	job, ok := b.datasetExportJobs.Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: dataset export job %q not found", ErrNotFound, jobArn)
 	}
@@ -1609,15 +1578,15 @@ func (b *InMemoryBackend) ListDatasetExportJobs(
 	b.mu.RLock("ListDatasetExportJobs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.datasetExportJobs))
-	for arn, job := range b.datasetExportJobs {
+	all := b.datasetExportJobs.Snapshot()
+	filtered := make([]*DatasetExportJob, 0, len(all))
+	for _, job := range all {
 		if datasetArn == "" || job.DatasetArn == datasetArn {
-			arns = append(arns, arn)
+			filtered = append(filtered, job)
 		}
 	}
-	sort.Strings(arns)
 
-	return paginate(arns, func(a string) *DatasetExportJob { return b.datasetExportJobs[a] }, maxResults, nextToken)
+	return paginateItems(filtered, datasetExportJobKeyFn, maxResults, nextToken)
 }
 
 // --- BatchInferenceJob ---
@@ -1648,7 +1617,7 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 		CreationDateTime:     now,
 		LastUpdatedDateTime:  now,
 	}
-	b.batchInferenceJobs[jobArn] = job
+	b.batchInferenceJobs.Put(job)
 	if len(tags) > 0 {
 		b.tags[jobArn] = copyStringMap(tags)
 	}
@@ -1661,7 +1630,7 @@ func (b *InMemoryBackend) DescribeBatchInferenceJob(jobArn string) (*BatchInfere
 	b.mu.RLock("DescribeBatchInferenceJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.batchInferenceJobs[jobArn]
+	job, ok := b.batchInferenceJobs.Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: batch inference job %q not found", ErrNotFound, jobArn)
 	}
@@ -1678,15 +1647,15 @@ func (b *InMemoryBackend) ListBatchInferenceJobs(
 	b.mu.RLock("ListBatchInferenceJobs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.batchInferenceJobs))
-	for arn, job := range b.batchInferenceJobs {
+	all := b.batchInferenceJobs.Snapshot()
+	filtered := make([]*BatchInferenceJob, 0, len(all))
+	for _, job := range all {
 		if solutionVersionArn == "" || job.SolutionVersionArn == solutionVersionArn {
-			arns = append(arns, arn)
+			filtered = append(filtered, job)
 		}
 	}
-	sort.Strings(arns)
 
-	return paginate(arns, func(a string) *BatchInferenceJob { return b.batchInferenceJobs[a] }, maxResults, nextToken)
+	return paginateItems(filtered, batchInferenceJobKeyFn, maxResults, nextToken)
 }
 
 // --- BatchSegmentJob ---
@@ -1717,7 +1686,7 @@ func (b *InMemoryBackend) CreateBatchSegmentJob(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.batchSegmentJobs[jobArn] = job
+	b.batchSegmentJobs.Put(job)
 	if len(tags) > 0 {
 		b.tags[jobArn] = copyStringMap(tags)
 	}
@@ -1730,7 +1699,7 @@ func (b *InMemoryBackend) DescribeBatchSegmentJob(jobArn string) (*BatchSegmentJ
 	b.mu.RLock("DescribeBatchSegmentJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.batchSegmentJobs[jobArn]
+	job, ok := b.batchSegmentJobs.Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: batch segment job %q not found", ErrNotFound, jobArn)
 	}
@@ -1747,15 +1716,15 @@ func (b *InMemoryBackend) ListBatchSegmentJobs(
 	b.mu.RLock("ListBatchSegmentJobs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.batchSegmentJobs))
-	for arn, job := range b.batchSegmentJobs {
+	all := b.batchSegmentJobs.Snapshot()
+	filtered := make([]*BatchSegmentJob, 0, len(all))
+	for _, job := range all {
 		if solutionVersionArn == "" || job.SolutionVersionArn == solutionVersionArn {
-			arns = append(arns, arn)
+			filtered = append(filtered, job)
 		}
 	}
-	sort.Strings(arns)
 
-	return paginate(arns, func(a string) *BatchSegmentJob { return b.batchSegmentJobs[a] }, maxResults, nextToken)
+	return paginateItems(filtered, batchSegmentJobKeyFn, maxResults, nextToken)
 }
 
 // --- DataDeletionJob ---
@@ -1786,7 +1755,7 @@ func (b *InMemoryBackend) CreateDataDeletionJob(
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
 	}
-	b.dataDeletionJobs[jobArn] = job
+	b.dataDeletionJobs.Put(job)
 	if len(tags) > 0 {
 		b.tags[jobArn] = copyStringMap(tags)
 	}
@@ -1799,7 +1768,7 @@ func (b *InMemoryBackend) DescribeDataDeletionJob(jobArn string) (*DataDeletionJ
 	b.mu.RLock("DescribeDataDeletionJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.dataDeletionJobs[jobArn]
+	job, ok := b.dataDeletionJobs.Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: data deletion job %q not found", ErrNotFound, jobArn)
 	}
@@ -1816,15 +1785,15 @@ func (b *InMemoryBackend) ListDataDeletionJobs(
 	b.mu.RLock("ListDataDeletionJobs")
 	defer b.mu.RUnlock()
 
-	arns := make([]string, 0, len(b.dataDeletionJobs))
-	for arn, job := range b.dataDeletionJobs {
+	all := b.dataDeletionJobs.Snapshot()
+	filtered := make([]*DataDeletionJob, 0, len(all))
+	for _, job := range all {
 		if datasetGroupArn == "" || job.DatasetGroupArn == datasetGroupArn {
-			arns = append(arns, arn)
+			filtered = append(filtered, job)
 		}
 	}
-	sort.Strings(arns)
 
-	return paginate(arns, func(a string) *DataDeletionJob { return b.dataDeletionJobs[a] }, maxResults, nextToken)
+	return paginateItems(filtered, dataDeletionJobKeyFn, maxResults, nextToken)
 }
 
 // --- Runtime validation ---
@@ -1918,55 +1887,52 @@ func (b *InMemoryBackend) arnExists(resourceArn string) bool {
 }
 
 func (b *InMemoryBackend) arnExistsInCoreEntities(resourceArn string) bool {
-	for _, dg := range b.datasetGroups {
+	for _, dg := range b.datasetGroups.All() {
 		if dg.DatasetGroupArn == resourceArn {
 			return true
 		}
 	}
-	for _, ds := range b.datasets {
+	for _, ds := range b.datasets.All() {
 		if ds.DatasetArn == resourceArn {
 			return true
 		}
 	}
-	for _, s := range b.schemas {
+	for _, s := range b.schemas.All() {
 		if s.SchemaArn == resourceArn {
 			return true
 		}
 	}
-	for _, sol := range b.solutions {
+	for _, sol := range b.solutions.All() {
 		if sol.SolutionArn == resourceArn {
 			return true
 		}
 	}
-	if _, ok := b.solutionVersions[resourceArn]; ok {
-		return true
-	}
 
-	return false
+	return b.solutionVersions.Has(resourceArn)
 }
 
 func (b *InMemoryBackend) arnExistsInTrackingEntities(resourceArn string) bool {
-	for _, c := range b.campaigns {
+	for _, c := range b.campaigns.All() {
 		if c.CampaignArn == resourceArn {
 			return true
 		}
 	}
-	for _, et := range b.eventTrackers {
+	for _, et := range b.eventTrackers.All() {
 		if et.EventTrackerArn == resourceArn {
 			return true
 		}
 	}
-	for _, f := range b.filters {
+	for _, f := range b.filters.All() {
 		if f.FilterArn == resourceArn {
 			return true
 		}
 	}
-	for _, r := range b.recommenders {
+	for _, r := range b.recommenders.All() {
 		if r.RecommenderArn == resourceArn {
 			return true
 		}
 	}
-	for _, ma := range b.metricAttributions {
+	for _, ma := range b.metricAttributions.All() {
 		if ma.MetricAttributionArn == resourceArn {
 			return true
 		}
@@ -1976,23 +1942,11 @@ func (b *InMemoryBackend) arnExistsInTrackingEntities(resourceArn string) bool {
 }
 
 func (b *InMemoryBackend) arnExistsInJobs(resourceArn string) bool {
-	if _, ok := b.datasetImportJobs[resourceArn]; ok {
-		return true
-	}
-	if _, ok := b.datasetExportJobs[resourceArn]; ok {
-		return true
-	}
-	if _, ok := b.batchInferenceJobs[resourceArn]; ok {
-		return true
-	}
-	if _, ok := b.batchSegmentJobs[resourceArn]; ok {
-		return true
-	}
-	if _, ok := b.dataDeletionJobs[resourceArn]; ok {
-		return true
-	}
-
-	return false
+	return b.datasetImportJobs.Has(resourceArn) ||
+		b.datasetExportJobs.Has(resourceArn) ||
+		b.batchInferenceJobs.Has(resourceArn) ||
+		b.batchSegmentJobs.Has(resourceArn) ||
+		b.dataDeletionJobs.Has(resourceArn)
 }
 
 // --- Helpers ---
@@ -2007,12 +1961,42 @@ func copyStringMap(m map[string]string) map[string]string {
 	return out
 }
 
-func sortedKeys[T any](m map[string]T) []string {
-	keys := collections.SortedKeys(m)
+// paginateItems is the store.Table-backed counterpart of paginate: items must
+// already be in the table's key-sorted order (as returned by
+// [store.Table.Snapshot]), which paginateItems relies on for both the page
+// slice and the nextToken continuation semantics.
+func paginateItems[T any](items []*T, keyOf func(*T) string, maxResults int, nextToken string) ([]*T, string) {
+	const defaultPageSize = 100
 
-	return keys
+	if maxResults <= 0 {
+		maxResults = defaultPageSize
+	}
+
+	start := 0
+	if nextToken != "" {
+		for i, v := range items {
+			if keyOf(v) == nextToken {
+				start = i
+
+				break
+			}
+		}
+	}
+
+	end := start + maxResults
+	var outToken string
+	if end < len(items) {
+		outToken = keyOf(items[end])
+	} else {
+		end = len(items)
+	}
+
+	return items[start:end], outToken
 }
 
+// paginate is used only by ListMetricAttributionMetrics, which pages over a
+// synthetic, non-map-backed []map[string]any and so is out of scope for the
+// store.Table conversion above.
 func paginate[T any](keys []string, get func(string) T, maxResults int, nextToken string) ([]T, string) {
 	const defaultPageSize = 100
 

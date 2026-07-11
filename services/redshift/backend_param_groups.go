@@ -107,7 +107,7 @@ func (b *InMemoryBackend) CreateClusterParameterGroup(
 	b.mu.Lock("CreateClusterParameterGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.parameterGroups[name]; exists {
+	if _, exists := b.parameterGroups.Get(name); exists {
 		return nil, fmt.Errorf("%w: parameter group %s already exists", ErrParameterGroupAlreadyExists, name)
 	}
 
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) CreateClusterParameterGroup(
 		Parameters:           defaultParameters(),
 		CreatedAt:            time.Now(),
 	}
-	b.parameterGroups[name] = pg
+	b.parameterGroups.Put(pg)
 
 	cp := cloneParameterGroup(pg)
 
@@ -134,11 +134,11 @@ func (b *InMemoryBackend) DeleteClusterParameterGroup(name string) error {
 	b.mu.Lock("DeleteClusterParameterGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.parameterGroups[name]; !exists {
+	if _, exists := b.parameterGroups.Get(name); !exists {
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 
-	delete(b.parameterGroups, name)
+	b.parameterGroups.Delete(name)
 
 	return nil
 }
@@ -149,7 +149,7 @@ func (b *InMemoryBackend) DescribeClusterParameterGroups(name string) ([]Cluster
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		pg, exists := b.parameterGroups[name]
+		pg, exists := b.parameterGroups.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 		}
@@ -159,8 +159,8 @@ func (b *InMemoryBackend) DescribeClusterParameterGroups(name string) ([]Cluster
 		return []ClusterParameterGroup{cp}, nil
 	}
 
-	result := make([]ClusterParameterGroup, 0, len(b.parameterGroups))
-	for _, pg := range b.parameterGroups {
+	result := make([]ClusterParameterGroup, 0, b.parameterGroups.Len())
+	for _, pg := range b.parameterGroups.All() {
 		result = append(result, cloneParameterGroup(pg))
 	}
 
@@ -176,7 +176,7 @@ func (b *InMemoryBackend) DescribeClusterParameters(groupName string) ([]Cluster
 	b.mu.RLock("DescribeClusterParameters")
 	defer b.mu.RUnlock()
 
-	pg, exists := b.parameterGroups[groupName]
+	pg, exists := b.parameterGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) ModifyClusterParameterGroup(
 	b.mu.Lock("ModifyClusterParameterGroup")
 	defer b.mu.Unlock()
 
-	pg, exists := b.parameterGroups[groupName]
+	pg, exists := b.parameterGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}
@@ -242,7 +242,7 @@ func (b *InMemoryBackend) ResetClusterParameterGroup(
 	b.mu.Lock("ResetClusterParameterGroup")
 	defer b.mu.Unlock()
 
-	pg, exists := b.parameterGroups[groupName]
+	pg, exists := b.parameterGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}

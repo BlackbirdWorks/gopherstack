@@ -138,3 +138,73 @@ func TestRestore_RebuildsStatusIndex(t *testing.T) {
 	require.NoError(t, listErr2)
 	assert.Empty(t, execs2)
 }
+
+// TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip exercises a full
+// Snapshot->Restore round trip across every resource type backendSnapshot
+// persists (state machines, activities, and executions), including the
+// execution's inline history (Phase 3.3 moved history from a separate
+// backend map onto Execution itself -- see persistence.go's
+// executionSnapshot DTO). It guards against a regression where the DTO
+// round trip silently drops a field.
+func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const def = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+	const role = "arn:aws:iam::000000000000:role/test"
+
+	ctx := t.Context()
+	original := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	sm, err := original.CreateStateMachine(ctx, "full-state-sm", def, role, "STANDARD")
+	require.NoError(t, err)
+
+	act, err := original.CreateActivity(ctx, "full-state-activity")
+	require.NoError(t, err)
+
+	exec, err := original.StartExecution(sm.StateMachineArn, "full-state-exec", `{"k":"v"}`)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		e, describeErr := original.DescribeExecution(exec.ExecutionArn)
+
+		return describeErr == nil && e.Status != "RUNNING"
+	}, 5*time.Second, 10*time.Millisecond)
+
+	wantHistory, _, err := original.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, wantHistory, "execution should have recorded at least one history event")
+
+	snap := original.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	fresh := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(ctx, snap))
+
+	// State machine survives the round trip.
+	restoredSM, err := fresh.DescribeStateMachine(sm.StateMachineArn)
+	require.NoError(t, err)
+	assert.Equal(t, sm.Name, restoredSM.Name)
+	assert.Equal(t, sm.Definition, restoredSM.Definition)
+	assert.Equal(t, sm.RoleArn, restoredSM.RoleArn)
+
+	// Activity survives the round trip.
+	restoredAct, err := fresh.DescribeActivity(act.ActivityArn)
+	require.NoError(t, err)
+	assert.Equal(t, act.Name, restoredAct.Name)
+
+	// Execution survives the round trip, including its inline history.
+	restoredExec, err := fresh.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, err)
+	assert.Equal(t, exec.ExecutionArn, restoredExec.ExecutionArn)
+	assert.Equal(t, sm.StateMachineArn, restoredExec.StateMachineArn)
+	assert.JSONEq(t, `{"k":"v"}`, restoredExec.Input)
+
+	gotHistory, _, err := fresh.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+	require.NoError(t, err)
+	require.Len(t, gotHistory, len(wantHistory))
+
+	for i, wantEvent := range wantHistory {
+		assert.Equal(t, wantEvent.Type, gotHistory[i].Type, "history event %d type mismatch after restore", i)
+		assert.Equal(t, wantEvent.ID, gotHistory[i].ID, "history event %d ID mismatch after restore", i)
+	}
+}

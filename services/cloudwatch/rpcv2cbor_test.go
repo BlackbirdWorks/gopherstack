@@ -993,7 +993,7 @@ func TestCBOR_GetMetricStatistics_WithDimensions(t *testing.T) {
 	h := cloudwatch.NewHandler(b)
 
 	dims := []cloudwatch.Dimension{{Name: "Host", Value: "h1"}}
-	_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+	_ = b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Load", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80,
 			Timestamp: time.Now().UTC(), Dimensions: dims,
@@ -1030,7 +1030,7 @@ func TestCBOR_GetMetricData_WithDimensions(t *testing.T) {
 
 	dimsA := []cloudwatch.Dimension{{Name: "Shard", Value: "a"}}
 	ts := time.Now().UTC().Add(-30 * time.Second)
-	_, _ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	_ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Ops", Value: 5, Count: 1, Sum: 5, Min: 5, Max: 5, Timestamp: ts, Dimensions: dimsA},
 		{MetricName: "Ops", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: ts},
 	})
@@ -1109,7 +1109,7 @@ func TestCBOR_ListMetrics_WithDimensions(t *testing.T) {
 
 	ts := time.Now().UTC()
 	for _, env := range []string{"prod", "staging"} {
-		_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+		_ = b.PutMetricData("App", []cloudwatch.MetricDatum{
 			{
 				MetricName: "RPM", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
 				Timestamp:  ts,

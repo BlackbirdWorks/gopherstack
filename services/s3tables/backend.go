@@ -3,6 +3,7 @@ package s3tables
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -76,7 +78,17 @@ type Namespace struct {
 
 // BucketReplicationConfig holds replication configuration for a table bucket.
 type BucketReplicationConfig struct {
-	Destinations []ReplicationDestination `json:"destinations"`
+	// TableBucketARN is the store.Table primary-key qualifier for the
+	// bucketReplication table (see store_setup.go). BucketReplicationConfig
+	// carries no identity of its own -- it was previously keyed externally
+	// by the map key alone -- so this field was added to give the live
+	// store.Table a key to derive. It is tagged json:"-" because it is
+	// never part of the S3 Tables wire API (handleGetTableBucketReplication
+	// builds its own response map from Destinations only); persistence.go's
+	// arnDTO wrapper carries the ARN explicitly for Snapshot/Restore since a
+	// plain json.Marshal of this type drops any json:"-" field.
+	TableBucketARN string                   `json:"-"`
+	Destinations   []ReplicationDestination `json:"destinations"`
 }
 
 // ReplicationDestination is a single replication destination.
@@ -87,6 +99,11 @@ type ReplicationDestination struct {
 // TableRecordExpiryConfig holds record expiration configuration for a table.
 type TableRecordExpiryConfig struct {
 	Status string `json:"status"`
+	// TableARN is the store.Table primary-key qualifier for the
+	// tableRecordExpiry table (see store_setup.go) -- see
+	// BucketReplicationConfig.TableBucketARN's doc comment for why this
+	// field exists and is tagged json:"-".
+	TableARN string `json:"-"`
 }
 
 // Table represents an S3 Tables table.
@@ -109,19 +126,38 @@ type Table struct {
 
 // InMemoryBackend is an in-memory store for S3 Tables resources.
 type InMemoryBackend struct {
-	tableBuckets            map[string]*TableBucket             // keyed by ARN
-	namespaces              map[string]*Namespace               // keyed by tableBucketARN + "::" + namespace
-	tables                  map[string]*Table                   // keyed by ARN
-	tableIndex              map[string]string                   // composite key (bucketARN::ns::name) → table ARN
-	bucketReplication       map[string]*BucketReplicationConfig // keyed by bucket ARN
-	tableReplication        map[string]bool                     // keyed by table ARN
-	tableRecordExpiry       map[string]*TableRecordExpiryConfig // keyed by table ARN
-	tags                    map[string]map[string]string        // keyed by ARN
-	tableReplicationConfigs map[string]map[string]any           // keyed by table ARN
+	// registry holds every store.Table below that has no field hidden from
+	// plain JSON marshaling -- see store_setup.go's file doc comment.
+	registry *store.Registry
+
+	tableBuckets *store.Table[TableBucket] // keyed by ARN
+
+	namespaces         *store.Table[Namespace] // keyed by tableBucketARN + "::" + namespace
+	namespacesByBucket *store.Index[Namespace] // secondary: tableBucketARN -> namespaces
+
+	tables            *store.Table[Table] // keyed by ARN
+	tablesByComposite *store.Index[Table] // secondary: bucketARN::ns::name -> table (replaces the old tableIndex map)
+	tablesByBucket    *store.Index[Table] // secondary: tableBucketARN -> tables
+
+	// bucketReplication and tableRecordExpiry are off-registry: their value
+	// types hide their primary-key field (json:"-"), so registry.SnapshotAll
+	// would silently drop it -- persistence.go builds a separate ephemeral
+	// DTO registry for them instead (see that file's doc comment).
+	bucketReplication *store.Table[BucketReplicationConfig] // keyed by bucket ARN
+	tableRecordExpiry *store.Table[TableRecordExpiryConfig] // keyed by table ARN
+
+	// tableReplication (a bare bool with no identity of its own), tags (a
+	// non-*T value map), and tableReplicationConfigs (a non-*T value map)
+	// do not fit store.Table's keyed-*T shape, so they remain plain maps --
+	// see persistence.go for how they round-trip alongside the tables above.
+	tableReplication        map[string]bool              // keyed by table ARN
+	tags                    map[string]map[string]string // keyed by ARN
+	tableReplicationConfigs map[string]map[string]any    // keyed by table ARN
+
 	// Lock ordering: muBuckets → muNamespaces → muTables → muState
 	muBuckets    *lockmetrics.RWMutex // covers tableBuckets
 	muNamespaces *lockmetrics.RWMutex // covers namespaces
-	muTables     *lockmetrics.RWMutex // covers tables + tableIndex
+	muTables     *lockmetrics.RWMutex // covers tables + tablesByComposite + tablesByBucket
 	muState      *lockmetrics.RWMutex // covers replication, expiry, tags, tableReplicationConfigs
 	accountID    string
 	region       string
@@ -129,14 +165,9 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory S3 Tables backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		tableBuckets:            make(map[string]*TableBucket),
-		namespaces:              make(map[string]*Namespace),
-		tables:                  make(map[string]*Table),
-		tableIndex:              make(map[string]string),
-		bucketReplication:       make(map[string]*BucketReplicationConfig),
+	b := &InMemoryBackend{
+		registry:                store.NewRegistry(),
 		tableReplication:        make(map[string]bool),
-		tableRecordExpiry:       make(map[string]*TableRecordExpiryConfig),
 		tags:                    make(map[string]map[string]string),
 		tableReplicationConfigs: make(map[string]map[string]any),
 		accountID:               accountID,
@@ -146,6 +177,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		muTables:                lockmetrics.New("s3tables.tables"),
 		muState:                 lockmetrics.New("s3tables.state"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // tableCompositeKey returns the composite index key for a table.
@@ -181,13 +216,11 @@ func (b *InMemoryBackend) Reset() {
 	defer b.muTables.Unlock()
 	defer b.muState.Unlock()
 
-	b.tableBuckets = make(map[string]*TableBucket)
-	b.namespaces = make(map[string]*Namespace)
-	b.tables = make(map[string]*Table)
-	b.tableIndex = make(map[string]string)
-	b.bucketReplication = make(map[string]*BucketReplicationConfig)
+	b.registry.ResetAll()
+	b.bucketReplication.Reset()
+	b.tableRecordExpiry.Reset()
+
 	b.tableReplication = make(map[string]bool)
-	b.tableRecordExpiry = make(map[string]*TableRecordExpiryConfig)
 	b.tags = make(map[string]map[string]string)
 	b.tableReplicationConfigs = make(map[string]map[string]any)
 }
@@ -200,11 +233,12 @@ func (b *InMemoryBackend) PutTableBucketReplication(bucketARN string, cfg *Bucke
 	b.muState.Lock("PutTableBucketReplication")
 	defer b.muState.Unlock()
 
-	if _, ok := b.tableBuckets[bucketARN]; !ok {
+	if !b.tableBuckets.Has(bucketARN) {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
 
-	b.bucketReplication[bucketARN] = cfg
+	cfg.TableBucketARN = bucketARN
+	b.bucketReplication.Put(cfg)
 
 	return nil
 }
@@ -217,11 +251,11 @@ func (b *InMemoryBackend) GetTableBucketReplication(bucketARN string) (*BucketRe
 	b.muState.RLock("GetTableBucketReplication")
 	defer b.muState.RUnlock()
 
-	if _, ok := b.tableBuckets[bucketARN]; !ok {
+	if !b.tableBuckets.Has(bucketARN) {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
 
-	cfg, ok := b.bucketReplication[bucketARN]
+	cfg, ok := b.bucketReplication.Get(bucketARN)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: no replication configuration for table bucket %q",
@@ -241,11 +275,11 @@ func (b *InMemoryBackend) DeleteTableBucketReplication(bucketARN string) error {
 	b.muState.Lock("DeleteTableBucketReplication")
 	defer b.muState.Unlock()
 
-	if _, ok := b.tableBuckets[bucketARN]; !ok {
+	if !b.tableBuckets.Has(bucketARN) {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
 
-	delete(b.bucketReplication, bucketARN)
+	b.bucketReplication.Delete(bucketARN)
 
 	return nil
 }
@@ -258,7 +292,7 @@ func (b *InMemoryBackend) PutTableReplication(tableArn string) error {
 	b.muState.Lock("PutTableReplication")
 	defer b.muState.Unlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
@@ -275,7 +309,7 @@ func (b *InMemoryBackend) DeleteTableReplication(tableArn string) error {
 	b.muState.Lock("DeleteTableReplication")
 	defer b.muState.Unlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
@@ -293,11 +327,12 @@ func (b *InMemoryBackend) PutTableRecordExpirationConfiguration(tableArn string,
 	b.muState.Lock("PutTableRecordExpirationConfiguration")
 	defer b.muState.Unlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
-	b.tableRecordExpiry[tableArn] = cfg
+	cfg.TableARN = tableArn
+	b.tableRecordExpiry.Put(cfg)
 
 	return nil
 }
@@ -310,11 +345,11 @@ func (b *InMemoryBackend) GetTableRecordExpirationConfiguration(tableArn string)
 	b.muState.RLock("GetTableRecordExpirationConfiguration")
 	defer b.muState.RUnlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return nil, fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
-	cfg, ok := b.tableRecordExpiry[tableArn]
+	cfg, ok := b.tableRecordExpiry.Get(tableArn)
 	if !ok {
 		return &TableRecordExpiryConfig{Status: "DISABLED"}, nil
 	}
@@ -332,7 +367,7 @@ func (b *InMemoryBackend) CreateTableBucket(name string) (*TableBucket, error) {
 	defer b.muBuckets.Unlock()
 
 	bucketARN := b.TableBucketARN(name)
-	if _, ok := b.tableBuckets[bucketARN]; ok {
+	if b.tableBuckets.Has(bucketARN) {
 		return nil, fmt.Errorf("%w: table bucket %q already exists", ErrTableBucketAlreadyExists, name)
 	}
 
@@ -354,7 +389,7 @@ func (b *InMemoryBackend) CreateTableBucket(name string) (*TableBucket, error) {
 			},
 		},
 	}
-	b.tableBuckets[bucketARN] = tb
+	b.tableBuckets.Put(tb)
 
 	return cloneTableBucket(tb), nil
 }
@@ -364,7 +399,7 @@ func (b *InMemoryBackend) GetTableBucket(bucketARN string) (*TableBucket, error)
 	b.muBuckets.RLock("GetTableBucket")
 	defer b.muBuckets.RUnlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -383,32 +418,29 @@ func (b *InMemoryBackend) DeleteTableBucket(bucketARN string) error {
 	defer b.muTables.Unlock()
 	defer b.muState.Unlock()
 
-	if _, ok := b.tableBuckets[bucketARN]; !ok {
+	if !b.tableBuckets.Has(bucketARN) {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
 
-	// Cascade: delete all tables belonging to this bucket.
-	for tableARN, t := range b.tables {
-		if t.TableBucketARN == bucketARN {
-			delete(b.tableIndex, tableCompositeKey(bucketARN, joinNamespace(t.Namespace), t.Name))
-			delete(b.tables, tableARN)
-			delete(b.tableReplication, tableARN)
-			delete(b.tableReplicationConfigs, tableARN)
-			delete(b.tableRecordExpiry, tableARN)
-			delete(b.tags, tableARN)
-		}
+	// Cascade: delete all tables belonging to this bucket. Clone the index
+	// result before deleting, since Table.Delete mutates the same index
+	// this slice is a view into.
+	for _, t := range slices.Clone(b.tablesByBucket.Get(bucketARN)) {
+		b.tables.Delete(t.ARN)
+		delete(b.tableReplication, t.ARN)
+		delete(b.tableReplicationConfigs, t.ARN)
+		b.tableRecordExpiry.Delete(t.ARN)
+		delete(b.tags, t.ARN)
 	}
 
 	// Cascade: delete all namespaces belonging to this bucket.
-	for key, ns := range b.namespaces {
-		if ns.TableBucketARN == bucketARN {
-			delete(b.namespaces, key)
-		}
+	for _, ns := range slices.Clone(b.namespacesByBucket.Get(bucketARN)) {
+		b.namespaces.Delete(namespaceKey(ns.TableBucketARN, joinNamespace(ns.Namespace)))
 	}
 
-	delete(b.bucketReplication, bucketARN)
+	b.bucketReplication.Delete(bucketARN)
 	delete(b.tags, bucketARN)
-	delete(b.tableBuckets, bucketARN)
+	b.tableBuckets.Delete(bucketARN)
 
 	return nil
 }
@@ -418,9 +450,10 @@ func (b *InMemoryBackend) ListTableBuckets() []*TableBucket {
 	b.muBuckets.RLock("ListTableBuckets")
 	defer b.muBuckets.RUnlock()
 
-	list := make([]*TableBucket, 0, len(b.tableBuckets))
+	items := b.tableBuckets.All()
+	list := make([]*TableBucket, 0, len(items))
 
-	for _, tb := range b.tableBuckets {
+	for _, tb := range items {
 		list = append(list, cloneTableBucket(tb))
 	}
 
@@ -436,7 +469,7 @@ func (b *InMemoryBackend) GetTableBucketMaintenanceConfiguration(bucketARN strin
 	b.muBuckets.RLock("GetTableBucketMaintenanceConfiguration")
 	defer b.muBuckets.RUnlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -454,7 +487,7 @@ func (b *InMemoryBackend) PutTableBucketMaintenanceConfiguration(
 	b.muBuckets.Lock("PutTableBucketMaintenanceConfiguration")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -473,7 +506,7 @@ func (b *InMemoryBackend) GetTableBucketPolicy(bucketARN string) (string, error)
 	b.muBuckets.RLock("GetTableBucketPolicy")
 	defer b.muBuckets.RUnlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return "", fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -490,7 +523,7 @@ func (b *InMemoryBackend) PutTableBucketPolicy(bucketARN, policy string) error {
 	b.muBuckets.Lock("PutTableBucketPolicy")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -505,7 +538,7 @@ func (b *InMemoryBackend) DeleteTableBucketPolicy(bucketARN string) error {
 	b.muBuckets.Lock("DeleteTableBucketPolicy")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -520,7 +553,7 @@ func (b *InMemoryBackend) PutTableBucketEncryption(bucketARN string, config map[
 	b.muBuckets.Lock("PutTableBucketEncryption")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -536,7 +569,7 @@ func (b *InMemoryBackend) DeleteTableBucketEncryption(bucketARN string) error {
 	b.muBuckets.Lock("DeleteTableBucketEncryption")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -552,7 +585,7 @@ func (b *InMemoryBackend) PutTableBucketMetricsConfiguration(bucketARN string) e
 	b.muBuckets.Lock("PutTableBucketMetricsConfiguration")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -570,7 +603,7 @@ func (b *InMemoryBackend) GetTableBucketMetricsConfiguration(bucketARN string) (
 	b.muBuckets.RLock("GetTableBucketMetricsConfiguration")
 	defer b.muBuckets.RUnlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return "", false, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -584,7 +617,7 @@ func (b *InMemoryBackend) DeleteTableBucketMetricsConfiguration(bucketARN string
 	b.muBuckets.Lock("DeleteTableBucketMetricsConfiguration")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -600,7 +633,7 @@ func (b *InMemoryBackend) PutTableBucketStorageClass(bucketARN, storageClass str
 	b.muBuckets.Lock("PutTableBucketStorageClass")
 	defer b.muBuckets.Unlock()
 
-	tb, ok := b.tableBuckets[bucketARN]
+	tb, ok := b.tableBuckets.Get(bucketARN)
 	if !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
 	}
@@ -616,12 +649,12 @@ func (b *InMemoryBackend) GetTableStorageClass(bucketARN string, namespace []str
 	defer b.muTables.RUnlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(bucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(bucketARN, nsStr, name)
 	if !ok {
 		return "", fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	t := b.tables[tableARN]
 	sc := t.StorageClass
 	if sc == "" {
 		sc = storageClassStandard
@@ -638,7 +671,7 @@ func (b *InMemoryBackend) SetTableReplicationConfig(tableArn string, config map[
 	b.muState.Lock("SetTableReplicationConfig")
 	defer b.muState.Unlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
@@ -656,7 +689,7 @@ func (b *InMemoryBackend) GetTableReplicationConfig(tableArn string) (map[string
 	b.muState.RLock("GetTableReplicationConfig")
 	defer b.muState.RUnlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return nil, fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
@@ -673,7 +706,7 @@ func (b *InMemoryBackend) ValidateTableExists(tableArn string) error {
 	b.muTables.RLock("ValidateTableExists")
 	defer b.muTables.RUnlock()
 
-	if _, ok := b.tables[tableArn]; !ok {
+	if !b.tables.Has(tableArn) {
 		return fmt.Errorf("%w: table %q not found", ErrTableNotFound, tableArn)
 	}
 
@@ -738,14 +771,14 @@ func (b *InMemoryBackend) CreateNamespace(tableBucketARN string, namespace []str
 	b.muNamespaces.Lock("CreateNamespace")
 	defer b.muNamespaces.Unlock()
 
-	if _, ok := b.tableBuckets[tableBucketARN]; !ok {
+	if !b.tableBuckets.Has(tableBucketARN) {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, tableBucketARN)
 	}
 
 	nsStr := joinNamespace(namespace)
 	key := namespaceKey(tableBucketARN, nsStr)
 
-	if _, ok := b.namespaces[key]; ok {
+	if b.namespaces.Has(key) {
 		return nil, fmt.Errorf(
 			"%w: namespace %q already exists in bucket %s",
 			ErrNamespaceAlreadyExists,
@@ -762,7 +795,7 @@ func (b *InMemoryBackend) CreateNamespace(tableBucketARN string, namespace []str
 		CreatedAt:      time.Now().UTC(),
 		NamespaceID:    uuid.NewString(),
 	}
-	b.namespaces[key] = ns
+	b.namespaces.Put(ns)
 
 	return cloneNamespace(ns), nil
 }
@@ -775,7 +808,7 @@ func (b *InMemoryBackend) GetNamespace(tableBucketARN string, namespace []string
 	nsStr := joinNamespace(namespace)
 	key := namespaceKey(tableBucketARN, nsStr)
 
-	ns, ok := b.namespaces[key]
+	ns, ok := b.namespaces.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found in bucket %s", ErrNamespaceNotFound, nsStr, tableBucketARN)
 	}
@@ -791,11 +824,11 @@ func (b *InMemoryBackend) DeleteNamespace(tableBucketARN string, namespace []str
 	nsStr := joinNamespace(namespace)
 	key := namespaceKey(tableBucketARN, nsStr)
 
-	if _, ok := b.namespaces[key]; !ok {
+	if !b.namespaces.Has(key) {
 		return fmt.Errorf("%w: namespace %q not found in bucket %s", ErrNamespaceNotFound, nsStr, tableBucketARN)
 	}
 
-	delete(b.namespaces, key)
+	b.namespaces.Delete(key)
 
 	return nil
 }
@@ -808,16 +841,15 @@ func (b *InMemoryBackend) ListNamespaces(tableBucketARN string) ([]*Namespace, e
 	b.muNamespaces.RLock("ListNamespaces")
 	defer b.muNamespaces.RUnlock()
 
-	if _, ok := b.tableBuckets[tableBucketARN]; !ok {
+	if !b.tableBuckets.Has(tableBucketARN) {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, tableBucketARN)
 	}
 
-	list := make([]*Namespace, 0, len(b.namespaces))
+	items := b.namespacesByBucket.Get(tableBucketARN)
+	list := make([]*Namespace, 0, len(items))
 
-	for _, ns := range b.namespaces {
-		if ns.TableBucketARN == tableBucketARN {
-			list = append(list, cloneNamespace(ns))
-		}
+	for _, ns := range items {
+		list = append(list, cloneNamespace(ns))
 	}
 
 	sort.Slice(list, func(i, j int) bool {
@@ -825,6 +857,19 @@ func (b *InMemoryBackend) ListNamespaces(tableBucketARN string) ([]*Namespace, e
 	})
 
 	return list, nil
+}
+
+// tableByComposite looks up a table by its bucket/namespace/name composite
+// key via the byComposite secondary index. The index enforces at most one
+// match per composite key (CreateTable/RenameTable reject collisions), so
+// the first (only) match is returned.
+func (b *InMemoryBackend) tableByComposite(tableBucketARN, nsStr, name string) (*Table, bool) {
+	matches := b.tablesByComposite.Get(tableCompositeKey(tableBucketARN, nsStr, name))
+	if len(matches) == 0 {
+		return nil, false
+	}
+
+	return matches[0], true
 }
 
 // CreateTable creates a new table within a namespace.
@@ -838,7 +883,7 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 	b.muTables.Lock("CreateTable")
 	defer b.muTables.Unlock()
 
-	tb, ok := b.tableBuckets[tableBucketARN]
+	tb, ok := b.tableBuckets.Get(tableBucketARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, tableBucketARN)
 	}
@@ -846,12 +891,11 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 	nsStr := joinNamespace(namespace)
 	nsKey := namespaceKey(tableBucketARN, nsStr)
 
-	if _, exists := b.namespaces[nsKey]; !exists {
+	if !b.namespaces.Has(nsKey) {
 		return nil, fmt.Errorf("%w: namespace %q not found in bucket %s", ErrNamespaceNotFound, nsStr, tableBucketARN)
 	}
 
-	compositeKey := tableCompositeKey(tableBucketARN, nsStr, name)
-	if _, exists := b.tableIndex[compositeKey]; exists {
+	if _, exists := b.tableByComposite(tableBucketARN, nsStr, name); exists {
 		return nil, fmt.Errorf("%w: table %q already exists in namespace %s", ErrTableAlreadyExists, name, nsStr)
 	}
 
@@ -890,8 +934,7 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 			},
 		},
 	}
-	b.tables[tableARN] = table
-	b.tableIndex[compositeKey] = tableARN
+	b.tables.Put(table)
 
 	return cloneTable(table), nil
 }
@@ -902,12 +945,13 @@ func (b *InMemoryBackend) GetTable(tableBucketARN string, namespace []string, na
 	defer b.muTables.RUnlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return nil, fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	return cloneTable(b.tables[tableARN]), nil
+	return cloneTable(t), nil
 }
 
 // DeleteTable deletes a table by bucket ARN, namespace, and name.
@@ -916,15 +960,13 @@ func (b *InMemoryBackend) DeleteTable(tableBucketARN string, namespace []string,
 	defer b.muTables.Unlock()
 
 	nsStr := joinNamespace(namespace)
-	compositeKey := tableCompositeKey(tableBucketARN, nsStr, name)
 
-	tableARN, ok := b.tableIndex[compositeKey]
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	delete(b.tables, tableARN)
-	delete(b.tableIndex, compositeKey)
+	b.tables.Delete(t.ARN)
 
 	return nil
 }
@@ -937,17 +979,14 @@ func (b *InMemoryBackend) ListTables(tableBucketARN, namespace string) ([]*Table
 	b.muTables.RLock("ListTables")
 	defer b.muTables.RUnlock()
 
-	if _, ok := b.tableBuckets[tableBucketARN]; !ok {
+	if !b.tableBuckets.Has(tableBucketARN) {
 		return nil, fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, tableBucketARN)
 	}
 
-	list := make([]*Table, 0, len(b.tables))
+	items := b.tablesByBucket.Get(tableBucketARN)
+	list := make([]*Table, 0, len(items))
 
-	for _, t := range b.tables {
-		if t.TableBucketARN != tableBucketARN {
-			continue
-		}
-
+	for _, t := range items {
 		if namespace != "" && joinNamespace(t.Namespace) != namespace {
 			continue
 		}
@@ -978,14 +1017,11 @@ func (b *InMemoryBackend) RenameTable(
 	defer b.muTables.Unlock()
 
 	nsStr := joinNamespace(namespace)
-	compositeKey := tableCompositeKey(tableBucketARN, nsStr, name)
 
-	oldARN, ok := b.tableIndex[compositeKey]
+	found, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
-
-	found := b.tables[oldARN]
 
 	if versionToken != "" && versionToken != found.VersionToken {
 		return fmt.Errorf("%w: stale version token for table %q", ErrTableVersionConflict, name)
@@ -999,17 +1035,23 @@ func (b *InMemoryBackend) RenameTable(
 		newNamespace = nsStr
 	}
 
-	if _, exists := b.namespaces[namespaceKey(tableBucketARN, newNamespace)]; !exists {
+	if !b.namespaces.Has(namespaceKey(tableBucketARN, newNamespace)) {
 		return fmt.Errorf("%w: namespace %q not found in bucket %s", ErrNamespaceNotFound, newNamespace, tableBucketARN)
 	}
 
-	tb := b.tableBuckets[tableBucketARN]
+	tb, _ := b.tableBuckets.Get(tableBucketARN)
 	newARN := b.TableARN(tb.Name, newNamespace, newName)
 
-	newCompositeKey := tableCompositeKey(tableBucketARN, newNamespace, newName)
-	if _, exists := b.tableIndex[newCompositeKey]; exists {
+	if _, exists := b.tableByComposite(tableBucketARN, newNamespace, newName); exists {
 		return fmt.Errorf("%w: table %q already exists in namespace %s", ErrTableAlreadyExists, newName, newNamespace)
 	}
+
+	// found.ARN (the primary key) and its composite/bucket index keys are
+	// all about to change, so the old entry must be explicitly removed
+	// before the mutated value is re-inserted -- Put alone would leave the
+	// stale entry under the old ARN behind, since Put only knows how to
+	// replace whatever is already stored at the NEW key it derives.
+	b.tables.Delete(found.ARN)
 
 	found.Name = newName
 	found.Namespace = splitNamespace(newNamespace)
@@ -1017,10 +1059,7 @@ func (b *InMemoryBackend) RenameTable(
 	found.ModifiedAt = time.Now().UTC()
 	found.VersionToken = uuid.NewString()
 
-	delete(b.tables, oldARN)
-	delete(b.tableIndex, compositeKey)
-	b.tables[newARN] = found
-	b.tableIndex[newCompositeKey] = newARN
+	b.tables.Put(found)
 
 	return nil
 }
@@ -1035,12 +1074,12 @@ func (b *InMemoryBackend) UpdateTableMetadataLocation(
 	defer b.muTables.Unlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return nil, fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	t := b.tables[tableARN]
 	if versionToken != t.VersionToken {
 		return nil, fmt.Errorf("%w: stale version token for table %q", ErrTableVersionConflict, name)
 	}
@@ -1079,12 +1118,11 @@ func (b *InMemoryBackend) GetTableMaintenanceConfiguration(
 	defer b.muTables.RUnlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
-
-	t := b.tables[tableARN]
 
 	return cloneAnyMap(t.MaintenanceConfiguration), t.ARN, nil
 }
@@ -1100,12 +1138,12 @@ func (b *InMemoryBackend) PutTableMaintenanceConfiguration(
 	defer b.muTables.Unlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	t := b.tables[tableARN]
 	if t.MaintenanceConfiguration == nil {
 		t.MaintenanceConfiguration = make(map[string]any)
 	}
@@ -1121,12 +1159,12 @@ func (b *InMemoryBackend) GetTablePolicy(tableBucketARN string, namespace []stri
 	defer b.muTables.RUnlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return "", fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	t := b.tables[tableARN]
 	if t.Policy == "" {
 		return "", fmt.Errorf("%w: no policy for table %q", ErrTableNotFound, name)
 	}
@@ -1140,12 +1178,13 @@ func (b *InMemoryBackend) PutTablePolicy(tableBucketARN string, namespace []stri
 	defer b.muTables.Unlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	b.tables[tableARN].Policy = policy
+	t.Policy = policy
 
 	return nil
 }
@@ -1156,12 +1195,13 @@ func (b *InMemoryBackend) DeleteTablePolicy(tableBucketARN string, namespace []s
 	defer b.muTables.Unlock()
 
 	nsStr := joinNamespace(namespace)
-	tableARN, ok := b.tableIndex[tableCompositeKey(tableBucketARN, nsStr, name)]
+
+	t, ok := b.tableByComposite(tableBucketARN, nsStr, name)
 	if !ok {
 		return fmt.Errorf("%w: table %q not found in namespace %s", ErrTableNotFound, name, nsStr)
 	}
 
-	b.tables[tableARN].Policy = ""
+	t.Policy = ""
 
 	return nil
 }

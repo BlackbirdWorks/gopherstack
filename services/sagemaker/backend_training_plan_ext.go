@@ -158,7 +158,7 @@ func (b *InMemoryBackend) createReservedCapacity(
 		rc.ReservedCapacityType = "Instance"
 	}
 
-	b.reservedCapacitiesStore(region)[rcArn] = rc
+	b.reservedCapacitiesStore(region).Put(rc)
 
 	return rc
 }
@@ -173,7 +173,7 @@ func (b *InMemoryBackend) DescribeReservedCapacity(
 	b.mu.RLock("DescribeReservedCapacity")
 	defer b.mu.RUnlock()
 
-	rc, ok := b.reservedCapacitiesStore(region)[reservedCapacityArn]
+	rc, ok := b.reservedCapacitiesStore(region).Get(reservedCapacityArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: reserved capacity %q not found", ErrReservedCapacityNotFound, reservedCapacityArn)
 	}
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) ListUltraServersByReservedCapacity(
 	b.mu.RLock("ListUltraServersByReservedCapacity")
 	defer b.mu.RUnlock()
 
-	rc, ok := b.reservedCapacitiesStore(region)[reservedCapacityArn]
+	rc, ok := b.reservedCapacitiesStore(region).Get(reservedCapacityArn)
 	if !ok {
 		return nil, "", fmt.Errorf(
 			"%w: reserved capacity %q not found", ErrReservedCapacityNotFound, reservedCapacityArn,
@@ -364,6 +364,7 @@ type pendingTrainingPlanExtension struct {
 	EndDate         time.Time `json:"EndDate"`
 	TrainingPlanArn string    `json:"TrainingPlanArn"`
 	CurrencyCode    string    `json:"CurrencyCode"`
+	ID              string    `json:"id"`
 	DurationHours   int32     `json:"DurationHours"`
 }
 
@@ -445,13 +446,14 @@ func (b *InMemoryBackend) generateExtensionOfferings(
 		id := "ext-" + generateID()
 		end := base.Add(time.Duration(d) * time.Hour)
 
-		store[id] = &pendingTrainingPlanExtension{
+		store.Put(&pendingTrainingPlanExtension{
 			TrainingPlanArn: plan.TrainingPlanArn,
 			DurationHours:   d,
 			StartDate:       base,
 			EndDate:         end,
 			CurrencyCode:    plan.CurrencyCode,
-		}
+			ID:              id,
+		})
 
 		out = append(out, TrainingPlanExtensionOffering{
 			TrainingPlanExtensionOfferingID: id,
@@ -478,7 +480,7 @@ func (b *InMemoryBackend) ExtendTrainingPlan(
 
 	offerings := b.trainingPlanExtensionOfferingsStore(region)
 
-	pending, ok := offerings[extensionOfferingID]
+	pending, ok := offerings.Get(extensionOfferingID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: extension offering %q not found", ErrValidation, extensionOfferingID,
@@ -503,7 +505,7 @@ func (b *InMemoryBackend) ExtendTrainingPlan(
 	plan.DurationHours += int64(pending.DurationHours)
 	endDate := pending.EndDate
 	plan.EndTime = &endDate
-	delete(offerings, extensionOfferingID)
+	offerings.Delete(extensionOfferingID)
 
 	return append([]*TrainingPlanExtension(nil), plan.Extensions...), nil
 }
@@ -540,7 +542,7 @@ func (b *InMemoryBackend) DescribeTrainingPlanExtensionHistory(
 // findTrainingPlanByARN scans the region's training plans for a matching ARN.
 // Called with b.mu held (read or write).
 func (b *InMemoryBackend) findTrainingPlanByARN(region, trainingPlanArn string) (*TrainingPlan, bool) {
-	for _, t := range b.trainingPlansStore(region) {
+	for _, t := range b.trainingPlansStore(region).All() {
 		if t.TrainingPlanArn == trainingPlanArn {
 			return t, true
 		}
@@ -573,9 +575,9 @@ func (b *InMemoryBackend) ListTrainingPlans(
 	defer b.mu.RUnlock()
 
 	store := b.trainingPlansStore(region)
-	list := make([]*TrainingPlan, 0, len(store))
+	list := make([]*TrainingPlan, 0, store.Len())
 
-	for _, t := range store {
+	for _, t := range store.All() {
 		if params.StatusEquals != "" && t.Status != params.StatusEquals {
 			continue
 		}

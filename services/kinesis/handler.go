@@ -19,7 +19,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -29,8 +28,6 @@ import (
 type Handler struct {
 	Backend       StorageBackend
 	janitor       *Janitor
-	tags          map[string]*svcTags.Tags
-	tagsMu        *lockmetrics.RWMutex
 	ops           map[string]kinesisDispatchFn
 	DefaultRegion string
 	AccountID     string
@@ -40,8 +37,6 @@ type Handler struct {
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
 		Backend: backend,
-		tags:    make(map[string]*svcTags.Tags),
-		tagsMu:  lockmetrics.New("kinesis.tags"),
 	}
 	h.ops = h.buildOps()
 
@@ -55,24 +50,6 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 		j := NewJanitor(mem, interval)
 		if len(taskTimeout) > 0 {
 			j.TaskTimeout = taskTimeout[0]
-		}
-		// Wire the cleanup callback so that when a stream is purged from the backend
-		// the handler-level tag registry for that stream is also closed and removed.
-		// Tags are keyed by "region/streamName", so a purge of a given stream name
-		// clears that stream's tag registry across every region it appears in.
-		mem.OnStreamPurged = func(streamName string) {
-			suffix := "/" + streamName
-			h.tagsMu.Lock("OnStreamPurged")
-			for key, t := range h.tags {
-				if !strings.HasSuffix(key, suffix) {
-					continue
-				}
-				if t != nil {
-					t.Close()
-				}
-				delete(h.tags, key)
-			}
-			h.tagsMu.Unlock()
 		}
 		h.janitor = j
 	}
@@ -110,44 +87,6 @@ func (h *Handler) defaultRegion() string {
 	}
 
 	return h.DefaultRegion
-}
-
-// tagKey builds the region-scoped key under which a stream's handler-level tags
-// are stored, keeping tags for same-named streams in different regions isolated.
-func tagKey(region, streamName string) string {
-	return region + "/" + streamName
-}
-
-func (h *Handler) setTags(region, resourceID string, kv map[string]string) {
-	key := tagKey(region, resourceID)
-	h.tagsMu.Lock("setTags")
-	defer h.tagsMu.Unlock()
-	if h.tags[key] == nil {
-		h.tags[key] = svcTags.New("kinesis." + key + ".tags")
-	}
-	h.tags[key].Merge(kv)
-}
-
-func (h *Handler) removeTags(region, resourceID string, keys []string) {
-	key := tagKey(region, resourceID)
-	h.tagsMu.RLock("removeTags")
-	t := h.tags[key]
-	h.tagsMu.RUnlock()
-	if t != nil {
-		t.DeleteKeys(keys)
-	}
-}
-
-func (h *Handler) getTags(region, resourceID string) map[string]string {
-	key := tagKey(region, resourceID)
-	h.tagsMu.RLock("getTags")
-	t := h.tags[key]
-	h.tagsMu.RUnlock()
-	if t == nil {
-		return map[string]string{}
-	}
-
-	return t.Clone()
 }
 
 // Name returns the service name.
@@ -380,6 +319,10 @@ type jsonDeleteStreamReq struct {
 type jsonDescribeStreamReq struct {
 	StreamARN  string `json:"StreamARN"`
 	StreamName string `json:"StreamName"`
+	// ExclusiveStartShardID and Limit paginate the Shards list (DescribeStream
+	// only; DescribeStreamSummary ignores them, matching the AWS request shape).
+	ExclusiveStartShardID string `json:"ExclusiveStartShardId"`
+	Limit                 int    `json:"Limit"`
 }
 
 type jsonListStreamsReq struct {
@@ -577,6 +520,16 @@ func (h *Handler) handleCreateStream(
 		return nil, ErrValidation
 	}
 
+	// Validate tags before mutating any state: AWS rejects the whole CreateStream
+	// call (no stream created) when the inline Tags fail key/value length or
+	// count constraints.
+	if err := validateTagKVs(req.Tags); err != nil {
+		return nil, err
+	}
+	if len(req.Tags) > maxTagsPerStream {
+		return nil, ErrTagLimitExceeded
+	}
+
 	region := getRegion(ctx, h.defaultRegion())
 
 	var streamMode string
@@ -607,7 +560,17 @@ func (h *Handler) handleCreateStream(
 	}
 
 	if len(req.Tags) > 0 {
-		h.setTags(region, req.StreamName, req.Tags)
+		// Persist tags on the backend's stream.Tags (the field that actually
+		// participates in Snapshot/Restore) rather than a handler-local map, so
+		// tags applied at creation time survive a persistence round-trip.
+		if out, dErr := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); dErr == nil {
+			if tErr := h.Backend.TagResource(ctx, &TagResourceInput{
+				ResourceARN: out.StreamARN,
+				Tags:        req.Tags,
+			}); tErr != nil {
+				logger.Load(ctx).WarnContext(ctx, "CreateStream: failed to apply inline tags", "error", tErr)
+			}
+		}
 	}
 
 	return struct{}{}, nil
@@ -640,16 +603,6 @@ func (h *Handler) handleDeleteStream(
 		return nil, err
 	}
 
-	// Clean up handler-level tags to prevent resource/metric leaks.
-	key := tagKey(region, streamName)
-	h.tagsMu.Lock("handleDeleteStream")
-	if t := h.tags[key]; t != nil {
-		t.Close()
-	}
-
-	delete(h.tags, key)
-	h.tagsMu.Unlock()
-
 	return struct{}{}, nil
 }
 
@@ -678,7 +631,11 @@ func (h *Handler) handleDescribeStream(
 		streamName = streamNameFromARN(req.StreamARN)
 	}
 
-	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: streamName})
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{
+		StreamName:            streamName,
+		ExclusiveStartShardID: req.ExclusiveStartShardID,
+		Limit:                 req.Limit,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -707,7 +664,7 @@ func (h *Handler) handleDescribeStream(
 			StreamStatus:            out.StreamStatus,
 			RetentionPeriodHours:    out.RetentionPeriodHours,
 			Shards:                  shards,
-			HasMoreShards:           false,
+			HasMoreShards:           out.HasMoreShards,
 			EncryptionType:          out.EncryptionType,
 			KeyID:                   out.KeyID,
 			EnhancedMonitoring:      enhancedMonitoringEntries(out.EnhancedMonitoring),
@@ -1123,7 +1080,8 @@ func (h *Handler) handleAddTagsToStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if _, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName})
+	if err != nil {
 		return nil, err
 	}
 
@@ -1132,19 +1090,27 @@ func (h *Handler) handleAddTagsToStream(
 		kv = req.Tags.Clone()
 	}
 
-	if err := validateTagKVs(kv); err != nil {
+	if err = validateTagKVs(kv); err != nil {
 		return nil, err
 	}
 
-	region := getRegion(ctx, h.defaultRegion())
-	existing := h.getTags(region, req.StreamName)
-	merged := make(map[string]string, len(existing))
-	maps.Copy(merged, existing)
+	// Tags live on the backend's stream.Tags (persisted via Snapshot/Restore),
+	// not a handler-local map, so AddTagsToStream and TagResource share one
+	// source of truth and tags survive a persistence round-trip.
+	existingOut, err := h.Backend.ListTagsForResource(ctx, &ListTagsForResourceInput{ResourceARN: out.StreamARN})
+	if err != nil {
+		return nil, err
+	}
+	merged := make(map[string]string, len(existingOut.Tags)+len(kv))
+	maps.Copy(merged, existingOut.Tags)
 	maps.Copy(merged, kv)
 	if len(merged) > maxTagsPerStream {
 		return nil, ErrTagLimitExceeded
 	}
-	h.setTags(region, req.StreamName, kv)
+
+	if err = h.Backend.TagResource(ctx, &TagResourceInput{ResourceARN: out.StreamARN, Tags: kv}); err != nil {
+		return nil, err
+	}
 
 	return struct{}{}, nil
 }
@@ -1164,11 +1130,17 @@ func (h *Handler) handleRemoveTagsFromStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if _, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName})
+	if err != nil {
 		return nil, err
 	}
 
-	h.removeTags(getRegion(ctx, h.defaultRegion()), req.StreamName, req.TagKeys)
+	if err = h.Backend.UntagResource(ctx, &UntagResourceInput{
+		ResourceARN: out.StreamARN,
+		TagKeys:     req.TagKeys,
+	}); err != nil {
+		return nil, err
+	}
 
 	return struct{}{}, nil
 }
@@ -1189,11 +1161,16 @@ func (h *Handler) handleListTagsForStream(
 		return nil, ErrInvalidArgument
 	}
 
-	if _, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName}); err != nil {
+	out, err := h.Backend.DescribeStream(ctx, &DescribeStreamInput{StreamName: req.StreamName})
+	if err != nil {
 		return nil, err
 	}
 
-	tagsMap := h.getTags(getRegion(ctx, h.defaultRegion()), req.StreamName)
+	tagsOut, err := h.Backend.ListTagsForResource(ctx, &ListTagsForResourceInput{ResourceARN: out.StreamARN})
+	if err != nil {
+		return nil, err
+	}
+	tagsMap := tagsOut.Tags
 
 	keys := collections.SortedKeys(tagsMap)
 
@@ -1499,18 +1476,13 @@ func (h *Handler) handleListTagsForResource(
 		return nil, ErrInvalidArgument
 	}
 
-	streamName := streamNameFromARN(req.ResourceARN)
-	region := regionFromARNOrCtx(ctx, req.ResourceARN, h.defaultRegion())
-	regionCtx := contextWithRegion(ctx, region)
-
-	// Validate the stream exists before returning tags.
-	if _, err := h.Backend.DescribeStream(regionCtx, &DescribeStreamInput{StreamName: streamName}); err != nil {
+	out, err := h.Backend.ListTagsForResource(ctx, &ListTagsForResourceInput{ResourceARN: req.ResourceARN})
+	if err != nil {
 		return nil, err
 	}
 
-	tags := h.getTags(region, streamName)
-	tagList := make([]svcTags.KV, 0, len(tags))
-	for k, v := range tags {
+	tagList := make([]svcTags.KV, 0, len(out.Tags))
+	for k, v := range out.Tags {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 	slices.SortFunc(tagList, func(a, b svcTags.KV) int {
@@ -2046,17 +2018,6 @@ func (h *Handler) Reset() {
 	if r, ok := h.Backend.(resetter); ok {
 		r.Reset()
 	}
-
-	// Close and discard handler-level tag registries to prevent metric leaks.
-	h.tagsMu.Lock("Reset")
-	for _, t := range h.tags {
-		if t != nil {
-			t.Close()
-		}
-	}
-
-	h.tags = make(map[string]*svcTags.Tags)
-	h.tagsMu.Unlock()
 }
 
 // Purge implements service.Purgeable by removing all Kinesis streams older than cutoff.
@@ -2110,17 +2071,25 @@ func (h *Handler) handleTagResource(
 		return nil, err
 	}
 
-	if err := h.Backend.TagResource(ctx, &TagResourceInput{
+	// Enforce the AWS 50-tag-per-stream cap here too: TagResource and
+	// AddTagsToStream share the same underlying tag set (stream.Tags), so the
+	// limit must be consistent across both entry points.
+	existingOut, err := h.Backend.ListTagsForResource(ctx, &ListTagsForResourceInput{ResourceARN: req.ResourceARN})
+	if err != nil {
+		return nil, err
+	}
+	merged := make(map[string]string, len(existingOut.Tags)+len(req.Tags))
+	maps.Copy(merged, existingOut.Tags)
+	maps.Copy(merged, req.Tags)
+	if len(merged) > maxTagsPerStream {
+		return nil, ErrTagLimitExceeded
+	}
+
+	if err = h.Backend.TagResource(ctx, &TagResourceInput{
 		ResourceARN: req.ResourceARN,
 		Tags:        req.Tags,
 	}); err != nil {
 		return nil, err
-	}
-
-	// Mirror into the handler-level tag store for ListTagsForStream compatibility.
-	streamName := streamNameFromARN(req.ResourceARN)
-	if streamName != "" {
-		h.setTags(regionFromARNOrCtx(ctx, req.ResourceARN, h.defaultRegion()), streamName, req.Tags)
 	}
 
 	return struct{}{}, nil
@@ -2141,12 +2110,6 @@ func (h *Handler) handleUntagResource(
 		TagKeys:     req.TagKeys,
 	}); err != nil {
 		return nil, err
-	}
-
-	// Mirror removal into the handler-level tag store.
-	streamName := streamNameFromARN(req.ResourceARN)
-	if streamName != "" {
-		h.removeTags(regionFromARNOrCtx(ctx, req.ResourceARN, h.defaultRegion()), streamName, req.TagKeys)
 	}
 
 	return struct{}{}, nil

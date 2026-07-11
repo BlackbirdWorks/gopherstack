@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -395,28 +396,28 @@ type ModelInvocationLoggingConfiguration struct {
 
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
-	guardrails                  map[string]*Guardrail
-	guardrailVersions           map[string]*GuardrailVersion // guardrailID+":"+version → version
-	provisionedModelThroughputs map[string]*ProvisionedModelThroughput
-	evaluationJobs              map[string]*EvaluationJob
-	automatedReasoningPolicies  map[string]*AutomatedReasoningPolicy
-	arpBuildWorkflows           map[string]*AutomatedReasoningPolicyBuildWorkflow // workflowID → workflow
-	arpTestCases                map[string]*AutomatedReasoningPolicyTestCase      // testCaseID → test case
-	arpVersions                 map[string]*AutomatedReasoningPolicyVersion       // policyArn+":"+version → version
-	arpVersionCountByPolicy     map[string]int                                    // policyARN → per-policy version counter
-	customModels                map[string]*CustomModel                           // modelArn → model
-	customModelDeployments      map[string]*CustomModelDeployment                 // deploymentArn → deployment
-	foundationModelAgreements   map[string]*FoundationModelAgreement              // modelID → agreement
-	modelCustomizationJobs      map[string]*ModelCustomizationJob                 // jobArn → job
-	modelCopyJobs               map[string]*ModelCopyJob                          // jobArn → job
-	modelImportJobs             map[string]*ModelImportJob                        // jobArn → job
-	inferenceProfiles           map[string]*InferenceProfile                      // profileArn → profile
-	marketplaceEndpoints        map[string]*MarketplaceModelEndpoint              // endpointArn → endpoint
+	guardrails                  *store.Table[Guardrail]
+	guardrailVersions           *store.Table[GuardrailVersion] // guardrailID+":"+version → version
+	provisionedModelThroughputs *store.Table[ProvisionedModelThroughput]
+	evaluationJobs              *store.Table[EvaluationJob]
+	automatedReasoningPolicies  *store.Table[AutomatedReasoningPolicy]
+	arpBuildWorkflows           *store.Table[AutomatedReasoningPolicyBuildWorkflow] // workflowID → workflow
+	arpTestCases                *store.Table[AutomatedReasoningPolicyTestCase]      // testCaseID → test case
+	arpVersions                 *store.Table[AutomatedReasoningPolicyVersion]       // policyArn+":"+version → version
+	arpVersionCountByPolicy     map[string]int                                      // policyARN → version counter
+	customModels                *store.Table[CustomModel]                           // modelArn → model
+	customModelDeployments      *store.Table[CustomModelDeployment]                 // deploymentArn → deployment
+	foundationModelAgreements   *store.Table[FoundationModelAgreement]              // modelID → agreement
+	modelCustomizationJobs      *store.Table[ModelCustomizationJob]                 // jobArn → job
+	modelCopyJobs               *store.Table[ModelCopyJob]                          // jobArn → job
+	modelImportJobs             *store.Table[ModelImportJob]                        // jobArn → job
+	inferenceProfiles           *store.Table[InferenceProfile]                      // profileArn → profile
+	marketplaceEndpoints        *store.Table[MarketplaceModelEndpoint]              // endpointArn → endpoint
 	loggingConfig               *ModelInvocationLoggingConfiguration
-	modelInvocationJobs         map[string]*ModelInvocationJob      // jobArn → job
-	promptRouters               map[string]*PromptRouter            // routerArn → router
-	enforcedGuardrailConfigs    map[string]*EnforcedGuardrailConfig // guardrailID → config
-	arpAnnotations              map[string][]any                    // policyARN → annotations
+	modelInvocationJobs         *store.Table[ModelInvocationJob]      // jobArn → job
+	promptRouters               *store.Table[PromptRouter]            // routerArn → router
+	enforcedGuardrailConfigs    *store.Table[EnforcedGuardrailConfig] // guardrailID → config
+	arpAnnotations              map[string][]any                      // policyARN → annotations
 	useCaseType                 string
 	useCaseDescription          string
 	guardrailsByName            map[string]string // guardrail name → ID
@@ -431,31 +432,32 @@ type InMemoryBackend struct {
 	marketplaceEndpointsByName  map[string]string // endpoint name → ARN
 	promptRoutersByName         map[string]string // router name → ARN
 	// Agents
-	agents              map[string]*Agent
-	agentsByName        map[string]string                         // agentName → agentID
-	agentActionGroups   map[string]*AgentActionGroup              // agentID/actionGroupID → group
-	agentAliases        map[string]*AgentAlias                    // agentID/aliasID → alias
-	agentKBAssociations map[string]*AgentKnowledgeBaseAssociation // agentID/kbID → assoc
-	knowledgeBases      map[string]*KnowledgeBase                 // kbID → kb
-	kbByName            map[string]string                         // kbName → kbID
-	dataSources         map[string]*DataSource                    // kbID/dsID → ds
-	ingestionJobs       map[string]*IngestionJob                  // kbID/dsID/jobID → job
+	agents              *store.Table[Agent]
+	agentsByName        map[string]string                           // agentName → agentID
+	agentActionGroups   *store.Table[AgentActionGroup]              // agentID/actionGroupID → group
+	agentAliases        *store.Table[AgentAlias]                    // agentID/aliasID → alias
+	agentKBAssociations *store.Table[AgentKnowledgeBaseAssociation] // agentID/kbID → assoc
+	knowledgeBases      *store.Table[KnowledgeBase]                 // kbID → kb
+	kbByName            map[string]string                           // kbName → kbID
+	dataSources         *store.Table[DataSource]                    // kbID/dsID → ds
+	ingestionJobs       *store.Table[IngestionJob]                  // kbID/dsID/jobID → job
 	// Agents batch-3 additions
-	flows                      map[string]*Flow                         // flowID → flow
-	flowsByName                map[string]string                        // flowName → flowID
-	flowAliases                map[string]*FlowAlias                    // flowAliasKey(flowID, aliasID) → alias
-	flowVersions               map[string]map[string]*FlowVersion       // flowID → version → flowVersion
-	flowVersionCounters        map[string]int                           // flowID → next version number
-	prompts                    map[string]*Prompt                       // promptID → prompt
-	promptsByName              map[string]string                        // promptName → promptID
-	promptVersions             map[string]map[string]*PromptVersion     // promptID → version → promptVersion
-	promptVersionCounters      map[string]int                           // promptID → next version number
-	agentVersions              map[string]map[string]*AgentVersion      // agentID → version → agentVersion
-	agentVersionCounters       map[string]int                           // agentID → next version number
-	agentCollaborators         map[string]map[string]*AgentCollaborator // agentID → collabID → collaborator
-	kbDocuments                map[string]*KnowledgeBaseDocument        // kbDocKey → document
-	agentTags                  map[string]map[string]string             // ARN → tagKey → tagValue
-	agentMemory                map[string][]any                         // agentID/sessionID → memory entries
+	flows                      *store.Table[Flow]                         // flowID → flow
+	flowsByName                map[string]string                          // flowName → flowID
+	flowAliases                *store.Table[FlowAlias]                    // flowAliasKey(flowID, aliasID) → alias
+	flowVersions               map[string]*store.Table[FlowVersion]       // flowID → version table (lazy)
+	flowVersionCounters        map[string]int                             // flowID → next version number
+	prompts                    *store.Table[Prompt]                       // promptID → prompt
+	promptsByName              map[string]string                          // promptName → promptID
+	promptVersions             map[string]*store.Table[PromptVersion]     // promptID → version table (lazy)
+	promptVersionCounters      map[string]int                             // promptID → next version number
+	agentVersions              map[string]*store.Table[AgentVersion]      // agentID → version table (lazy)
+	agentVersionCounters       map[string]int                             // agentID → next version number
+	agentCollaborators         map[string]*store.Table[AgentCollaborator] // agentID → collaborator table (lazy)
+	kbDocuments                *store.Table[KnowledgeBaseDocument]        // kbDocKey → document
+	agentTags                  map[string]map[string]string               // ARN → tagKey → tagValue
+	agentMemory                map[string][]any                           // agentID/sessionID → memory entries
+	registry                   *store.Registry
 	mu                         *lockmetrics.RWMutex
 	accountID                  string
 	region                     string
@@ -492,66 +494,38 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		guardrails:                  make(map[string]*Guardrail),
-		guardrailVersions:           make(map[string]*GuardrailVersion),
-		provisionedModelThroughputs: make(map[string]*ProvisionedModelThroughput),
-		evaluationJobs:              make(map[string]*EvaluationJob),
-		automatedReasoningPolicies:  make(map[string]*AutomatedReasoningPolicy),
-		arpBuildWorkflows:           make(map[string]*AutomatedReasoningPolicyBuildWorkflow),
-		arpTestCases:                make(map[string]*AutomatedReasoningPolicyTestCase),
-		arpVersions:                 make(map[string]*AutomatedReasoningPolicyVersion),
-		arpVersionCountByPolicy:     make(map[string]int),
-		customModels:                make(map[string]*CustomModel),
-		customModelDeployments:      make(map[string]*CustomModelDeployment),
-		foundationModelAgreements:   make(map[string]*FoundationModelAgreement),
-		modelCustomizationJobs:      make(map[string]*ModelCustomizationJob),
-		modelCopyJobs:               make(map[string]*ModelCopyJob),
-		modelImportJobs:             make(map[string]*ModelImportJob),
-		inferenceProfiles:           make(map[string]*InferenceProfile),
-		marketplaceEndpoints:        make(map[string]*MarketplaceModelEndpoint),
-		guardrailsByName:            make(map[string]string),
-		guardrailsByARN:             make(map[string]string),
-		pmtsByName:                  make(map[string]string),
-		arpByName:                   make(map[string]string),
-		customModelsByName:          make(map[string]string),
-		customModelDeployByName:     make(map[string]string),
-		evaluationJobsByName:        make(map[string]string),
-		customizationJobsByName:     make(map[string]string),
-		inferenceProfilesByName:     make(map[string]string),
-		marketplaceEndpointsByName:  make(map[string]string),
-		modelInvocationJobs:         make(map[string]*ModelInvocationJob),
-		promptRouters:               make(map[string]*PromptRouter),
-		enforcedGuardrailConfigs:    make(map[string]*EnforcedGuardrailConfig),
-		arpAnnotations:              make(map[string][]any),
-		promptRoutersByName:         make(map[string]string),
-		agents:                      make(map[string]*Agent),
-		agentsByName:                make(map[string]string),
-		agentActionGroups:           make(map[string]*AgentActionGroup),
-		agentAliases:                make(map[string]*AgentAlias),
-		agentKBAssociations:         make(map[string]*AgentKnowledgeBaseAssociation),
-		knowledgeBases:              make(map[string]*KnowledgeBase),
-		kbByName:                    make(map[string]string),
-		dataSources:                 make(map[string]*DataSource),
-		ingestionJobs:               make(map[string]*IngestionJob),
-		flows:                       make(map[string]*Flow),
-		flowsByName:                 make(map[string]string),
-		flowAliases:                 make(map[string]*FlowAlias),
-		flowVersions:                make(map[string]map[string]*FlowVersion),
-		flowVersionCounters:         make(map[string]int),
-		prompts:                     make(map[string]*Prompt),
-		promptsByName:               make(map[string]string),
-		promptVersions:              make(map[string]map[string]*PromptVersion),
-		promptVersionCounters:       make(map[string]int),
-		agentVersions:               make(map[string]map[string]*AgentVersion),
-		agentVersionCounters:        make(map[string]int),
-		agentCollaborators:          make(map[string]map[string]*AgentCollaborator),
-		kbDocuments:                 make(map[string]*KnowledgeBaseDocument),
-		agentTags:                   make(map[string]map[string]string),
-		agentMemory:                 make(map[string][]any),
-		accountID:                   accountID,
-		region:                      region,
-		mu:                          lockmetrics.New("bedrock"),
+		arpVersionCountByPolicy:    make(map[string]int),
+		guardrailsByName:           make(map[string]string),
+		guardrailsByARN:            make(map[string]string),
+		pmtsByName:                 make(map[string]string),
+		arpByName:                  make(map[string]string),
+		customModelsByName:         make(map[string]string),
+		customModelDeployByName:    make(map[string]string),
+		evaluationJobsByName:       make(map[string]string),
+		customizationJobsByName:    make(map[string]string),
+		inferenceProfilesByName:    make(map[string]string),
+		marketplaceEndpointsByName: make(map[string]string),
+		arpAnnotations:             make(map[string][]any),
+		promptRoutersByName:        make(map[string]string),
+		agentsByName:               make(map[string]string),
+		kbByName:                   make(map[string]string),
+		flowsByName:                make(map[string]string),
+		flowVersions:               make(map[string]*store.Table[FlowVersion]),
+		flowVersionCounters:        make(map[string]int),
+		promptsByName:              make(map[string]string),
+		promptVersions:             make(map[string]*store.Table[PromptVersion]),
+		promptVersionCounters:      make(map[string]int),
+		agentVersions:              make(map[string]*store.Table[AgentVersion]),
+		agentVersionCounters:       make(map[string]int),
+		agentCollaborators:         make(map[string]*store.Table[AgentCollaborator]),
+		agentTags:                  make(map[string]map[string]string),
+		agentMemory:                make(map[string][]any),
+		accountID:                  accountID,
+		region:                     region,
+		mu:                         lockmetrics.New("bedrock"),
+		registry:                   store.NewRegistry(),
 	}
+	registerAllTables(b)
 	b.seedFoundationModels()
 
 	return b
@@ -564,27 +538,22 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // The accountID, region, and seeded foundation models are preserved.
 //
 //nolint:funlen // Reset must clear all maps; the length is proportional to the number of resource types
+//nolint:funlen // Reset must clear all state; the length is proportional to the number of resource types
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.guardrails = make(map[string]*Guardrail)
-	b.guardrailVersions = make(map[string]*GuardrailVersion)
-	b.provisionedModelThroughputs = make(map[string]*ProvisionedModelThroughput)
-	b.evaluationJobs = make(map[string]*EvaluationJob)
-	b.automatedReasoningPolicies = make(map[string]*AutomatedReasoningPolicy)
-	b.arpBuildWorkflows = make(map[string]*AutomatedReasoningPolicyBuildWorkflow)
-	b.arpTestCases = make(map[string]*AutomatedReasoningPolicyTestCase)
-	b.arpVersions = make(map[string]*AutomatedReasoningPolicyVersion)
+	// registry.ResetAll empties every registered table in place -- including
+	// every per-parent flowVersions/promptVersions/agentVersions/
+	// agentCollaborators table lazily registered so far. It deliberately does
+	// NOT unregister them: b.flowVersions/b.promptVersions/b.agentVersions/
+	// b.agentCollaborators keep pointing at the same *store.Table instances,
+	// so a parent ID touched again after Reset reuses its existing
+	// registration instead of re-registering under an already-used name
+	// (which would panic -- see store.Register). Mirrors services/kms's
+	// Reset (keysStore/aliasesStore/grantsRegion/customKeyStoresStore).
+	b.registry.ResetAll()
 	b.arpVersionCountByPolicy = make(map[string]int)
-	b.customModels = make(map[string]*CustomModel)
-	b.customModelDeployments = make(map[string]*CustomModelDeployment)
-	b.foundationModelAgreements = make(map[string]*FoundationModelAgreement)
-	b.modelCustomizationJobs = make(map[string]*ModelCustomizationJob)
-	b.modelCopyJobs = make(map[string]*ModelCopyJob)
-	b.modelImportJobs = make(map[string]*ModelImportJob)
-	b.inferenceProfiles = make(map[string]*InferenceProfile)
-	b.marketplaceEndpoints = make(map[string]*MarketplaceModelEndpoint)
 	b.loggingConfig = nil
 	b.guardrailsByName = make(map[string]string)
 	b.guardrailsByARN = make(map[string]string)
@@ -596,34 +565,19 @@ func (b *InMemoryBackend) Reset() {
 	b.customizationJobsByName = make(map[string]string)
 	b.inferenceProfilesByName = make(map[string]string)
 	b.marketplaceEndpointsByName = make(map[string]string)
-	b.agents = make(map[string]*Agent)
 	b.agentsByName = make(map[string]string)
-	b.agentActionGroups = make(map[string]*AgentActionGroup)
-	b.agentAliases = make(map[string]*AgentAlias)
-	b.agentKBAssociations = make(map[string]*AgentKnowledgeBaseAssociation)
-	b.knowledgeBases = make(map[string]*KnowledgeBase)
 	b.kbByName = make(map[string]string)
-	b.dataSources = make(map[string]*DataSource)
-	b.ingestionJobs = make(map[string]*IngestionJob)
 	b.agentCounter = 0
 	b.actionGroupCounter = 0
 	b.agentAliasCounter = 0
 	b.kbCounter = 0
 	b.dataSourceCounter = 0
 	b.ingestionJobCounter = 0
-	b.flows = make(map[string]*Flow)
 	b.flowsByName = make(map[string]string)
-	b.flowAliases = make(map[string]*FlowAlias)
-	b.flowVersions = make(map[string]map[string]*FlowVersion)
 	b.flowVersionCounters = make(map[string]int)
-	b.prompts = make(map[string]*Prompt)
 	b.promptsByName = make(map[string]string)
-	b.promptVersions = make(map[string]map[string]*PromptVersion)
 	b.promptVersionCounters = make(map[string]int)
-	b.agentVersions = make(map[string]map[string]*AgentVersion)
 	b.agentVersionCounters = make(map[string]int)
-	b.agentCollaborators = make(map[string]map[string]*AgentCollaborator)
-	b.kbDocuments = make(map[string]*KnowledgeBaseDocument)
 	b.agentTags = make(map[string]map[string]string)
 	b.agentMemory = make(map[string][]any)
 	b.flowCounter = 0
@@ -646,9 +600,6 @@ func (b *InMemoryBackend) Reset() {
 	b.marketplaceEndpointCounter = 0
 	b.modelInvocationJobCounter = 0
 	b.promptRouterCounter = 0
-	b.modelInvocationJobs = make(map[string]*ModelInvocationJob)
-	b.promptRouters = make(map[string]*PromptRouter)
-	b.enforcedGuardrailConfigs = make(map[string]*EnforcedGuardrailConfig)
 	b.arpAnnotations = make(map[string][]any)
 	b.promptRoutersByName = make(map[string]string)
 	b.useCaseType = ""
@@ -826,7 +777,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
-	b.guardrails[id] = g
+	b.guardrails.Put(g)
 	b.guardrailsByName[name] = id
 	b.guardrailsByARN[guardrailARN] = id
 	cp := *g
@@ -861,9 +812,9 @@ func (b *InMemoryBackend) ListGuardrails(
 	b.mu.RLock("ListGuardrails")
 	defer b.mu.RUnlock()
 
-	list := make([]*GuardrailSummary, 0, len(b.guardrails))
+	list := make([]*GuardrailSummary, 0, b.guardrails.Len())
 
-	for _, g := range b.guardrails {
+	for _, g := range b.guardrails.All() {
 		if guardrailIdentifier != "" &&
 			g.GuardrailID != guardrailIdentifier &&
 			g.GuardrailArn != guardrailIdentifier &&
@@ -891,14 +842,19 @@ func (b *InMemoryBackend) ListGuardrails(
 // hasPublishedVersions reports whether a guardrail has any published (non-DRAFT) versions.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) hasPublishedVersions(guardrailID string) bool {
-	for key := range b.guardrailVersions {
-		prefix := guardrailID + ":"
-		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-			return true
-		}
-	}
+	found := false
 
-	return false
+	b.guardrailVersions.Range(func(v *GuardrailVersion) bool {
+		if v.GuardrailID == guardrailID {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // UpdateGuardrail updates a guardrail's name, description, messaging, and policies.
@@ -969,7 +925,7 @@ func (b *InMemoryBackend) DeleteGuardrail(idOrARN string) error {
 		return fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
-	delete(b.guardrails, g.GuardrailID)
+	b.guardrails.Delete(g.GuardrailID)
 	delete(b.guardrailsByName, g.Name)
 	delete(b.guardrailsByARN, g.GuardrailArn)
 
@@ -979,12 +935,12 @@ func (b *InMemoryBackend) DeleteGuardrail(idOrARN string) error {
 // findGuardrailByIDOrARN finds a guardrail by ID or ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findGuardrailByIDOrARN(idOrARN string) (*Guardrail, bool) {
-	if g, ok := b.guardrails[idOrARN]; ok {
+	if g, ok := b.guardrails.Get(idOrARN); ok {
 		return g, true
 	}
 
 	if id, ok := b.guardrailsByARN[idOrARN]; ok {
-		return b.guardrails[id], true
+		return b.guardrails.Get(id)
 	}
 
 	return nil, false
@@ -1074,7 +1030,7 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 		LastModifiedTime:     now,
 		Tags:                 tagsCopy,
 	}
-	b.provisionedModelThroughputs[pmtARN] = pmt
+	b.provisionedModelThroughputs.Put(pmt)
 	b.pmtsByName[name] = pmtARN
 	cp := *pmt
 
@@ -1108,9 +1064,9 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs(
 	b.mu.RLock("ListProvisionedModelThroughputs")
 	defer b.mu.RUnlock()
 
-	list := make([]*ProvisionedModelThroughput, 0, len(b.provisionedModelThroughputs))
+	list := make([]*ProvisionedModelThroughput, 0, b.provisionedModelThroughputs.Len())
 
-	for _, pmt := range b.provisionedModelThroughputs {
+	for _, pmt := range b.provisionedModelThroughputs.All() {
 		cp := *pmt
 		list = append(list, &cp)
 	}
@@ -1165,7 +1121,7 @@ func (b *InMemoryBackend) DeleteProvisionedModelThroughput(idOrARN string) error
 		return fmt.Errorf("%w: provisioned model throughput %s not found", ErrNotFound, idOrARN)
 	}
 
-	delete(b.provisionedModelThroughputs, pmt.ProvisionedModelArn)
+	b.provisionedModelThroughputs.Delete(pmt.ProvisionedModelArn)
 	delete(b.pmtsByName, pmt.ProvisionedModelName)
 
 	return nil
@@ -1180,7 +1136,7 @@ func (b *InMemoryBackend) AdvanceProvisionedModelThroughputStatuses() int {
 	now := time.Now().UTC()
 	advanced := 0
 
-	for _, pmt := range b.provisionedModelThroughputs {
+	for _, pmt := range b.provisionedModelThroughputs.All() {
 		if pmt.Status != statusCreating {
 			continue
 		}
@@ -1197,12 +1153,12 @@ func (b *InMemoryBackend) AdvanceProvisionedModelThroughputStatuses() int {
 // findPMTByIDOrARN finds a provisioned model throughput by ID or ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findPMTByIDOrARN(idOrARN string) (*ProvisionedModelThroughput, bool) {
-	if pmt, ok := b.provisionedModelThroughputs[idOrARN]; ok {
+	if pmt, ok := b.provisionedModelThroughputs.Get(idOrARN); ok {
 		return pmt, true
 	}
 
 	if pmtARN, ok := b.pmtsByName[idOrARN]; ok {
-		return b.provisionedModelThroughputs[pmtARN], true
+		return b.provisionedModelThroughputs.Get(pmtARN)
 	}
 
 	return nil, false
@@ -1336,37 +1292,37 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	defer b.mu.Unlock()
 
 	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		g := b.guardrails[id]
+		g, _ := b.guardrails.Get(id)
 		g.Tags = mergeTags(g.Tags, tags)
 
 		return nil
 	}
 
-	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
+	if pmt, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
 		pmt.Tags = mergeTags(pmt.Tags, tags)
 
 		return nil
 	}
 
-	if job, ok := b.evaluationJobs[resourceARN]; ok {
+	if job, ok := b.evaluationJobs.Get(resourceARN); ok {
 		job.Tags = mergeTags(job.Tags, tags)
 
 		return nil
 	}
 
-	if policy, ok := b.automatedReasoningPolicies[resourceARN]; ok {
+	if policy, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
 		policy.Tags = mergeTags(policy.Tags, tags)
 
 		return nil
 	}
 
-	if model, ok := b.customModels[resourceARN]; ok {
+	if model, ok := b.customModels.Get(resourceARN); ok {
 		model.Tags = mergeTags(model.Tags, tags)
 
 		return nil
 	}
 
-	if deployment, ok := b.customModelDeployments[resourceARN]; ok {
+	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
 		deployment.Tags = mergeTags(deployment.Tags, tags)
 
 		return nil
@@ -1386,37 +1342,37 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	}
 
 	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		g := b.guardrails[id]
+		g, _ := b.guardrails.Get(id)
 		g.Tags = filterTags(g.Tags, removeSet)
 
 		return nil
 	}
 
-	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
+	if pmt, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
 		pmt.Tags = filterTags(pmt.Tags, removeSet)
 
 		return nil
 	}
 
-	if job, ok := b.evaluationJobs[resourceARN]; ok {
+	if job, ok := b.evaluationJobs.Get(resourceARN); ok {
 		job.Tags = filterTags(job.Tags, removeSet)
 
 		return nil
 	}
 
-	if policy, ok := b.automatedReasoningPolicies[resourceARN]; ok {
+	if policy, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
 		policy.Tags = filterTags(policy.Tags, removeSet)
 
 		return nil
 	}
 
-	if model, ok := b.customModels[resourceARN]; ok {
+	if model, ok := b.customModels.Get(resourceARN); ok {
 		model.Tags = filterTags(model.Tags, removeSet)
 
 		return nil
 	}
 
-	if deployment, ok := b.customModelDeployments[resourceARN]; ok {
+	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
 		deployment.Tags = filterTags(deployment.Tags, removeSet)
 
 		return nil
@@ -1429,26 +1385,28 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		return b.guardrails[id].Tags, true
+		g, _ := b.guardrails.Get(id)
+
+		return g.Tags, true
 	}
 
-	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
+	if pmt, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
 		return pmt.Tags, true
 	}
 
-	if job, ok := b.evaluationJobs[resourceARN]; ok {
+	if job, ok := b.evaluationJobs.Get(resourceARN); ok {
 		return job.Tags, true
 	}
 
-	if policy, ok := b.automatedReasoningPolicies[resourceARN]; ok {
+	if policy, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
 		return policy.Tags, true
 	}
 
-	if model, ok := b.customModels[resourceARN]; ok {
+	if model, ok := b.customModels.Get(resourceARN); ok {
 		return model.Tags, true
 	}
 
-	if deployment, ok := b.customModelDeployments[resourceARN]; ok {
+	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
 		return deployment.Tags, true
 	}
 
@@ -1507,7 +1465,7 @@ func (b *InMemoryBackend) CreateEvaluationJob(
 		job.EvaluationConfig = opt.EvalConfig
 	}
 
-	b.evaluationJobs[jobARN] = job
+	b.evaluationJobs.Put(job)
 	b.evaluationJobsByName[name] = jobARN
 	cp := *job
 	cp.Tags = copyTags(job.Tags)
@@ -1544,7 +1502,7 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 	deleted := make([]BatchDeleteEvaluationJobItem, 0, len(jobARNs))
 
 	for _, jobARN := range jobARNs {
-		job, ok := b.evaluationJobs[jobARN]
+		job, ok := b.evaluationJobs.Get(jobARN)
 		if !ok {
 			errs = append(errs, BatchDeleteEvaluationJobError{
 				JobARN:  jobARN,
@@ -1566,7 +1524,7 @@ func (b *InMemoryBackend) BatchDeleteEvaluationJob(jobARNs []string) (
 		}
 
 		delete(b.evaluationJobsByName, job.JobName)
-		delete(b.evaluationJobs, jobARN)
+		b.evaluationJobs.Delete(jobARN)
 		deleted = append(deleted, BatchDeleteEvaluationJobItem{
 			JobARN: jobARN,
 			Status: "Deleting",
@@ -1619,7 +1577,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 		UpdatedAt:   now,
 		Tags:        copyTags(tags),
 	}
-	b.automatedReasoningPolicies[policyARN] = policy
+	b.automatedReasoningPolicies.Put(policy)
 	b.arpByName[name] = policyARN
 	cp := *policy
 	cp.Tags = copyTags(policy.Tags)
@@ -1634,11 +1592,11 @@ func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(
 	b.mu.Lock("CancelAutomatedReasoningPolicyBuildWorkflow")
 	defer b.mu.Unlock()
 
-	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
 		return fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
 	}
 
-	wf, ok := b.arpBuildWorkflows[workflowID]
+	wf, ok := b.arpBuildWorkflows.Get(workflowID)
 	if !ok {
 		return fmt.Errorf("%w: build workflow %s not found", ErrNotFound, workflowID)
 	}
@@ -1664,7 +1622,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 	b.mu.Lock("CreateAutomatedReasoningPolicyTestCase")
 	defer b.mu.Unlock()
 
-	if _, ok := b.automatedReasoningPolicies[policyARN]; !ok {
+	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
 		return nil, fmt.Errorf(
 			"%w: automated reasoning policy %s not found",
 			ErrNotFound,
@@ -1677,7 +1635,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 		TestCaseID: id,
 		PolicyArn:  policyARN,
 	}
-	b.arpTestCases[id] = tc
+	b.arpTestCases.Put(tc)
 	cp := *tc
 
 	return &cp, nil
@@ -1690,7 +1648,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 	b.mu.Lock("CreateAutomatedReasoningPolicyVersion")
 	defer b.mu.Unlock()
 
-	policy, ok := b.automatedReasoningPolicies[policyARN]
+	policy, ok := b.automatedReasoningPolicies.Get(policyARN)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: automated reasoning policy %s not found",
@@ -1710,8 +1668,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 		Version:        versionNum,
 		CreatedAt:      time.Now().UTC(),
 	}
-	key := policyARN + ":" + versionNum
-	b.arpVersions[key] = version
+	b.arpVersions.Put(version)
 	cp := *version
 
 	return &cp, nil
@@ -1741,7 +1698,7 @@ func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*Cust
 		CreationTime: time.Now().UTC(),
 		Tags:         copyTags(tags),
 	}
-	b.customModels[modelARN] = model
+	b.customModels.Put(model)
 	b.customModelsByName[modelName] = modelARN
 	cp := *model
 	cp.Tags = copyTags(model.Tags)
@@ -1788,7 +1745,7 @@ func (b *InMemoryBackend) CreateCustomModelDeployment(
 		LastModifiedTime:         now,
 		Tags:                     copyTags(tags),
 	}
-	b.customModelDeployments[deploymentARN] = deployment
+	b.customModelDeployments.Put(deployment)
 	b.customModelDeployByName[deploymentName] = deploymentARN
 	cp := *deployment
 	cp.Tags = copyTags(deployment.Tags)
@@ -1812,7 +1769,7 @@ func (b *InMemoryBackend) CreateFoundationModelAgreement(
 	agreement := &FoundationModelAgreement{
 		ModelID: modelID,
 	}
-	b.foundationModelAgreements[modelID] = agreement
+	b.foundationModelAgreements.Put(agreement)
 	cp := *agreement
 
 	return &cp, nil
@@ -1823,7 +1780,7 @@ func (b *InMemoryBackend) CreateFoundationModelAgreement(
 // findCustomModelARN resolves a custom model ID or name to its ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findCustomModelARN(idOrARN string) (string, bool) {
-	if _, ok := b.customModels[idOrARN]; ok {
+	if _, ok := b.customModels.Get(idOrARN); ok {
 		return idOrARN, true
 	}
 
@@ -1853,7 +1810,7 @@ func (b *InMemoryBackend) GetCustomModel(idOrARN string) (*CustomModel, error) {
 		return nil, err
 	}
 
-	m := b.customModels[modelARN]
+	m, _ := b.customModels.Get(modelARN)
 	cp := *m
 	cp.Tags = copyTags(m.Tags)
 
@@ -1865,9 +1822,9 @@ func (b *InMemoryBackend) ListCustomModels(nextToken string) ([]*CustomModel, st
 	b.mu.RLock("ListCustomModels")
 	defer b.mu.RUnlock()
 
-	list := make([]*CustomModel, 0, len(b.customModels))
+	list := make([]*CustomModel, 0, b.customModels.Len())
 
-	for _, m := range b.customModels {
+	for _, m := range b.customModels.All() {
 		cp := *m
 		cp.Tags = copyTags(m.Tags)
 		list = append(list, &cp)
@@ -1888,9 +1845,9 @@ func (b *InMemoryBackend) DeleteCustomModel(idOrARN string) error {
 		return err
 	}
 
-	m := b.customModels[modelARN]
+	m, _ := b.customModels.Get(modelARN)
 	delete(b.customModelsByName, m.ModelName)
-	delete(b.customModels, modelARN)
+	b.customModels.Delete(modelARN)
 
 	return nil
 }
@@ -1937,7 +1894,7 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 		LastModifiedTime:  now,
 		Tags:              copyTags(tags),
 	}
-	b.modelCustomizationJobs[jobARN] = job
+	b.modelCustomizationJobs.Put(job)
 	b.customizationJobsByName[jobName] = jobARN
 	cp := *job
 	cp.Tags = copyTags(job.Tags)
@@ -1948,7 +1905,7 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 // findCustomizationJobARN resolves a job ID or name to its ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findCustomizationJobARN(idOrARN string) (string, bool) {
-	if _, ok := b.modelCustomizationJobs[idOrARN]; ok {
+	if _, ok := b.modelCustomizationJobs.Get(idOrARN); ok {
 		return idOrARN, true
 	}
 
@@ -1969,7 +1926,7 @@ func (b *InMemoryBackend) GetModelCustomizationJob(idOrARN string) (*ModelCustom
 		return nil, fmt.Errorf("%w: model customization job %s not found", ErrNotFound, idOrARN)
 	}
 
-	j := b.modelCustomizationJobs[jobARN]
+	j, _ := b.modelCustomizationJobs.Get(jobARN)
 	cp := *j
 	cp.Tags = copyTags(j.Tags)
 
@@ -1983,9 +1940,9 @@ func (b *InMemoryBackend) ListModelCustomizationJobs(
 	b.mu.RLock("ListModelCustomizationJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*ModelCustomizationJob, 0, len(b.modelCustomizationJobs))
+	list := make([]*ModelCustomizationJob, 0, b.modelCustomizationJobs.Len())
 
-	for _, j := range b.modelCustomizationJobs {
+	for _, j := range b.modelCustomizationJobs.All() {
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		list = append(list, &cp)
@@ -2006,7 +1963,8 @@ func (b *InMemoryBackend) StopModelCustomizationJob(idOrARN string) error {
 		return fmt.Errorf("%w: model customization job %s not found", ErrNotFound, idOrARN)
 	}
 
-	b.modelCustomizationJobs[jobARN].Status = statusStopped
+	j, _ := b.modelCustomizationJobs.Get(jobARN)
+	j.Status = statusStopped
 
 	return nil
 }
@@ -2020,7 +1978,7 @@ func (b *InMemoryBackend) AdvanceCustomizationJobStatuses(minAge time.Duration) 
 	now := time.Now().UTC()
 	advanced := 0
 
-	for _, job := range b.modelCustomizationJobs {
+	for _, job := range b.modelCustomizationJobs.All() {
 		if job.Status != statusInProgress {
 			continue
 		}
@@ -2067,7 +2025,7 @@ func (b *InMemoryBackend) CreateModelCopyJob(
 		LastModifiedTime: now,
 		Tags:             copyTags(tags),
 	}
-	b.modelCopyJobs[jobARN] = job
+	b.modelCopyJobs.Put(job)
 
 	cp := *job
 	cp.Tags = copyTags(job.Tags)
@@ -2080,7 +2038,7 @@ func (b *InMemoryBackend) GetModelCopyJob(jobARN string) (*ModelCopyJob, error) 
 	b.mu.RLock("GetModelCopyJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.modelCopyJobs[jobARN]
+	job, ok := b.modelCopyJobs.Get(jobARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: model copy job %s not found", ErrNotFound, jobARN)
 	}
@@ -2096,9 +2054,9 @@ func (b *InMemoryBackend) ListModelCopyJobs() []*ModelCopyJob {
 	b.mu.RLock("ListModelCopyJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*ModelCopyJob, 0, len(b.modelCopyJobs))
+	list := make([]*ModelCopyJob, 0, b.modelCopyJobs.Len())
 
-	for _, j := range b.modelCopyJobs {
+	for _, j := range b.modelCopyJobs.All() {
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		list = append(list, &cp)
@@ -2143,7 +2101,7 @@ func (b *InMemoryBackend) CreateModelImportJob(
 		LastModifiedTime: now,
 		Tags:             copyTags(tags),
 	}
-	b.modelImportJobs[jobARN] = job
+	b.modelImportJobs.Put(job)
 
 	cp := *job
 	cp.Tags = copyTags(job.Tags)
@@ -2156,7 +2114,7 @@ func (b *InMemoryBackend) GetModelImportJob(jobARN string) (*ModelImportJob, err
 	b.mu.RLock("GetModelImportJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.modelImportJobs[jobARN]
+	job, ok := b.modelImportJobs.Get(jobARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: model import job %s not found", ErrNotFound, jobARN)
 	}
@@ -2172,9 +2130,9 @@ func (b *InMemoryBackend) ListModelImportJobs() []*ModelImportJob {
 	b.mu.RLock("ListModelImportJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*ModelImportJob, 0, len(b.modelImportJobs))
+	list := make([]*ModelImportJob, 0, b.modelImportJobs.Len())
 
-	for _, j := range b.modelImportJobs {
+	for _, j := range b.modelImportJobs.All() {
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		list = append(list, &cp)
@@ -2196,7 +2154,7 @@ func (b *InMemoryBackend) AdvanceCopyImportJobStatuses(minAge time.Duration) int
 	now := time.Now().UTC()
 	advanced := 0
 
-	for _, job := range b.modelCopyJobs {
+	for _, job := range b.modelCopyJobs.All() {
 		if job.Status == statusInProgress && now.Sub(job.CreationTime) >= minAge {
 			job.Status = statusCompleted
 			job.LastModifiedTime = now
@@ -2204,7 +2162,7 @@ func (b *InMemoryBackend) AdvanceCopyImportJobStatuses(minAge time.Duration) int
 		}
 	}
 
-	for _, job := range b.modelImportJobs {
+	for _, job := range b.modelImportJobs.All() {
 		if job.Status == statusInProgress && now.Sub(job.CreationTime) >= minAge {
 			endTime := now
 			job.Status = "Complete"
@@ -2257,7 +2215,7 @@ func (b *InMemoryBackend) CreateInferenceProfile(
 		UpdatedAt:            now,
 		Tags:                 copyTags(tags),
 	}
-	b.inferenceProfiles[profileARN] = profile
+	b.inferenceProfiles.Put(profile)
 	b.inferenceProfilesByName[name] = profileARN
 	cp := *profile
 	cp.Tags = copyTags(profile.Tags)
@@ -2268,7 +2226,7 @@ func (b *InMemoryBackend) CreateInferenceProfile(
 // findInferenceProfileARN resolves a profile ID or name to its ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findInferenceProfileARN(idOrARN string) (string, bool) {
-	if _, ok := b.inferenceProfiles[idOrARN]; ok {
+	if _, ok := b.inferenceProfiles.Get(idOrARN); ok {
 		return idOrARN, true
 	}
 
@@ -2289,7 +2247,7 @@ func (b *InMemoryBackend) GetInferenceProfile(idOrARN string) (*InferenceProfile
 		return nil, fmt.Errorf("%w: inference profile %s not found", ErrNotFound, idOrARN)
 	}
 
-	p := b.inferenceProfiles[profileARN]
+	p, _ := b.inferenceProfiles.Get(profileARN)
 	cp := *p
 	cp.Tags = copyTags(p.Tags)
 
@@ -2301,9 +2259,9 @@ func (b *InMemoryBackend) ListInferenceProfiles(nextToken string) ([]*InferenceP
 	b.mu.RLock("ListInferenceProfiles")
 	defer b.mu.RUnlock()
 
-	list := make([]*InferenceProfile, 0, len(b.inferenceProfiles))
+	list := make([]*InferenceProfile, 0, b.inferenceProfiles.Len())
 
-	for _, p := range b.inferenceProfiles {
+	for _, p := range b.inferenceProfiles.All() {
 		cp := *p
 		cp.Tags = copyTags(p.Tags)
 		list = append(list, &cp)
@@ -2326,9 +2284,9 @@ func (b *InMemoryBackend) DeleteInferenceProfile(idOrARN string) error {
 		return fmt.Errorf("%w: inference profile %s not found", ErrNotFound, idOrARN)
 	}
 
-	p := b.inferenceProfiles[profileARN]
+	p, _ := b.inferenceProfiles.Get(profileARN)
 	delete(b.inferenceProfilesByName, p.InferenceProfileName)
-	delete(b.inferenceProfiles, profileARN)
+	b.inferenceProfiles.Delete(profileARN)
 
 	return nil
 }
@@ -2375,7 +2333,7 @@ func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 		UpdatedAt:     now,
 		Tags:          copyTags(tags),
 	}
-	b.marketplaceEndpoints[endpointARN] = ep
+	b.marketplaceEndpoints.Put(ep)
 	b.marketplaceEndpointsByName[endpointName] = endpointARN
 	cp := *ep
 	cp.Tags = copyTags(ep.Tags)
@@ -2386,7 +2344,7 @@ func (b *InMemoryBackend) CreateMarketplaceModelEndpoint(
 // findMarketplaceEndpointARN resolves an endpoint ID or name to its ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findMarketplaceEndpointARN(idOrARN string) (string, bool) {
-	if _, ok := b.marketplaceEndpoints[idOrARN]; ok {
+	if _, ok := b.marketplaceEndpoints.Get(idOrARN); ok {
 		return idOrARN, true
 	}
 
@@ -2409,7 +2367,7 @@ func (b *InMemoryBackend) GetMarketplaceModelEndpoint(
 		return nil, fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
 	}
 
-	ep := b.marketplaceEndpoints[epARN]
+	ep, _ := b.marketplaceEndpoints.Get(epARN)
 	cp := *ep
 	cp.Tags = copyTags(ep.Tags)
 
@@ -2423,9 +2381,9 @@ func (b *InMemoryBackend) ListMarketplaceModelEndpoints(
 	b.mu.RLock("ListMarketplaceModelEndpoints")
 	defer b.mu.RUnlock()
 
-	list := make([]*MarketplaceModelEndpoint, 0, len(b.marketplaceEndpoints))
+	list := make([]*MarketplaceModelEndpoint, 0, b.marketplaceEndpoints.Len())
 
-	for _, ep := range b.marketplaceEndpoints {
+	for _, ep := range b.marketplaceEndpoints.All() {
 		cp := *ep
 		cp.Tags = copyTags(ep.Tags)
 		list = append(list, &cp)
@@ -2446,9 +2404,9 @@ func (b *InMemoryBackend) DeleteMarketplaceModelEndpoint(idOrARN string) error {
 		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
 	}
 
-	ep := b.marketplaceEndpoints[epARN]
+	ep, _ := b.marketplaceEndpoints.Get(epARN)
 	delete(b.marketplaceEndpointsByName, ep.EndpointName)
-	delete(b.marketplaceEndpoints, epARN)
+	b.marketplaceEndpoints.Delete(epARN)
 
 	return nil
 }
@@ -2465,7 +2423,7 @@ func (b *InMemoryBackend) UpdateMarketplaceModelEndpoint(
 		return nil, fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
 	}
 
-	ep := b.marketplaceEndpoints[epARN]
+	ep, _ := b.marketplaceEndpoints.Get(epARN)
 	ep.UpdatedAt = time.Now().UTC()
 	cp := *ep
 	cp.Tags = copyTags(ep.Tags)
@@ -2483,7 +2441,8 @@ func (b *InMemoryBackend) RegisterMarketplaceModelEndpoint(idOrARN string) error
 		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
 	}
 
-	b.marketplaceEndpoints[epARN].Status = "Active"
+	ep, _ := b.marketplaceEndpoints.Get(epARN)
+	ep.Status = "Active"
 
 	return nil
 }
@@ -2498,7 +2457,8 @@ func (b *InMemoryBackend) DeregisterMarketplaceModelEndpoint(idOrARN string) err
 		return fmt.Errorf("%w: marketplace endpoint %s not found", ErrNotFound, idOrARN)
 	}
 
-	b.marketplaceEndpoints[epARN].Status = "Deregistered"
+	ep, _ := b.marketplaceEndpoints.Get(epARN)
+	ep.Status = "Deregistered"
 
 	return nil
 }
@@ -2563,8 +2523,7 @@ func (b *InMemoryBackend) CreateGuardrailVersion(
 		Description: description,
 	}
 
-	key := g.GuardrailID + ":" + versionNum
-	b.guardrailVersions[key] = gv
+	b.guardrailVersions.Put(gv)
 
 	return gv, nil
 }

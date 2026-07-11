@@ -707,11 +707,11 @@ func TestReceiveMessageDefaultVisibility(t *testing.T) {
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
 	require.NoError(t, err)
 
-	// VisibilityTimeout = noVisibilitySet (-1) uses queue default.
+	// VisibilityTimeout = sqs.NoVisibilityTimeout uses the queue's default.
 	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueURL:            qURL,
 		MaxNumberOfMessages: 1,
-		VisibilityTimeout:   -1,
+		VisibilityTimeout:   sqs.NoVisibilityTimeout,
 		WaitTimeSeconds:     0,
 	})
 	require.NoError(t, err)
@@ -1062,4 +1062,104 @@ func TestSendMessage_MD5OfMessageAttributes(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, outNoAttrs.MD5OfMessageAttributes)
+}
+
+// Test_FIFORequeueOrdering verifies that a FIFO message returned to the
+// visible queue (via ChangeMessageVisibility(0) or automatic visibility-
+// timeout expiry) is redelivered before a newer message in the SAME
+// MessageGroupId that arrived while the earlier one was in flight — AWS's
+// strict per-group ordering guarantee. In-flight messages block further
+// delivery from their group but do NOT block further sends to that group, so
+// it is possible (and exercised here) for a second message to be sitting in
+// the queue behind an in-flight message from the same group. Naively
+// appending a re-queued message to the tail of the pending list would let the
+// newer message jump ahead of it, violating ordering; the backend must
+// reinsert by SequenceNumber instead.
+func Test_FIFORequeueOrdering(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		requeue func(t *testing.T, b *sqs.InMemoryBackend, queueURL, receiptHandle string)
+		name    string
+	}{
+		{
+			name: "ChangeMessageVisibilityZero",
+			requeue: func(t *testing.T, b *sqs.InMemoryBackend, queueURL, receiptHandle string) {
+				t.Helper()
+
+				err := b.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
+					QueueURL:          queueURL,
+					ReceiptHandle:     receiptHandle,
+					VisibilityTimeout: 0,
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "VisibilityTimeoutExpiry",
+			requeue: func(t *testing.T, b *sqs.InMemoryBackend, _, _ string) {
+				t.Helper()
+
+				// The message was received with a 1-second visibility timeout;
+				// simulate the janitor sweeping well past that expiry without a
+				// real sleep.
+				b.RunJanitorOnceForTest(time.Now().Add(2 * time.Second))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			qURL := createTestQueue(t, b, "fifo-requeue-order.fifo")
+
+			// msg1 into group G.
+			send1, err := b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:               qURL,
+				MessageBody:            "msg1",
+				MessageGroupID:         "G",
+				MessageDeduplicationID: "dedup1",
+			})
+			require.NoError(t, err)
+
+			// Receive msg1 with a short (1s) visibility timeout so it becomes
+			// in-flight, blocking group G from further delivery.
+			recv1, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            qURL,
+				MaxNumberOfMessages: 1,
+				VisibilityTimeout:   1,
+			})
+			require.NoError(t, err)
+			require.Len(t, recv1.Messages, 1)
+			require.Equal(t, send1.MessageID, recv1.Messages[0].MessageID)
+
+			// msg2 arrives in the SAME group while msg1 is still in flight —
+			// sends are never blocked by an in-flight predecessor, only receives.
+			_, err = b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:               qURL,
+				MessageBody:            "msg2",
+				MessageGroupID:         "G",
+				MessageDeduplicationID: "dedup2",
+			})
+			require.NoError(t, err)
+
+			// Return msg1 to the visible queue via whichever mechanism this
+			// subtest exercises.
+			tt.requeue(t, b, qURL, recv1.Messages[0].ReceiptHandle)
+
+			// The next receive must hand back msg1 (the earlier SequenceNumber),
+			// not msg2, even though msg1 was the one just re-queued.
+			recv2, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            qURL,
+				MaxNumberOfMessages: 1,
+				VisibilityTimeout:   sqs.NoVisibilityTimeout,
+			})
+			require.NoError(t, err)
+			require.Len(t, recv2.Messages, 1)
+			assert.Equal(t, "msg1", recv2.Messages[0].Body,
+				"FIFO group ordering violated: newer same-group message delivered before the re-queued older one")
+		})
+	}
 }

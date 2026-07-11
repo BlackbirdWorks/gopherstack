@@ -72,7 +72,6 @@ type EnclaveCertIamRoleAssociation struct {
 // resetTrunkEnclaveMapsLocked re-initialises all maps owned by this file. Must be called
 // with b.mu held.
 func (b *InMemoryBackend) resetTrunkEnclaveMapsLocked() {
-	b.trunkInterfaceAssociations = make(map[string]*TrunkInterfaceAssociation)
 	b.enclaveCertIamRoles = make(map[string][]*EnclaveCertIamRoleAssociation)
 }
 
@@ -102,11 +101,11 @@ func (b *InMemoryBackend) AssociateTrunkInterface(
 	b.mu.Lock("AssociateTrunkInterface")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInterfaces[branchInterfaceID]; !ok {
+	if _, ok := b.networkInterfaces.Get(branchInterfaceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, branchInterfaceID)
 	}
 
-	if _, ok := b.networkInterfaces[trunkInterfaceID]; !ok {
+	if _, ok := b.networkInterfaces.Get(trunkInterfaceID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, trunkInterfaceID)
 	}
 
@@ -119,7 +118,7 @@ func (b *InMemoryBackend) AssociateTrunkInterface(
 		GreKey:            greKey,
 		Tags:              copyStringMap(tags),
 	}
-	b.trunkInterfaceAssociations[assoc.AssociationID] = assoc
+	b.trunkInterfaceAssociations.Put(assoc)
 
 	return copyTrunkInterfaceAssociation(assoc), nil
 }
@@ -148,11 +147,10 @@ func (b *InMemoryBackend) DisassociateTrunkInterface(associationID string) error
 	b.mu.Lock("DisassociateTrunkInterface")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trunkInterfaceAssociations[associationID]; !ok {
+	if _, ok := b.trunkInterfaceAssociations.Get(associationID); !ok {
 		return fmt.Errorf("%w: %s", ErrTrunkAssociationNotFound, associationID)
 	}
-
-	delete(b.trunkInterfaceAssociations, associationID)
+	b.trunkInterfaceAssociations.Delete(associationID)
 
 	return nil
 }
@@ -168,9 +166,9 @@ func (b *InMemoryBackend) DescribeTrunkInterfaceAssociations(ids []string) []*Tr
 		filter[id] = true
 	}
 
-	out := make([]*TrunkInterfaceAssociation, 0, len(b.trunkInterfaceAssociations))
+	out := make([]*TrunkInterfaceAssociation, 0, b.trunkInterfaceAssociations.Len())
 
-	for _, assoc := range b.trunkInterfaceAssociations {
+	for _, assoc := range b.trunkInterfaceAssociations.All() {
 		if len(filter) > 0 && !filter[assoc.AssociationID] {
 			continue
 		}

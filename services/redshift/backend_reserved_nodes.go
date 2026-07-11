@@ -102,7 +102,7 @@ func (b *InMemoryBackend) DescribeReservedNodes(reservedNodeID string) ([]Reserv
 	defer b.mu.RUnlock()
 
 	if reservedNodeID != "" {
-		node, exists := b.reservedNodes[reservedNodeID]
+		node, exists := b.reservedNodes.Get(reservedNodeID)
 		if !exists {
 			return nil, fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
 		}
@@ -112,8 +112,8 @@ func (b *InMemoryBackend) DescribeReservedNodes(reservedNodeID string) ([]Reserv
 		return []ReservedNode{cp}, nil
 	}
 
-	result := make([]ReservedNode, 0, len(b.reservedNodes))
-	for _, node := range b.reservedNodes {
+	result := make([]ReservedNode, 0, b.reservedNodes.Len())
+	for _, node := range b.reservedNodes.All() {
 		result = append(result, *node)
 	}
 
@@ -178,7 +178,7 @@ func (b *InMemoryBackend) PurchaseReservedNodeOffering(
 	b.mu.Lock("PurchaseReservedNodeOffering")
 	defer b.mu.Unlock()
 
-	if _, exists := b.reservedNodes[reservedNodeID]; exists {
+	if _, exists := b.reservedNodes.Get(reservedNodeID); exists {
 		return nil, fmt.Errorf("%w: reserved node %s already exists", ErrReservedNodeAlreadyExists, reservedNodeID)
 	}
 
@@ -195,7 +195,7 @@ func (b *InMemoryBackend) PurchaseReservedNodeOffering(
 		State:                  "payment-pending",
 		OfferingType:           offering.OfferingType,
 	}
-	b.reservedNodes[reservedNodeID] = node
+	b.reservedNodes.Put(node)
 
 	cp := *node
 
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) DescribeReservedNodeExchangeStatus(reservedNodeID stri
 	b.mu.RLock("DescribeReservedNodeExchangeStatus")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.reservedNodes[reservedNodeID]; !exists {
+	if _, exists := b.reservedNodes.Get(reservedNodeID); !exists {
 		return "", fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
 	}
 
@@ -228,7 +228,7 @@ func (b *InMemoryBackend) GetReservedNodeExchangeOfferings(reservedNodeID string
 	b.mu.RLock("GetReservedNodeExchangeOfferings")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.reservedNodes[reservedNodeID]; !exists {
+	if _, exists := b.reservedNodes.Get(reservedNodeID); !exists {
 		return nil, fmt.Errorf("%w: reserved node %s not found", ErrReservedNodeNotFound, reservedNodeID)
 	}
 

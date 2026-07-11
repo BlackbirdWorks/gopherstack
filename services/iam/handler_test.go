@@ -570,7 +570,7 @@ func TestIAMHandler_Users(t *testing.T) {
 
 		err := h.Handler()(c)
 		require.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
 
 		var errResp iam.ErrorResponse
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -1059,7 +1059,7 @@ func TestIAMHandler_Routing(t *testing.T) {
 
 		err := h.Handler()(c)
 		require.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusConflict, rec.Code)
 
 		var errResp iam.ErrorResponse
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -1361,7 +1361,7 @@ func TestIAMHandler_DetachRolePolicy(t *testing.T) {
 
 		err := h.Handler()(c)
 		require.NoError(t, err)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
 
 		var errResp iam.ErrorResponse
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -1611,9 +1611,13 @@ func TestIAMHandler_UntagAndVerify(t *testing.T) {
 	}
 }
 
-// TestIAMHandler_InternalFailure tests the InternalFailure error code path
+// TestIAMHandler_ServiceFailure tests the ServiceFailure error code path
 // by injecting a backend that returns a raw (non-sentinel) error.
-func TestIAMHandler_InternalFailure(t *testing.T) {
+//
+// Real AWS IAM (query protocol) reports unhandled server errors as
+// "ServiceFailure", not the JSON-protocol-style "InternalFailure" — see
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors.
+func TestIAMHandler_ServiceFailure(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
@@ -1630,11 +1634,17 @@ func TestIAMHandler_InternalFailure(t *testing.T) {
 
 	var errResp iam.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InternalFailure", errResp.Error.Code)
+	assert.Equal(t, "ServiceFailure", errResp.Error.Code)
 }
 
 // TestIAMHandler_DispatchErrors covers the error branches in every dispatch case.
 // These tests trigger "NoSuchEntity" / "EntityAlreadyExists" responses from the backend.
+//
+// wantStatus values match the HTTP status codes documented per-operation by the
+// real AWS IAM API reference (e.g. NoSuchEntity=404, EntityAlreadyExists=409,
+// DeleteConflict=409, LimitExceeded=409); MalformedPolicyDocument stays 400.
+// See e.g. https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors
+// and https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html#API_DeleteUser_Errors.
 func TestIAMHandler_DispatchErrors(t *testing.T) {
 	t.Parallel()
 
@@ -1661,7 +1671,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			action:     "DeleteUser",
 			params:     map[string]string{"UserName": "nobody"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "CreateRole_AlreadyExists",
@@ -1671,14 +1681,14 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_, _ = b.CreateRole("MyRole", "/", "", "")
 			},
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "GetRole_NotFound",
 			action:     "GetRole",
 			params:     map[string]string{"RoleName": "ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "DeleteRole_NotFound",
@@ -1686,7 +1696,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			params:     map[string]string{"RoleName": "ghost"},
 			setup:      func(_ *iam.InMemoryBackend) {},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "CreatePolicy_AlreadyExists",
@@ -1696,28 +1706,28 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_, _ = b.CreatePolicy("MyPolicy", "/", "")
 			},
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "DeletePolicy_NotFound",
 			action:     "DeletePolicy",
 			params:     map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "AttachUserPolicy_UserNotFound",
 			action:     "AttachUserPolicy",
 			params:     map[string]string{"UserName": "nobody", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "AttachRolePolicy_RoleNotFound",
 			action:     "AttachRolePolicy",
 			params:     map[string]string{"RoleName": "ghost", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "CreateGroup_AlreadyExists",
@@ -1727,28 +1737,28 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_, _ = b.CreateGroup("Admins", "/")
 			},
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "DeleteGroup_NotFound",
 			action:     "DeleteGroup",
 			params:     map[string]string{"GroupName": "ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "AddUserToGroup_GroupNotFound",
 			action:     "AddUserToGroup",
 			params:     map[string]string{"GroupName": "ghost", "UserName": "alice"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "CreateAccessKey_UserNotFound",
 			action:     "CreateAccessKey",
 			params:     map[string]string{"UserName": "nobody"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "DeleteAccessKey_NotFound",
@@ -1758,14 +1768,14 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_, _ = b.CreateUser("alice", "/", "")
 			},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "ListAccessKeys_UserNotFound",
 			action:     "ListAccessKeys",
 			params:     map[string]string{"UserName": "nobody"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "CreateInstanceProfile_AlreadyExists",
@@ -1775,14 +1785,14 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_, _ = b.CreateInstanceProfile("MyProfile", "/")
 			},
 			wantCode:   "EntityAlreadyExists",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "DeleteInstanceProfile_NotFound",
 			action:     "DeleteInstanceProfile",
 			params:     map[string]string{"InstanceProfileName": "ghost"},
 			wantCode:   "NoSuchEntity",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "DeleteUser_DeleteConflict",
@@ -1794,7 +1804,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_ = b.AttachUserPolicy("alice", pol.Arn)
 			},
 			wantCode:   "DeleteConflict",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:   "DeleteRole_DeleteConflict",
@@ -1806,7 +1816,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 				_ = b.AttachRolePolicy("MyRole", pol.Arn)
 			},
 			wantCode:   "DeleteConflict",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name:   "CreateRole_MalformedPolicyDocument",

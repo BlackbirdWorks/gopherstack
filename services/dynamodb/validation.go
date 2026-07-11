@@ -10,8 +10,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
-// validateSelectConstraints enforces constraints on the Select parameter based on the index projection.
-func validateSelectConstraints(selectVal types.Select, indexName string, projection *models.Projection) error {
+// validateSelectConstraints enforces constraints on the Select parameter: its
+// interaction with index projections, with ProjectionExpression/AttributesToGet,
+// and its ALL_PROJECTED_ATTRIBUTES/SPECIFIC_ATTRIBUTES-only restrictions. Mirrors
+// AWS's real Query/Scan validation (see API_Query.html "Select" parameter docs).
+func validateSelectConstraints(
+	selectVal types.Select,
+	indexName string,
+	projection *models.Projection,
+	projectionExpr string,
+	attributesToGet []string,
+) error {
 	if selectVal == types.SelectAllAttributes && indexName != "" {
 		if projection != nil && projection.ProjectionType != string(types.ProjectionTypeAll) {
 			return NewValidationException(
@@ -20,6 +29,34 @@ func validateSelectConstraints(selectVal types.Select, indexName string, project
 					" because its projection type is not ALL",
 			)
 		}
+	}
+
+	// ALL_PROJECTED_ATTRIBUTES is only meaningful when querying/scanning an index.
+	if selectVal == types.SelectAllProjectedAttributes && indexName == "" {
+		return NewValidationException(
+			"One or more parameter values were invalid: Select type ALL_PROJECTED_ATTRIBUTES " +
+				"is not supported for a table",
+		)
+	}
+
+	requestsProjection := projectionExpr != "" || len(attributesToGet) > 0
+
+	// AWS: "If you use the ProjectionExpression parameter, then the value for
+	// Select can only be SPECIFIC_ATTRIBUTES. Any other value for Select will
+	// return an error." The same restriction applies to the legacy AttributesToGet.
+	if selectVal != "" && selectVal != types.SelectSpecificAttributes && requestsProjection {
+		return NewValidationException(
+			"Cannot specify ProjectionExpression when Select is not SPECIFIC_ATTRIBUTES",
+		)
+	}
+
+	// AWS requires ProjectionExpression or AttributesToGet when Select is
+	// explicitly SPECIFIC_ATTRIBUTES.
+	if selectVal == types.SelectSpecificAttributes && !requestsProjection {
+		return NewValidationException(
+			"One or more parameter values were invalid: Select type SPECIFIC_ATTRIBUTES " +
+				"is not supported without a ProjectionExpression or AttributesToGet",
+		)
 	}
 
 	return nil

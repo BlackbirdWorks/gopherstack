@@ -175,7 +175,11 @@ func TestRefinement1_DuplicateKSK(t *testing.T) {
 			_, err = b.CreateKeySigningKey(hz.ID, "caller-2", tt.kskName, "arn:kms:test", "")
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, route53.ErrInvalidInput)
+				// Real Route 53 returns KeySigningKeyAlreadyExists (409) for a
+				// duplicate name within a hosted zone, per the CreateKeySigningKey
+				// error list in the aws-sdk-go-v2 route53 model — not the generic
+				// InvalidInput this test previously asserted.
+				assert.ErrorIs(t, err, route53.ErrKeySigningKeyAlreadyExists)
 			} else {
 				require.NoError(t, err)
 			}

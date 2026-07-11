@@ -102,10 +102,6 @@ type Ipv6CidrAssociation struct {
 // resetIPPoolMapsLocked re-initialises all maps owned by this file. Must be called with
 // b.mu held.
 func (b *InMemoryBackend) resetIPPoolMapsLocked() {
-	b.coipPools = make(map[string]*CoipPool)
-	b.coipCidrs = make(map[string]*CoipCidr)
-	b.ipv4Pools = make(map[string]*Ipv4Pool)
-	b.ipv6Pools = make(map[string]*Ipv6Pool)
 }
 
 // ---- COIP pools ----
@@ -127,7 +123,7 @@ func (b *InMemoryBackend) CreateCoipPool(localGatewayRouteTableID string, tags m
 		LocalGatewayRouteTableID: localGatewayRouteTableID,
 		Tags:                     copyStringMap(tags),
 	}
-	b.coipPools[id] = pool
+	b.coipPools.Put(pool)
 
 	return copyCoipPool(pool), nil
 }
@@ -141,16 +137,16 @@ func (b *InMemoryBackend) DeleteCoipPool(poolID string) (*CoipPool, error) {
 	b.mu.Lock("DeleteCoipPool")
 	defer b.mu.Unlock()
 
-	pool, ok := b.coipPools[poolID]
+	pool, ok := b.coipPools.Get(poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCoipPoolNotFound, poolID)
 	}
+	b.coipPools.Delete(poolID)
 
-	delete(b.coipPools, poolID)
-
-	for key, cidr := range b.coipCidrs {
+	for _, cidr := range b.coipCidrs.All() {
+		key := coipCidrsKeyFn(cidr)
 		if cidr.CoipPoolID == poolID {
-			delete(b.coipCidrs, key)
+			b.coipCidrs.Delete(key)
 		}
 	}
 
@@ -167,9 +163,9 @@ func (b *InMemoryBackend) DescribeCoipPools(ids []string) []*CoipPool {
 		filter[id] = true
 	}
 
-	out := make([]*CoipPool, 0, len(b.coipPools))
+	out := make([]*CoipPool, 0, b.coipPools.Len())
 
-	for _, pool := range b.coipPools {
+	for _, pool := range b.coipPools.All() {
 		if len(filter) > 0 && !filter[pool.PoolID] {
 			continue
 		}
@@ -196,13 +192,13 @@ func (b *InMemoryBackend) CreateCoipCidr(poolID, cidr string) (*CoipCidr, error)
 	b.mu.Lock("CreateCoipCidr")
 	defer b.mu.Unlock()
 
-	pool, ok := b.coipPools[poolID]
+	pool, ok := b.coipPools.Get(poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCoipPoolNotFound, poolID)
 	}
 
 	entry := &CoipCidr{Cidr: cidr, CoipPoolID: poolID, LocalGatewayRouteTableID: pool.LocalGatewayRouteTableID}
-	b.coipCidrs[coipCidrKey(poolID, cidr)] = entry
+	b.coipCidrs.Put(entry)
 	pool.PoolCidrs = appendUniqueString(pool.PoolCidrs, cidr)
 
 	cp := *entry
@@ -221,14 +217,13 @@ func (b *InMemoryBackend) DeleteCoipCidr(poolID, cidr string) (*CoipCidr, error)
 
 	key := coipCidrKey(poolID, cidr)
 
-	entry, ok := b.coipCidrs[key]
+	entry, ok := b.coipCidrs.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s not found in pool %s", ErrCoipCidrNotFound, cidr, poolID)
 	}
+	b.coipCidrs.Delete(key)
 
-	delete(b.coipCidrs, key)
-
-	if pool, poolOK := b.coipPools[poolID]; poolOK {
+	if pool, poolOK := b.coipPools.Get(poolID); poolOK {
 		pool.PoolCidrs = removeString(pool.PoolCidrs, cidr)
 	}
 
@@ -247,7 +242,7 @@ func (b *InMemoryBackend) GetCoipPoolUsage(poolID string) (*CoipPool, error) {
 	b.mu.RLock("GetCoipPoolUsage")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.coipPools[poolID]
+	pool, ok := b.coipPools.Get(poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCoipPoolNotFound, poolID)
 	}
@@ -280,7 +275,7 @@ func (b *InMemoryBackend) CreatePublicIpv4Pool(networkBorderGroup string, tags m
 		NetworkBorderGroup: networkBorderGroup,
 		Tags:               copyStringMap(tags),
 	}
-	b.ipv4Pools[id] = pool
+	b.ipv4Pools.Put(pool)
 
 	return copyIpv4Pool(pool)
 }
@@ -294,11 +289,10 @@ func (b *InMemoryBackend) DeletePublicIpv4Pool(poolID string) error {
 	b.mu.Lock("DeletePublicIpv4Pool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipv4Pools[poolID]; !ok {
+	if _, ok := b.ipv4Pools.Get(poolID); !ok {
 		return fmt.Errorf("%w: %s", ErrIpv4PoolNotFound, poolID)
 	}
-
-	delete(b.ipv4Pools, poolID)
+	b.ipv4Pools.Delete(poolID)
 
 	return nil
 }
@@ -313,9 +307,9 @@ func (b *InMemoryBackend) DescribePublicIpv4Pools(ids []string) []*Ipv4Pool {
 		filter[id] = true
 	}
 
-	out := make([]*Ipv4Pool, 0, len(b.ipv4Pools))
+	out := make([]*Ipv4Pool, 0, b.ipv4Pools.Len())
 
-	for _, pool := range b.ipv4Pools {
+	for _, pool := range b.ipv4Pools.All() {
 		if len(filter) > 0 && !filter[pool.PoolID] {
 			continue
 		}
@@ -342,7 +336,7 @@ func (b *InMemoryBackend) ProvisionPublicIpv4PoolCidr(poolID string, netmaskLeng
 	b.mu.Lock("ProvisionPublicIpv4PoolCidr")
 	defer b.mu.Unlock()
 
-	pool, ok := b.ipv4Pools[poolID]
+	pool, ok := b.ipv4Pools.Get(poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpv4PoolNotFound, poolID)
 	}
@@ -373,7 +367,7 @@ func (b *InMemoryBackend) DeprovisionPublicIpv4PoolCidr(poolID, cidr string) err
 	b.mu.Lock("DeprovisionPublicIpv4PoolCidr")
 	defer b.mu.Unlock()
 
-	pool, ok := b.ipv4Pools[poolID]
+	pool, ok := b.ipv4Pools.Get(poolID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrIpv4PoolNotFound, poolID)
 	}
@@ -423,7 +417,7 @@ func (b *InMemoryBackend) CreateIpv6Pool(description string, poolCidrBlocks []st
 		Description:    description,
 		PoolCidrBlocks: append([]string(nil), poolCidrBlocks...),
 	}
-	b.ipv6Pools[id] = pool
+	b.ipv6Pools.Put(pool)
 
 	return copyIpv6Pool(pool)
 }
@@ -438,9 +432,9 @@ func (b *InMemoryBackend) DescribeIpv6Pools(ids []string) []*Ipv6Pool {
 		filter[id] = true
 	}
 
-	out := make([]*Ipv6Pool, 0, len(b.ipv6Pools))
+	out := make([]*Ipv6Pool, 0, b.ipv6Pools.Len())
 
-	for _, pool := range b.ipv6Pools {
+	for _, pool := range b.ipv6Pools.All() {
 		if len(filter) > 0 && !filter[pool.PoolID] {
 			continue
 		}
@@ -464,7 +458,7 @@ func (b *InMemoryBackend) GetAssociatedIpv6PoolCidrs(poolID string) ([]Ipv6CidrA
 	b.mu.RLock("GetAssociatedIpv6PoolCidrs")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.ipv6Pools[poolID]
+	pool, ok := b.ipv6Pools.Get(poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpv6PoolNotFound, poolID)
 	}

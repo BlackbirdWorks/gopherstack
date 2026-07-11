@@ -770,6 +770,7 @@ func TestDeleteReplicaClearsSourceReadReplicaIdentifiers(t *testing.T) {
 		"Action":               {"DeleteDBInstance"},
 		"Version":              {"2014-10-31"},
 		"DBInstanceIdentifier": {"rep-del"},
+		"SkipFinalSnapshot":    {"true"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

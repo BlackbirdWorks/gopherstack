@@ -90,6 +90,48 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	return t.Clone()
 }
 
+// tagsSnapshot returns a deep copy of every Handler-level resource tag map, for
+// persistence. Role/User/Group/Policy tags live on the entity itself and are
+// captured by the backend's own Snapshot; this covers the remaining taggable
+// resource kinds whose tags are tracked only on the Handler (instance
+// profiles, MFA devices, SAML/OIDC providers, server certificates) — see
+// setTags/getTags/removeTags above. Without this, those tags were silently
+// dropped on every persistence restore.
+func (h *Handler) tagsSnapshot() map[string]map[string]string {
+	h.tagsMu.RLock("tagsSnapshot")
+	defer h.tagsMu.RUnlock()
+
+	if len(h.tags) == 0 {
+		return nil
+	}
+
+	out := make(map[string]map[string]string, len(h.tags))
+
+	for resourceID, t := range h.tags {
+		if t == nil {
+			continue
+		}
+
+		out[resourceID] = t.Clone()
+	}
+
+	return out
+}
+
+// restoreTags rebuilds the Handler-level tag map from a persisted snapshot.
+func (h *Handler) restoreTags(snapshot map[string]map[string]string) {
+	h.tagsMu.Lock("restoreTags")
+	defer h.tagsMu.Unlock()
+
+	h.tags = make(map[string]*svcTags.Tags, len(snapshot))
+
+	for resourceID, kv := range snapshot {
+		t := svcTags.New("iam." + resourceID + ".tags")
+		t.Merge(kv)
+		h.tags[resourceID] = t
+	}
+}
+
 // Name returns the service name.
 func (h *Handler) Name() string {
 	return "IAM"
@@ -334,7 +376,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read IAM request body", "error", err)
 
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
+			return h.writeError(c, http.StatusInternalServerError, "ServiceFailure", "failed to read request body")
 		}
 
 		vals, err := url.ParseQuery(string(body))
@@ -360,7 +402,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if marshalErr != nil {
 			log.ErrorContext(ctx, "failed to marshal IAM response", "action", action, "error", marshalErr)
 
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
+			return h.writeError(c, http.StatusInternalServerError, "ServiceFailure", "internal server error")
 		}
 
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
@@ -437,6 +479,17 @@ func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			// CreateUser accepts an optional Tags.member.N parameter to tag the
+			// user at creation time (real AWS: "A list of tags that you want to
+			// attach to the new user"). This was previously accepted-but-dropped.
+			if tags := parseIAMTags(vals); len(tags) > 0 {
+				if tagErr := h.Backend.TagUser(u.UserName, tags); tagErr != nil {
+					return nil, tagErr
+				}
+
+				u.Tags = tags
+			}
+
 			return &CreateUserResponse{
 				Xmlns:            iamXMLNS,
 				CreateUserResult: CreateUserResult{User: toUserXML(u)},
@@ -486,41 +539,54 @@ func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
 	}
 }
 
+// handleCreateRole implements CreateRole, including the optional
+// MaxSessionDuration validation/update and Tags.member.N tagging-at-creation
+// (real AWS: "A list of tags that you want to attach to the new role").
+func (h *Handler) handleCreateRole(vals url.Values, reqID string) (any, error) {
+	r, err := h.Backend.CreateRole(
+		vals.Get("RoleName"),
+		vals.Get("Path"),
+		vals.Get("AssumeRolePolicyDocument"),
+		vals.Get("PermissionsBoundary"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if msd := vals.Get("MaxSessionDuration"); msd != "" {
+		d, parseErr := strconv.ParseInt(msd, 10, 32)
+		if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
+			return nil, fmt.Errorf(
+				"%w: MaxSessionDuration must be between %d and %d",
+				ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
+			)
+		}
+
+		if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
+			return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
+		}
+
+		r.MaxSessionDuration = int32(d)
+	}
+
+	if tags := parseIAMTags(vals); len(tags) > 0 {
+		if tagErr := h.Backend.TagRole(r.RoleName, tags); tagErr != nil {
+			return nil, tagErr
+		}
+
+		r.Tags = tags
+	}
+
+	return &CreateRoleResponse{
+		Xmlns:            iamXMLNS,
+		CreateRoleResult: CreateRoleResult{Role: toRoleXML(r)},
+		ResponseMetadata: ResponseMetadata{RequestID: reqID},
+	}, nil
+}
+
 func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"CreateRole": func(vals url.Values, reqID string) (any, error) {
-			r, err := h.Backend.CreateRole(
-				vals.Get("RoleName"),
-				vals.Get("Path"),
-				vals.Get("AssumeRolePolicyDocument"),
-				vals.Get("PermissionsBoundary"),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			if msd := vals.Get("MaxSessionDuration"); msd != "" {
-				d, parseErr := strconv.ParseInt(msd, 10, 32)
-				if parseErr != nil || d < minMaxSessionDuration || d > maxMaxSessionDuration {
-					return nil, fmt.Errorf(
-						"%w: MaxSessionDuration must be between %d and %d",
-						ErrValidationError, minMaxSessionDuration, maxMaxSessionDuration,
-					)
-				}
-
-				if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
-					return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
-				}
-
-				r.MaxSessionDuration = int32(d)
-			}
-
-			return &CreateRoleResponse{
-				Xmlns:            iamXMLNS,
-				CreateRoleResult: CreateRoleResult{Role: toRoleXML(r)},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		"CreateRole": h.handleCreateRole,
 		"GetRole": func(vals url.Values, reqID string) (any, error) {
 			r, err := h.Backend.GetRole(vals.Get("RoleName"))
 			if err != nil {
@@ -564,22 +630,37 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 	}
 }
 
+// handleCreatePolicy implements CreatePolicy, including Tags.member.N
+// tagging-at-creation (real AWS: "A list of tags that you want to attach to
+// the new IAM customer managed policy"). The Policy wire type also lacked a
+// Tags field entirely (real AWS's Policy type carries Tags), so even an
+// out-of-band TagPolicy call was previously invisible on GetPolicy/ListPolicies.
+func (h *Handler) handleCreatePolicy(vals url.Values, reqID string) (any, error) {
+	pol, err := h.Backend.CreatePolicy(
+		vals.Get("PolicyName"), vals.Get("Path"), vals.Get("PolicyDocument"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if tags := parseIAMTags(vals); len(tags) > 0 {
+		if tagErr := h.Backend.TagPolicy(pol.Arn, tags); tagErr != nil {
+			return nil, tagErr
+		}
+
+		pol.Tags = tags
+	}
+
+	return &CreatePolicyResponse{
+		Xmlns:              iamXMLNS,
+		CreatePolicyResult: CreatePolicyResult{Policy: toPolicyXML(pol)},
+		ResponseMetadata:   ResponseMetadata{RequestID: reqID},
+	}, nil
+}
+
 func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"CreatePolicy": func(vals url.Values, reqID string) (any, error) {
-			pol, err := h.Backend.CreatePolicy(
-				vals.Get("PolicyName"), vals.Get("Path"), vals.Get("PolicyDocument"),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return &CreatePolicyResponse{
-				Xmlns:              iamXMLNS,
-				CreatePolicyResult: CreatePolicyResult{Policy: toPolicyXML(pol)},
-				ResponseMetadata:   ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		"CreatePolicy": h.handleCreatePolicy,
 		"DeletePolicy": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.DeletePolicy(vals.Get("PolicyArn")); err != nil {
 				return nil, err
@@ -629,7 +710,7 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 			return &GetPolicyVersionResponse{
 				Xmlns: iamXMLNS,
 				GetPolicyVersionResult: GetPolicyVersionResult{PolicyVersion: PolicyVersionXML{
-					Document:         pv.PolicyDocument,
+					Document:         encodePolicyDocument(pv.PolicyDocument),
 					VersionID:        pv.VersionID,
 					IsDefaultVersion: pv.IsDefaultVersion,
 					CreateDate:       isoTime(pv.CreateDate),
@@ -739,26 +820,32 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		opListInstanceProfilesForRole: func(_ url.Values, reqID string) (any, error) {
-			type listInstanceProfilesResult struct {
-				XMLName          xml.Name `xml:"ListInstanceProfilesForRoleResult"`
-				InstanceProfiles []any    `xml:"InstanceProfiles>member"`
-				IsTruncated      bool     `xml:"IsTruncated"`
-			}
-			type listInstanceProfilesResponse struct {
-				XMLName                           xml.Name                   `xml:"ListInstanceProfilesForRoleResponse"`
-				Xmlns                             string                     `xml:"xmlns,attr"`
-				ResponseMetadata                  ResponseMetadata           `xml:"ResponseMetadata"`
-				ListInstanceProfilesForRoleResult listInstanceProfilesResult `xml:"ListInstanceProfilesForRoleResult"`
-			}
-
-			return &listInstanceProfilesResponse{
-				Xmlns:                             iamXMLNS,
-				ListInstanceProfilesForRoleResult: listInstanceProfilesResult{InstanceProfiles: []any{}},
-				ResponseMetadata:                  ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
+		opListInstanceProfilesForRole: h.handleListInstanceProfilesForRole,
 	}
+}
+
+// handleListInstanceProfilesForRole implements ListInstanceProfilesForRole,
+// returning every instance profile that actually contains the given role
+// (via StorageBackend.ListInstanceProfilesForRole). Previously this action
+// ignored the RoleName parameter and always returned an empty list.
+func (h *Handler) handleListInstanceProfilesForRole(vals url.Values, reqID string) (any, error) {
+	profiles, err := h.Backend.ListInstanceProfilesForRole(vals.Get("RoleName"))
+	if err != nil {
+		return nil, err
+	}
+
+	xmlProfiles := make([]InstanceProfileXML, 0, len(profiles))
+
+	for i := range profiles {
+		roles := h.resolveInstanceProfileRoles(&profiles[i])
+		xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&profiles[i], roles))
+	}
+
+	return &ListInstanceProfilesForRoleResponse{
+		Xmlns:                             iamXMLNS,
+		ListInstanceProfilesForRoleResult: ListInstanceProfilesForRoleResult{InstanceProfiles: xmlProfiles},
+		ResponseMetadata:                  ResponseMetadata{RequestID: reqID},
+	}, nil
 }
 
 func (h *Handler) iamGroupAttachedPolicyDispatchTable() map[string]iamActionFn {
@@ -834,7 +921,7 @@ func (h *Handler) iamUserRoleInlinePolicyDispatchTable() map[string]iamActionFn 
 				GetUserPolicyResult: GetUserPolicyResult{
 					UserName:       vals.Get("UserName"),
 					PolicyName:     vals.Get("PolicyName"),
-					PolicyDocument: doc,
+					PolicyDocument: encodePolicyDocument(doc),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -878,7 +965,7 @@ func (h *Handler) iamUserRoleInlinePolicyDispatchTable() map[string]iamActionFn 
 				GetRolePolicyResult: GetRolePolicyResult{
 					RoleName:       vals.Get("RoleName"),
 					PolicyName:     vals.Get("PolicyName"),
-					PolicyDocument: doc,
+					PolicyDocument: encodePolicyDocument(doc),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -916,7 +1003,7 @@ func (h *Handler) iamGroupInlinePolicyDispatchTable() map[string]iamActionFn {
 				GetGroupPolicyResult: GetGroupPolicyResult{
 					GroupName:      vals.Get("GroupName"),
 					PolicyName:     vals.Get("PolicyName"),
-					PolicyDocument: doc,
+					PolicyDocument: encodePolicyDocument(doc),
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -1034,7 +1121,22 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 
 			policies := make([]ManagedPolicyDetailXML, 0, len(details.Policies))
 			for i := range details.Policies {
-				policies = append(policies, toManagedPolicyDetailXML(&details.Policies[i]))
+				pol := &details.Policies[i]
+
+				versions, vErr := h.Backend.ListPolicyVersions(pol.Arn)
+				if vErr != nil {
+					// Should not happen (the policy was just enumerated), but degrade
+					// gracefully to a single synthesized default version rather than
+					// dropping the policy from the response entirely.
+					versions = []StoredPolicyVersion{{
+						VersionID:        "v1",
+						PolicyDocument:   pol.PolicyDocument,
+						IsDefaultVersion: true,
+						CreateDate:       pol.CreateDate,
+					}}
+				}
+
+				policies = append(policies, toManagedPolicyDetailXML(pol, versions))
 			}
 
 			return &GetAccountAuthorizationDetailsResponse{
@@ -1547,6 +1649,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrOIDCProviderNotFound),
 		errors.Is(reqErr, ErrLoginProfileNotFound):
 		code = "NoSuchEntity"
+		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrUserAlreadyExists),
 		errors.Is(reqErr, ErrRoleAlreadyExists),
 		errors.Is(reqErr, ErrPolicyAlreadyExists),
@@ -1556,10 +1659,13 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrOIDCProviderAlreadyExists),
 		errors.Is(reqErr, ErrLoginProfileAlreadyExists):
 		code = "EntityAlreadyExists"
+		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrDeleteConflict):
 		code = "DeleteConflict"
+		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrLimitExceeded):
 		code = "LimitExceeded"
+		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrMalformedPolicyDocument):
 		code = "MalformedPolicyDocument"
 	case errors.Is(reqErr, ErrInvalidAction):
@@ -1574,7 +1680,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "InvalidAuthenticationCode"
 		statusCode = http.StatusForbidden
 	default:
-		code = "InternalFailure"
+		// Real AWS IAM (query protocol) returns "ServiceFailure" for unhandled
+		// server errors, not the JSON-protocol-style "InternalFailure".
+		code = "ServiceFailure"
 		statusCode = http.StatusInternalServerError
 	}
 
@@ -1618,6 +1726,24 @@ func newRequestID() string {
 	return "gopherstack-" + newID("req")
 }
 
+// encodePolicyDocument percent-encodes a policy document for wire output.
+//
+// Real AWS IAM returns policy documents URL-encoded (RFC 3986) on the following
+// operations: GetRole, GetRolePolicy, GetUserPolicy, GetGroupPolicy,
+// GetPolicyVersion, and GetAccountAuthorizationDetails. Callers are expected to
+// URL-decode the result; some SDKs do this automatically. See e.g.
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetPolicyVersion.html
+//
+// The backend always stores/validates/evaluates the plain-JSON document; this
+// encoding is applied only at the XML marshal boundary, never persisted.
+func encodePolicyDocument(doc string) string {
+	if doc == "" {
+		return ""
+	}
+
+	return url.QueryEscape(doc)
+}
+
 // ---- XML conversion helpers ----
 
 func toUserXML(u *User) UserXML {
@@ -1647,7 +1773,7 @@ func toRoleXML(r *Role) RoleXML {
 		RoleID:                   r.RoleID,
 		Arn:                      r.Arn,
 		CreateDate:               isoTime(r.CreateDate),
-		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
+		AssumeRolePolicyDocument: encodePolicyDocument(r.AssumeRolePolicyDocument),
 		MaxSessionDuration:       r.MaxSessionDuration,
 		Description:              r.Description,
 		Tags:                     tagsToXML(r.Tags),
@@ -1682,6 +1808,7 @@ func toPolicyXML(p *Policy) PolicyXML {
 		CreateDate:       isoTime(p.CreateDate),
 		UpdateDate:       isoTime(updateDate),
 		DefaultVersionID: defaultVersionID,
+		Tags:             tagsToXML(p.Tags),
 		AttachmentCount:  p.AttachmentCount,
 		IsAttachable:     p.IsAttachable,
 	}
@@ -1870,7 +1997,10 @@ func toInlinePolicyEntriesXML(entries []InlinePolicyEntry) []InlinePolicyEntryXM
 	result := make([]InlinePolicyEntryXML, 0, len(entries))
 
 	for _, e := range entries {
-		result = append(result, InlinePolicyEntryXML(e))
+		result = append(result, InlinePolicyEntryXML{
+			PolicyName:     e.PolicyName,
+			PolicyDocument: encodePolicyDocument(e.PolicyDocument),
+		})
 	}
 
 	return result
@@ -1923,27 +2053,35 @@ func toRoleDetailXML(r RoleDetail) RoleDetailXML {
 		RoleID:                   r.RoleID,
 		Arn:                      r.Arn,
 		CreateDate:               isoTime(r.CreateDate),
-		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
+		AssumeRolePolicyDocument: encodePolicyDocument(r.AssumeRolePolicyDocument),
 		RolePolicyList:           toInlinePolicyEntriesXML(r.InlinePolicies),
 		AttachedManagedPolicies:  toAttachedPoliciesXML(r.AttachedPolicies),
 	}
 }
 
-func toManagedPolicyDetailXML(p *Policy) ManagedPolicyDetailXML {
+// toManagedPolicyDetailXML builds the ManagedPolicyDetail XML element for
+// GetAccountAuthorizationDetails. versions is the full, real version list for
+// the policy (as returned by StorageBackend.ListPolicyVersions) — real AWS
+// includes every stored version here, not just the default, and each
+// version's Document is URL-encoded like GetPolicyVersion.
+func toManagedPolicyDetailXML(p *Policy, versions []StoredPolicyVersion) ManagedPolicyDetailXML {
+	xmlVersions := make([]PolicyVersionXML, 0, len(versions))
+	for _, v := range versions {
+		xmlVersions = append(xmlVersions, PolicyVersionXML{
+			Document:         encodePolicyDocument(v.PolicyDocument),
+			VersionID:        v.VersionID,
+			IsDefaultVersion: v.IsDefaultVersion,
+			CreateDate:       isoTime(v.CreateDate),
+		})
+	}
+
 	return ManagedPolicyDetailXML{
-		PolicyName: p.PolicyName,
-		PolicyID:   p.PolicyID,
-		Arn:        p.Arn,
-		Path:       p.Path,
-		CreateDate: isoTime(p.CreateDate),
-		PolicyVersionList: []PolicyVersionXML{
-			{
-				Document:         p.PolicyDocument,
-				VersionID:        "v1",
-				IsDefaultVersion: true,
-				CreateDate:       isoTime(p.CreateDate),
-			},
-		},
+		PolicyName:        p.PolicyName,
+		PolicyID:          p.PolicyID,
+		Arn:               p.Arn,
+		Path:              p.Path,
+		CreateDate:        isoTime(p.CreateDate),
+		PolicyVersionList: xmlVersions,
 	}
 }
 

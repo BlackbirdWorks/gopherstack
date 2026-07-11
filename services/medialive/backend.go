@@ -1,7 +1,6 @@
 package medialive
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"sort"
@@ -12,7 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -690,50 +689,28 @@ func (g *storedChannelPlacementGroup) toGroup() *ChannelPlacementGroup {
 	}
 }
 
-type snapshot struct {
-	Channels               map[string]*storedChannel                      `json:"channels"`
-	Inputs                 map[string]*storedInput                        `json:"inputs"`
-	InputSecurityGroups    map[string]*storedInputSecurityGroup           `json:"inputSecurityGroups"`
-	InputDevices           map[string]*storedInputDevice                  `json:"inputDevices"`
-	Multiplexes            map[string]*storedMultiplex                    `json:"multiplexes"`
-	Clusters               map[string]*storedCluster                      `json:"clusters"`
-	Tags                   map[string]map[string]string                   `json:"tags"`
-	SignalMaps             map[string]*storedSignalMap                    `json:"signalMaps"`
-	CWAlarmTemplateGroups  map[string]*storedCloudWatchAlarmTemplateGroup `json:"cwAlarmTemplateGroups"`
-	CWAlarmTemplates       map[string]*storedCloudWatchAlarmTemplate      `json:"cwAlarmTemplates"`
-	EBRuleTemplateGroups   map[string]*storedEventBridgeRuleTemplateGroup `json:"ebRuleTemplateGroups"`
-	EBRuleTemplates        map[string]*storedEventBridgeRuleTemplate      `json:"ebRuleTemplates"`
-	Reservations           map[string]*storedReservation                  `json:"reservations"`
-	ScheduleActions        map[string][]*storedScheduleAction             `json:"scheduleActions"`
-	Networks               map[string]*storedNetwork                      `json:"networks"`
-	SdiSources             map[string]*storedSdiSource                    `json:"sdiSources"`
-	ChannelPlacementGroups map[string]*storedChannelPlacementGroup        `json:"channelPlacementGroups"`
-	AccountKmsKeyID        string                                         `json:"accountKmsKeyId"`
-	AccountID              string                                         `json:"accountId"`
-	Region                 string                                         `json:"region"`
-}
-
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	cwAlarmTemplates         map[string]*storedCloudWatchAlarmTemplate
-	ebRuleTemplateGroups     map[string]*storedEventBridgeRuleTemplateGroup
-	inputs                   map[string]*storedInput
-	inputSecurityGroups      map[string]*storedInputSecurityGroup
-	inputDevices             map[string]*storedInputDevice
+	cwAlarmTemplates         *store.Table[storedCloudWatchAlarmTemplate]
+	ebRuleTemplateGroups     *store.Table[storedEventBridgeRuleTemplateGroup]
+	inputs                   *store.Table[storedInput]
+	inputSecurityGroups      *store.Table[storedInputSecurityGroup]
+	inputDevices             *store.Table[storedInputDevice]
 	pendingTransferDeviceIDs map[string]struct{}
-	multiplexes              map[string]*storedMultiplex
-	clusters                 map[string]*storedCluster
+	multiplexes              *store.Table[storedMultiplex]
+	clusters                 *store.Table[storedCluster]
 	tags                     map[string]map[string]string
-	signalMaps               map[string]*storedSignalMap
-	ebRuleTemplates          map[string]*storedEventBridgeRuleTemplate
-	channels                 map[string]*storedChannel
+	signalMaps               *store.Table[storedSignalMap]
+	ebRuleTemplates          *store.Table[storedEventBridgeRuleTemplate]
+	channels                 *store.Table[storedChannel]
 	mu                       *lockmetrics.RWMutex
-	cwAlarmTemplateGroups    map[string]*storedCloudWatchAlarmTemplateGroup
-	reservations             map[string]*storedReservation
+	registry                 *store.Registry
+	cwAlarmTemplateGroups    *store.Table[storedCloudWatchAlarmTemplateGroup]
+	reservations             *store.Table[storedReservation]
 	scheduleActions          map[string][]*storedScheduleAction
-	networks                 map[string]*storedNetwork
-	sdiSources               map[string]*storedSdiSource
-	channelPlacementGroups   map[string]*storedChannelPlacementGroup
+	networks                 *store.Table[storedNetwork]
+	sdiSources               *store.Table[storedSdiSource]
+	channelPlacementGroups   *store.Table[storedChannelPlacementGroup]
 	accountKmsKeyID          string
 	accountID                string
 	region                   string
@@ -742,30 +719,19 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		mu:                       lockmetrics.New("medialive"),
-		channels:                 make(map[string]*storedChannel),
-		inputs:                   make(map[string]*storedInput),
-		inputSecurityGroups:      make(map[string]*storedInputSecurityGroup),
-		inputDevices:             make(map[string]*storedInputDevice),
+		registry:                 store.NewRegistry(),
 		pendingTransferDeviceIDs: make(map[string]struct{}),
-		multiplexes:              make(map[string]*storedMultiplex),
-		clusters:                 make(map[string]*storedCluster),
 		tags:                     make(map[string]map[string]string),
-		signalMaps:               make(map[string]*storedSignalMap),
-		cwAlarmTemplateGroups:    make(map[string]*storedCloudWatchAlarmTemplateGroup),
-		cwAlarmTemplates:         make(map[string]*storedCloudWatchAlarmTemplate),
-		ebRuleTemplateGroups:     make(map[string]*storedEventBridgeRuleTemplateGroup),
-		ebRuleTemplates:          make(map[string]*storedEventBridgeRuleTemplate),
-		reservations:             make(map[string]*storedReservation),
 		scheduleActions:          make(map[string][]*storedScheduleAction),
-		networks:                 make(map[string]*storedNetwork),
-		sdiSources:               make(map[string]*storedSdiSource),
-		channelPlacementGroups:   make(map[string]*storedChannelPlacementGroup),
 		offerings:                seedOfferings(region),
 		accountID:                accountID,
 		region:                   region,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // seedOfferings returns a small catalog of standard offerings.
@@ -834,164 +800,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.channels = make(map[string]*storedChannel)
-	b.inputs = make(map[string]*storedInput)
-	b.inputSecurityGroups = make(map[string]*storedInputSecurityGroup)
-	b.inputDevices = make(map[string]*storedInputDevice)
+	b.registry.ResetAll()
 	b.pendingTransferDeviceIDs = make(map[string]struct{})
-	b.multiplexes = make(map[string]*storedMultiplex)
-	b.clusters = make(map[string]*storedCluster)
 	b.tags = make(map[string]map[string]string)
-	b.signalMaps = make(map[string]*storedSignalMap)
-	b.cwAlarmTemplateGroups = make(map[string]*storedCloudWatchAlarmTemplateGroup)
-	b.cwAlarmTemplates = make(map[string]*storedCloudWatchAlarmTemplate)
-	b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
-	b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
-	b.reservations = make(map[string]*storedReservation)
 	b.scheduleActions = make(map[string][]*storedScheduleAction)
-	b.networks = make(map[string]*storedNetwork)
-	b.sdiSources = make(map[string]*storedSdiSource)
-	b.channelPlacementGroups = make(map[string]*storedChannelPlacementGroup)
 	b.accountKmsKeyID = ""
-}
-
-// Snapshot serializes current state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	s := snapshot{
-		Channels:               b.channels,
-		Inputs:                 b.inputs,
-		InputSecurityGroups:    b.inputSecurityGroups,
-		InputDevices:           b.inputDevices,
-		Multiplexes:            b.multiplexes,
-		Clusters:               b.clusters,
-		Tags:                   b.tags,
-		SignalMaps:             b.signalMaps,
-		CWAlarmTemplateGroups:  b.cwAlarmTemplateGroups,
-		CWAlarmTemplates:       b.cwAlarmTemplates,
-		EBRuleTemplateGroups:   b.ebRuleTemplateGroups,
-		EBRuleTemplates:        b.ebRuleTemplates,
-		Reservations:           b.reservations,
-		ScheduleActions:        b.scheduleActions,
-		Networks:               b.networks,
-		SdiSources:             b.sdiSources,
-		ChannelPlacementGroups: b.channelPlacementGroups,
-		AccountKmsKeyID:        b.accountKmsKeyID,
-		AccountID:              b.accountID,
-		Region:                 b.region,
-	}
-
-	return persistence.MarshalSnapshot(ctx, "medialive", s)
-}
-
-// Restore deserializes state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var s snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "medialive", data, &s); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.channels = s.Channels
-	b.inputs = s.Inputs
-	b.inputSecurityGroups = s.InputSecurityGroups
-	if s.InputDevices != nil {
-		b.inputDevices = s.InputDevices
-	} else {
-		b.inputDevices = make(map[string]*storedInputDevice)
-	}
-	b.rebuildPendingTransferIndex()
-	b.multiplexes = s.Multiplexes
-	b.tags = s.Tags
-	b.restoreOptionalMaps(&s)
-	b.restoreParity(&s)
-	b.accountKmsKeyID = s.AccountKmsKeyID
-	b.accountID = s.AccountID
-	b.region = s.Region
-
-	return nil
-}
-
-// rebuildPendingTransferIndex rebuilds the pendingTransferDeviceIDs set from
-// the current inputDevices map. Call after any bulk restore of inputDevices.
-func (b *InMemoryBackend) rebuildPendingTransferIndex() {
-	b.pendingTransferDeviceIDs = make(map[string]struct{})
-
-	for id, d := range b.inputDevices {
-		if d.PendingTransfer != nil {
-			b.pendingTransferDeviceIDs[id] = struct{}{}
-		}
-	}
-}
-
-// restoreOptionalMaps assigns each optional snapshot map to the backend,
-// defaulting to an empty map when the snapshot field is nil (forward compat).
-func (b *InMemoryBackend) restoreOptionalMaps(s *snapshot) {
-	if s.Clusters != nil {
-		b.clusters = s.Clusters
-	} else {
-		b.clusters = make(map[string]*storedCluster)
-	}
-	if s.SignalMaps != nil {
-		b.signalMaps = s.SignalMaps
-	} else {
-		b.signalMaps = make(map[string]*storedSignalMap)
-	}
-	if s.CWAlarmTemplateGroups != nil {
-		b.cwAlarmTemplateGroups = s.CWAlarmTemplateGroups
-	} else {
-		b.cwAlarmTemplateGroups = make(map[string]*storedCloudWatchAlarmTemplateGroup)
-	}
-	if s.CWAlarmTemplates != nil {
-		b.cwAlarmTemplates = s.CWAlarmTemplates
-	} else {
-		b.cwAlarmTemplates = make(map[string]*storedCloudWatchAlarmTemplate)
-	}
-	if s.EBRuleTemplates != nil {
-		b.ebRuleTemplates = s.EBRuleTemplates
-	} else {
-		b.ebRuleTemplates = make(map[string]*storedEventBridgeRuleTemplate)
-	}
-	if s.EBRuleTemplateGroups != nil {
-		b.ebRuleTemplateGroups = s.EBRuleTemplateGroups
-	} else {
-		b.ebRuleTemplateGroups = make(map[string]*storedEventBridgeRuleTemplateGroup)
-	}
-	if s.Reservations != nil {
-		b.reservations = s.Reservations
-	} else {
-		b.reservations = make(map[string]*storedReservation)
-	}
-	if s.ScheduleActions != nil {
-		b.scheduleActions = s.ScheduleActions
-	} else {
-		b.scheduleActions = make(map[string][]*storedScheduleAction)
-	}
-}
-
-// restoreParity restores the parity resource maps, defaulting nil maps to empty.
-func (b *InMemoryBackend) restoreParity(s *snapshot) {
-	if s.Networks != nil {
-		b.networks = s.Networks
-	} else {
-		b.networks = make(map[string]*storedNetwork)
-	}
-
-	if s.SdiSources != nil {
-		b.sdiSources = s.SdiSources
-	} else {
-		b.sdiSources = make(map[string]*storedSdiSource)
-	}
-
-	if s.ChannelPlacementGroups != nil {
-		b.channelPlacementGroups = s.ChannelPlacementGroups
-	} else {
-		b.channelPlacementGroups = make(map[string]*storedChannelPlacementGroup)
-	}
 }
 
 func (b *InMemoryBackend) channelARN(id string) string {
@@ -1079,7 +892,7 @@ func (b *InMemoryBackend) CreateChannel(
 	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
-	b.channels[id] = ch
+	b.channels.Put(ch)
 
 	return ch.toChannel(), nil
 }
@@ -1089,7 +902,7 @@ func (b *InMemoryBackend) DescribeChannel(channelID string) (*Channel, error) {
 	b.mu.RLock("DescribeChannel")
 	defer b.mu.RUnlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -1102,7 +915,7 @@ func (b *InMemoryBackend) UpdateChannel(channelID, name, roleArn string) (*Chann
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -1123,7 +936,7 @@ func (b *InMemoryBackend) DeleteChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -1133,7 +946,7 @@ func (b *InMemoryBackend) DeleteChannel(channelID string) (*Channel, error) {
 	}
 
 	ch.State = stateDeleted
-	delete(b.channels, channelID)
+	b.channels.Delete(channelID)
 
 	return ch.toChannel(), nil
 }
@@ -1146,10 +959,7 @@ func (b *InMemoryBackend) ListChannels(
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedChannel, 0, len(b.channels))
-	for _, ch := range b.channels {
-		all = append(all, ch)
-	}
+	all := b.channels.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -1170,7 +980,7 @@ func (b *InMemoryBackend) StartChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("StartChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -1194,7 +1004,7 @@ func (b *InMemoryBackend) StopChannel(channelID string) (*Channel, error) {
 	b.mu.Lock("StopChannel")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -1240,7 +1050,7 @@ func (b *InMemoryBackend) CreateInput(
 	b.mu.Lock("CreateInput")
 	defer b.mu.Unlock()
 
-	b.inputs[id] = inp
+	b.inputs.Put(inp)
 
 	return inp.toInput(), nil
 }
@@ -1250,7 +1060,7 @@ func (b *InMemoryBackend) DescribeInput(inputID string) (*Input, error) {
 	b.mu.RLock("DescribeInput")
 	defer b.mu.RUnlock()
 
-	inp, ok := b.inputs[inputID]
+	inp, ok := b.inputs.Get(inputID)
 	if !ok {
 		return nil, fmt.Errorf("%w: input %s not found", ErrNotFound, inputID)
 	}
@@ -1263,7 +1073,7 @@ func (b *InMemoryBackend) UpdateInput(inputID, name, roleArn string) (*Input, er
 	b.mu.Lock("UpdateInput")
 	defer b.mu.Unlock()
 
-	inp, ok := b.inputs[inputID]
+	inp, ok := b.inputs.Get(inputID)
 	if !ok {
 		return nil, fmt.Errorf("%w: input %s not found", ErrNotFound, inputID)
 	}
@@ -1284,11 +1094,11 @@ func (b *InMemoryBackend) DeleteInput(inputID string) error {
 	b.mu.Lock("DeleteInput")
 	defer b.mu.Unlock()
 
-	if _, ok := b.inputs[inputID]; !ok {
+	if !b.inputs.Has(inputID) {
 		return fmt.Errorf("%w: input %s not found", ErrNotFound, inputID)
 	}
 
-	delete(b.inputs, inputID)
+	b.inputs.Delete(inputID)
 
 	return nil
 }
@@ -1301,10 +1111,7 @@ func (b *InMemoryBackend) ListInputs(
 	b.mu.RLock("ListInputs")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedInput, 0, len(b.inputs))
-	for _, inp := range b.inputs {
-		all = append(all, inp)
-	}
+	all := b.inputs.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -1340,7 +1147,7 @@ func (b *InMemoryBackend) CreateInputSecurityGroup(
 	b.mu.Lock("CreateInputSecurityGroup")
 	defer b.mu.Unlock()
 
-	b.inputSecurityGroups[id] = g
+	b.inputSecurityGroups.Put(g)
 
 	return g.toGroup(), nil
 }
@@ -1350,7 +1157,7 @@ func (b *InMemoryBackend) DescribeInputSecurityGroup(groupID string) (*InputSecu
 	b.mu.RLock("DescribeInputSecurityGroup")
 	defer b.mu.RUnlock()
 
-	g, ok := b.inputSecurityGroups[groupID]
+	g, ok := b.inputSecurityGroups.Get(groupID)
 	if !ok {
 		return nil, fmt.Errorf("%w: inputSecurityGroup %s not found", ErrNotFound, groupID)
 	}
@@ -1366,7 +1173,7 @@ func (b *InMemoryBackend) UpdateInputSecurityGroup(
 	b.mu.Lock("UpdateInputSecurityGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.inputSecurityGroups[groupID]
+	g, ok := b.inputSecurityGroups.Get(groupID)
 	if !ok {
 		return nil, fmt.Errorf("%w: inputSecurityGroup %s not found", ErrNotFound, groupID)
 	}
@@ -1384,11 +1191,11 @@ func (b *InMemoryBackend) DeleteInputSecurityGroup(groupID string) error {
 	b.mu.Lock("DeleteInputSecurityGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.inputSecurityGroups[groupID]; !ok {
+	if !b.inputSecurityGroups.Has(groupID) {
 		return fmt.Errorf("%w: inputSecurityGroup %s not found", ErrNotFound, groupID)
 	}
 
-	delete(b.inputSecurityGroups, groupID)
+	b.inputSecurityGroups.Delete(groupID)
 
 	return nil
 }
@@ -1401,10 +1208,7 @@ func (b *InMemoryBackend) ListInputSecurityGroups(
 	b.mu.RLock("ListInputSecurityGroups")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedInputSecurityGroup, 0, len(b.inputSecurityGroups))
-	for _, g := range b.inputSecurityGroups {
-		all = append(all, g)
-	}
+	all := b.inputSecurityGroups.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -1498,7 +1302,7 @@ func (b *InMemoryBackend) CreateMultiplex(
 	b.mu.Lock("CreateMultiplex")
 	defer b.mu.Unlock()
 
-	b.multiplexes[id] = m
+	b.multiplexes.Put(m)
 
 	return m.toMultiplex(), nil
 }
@@ -1508,7 +1312,7 @@ func (b *InMemoryBackend) DescribeMultiplex(multiplexID string) (*Multiplex, err
 	b.mu.RLock("DescribeMultiplex")
 	defer b.mu.RUnlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1524,7 +1328,7 @@ func (b *InMemoryBackend) UpdateMultiplex(
 	b.mu.Lock("UpdateMultiplex")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1543,7 +1347,7 @@ func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error
 	b.mu.Lock("DeleteMultiplex")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1553,7 +1357,7 @@ func (b *InMemoryBackend) DeleteMultiplex(multiplexID string) (*Multiplex, error
 	}
 
 	m.State = stateDeleted
-	delete(b.multiplexes, multiplexID)
+	b.multiplexes.Delete(multiplexID)
 
 	return m.toMultiplex(), nil
 }
@@ -1566,10 +1370,7 @@ func (b *InMemoryBackend) ListMultiplexes(
 	b.mu.RLock("ListMultiplexes")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedMultiplex, 0, len(b.multiplexes))
-	for _, m := range b.multiplexes {
-		all = append(all, m)
-	}
+	all := b.multiplexes.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -1589,7 +1390,7 @@ func (b *InMemoryBackend) StartMultiplex(multiplexID string) (*Multiplex, error)
 	b.mu.Lock("StartMultiplex")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1612,7 +1413,7 @@ func (b *InMemoryBackend) StopMultiplex(multiplexID string) (*Multiplex, error) 
 	b.mu.Lock("StopMultiplex")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1643,7 +1444,7 @@ func (b *InMemoryBackend) CreateMultiplexProgram(
 	b.mu.Lock("CreateMultiplexProgram")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1676,7 +1477,7 @@ func (b *InMemoryBackend) DescribeMultiplexProgram(
 	b.mu.RLock("DescribeMultiplexProgram")
 	defer b.mu.RUnlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1697,7 +1498,7 @@ func (b *InMemoryBackend) UpdateMultiplexProgram(
 	b.mu.Lock("UpdateMultiplexProgram")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1726,7 +1527,7 @@ func (b *InMemoryBackend) DeleteMultiplexProgram(
 	b.mu.Lock("DeleteMultiplexProgram")
 	defer b.mu.Unlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1750,7 +1551,7 @@ func (b *InMemoryBackend) ListMultiplexPrograms(
 	b.mu.RLock("ListMultiplexPrograms")
 	defer b.mu.RUnlock()
 
-	m, ok := b.multiplexes[multiplexID]
+	m, ok := b.multiplexes.Get(multiplexID)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
@@ -1802,7 +1603,7 @@ func (b *InMemoryBackend) ClaimDevice(id string) (*InputDevice, error) {
 	b.mu.Lock("ClaimDevice")
 	defer b.mu.Unlock()
 
-	if _, exists := b.inputDevices[id]; exists {
+	if b.inputDevices.Has(id) {
 		return nil, fmt.Errorf("%w: device %s already claimed", ErrConflict, id)
 	}
 
@@ -1818,7 +1619,7 @@ func (b *InMemoryBackend) ClaimDevice(id string) (*InputDevice, error) {
 		DeviceUpdateStatus:      deviceUpdateUpToDate,
 		Tags:                    make(map[string]string),
 	}
-	b.inputDevices[id] = d
+	b.inputDevices.Put(d)
 
 	return d.toDevice(), nil
 }
@@ -1831,10 +1632,7 @@ func (b *InMemoryBackend) ListInputDevices(
 	b.mu.RLock("ListInputDevices")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedInputDevice, 0, len(b.inputDevices))
-	for _, d := range b.inputDevices {
-		all = append(all, d)
-	}
+	all := b.inputDevices.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -1853,7 +1651,7 @@ func (b *InMemoryBackend) DescribeInputDevice(deviceID string) (*InputDevice, er
 	b.mu.RLock("DescribeInputDevice")
 	defer b.mu.RUnlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -1866,7 +1664,7 @@ func (b *InMemoryBackend) UpdateInputDevice(deviceID, name string) (*InputDevice
 	b.mu.Lock("UpdateInputDevice")
 	defer b.mu.Unlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -1883,7 +1681,7 @@ func (b *InMemoryBackend) RebootInputDevice(deviceID string) error {
 	b.mu.RLock("RebootInputDevice")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.inputDevices[deviceID]; !ok {
+	if !b.inputDevices.Has(deviceID) {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
 
@@ -1897,7 +1695,7 @@ func (b *InMemoryBackend) TransferInputDevice(
 	b.mu.Lock("TransferInputDevice")
 	defer b.mu.Unlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -1921,7 +1719,7 @@ func (b *InMemoryBackend) AcceptInputDeviceTransfer(deviceID string) error {
 	b.mu.Lock("AcceptInputDeviceTransfer")
 	defer b.mu.Unlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -1941,7 +1739,7 @@ func (b *InMemoryBackend) CancelInputDeviceTransfer(deviceID string) error {
 	b.mu.Lock("CancelInputDeviceTransfer")
 	defer b.mu.Unlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -1961,7 +1759,7 @@ func (b *InMemoryBackend) RejectInputDeviceTransfer(deviceID string) error {
 	b.mu.Lock("RejectInputDeviceTransfer")
 	defer b.mu.Unlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -1997,7 +1795,7 @@ func (b *InMemoryBackend) ListInputDeviceTransfers(
 
 	all := make([]*storedInputDevice, 0, len(b.pendingTransferDeviceIDs))
 	for deviceID := range b.pendingTransferDeviceIDs {
-		if d, ok := b.inputDevices[deviceID]; ok {
+		if d, ok := b.inputDevices.Get(deviceID); ok {
 			all = append(all, d)
 		}
 	}
@@ -2044,7 +1842,7 @@ func (b *InMemoryBackend) CreateCluster(
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	b.clusters[id] = c
+	b.clusters.Put(c)
 
 	return c.toCluster(), nil
 }
@@ -2054,7 +1852,7 @@ func (b *InMemoryBackend) DescribeCluster(clusterID string) (*Cluster, error) {
 	b.mu.RLock("DescribeCluster")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2067,7 +1865,7 @@ func (b *InMemoryBackend) UpdateCluster(clusterID, name string) (*Cluster, error
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2084,13 +1882,13 @@ func (b *InMemoryBackend) DeleteCluster(clusterID string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
 	c.State = clusterStateDeleted
-	delete(b.clusters, clusterID)
+	b.clusters.Delete(clusterID)
 
 	return c.toCluster(), nil
 }
@@ -2103,10 +1901,7 @@ func (b *InMemoryBackend) ListClusters(
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedCluster, 0, len(b.clusters))
-	for _, c := range b.clusters {
-		all = append(all, c)
-	}
+	all := b.clusters.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -2138,7 +1933,7 @@ func (b *InMemoryBackend) CreateNode(
 	b.mu.Lock("CreateNode")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2169,7 +1964,7 @@ func (b *InMemoryBackend) DescribeNode(clusterID, nodeID string) (*Node, error) 
 	b.mu.RLock("DescribeNode")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2187,7 +1982,7 @@ func (b *InMemoryBackend) UpdateNode(clusterID, nodeID, name, role string) (*Nod
 	b.mu.Lock("UpdateNode")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2213,7 +2008,7 @@ func (b *InMemoryBackend) UpdateNodeState(clusterID, nodeID, state string) (*Nod
 	b.mu.Lock("UpdateNodeState")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2235,7 +2030,7 @@ func (b *InMemoryBackend) DeleteNode(clusterID, nodeID string) (*Node, error) {
 	b.mu.Lock("DeleteNode")
 	defer b.mu.Unlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2278,7 +2073,7 @@ func (b *InMemoryBackend) ListNodes(
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
-	c, ok := b.clusters[clusterID]
+	c, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2293,7 +2088,7 @@ func (b *InMemoryBackend) CreateNodeRegistrationScript(clusterID string) (string
 	b.mu.RLock("CreateNodeRegistrationScript")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterID]; !ok {
+	if !b.clusters.Has(clusterID) {
 		return "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
@@ -2309,7 +2104,7 @@ func (b *InMemoryBackend) ListClusterAlerts(
 	b.mu.RLock("ListClusterAlerts")
 	defer b.mu.RUnlock()
 
-	cl, ok := b.clusters[clusterID]
+	cl, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
@@ -2335,7 +2130,7 @@ func (b *InMemoryBackend) ListClusterAlerts(
 
 // findSignalMap locates a signal map by ID or ARN or name.
 func (b *InMemoryBackend) findSignalMap(identifier string) (*storedSignalMap, bool) {
-	for _, sm := range b.signalMaps {
+	for _, sm := range b.signalMaps.All() {
 		if sm.ID == identifier || sm.Arn == identifier || sm.Name == identifier {
 			return sm, true
 		}
@@ -2370,7 +2165,7 @@ func (b *InMemoryBackend) CreateSignalMap(
 
 	b.mu.Lock("CreateSignalMap")
 	defer b.mu.Unlock()
-	b.signalMaps[id] = sm
+	b.signalMaps.Put(sm)
 
 	return sm.toSignalMap(), nil
 }
@@ -2394,10 +2189,7 @@ func (b *InMemoryBackend) ListSignalMaps(
 ) ([]*SignalMap, string, error) {
 	b.mu.RLock("ListSignalMaps")
 	defer b.mu.RUnlock()
-	all := make([]*storedSignalMap, 0, len(b.signalMaps))
-	for _, sm := range b.signalMaps {
-		all = append(all, sm)
-	}
+	all := b.signalMaps.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*SignalMap, 0, len(pg.Data))
@@ -2416,7 +2208,7 @@ func (b *InMemoryBackend) DeleteSignalMap(identifier string) error {
 	if !ok {
 		return fmt.Errorf("%w: signal map %s not found", ErrNotFound, identifier)
 	}
-	delete(b.signalMaps, sm.ID)
+	b.signalMaps.Delete(sm.ID)
 
 	return nil
 }
@@ -2467,7 +2259,7 @@ func (b *InMemoryBackend) StartMonitorDeployment(identifier string) (*SignalMap,
 func (b *InMemoryBackend) findCWAlarmTemplateGroup(
 	identifier string,
 ) (*storedCloudWatchAlarmTemplateGroup, bool) {
-	for _, g := range b.cwAlarmTemplateGroups {
+	for _, g := range b.cwAlarmTemplateGroups.All() {
 		if g.ID == identifier || g.Arn == identifier || g.Name == identifier {
 			return g, true
 		}
@@ -2493,7 +2285,7 @@ func (b *InMemoryBackend) CreateCloudWatchAlarmTemplateGroup(
 	}
 	b.mu.Lock("CreateCloudWatchAlarmTemplateGroup")
 	defer b.mu.Unlock()
-	b.cwAlarmTemplateGroups[id] = g
+	b.cwAlarmTemplateGroups.Put(g)
 
 	return g.toGroup(), nil
 }
@@ -2523,10 +2315,7 @@ func (b *InMemoryBackend) ListCloudWatchAlarmTemplateGroups(
 ) ([]*CloudWatchAlarmTemplateGroup, string, error) {
 	b.mu.RLock("ListCloudWatchAlarmTemplateGroups")
 	defer b.mu.RUnlock()
-	all := make([]*storedCloudWatchAlarmTemplateGroup, 0, len(b.cwAlarmTemplateGroups))
-	for _, g := range b.cwAlarmTemplateGroups {
-		all = append(all, g)
-	}
+	all := b.cwAlarmTemplateGroups.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*CloudWatchAlarmTemplateGroup, 0, len(pg.Data))
@@ -2573,7 +2362,7 @@ func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplateGroup(identifier string) 
 			identifier,
 		)
 	}
-	delete(b.cwAlarmTemplateGroups, g.ID)
+	b.cwAlarmTemplateGroups.Delete(g.ID)
 
 	return nil
 }
@@ -2583,7 +2372,7 @@ func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplateGroup(identifier string) 
 func (b *InMemoryBackend) findCWAlarmTemplate(
 	identifier string,
 ) (*storedCloudWatchAlarmTemplate, bool) {
-	for _, t := range b.cwAlarmTemplates {
+	for _, t := range b.cwAlarmTemplates.All() {
 		if t.ID == identifier || t.Arn == identifier || t.Name == identifier {
 			return t, true
 		}
@@ -2626,7 +2415,7 @@ func (b *InMemoryBackend) CreateCloudWatchAlarmTemplate(
 		TreatMissingData: treatMissingData, Threshold: threshold,
 		EvaluationPeriods: evaluationPeriods, DatapointsToAlarm: datapointsToAlarm, Period: period,
 	}
-	b.cwAlarmTemplates[id] = t
+	b.cwAlarmTemplates.Put(t)
 
 	return t.toTemplate(), nil
 }
@@ -2656,10 +2445,7 @@ func (b *InMemoryBackend) ListCloudWatchAlarmTemplates(
 ) ([]*CloudWatchAlarmTemplate, string, error) {
 	b.mu.RLock("ListCloudWatchAlarmTemplates")
 	defer b.mu.RUnlock()
-	all := make([]*storedCloudWatchAlarmTemplate, 0, len(b.cwAlarmTemplates))
-	for _, t := range b.cwAlarmTemplates {
-		all = append(all, t)
-	}
+	all := b.cwAlarmTemplates.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*CloudWatchAlarmTemplate, 0, len(pg.Data))
@@ -2783,7 +2569,7 @@ func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplate(identifier string) error
 	if !ok {
 		return fmt.Errorf("%w: cloudwatch alarm template %s not found", ErrNotFound, identifier)
 	}
-	delete(b.cwAlarmTemplates, t.ID)
+	b.cwAlarmTemplates.Delete(t.ID)
 
 	return nil
 }
@@ -2793,7 +2579,7 @@ func (b *InMemoryBackend) DeleteCloudWatchAlarmTemplate(identifier string) error
 func (b *InMemoryBackend) findEBRuleTemplateGroup(
 	identifier string,
 ) (*storedEventBridgeRuleTemplateGroup, bool) {
-	for _, g := range b.ebRuleTemplateGroups {
+	for _, g := range b.ebRuleTemplateGroups.All() {
 		if g.ID == identifier || g.Arn == identifier || g.Name == identifier {
 			return g, true
 		}
@@ -2817,7 +2603,7 @@ func (b *InMemoryBackend) CreateEventBridgeRuleTemplateGroup(
 	}
 	b.mu.Lock("CreateEventBridgeRuleTemplateGroup")
 	defer b.mu.Unlock()
-	b.ebRuleTemplateGroups[id] = g
+	b.ebRuleTemplateGroups.Put(g)
 
 	return g.toGroup(), nil
 }
@@ -2847,10 +2633,7 @@ func (b *InMemoryBackend) ListEventBridgeRuleTemplateGroups(
 ) ([]*EventBridgeRuleTemplateGroup, string, error) {
 	b.mu.RLock("ListEventBridgeRuleTemplateGroups")
 	defer b.mu.RUnlock()
-	all := make([]*storedEventBridgeRuleTemplateGroup, 0, len(b.ebRuleTemplateGroups))
-	for _, g := range b.ebRuleTemplateGroups {
-		all = append(all, g)
-	}
+	all := b.ebRuleTemplateGroups.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*EventBridgeRuleTemplateGroup, 0, len(pg.Data))
@@ -2897,7 +2680,7 @@ func (b *InMemoryBackend) DeleteEventBridgeRuleTemplateGroup(identifier string) 
 			identifier,
 		)
 	}
-	delete(b.ebRuleTemplateGroups, g.ID)
+	b.ebRuleTemplateGroups.Delete(g.ID)
 
 	return nil
 }
@@ -2907,7 +2690,7 @@ func (b *InMemoryBackend) DeleteEventBridgeRuleTemplateGroup(identifier string) 
 func (b *InMemoryBackend) findEBRuleTemplate(
 	identifier string,
 ) (*storedEventBridgeRuleTemplate, bool) {
-	for _, t := range b.ebRuleTemplates {
+	for _, t := range b.ebRuleTemplates.All() {
 		if t.ID == identifier || t.Arn == identifier || t.Name == identifier {
 			return t, true
 		}
@@ -2940,7 +2723,7 @@ func (b *InMemoryBackend) CreateEventBridgeRuleTemplate(
 		), EventTargets: targets, Arn: b.ebRuleTemplateARN(id), ID: id, Name: name,
 		Description: description, GroupID: groupID, GroupIdentifier: groupIdentifier, EventType: eventType,
 	}
-	b.ebRuleTemplates[id] = t
+	b.ebRuleTemplates.Put(t)
 
 	return t.toTemplate(), nil
 }
@@ -2970,10 +2753,7 @@ func (b *InMemoryBackend) ListEventBridgeRuleTemplates(
 ) ([]*EventBridgeRuleTemplate, string, error) {
 	b.mu.RLock("ListEventBridgeRuleTemplates")
 	defer b.mu.RUnlock()
-	all := make([]*storedEventBridgeRuleTemplate, 0, len(b.ebRuleTemplates))
-	for _, t := range b.ebRuleTemplates {
-		all = append(all, t)
-	}
+	all := b.ebRuleTemplates.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*EventBridgeRuleTemplate, 0, len(pg.Data))
@@ -3033,7 +2813,7 @@ func (b *InMemoryBackend) DeleteEventBridgeRuleTemplate(identifier string) error
 	if !ok {
 		return fmt.Errorf("%w: eventbridge rule template %s not found", ErrNotFound, identifier)
 	}
-	delete(b.ebRuleTemplates, t.ID)
+	b.ebRuleTemplates.Delete(t.ID)
 
 	return nil
 }
@@ -3115,7 +2895,7 @@ func (b *InMemoryBackend) PurchaseOffering(
 		State:                 "ACTIVE",
 		Count:                 count,
 	}
-	b.reservations[id] = r
+	b.reservations.Put(r)
 
 	return r.toReservation(), nil
 }
@@ -3127,10 +2907,7 @@ func (b *InMemoryBackend) ListReservations(
 ) ([]*Reservation, string, error) {
 	b.mu.RLock("ListReservations")
 	defer b.mu.RUnlock()
-	all := make([]*storedReservation, 0, len(b.reservations))
-	for _, r := range b.reservations {
-		all = append(all, r)
-	}
+	all := b.reservations.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ReservationID < all[j].ReservationID })
 	pg := page.New(all, nextToken, maxResults, defaultMaxResults)
 	result := make([]*Reservation, 0, len(pg.Data))
@@ -3145,7 +2922,7 @@ func (b *InMemoryBackend) ListReservations(
 func (b *InMemoryBackend) DescribeReservation(reservationID string) (*Reservation, error) {
 	b.mu.RLock("DescribeReservation")
 	defer b.mu.RUnlock()
-	r, ok := b.reservations[reservationID]
+	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
 	}
@@ -3157,13 +2934,13 @@ func (b *InMemoryBackend) DescribeReservation(reservationID string) (*Reservatio
 func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation, error) {
 	b.mu.Lock("DeleteReservation")
 	defer b.mu.Unlock()
-	r, ok := b.reservations[reservationID]
+	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
 	}
 	r.State = "CANCELED"
 	out := r.toReservation()
-	delete(b.reservations, reservationID)
+	b.reservations.Delete(reservationID)
 
 	return out, nil
 }
@@ -3172,7 +2949,7 @@ func (b *InMemoryBackend) DeleteReservation(reservationID string) (*Reservation,
 func (b *InMemoryBackend) UpdateReservation(reservationID, name string) (*Reservation, error) {
 	b.mu.Lock("UpdateReservation")
 	defer b.mu.Unlock()
-	r, ok := b.reservations[reservationID]
+	r, ok := b.reservations.Get(reservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: reservation %s not found", ErrNotFound, reservationID)
 	}
@@ -3191,7 +2968,7 @@ func (b *InMemoryBackend) batchSetState(
 ) *BatchResult {
 	var result BatchResult
 	for _, id := range channelIDs {
-		ch, ok := b.channels[id]
+		ch, ok := b.channels.Get(id)
 		if !ok {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
@@ -3204,7 +2981,7 @@ func (b *InMemoryBackend) batchSetState(
 		)
 	}
 	for _, id := range multiplexIDs {
-		mx, ok := b.multiplexes[id]
+		mx, ok := b.multiplexes.Get(id)
 		if !ok {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
@@ -3248,7 +3025,7 @@ func (b *InMemoryBackend) BatchDelete(
 	defer b.mu.Unlock()
 	var result BatchResult
 	for _, id := range channelIDs {
-		ch, ok := b.channels[id]
+		ch, ok := b.channels.Get(id)
 		if !ok {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
@@ -3262,27 +3039,27 @@ func (b *InMemoryBackend) BatchDelete(
 
 			continue
 		}
-		delete(b.channels, id)
+		b.channels.Delete(id)
 		result.Successful = append(
 			result.Successful,
 			BatchSuccessfulResult{ID: id, Arn: ch.ARN, State: stateDeleted},
 		)
 	}
 	for _, id := range inputIDs {
-		inp, ok := b.inputs[id]
+		inp, ok := b.inputs.Get(id)
 		if !ok {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
 			continue
 		}
-		delete(b.inputs, id)
+		b.inputs.Delete(id)
 		result.Successful = append(
 			result.Successful,
 			BatchSuccessfulResult{ID: id, Arn: inp.ARN, State: stateDeleted},
 		)
 	}
 	for _, id := range multiplexIDs {
-		mx, ok := b.multiplexes[id]
+		mx, ok := b.multiplexes.Get(id)
 		if !ok {
 			result.Failed = append(result.Failed, BatchFailedResult{ID: id, Code: batchErrNotFound})
 
@@ -3296,7 +3073,7 @@ func (b *InMemoryBackend) BatchDelete(
 
 			continue
 		}
-		delete(b.multiplexes, id)
+		b.multiplexes.Delete(id)
 		result.Successful = append(
 			result.Successful,
 			BatchSuccessfulResult{ID: id, Arn: mx.ARN, State: stateDeleted},
@@ -3314,7 +3091,7 @@ func (b *InMemoryBackend) BatchUpdateSchedule(
 ) (*BatchUpdateScheduleResult, error) {
 	b.mu.Lock("BatchUpdateSchedule")
 	defer b.mu.Unlock()
-	if _, ok := b.channels[channelID]; !ok {
+	if !b.channels.Has(channelID) {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
 	actions := b.scheduleActions[channelID]
@@ -3381,7 +3158,7 @@ func (b *InMemoryBackend) CreateNetwork(
 	b.mu.Lock("CreateNetwork")
 	defer b.mu.Unlock()
 
-	b.networks[id] = n
+	b.networks.Put(n)
 
 	return n.toNetwork(), nil
 }
@@ -3391,7 +3168,7 @@ func (b *InMemoryBackend) DescribeNetwork(networkID string) (*Network, error) {
 	b.mu.RLock("DescribeNetwork")
 	defer b.mu.RUnlock()
 
-	n, ok := b.networks[networkID]
+	n, ok := b.networks.Get(networkID)
 	if !ok {
 		return nil, fmt.Errorf("%w: network %s not found", ErrNotFound, networkID)
 	}
@@ -3408,7 +3185,7 @@ func (b *InMemoryBackend) UpdateNetwork(
 	b.mu.Lock("UpdateNetwork")
 	defer b.mu.Unlock()
 
-	n, ok := b.networks[networkID]
+	n, ok := b.networks.Get(networkID)
 	if !ok {
 		return nil, fmt.Errorf("%w: network %s not found", ErrNotFound, networkID)
 	}
@@ -3437,14 +3214,14 @@ func (b *InMemoryBackend) DeleteNetwork(networkID string) (*Network, error) {
 	b.mu.Lock("DeleteNetwork")
 	defer b.mu.Unlock()
 
-	n, ok := b.networks[networkID]
+	n, ok := b.networks.Get(networkID)
 	if !ok {
 		return nil, fmt.Errorf("%w: network %s not found", ErrNotFound, networkID)
 	}
 
 	n.State = networkStateDeleting
 	out := n.toNetwork()
-	delete(b.networks, networkID)
+	b.networks.Delete(networkID)
 
 	return out, nil
 }
@@ -3457,10 +3234,7 @@ func (b *InMemoryBackend) ListNetworks(
 	b.mu.RLock("ListNetworks")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedNetwork, 0, len(b.networks))
-	for _, n := range b.networks {
-		all = append(all, n)
-	}
+	all := b.networks.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -3507,7 +3281,7 @@ func (b *InMemoryBackend) CreateSdiSource(
 	b.mu.Lock("CreateSdiSource")
 	defer b.mu.Unlock()
 
-	b.sdiSources[id] = s
+	b.sdiSources.Put(s)
 
 	return s.toSdiSource(), nil
 }
@@ -3517,7 +3291,7 @@ func (b *InMemoryBackend) DescribeSdiSource(sdiSourceID string) (*SdiSource, err
 	b.mu.RLock("DescribeSdiSource")
 	defer b.mu.RUnlock()
 
-	s, ok := b.sdiSources[sdiSourceID]
+	s, ok := b.sdiSources.Get(sdiSourceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: sdiSource %s not found", ErrNotFound, sdiSourceID)
 	}
@@ -3532,7 +3306,7 @@ func (b *InMemoryBackend) UpdateSdiSource(
 	b.mu.Lock("UpdateSdiSource")
 	defer b.mu.Unlock()
 
-	s, ok := b.sdiSources[sdiSourceID]
+	s, ok := b.sdiSources.Get(sdiSourceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: sdiSource %s not found", ErrNotFound, sdiSourceID)
 	}
@@ -3557,14 +3331,14 @@ func (b *InMemoryBackend) DeleteSdiSource(sdiSourceID string) (*SdiSource, error
 	b.mu.Lock("DeleteSdiSource")
 	defer b.mu.Unlock()
 
-	s, ok := b.sdiSources[sdiSourceID]
+	s, ok := b.sdiSources.Get(sdiSourceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: sdiSource %s not found", ErrNotFound, sdiSourceID)
 	}
 
 	s.State = sdiSourceStateDeleted
 	out := s.toSdiSource()
-	delete(b.sdiSources, sdiSourceID)
+	b.sdiSources.Delete(sdiSourceID)
 
 	return out, nil
 }
@@ -3577,10 +3351,7 @@ func (b *InMemoryBackend) ListSdiSources(
 	b.mu.RLock("ListSdiSources")
 	defer b.mu.RUnlock()
 
-	all := make([]*storedSdiSource, 0, len(b.sdiSources))
-	for _, s := range b.sdiSources {
-		all = append(all, s)
-	}
+	all := b.sdiSources.All()
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -3614,7 +3385,7 @@ func (b *InMemoryBackend) CreateChannelPlacementGroup(
 	b.mu.Lock("CreateChannelPlacementGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[clusterID]; !ok {
+	if !b.clusters.Has(clusterID) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
@@ -3633,7 +3404,7 @@ func (b *InMemoryBackend) CreateChannelPlacementGroup(
 		Nodes:     ns,
 	}
 
-	b.channelPlacementGroups[cpgKey(clusterID, id)] = g
+	b.channelPlacementGroups.Put(g)
 
 	return g.toGroup(), nil
 }
@@ -3645,7 +3416,7 @@ func (b *InMemoryBackend) DescribeChannelPlacementGroup(
 	b.mu.RLock("DescribeChannelPlacementGroup")
 	defer b.mu.RUnlock()
 
-	g, ok := b.channelPlacementGroups[cpgKey(clusterID, groupID)]
+	g, ok := b.channelPlacementGroups.Get(cpgKey(clusterID, groupID))
 	if !ok {
 		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
 	}
@@ -3661,7 +3432,7 @@ func (b *InMemoryBackend) UpdateChannelPlacementGroup(
 	b.mu.Lock("UpdateChannelPlacementGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.channelPlacementGroups[cpgKey(clusterID, groupID)]
+	g, ok := b.channelPlacementGroups.Get(cpgKey(clusterID, groupID))
 	if !ok {
 		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
 	}
@@ -3688,14 +3459,14 @@ func (b *InMemoryBackend) DeleteChannelPlacementGroup(
 
 	key := cpgKey(clusterID, groupID)
 
-	g, ok := b.channelPlacementGroups[key]
+	g, ok := b.channelPlacementGroups.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: channelPlacementGroup %s not found", ErrNotFound, groupID)
 	}
 
 	g.State = channelPlacementGroupStateDeleting
 	out := g.toGroup()
-	delete(b.channelPlacementGroups, key)
+	b.channelPlacementGroups.Delete(key)
 
 	return out, nil
 }
@@ -3709,12 +3480,12 @@ func (b *InMemoryBackend) ListChannelPlacementGroups(
 	b.mu.RLock("ListChannelPlacementGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.clusters[clusterID]; !ok {
+	if !b.clusters.Has(clusterID) {
 		return nil, "", fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
 	}
 
-	all := make([]*storedChannelPlacementGroup, 0, len(b.channelPlacementGroups))
-	for _, g := range b.channelPlacementGroups {
+	all := make([]*storedChannelPlacementGroup, 0, b.channelPlacementGroups.Len())
+	for _, g := range b.channelPlacementGroups.All() {
 		if g.ClusterID == clusterID {
 			all = append(all, g)
 		}
@@ -3761,7 +3532,7 @@ func (b *InMemoryBackend) DescribeSchedule(channelID string) ([]ScheduleAction, 
 	b.mu.RLock("DescribeSchedule")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.channels[channelID]; !ok {
+	if !b.channels.Has(channelID) {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
 
@@ -3779,7 +3550,7 @@ func (b *InMemoryBackend) DeleteSchedule(channelID string) error {
 	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[channelID]; !ok {
+	if !b.channels.Has(channelID) {
 		return fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
 
@@ -3795,7 +3566,7 @@ func (b *InMemoryBackend) ListAlerts(channelID string) ([]map[string]any, error)
 	b.mu.RLock("ListAlerts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.channels[channelID]; !ok {
+	if !b.channels.Has(channelID) {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
 
@@ -3807,7 +3578,7 @@ func (b *InMemoryBackend) ListMultiplexAlerts(multiplexID string) ([]map[string]
 	b.mu.RLock("ListMultiplexAlerts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.multiplexes[multiplexID]; !ok {
+	if !b.multiplexes.Has(multiplexID) {
 		return nil, fmt.Errorf("%w: multiplex %s not found", ErrNotFound, multiplexID)
 	}
 
@@ -3828,7 +3599,7 @@ func (b *InMemoryBackend) UpdateChannelClass(channelID, channelClass string) (*C
 	b.mu.Lock("UpdateChannelClass")
 	defer b.mu.Unlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -3850,7 +3621,7 @@ func (b *InMemoryBackend) RestartChannelPipelines(
 	b.mu.RLock("RestartChannelPipelines")
 	defer b.mu.RUnlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -3863,7 +3634,7 @@ func (b *InMemoryBackend) DescribeThumbnails(channelID string) (*Channel, error)
 	b.mu.RLock("DescribeThumbnails")
 	defer b.mu.RUnlock()
 
-	ch, ok := b.channels[channelID]
+	ch, ok := b.channels.Get(channelID)
 	if !ok {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
@@ -3878,7 +3649,7 @@ func (b *InMemoryBackend) StartInputDevice(deviceID string) error {
 	b.mu.RLock("StartInputDevice")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.inputDevices[deviceID]; !ok {
+	if !b.inputDevices.Has(deviceID) {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
 
@@ -3890,7 +3661,7 @@ func (b *InMemoryBackend) StopInputDevice(deviceID string) error {
 	b.mu.RLock("StopInputDevice")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.inputDevices[deviceID]; !ok {
+	if !b.inputDevices.Has(deviceID) {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
 
@@ -3902,7 +3673,7 @@ func (b *InMemoryBackend) StartInputDeviceMaintenanceWindow(deviceID string) err
 	b.mu.Lock("StartInputDeviceMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -3917,7 +3688,7 @@ func (b *InMemoryBackend) DescribeInputDeviceThumbnail(deviceID string) (*InputD
 	b.mu.RLock("DescribeInputDeviceThumbnail")
 	defer b.mu.RUnlock()
 
-	d, ok := b.inputDevices[deviceID]
+	d, ok := b.inputDevices.Get(deviceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: inputDevice %s not found", ErrNotFound, deviceID)
 	}
@@ -3952,7 +3723,7 @@ func (b *InMemoryBackend) CreatePartnerInput(
 	b.mu.Lock("CreatePartnerInput")
 	defer b.mu.Unlock()
 
-	parent, ok := b.inputs[inputID]
+	parent, ok := b.inputs.Get(inputID)
 	if !ok {
 		return nil, fmt.Errorf("%w: input %s not found", ErrNotFound, inputID)
 	}
@@ -3967,7 +3738,7 @@ func (b *InMemoryBackend) CreatePartnerInput(
 		RoleARN:   parent.RoleARN,
 		State:     stateDetached,
 	}
-	b.inputs[id] = partner
+	b.inputs.Put(partner)
 
 	return partner.toInput(), nil
 }

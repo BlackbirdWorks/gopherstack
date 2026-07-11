@@ -8,14 +8,22 @@ const (
 
 // LogGroup represents a CloudWatch Logs log group.
 type LogGroup struct {
-	RetentionInDays   *int32 `json:"retentionInDays,omitempty"`
-	LogGroupName      string `json:"logGroupName"`
-	Arn               string `json:"arn"`
-	LogGroupClass     string `json:"logGroupClass,omitempty"`
-	KmsKeyID          string `json:"kmsKeyId,omitempty"`
-	CreationTime      int64  `json:"creationTime"`
-	StoredBytes       int64  `json:"storedBytes"`
-	MetricFilterCount int32  `json:"metricFilterCount"`
+	RetentionInDays *int32 `json:"retentionInDays,omitempty"`
+	LogGroupName    string `json:"logGroupName"`
+	Arn             string `json:"arn"`
+	LogGroupClass   string `json:"logGroupClass,omitempty"`
+	KmsKeyID        string `json:"kmsKeyId,omitempty"`
+	// region is the AWS region this group lives under. It is unexported (never
+	// marshaled, so the wire response shape is unaffected) and exists solely so
+	// the store.Table[LogGroup] holding every region's groups can derive a
+	// region-qualified primary key purely from the value itself -- see
+	// groupTableKey in store_setup.go. Persistence round-trips it through the
+	// separate logGroupSnapshot DTO (see persistence.go) since an unexported
+	// field cannot survive Table.Snapshot's json.Marshal on its own.
+	region            string
+	CreationTime      int64 `json:"creationTime"`
+	StoredBytes       int64 `json:"storedBytes"`
+	MetricFilterCount int32 `json:"metricFilterCount"`
 }
 
 // LogStream represents a CloudWatch Logs log stream.
@@ -26,8 +34,17 @@ type LogStream struct {
 	LogStreamName       string `json:"logStreamName"`
 	Arn                 string `json:"arn"`
 	UploadSequenceToken string `json:"uploadSequenceToken"`
-	CreationTime        int64  `json:"creationTime"`
-	StoredBytes         int64  `json:"storedBytes"`
+	// region and logGroupName are unexported identity metadata (see LogGroup.region)
+	// letting store.Table[LogStream] key every region+group's streams from the
+	// value alone. events holds this stream's log events inline (matching the
+	// sqs/s3 pattern of nesting child records on the parent entity rather than a
+	// separate table) and is likewise unexported; both round-trip through the
+	// logStreamSnapshot DTO in persistence.go.
+	region       string
+	logGroupName string
+	events       []*OutputLogEvent
+	CreationTime int64 `json:"creationTime"`
+	StoredBytes  int64 `json:"storedBytes"`
 }
 
 // InputLogEvent represents a single log event for PutLogEvents.
@@ -104,7 +121,11 @@ type SubscriptionFilter struct {
 	DestinationArn string `json:"destinationArn"`
 	RoleArn        string `json:"roleArn,omitempty"`
 	Distribution   string `json:"distribution,omitempty"`
-	CreationTime   int64  `json:"creationTime"`
+	// region is unexported identity metadata (see LogGroup.region) letting
+	// store.Table[SubscriptionFilter] key every region+group's filters from the
+	// value alone; it round-trips through the subscriptionFilterSnapshot DTO.
+	region       string
+	CreationTime int64 `json:"creationTime"`
 }
 
 // subscriptionLogEvent is one event in a subscription filter delivery payload.
@@ -232,9 +253,12 @@ type AccountPolicy struct {
 }
 
 // RejectedLogEventsInfo describes log events that were rejected by PutLogEvents.
+// Field names/wire keys match aws-sdk-go-v2 types.RejectedLogEventsInfo exactly:
+// TooOldLogEventEndIndex (not "...StartIndex") is the exclusive end index of the
+// too-old run, mirroring ExpiredLogEventEndIndex's exclusive-end semantics.
 type RejectedLogEventsInfo struct {
 	TooNewLogEventStartIndex *int32 `json:"tooNewLogEventStartIndex,omitempty"`
-	TooOldLogEventStartIndex *int32 `json:"tooOldLogEventStartIndex,omitempty"`
+	TooOldLogEventEndIndex   *int32 `json:"tooOldLogEventEndIndex,omitempty"`
 	ExpiredLogEventEndIndex  *int32 `json:"expiredLogEventEndIndex,omitempty"`
 }
 
@@ -256,10 +280,11 @@ type MetricTransformation struct {
 
 // MetricFilter represents a CloudWatch Logs metric filter.
 type MetricFilter struct {
-	RetentionInDays       *int32                 `json:"retentionInDays,omitempty"`
-	FilterPattern         string                 `json:"filterPattern"`
-	FilterName            string                 `json:"filterName"`
-	LogGroupName          string                 `json:"logGroupName"`
+	RetentionInDays       *int32 `json:"retentionInDays,omitempty"`
+	FilterPattern         string `json:"filterPattern"`
+	FilterName            string `json:"filterName"`
+	LogGroupName          string `json:"logGroupName"`
+	region                string
 	MetricTransformations []MetricTransformation `json:"metricTransformations"`
 	CreationTime          int64                  `json:"creationTime"`
 }

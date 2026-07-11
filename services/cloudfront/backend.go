@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -170,8 +171,52 @@ var (
 	ErrOriginRequestPolicyNotFound = awserr.New("NoSuchOriginRequestPolicy", awserr.ErrNotFound)
 	// ErrValidation is returned when request parameters fail validation.
 	ErrValidation = awserr.New("InvalidArgument", awserr.ErrInvalidParameter)
-	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
-	ErrAlreadyExists = awserr.New("DistributionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrAlreadyExists is the generic fallback for a resource whose identifier already
+	// exists but which has no dedicated AlreadyExists error type in the CloudFront API
+	// (e.g. Anycast IP lists, key value stores). AWS itself falls back to this same
+	// generic code for such resources.
+	ErrAlreadyExists = awserr.New("EntityAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrCachePolicyAlreadyExists is returned when a cache policy name is already in use.
+	ErrCachePolicyAlreadyExists = awserr.New("CachePolicyAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrOriginRequestPolicyAlreadyExists is returned when an origin request policy name
+	// is already in use.
+	ErrOriginRequestPolicyAlreadyExists = awserr.New("OriginRequestPolicyAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrResponseHeadersPolicyAlreadyExists is returned when a response headers policy
+	// name is already in use.
+	ErrResponseHeadersPolicyAlreadyExists = awserr.New(
+		"ResponseHeadersPolicyAlreadyExists",
+		awserr.ErrAlreadyExists,
+	)
+	// ErrOriginAccessControlAlreadyExists is returned when an origin access control name
+	// is already in use.
+	ErrOriginAccessControlAlreadyExists = awserr.New("OriginAccessControlAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFunctionAlreadyExists is returned when a CloudFront function name is already in use.
+	ErrFunctionAlreadyExists = awserr.New("FunctionAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFLEAlreadyExists is returned when a field-level-encryption config's CallerReference
+	// collides with an existing config of a different shape.
+	ErrFLEAlreadyExists = awserr.New("FieldLevelEncryptionConfigAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrFLEProfileAlreadyExists is returned when a field-level-encryption profile name is
+	// already in use.
+	ErrFLEProfileAlreadyExists = awserr.New("FieldLevelEncryptionProfileAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrPublicKeyAlreadyExists is returned when a public key name is already in use.
+	ErrPublicKeyAlreadyExists = awserr.New("PublicKeyAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrKeyGroupAlreadyExists is returned when a key group name is already in use.
+	ErrKeyGroupAlreadyExists = awserr.New("KeyGroupAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrRealtimeLogConfigAlreadyExists is returned when a realtime log config name is
+	// already in use.
+	ErrRealtimeLogConfigAlreadyExists = awserr.New("RealtimeLogConfigAlreadyExists", awserr.ErrAlreadyExists)
+	// ErrCachePolicyInUse is returned when attempting to delete a cache policy that is
+	// still referenced by a distribution's default or ordered cache behavior.
+	ErrCachePolicyInUse = awserr.New("CachePolicyInUse", awserr.ErrConflict)
+	// ErrOriginRequestPolicyInUse is returned when attempting to delete an origin
+	// request policy that is still referenced by a distribution's cache behavior.
+	ErrOriginRequestPolicyInUse = awserr.New("OriginRequestPolicyInUse", awserr.ErrConflict)
+	// ErrResponseHeadersPolicyInUse is returned when attempting to delete a response
+	// headers policy that is still referenced by a distribution's cache behavior.
+	ErrResponseHeadersPolicyInUse = awserr.New("ResponseHeadersPolicyInUse", awserr.ErrConflict)
+	// ErrFunctionInUse is returned when attempting to delete a CloudFront function that
+	// is still associated with a distribution's cache behavior.
+	ErrFunctionInUse = awserr.New("FunctionInUse", awserr.ErrConflict)
 	// ErrFLENotFound is returned when a requested field level encryption config does not exist.
 	ErrFLENotFound = awserr.New("NoSuchFieldLevelEncryptionConfig", awserr.ErrNotFound)
 	// ErrFLEProfileNotFound is returned when a requested field level encryption profile does not exist.
@@ -197,6 +242,10 @@ var (
 	// ErrFLEProfileInUse is returned when a field-level-encryption profile is still
 	// referenced by a field-level-encryption config and therefore cannot be deleted.
 	ErrFLEProfileInUse = awserr.New("FieldLevelEncryptionProfileInUse", awserr.ErrConflict)
+	// ErrInconsistentQuantities is returned when a config payload declares a Quantity
+	// for a list that does not match the number of Items actually provided. AWS
+	// validates this pervasively across DistributionConfig and policy configs.
+	ErrInconsistentQuantities = awserr.New("InconsistentQuantities", awserr.ErrInvalidParameter)
 )
 
 // ErrPreconditionFailed is returned when an If-Match ETag check fails in a data-plane operation.
@@ -248,11 +297,21 @@ type OriginAccessIdentity struct {
 }
 
 // Invalidation represents a CloudFront cache invalidation.
+//
+// distID and tenantID are unexported identity-only fields used purely to key the
+// composite invalidations/tenantInvalidations store.Table (see store_setup.go):
+// exactly one is populated on any given Invalidation, depending on whether it
+// belongs to a distribution (b.invalidations) or a distribution tenant
+// (b.tenantInvalidations). Neither is part of the real AWS wire shape (hence
+// json:"-"), and keeping them unexported preserves the exported API surface of
+// this pre-existing exported type exactly.
 type Invalidation struct {
 	CreateTime time.Time `json:"createTime"`
 	ID         string    `json:"id"`
 	Status     string    `json:"status"`
 	CallerRef  string    `json:"callerRef,omitempty"`
+	distID     string    `json:"-"`
+	tenantID   string    `json:"-"`
 	Paths      []string  `json:"paths,omitempty"`
 }
 
@@ -455,13 +514,15 @@ type ResponseHeadersPolicy struct {
 
 // Function represents a CloudFront Function.
 type Function struct {
-	Name         string `json:"name"`
-	Comment      string `json:"comment,omitempty"`
-	Runtime      string `json:"runtime"`
-	FunctionCode string `json:"functionCode"`
-	Status       string `json:"status"` // DEVELOPMENT or LIVE
-	ETag         string `json:"eTag"`
-	ARN          string `json:"arn"`
+	Name             string `json:"name"`
+	Comment          string `json:"comment,omitempty"`
+	Runtime          string `json:"runtime"`
+	FunctionCode     string `json:"functionCode"`
+	Status           string `json:"status"` // DEVELOPMENT or LIVE
+	ETag             string `json:"eTag"`
+	ARN              string `json:"arn"`
+	CreatedTime      string `json:"createdTime"`
+	LastModifiedTime string `json:"lastModifiedTime"`
 }
 
 // ORPHeadersConfig controls which request headers are forwarded to the origin.
@@ -583,59 +644,74 @@ type VpcOrigin struct {
 }
 
 // InMemoryBackend stores CloudFront resources in memory.
+//
+// Every map[string]*T resource collection is a *store.Table[T] registered exactly
+// once on b.registry (see store_setup.go) instead of a hand-rolled map field, per
+// Phase 3.3 of the datalayer refactor (see pkgs/store's package doc and the
+// services/ec2 (12e611a4) / services/sqs (0f09d77c) / services/apigateway
+// (6da0334e) conversions this follows). store.Table performs no locking of its
+// own; b.mu (below) remains the single coarse lock guarding every table exactly
+// as it guarded the raw maps it replaces.
 type InMemoryBackend struct {
-	distributions                     map[string]*Distribution
+	distributions                     *store.Table[Distribution]
 	distributionARNs                  map[string]string          // ARN → distribution ID (O(1) tag lookups)
 	distributionCallerRefs            map[string]string          // CallerReference → distribution ID (idempotency)
 	distributionAliases               map[string][]string        // distribution ID → aliases
 	distributionWebACLs               map[string]string          // distribution ID → web ACL ID
 	distributionTenantWebACLs         map[string]string          // tenant ID → web ACL ID
-	invalidations                     map[string][]*Invalidation // distribution ID → []Invalidation
-	oais                              map[string]*OriginAccessIdentity
+	invalidations                     *store.Table[Invalidation] // composite key: distID + "#" + invID
+	invalidationsByDist               *store.Index[Invalidation]
+	oais                              *store.Table[OriginAccessIdentity]
 	oaiCallerRefs                     map[string]string // CallerReference → OAI ID (idempotency)
-	anycastIPLists                    map[string]*AnycastIPList
+	anycastIPLists                    *store.Table[AnycastIPList]
 	anycastIPListARNs                 map[string]string // ARN → anycast IP list ID (tag lookups)
 	anycastIPListByName               map[string]string // name → anycast IP list ID (uniqueness)
-	cachePolicies                     map[string]*CachePolicy
+	cachePolicies                     *store.Table[CachePolicy]
 	cachePolicyByName                 map[string]string // name → policy ID (uniqueness)
-	connectionFunctions               map[string]*ConnectionFunction
+	connectionFunctions               *store.Table[ConnectionFunction]
 	connectionFunctionARNs            map[string]string // ARN → connection function ID (tag lookups)
 	connectionFunctionByName          map[string]string // name → connection function ID (uniqueness / Identifier lookups)
-	connectionGroups                  map[string]*ConnectionGroup
+	connectionGroups                  *store.Table[ConnectionGroup]
 	connectionGroupARNs               map[string]string // ARN → connection group ID (tag lookups)
 	connectionGroupByName             map[string]string // name → connection group ID (uniqueness)
 	connectionGroupByRoutingEndpoint  map[string]string // routing endpoint → connection group ID
-	continuousDeploymentPolicies      map[string]*ContinuousDeploymentPolicy
-	originAccessControls              map[string]*OriginAccessControl
+	continuousDeploymentPolicies      *store.Table[ContinuousDeploymentPolicy]
+	originAccessControls              *store.Table[OriginAccessControl]
 	originAccessControlByName         map[string]string // name → OAC ID (uniqueness)
-	responseHeadersPolicies           map[string]*ResponseHeadersPolicy
-	responseHeadersPolicyByName       map[string]string    // name → policy ID (uniqueness)
-	functions                         map[string]*Function // name → function
-	originRequestPolicies             map[string]*OriginRequestPolicy
+	responseHeadersPolicies           *store.Table[ResponseHeadersPolicy]
+	responseHeadersPolicyByName       map[string]string      // name → policy ID (uniqueness)
+	functions                         *store.Table[Function] // name → function
+	originRequestPolicies             *store.Table[OriginRequestPolicy]
 	originRequestPolicyByName         map[string]string // name → policy ID (uniqueness)
-	fieldLevelEncryptions             map[string]*FieldLevelEncryption
+	fieldLevelEncryptions             *store.Table[FieldLevelEncryption]
 	fieldLevelEncryptionByName        map[string]string // name → ID
-	fieldLevelEncryptionProfiles      map[string]*FieldLevelEncryptionProfile
+	fieldLevelEncryptionProfiles      *store.Table[FieldLevelEncryptionProfile]
 	fieldLevelEncryptionProfileByName map[string]string // name → ID
-	publicKeys                        map[string]*PublicKey
+	publicKeys                        *store.Table[PublicKey]
 	publicKeyByName                   map[string]string // name → ID
-	keyGroups                         map[string]*KeyGroup
-	keyGroupByName                    map[string]string             // name → ID
-	realtimeLogConfigs                map[string]*RealtimeLogConfig // ARN → config
-	realtimeLogConfigByName           map[string]string             // name → ARN
-	keyValueStores                    map[string]*KeyValueStore
+	keyGroups                         *store.Table[KeyGroup]
+	keyGroupByName                    map[string]string               // name → ID
+	realtimeLogConfigs                *store.Table[RealtimeLogConfig] // ARN → config
+	realtimeLogConfigByName           map[string]string               // name → ARN
+	keyValueStores                    *store.Table[KeyValueStore]
 	keyValueStoreByName               map[string]string // name → ID
-	vpcOrigins                        map[string]*VpcOrigin
+	vpcOrigins                        *store.Table[VpcOrigin]
 	distributionFunctionAssociations  map[string][]FunctionAssociation // distribution ID → associations
 	// Batch 1 additions.
-	trustStores                     map[string]*TrustStore
+	trustStores                     *store.Table[TrustStore]
 	trustStoreARNs                  map[string]string // ARN → trust store ID (tag lookups)
 	trustStoreByName                map[string]string // name → trust store ID (uniqueness)
-	streamingDistributions          map[string]*StreamingDistribution
-	streamingDistributionARNs       map[string]string                  // ARN → streaming dist ID (tag lookups)
-	streamingDistributionCallerRefs map[string]string                  // CallerRef → streaming dist ID (idempotency)
-	monitoringSubscriptions         map[string]*MonitoringSubscription // distribution ID → subscription
-	resourcePolicies                map[string]*resourcePolicyEntry    // resource ARN → policy
+	streamingDistributions          *store.Table[StreamingDistribution]
+	streamingDistributionARNs       map[string]string // ARN → streaming dist ID (tag lookups)
+	streamingDistributionCallerRefs map[string]string // CallerRef → streaming dist ID (idempotency)
+	// monitoringSubscriptions, resourcePolicies, and managedCertificates are deliberately
+	// plain maps, not store.Table: MonitoringSubscription/resourcePolicyEntry/
+	// ManagedCertificateDetails carry no identity field of their own (the map key -
+	// distribution ID / resource ARN / tenant ID - is not stored on the value), the same
+	// "no identity field" exception documented for EC2's instanceIMDSOptions (commit
+	// 12e611a4). See store_setup.go's registerAllTables doc for the full list of exceptions.
+	monitoringSubscriptions map[string]*MonitoringSubscription // distribution ID → subscription
+	resourcePolicies        map[string]*resourcePolicyEntry    // resource ARN → policy
 	// managedCertificates maps distribution tenant ID → cached managed cert details.
 	managedCertificates map[string]*ManagedCertificateDetails
 	// distributionCachePolicies, distributionOriginRequestPolicies,
@@ -648,10 +724,11 @@ type InMemoryBackend struct {
 	distributionResponseHeadersPolicies map[string]string
 	distributionRealtimeLogConfigs      map[string]string
 	// Batch 2 additions.
-	distributionTenants         map[string]*DistributionTenant // key: tenant ID
-	distributionTenantARNs      map[string]string              // ARN → tenant ID (tag lookups)
-	distributionTenantsByDomain map[string]string              // key: domain → tenant ID
-	tenantInvalidations         map[string][]*Invalidation     // key: tenantID
+	distributionTenants         *store.Table[DistributionTenant] // key: tenant ID
+	distributionTenantARNs      map[string]string                // ARN → tenant ID (tag lookups)
+	distributionTenantsByDomain map[string]string                // key: domain → tenant ID
+	tenantInvalidations         *store.Table[Invalidation]       // composite key: tenantID + "#" + invID
+	tenantInvalidationsByTenant *store.Index[Invalidation]
 	// Audit batch additions.
 	keyValueStoreData map[string]map[string]string // KVS ID → key → value
 	keyValueDataETags map[string]string            // KVS ID → current data-plane ETag
@@ -661,7 +738,12 @@ type InMemoryBackend struct {
 	// and eliminate the substring false positives of the previous raw scan.
 	distSearchTokens   map[string]map[string]struct{}
 	distSearchInverted map[string]map[string]struct{}
-	mu                 *lockmetrics.RWMutex
+	// registry holds every "clean" store.Table above (see store_setup.go) so
+	// Reset/Snapshot/Restore collapse to one registry call each. The "dirty"
+	// invalidations/tenantInvalidations tables are NOT on registry -- see
+	// store_setup.go's registerAllTables doc.
+	registry *store.Registry
+	mu       *lockmetrics.RWMutex
 	// lifecycle: tracks when InProgress invalidations become Completed.
 	invalidationReadyAt       map[string]map[string]time.Time // distributionID → invID → readyAt
 	tenantInvalidationReadyAt map[string]map[string]time.Time // tenantID → invID → readyAt
@@ -673,55 +755,34 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		distributions:                       make(map[string]*Distribution),
 		distributionARNs:                    make(map[string]string),
 		distributionCallerRefs:              make(map[string]string),
 		distributionAliases:                 make(map[string][]string),
 		distributionWebACLs:                 make(map[string]string),
 		distributionTenantWebACLs:           make(map[string]string),
-		invalidations:                       make(map[string][]*Invalidation),
-		oais:                                make(map[string]*OriginAccessIdentity),
 		oaiCallerRefs:                       make(map[string]string),
-		anycastIPLists:                      make(map[string]*AnycastIPList),
 		anycastIPListARNs:                   make(map[string]string),
 		anycastIPListByName:                 make(map[string]string),
-		cachePolicies:                       make(map[string]*CachePolicy),
 		cachePolicyByName:                   make(map[string]string),
-		connectionFunctions:                 make(map[string]*ConnectionFunction),
 		connectionFunctionARNs:              make(map[string]string),
 		connectionFunctionByName:            make(map[string]string),
-		connectionGroups:                    make(map[string]*ConnectionGroup),
 		connectionGroupARNs:                 make(map[string]string),
 		connectionGroupByName:               make(map[string]string),
 		connectionGroupByRoutingEndpoint:    make(map[string]string),
-		continuousDeploymentPolicies:        make(map[string]*ContinuousDeploymentPolicy),
-		originAccessControls:                make(map[string]*OriginAccessControl),
 		originAccessControlByName:           make(map[string]string),
-		responseHeadersPolicies:             make(map[string]*ResponseHeadersPolicy),
 		responseHeadersPolicyByName:         make(map[string]string),
-		functions:                           make(map[string]*Function),
-		originRequestPolicies:               make(map[string]*OriginRequestPolicy),
 		originRequestPolicyByName:           make(map[string]string),
-		fieldLevelEncryptions:               make(map[string]*FieldLevelEncryption),
 		fieldLevelEncryptionByName:          make(map[string]string),
-		fieldLevelEncryptionProfiles:        make(map[string]*FieldLevelEncryptionProfile),
 		fieldLevelEncryptionProfileByName:   make(map[string]string),
-		publicKeys:                          make(map[string]*PublicKey),
 		publicKeyByName:                     make(map[string]string),
-		keyGroups:                           make(map[string]*KeyGroup),
 		keyGroupByName:                      make(map[string]string),
-		realtimeLogConfigs:                  make(map[string]*RealtimeLogConfig),
 		realtimeLogConfigByName:             make(map[string]string),
-		keyValueStores:                      make(map[string]*KeyValueStore),
 		keyValueStoreByName:                 make(map[string]string),
-		vpcOrigins:                          make(map[string]*VpcOrigin),
 		distSearchTokens:                    make(map[string]map[string]struct{}),
 		distSearchInverted:                  make(map[string]map[string]struct{}),
 		distributionFunctionAssociations:    make(map[string][]FunctionAssociation),
-		trustStores:                         make(map[string]*TrustStore),
 		trustStoreARNs:                      make(map[string]string),
 		trustStoreByName:                    make(map[string]string),
-		streamingDistributions:              make(map[string]*StreamingDistribution),
 		streamingDistributionARNs:           make(map[string]string),
 		streamingDistributionCallerRefs:     make(map[string]string),
 		monitoringSubscriptions:             make(map[string]*MonitoringSubscription),
@@ -731,19 +792,20 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		distributionOriginRequestPolicies:   make(map[string]string),
 		distributionResponseHeadersPolicies: make(map[string]string),
 		distributionRealtimeLogConfigs:      make(map[string]string),
-		distributionTenants:                 make(map[string]*DistributionTenant),
 		distributionTenantARNs:              make(map[string]string),
 		distributionTenantsByDomain:         make(map[string]string),
-		tenantInvalidations:                 make(map[string][]*Invalidation),
 		keyValueStoreData:                   make(map[string]map[string]string),
 		keyValueDataETags:                   make(map[string]string),
 		invalidationReadyAt:                 make(map[string]map[string]time.Time),
 		tenantInvalidationReadyAt:           make(map[string]map[string]time.Time),
 		stopCh:                              make(chan struct{}),
+		registry:                            store.NewRegistry(),
 		mu:                                  lockmetrics.New("cloudfront"),
 		accountID:                           accountID,
 		region:                              region,
 	}
+
+	registerAllTables(b)
 
 	go b.runInvalidationReconciler()
 
@@ -783,11 +845,11 @@ func (b *InMemoryBackend) reconcileInvalidationsLocked() {
 	now := time.Now()
 
 	for distID, invMap := range b.invalidationReadyAt {
-		reconcileInvMap(invMap, b.invalidations[distID], now)
+		reconcileInvMap(invMap, b.invalidationsByDist.Get(distID), now)
 	}
 
 	for tenantID, invMap := range b.tenantInvalidationReadyAt {
-		reconcileInvMap(invMap, b.tenantInvalidations[tenantID], now)
+		reconcileInvMap(invMap, b.tenantInvalidationsByTenant.Get(tenantID), now)
 	}
 }
 
@@ -813,13 +875,18 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.registry.ResetAll()
+	// invalidations/tenantInvalidations are "dirty" tables, not on b.registry (see
+	// store_setup.go's registerAllTables doc), so they need an explicit Reset call.
+	b.invalidations.Reset()
+	b.tenantInvalidations.Reset()
+
 	b.resetDistributions()
 	b.resetPoliciesAndKeys()
 }
 
-// resetDistributions clears distribution-related maps.
+// resetDistributions clears distribution-related maps not covered by b.registry.ResetAll().
 func (b *InMemoryBackend) resetDistributions() {
-	b.distributions = make(map[string]*Distribution)
 	b.distSearchTokens = make(map[string]map[string]struct{})
 	b.distSearchInverted = make(map[string]map[string]struct{})
 	b.distributionARNs = make(map[string]string)
@@ -827,59 +894,38 @@ func (b *InMemoryBackend) resetDistributions() {
 	b.distributionAliases = make(map[string][]string)
 	b.distributionWebACLs = make(map[string]string)
 	b.distributionTenantWebACLs = make(map[string]string)
-	b.invalidations = make(map[string][]*Invalidation)
-	b.oais = make(map[string]*OriginAccessIdentity)
 	b.oaiCallerRefs = make(map[string]string)
-	b.anycastIPLists = make(map[string]*AnycastIPList)
 	b.anycastIPListARNs = make(map[string]string)
 	b.anycastIPListByName = make(map[string]string)
-	b.cachePolicies = make(map[string]*CachePolicy)
 	b.cachePolicyByName = make(map[string]string)
-	b.connectionFunctions = make(map[string]*ConnectionFunction)
 	b.connectionFunctionARNs = make(map[string]string)
 	b.connectionFunctionByName = make(map[string]string)
-	b.connectionGroups = make(map[string]*ConnectionGroup)
 	b.connectionGroupARNs = make(map[string]string)
 	b.connectionGroupByName = make(map[string]string)
 	b.connectionGroupByRoutingEndpoint = make(map[string]string)
-	b.continuousDeploymentPolicies = make(map[string]*ContinuousDeploymentPolicy)
-	b.originAccessControls = make(map[string]*OriginAccessControl)
 	b.originAccessControlByName = make(map[string]string)
-	b.responseHeadersPolicies = make(map[string]*ResponseHeadersPolicy)
 	b.responseHeadersPolicyByName = make(map[string]string)
-	b.functions = make(map[string]*Function)
-	b.originRequestPolicies = make(map[string]*OriginRequestPolicy)
 	b.originRequestPolicyByName = make(map[string]string)
 	b.distributionFunctionAssociations = make(map[string][]FunctionAssociation)
 	b.distributionCachePolicies = make(map[string]string)
 	b.distributionOriginRequestPolicies = make(map[string]string)
 	b.distributionResponseHeadersPolicies = make(map[string]string)
 	b.distributionRealtimeLogConfigs = make(map[string]string)
-	b.distributionTenants = make(map[string]*DistributionTenant)
 	b.distributionTenantARNs = make(map[string]string)
 	b.distributionTenantsByDomain = make(map[string]string)
-	b.tenantInvalidations = make(map[string][]*Invalidation)
 }
 
-// resetPoliciesAndKeys clears encryption, key, and store maps.
+// resetPoliciesAndKeys clears encryption, key, and store maps not covered by
+// b.registry.ResetAll().
 func (b *InMemoryBackend) resetPoliciesAndKeys() {
-	b.fieldLevelEncryptions = make(map[string]*FieldLevelEncryption)
 	b.fieldLevelEncryptionByName = make(map[string]string)
-	b.fieldLevelEncryptionProfiles = make(map[string]*FieldLevelEncryptionProfile)
 	b.fieldLevelEncryptionProfileByName = make(map[string]string)
-	b.publicKeys = make(map[string]*PublicKey)
 	b.publicKeyByName = make(map[string]string)
-	b.keyGroups = make(map[string]*KeyGroup)
 	b.keyGroupByName = make(map[string]string)
-	b.realtimeLogConfigs = make(map[string]*RealtimeLogConfig)
 	b.realtimeLogConfigByName = make(map[string]string)
-	b.keyValueStores = make(map[string]*KeyValueStore)
 	b.keyValueStoreByName = make(map[string]string)
-	b.vpcOrigins = make(map[string]*VpcOrigin)
-	b.trustStores = make(map[string]*TrustStore)
 	b.trustStoreARNs = make(map[string]string)
 	b.trustStoreByName = make(map[string]string)
-	b.streamingDistributions = make(map[string]*StreamingDistribution)
 	b.streamingDistributionARNs = make(map[string]string)
 	b.streamingDistributionCallerRefs = make(map[string]string)
 	b.monitoringSubscriptions = make(map[string]*MonitoringSubscription)
@@ -945,7 +991,9 @@ func (b *InMemoryBackend) CreateDistribution(
 
 	// Idempotency: return existing distribution for the same CallerReference.
 	if existingID, ok := b.distributionCallerRefs[callerRef]; ok {
-		return b.copyDistribution(b.distributions[existingID]), nil
+		existing, _ := b.distributions.Get(existingID)
+
+		return b.copyDistribution(existing), nil
 	}
 
 	id := generateID()
@@ -962,7 +1010,7 @@ func (b *InMemoryBackend) CreateDistribution(
 		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 		Tags:             make(map[string]string),
 	}
-	b.distributions[id] = d
+	b.distributions.Put(d)
 	b.distributionARNs[d.ARN] = id
 	b.distributionCallerRefs[callerRef] = id
 	b.indexDistributionConfig(id, rawConfig)
@@ -976,7 +1024,7 @@ func (b *InMemoryBackend) GetDistribution(id string) (*Distribution, error) {
 	b.mu.RLock("GetDistribution")
 	defer b.mu.RUnlock()
 
-	d, ok := b.distributions[id]
+	d, ok := b.distributions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
 	}
@@ -993,7 +1041,7 @@ func (b *InMemoryBackend) UpdateDistribution(
 	b.mu.Lock("UpdateDistribution")
 	defer b.mu.Unlock()
 
-	d, ok := b.distributions[id]
+	d, ok := b.distributions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
 	}
@@ -1015,7 +1063,7 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	b.mu.Lock("DeleteDistribution")
 	defer b.mu.Unlock()
 
-	d, ok := b.distributions[id]
+	d, ok := b.distributions.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
 	}
@@ -1026,8 +1074,8 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 
 	delete(b.distributionARNs, b.distributionARN(id))
 	delete(b.distributionCallerRefs, d.CallerReference)
-	delete(b.distributions, id)
-	delete(b.invalidations, id)
+	b.distributions.Delete(id)
+	b.deleteInvalidationsForDist(id)
 	delete(b.distributionAliases, id)
 	delete(b.distributionWebACLs, id)
 	b.deindexDistributionConfig(id)
@@ -1040,8 +1088,8 @@ func (b *InMemoryBackend) ListDistributions() []*Distribution {
 	b.mu.RLock("ListDistributions")
 	defer b.mu.RUnlock()
 
-	list := make([]*Distribution, 0, len(b.distributions))
-	for _, d := range b.distributions {
+	list := make([]*Distribution, 0, b.distributions.Len())
+	for _, d := range b.distributions.All() {
 		list = append(list, b.copyDistribution(d))
 	}
 
@@ -1063,7 +1111,8 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 
 	// Idempotency: return existing OAI for the same CallerReference.
 	if existingID, ok := b.oaiCallerRefs[callerRef]; ok {
-		cp := *b.oais[existingID]
+		existing, _ := b.oais.Get(existingID)
+		cp := *existing
 
 		return &cp, nil
 	}
@@ -1077,7 +1126,7 @@ func (b *InMemoryBackend) CreateOAI(callerRef, comment string) (*OriginAccessIde
 		CallerReference:   callerRef,
 		Comment:           comment,
 	}
-	b.oais[id] = oai
+	b.oais.Put(oai)
 	b.oaiCallerRefs[callerRef] = id
 	cp := *oai
 
@@ -1089,7 +1138,7 @@ func (b *InMemoryBackend) GetOAI(id string) (*OriginAccessIdentity, error) {
 	b.mu.RLock("GetCloudFrontOriginAccessIdentity")
 	defer b.mu.RUnlock()
 
-	oai, ok := b.oais[id]
+	oai, ok := b.oais.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: OAI %s not found", ErrOAINotFound, id)
 	}
@@ -1103,13 +1152,13 @@ func (b *InMemoryBackend) DeleteOAI(id string) error {
 	b.mu.Lock("DeleteCloudFrontOriginAccessIdentity")
 	defer b.mu.Unlock()
 
-	oai, ok := b.oais[id]
+	oai, ok := b.oais.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: OAI %s not found", ErrOAINotFound, id)
 	}
 
 	delete(b.oaiCallerRefs, oai.CallerReference)
-	delete(b.oais, id)
+	b.oais.Delete(id)
 
 	return nil
 }
@@ -1119,7 +1168,7 @@ func (b *InMemoryBackend) UpdateOAI(id, comment string) (*OriginAccessIdentity, 
 	b.mu.Lock("UpdateCloudFrontOriginAccessIdentity")
 	defer b.mu.Unlock()
 
-	oai, ok := b.oais[id]
+	oai, ok := b.oais.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: OAI %s not found", ErrOAINotFound, id)
 	}
@@ -1137,8 +1186,8 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 	b.mu.RLock("ListCloudFrontOriginAccessIdentities")
 	defer b.mu.RUnlock()
 
-	list := make([]*OriginAccessIdentity, 0, len(b.oais))
-	for _, oai := range b.oais {
+	list := make([]*OriginAccessIdentity, 0, b.oais.Len())
+	for _, oai := range b.oais.All() {
 		cp := *oai
 		list = append(list, &cp)
 	}
@@ -1153,31 +1202,45 @@ func (b *InMemoryBackend) ListOAIs() []*OriginAccessIdentity {
 // Must be called with the lock held.
 func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, bool) {
 	if id, ok := b.distributionARNs[resourceARN]; ok {
-		return &b.distributions[id].Tags, true
+		d, _ := b.distributions.Get(id)
+
+		return &d.Tags, true
 	}
 
 	if id, ok := b.streamingDistributionARNs[resourceARN]; ok {
-		return &b.streamingDistributions[id].Tags, true
+		sd, _ := b.streamingDistributions.Get(id)
+
+		return &sd.Tags, true
 	}
 
 	if id, ok := b.trustStoreARNs[resourceARN]; ok {
-		return &b.trustStores[id].Tags, true
+		ts, _ := b.trustStores.Get(id)
+
+		return &ts.Tags, true
 	}
 
 	if id, ok := b.distributionTenantARNs[resourceARN]; ok {
-		return &b.distributionTenants[id].Tags, true
+		t, _ := b.distributionTenants.Get(id)
+
+		return &t.Tags, true
 	}
 
 	if id, ok := b.connectionGroupARNs[resourceARN]; ok {
-		return &b.connectionGroups[id].Tags, true
+		cg, _ := b.connectionGroups.Get(id)
+
+		return &cg.Tags, true
 	}
 
 	if id, ok := b.connectionFunctionARNs[resourceARN]; ok {
-		return &b.connectionFunctions[id].Tags, true
+		fn, _ := b.connectionFunctions.Get(id)
+
+		return &fn.Tags, true
 	}
 
 	if id, ok := b.anycastIPListARNs[resourceARN]; ok {
-		return &b.anycastIPLists[id].Tags, true
+		list, _ := b.anycastIPLists.Get(id)
+
+		return &list.Tags, true
 	}
 
 	return nil, false
@@ -1255,7 +1318,7 @@ func (b *InMemoryBackend) CountInProgressInvalidations(distributionID string) in
 	defer b.mu.RUnlock()
 
 	count := 0
-	for _, inv := range b.invalidations[distributionID] {
+	for _, inv := range b.invalidationsByDist.Get(distributionID) {
 		if inv.Status == statusInProgress {
 			count++
 		}
@@ -1280,7 +1343,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 	b.mu.Lock("CreateInvalidation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
@@ -1293,8 +1356,9 @@ func (b *InMemoryBackend) CreateInvalidation(
 		CreateTime: now,
 		Paths:      append([]string(nil), paths...),
 		CallerRef:  callerRef,
+		distID:     distributionID,
 	}
-	b.invalidations[distributionID] = append(b.invalidations[distributionID], inv)
+	b.invalidations.Put(inv)
 
 	if b.invalidationReadyAt[distributionID] == nil {
 		b.invalidationReadyAt[distributionID] = make(map[string]time.Time)
@@ -1313,11 +1377,11 @@ func (b *InMemoryBackend) ListInvalidations(distributionID string) ([]*Invalidat
 	b.mu.RLock("ListInvalidations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
-	src := b.invalidations[distributionID]
+	src := b.invalidationsByDist.Get(distributionID)
 	out := make([]*Invalidation, 0, len(src))
 
 	for _, inv := range src {
@@ -1338,20 +1402,19 @@ func (b *InMemoryBackend) GetInvalidation(
 	b.mu.RLock("GetInvalidation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
-	for _, inv := range b.invalidations[distributionID] {
-		if inv.ID == invalidationID {
-			cp := *inv
-			cp.Paths = append([]string(nil), inv.Paths...)
-
-			return &cp, nil
-		}
+	inv, ok := b.invalidations.Get(invalidationKey(distributionID, invalidationID))
+	if !ok {
+		return nil, fmt.Errorf("%w: invalidation %s not found", ErrInvalidationNotFound, invalidationID)
 	}
 
-	return nil, fmt.Errorf("%w: invalidation %s not found", ErrInvalidationNotFound, invalidationID)
+	cp := *inv
+	cp.Paths = append([]string(nil), inv.Paths...)
+
+	return &cp, nil
 }
 
 // ListAliases returns the aliases for a distribution by ID.
@@ -1375,7 +1438,7 @@ func (b *InMemoryBackend) AssociateAlias(distributionID, alias string) error {
 	b.mu.Lock("AssociateAlias")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
@@ -1398,7 +1461,7 @@ func (b *InMemoryBackend) AssociateDistributionWebACL(distributionID, webACLID s
 	b.mu.Lock("AssociateDistributionWebACL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
@@ -1426,7 +1489,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 	b.mu.Lock("CopyDistribution")
 	defer b.mu.Unlock()
 
-	src, ok := b.distributions[primaryDistID]
+	src, ok := b.distributions.Get(primaryDistID)
 	if !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, primaryDistID)
 	}
@@ -1453,7 +1516,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 		Tags:             make(map[string]string),
 	}
 
-	b.distributions[id] = d
+	b.distributions.Put(d)
 	b.distributionARNs[d.ARN] = id
 	b.indexDistributionConfig(id, rawCopy)
 
@@ -1515,7 +1578,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(
 	if len(tags) > 0 {
 		maps.Copy(list.Tags, tags[0])
 	}
-	b.anycastIPLists[id] = list
+	b.anycastIPLists.Put(list)
 	b.anycastIPListARNs[list.ARN] = id
 	b.anycastIPListByName[name] = id
 
@@ -1555,7 +1618,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 	if _, exists := b.cachePolicyByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: cache policy with name %q already exists",
-			ErrAlreadyExists,
+			ErrCachePolicyAlreadyExists,
 			name,
 		)
 	}
@@ -1576,7 +1639,7 @@ func (b *InMemoryBackend) CreateCachePolicy(
 		MinTTL:     minTTL,
 		Params:     p,
 	}
-	b.cachePolicies[id] = policy
+	b.cachePolicies.Put(policy)
 	b.cachePolicyByName[name] = id
 	cp := *policy
 
@@ -1634,7 +1697,7 @@ func (b *InMemoryBackend) CreateConnectionFunctionWithCode(
 		Tags:             make(map[string]string, len(tags)),
 	}
 	maps.Copy(fn.Tags, tags)
-	b.connectionFunctions[id] = fn
+	b.connectionFunctions.Put(fn)
 	b.connectionFunctionARNs[fn.ARN] = id
 	b.connectionFunctionByName[name] = id
 
@@ -1692,7 +1755,7 @@ func (b *InMemoryBackend) CreateConnectionGroupWithConfig(
 		Tags:             make(map[string]string, len(tags)),
 	}
 	maps.Copy(group.Tags, tags)
-	b.connectionGroups[id] = group
+	b.connectionGroups.Put(group)
 	b.connectionGroupARNs[group.ARN] = id
 	b.connectionGroupByName[name] = id
 	b.connectionGroupByRoutingEndpoint[group.RoutingEndpoint] = id
@@ -1753,7 +1816,7 @@ func (b *InMemoryBackend) CreateContinuousDeploymentPolicyWithConfig(
 		StagingDistributionDNSNames: append([]string(nil), stagingDNSNames...),
 		TrafficConfig:               traffic,
 	}
-	b.continuousDeploymentPolicies[id] = policy
+	b.continuousDeploymentPolicies.Put(policy)
 
 	return b.copyContinuousDeploymentPolicy(policy), nil
 }
@@ -1786,7 +1849,7 @@ func (b *InMemoryBackend) GetContinuousDeploymentPolicy(id string) (*ContinuousD
 	b.mu.RLock("GetContinuousDeploymentPolicy")
 	defer b.mu.RUnlock()
 
-	policy, ok := b.continuousDeploymentPolicies[id]
+	policy, ok := b.continuousDeploymentPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: continuous deployment policy %s not found",
@@ -1803,8 +1866,8 @@ func (b *InMemoryBackend) ListContinuousDeploymentPolicies() []*ContinuousDeploy
 	b.mu.RLock("ListContinuousDeploymentPolicies")
 	defer b.mu.RUnlock()
 
-	list := make([]*ContinuousDeploymentPolicy, 0, len(b.continuousDeploymentPolicies))
-	for _, policy := range b.continuousDeploymentPolicies {
+	list := make([]*ContinuousDeploymentPolicy, 0, b.continuousDeploymentPolicies.Len())
+	for _, policy := range b.continuousDeploymentPolicies.All() {
 		list = append(list, b.copyContinuousDeploymentPolicy(policy))
 	}
 
@@ -1825,7 +1888,7 @@ func (b *InMemoryBackend) UpdateContinuousDeploymentPolicy(
 	b.mu.Lock("UpdateContinuousDeploymentPolicy")
 	defer b.mu.Unlock()
 
-	policy, ok := b.continuousDeploymentPolicies[id]
+	policy, ok := b.continuousDeploymentPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: continuous deployment policy %s not found",
@@ -1856,7 +1919,7 @@ func (b *InMemoryBackend) UpdateContinuousDeploymentPolicyWithConfig(
 	b.mu.Lock("UpdateContinuousDeploymentPolicy")
 	defer b.mu.Unlock()
 
-	policy, ok := b.continuousDeploymentPolicies[id]
+	policy, ok := b.continuousDeploymentPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: continuous deployment policy %s not found",
@@ -1885,11 +1948,11 @@ func (b *InMemoryBackend) DeleteContinuousDeploymentPolicy(id string) error {
 	b.mu.Lock("DeleteContinuousDeploymentPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.continuousDeploymentPolicies[id]; !ok {
+	if _, ok := b.continuousDeploymentPolicies.Get(id); !ok {
 		return fmt.Errorf("%w: continuous deployment policy %s not found", ErrContinuousDeploymentPolicyNotFound, id)
 	}
 
-	delete(b.continuousDeploymentPolicies, id)
+	b.continuousDeploymentPolicies.Delete(id)
 
 	return nil
 }
@@ -1902,7 +1965,7 @@ func (b *InMemoryBackend) SetDistributionFunctionAssociations(
 	b.mu.Lock("SetDistributionFunctionAssociations")
 	defer b.mu.Unlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
@@ -1918,7 +1981,7 @@ func (b *InMemoryBackend) GetDistributionFunctionAssociations(distributionID str
 	b.mu.RLock("GetDistributionFunctionAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.distributions[distributionID]; !ok {
+	if _, ok := b.distributions.Get(distributionID); !ok {
 		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
 	}
 
@@ -1949,7 +2012,7 @@ func (b *InMemoryBackend) GetCachePolicy(id string) (*CachePolicy, error) {
 	b.mu.RLock("GetCachePolicy")
 	defer b.mu.RUnlock()
 
-	p, ok := b.cachePolicies[id]
+	p, ok := b.cachePolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
 	}
@@ -1964,8 +2027,8 @@ func (b *InMemoryBackend) ListCachePolicies() []*CachePolicy {
 	b.mu.RLock("ListCachePolicies")
 	defer b.mu.RUnlock()
 
-	list := make([]*CachePolicy, 0, len(b.cachePolicies))
-	for _, p := range b.cachePolicies {
+	list := make([]*CachePolicy, 0, b.cachePolicies.Len())
+	for _, p := range b.cachePolicies.All() {
 		cp := *p
 		list = append(list, &cp)
 	}
@@ -1984,7 +2047,7 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 	b.mu.Lock("UpdateCachePolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.cachePolicies[id]
+	p, ok := b.cachePolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
 	}
@@ -2014,7 +2077,7 @@ func (b *InMemoryBackend) UpdateCachePolicy(
 		if _, exists := b.cachePolicyByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: cache policy with name %q already exists",
-				ErrAlreadyExists,
+				ErrCachePolicyAlreadyExists,
 				name,
 			)
 		}
@@ -2043,13 +2106,17 @@ func (b *InMemoryBackend) DeleteCachePolicy(id string) error {
 	b.mu.Lock("DeleteCachePolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.cachePolicies[id]
+	p, ok := b.cachePolicies.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: cache policy %s not found", ErrCachePolicyNotFound, id)
 	}
 
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf("%w: cache policy %s is attached to a distribution", ErrCachePolicyInUse, id)
+	}
+
 	delete(b.cachePolicyByName, p.Name)
-	delete(b.cachePolicies, id)
+	b.cachePolicies.Delete(id)
 
 	return nil
 }
@@ -2070,7 +2137,7 @@ func (b *InMemoryBackend) CreateOriginAccessControl(
 	if _, exists := b.originAccessControlByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: origin access control with name %q already exists",
-			ErrAlreadyExists,
+			ErrOriginAccessControlAlreadyExists,
 			name,
 		)
 	}
@@ -2085,7 +2152,7 @@ func (b *InMemoryBackend) CreateOriginAccessControl(
 		SigningProtocol: signingProtocol,
 		ETag:            uuid.NewString(),
 	}
-	b.originAccessControls[id] = oac
+	b.originAccessControls.Put(oac)
 	b.originAccessControlByName[name] = id
 	cp := *oac
 
@@ -2097,7 +2164,7 @@ func (b *InMemoryBackend) GetOriginAccessControl(id string) (*OriginAccessContro
 	b.mu.RLock("GetOriginAccessControl")
 	defer b.mu.RUnlock()
 
-	oac, ok := b.originAccessControls[id]
+	oac, ok := b.originAccessControls.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
 	}
@@ -2112,8 +2179,8 @@ func (b *InMemoryBackend) ListOriginAccessControls() []*OriginAccessControl {
 	b.mu.RLock("ListOriginAccessControls")
 	defer b.mu.RUnlock()
 
-	list := make([]*OriginAccessControl, 0, len(b.originAccessControls))
-	for _, oac := range b.originAccessControls {
+	list := make([]*OriginAccessControl, 0, b.originAccessControls.Len())
+	for _, oac := range b.originAccessControls.All() {
 		cp := *oac
 		list = append(list, &cp)
 	}
@@ -2130,7 +2197,7 @@ func (b *InMemoryBackend) UpdateOriginAccessControl(
 	b.mu.Lock("UpdateOriginAccessControl")
 	defer b.mu.Unlock()
 
-	oac, ok := b.originAccessControls[id]
+	oac, ok := b.originAccessControls.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
 	}
@@ -2143,7 +2210,7 @@ func (b *InMemoryBackend) UpdateOriginAccessControl(
 		if _, exists := b.originAccessControlByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: origin access control with name %q already exists",
-				ErrAlreadyExists,
+				ErrOriginAccessControlAlreadyExists,
 				name,
 			)
 		}
@@ -2168,13 +2235,13 @@ func (b *InMemoryBackend) DeleteOriginAccessControl(id string) error {
 	b.mu.Lock("DeleteOriginAccessControl")
 	defer b.mu.Unlock()
 
-	oac, ok := b.originAccessControls[id]
+	oac, ok := b.originAccessControls.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: origin access control %s not found", ErrOACNotFound, id)
 	}
 
 	delete(b.originAccessControlByName, oac.Name)
-	delete(b.originAccessControls, id)
+	b.originAccessControls.Delete(id)
 
 	return nil
 }
@@ -2196,7 +2263,7 @@ func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 	if _, exists := b.responseHeadersPolicyByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: response headers policy with name %q already exists",
-			ErrAlreadyExists,
+			ErrResponseHeadersPolicyAlreadyExists,
 			name,
 		)
 	}
@@ -2217,7 +2284,7 @@ func (b *InMemoryBackend) CreateResponseHeadersPolicy(
 		p.RemoveHeaders = cfg.RemoveHeaders
 	}
 
-	b.responseHeadersPolicies[id] = p
+	b.responseHeadersPolicies.Put(p)
 	b.responseHeadersPolicyByName[name] = id
 	cp := *p
 
@@ -2229,7 +2296,7 @@ func (b *InMemoryBackend) GetResponseHeadersPolicy(id string) (*ResponseHeadersP
 	b.mu.RLock("GetResponseHeadersPolicy")
 	defer b.mu.RUnlock()
 
-	p, ok := b.responseHeadersPolicies[id]
+	p, ok := b.responseHeadersPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: response headers policy %s not found",
@@ -2248,8 +2315,8 @@ func (b *InMemoryBackend) ListResponseHeadersPolicies() []*ResponseHeadersPolicy
 	b.mu.RLock("ListResponseHeadersPolicies")
 	defer b.mu.RUnlock()
 
-	list := make([]*ResponseHeadersPolicy, 0, len(b.responseHeadersPolicies))
-	for _, p := range b.responseHeadersPolicies {
+	list := make([]*ResponseHeadersPolicy, 0, b.responseHeadersPolicies.Len())
+	for _, p := range b.responseHeadersPolicies.All() {
 		cp := *p
 		list = append(list, &cp)
 	}
@@ -2267,7 +2334,7 @@ func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 	b.mu.Lock("UpdateResponseHeadersPolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.responseHeadersPolicies[id]
+	p, ok := b.responseHeadersPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: response headers policy %s not found",
@@ -2284,7 +2351,7 @@ func (b *InMemoryBackend) UpdateResponseHeadersPolicy(
 		if _, exists := b.responseHeadersPolicyByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: response headers policy with name %q already exists",
-				ErrAlreadyExists,
+				ErrResponseHeadersPolicyAlreadyExists,
 				name,
 			)
 		}
@@ -2314,7 +2381,7 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 	b.mu.Lock("DeleteResponseHeadersPolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.responseHeadersPolicies[id]
+	p, ok := b.responseHeadersPolicies.Get(id)
 	if !ok {
 		return fmt.Errorf(
 			"%w: response headers policy %s not found",
@@ -2323,8 +2390,15 @@ func (b *InMemoryBackend) DeleteResponseHeadersPolicy(id string) error {
 		)
 	}
 
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf(
+			"%w: response headers policy %s is attached to a distribution",
+			ErrResponseHeadersPolicyInUse, id,
+		)
+	}
+
 	delete(b.responseHeadersPolicyByName, p.Name)
-	delete(b.responseHeadersPolicies, id)
+	b.responseHeadersPolicies.Delete(id)
 
 	return nil
 }
@@ -2346,20 +2420,23 @@ func (b *InMemoryBackend) CreateFunction(
 		return nil, fmt.Errorf("%w: Name must not be empty", ErrValidation)
 	}
 
-	if _, exists := b.functions[name]; exists {
-		return nil, fmt.Errorf("%w: function with name %q already exists", ErrAlreadyExists, name)
+	if _, exists := b.functions.Get(name); exists {
+		return nil, fmt.Errorf("%w: function with name %q already exists", ErrFunctionAlreadyExists, name)
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
 	fn := &Function{
-		Name:         name,
-		Comment:      comment,
-		Runtime:      runtime,
-		FunctionCode: functionCode,
-		Status:       functionStageDevelopment,
-		ETag:         uuid.NewString(),
-		ARN:          b.functionARN(name),
+		Name:             name,
+		Comment:          comment,
+		Runtime:          runtime,
+		FunctionCode:     functionCode,
+		Status:           functionStageDevelopment,
+		ETag:             uuid.NewString(),
+		ARN:              b.functionARN(name),
+		CreatedTime:      now,
+		LastModifiedTime: now,
 	}
-	b.functions[name] = fn
+	b.functions.Put(fn)
 	cp := *fn
 
 	return &cp, nil
@@ -2370,7 +2447,7 @@ func (b *InMemoryBackend) GetFunction(name string) (*Function, error) {
 	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
 	}
@@ -2385,8 +2462,8 @@ func (b *InMemoryBackend) ListFunctions() []*Function {
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
-	list := make([]*Function, 0, len(b.functions))
-	for _, fn := range b.functions {
+	list := make([]*Function, 0, b.functions.Len())
+	for _, fn := range b.functions.All() {
 		cp := *fn
 		list = append(list, &cp)
 	}
@@ -2401,13 +2478,14 @@ func (b *InMemoryBackend) PublishFunction(name string) (*Function, error) {
 	b.mu.Lock("PublishFunction")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
 	}
 
 	fn.Status = functionStageLive
 	fn.ETag = uuid.NewString()
+	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *fn
 
 	return &cp, nil
@@ -2424,7 +2502,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	b.mu.Lock("UpdateFunction")
 	defer b.mu.Unlock()
 
-	fn, ok := b.functions[name]
+	fn, ok := b.functions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
 	}
@@ -2434,6 +2512,7 @@ func (b *InMemoryBackend) UpdateFunction(
 	fn.FunctionCode = functionCode
 	fn.Status = functionStageDevelopment
 	fn.ETag = uuid.NewString()
+	fn.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *fn
 
 	return &cp, nil
@@ -2444,11 +2523,15 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 	b.mu.Lock("DeleteFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.functions[name]; !ok {
+	if _, ok := b.functions.Get(name); !ok {
 		return fmt.Errorf("%w: function %s not found", ErrFunctionNotFound, name)
 	}
 
-	delete(b.functions, name)
+	if b.tokenReferencedByAnyDistribution(b.functionARN(name)) {
+		return fmt.Errorf("%w: function %s is associated with a distribution", ErrFunctionInUse, name)
+	}
+
+	b.functions.Delete(name)
 
 	return nil
 }
@@ -2477,7 +2560,7 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(
 	if _, exists := b.originRequestPolicyByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: origin request policy with name %q already exists",
-			ErrAlreadyExists,
+			ErrOriginRequestPolicyAlreadyExists,
 			name,
 		)
 	}
@@ -2497,7 +2580,7 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(
 		p.QueryStringsConfig = cfg.QueryStringsConfig
 	}
 
-	b.originRequestPolicies[id] = p
+	b.originRequestPolicies.Put(p)
 	b.originRequestPolicyByName[name] = id
 	cp := *p
 
@@ -2509,7 +2592,7 @@ func (b *InMemoryBackend) GetOriginRequestPolicy(id string) (*OriginRequestPolic
 	b.mu.RLock("GetOriginRequestPolicy")
 	defer b.mu.RUnlock()
 
-	p, ok := b.originRequestPolicies[id]
+	p, ok := b.originRequestPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: origin request policy %s not found",
@@ -2528,8 +2611,8 @@ func (b *InMemoryBackend) ListOriginRequestPolicies() []*OriginRequestPolicy {
 	b.mu.RLock("ListOriginRequestPolicies")
 	defer b.mu.RUnlock()
 
-	list := make([]*OriginRequestPolicy, 0, len(b.originRequestPolicies))
-	for _, p := range b.originRequestPolicies {
+	list := make([]*OriginRequestPolicy, 0, b.originRequestPolicies.Len())
+	for _, p := range b.originRequestPolicies.All() {
 		cp := *p
 		list = append(list, &cp)
 	}
@@ -2547,7 +2630,7 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 	b.mu.Lock("UpdateOriginRequestPolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.originRequestPolicies[id]
+	p, ok := b.originRequestPolicies.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: origin request policy %s not found",
@@ -2564,7 +2647,7 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 		if _, exists := b.originRequestPolicyByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: origin request policy with name %q already exists",
-				ErrAlreadyExists,
+				ErrOriginRequestPolicyAlreadyExists,
 				name,
 			)
 		}
@@ -2593,7 +2676,7 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 	b.mu.Lock("DeleteOriginRequestPolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.originRequestPolicies[id]
+	p, ok := b.originRequestPolicies.Get(id)
 	if !ok {
 		return fmt.Errorf(
 			"%w: origin request policy %s not found",
@@ -2602,8 +2685,15 @@ func (b *InMemoryBackend) DeleteOriginRequestPolicy(id string) error {
 		)
 	}
 
+	if b.tokenReferencedByAnyDistribution(id) {
+		return fmt.Errorf(
+			"%w: origin request policy %s is attached to a distribution",
+			ErrOriginRequestPolicyInUse, id,
+		)
+	}
+
 	delete(b.originRequestPolicyByName, p.Name)
-	delete(b.originRequestPolicies, id)
+	b.originRequestPolicies.Delete(id)
 
 	return nil
 }
@@ -2636,7 +2726,7 @@ func (b *InMemoryBackend) requireProfilesExist(profiles []FLEQueryArgProfile) er
 			continue
 		}
 
-		if _, ok := b.fieldLevelEncryptionProfiles[p.ProfileID]; !ok {
+		if _, ok := b.fieldLevelEncryptionProfiles.Get(p.ProfileID); !ok {
 			return fmt.Errorf(
 				"%w: field level encryption profile %s not found",
 				ErrFLEProfileNotFound,
@@ -2656,7 +2746,7 @@ func (b *InMemoryBackend) requirePublicKeysExist(entities []EncryptionEntity) er
 			continue
 		}
 
-		if _, ok := b.publicKeys[e.PublicKeyID]; !ok {
+		if _, ok := b.publicKeys.Get(e.PublicKeyID); !ok {
 			return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, e.PublicKeyID)
 		}
 	}
@@ -2706,7 +2796,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryption(
 	if _, exists := b.fieldLevelEncryptionByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: field level encryption with name %q already exists",
-			ErrAlreadyExists,
+			ErrFLEAlreadyExists,
 			name,
 		)
 	}
@@ -2723,7 +2813,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryption(
 		ETag:             uuid.NewString(),
 		QueryArgProfiles: cloneQueryArgProfiles(queryArgProfiles),
 	}
-	b.fieldLevelEncryptions[id] = fle
+	b.fieldLevelEncryptions.Put(fle)
 	b.fieldLevelEncryptionByName[name] = id
 	cp := *fle
 	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
@@ -2736,7 +2826,7 @@ func (b *InMemoryBackend) GetFieldLevelEncryption(id string) (*FieldLevelEncrypt
 	b.mu.RLock("GetFieldLevelEncryption")
 	defer b.mu.RUnlock()
 
-	fle, ok := b.fieldLevelEncryptions[id]
+	fle, ok := b.fieldLevelEncryptions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
 	}
@@ -2752,8 +2842,8 @@ func (b *InMemoryBackend) ListFieldLevelEncryptions() []*FieldLevelEncryption {
 	b.mu.RLock("ListFieldLevelEncryptions")
 	defer b.mu.RUnlock()
 
-	list := make([]*FieldLevelEncryption, 0, len(b.fieldLevelEncryptions))
-	for _, fle := range b.fieldLevelEncryptions {
+	list := make([]*FieldLevelEncryption, 0, b.fieldLevelEncryptions.Len())
+	for _, fle := range b.fieldLevelEncryptions.All() {
 		cp := *fle
 		cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 		list = append(list, &cp)
@@ -2772,7 +2862,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryption(
 	b.mu.Lock("UpdateFieldLevelEncryption")
 	defer b.mu.Unlock()
 
-	fle, ok := b.fieldLevelEncryptions[id]
+	fle, ok := b.fieldLevelEncryptions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
 	}
@@ -2783,7 +2873,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryption(
 
 	if !renameInIndex(b.fieldLevelEncryptionByName, id, fle.Name, name) {
 		return nil, fmt.Errorf(
-			"%w: field level encryption with name %q already exists", ErrAlreadyExists, name)
+			"%w: field level encryption with name %q already exists", ErrFLEAlreadyExists, name)
 	}
 
 	fle.Name = name
@@ -2801,13 +2891,13 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryption(id string) error {
 	b.mu.Lock("DeleteFieldLevelEncryption")
 	defer b.mu.Unlock()
 
-	fle, ok := b.fieldLevelEncryptions[id]
+	fle, ok := b.fieldLevelEncryptions.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: field level encryption %s not found", ErrFLENotFound, id)
 	}
 
 	delete(b.fieldLevelEncryptionByName, fle.Name)
-	delete(b.fieldLevelEncryptions, id)
+	b.fieldLevelEncryptions.Delete(id)
 
 	return nil
 }
@@ -2829,7 +2919,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 	if _, exists := b.fieldLevelEncryptionProfileByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: field level encryption profile with name %q already exists",
-			ErrAlreadyExists,
+			ErrFLEProfileAlreadyExists,
 			name,
 		)
 	}
@@ -2846,7 +2936,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 		ETag:               uuid.NewString(),
 		EncryptionEntities: cloneEncryptionEntities(entities),
 	}
-	b.fieldLevelEncryptionProfiles[id] = p
+	b.fieldLevelEncryptionProfiles.Put(p)
 	b.fieldLevelEncryptionProfileByName[name] = id
 	cp := *p
 	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
@@ -2861,7 +2951,7 @@ func (b *InMemoryBackend) GetFieldLevelEncryptionProfile(
 	b.mu.RLock("GetFieldLevelEncryptionProfile")
 	defer b.mu.RUnlock()
 
-	p, ok := b.fieldLevelEncryptionProfiles[id]
+	p, ok := b.fieldLevelEncryptionProfiles.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: field level encryption profile %s not found",
@@ -2881,8 +2971,8 @@ func (b *InMemoryBackend) ListFieldLevelEncryptionProfiles() []*FieldLevelEncryp
 	b.mu.RLock("ListFieldLevelEncryptionProfiles")
 	defer b.mu.RUnlock()
 
-	list := make([]*FieldLevelEncryptionProfile, 0, len(b.fieldLevelEncryptionProfiles))
-	for _, p := range b.fieldLevelEncryptionProfiles {
+	list := make([]*FieldLevelEncryptionProfile, 0, b.fieldLevelEncryptionProfiles.Len())
+	for _, p := range b.fieldLevelEncryptionProfiles.All() {
 		cp := *p
 		cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 		list = append(list, &cp)
@@ -2901,7 +2991,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 	b.mu.Lock("UpdateFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
 
-	p, ok := b.fieldLevelEncryptionProfiles[id]
+	p, ok := b.fieldLevelEncryptionProfiles.Get(id)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: field level encryption profile %s not found",
@@ -2916,7 +3006,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 
 	if !renameInIndex(b.fieldLevelEncryptionProfileByName, id, p.Name, name) {
 		return nil, fmt.Errorf(
-			"%w: field level encryption profile with name %q already exists", ErrAlreadyExists, name)
+			"%w: field level encryption profile with name %q already exists", ErrFLEProfileAlreadyExists, name)
 	}
 
 	p.Name = name
@@ -2932,7 +3022,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 // fleProfileReferencedBy returns the ID of an FLE config that references the given
 // profile, or "" if none. Must be called with the lock held.
 func (b *InMemoryBackend) fleProfileReferencedBy(profileID string) string {
-	for _, fle := range b.fieldLevelEncryptions {
+	for _, fle := range b.fieldLevelEncryptions.All() {
 		for _, qp := range fle.QueryArgProfiles {
 			if qp.ProfileID == profileID {
 				return fle.ID
@@ -2949,7 +3039,7 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 	b.mu.Lock("DeleteFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
 
-	p, ok := b.fieldLevelEncryptionProfiles[id]
+	p, ok := b.fieldLevelEncryptionProfiles.Get(id)
 	if !ok {
 		return fmt.Errorf(
 			"%w: field level encryption profile %s not found",
@@ -2968,7 +3058,7 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryptionProfile(id string) error {
 	}
 
 	delete(b.fieldLevelEncryptionProfileByName, p.Name)
-	delete(b.fieldLevelEncryptionProfiles, id)
+	b.fieldLevelEncryptionProfiles.Delete(id)
 
 	return nil
 }
@@ -2993,7 +3083,7 @@ func (b *InMemoryBackend) CreatePublicKey(
 	}
 
 	if _, exists := b.publicKeyByName[name]; exists {
-		return nil, fmt.Errorf("%w: public key with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: public key with name %q already exists", ErrPublicKeyAlreadyExists, name)
 	}
 
 	id := generateID()
@@ -3005,7 +3095,7 @@ func (b *InMemoryBackend) CreatePublicKey(
 		CallerReference: callerRef,
 		ETag:            uuid.NewString(),
 	}
-	b.publicKeys[id] = pk
+	b.publicKeys.Put(pk)
 	b.publicKeyByName[name] = id
 	cp := *pk
 
@@ -3017,7 +3107,7 @@ func (b *InMemoryBackend) GetPublicKey(id string) (*PublicKey, error) {
 	b.mu.RLock("GetPublicKey")
 	defer b.mu.RUnlock()
 
-	pk, ok := b.publicKeys[id]
+	pk, ok := b.publicKeys.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
 	}
@@ -3032,8 +3122,8 @@ func (b *InMemoryBackend) ListPublicKeys() []*PublicKey {
 	b.mu.RLock("ListPublicKeys")
 	defer b.mu.RUnlock()
 
-	list := make([]*PublicKey, 0, len(b.publicKeys))
-	for _, pk := range b.publicKeys {
+	list := make([]*PublicKey, 0, b.publicKeys.Len())
+	for _, pk := range b.publicKeys.All() {
 		cp := *pk
 		list = append(list, &cp)
 	}
@@ -3048,7 +3138,7 @@ func (b *InMemoryBackend) UpdatePublicKey(id, comment string) (*PublicKey, error
 	b.mu.Lock("UpdatePublicKey")
 	defer b.mu.Unlock()
 
-	pk, ok := b.publicKeys[id]
+	pk, ok := b.publicKeys.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
 	}
@@ -3064,13 +3154,13 @@ func (b *InMemoryBackend) UpdatePublicKey(id, comment string) (*PublicKey, error
 // references the given public key, or ("", "") if none. Must be called with the
 // lock held.
 func (b *InMemoryBackend) publicKeyReferencedBy(pkID string) (string, string) {
-	for _, kg := range b.keyGroups {
+	for _, kg := range b.keyGroups.All() {
 		if slices.Contains(kg.Items, pkID) {
 			return "key group", kg.ID
 		}
 	}
 
-	for _, p := range b.fieldLevelEncryptionProfiles {
+	for _, p := range b.fieldLevelEncryptionProfiles.All() {
 		for _, e := range p.EncryptionEntities {
 			if e.PublicKeyID == pkID {
 				return "field level encryption profile", p.ID
@@ -3087,7 +3177,7 @@ func (b *InMemoryBackend) DeletePublicKey(id string) error {
 	b.mu.Lock("DeletePublicKey")
 	defer b.mu.Unlock()
 
-	pk, ok := b.publicKeys[id]
+	pk, ok := b.publicKeys.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, id)
 	}
@@ -3103,7 +3193,7 @@ func (b *InMemoryBackend) DeletePublicKey(id string) error {
 	}
 
 	delete(b.publicKeyByName, pk.Name)
-	delete(b.publicKeys, id)
+	b.publicKeys.Delete(id)
 
 	return nil
 }
@@ -3120,11 +3210,11 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 	}
 
 	if _, exists := b.keyGroupByName[name]; exists {
-		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrAlreadyExists, name)
+		return nil, fmt.Errorf("%w: key group with name %q already exists", ErrKeyGroupAlreadyExists, name)
 	}
 
 	for _, itemID := range items {
-		if _, ok := b.publicKeys[itemID]; !ok {
+		if _, ok := b.publicKeys.Get(itemID); !ok {
 			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
 		}
 	}
@@ -3137,7 +3227,7 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 		Items:   append([]string(nil), items...),
 		ETag:    uuid.NewString(),
 	}
-	b.keyGroups[id] = kg
+	b.keyGroups.Put(kg)
 	b.keyGroupByName[name] = id
 
 	return b.copyKeyGroup(kg), nil
@@ -3148,7 +3238,7 @@ func (b *InMemoryBackend) GetKeyGroup(id string) (*KeyGroup, error) {
 	b.mu.RLock("GetKeyGroup")
 	defer b.mu.RUnlock()
 
-	kg, ok := b.keyGroups[id]
+	kg, ok := b.keyGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
 	}
@@ -3161,8 +3251,8 @@ func (b *InMemoryBackend) ListKeyGroups() []*KeyGroup {
 	b.mu.RLock("ListKeyGroups")
 	defer b.mu.RUnlock()
 
-	list := make([]*KeyGroup, 0, len(b.keyGroups))
-	for _, kg := range b.keyGroups {
+	list := make([]*KeyGroup, 0, b.keyGroups.Len())
+	for _, kg := range b.keyGroups.All() {
 		list = append(list, b.copyKeyGroup(kg))
 	}
 
@@ -3179,7 +3269,7 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 	b.mu.Lock("UpdateKeyGroup")
 	defer b.mu.Unlock()
 
-	kg, ok := b.keyGroups[id]
+	kg, ok := b.keyGroups.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
 	}
@@ -3188,7 +3278,7 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 		if _, exists := b.keyGroupByName[name]; exists {
 			return nil, fmt.Errorf(
 				"%w: key group with name %q already exists",
-				ErrAlreadyExists,
+				ErrKeyGroupAlreadyExists,
 				name,
 			)
 		}
@@ -3198,7 +3288,7 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 	}
 
 	for _, itemID := range items {
-		if _, exists := b.publicKeys[itemID]; !exists {
+		if _, exists := b.publicKeys.Get(itemID); !exists {
 			return nil, fmt.Errorf("%w: public key %s not found", ErrPublicKeyNotFound, itemID)
 		}
 	}
@@ -3216,13 +3306,13 @@ func (b *InMemoryBackend) DeleteKeyGroup(id string) error {
 	b.mu.Lock("DeleteKeyGroup")
 	defer b.mu.Unlock()
 
-	kg, ok := b.keyGroups[id]
+	kg, ok := b.keyGroups.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: key group %s not found", ErrKeyGroupNotFound, id)
 	}
 
 	delete(b.keyGroupByName, kg.Name)
-	delete(b.keyGroups, id)
+	b.keyGroups.Delete(id)
 
 	return nil
 }
@@ -3261,7 +3351,7 @@ func (b *InMemoryBackend) CreateRealtimeLogConfig(
 	if _, exists := b.realtimeLogConfigByName[name]; exists {
 		return nil, fmt.Errorf(
 			"%w: realtime log config with name %q already exists",
-			ErrAlreadyExists,
+			ErrRealtimeLogConfigAlreadyExists,
 			name,
 		)
 	}
@@ -3273,7 +3363,7 @@ func (b *InMemoryBackend) CreateRealtimeLogConfig(
 		SamplingRate: samplingRate,
 		Fields:       append([]string(nil), fields...),
 	}
-	b.realtimeLogConfigs[arn] = cfg
+	b.realtimeLogConfigs.Put(cfg)
 	b.realtimeLogConfigByName[name] = arn
 
 	return b.copyRealtimeLogConfig(cfg), nil
@@ -3284,7 +3374,7 @@ func (b *InMemoryBackend) GetRealtimeLogConfig(arn string) (*RealtimeLogConfig, 
 	b.mu.RLock("GetRealtimeLogConfig")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.realtimeLogConfigs[arn]
+	cfg, ok := b.realtimeLogConfigs.Get(arn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: realtime log config %s not found",
@@ -3310,7 +3400,9 @@ func (b *InMemoryBackend) GetRealtimeLogConfigByName(name string) (*RealtimeLogC
 		)
 	}
 
-	return b.copyRealtimeLogConfig(b.realtimeLogConfigs[arn]), nil
+	cfg, _ := b.realtimeLogConfigs.Get(arn)
+
+	return b.copyRealtimeLogConfig(cfg), nil
 }
 
 // ListRealtimeLogConfigs returns all Realtime Log Configs sorted by name.
@@ -3318,8 +3410,8 @@ func (b *InMemoryBackend) ListRealtimeLogConfigs() []*RealtimeLogConfig {
 	b.mu.RLock("ListRealtimeLogConfigs")
 	defer b.mu.RUnlock()
 
-	list := make([]*RealtimeLogConfig, 0, len(b.realtimeLogConfigs))
-	for _, cfg := range b.realtimeLogConfigs {
+	list := make([]*RealtimeLogConfig, 0, b.realtimeLogConfigs.Len())
+	for _, cfg := range b.realtimeLogConfigs.All() {
 		list = append(list, b.copyRealtimeLogConfig(cfg))
 	}
 
@@ -3341,7 +3433,7 @@ func (b *InMemoryBackend) UpdateRealtimeLogConfig(
 	b.mu.Lock("UpdateRealtimeLogConfig")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.realtimeLogConfigs[arn]
+	cfg, ok := b.realtimeLogConfigs.Get(arn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: realtime log config %s not found",
@@ -3361,13 +3453,13 @@ func (b *InMemoryBackend) DeleteRealtimeLogConfig(arn string) error {
 	b.mu.Lock("DeleteRealtimeLogConfig")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.realtimeLogConfigs[arn]
+	cfg, ok := b.realtimeLogConfigs.Get(arn)
 	if !ok {
 		return fmt.Errorf("%w: realtime log config %s not found", ErrRealtimeLogConfigNotFound, arn)
 	}
 
 	delete(b.realtimeLogConfigByName, cfg.Name)
-	delete(b.realtimeLogConfigs, arn)
+	b.realtimeLogConfigs.Delete(arn)
 
 	return nil
 }
@@ -3413,7 +3505,7 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string) (*KeyValueSt
 		Status:           kvsStatusReady,
 		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 	}
-	b.keyValueStores[id] = kvs
+	b.keyValueStores.Put(kvs)
 	b.keyValueStoreByName[name] = id
 	cp := *kvs
 
@@ -3425,13 +3517,13 @@ func (b *InMemoryBackend) GetKeyValueStore(idOrARN string) (*KeyValueStore, erro
 	b.mu.RLock("GetKeyValueStore")
 	defer b.mu.RUnlock()
 
-	if kvs, ok := b.keyValueStores[idOrARN]; ok {
+	if kvs, ok := b.keyValueStores.Get(idOrARN); ok {
 		cp := *kvs
 
 		return &cp, nil
 	}
 
-	for _, kvs := range b.keyValueStores {
+	for _, kvs := range b.keyValueStores.All() {
 		if kvs.ARN == idOrARN {
 			cp := *kvs
 
@@ -3447,8 +3539,8 @@ func (b *InMemoryBackend) ListKeyValueStores() []*KeyValueStore {
 	b.mu.RLock("ListKeyValueStores")
 	defer b.mu.RUnlock()
 
-	list := make([]*KeyValueStore, 0, len(b.keyValueStores))
-	for _, kvs := range b.keyValueStores {
+	list := make([]*KeyValueStore, 0, b.keyValueStores.Len())
+	for _, kvs := range b.keyValueStores.All() {
 		cp := *kvs
 		list = append(list, &cp)
 	}
@@ -3463,13 +3555,13 @@ func (b *InMemoryBackend) DeleteKeyValueStore(id string) error {
 	b.mu.Lock("DeleteKeyValueStore")
 	defer b.mu.Unlock()
 
-	kvs, ok := b.keyValueStores[id]
+	kvs, ok := b.keyValueStores.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, id)
 	}
 
 	delete(b.keyValueStoreByName, kvs.Name)
-	delete(b.keyValueStores, id)
+	b.keyValueStores.Delete(id)
 
 	return nil
 }
@@ -3493,7 +3585,7 @@ func (b *InMemoryBackend) GetKVSValue(kvsID, key string) (string, string, error)
 	b.mu.RLock("GetKVSValue")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.keyValueStores[kvsID]; !ok {
+	if _, ok := b.keyValueStores.Get(kvsID); !ok {
 		return "", "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
 	}
 
@@ -3511,7 +3603,7 @@ func (b *InMemoryBackend) PutKVSValue(kvsID, key, value, ifMatch string) (string
 	b.mu.Lock("PutKVSValue")
 	defer b.mu.Unlock()
 
-	if _, ok := b.keyValueStores[kvsID]; !ok {
+	if _, ok := b.keyValueStores.Get(kvsID); !ok {
 		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
 	}
 
@@ -3535,7 +3627,7 @@ func (b *InMemoryBackend) DeleteKVSValue(kvsID, key, ifMatch string) (string, er
 	b.mu.Lock("DeleteKVSValue")
 	defer b.mu.Unlock()
 
-	if _, ok := b.keyValueStores[kvsID]; !ok {
+	if _, ok := b.keyValueStores.Get(kvsID); !ok {
 		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
 	}
 
@@ -3564,7 +3656,7 @@ func (b *InMemoryBackend) ListKVSValues(kvsID string) ([]*KVSItem, string, error
 	b.mu.RLock("ListKVSValues")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.keyValueStores[kvsID]; !ok {
+	if _, ok := b.keyValueStores.Get(kvsID); !ok {
 		return nil, "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
 	}
 
@@ -3583,7 +3675,7 @@ func (b *InMemoryBackend) UpdateKVSValues(kvsID, ifMatch string, puts []*KVSItem
 	b.mu.Lock("UpdateKVSValues")
 	defer b.mu.Unlock()
 
-	if _, ok := b.keyValueStores[kvsID]; !ok {
+	if _, ok := b.keyValueStores.Get(kvsID); !ok {
 		return "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
 	}
 
@@ -3630,7 +3722,7 @@ func (b *InMemoryBackend) CreateVpcOrigin(name string) (*VpcOrigin, error) {
 		Name: name,
 		ETag: uuid.NewString(),
 	}
-	b.vpcOrigins[id] = origin
+	b.vpcOrigins.Put(origin)
 	cp := *origin
 
 	return &cp, nil
@@ -3641,7 +3733,7 @@ func (b *InMemoryBackend) GetVpcOrigin(id string) (*VpcOrigin, error) {
 	b.mu.RLock("GetVpcOrigin")
 	defer b.mu.RUnlock()
 
-	origin, ok := b.vpcOrigins[id]
+	origin, ok := b.vpcOrigins.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
 	}
@@ -3656,8 +3748,8 @@ func (b *InMemoryBackend) ListVpcOrigins() []*VpcOrigin {
 	b.mu.RLock("ListVpcOrigins")
 	defer b.mu.RUnlock()
 
-	list := make([]*VpcOrigin, 0, len(b.vpcOrigins))
-	for _, origin := range b.vpcOrigins {
+	list := make([]*VpcOrigin, 0, b.vpcOrigins.Len())
+	for _, origin := range b.vpcOrigins.All() {
 		cp := *origin
 		list = append(list, &cp)
 	}
@@ -3672,7 +3764,7 @@ func (b *InMemoryBackend) UpdateVpcOrigin(id, name string) (*VpcOrigin, error) {
 	b.mu.Lock("UpdateVpcOrigin")
 	defer b.mu.Unlock()
 
-	origin, ok := b.vpcOrigins[id]
+	origin, ok := b.vpcOrigins.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
 	}
@@ -3689,11 +3781,11 @@ func (b *InMemoryBackend) DeleteVpcOrigin(id string) error {
 	b.mu.Lock("DeleteVpcOrigin")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcOrigins[id]; !ok {
+	if _, ok := b.vpcOrigins.Get(id); !ok {
 		return fmt.Errorf("%w: vpc origin %s not found", ErrVpcOriginNotFound, id)
 	}
 
-	delete(b.vpcOrigins, id)
+	b.vpcOrigins.Delete(id)
 
 	return nil
 }

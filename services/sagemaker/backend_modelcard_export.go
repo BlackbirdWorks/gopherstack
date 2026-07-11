@@ -64,7 +64,7 @@ func (b *InMemoryBackend) CreateModelCardExportJob(
 		return nil, fmt.Errorf("%w: OutputConfig.S3OutputPath is required", ErrValidation)
 	}
 
-	card, ok := b.modelCardsStore(region)[modelCardName]
+	card, ok := b.modelCardsStore(region).Get(modelCardName)
 	if !ok {
 		return nil, fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, modelCardName)
 	}
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) CreateModelCardExportJob(
 		LastModifiedAt:         now,
 	}
 
-	b.modelCardExportJobsStore(region)[jobARN] = j
+	b.modelCardExportJobsStore(region).Put(j)
 
 	return cloneModelCardExportJob(j), nil
 }
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) DescribeModelCardExportJob(
 	b.mu.RLock("DescribeModelCardExportJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.modelCardExportJobsStore(region)[jobArn]
+	j, ok := b.modelCardExportJobsStore(region).Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: model card export job %q not found", ErrModelCardExportJobNotFound, jobArn)
 	}
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) ListModelCardExportJobs(
 
 	list := make([]*ModelCardExportJob, 0)
 
-	for _, j := range b.modelCardExportJobsStore(region) {
+	for _, j := range b.modelCardExportJobsStore(region).All() {
 		if modelCardName != "" && j.ModelCardName != modelCardName {
 			continue
 		}

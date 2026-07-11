@@ -67,7 +67,7 @@ func (j *Janitor) sweepStoppedTasks(ctx context.Context) {
 
 	evicted := 0
 
-	for _, taskMap := range b.tasks {
+	for _, task := range b.tasks.All() {
 		select {
 		case <-ctx.Done():
 			b.mu.Unlock()
@@ -76,18 +76,16 @@ func (j *Janitor) sweepStoppedTasks(ctx context.Context) {
 		default:
 		}
 
-		for arn, task := range taskMap {
-			if task.LastStatus != statusStopped {
-				continue
-			}
-
-			if task.StoppedAt == nil || task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
-				continue
-			}
-
-			delete(taskMap, arn)
-			evicted++
+		if task.LastStatus != statusStopped {
+			continue
 		}
+
+		if task.StoppedAt == nil || task.StoppedAt.IsZero() || task.StoppedAt.After(cutoff) {
+			continue
+		}
+
+		b.tasks.Delete(task.TaskArn)
+		evicted++
 	}
 
 	b.mu.Unlock()

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -107,15 +109,30 @@ const sqsMetricUnitCount = "Count"
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	metricEmitter  MetricEmitter
-	svcCtx         context.Context
-	queues         map[string]*Queue
-	moveTasks      map[string]*moveTaskState
+	metricEmitter MetricEmitter
+	svcCtx        context.Context
+	// registry lets Reset collapse the queues/moveTasks lifecycle to one call
+	// (registry.ResetAll()) instead of hand-rolled re-initialization of each map.
+	registry       *store.Registry
+	queues         *store.Table[Queue]
+	moveTasks      *store.Table[moveTaskState]
 	snsUnsubscribe func()
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
 	accountID      string
 	region         string
+}
+
+// queueTableKey is the [store.Table] key function for b.queues, deriving the
+// same (region, name) composite key that queueKey builds from raw input.
+func queueTableKey(q *Queue) string {
+	return queueKey(q.Region, q.Name)
+}
+
+// moveTaskTableKey is the [store.Table] key function for b.moveTasks: a move
+// task's own taskHandle is already its unique identity.
+func moveTaskTableKey(t *moveTaskState) string {
+	return t.taskHandle
 }
 
 // SetMetricEmitter sets the emitter used to forward SQS operation metrics to CloudWatch.
@@ -163,13 +180,15 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	}
 
 	b := &InMemoryBackend{
-		queues:    make(map[string]*Queue),
-		moveTasks: make(map[string]*moveTaskState),
+		registry:  store.NewRegistry(),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
 		svcCtx:    svcCtx,
 	}
+
+	b.queues = store.Register(b.registry, "queues", store.New(queueTableKey))
+	b.moveTasks = store.Register(b.registry, "moveTasks", store.New(moveTaskTableKey))
 
 	b.startJanitor()
 
@@ -195,10 +214,7 @@ func (b *InMemoryBackend) Close() {
 // already-finished task is a no-op.
 func (b *InMemoryBackend) cancelAllMoveTasks() {
 	b.mu.Lock("cancelAllMoveTasks")
-	tasks := make([]*moveTaskState, 0, len(b.moveTasks))
-	for _, task := range b.moveTasks {
-		tasks = append(tasks, task)
-	}
+	tasks := b.moveTasks.All()
 	b.mu.Unlock()
 
 	for _, task := range tasks {
@@ -249,11 +265,13 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 	// This avoids allocating a full-width snapshot when most queues are idle.
 	b.mu.RLock("pruneState.collect")
 	queues := make([]*Queue, 0)
-	for _, q := range b.queues {
+	b.queues.Range(func(q *Queue) bool {
 		if q.hasActivity.Load() || q.IsFIFO {
 			queues = append(queues, q)
 		}
-	}
+
+		return true
+	})
 	b.mu.RUnlock()
 
 	dedupPruned := 0
@@ -289,7 +307,10 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 
 	b.mu.Lock("pruneState.tasks")
 
-	for taskHandle, task := range b.moveTasks {
+	// Deleting a Table entry mid-Range is safe for the same reason it is safe
+	// for a bare map: Go guarantees a concurrently deleted key is not produced
+	// later in the same range.
+	b.moveTasks.Range(func(task *moveTaskState) bool {
 		task.mu.Lock()
 		isTerminal := task.status == MoveTaskStatusCompleted ||
 			task.status == MoveTaskStatusCancelled ||
@@ -298,10 +319,12 @@ func (b *InMemoryBackend) pruneState(now time.Time) {
 		task.mu.Unlock()
 
 		if isTerminal && isExpired {
-			delete(b.moveTasks, taskHandle)
+			b.moveTasks.Delete(task.taskHandle)
 			tasksPruned++
 		}
-	}
+
+		return true
+	})
 
 	b.mu.Unlock()
 
@@ -341,9 +364,7 @@ func queueKey(region, name string) string {
 // lookupQueueByName returns the queue stored under (region, name), or false if
 // no queue exists in that region with that name.
 func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) {
-	q, ok := b.queues[queueKey(b.effectiveRegion(region), name)]
-
-	return q, ok
+	return b.queues.Get(queueKey(b.effectiveRegion(region), name))
 }
 
 // lookupQueueByURL finds a queue by its URL.
@@ -362,9 +383,8 @@ func (b *InMemoryBackend) lookupQueueByName(region, name string) (*Queue, bool) 
 // queue created in us-west-2 if the URL strings happened to match.
 func (b *InMemoryBackend) lookupQueueByURL(region, queueURL string) (*Queue, bool) {
 	name := queueNameFromInput(queueURL)
-	q, ok := b.queues[queueKey(b.effectiveRegion(region), name)]
 
-	return q, ok
+	return b.queues.Get(queueKey(b.effectiveRegion(region), name))
 }
 
 // redrivePolicy represents the JSON structure of an SQS RedrivePolicy attribute.
@@ -419,6 +439,15 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		}
 	}
 
+	if allowErr := checkRedriveAllowPolicy(dlq, q.Attributes[attrQueueArn]); allowErr != nil {
+		return &InvalidParameterError{
+			Message: fmt.Sprintf(
+				"Value %v for parameter RedrivePolicy is invalid. Reason: %s",
+				raw, allowErr.Error(),
+			),
+		}
+	}
+
 	q.MaxReceiveCount = int(count)
 	q.dlq = dlq
 
@@ -435,6 +464,69 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 	q.mu.Unlock()
 
 	return nil
+}
+
+// errRedriveDeniedAll / errRedriveDeniedByQueue are the reasons surfaced when a
+// source queue's RedrivePolicy is rejected by the dead-letter target's
+// RedriveAllowPolicy attribute.
+var (
+	errRedriveDeniedAll = errors.New(
+		"redrive permission is denied because the dead-letter target queue's RedriveAllowPolicy" +
+			" has redrivePermission set to denyAll",
+	)
+	errRedriveDeniedByQueue = errors.New(
+		"redrive permission is denied because this queue's ARN is not listed in the dead-letter" +
+			" target queue's RedriveAllowPolicy sourceQueueArns",
+	)
+)
+
+// checkRedriveAllowPolicy enforces the dead-letter target queue's
+// RedriveAllowPolicy attribute against the source queue attempting to point its
+// RedrivePolicy at it. AWS lets a DLQ restrict which source queues may redrive
+// into it via three redrivePermission values:
+//
+//   - allowAll (default when the attribute is absent/empty): any source queue may use it.
+//   - denyAll: no source queue may use it.
+//   - byQueue: only source queues whose ARN appears in sourceQueueArns may use it.
+//
+// Without this check, RedriveAllowPolicy is accepted and shape-validated by
+// validateRedriveAllowPolicy but never actually constrains anything — a
+// disguised stub. srcArn is the ARN of the queue whose RedrivePolicy is being
+// applied (the would-be source/DLQ-user), dlq is the dead-letter target.
+func checkRedriveAllowPolicy(dlq *Queue, srcArn string) error {
+	raw, ok := dlq.Attributes[attrRedriveAllowPolicy]
+	if !ok || raw == "" {
+		return nil
+	}
+
+	var policy struct {
+		RedrivePermission string   `json:"redrivePermission"`
+		SourceQueueArns   []string `json:"sourceQueueArns"`
+	}
+
+	// Malformed policies are rejected at SetQueueAttributes time by
+	// validateRedriveAllowPolicy, so a parse failure here means the DLQ was
+	// never left with a malformed value; treat it permissively rather than
+	// blocking on a defensive parse error.
+	//nolint:nilerr // intentional fail-open on a defensive parse error, see comment above
+	if json.Unmarshal([]byte(raw), &policy) != nil {
+		return nil
+	}
+
+	switch policy.RedrivePermission {
+	case "", "allowAll":
+		return nil
+	case "denyAll":
+		return errRedriveDeniedAll
+	case "byQueue":
+		if slices.Contains(policy.SourceQueueArns, srcArn) {
+			return nil
+		}
+
+		return errRedriveDeniedByQueue
+	default:
+		return nil
+	}
 }
 
 // computeBodyChecksumMD5 returns the hex-encoded MD5 digest of a message body for the
@@ -614,7 +706,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	// and the caller-supplied configurable attributes are the same (or absent),
 	// return the existing URL. Different configurable attributes yields
 	// QueueNameExists. A name collision in a different region is allowed.
-	if q, exists := b.queues[queueKey(region, input.QueueName)]; exists {
+	if q, exists := b.queues.Get(queueKey(region, input.QueueName)); exists {
 		for k, v := range input.Attributes {
 			if !isConfigurableQueueAttribute(k) {
 				continue
@@ -658,7 +750,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		return nil, err
 	}
 
-	b.queues[queueKey(region, input.QueueName)] = q
+	b.queues.Put(q)
 
 	return &CreateQueueOutput{QueueURL: queueURL}, nil
 }
@@ -683,19 +775,12 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 		q.Tags.Close()
 	}
 
-	delete(b.queues, queueKey(q.Region, q.Name))
+	b.queues.Delete(queueKey(q.Region, q.Name))
 
 	// Cancel any active move tasks that involve this queue (either as source or
 	// destination) to prevent goroutine leaks.
-	for _, task := range b.moveTasks {
-		task.mu.Lock()
-		isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
-		involves := task.sourceArn == queueARN || task.destArn == queueARN
-		task.mu.Unlock()
-
-		if isActive && involves {
-			task.cancel()
-		}
+	for _, task := range b.moveTasks.All() {
+		b.cancelMoveTaskIfInvolved(task, queueARN)
 	}
 
 	return nil
@@ -708,9 +793,9 @@ func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput,
 
 	scope := b.effectiveRegion(input.Region)
 
-	urls := make([]string, 0, len(b.queues))
+	urls := make([]string, 0, b.queues.Len())
 
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		if q.Region != scope {
 			continue
 		}
@@ -1462,6 +1547,21 @@ func validateReceiveInput(input *ReceiveMessageInput) error {
 		return ErrInvalidMaxMessages
 	}
 
+	// Validate VisibilityTimeout range here — centrally, in the backend — so
+	// every caller gets the same AWS-accurate rejection regardless of which
+	// protocol front-end is in use. Previously only the JSON handler
+	// (handleReceiveMessage) checked this range; the Query (XML) protocol
+	// path parsed the parameter and passed it straight through unchecked, so
+	// an out-of-range VisibilityTimeout sent over the legacy Query API
+	// silently produced a message that would effectively never become
+	// visible again instead of the AWS InvalidParameterValue error.
+	// NoVisibilityTimeout (-1) is the "unspecified, use the queue's default"
+	// sentinel and is exempt from range checking.
+	if input.VisibilityTimeout != NoVisibilityTimeout &&
+		(input.VisibilityTimeout < 0 || input.VisibilityTimeout > maxVisibilityTimeoutSeconds) {
+		return ErrInvalidVisibilityTimeout
+	}
+
 	return nil
 }
 
@@ -1677,6 +1777,41 @@ func buildBlockedGroups(inflight []*InFlightMessage) map[string]bool {
 // re-queues visibility-expired entries. Pass 2 sweeps q.messages (including
 // newly re-queued ones): discards retention-expired, drains to DLQ, picks up
 // to maxMessages visible messages. maxMessages=0 performs cleanup only.
+// requeueMessage returns msg to the pending queue after its visibility timeout
+// is reset — either explicitly via ChangeMessageVisibility(0) or implicitly
+// via expiry in sweepInFlight. Caller must hold q.mu.
+//
+// For FIFO queues this must NOT simply append to the end of q.messages: a
+// message can be sent to a group while an earlier message from that SAME
+// group is in flight (in-flight messages block further delivery but not
+// further sends). If the earlier message is later reset/expired and appended
+// to the tail, it would land behind the newer same-group message already
+// sitting in q.messages, and the next receive would hand out the newer
+// message first — violating AWS's strict per-message-group ordering
+// guarantee. Reinserting by SequenceNumber restores the correct position.
+// q.messages is otherwise kept in ascending SequenceNumber order (SendMessage
+// only ever appends in send order, and pickVisibleMessages compacts in place
+// without reordering), and SequenceNumber is a fixed-width zero-padded
+// decimal string, so lexicographic comparison matches numeric order.
+//
+// Standard queues have no AWS ordering guarantee, so they take the O(1)
+// append path unconditionally.
+func requeueMessage(q *Queue, msg *Message) {
+	if !q.IsFIFO {
+		q.messages = append(q.messages, msg)
+
+		return
+	}
+
+	idx := sort.Search(len(q.messages), func(i int) bool {
+		return q.messages[i].SequenceNumber > msg.SequenceNumber
+	})
+
+	q.messages = append(q.messages, nil)
+	copy(q.messages[idx+1:], q.messages[idx:])
+	q.messages[idx] = msg
+}
+
 // sweepInFlight processes q.inFlightMessages: discards retention-expired entries and
 // re-queues visibility-expired entries back onto q.messages. Caller must hold q.mu.
 func sweepInFlight(q *Queue, cutoff, now time.Time) {
@@ -1694,7 +1829,7 @@ func sweepInFlight(q *Queue, cutoff, now time.Time) {
 		if now.After(inf.VisibleAt) {
 			delete(q.inFlightByHandle, inf.ReceiptHandle)
 			if !tryRouteToDLQ(q, inf.Msg, now) {
-				q.messages = append(q.messages, inf.Msg)
+				requeueMessage(q, inf.Msg)
 			}
 			changed = true
 
@@ -1922,7 +2057,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 		now := time.Now()
 		inf.Msg.VisibleAt = now
 		if !tryRouteToDLQ(q, inf.Msg, now) {
-			q.messages = append(q.messages, inf.Msg)
+			requeueMessage(q, inf.Msg)
 		}
 		delete(q.inFlightByHandle, receiptHandle)
 
@@ -2294,7 +2429,7 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 
 	var urls []string
 
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		raw, ok := q.Attributes[attrRedrivePolicy]
 		if !ok || raw == "" {
 			continue
@@ -2329,9 +2464,9 @@ func (b *InMemoryBackend) ListAll() []QueueInfo {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	result := make([]QueueInfo, 0, len(b.queues))
+	result := make([]QueueInfo, 0, b.queues.Len())
 
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		result = append(result, QueueInfo{Name: q.Name, URL: q.URL, IsFIFO: q.IsFIFO})
 	}
 
@@ -2412,9 +2547,9 @@ func (b *InMemoryBackend) TaggedQueues() []TaggedQueueInfo {
 	b.mu.RLock("TaggedQueues")
 	defer b.mu.RUnlock()
 
-	result := make([]TaggedQueueInfo, 0, len(b.queues))
+	result := make([]TaggedQueueInfo, 0, b.queues.Len())
 
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		var tagMap map[string]string
 		if q.Tags != nil {
 			tagMap = q.Tags.Clone()
@@ -2435,16 +2570,14 @@ func (b *InMemoryBackend) TagQueueByARN(queueARN string, newTags map[string]stri
 	b.mu.Lock("TagQueueByARN")
 	defer b.mu.Unlock()
 
-	for _, q := range b.queues {
-		if q.Attributes[attrQueueArn] == queueARN {
-			if q.Tags == nil {
-				q.Tags = tags.New("sqs.queue." + q.Name + ".tags")
-			}
-
-			q.Tags.Merge(newTags)
-
-			return nil
+	if q, ok := b.findQueueByARN(queueARN); ok {
+		if q.Tags == nil {
+			q.Tags = tags.New("sqs.queue." + q.Name + ".tags")
 		}
+
+		q.Tags.Merge(newTags)
+
+		return nil
 	}
 
 	return ErrQueueNotFound
@@ -2456,17 +2589,27 @@ func (b *InMemoryBackend) UntagQueueByARN(queueARN string, tagKeys []string) err
 	b.mu.Lock("UntagQueueByARN")
 	defer b.mu.Unlock()
 
-	for _, q := range b.queues {
-		if q.Attributes[attrQueueArn] == queueARN {
-			if q.Tags != nil {
-				q.Tags.DeleteKeys(tagKeys)
-			}
-
-			return nil
+	if q, ok := b.findQueueByARN(queueARN); ok {
+		if q.Tags != nil {
+			q.Tags.DeleteKeys(tagKeys)
 		}
+
+		return nil
 	}
 
 	return ErrQueueNotFound
+}
+
+// findQueueByARN scans for the queue whose QueueArn attribute equals queueARN.
+// Must be called with b.mu held (either read or write).
+func (b *InMemoryBackend) findQueueByARN(queueARN string) (*Queue, bool) {
+	for _, q := range b.queues.All() {
+		if q.Attributes[attrQueueArn] == queueARN {
+			return q, true
+		}
+	}
+
+	return nil, false
 }
 
 // ReceiveMessagesLocal is an internal method used by the ESM poller to pull
@@ -2481,7 +2624,7 @@ func (b *InMemoryBackend) ReceiveMessagesLocal(
 		QueueURL:            queueURL,
 		MaxNumberOfMessages: maxMessages,
 		WaitTimeSeconds:     0,
-		VisibilityTimeout:   noVisibilitySet,
+		VisibilityTimeout:   NoVisibilityTimeout,
 	})
 	if err != nil {
 		return nil, err
@@ -2512,7 +2655,7 @@ func (b *InMemoryBackend) totalMessages() int {
 	defer b.mu.RUnlock()
 
 	total := 0
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		total += len(q.messages) + len(q.inFlightMessages)
 	}
 
@@ -2528,7 +2671,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
-	for k, q := range b.queues {
+	for _, q := range b.queues.All() {
 		if ctx.Err() != nil {
 			return
 		}
@@ -2544,22 +2687,22 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		}
 
 		if time.Unix(createdUnix, 0).Before(cutoff) {
-			b.purgeQueue(k, q)
+			b.purgeQueue(q)
 		}
 	}
 }
 
 // purgeQueue closes and removes a single queue and cancels any move tasks that involve it.
 // Caller must hold b.mu.
-func (b *InMemoryBackend) purgeQueue(key string, q *Queue) {
+func (b *InMemoryBackend) purgeQueue(q *Queue) {
 	close(q.notify)
 	if q.Tags != nil {
 		q.Tags.Close()
 	}
-	delete(b.queues, key)
+	b.queues.Delete(queueTableKey(q))
 
 	queueARN := q.Attributes[attrQueueArn]
-	for _, task := range b.moveTasks {
+	for _, task := range b.moveTasks.All() {
 		b.cancelMoveTaskIfInvolved(task, queueARN)
 	}
 }
@@ -2586,19 +2729,18 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	// Close all queue tag stores to prevent resource leaks.
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		if q.Tags != nil {
 			q.Tags.Close()
 		}
 	}
 
 	// Cancel any running move tasks.
-	for _, task := range b.moveTasks {
+	for _, task := range b.moveTasks.All() {
 		task.cancel()
 	}
 
-	b.queues = make(map[string]*Queue)
-	b.moveTasks = make(map[string]*moveTaskState)
+	b.registry.ResetAll()
 }
 
 // iamPolicyDocument represents the IAM resource policy document stored in the
@@ -2738,20 +2880,19 @@ func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
 // queueURLFromARNLocked returns the URL and ARN of the queue with the given ARN.
 // Must be called with b.mu held (either read or write).
 func (b *InMemoryBackend) queueURLFromARNLocked(queueARN string) (string, bool) {
-	for _, q := range b.queues {
-		if q.Attributes[attrQueueArn] == queueARN {
-			return q.URL, true
-		}
+	q, ok := b.findQueueByARN(queueARN)
+	if !ok {
+		return "", false
 	}
 
-	return "", false
+	return q.URL, true
 }
 
 // findDefaultMoveDestinationLocked finds the URL of the queue that has a RedrivePolicy
 // pointing to the DLQ identified by dlqARN.
 // Must be called with b.mu held (either read or write).
 func (b *InMemoryBackend) findDefaultMoveDestinationLocked(dlqARN string) (string, bool) {
-	for _, q := range b.queues {
+	for _, q := range b.queues.All() {
 		raw, ok := q.Attributes[attrRedrivePolicy]
 		if !ok || raw == "" {
 			continue
@@ -2807,17 +2948,19 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 	// Check for existing running task on the same source ARN (AWS realism).
 	// We check task status while holding both b.mu and t.mu to ensure the
 	// status snapshot is consistent with the subsequent task insertion.
-	for _, t := range b.moveTasks {
-		if t.sourceArn == input.SourceArn {
-			t.mu.Lock()
-			isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
-			t.mu.Unlock()
+	for _, t := range b.moveTasks.All() {
+		if t.sourceArn != input.SourceArn {
+			continue
+		}
 
-			if isActive {
-				b.mu.Unlock()
+		t.mu.Lock()
+		isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
+		t.mu.Unlock()
 
-				return nil, ErrMoveTaskAlreadyRunning
-			}
+		if isActive {
+			b.mu.Unlock()
+
+			return nil, ErrMoveTaskAlreadyRunning
 		}
 	}
 
@@ -2875,7 +3018,7 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 		totalCount: totalCount,
 	}
 
-	b.moveTasks[taskHandle] = state
+	b.moveTasks.Put(state)
 	b.mu.Unlock()
 
 	go b.runMoveTask(ctx, state, srcURL, destURL)
@@ -3003,7 +3146,7 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 	input *CancelMessageMoveTaskInput,
 ) (*CancelMessageMoveTaskOutput, error) {
 	b.mu.RLock("CancelMessageMoveTask")
-	state, ok := b.moveTasks[input.TaskHandle]
+	state, ok := b.moveTasks.Get(input.TaskHandle)
 	b.mu.RUnlock()
 
 	if !ok {
@@ -3052,7 +3195,7 @@ func (b *InMemoryBackend) ListMessageMoveTasks(
 
 	var tasks []*moveTaskState
 
-	for _, t := range b.moveTasks {
+	for _, t := range b.moveTasks.All() {
 		if input.SourceArn == "" || t.sourceArn == input.SourceArn {
 			tasks = append(tasks, t)
 		}

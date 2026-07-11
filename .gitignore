@@ -55,3 +55,9 @@ lambda.zip
 .terraform.lock.hcl
 .terraform.lock.hcl
 /releaser
+
+# personal local Claude Code settings (never sync bypass perms to origin)
+.claude/settings.local.json
+
+# session resume checkpoint (transient)
+checkpoint.md

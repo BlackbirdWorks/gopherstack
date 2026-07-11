@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -268,10 +269,11 @@ func cloneAssociation(a *ResourceShareAssociation) *ResourceShareAssociation {
 
 // InMemoryBackend is an in-memory store for AWS RAM resources.
 type InMemoryBackend struct {
-	resourceShares   map[string]*ResourceShare
-	permissions      map[string]*Permission
+	resourceShares   *store.Table[ResourceShare]
+	permissions      *store.Table[Permission]
 	sharePermissions map[string]map[string]int32 // shareARN -> permissionARN -> version
-	invitations      map[string]*ResourceShareInvitation
+	invitations      *store.Table[ResourceShareInvitation]
+	registry         *store.Registry
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
@@ -281,15 +283,14 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory RAM backend seeded with AWS-managed permissions.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		resourceShares:   make(map[string]*ResourceShare),
 		associations:     make([]*ResourceShareAssociation, 0),
-		permissions:      make(map[string]*Permission),
 		sharePermissions: make(map[string]map[string]int32),
-		invitations:      make(map[string]*ResourceShareInvitation),
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("ram"),
+		registry:         store.NewRegistry(),
 	}
+	registerAllTables(b)
 	b.seedBuiltInPermissions()
 
 	return b
@@ -322,7 +323,7 @@ func (b *InMemoryBackend) seedBuiltInPermissions() {
 			IsResourceTypeDefault: true,
 			Versions:              map[int32]*PermissionVersion{1: pv},
 		}
-		b.permissions[permARN] = p
+		b.permissions.Put(p)
 	}
 }
 
@@ -341,7 +342,7 @@ func (b *InMemoryBackend) CreateResourceShare(
 	defer b.mu.Unlock()
 
 	// Check for name collision.
-	for _, rs := range b.resourceShares {
+	for _, rs := range b.resourceShares.All() {
 		if rs.Name == name && rs.Status != statusDeleted {
 			return nil, fmt.Errorf("%w: resource share %s already exists", ErrAlreadyExists, name)
 		}
@@ -363,7 +364,7 @@ func (b *InMemoryBackend) CreateResourceShare(
 		LastUpdatedTime:         now,
 		Tags:                    mergeTags(nil, tags),
 	}
-	b.resourceShares[shareARN] = rs
+	b.resourceShares.Put(rs)
 
 	// Add principal associations, enforcing AllowExternalPrincipals.
 	for _, p := range principals {
@@ -413,7 +414,7 @@ func (b *InMemoryBackend) GetResourceShare(shareARN string) (*ResourceShare, err
 	b.mu.RLock("GetResourceShare")
 	defer b.mu.RUnlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -448,9 +449,9 @@ func (b *InMemoryBackend) ListResourceShares(resourceOwner, status string) []*Re
 // listOwnedShares returns non-deleted shares owned by this account, filtered by status.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) listOwnedShares(status string) []*ResourceShare {
-	list := make([]*ResourceShare, 0, len(b.resourceShares))
+	list := make([]*ResourceShare, 0, b.resourceShares.Len())
 
-	for _, rs := range b.resourceShares {
+	for _, rs := range b.resourceShares.All() {
 		if rs.Status == statusDeleted || rs.OwningAccountID != b.accountID {
 			continue
 		}
@@ -481,7 +482,7 @@ func (b *InMemoryBackend) listSharedWithMe(status string) []*ResourceShare {
 
 	list := make([]*ResourceShare, 0)
 
-	for _, rs := range b.resourceShares {
+	for _, rs := range b.resourceShares.All() {
 		if rs.Status == statusDeleted || rs.OwningAccountID == b.accountID {
 			continue
 		}
@@ -509,7 +510,7 @@ func (b *InMemoryBackend) UpdateResourceShare(
 	b.mu.Lock("UpdateResourceShare")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -540,7 +541,7 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 	b.mu.Lock("DeleteResourceShare")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -590,7 +591,7 @@ func (b *InMemoryBackend) AssociateResourceShare(
 	b.mu.Lock("AssociateResourceShare")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -671,7 +672,7 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 	b.mu.Lock("DisassociateResourceShare")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -755,7 +756,7 @@ func (b *InMemoryBackend) TagResource(shareARN string, kv map[string]string) err
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -770,7 +771,7 @@ func (b *InMemoryBackend) UntagResource(shareARN string, keys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -787,7 +788,7 @@ func (b *InMemoryBackend) ListTagsForResource(shareARN string) (map[string]strin
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -813,11 +814,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.resourceShares = make(map[string]*ResourceShare)
+	b.registry.ResetAll()
 	b.associations = make([]*ResourceShareAssociation, 0)
-	b.permissions = make(map[string]*Permission)
 	b.sharePermissions = make(map[string]map[string]int32)
-	b.invitations = make(map[string]*ResourceShareInvitation)
 	b.seedBuiltInPermissions()
 }
 
@@ -831,7 +830,7 @@ func (b *InMemoryBackend) AddResourceShareInternal(rs *ResourceShare) {
 		rs.Tags = make(map[string]string)
 	}
 
-	b.resourceShares[rs.ARN] = rs
+	b.resourceShares.Put(rs)
 }
 
 // AddPermissionInternal inserts a permission directly, bypassing validation.
@@ -848,7 +847,7 @@ func (b *InMemoryBackend) AddPermissionInternal(p *Permission) {
 		p.Versions = make(map[int32]*PermissionVersion)
 	}
 
-	b.permissions[p.ARN] = p
+	b.permissions.Put(p)
 }
 
 // permissionARN builds an ARN for a customer-managed RAM permission.
@@ -871,7 +870,7 @@ func (b *InMemoryBackend) CreatePermission(
 
 	permARN := b.permissionARN(name)
 
-	if p, ok := b.permissions[permARN]; ok && !p.Deleted {
+	if p, ok := b.permissions.Get(permARN); ok && !p.Deleted {
 		return nil, fmt.Errorf("%w: permission %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -896,7 +895,7 @@ func (b *InMemoryBackend) CreatePermission(
 		LatestVersion:       version,
 		Versions:            map[int32]*PermissionVersion{version: pv},
 	}
-	b.permissions[permARN] = p
+	b.permissions.Put(p)
 
 	return clonePermission(p), nil
 }
@@ -908,7 +907,7 @@ func (b *InMemoryBackend) CreatePermissionVersion(
 	b.mu.Lock("CreatePermissionVersion")
 	defer b.mu.Unlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -933,7 +932,7 @@ func (b *InMemoryBackend) DeletePermission(permissionARN string) error {
 	b.mu.Lock("DeletePermission")
 	defer b.mu.Unlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -972,7 +971,7 @@ func (b *InMemoryBackend) DeletePermissionVersion(
 	b.mu.Lock("DeletePermissionVersion")
 	defer b.mu.Unlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -1027,7 +1026,7 @@ func (b *InMemoryBackend) GetPermission(
 	b.mu.RLock("GetPermission")
 	defer b.mu.RUnlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return nil, nil, fmt.Errorf(
 			"%w: permission %s not found",
@@ -1065,12 +1064,12 @@ func (b *InMemoryBackend) AssociateResourceSharePermission(
 	b.mu.Lock("AssociateResourceSharePermission")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -1109,7 +1108,7 @@ func (b *InMemoryBackend) DisassociateResourceSharePermission(
 	b.mu.Lock("DisassociateResourceSharePermission")
 	defer b.mu.Unlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -1134,7 +1133,7 @@ func (b *InMemoryBackend) ListResourceSharePermissions(shareARN string) []*Permi
 	result := make([]*Permission, 0, len(permARNs))
 
 	for pARN := range permARNs {
-		p, ok := b.permissions[pARN]
+		p, ok := b.permissions.Get(pARN)
 		if !ok || p.Deleted {
 			continue
 		}
@@ -1152,7 +1151,7 @@ func (b *InMemoryBackend) AddInvitationInternal(inv *ResourceShareInvitation) {
 	b.mu.Lock("AddInvitationInternal")
 	defer b.mu.Unlock()
 
-	b.invitations[inv.InvitationARN] = inv
+	b.invitations.Put(inv)
 }
 
 // AcceptResourceShareInvitation accepts a pending resource share invitation.
@@ -1162,7 +1161,7 @@ func (b *InMemoryBackend) AcceptResourceShareInvitation(
 	b.mu.Lock("AcceptResourceShareInvitation")
 	defer b.mu.Unlock()
 
-	inv, ok := b.invitations[invitationARN]
+	inv, ok := b.invitations.Get(invitationARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
 	}
@@ -1189,7 +1188,7 @@ func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcct
 	invARN := b.invitationARN(invID)
 	now := time.Now()
 
-	b.invitations[invARN] = &ResourceShareInvitation{
+	b.invitations.Put(&ResourceShareInvitation{
 		InvitationARN:     invARN,
 		ResourceShareARN:  shareARN,
 		ResourceShareName: shareNm,
@@ -1198,7 +1197,7 @@ func (b *InMemoryBackend) createInvitationLocked(shareARN, shareNm, receiverAcct
 		Status:            invitationStatusPending,
 		CreationTime:      now,
 		LastUpdatedTime:   now,
-	}
+	})
 }
 
 // principalReceiverAccountID extracts the effective AWS account ID from a principal string.
@@ -1239,7 +1238,7 @@ func (b *InMemoryBackend) CreateInvitation(
 		CreationTime:      now,
 		LastUpdatedTime:   now,
 	}
-	b.invitations[invARN] = inv
+	b.invitations.Put(inv)
 
 	return cloneInvitation(inv)
 }
@@ -1264,9 +1263,9 @@ func (b *InMemoryBackend) GetResourceShareInvitations(
 		shareSet[s] = struct{}{}
 	}
 
-	result := make([]*ResourceShareInvitation, 0, len(b.invitations))
+	result := make([]*ResourceShareInvitation, 0, b.invitations.Len())
 
-	for _, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		if len(arnSet) > 0 {
 			if _, ok := arnSet[inv.InvitationARN]; !ok {
 				continue
@@ -1324,9 +1323,9 @@ func (b *InMemoryBackend) ListPermissions(resourceType string) []*Permission {
 	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
-	result := make([]*Permission, 0, len(b.permissions))
+	result := make([]*Permission, 0, b.permissions.Len())
 
-	for _, p := range b.permissions {
+	for _, p := range b.permissions.All() {
 		if p.Deleted {
 			continue
 		}
@@ -1350,7 +1349,7 @@ func (b *InMemoryBackend) ListPermissionVersions(
 	b.mu.RLock("ListPermissionVersions")
 	defer b.mu.RUnlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -1413,7 +1412,7 @@ type SharePermissionAssociation struct {
 // the given resourceOwner filter ("SELF" or "OTHER-ACCOUNTS").
 // Returns false when the share is not found or the owner does not match.
 func (b *InMemoryBackend) ownerMatchesFilter(shareARN, resourceOwner string) bool {
-	rs, exists := b.resourceShares[shareARN]
+	rs, exists := b.resourceShares.Get(shareARN)
 	if !exists {
 		return false
 	}
@@ -1516,7 +1515,7 @@ func (b *InMemoryBackend) ListPendingInvitationResources(
 	b.mu.RLock("ListPendingInvitationResources")
 	defer b.mu.RUnlock()
 
-	inv, ok := b.invitations[invitationARN]
+	inv, ok := b.invitations.Get(invitationARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
 	}
@@ -1551,7 +1550,7 @@ func (b *InMemoryBackend) SetDefaultPermissionVersion(
 	b.mu.Lock("SetDefaultPermissionVersion")
 	defer b.mu.Unlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -1578,7 +1577,7 @@ func (b *InMemoryBackend) RejectResourceShareInvitation(
 	b.mu.Lock("RejectResourceShareInvitation")
 	defer b.mu.Unlock()
 
-	inv, ok := b.invitations[invitationARN]
+	inv, ok := b.invitations.Get(invitationARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: invitation %s not found", ErrInvitationNotFound, invitationARN)
 	}
@@ -1606,7 +1605,7 @@ func (b *InMemoryBackend) PromotePermissionCreatedFromPolicy(
 	b.mu.Lock("PromotePermissionCreatedFromPolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.permissions[permissionARN]
+	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return nil, fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
 	}
@@ -1634,7 +1633,7 @@ func (b *InMemoryBackend) PromoteResourceShareCreatedFromPolicy(
 	b.mu.RLock("PromoteResourceShareCreatedFromPolicy")
 	defer b.mu.RUnlock()
 
-	rs, ok := b.resourceShares[shareARN]
+	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
@@ -1651,7 +1650,7 @@ func (b *InMemoryBackend) ReplacePermissionAssociations(
 	b.mu.Lock("ReplacePermissionAssociations")
 	defer b.mu.Unlock()
 
-	_, fromOK := b.permissions[fromPermissionARN]
+	_, fromOK := b.permissions.Get(fromPermissionARN)
 	if !fromOK {
 		return "", fmt.Errorf(
 			"%w: permission %s not found",
@@ -1660,7 +1659,7 @@ func (b *InMemoryBackend) ReplacePermissionAssociations(
 		)
 	}
 
-	toP, toOK := b.permissions[toPermissionARN]
+	toP, toOK := b.permissions.Get(toPermissionARN)
 	if !toOK || toP.Deleted {
 		return "", fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, toPermissionARN)
 	}

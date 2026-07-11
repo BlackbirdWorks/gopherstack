@@ -2287,7 +2287,10 @@ func TestRefinement1_CachePolicyUniqueness(t *testing.T) {
 
 	rec2 := doXML(t, h, http.MethodPost, "/2020-05-31/cache-policy", body)
 	assert.Equal(t, http.StatusConflict, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "DistributionAlreadyExists")
+	// The real aws-sdk-go-v2 cloudfront error type for a cache policy name collision is
+	// CachePolicyAlreadyExists, not DistributionAlreadyExists (which the emulator used to
+	// return for every AlreadyExists collision regardless of resource type).
+	assert.Contains(t, rec2.Body.String(), "CachePolicyAlreadyExists")
 }
 
 // TestRefinement1_CachePolicyTTLValidation verifies TTL ordering is enforced.
@@ -2752,7 +2755,11 @@ func TestRefinement1_ErrorMapping(t *testing.T) {
 					`</CachePolicyConfig>`,
 			),
 			wantStatus: http.StatusConflict,
-			wantCode:   "DistributionAlreadyExists",
+			// The real aws-sdk-go-v2 cloudfront error type for a cache policy name
+			// collision is CachePolicyAlreadyExists, not the generic
+			// DistributionAlreadyExists the emulator used to return for every
+			// AlreadyExists collision regardless of which resource type collided.
+			wantCode: "CachePolicyAlreadyExists",
 		},
 	}
 
@@ -2763,7 +2770,7 @@ func TestRefinement1_ErrorMapping(t *testing.T) {
 			h := newTestHandler()
 
 			// For the cache policy duplicate test, create it first.
-			if tt.wantCode == "DistributionAlreadyExists" {
+			if tt.wantCode == "CachePolicyAlreadyExists" {
 				rec := doXML(t, h, http.MethodPost, tt.path, tt.body)
 				require.Equal(t, http.StatusCreated, rec.Code)
 			}
@@ -3606,6 +3613,14 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "FunctionSummary")
 				assert.Contains(t, rec.Body.String(), "my-fn")
 				assert.NotEmpty(t, rec.Header().Get("Location"))
+				// FunctionMetadata.FunctionARN and LastModifiedTime are required members
+				// of the real aws-sdk-go-v2 FunctionMetadata shape: without FunctionARN a
+				// real SDK caller has no way to attach the function to a distribution's
+				// FunctionAssociations, since those require the ARN, not the name.
+				assert.Contains(t, rec.Body.String(), "<FunctionARN>")
+				assert.Contains(t, rec.Body.String(), "arn:aws:cloudfront")
+				assert.Contains(t, rec.Body.String(), "<CreatedTime>")
+				assert.Contains(t, rec.Body.String(), "<LastModifiedTime>")
 			},
 		},
 		{

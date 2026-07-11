@@ -1,7 +1,6 @@
 package fsx
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,7 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -26,6 +25,9 @@ const (
 	lifecycleDeleting       = "DELETING"
 	lifecycleDeleted        = "DELETED"
 	backupTypeUserInitiated = "USER_INITIATED"
+
+	// sharedVpcDisabled is the default/reset value of sharedVpcEnabled.
+	sharedVpcDisabled = "false"
 
 	fileSystemTypeLustre            = "LUSTRE"
 	fileSystemTypeWindows           = "WINDOWS"
@@ -156,36 +158,25 @@ func (b *storedBackup) toBackup(fs *storedFileSystem) *Backup {
 	return bk
 }
 
-// snapshot holds serializable backend state.
-type snapshot struct {
-	FileSystems            map[string]*storedFileSystem            `json:"fileSystems"`
-	Backups                map[string]*storedBackup                `json:"backups"`
-	Tags                   map[string]map[string]string            `json:"tags"`
-	Aliases                map[string][]string                     `json:"aliases"`
-	DataRepositoryAssocs   map[string]*storedDataRepositoryAssoc   `json:"dataRepositoryAssocs"`
-	DataRepositoryTasks    map[string]*storedDataRepositoryTask    `json:"dataRepositoryTasks"`
-	FileCaches             map[string]*storedFileCache             `json:"fileCaches"`
-	Snapshots              map[string]*storedSnapshot              `json:"snapshots"`
-	StorageVirtualMachines map[string]*storedStorageVirtualMachine `json:"storageVirtualMachines"`
-	Volumes                map[string]*storedVolume                `json:"volumes"`
-	S3AccessPoints         map[string]*storedS3AccessPoint         `json:"s3AccessPoints"`
-	SharedVpcEnabled       string                                  `json:"sharedVpcEnabled"`
-}
-
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu                     *lockmetrics.RWMutex
-	fileSystems            map[string]*storedFileSystem            // fileSystemID → fs
-	backups                map[string]*storedBackup                // backupID → backup
-	tags                   map[string]map[string]string            // resourceARN → tags
-	aliases                map[string][]string                     // fileSystemID → []alias name
-	dataRepositoryAssocs   map[string]*storedDataRepositoryAssoc   // associationID → assoc
-	dataRepositoryTasks    map[string]*storedDataRepositoryTask    // taskID → task
-	fileCaches             map[string]*storedFileCache             // fileCacheID → cache
-	snapshots              map[string]*storedSnapshot              // snapshotID → snapshot
-	storageVirtualMachines map[string]*storedStorageVirtualMachine // svmID → svm
-	volumes                map[string]*storedVolume                // volumeID → volume
-	s3AccessPoints         map[string]*storedS3AccessPoint         // name → access point
+	mu *lockmetrics.RWMutex
+	// registry holds every store.Table-backed resource field so their
+	// Reset/Snapshot/Restore collapse to one call each -- see
+	// store_setup.go's file doc comment for why every table here is
+	// "clean" (registered directly, no DTO-registry needed).
+	registry               *store.Registry
+	fileSystems            *store.Table[storedFileSystem]            // fileSystemID → fs
+	backups                *store.Table[storedBackup]                // backupID → backup
+	tags                   map[string]map[string]string              // resourceARN → tags
+	aliases                map[string][]string                       // fileSystemID → []alias name
+	dataRepositoryAssocs   *store.Table[storedDataRepositoryAssoc]   // associationID → assoc
+	dataRepositoryTasks    *store.Table[storedDataRepositoryTask]    // taskID → task
+	fileCaches             *store.Table[storedFileCache]             // fileCacheID → cache
+	snapshots              *store.Table[storedSnapshot]              // snapshotID → snapshot
+	storageVirtualMachines *store.Table[storedStorageVirtualMachine] // svmID → svm
+	volumes                *store.Table[storedVolume]                // volumeID → volume
+	s3AccessPoints         *store.Table[storedS3AccessPoint]         // name → access point
 	sharedVpcEnabled       string
 	accountID              string
 	region                 string
@@ -193,23 +184,19 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                     lockmetrics.New("fsx"),
-		fileSystems:            make(map[string]*storedFileSystem),
-		backups:                make(map[string]*storedBackup),
-		tags:                   make(map[string]map[string]string),
-		aliases:                make(map[string][]string),
-		dataRepositoryAssocs:   make(map[string]*storedDataRepositoryAssoc),
-		dataRepositoryTasks:    make(map[string]*storedDataRepositoryTask),
-		fileCaches:             make(map[string]*storedFileCache),
-		snapshots:              make(map[string]*storedSnapshot),
-		storageVirtualMachines: make(map[string]*storedStorageVirtualMachine),
-		volumes:                make(map[string]*storedVolume),
-		s3AccessPoints:         make(map[string]*storedS3AccessPoint),
-		sharedVpcEnabled:       "false",
-		accountID:              accountID,
-		region:                 region,
+	b := &InMemoryBackend{
+		mu:               lockmetrics.New("fsx"),
+		registry:         store.NewRegistry(),
+		tags:             make(map[string]map[string]string),
+		aliases:          make(map[string][]string),
+		sharedVpcEnabled: sharedVpcDisabled,
+		accountID:        accountID,
+		region:           region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the configured AWS account ID.
@@ -223,65 +210,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.fileSystems = make(map[string]*storedFileSystem)
-	b.backups = make(map[string]*storedBackup)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.aliases = make(map[string][]string)
-	b.dataRepositoryAssocs = make(map[string]*storedDataRepositoryAssoc)
-	b.dataRepositoryTasks = make(map[string]*storedDataRepositoryTask)
-	b.fileCaches = make(map[string]*storedFileCache)
-	b.snapshots = make(map[string]*storedSnapshot)
-	b.storageVirtualMachines = make(map[string]*storedStorageVirtualMachine)
-	b.volumes = make(map[string]*storedVolume)
-	b.s3AccessPoints = make(map[string]*storedS3AccessPoint)
-	b.sharedVpcEnabled = "false"
-}
-
-// Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "fsx", snapshot{
-		FileSystems:            b.fileSystems,
-		Backups:                b.backups,
-		Tags:                   b.tags,
-		Aliases:                b.aliases,
-		DataRepositoryAssocs:   b.dataRepositoryAssocs,
-		DataRepositoryTasks:    b.dataRepositoryTasks,
-		FileCaches:             b.fileCaches,
-		Snapshots:              b.snapshots,
-		StorageVirtualMachines: b.storageVirtualMachines,
-		Volumes:                b.volumes,
-		S3AccessPoints:         b.s3AccessPoints,
-		SharedVpcEnabled:       b.sharedVpcEnabled,
-	})
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var s snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "fsx", data, &s); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.fileSystems = s.FileSystems
-	b.backups = s.Backups
-	b.tags = s.Tags
-	b.aliases = s.Aliases
-	b.dataRepositoryAssocs = s.DataRepositoryAssocs
-	b.dataRepositoryTasks = s.DataRepositoryTasks
-	b.fileCaches = s.FileCaches
-	b.snapshots = s.Snapshots
-	b.storageVirtualMachines = s.StorageVirtualMachines
-	b.volumes = s.Volumes
-	b.s3AccessPoints = s.S3AccessPoints
-	b.sharedVpcEnabled = s.SharedVpcEnabled
-
-	return nil
+	b.sharedVpcEnabled = sharedVpcDisabled
 }
 
 // createFileSystemInput holds parameters for CreateFileSystem.
@@ -367,7 +299,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 	b.mu.Lock("CreateFileSystem")
 	defer b.mu.Unlock()
 
-	b.fileSystems[id] = fs
+	b.fileSystems.Put(fs)
 	b.tags[arn] = tags
 
 	return fs.toFileSystem(), nil
@@ -416,7 +348,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 
 	if len(ids) > 0 {
 		for _, id := range ids {
-			fs, ok := b.fileSystems[id]
+			fs, ok := b.fileSystems.Get(id)
 			if !ok {
 				return nil, "", ErrFileSystemNotFound
 			}
@@ -424,9 +356,7 @@ func (b *InMemoryBackend) DescribeFileSystems(
 			all = append(all, fs)
 		}
 	} else {
-		for _, fs := range b.fileSystems {
-			all = append(all, fs)
-		}
+		all = b.fileSystems.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].FileSystemID < all[j].FileSystemID })
 	}
@@ -463,12 +393,12 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	b.mu.Lock("DeleteFileSystem")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[fileSystemID]
+	fs, ok := b.fileSystems.Get(fileSystemID)
 	if !ok {
 		return ErrFileSystemNotFound
 	}
 
-	delete(b.fileSystems, fileSystemID)
+	b.fileSystems.Delete(fileSystemID)
 	delete(b.tags, fs.ResourceARN)
 
 	return nil
@@ -485,7 +415,7 @@ func (b *InMemoryBackend) UpdateFileSystem(input *updateFileSystemInput) (*FileS
 	b.mu.Lock("UpdateFileSystem")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[input.FileSystemID]
+	fs, ok := b.fileSystems.Get(input.FileSystemID)
 	if !ok {
 		return nil, ErrFileSystemNotFound
 	}
@@ -512,7 +442,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 	b.mu.Lock("CreateBackup")
 	defer b.mu.Unlock()
 
-	fs, ok := b.fileSystems[input.FileSystemID]
+	fs, ok := b.fileSystems.Get(input.FileSystemID)
 	if !ok {
 		return nil, ErrFileSystemNotFound
 	}
@@ -533,7 +463,7 @@ func (b *InMemoryBackend) CreateBackup(input *createBackupInput) (*Backup, error
 		FileSystemID: input.FileSystemID,
 	}
 
-	b.backups[id] = bk
+	b.backups.Put(bk)
 	b.tags[arn] = tags
 
 	return bk.toBackup(fs), nil
@@ -556,7 +486,7 @@ func (b *InMemoryBackend) DescribeBackups(
 
 	if len(backupIDs) > 0 {
 		for _, id := range backupIDs {
-			bk, ok := b.backups[id]
+			bk, ok := b.backups.Get(id)
 			if !ok {
 				return nil, "", ErrBackupNotFound
 			}
@@ -564,9 +494,7 @@ func (b *InMemoryBackend) DescribeBackups(
 			all = append(all, bk)
 		}
 	} else {
-		for _, bk := range b.backups {
-			all = append(all, bk)
-		}
+		all = b.backups.All()
 
 		sort.Slice(all, func(i, j int) bool { return all[i].BackupID < all[j].BackupID })
 	}
@@ -594,7 +522,7 @@ func (b *InMemoryBackend) DescribeBackups(
 	for i, bk := range page {
 		var fs *storedFileSystem
 		if bk.FileSystemID != "" {
-			fs = b.fileSystems[bk.FileSystemID]
+			fs, _ = b.fileSystems.Get(bk.FileSystemID)
 		}
 
 		result[i] = bk.toBackup(fs)
@@ -608,12 +536,12 @@ func (b *InMemoryBackend) DeleteBackup(backupID string) error {
 	b.mu.Lock("DeleteBackup")
 	defer b.mu.Unlock()
 
-	bk, ok := b.backups[backupID]
+	bk, ok := b.backups.Get(backupID)
 	if !ok {
 		return ErrBackupNotFound
 	}
 
-	delete(b.backups, backupID)
+	b.backups.Delete(backupID)
 	delete(b.tags, bk.ResourceARN)
 
 	return nil
@@ -638,12 +566,12 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 	b.mu.Lock("CreateFileSystemFromBackup")
 	defer b.mu.Unlock()
 
-	src, ok := b.backups[input.BackupID]
+	src, ok := b.backups.Get(input.BackupID)
 	if !ok {
 		return nil, ErrBackupNotFound
 	}
 
-	srcFS := b.fileSystems[src.FileSystemID]
+	srcFS, _ := b.fileSystems.Get(src.FileSystemID)
 
 	fsType := input.FileSystemType
 	if fsType == "" && srcFS != nil {
@@ -679,7 +607,7 @@ func (b *InMemoryBackend) CreateFileSystemFromBackup(input *createFileSystemFrom
 		OwnerID:            b.accountID,
 	}
 
-	b.fileSystems[id] = fs
+	b.fileSystems.Put(fs)
 	b.tags[arn] = tags
 
 	return fs.toFileSystem(), nil
@@ -700,7 +628,7 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 	b.mu.Lock("CopyBackup")
 	defer b.mu.Unlock()
 
-	src, ok := b.backups[input.SourceBackupID]
+	src, ok := b.backups.Get(input.SourceBackupID)
 	if !ok {
 		return nil, ErrBackupNotFound
 	}
@@ -721,12 +649,12 @@ func (b *InMemoryBackend) CopyBackup(input *copyBackupInput) (*Backup, error) {
 		FileSystemID: src.FileSystemID,
 	}
 
-	b.backups[id] = bk
+	b.backups.Put(bk)
 	b.tags[arn] = tags
 
 	var fs *storedFileSystem
 	if src.FileSystemID != "" {
-		fs = b.fileSystems[src.FileSystemID]
+		fs, _ = b.fileSystems.Get(src.FileSystemID)
 	}
 
 	return bk.toBackup(fs), nil
@@ -797,60 +725,66 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	return tagsMapToSlice(b.tags[resourceARN]), nil
 }
 
+// hasResourceARN reports whether any value in t has the given ResourceARN, as
+// extracted by arnOf. It backs arnExists's per-table checks.
+func hasResourceARN[V any](t *store.Table[V], arnOf func(*V) string, resourceARN string) bool {
+	found := false
+
+	t.Range(func(v *V) bool {
+		if arnOf(v) == resourceARN {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
+}
+
 // arnExists checks whether a resource ARN belongs to any known FSx resource.
-func (b *InMemoryBackend) arnExists(resourceARN string) bool { //nolint:gocognit,cyclop // existing issue.
-	for _, fs := range b.fileSystems {
-		if fs.ResourceARN == resourceARN {
-			return true
-		}
+func (b *InMemoryBackend) arnExists(resourceARN string) bool {
+	if hasResourceARN(b.fileSystems, func(v *storedFileSystem) string { return v.ResourceARN }, resourceARN) {
+		return true
 	}
 
-	for _, bk := range b.backups {
-		if bk.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(b.backups, func(v *storedBackup) string { return v.ResourceARN }, resourceARN) {
+		return true
 	}
 
-	for _, fc := range b.fileCaches {
-		if fc.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(b.fileCaches, func(v *storedFileCache) string { return v.ResourceARN }, resourceARN) {
+		return true
 	}
 
-	for _, sn := range b.snapshots {
-		if sn.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(b.snapshots, func(v *storedSnapshot) string { return v.ResourceARN }, resourceARN) {
+		return true
 	}
 
-	for _, svm := range b.storageVirtualMachines {
-		if svm.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(
+		b.storageVirtualMachines, func(v *storedStorageVirtualMachine) string { return v.ResourceARN }, resourceARN,
+	) {
+		return true
 	}
 
-	for _, v := range b.volumes {
-		if v.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(b.volumes, func(v *storedVolume) string { return v.ResourceARN }, resourceARN) {
+		return true
 	}
 
-	for _, a := range b.dataRepositoryAssocs {
-		if a.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(
+		b.dataRepositoryAssocs, func(v *storedDataRepositoryAssoc) string { return v.ResourceARN }, resourceARN,
+	) {
+		return true
 	}
 
-	for _, ap := range b.s3AccessPoints {
-		if ap.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(b.s3AccessPoints, func(v *storedS3AccessPoint) string { return v.ResourceARN }, resourceARN) {
+		return true
 	}
 
-	for _, t := range b.dataRepositoryTasks {
-		if t.ResourceARN == resourceARN {
-			return true
-		}
+	if hasResourceARN(
+		b.dataRepositoryTasks, func(v *storedDataRepositoryTask) string { return v.ResourceARN }, resourceARN,
+	) {
+		return true
 	}
 
 	return false

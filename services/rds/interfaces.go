@@ -22,6 +22,12 @@ type StorageBackend interface {
 		opts DBInstanceOptions,
 	) (*DBInstance, error)
 	DeleteDBInstance(id string) (*DBInstance, error)
+	DeleteDBInstanceWithOptions(
+		id string,
+		skipFinalSnapshot bool,
+		finalSnapshotID string,
+		deleteAutomatedBackups bool,
+	) (*DBInstance, error)
 	DescribeDBInstances(id string) ([]DBInstance, error)
 	ModifyDBInstance(
 		id, instanceClass string,
@@ -88,6 +94,7 @@ type StorageBackend interface {
 	) (*DBCluster, error)
 	DescribeDBClusters(id string) ([]DBCluster, error)
 	DeleteDBCluster(id string) (*DBCluster, error)
+	DeleteDBClusterWithOptions(id string, skipFinalSnapshot bool, finalSnapshotID string) (*DBCluster, error)
 	ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error)
 	StartDBCluster(id string) (*DBCluster, error)
 	StopDBCluster(id string) (*DBCluster, error)

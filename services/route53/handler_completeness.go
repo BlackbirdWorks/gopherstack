@@ -1096,7 +1096,10 @@ func (h *Handler) listTagsForResources(c *echo.Context) error {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
 	}
 
-	tagsMap := h.Backend.ListTagsForResources(req.ResourceIDs)
+	tagsMap, err := h.Backend.ListTagsForResources(req.ResourceType, req.ResourceIDs)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
 
 	var resourceTagSets []xmlResourceTagSet
 	for _, id := range req.ResourceIDs {

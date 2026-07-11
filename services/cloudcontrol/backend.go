@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -100,9 +101,10 @@ type ProgressEvent struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CloudControl resources.
 type InMemoryBackend struct {
-	resources    map[string]*Resource      // key: typeName+"/"+identifier
-	requests     map[string]*ProgressEvent // key: requestToken
-	clientTokens map[string]string         // clientToken → requestToken (idempotency)
+	registry     *store.Registry
+	resources    *store.Table[Resource]      // key: typeName+"/"+identifier
+	requests     *store.Table[ProgressEvent] // key: requestToken
+	clientTokens map[string]string           // clientToken → requestToken (idempotency)
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -110,14 +112,16 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		resources:    make(map[string]*Resource),
-		requests:     make(map[string]*ProgressEvent),
+	b := &InMemoryBackend{
 		clientTokens: make(map[string]string),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("cloudcontrol"),
+		registry:     store.NewRegistry(),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the region for this backend instance.
@@ -128,8 +132,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.resources = make(map[string]*Resource)
-	b.requests = make(map[string]*ProgressEvent)
+	b.registry.ResetAll()
 	b.clientTokens = make(map[string]string)
 }
 
@@ -154,21 +157,21 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 	// Idempotency: if the same clientToken was used before, return the cached event.
 	if clientToken != "" {
 		if prevToken, ok := b.clientTokens[clientToken]; ok {
-			if cachedEvent, found := b.requests[prevToken]; found {
+			if cachedEvent, found := b.requests.Get(prevToken); found {
 				return copyEvent(cachedEvent), nil
 			}
 		}
 	}
 
-	if _, exists := b.resources[key]; exists {
+	if b.resources.Has(key) {
 		return nil, ErrAlreadyExists
 	}
 
-	b.resources[key] = &Resource{
+	b.resources.Put(&Resource{
 		TypeName:   typeName,
 		Identifier: identifier,
 		Properties: desiredState,
-	}
+	})
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
@@ -179,7 +182,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState, clientToken str
 		Operation:       "CREATE",
 		OperationStatus: opStatusSuccess,
 	}
-	b.requests[token] = event
+	b.requests.Put(event)
 
 	if clientToken != "" {
 		b.clientTokens[clientToken] = token
@@ -197,7 +200,7 @@ func (b *InMemoryBackend) GetResource(typeName, identifier string) (*Resource, e
 	b.mu.RLock("GetResource")
 	defer b.mu.RUnlock()
 
-	r, ok := b.resources[resourceKey(typeName, identifier)]
+	r, ok := b.resources.Get(resourceKey(typeName, identifier))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -214,15 +217,15 @@ func (b *InMemoryBackend) ListResources(typeName string, maxResults int, nextTok
 	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
 
-	prefix := typeName + "/"
-
 	var all []*Resource
 
-	for key, r := range b.resources {
-		if strings.HasPrefix(key, prefix) {
+	b.resources.Range(func(r *Resource) bool {
+		if r.TypeName == typeName {
 			all = append(all, r)
 		}
-	}
+
+		return true
+	})
 
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].Identifier < all[j].Identifier
@@ -239,11 +242,7 @@ func (b *InMemoryBackend) ListAllResources() []*Resource {
 	b.mu.RLock("ListAllResources")
 	defer b.mu.RUnlock()
 
-	out := make([]*Resource, 0, len(b.resources))
-
-	for _, r := range b.resources {
-		out = append(out, r)
-	}
+	out := b.resources.All()
 
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].TypeName != out[j].TypeName {
@@ -267,11 +266,11 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*Progress
 	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resources[key]; !ok {
+	if !b.resources.Has(key) {
 		return nil, ErrNotFound
 	}
 
-	delete(b.resources, key)
+	b.resources.Delete(key)
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
@@ -282,7 +281,7 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*Progress
 		Operation:       "DELETE",
 		OperationStatus: opStatusSuccess,
 	}
-	b.requests[token] = event
+	b.requests.Put(event)
 
 	return copyEvent(event), nil
 }
@@ -298,11 +297,15 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
-	r, ok := b.resources[key]
+	r, ok := b.resources.Get(key)
 	if !ok {
 		return nil, ErrNotFound
 	}
 
+	// Properties is not part of resources' key (TypeName+Identifier) or any
+	// index, so mutating it in place through the pointer returned by Get is
+	// safe without a follow-up Put -- same as the original map[string]*Resource
+	// behaviour this replaces.
 	r.Properties = applyPatch(r.Properties, patchDocument)
 
 	token := uuid.NewString()
@@ -314,7 +317,7 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 		Operation:       "UPDATE",
 		OperationStatus: opStatusSuccess,
 	}
-	b.requests[token] = event
+	b.requests.Put(event)
 
 	return copyEvent(event), nil
 }
@@ -325,7 +328,7 @@ func (b *InMemoryBackend) GetResourceRequestStatus(requestToken string) (*Progre
 	b.mu.RLock("GetResourceRequestStatus")
 	defer b.mu.RUnlock()
 
-	event, ok := b.requests[requestToken]
+	event, ok := b.requests.Get(requestToken)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -340,7 +343,7 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 	b.mu.Lock("CancelResourceRequest")
 	defer b.mu.Unlock()
 
-	event, ok := b.requests[requestToken]
+	event, ok := b.requests.Get(requestToken)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -357,7 +360,7 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 		Operation:       event.Operation,
 		OperationStatus: opStatusCancelComplete,
 	}
-	b.requests[requestToken] = cancelled
+	b.requests.Put(cancelled)
 
 	return copyEvent(cancelled), nil
 }
@@ -426,13 +429,15 @@ func (b *InMemoryBackend) ListResourceRequests(
 	b.mu.RLock("ListResourceRequests")
 	defer b.mu.RUnlock()
 
-	out := make([]*ProgressEvent, 0, len(b.requests))
+	var out []*ProgressEvent
 
-	for _, event := range b.requests {
+	b.requests.Range(func(event *ProgressEvent) bool {
 		if eventMatchesFilter(event, filter) {
 			out = append(out, event)
 		}
-	}
+
+		return true
+	})
 
 	// Sort by EventTime descending so the most-recent request appears first.
 	sort.Slice(out, func(i, j int) bool {
@@ -479,7 +484,7 @@ func (b *InMemoryBackend) AddProgressEvent(event *ProgressEvent) {
 	b.mu.Lock("AddProgressEvent")
 	defer b.mu.Unlock()
 
-	b.requests[event.RequestToken] = event
+	b.requests.Put(event)
 }
 
 // isValidTypeName reports whether typeName follows the CloudFormation resource type

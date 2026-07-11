@@ -63,8 +63,8 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.serverlessCachesStore(region)
-	if _, exists := store[opts.Name]; exists {
+	tbl := b.serverlessCachesStore(region)
+	if _, exists := tbl.Get(opts.Name); exists {
 		return nil, ErrServerlessCacheAlreadyExists
 	}
 
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) CreateServerlessCacheFull(
 	}
 
 	b.markCreatingLocked(&sc.PendingStatus, &sc.AvailableAt)
-	store[opts.Name] = sc
+	tbl.Put(sc)
 	b.appendEventLocked(opts.Name, "serverless-cache", "serverless cache created")
 
 	return b.serverlessCacheView(sc), nil
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	sc, ok := b.serverlessCachesStore(region)[name]
+	sc, ok := b.serverlessCachesStore(region).Get(name)
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
@@ -194,8 +194,8 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.subnetGroupsStore(region)
-	if _, exists := store[name]; exists {
+	tbl := b.subnetGroupsStore(region)
+	if _, exists := tbl.Get(name); exists {
 		return nil, ErrSubnetGroupAlreadyExists
 	}
 
@@ -207,7 +207,7 @@ func (b *InMemoryBackend) CreateSubnetGroupFull(
 		ARN:         b.subnetGroupARN(region, name),
 		Tags:        tags.New("elasticache.sg." + name + ".tags"),
 	}
-	store[name] = sg
+	tbl.Put(sg)
 
 	cp := *sg
 
@@ -227,14 +227,14 @@ func (b *InMemoryBackend) CopySnapshotFull(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.snapshotsStore(region)
+	tbl := b.snapshotsStore(region)
 
-	src, ok := store[sourceSnapshotName]
+	src, ok := tbl.Get(sourceSnapshotName)
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}
 
-	if _, exists := store[targetSnapshotName]; exists {
+	if _, exists := tbl.Get(targetSnapshotName); exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
 
@@ -249,7 +249,7 @@ func (b *InMemoryBackend) CopySnapshotFull(
 		cp.KmsKeyID = kmsKeyID
 	}
 
-	store[targetSnapshotName] = &cp
+	tbl.Put(&cp)
 	b.appendEventLocked(targetSnapshotName, "snapshot", "snapshot copied from "+sourceSnapshotName)
 
 	result := cp
@@ -272,13 +272,13 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 
 	region := getRegion(ctx, b.region)
 	ugStore := b.userGroupsStore(region)
-	if _, exists := ugStore[groupID]; exists {
+	if _, exists := ugStore.Get(groupID); exists {
 		return nil, ErrUserGroupAlreadyExists
 	}
 
 	userStore := b.usersStore(region)
 	for _, uid := range userIDs {
-		if _, ok := userStore[uid]; !ok {
+		if _, ok := userStore.Get(uid); !ok {
 			return nil, fmt.Errorf("user %q: %w", uid, ErrGroupUserNotFound)
 		}
 	}
@@ -297,7 +297,7 @@ func (b *InMemoryBackend) CreateUserGroupValidated(
 		CreatedAt:   time.Now(),
 		Tags:        tags.New("elasticache.usergroup." + groupID + ".tags"),
 	}
-	ugStore[groupID] = ug
+	ugStore.Put(ug)
 	b.appendEventLocked(groupID, "user-group", "user group created")
 
 	cp := *ug
@@ -315,20 +315,20 @@ func (b *InMemoryBackend) DeleteUserSafe(ctx context.Context, userID string) (*U
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.usersStore(region)
-	u, ok := store[userID]
+	tbl := b.usersStore(region)
+	u, ok := tbl.Get(userID)
 	if !ok {
 		return nil, ErrUserNotFound
 	}
 
-	for _, ug := range b.userGroupsStore(region) {
+	for _, ug := range b.userGroupsStore(region).All() {
 		if slices.Contains(ug.UserIDs, userID) {
 			return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
 		}
 	}
 
 	result := *u
-	delete(store, userID)
+	tbl.Delete(userID)
 	b.appendEventLocked(userID, "user", "user deleted")
 
 	return &result, nil

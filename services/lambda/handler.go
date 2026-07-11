@@ -134,7 +134,7 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodDelete, hasSuffixURL, "DeleteFunctionURLConfig"},
 	{http.MethodPost, hasSuffixPolicy, "AddPermission"},
 	{http.MethodGet, hasSuffixPolicy, "GetPolicy"},
-	{http.MethodDelete, hasSuffixPolicy, "RemovePermission"},
+	{http.MethodDelete, hasPolicyStatementSuffix, "RemovePermission"},
 	{http.MethodPut, hasSuffixEventInvokeConfig, "PutFunctionEventInvokeConfig"},
 	{http.MethodGet, hasSuffixEventInvokeConfig, "GetFunctionEventInvokeConfig"},
 	{http.MethodPost, hasSuffixEventInvokeConfig, "UpdateFunctionEventInvokeConfig"},
@@ -178,7 +178,36 @@ func hasSuffixEventInvokeConfigs(rest string) bool {
 func hasSuffixCodeSigningConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/code-signing-config")
 }
-func hasSuffixPolicy(rest string) bool      { return strings.HasSuffix(rest, "/policy") }
+func hasSuffixPolicy(rest string) bool { return strings.HasSuffix(rest, "/policy") }
+
+// hasPolicyStatementSuffix reports whether rest is a RemovePermission path of
+// the form "/{name}/policy/{statementId}" — the real wire format, where the
+// SDK embeds StatementId as a URI path segment (never a query parameter).
+func hasPolicyStatementSuffix(rest string) bool {
+	trimmed := strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // name, "policy", statementId
+
+	return len(parts) == 3 && parts[1] == "policy" && parts[2] != ""
+}
+
+// extractNameAndPolicyStatement extracts the function name and StatementId
+// from a RemovePermission path of the form "/{name}/policy/{statementId}".
+func extractNameAndPolicyStatement(rest string) (string, string) {
+	trimmed := strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // name, "policy", statementId
+
+	var name, statementID string
+
+	if len(parts) >= 1 {
+		name = parts[0]
+	}
+
+	if len(parts) >= 3 { //nolint:mnd // parts: name, "policy", statementId
+		statementID = parts[2]
+	}
+
+	return name, statementID
+}
 func hasSuffixVersions(rest string) bool    { return strings.HasSuffix(rest, "/versions") }
 func hasSuffixInvokeAsync(rest string) bool { return strings.HasSuffix(rest, "/invoke-async/") }
 func hasSuffixResponseStream(rest string) bool {
@@ -767,11 +796,11 @@ func (h *Handler) buildFunctionURLPolicyRoutes() []handlerEntry {
 		},
 		{
 			method: http.MethodDelete,
-			match:  hasSuffixPolicy,
+			match:  hasPolicyStatementSuffix,
 			execute: func(c *echo.Context, rest string) error {
-				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/policy")
+				name, statementID := extractNameAndPolicyStatement(rest)
 
-				return h.handleRemovePermission(c, name)
+				return h.handleRemovePermission(c, name, statementID)
 			},
 		},
 	}
@@ -3183,9 +3212,11 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Principal is required")
 	}
 
-	out, addErr := lambdaBk.AddPermission(name, &input)
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+
+	out, addErr := lambdaBk.AddPermission(name, qualifier, &input)
 	if addErr != nil {
-		if errors.Is(addErr, ErrFunctionNotFound) {
+		if errors.Is(addErr, ErrFunctionNotFound) || errors.Is(addErr, ErrVersionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function not found: "+name)
 		}
@@ -3195,20 +3226,26 @@ func (h *Handler) handleAddPermission(c *echo.Context, name string) error {
 				"Permission already exists: "+input.StatementID)
 		}
 
+		if errors.Is(addErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", addErr.Error())
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", addErr.Error())
 	}
 
 	return c.JSON(http.StatusCreated, out)
 }
 
-// handleGetPolicy handles GET /2015-03-31/functions/{name}/policy.
+// handleGetPolicy handles GET /2015-03-31/functions/{name}/policy?Qualifier=xxx.
 func (h *Handler) handleGetPolicy(c *echo.Context, name string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	out, err := lambdaBk.GetPolicy(name)
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+
+	out, err := lambdaBk.GetPolicy(name, qualifier)
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -3226,19 +3263,29 @@ func (h *Handler) handleGetPolicy(c *echo.Context, name string) error {
 	return c.JSON(http.StatusOK, out)
 }
 
-// handleRemovePermission handles DELETE /2015-03-31/functions/{name}/policy?StatementId=xxx.
-func (h *Handler) handleRemovePermission(c *echo.Context, name string) error {
+// handleRemovePermission handles
+// DELETE /2015-03-31/functions/{name}/policy/{statementID}?Qualifier=xxx.
+//
+// Bug fix (parity-sweep-3): the real Lambda SDK sends StatementId as a URI path
+// segment (see RemovePermissionInput's HTTP binding), never as a query
+// parameter. The previous implementation read StatementId from the query
+// string, so this route only matched when no real SDK client would ever call
+// it — it always 400'd against genuine aws-sdk-go-v2 traffic. statementID is
+// now extracted from the path by the route matcher (hasPolicyStatementSuffix
+// + extractNameAndPolicyStatement).
+func (h *Handler) handleRemovePermission(c *echo.Context, name, statementID string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	statementID := c.Request().URL.Query().Get("StatementId")
 	if statementID == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "StatementId is required")
 	}
 
-	if err := lambdaBk.RemovePermission(name, statementID); err != nil {
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+
+	if err := lambdaBk.RemovePermission(name, qualifier, statementID); err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function not found: "+name)

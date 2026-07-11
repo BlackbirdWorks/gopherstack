@@ -52,9 +52,9 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := sts.NewInMemoryBackend()
 	h := sts.NewHandler(b)
-	// GetWebIdentityToken is an internal gopherstack extension, not a real AWS STS action,
-	// so it is excluded from GetSupportedOperations (10 real AWS operations remain).
-	assert.Equal(t, 10, h.HandlerOpsLen())
+	// 11 real AWS STS operations are supported, including GetDelegatedAccessToken
+	// and GetWebIdentityToken (both present in aws-sdk-go-v2/service/sts).
+	assert.Equal(t, 11, h.HandlerOpsLen())
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.

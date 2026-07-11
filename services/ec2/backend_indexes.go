@@ -67,6 +67,31 @@ func (b *InMemoryBackend) deindexENILocked(eniID string, eni *NetworkInterface) 
 	}
 }
 
+// primaryNetworkInterfaceLocked returns the primary (deviceIndex 0) network
+// interface attached to instanceID, falling back to any attached interface if
+// none is explicitly device-index 0. Returns nil if the instance has no ENIs.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) primaryNetworkInterfaceLocked(instanceID string) *NetworkInterface {
+	var fallback *NetworkInterface
+
+	for eniID := range b.eniIDsByInstance[instanceID] {
+		eni, ok := b.networkInterfaces.Get(eniID)
+		if !ok {
+			continue
+		}
+
+		if eni.DeviceIndex == 0 {
+			return eni
+		}
+
+		if fallback == nil {
+			fallback = eni
+		}
+	}
+
+	return fallback
+}
+
 func (b *InMemoryBackend) indexSubnetLocked(subnetID, vpcID string) {
 	if subnetID == "" || vpcID == "" {
 		return
@@ -225,28 +250,32 @@ func initSecondaryIndexMaps(b *InMemoryBackend) {
 func (b *InMemoryBackend) rebuildSecondaryIndexesLocked() {
 	initSecondaryIndexMaps(b)
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		b.indexInstanceLocked(inst)
 	}
 
-	for eniID, eni := range b.networkInterfaces {
+	for _, eni := range b.networkInterfaces.All() {
+		eniID := networkInterfacesKeyFn(eni)
 		b.indexENILocked(eniID, eni)
 		b.indexENIByVPCLocked(eniID, eni)
 	}
 
-	for _, ngw := range b.natGateways {
+	for _, ngw := range b.natGateways.All() {
 		b.indexNatGatewayLocked(ngw)
 	}
 
-	for id, subnet := range b.subnets {
+	for _, subnet := range b.subnets.All() {
+		id := subnetsKeyFn(subnet)
 		b.indexSubnetLocked(id, subnet.VPCID)
 	}
 
-	for id, rt := range b.routeTables {
+	for _, rt := range b.routeTables.All() {
+		id := routeTablesKeyFn(rt)
 		b.indexRouteTableLocked(id, rt.VPCID)
 	}
 
-	for id, sg := range b.securityGroups {
+	for _, sg := range b.securityGroups.All() {
+		id := securityGroupsKeyFn(sg)
 		b.indexSGLocked(id, sg.VPCID)
 	}
 }

@@ -242,15 +242,15 @@ func (db *InMemoryDB) batchGetTableRefs(
 	defer db.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, db)
-	regionTables, ok := db.Tables[region]
-	if !ok {
+	if len(db.tablesByRegion.Get(region)) == 0 {
 		// Region might not have tables yet
 		return nil, NewResourceNotFoundException("No tables found in region")
 	}
+
 	tableRefs := make(map[string]*Table, len(requestItems))
 
 	for tableName := range requestItems {
-		t, exists := regionTables[tableName]
+		t, exists := db.tables.Get(tableKey(region, tableName))
 		if !exists {
 			return nil, NewResourceNotFoundException("Table not found: " + tableName)
 		}
@@ -302,6 +302,49 @@ func validateAllBatchWriteRequests(
 				return err
 			}
 		}
+
+		// AWS rejects a BatchWriteItem whose per-table request list targets the same
+		// item (by primary key) more than once — whether via two PutRequests, two
+		// DeleteRequests, or a Put+Delete pair — since the outcome would be
+		// order-dependent and undefined.
+		if err := validateNoDuplicateBatchWriteKeys(requests, table); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateNoDuplicateBatchWriteKeys returns a ValidationException when requests
+// (all WriteRequests targeting a single table) reference the same primary key more
+// than once. Mirrors AWS's real BatchWriteItem behaviour, which rejects such
+// requests wholesale rather than silently picking a winner.
+func validateNoDuplicateBatchWriteKeys(requests []types.WriteRequest, table *Table) error {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	seen := make(map[string]struct{}, len(requests))
+
+	for _, req := range requests {
+		var wireItem map[string]any
+
+		switch {
+		case req.PutRequest != nil:
+			wireItem = models.FromSDKItem(req.PutRequest.Item)
+		case req.DeleteRequest != nil:
+			wireItem = models.FromSDKItem(req.DeleteRequest.Key)
+		default:
+			continue
+		}
+
+		canon := BuildKeyString(wireItem, pkDef.AttributeName)
+		if skDef.AttributeName != "" {
+			canon += "\x00" + BuildKeyString(wireItem, skDef.AttributeName)
+		}
+
+		if _, dup := seen[canon]; dup {
+			return NewValidationException("Provided list of item keys contains duplicates")
+		}
+
+		seen[canon] = struct{}{}
 	}
 
 	return nil
@@ -483,15 +526,9 @@ func (db *InMemoryDB) getRequestTables(
 	requestItems map[string][]types.WriteRequest,
 ) (map[string]*Table, error) {
 	tables := make(map[string]*Table, len(requestItems))
-	regionTables, regionExists := db.Tables[region]
 
 	for tableName := range requestItems {
-		var table *Table
-		if regionExists {
-			if t, tableExists := regionTables[tableName]; tableExists {
-				table = t
-			}
-		}
+		table, _ := db.tables.Get(tableKey(region, tableName))
 
 		if table == nil {
 			return nil, NewResourceNotFoundException("Table not found: " + tableName)

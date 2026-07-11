@@ -3,6 +3,7 @@ package kms
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -29,8 +30,8 @@ func KeyCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	n := 0
-	for _, m := range b.keys {
-		n += len(m)
+	for _, t := range b.keys {
+		n += t.Len()
 	}
 
 	return n
@@ -42,8 +43,8 @@ func AliasCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	n := 0
-	for _, m := range b.aliases {
-		n += len(m)
+	for _, t := range b.aliases {
+		n += t.Len()
 	}
 
 	return n
@@ -55,8 +56,8 @@ func GrantCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	n := 0
-	for _, m := range b.grants {
-		n += len(m)
+	for _, gs := range b.grants {
+		n += gs.table.Len()
 	}
 
 	return n
@@ -68,8 +69,8 @@ func CustomKeyStoreCount(b *InMemoryBackend) int {
 	defer b.mu.RUnlock()
 
 	n := 0
-	for _, m := range b.customKeyStores {
-		n += len(m)
+	for _, t := range b.customKeyStores {
+		n += t.Len()
 	}
 
 	return n
@@ -81,8 +82,8 @@ func (b *InMemoryBackend) SetDeletionDateForTest(keyID string, t time.Time) {
 	b.mu.Lock("SetDeletionDateForTest")
 	defer b.mu.Unlock()
 
-	for _, regionKeys := range b.keys {
-		if key, ok := regionKeys[keyID]; ok {
+	for _, tbl := range b.keys {
+		if key, ok := tbl.Get(keyID); ok {
 			key.DeletionDate = UnixTimeFloat(t)
 
 			return
@@ -128,8 +129,8 @@ func (b *InMemoryBackend) SetGrantTokenIssuedAt(grantID string, t time.Time) {
 	b.mu.Lock("SetGrantTokenIssuedAt")
 	defer b.mu.Unlock()
 
-	for _, regionGrants := range b.grants {
-		if g, ok := regionGrants[grantID]; ok {
+	for _, gs := range b.grants {
+		if g, ok := gs.table.Get(grantID); ok {
 			g.TokenIssuedAt = t
 
 			return
@@ -160,34 +161,37 @@ func GrantsByKeyCount(b *InMemoryBackend, region, keyID string) int {
 	b.mu.RLock("GrantsByKeyCount")
 	defer b.mu.RUnlock()
 
-	if rm := b.grantsByKey[region]; rm != nil {
-		return len(rm[keyID])
+	if gs, ok := b.grants[region]; ok {
+		return len(gs.byKey.Get(keyID))
 	}
 
 	return 0
 }
 
-// GrantIndexesConsistent checks that grantsByToken and grantsByKey are consistent
-// with the canonical grants map. Returns false and a description if not.
+// GrantIndexesConsistent checks that the byToken and byKey secondary indexes on
+// each region's grants table are consistent with the canonical grants table.
+// store.Table/store.Index maintain both automatically on every Put/Delete, so
+// this is a structural sanity check rather than the manual three-map
+// consistency check it replaces. Returns false and a description if not.
 func GrantIndexesConsistent(b *InMemoryBackend) (bool, string) {
 	b.mu.RLock("GrantIndexesConsistent")
 	defer b.mu.RUnlock()
 
-	for region, regionGrants := range b.grants {
-		for grantID, g := range regionGrants {
-			if _, ok := b.grantsByToken[region][g.GrantToken]; !ok {
+	for region, gs := range b.grants {
+		for _, g := range gs.table.All() {
+			tokenMatches := gs.byToken.Get(g.GrantToken)
+			if !slices.ContainsFunc(tokenMatches, func(m *Grant) bool { return m.GrantID == g.GrantID }) {
 				return false, fmt.Sprintf(
-					"grant %s token %s missing from grantsByToken[%s]",
-					grantID,
+					"grant %s token %s missing from byToken index[%s]",
+					g.GrantID,
 					g.GrantToken,
 					region,
 				)
 			}
 
-			if rm := b.grantsByKey[region]; rm == nil {
-				return false, fmt.Sprintf("grantsByKey[%s] is nil", region)
-			} else if _, ok := rm[g.KeyID][grantID]; !ok {
-				return false, fmt.Sprintf("grant %s missing from grantsByKey[%s][%s]", grantID, region, g.KeyID)
+			keyMatches := gs.byKey.Get(g.KeyID)
+			if !slices.ContainsFunc(keyMatches, func(m *Grant) bool { return m.GrantID == g.GrantID }) {
+				return false, fmt.Sprintf("grant %s missing from byKey index[%s][%s]", g.GrantID, region, g.KeyID)
 			}
 		}
 	}
@@ -227,8 +231,8 @@ func (b *InMemoryBackend) SetKeyCreationDateForTest(keyID string, t time.Time) {
 	b.mu.Lock("SetKeyCreationDateForTest")
 	defer b.mu.Unlock()
 
-	for _, regionKeys := range b.keys {
-		if key, ok := regionKeys[keyID]; ok {
+	for _, tbl := range b.keys {
+		if key, ok := tbl.Get(keyID); ok {
 			key.CreationDate = UnixTimeFloat(t)
 
 			return
@@ -245,8 +249,8 @@ func (b *InMemoryBackend) ForceRotateForTest(keyID string) error {
 	b.mu.Lock("ForceRotateForTest")
 	defer b.mu.Unlock()
 
-	for region, regionKeys := range b.keys {
-		if key, ok := regionKeys[keyID]; ok {
+	for region, tbl := range b.keys {
+		if key, ok := tbl.Get(keyID); ok {
 			return b.rotateKeyMaterialLocked(region, key, rotationTypeAWSKMS)
 		}
 	}

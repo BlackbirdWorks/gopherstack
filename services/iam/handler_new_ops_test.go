@@ -564,13 +564,14 @@ func TestIAMHandler_NewOpsDispatch(t *testing.T) {
 			wantContain: "CreatePolicyVersionResponse",
 		},
 		{
-			name:   "CreatePolicyVersion_not_found_returns_400",
+			name:   "CreatePolicyVersion_not_found_returns_404",
 			action: "CreatePolicyVersion",
 			params: map[string]string{
 				"PolicyArn":      "arn:aws:iam::000000000000:policy/Ghost",
 				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
 			},
-			wantCode: http.StatusBadRequest,
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 		// CreateServiceLinkedRole
 		{
@@ -611,7 +612,8 @@ func TestIAMHandler_NewOpsDispatch(t *testing.T) {
 				"UserName":    "ghost",
 				"ServiceName": "codecommit.amazonaws.com",
 			},
-			wantCode: http.StatusBadRequest,
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 		// CreateVirtualMFADevice
 		{
@@ -696,7 +698,8 @@ func TestIAMHandler_NewOpsDispatch(t *testing.T) {
 				"OpenIDConnectProviderArn": "arn:aws:iam::000000000000:oidc-provider/nonexistent",
 				"ClientID":                 "sts.amazonaws.com",
 			},
-			wantCode: http.StatusBadRequest,
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 	}
 
@@ -751,11 +754,12 @@ func TestIAMHandler_ListPolicyVersions(t *testing.T) {
 			},
 		},
 		{
-			name: "policy_not_found_returns_bad_request",
+			name: "policy_not_found_returns_404",
 			params: map[string]string{
 				"PolicyArn": "arn:aws:iam::000000000000:policy/VersionListPolicy",
 			},
-			wantCode: http.StatusBadRequest,
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
 		},
 	}
 

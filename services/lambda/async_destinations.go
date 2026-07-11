@@ -120,7 +120,7 @@ func (b *InMemoryBackend) resolveAsyncTargets(out asyncOutcome) (
 	defer b.mu.RUnlock()
 
 	delivery := b.asyncDelivery
-	fn := b.functions[out.functionName]
+	fn, _ := b.functions.Get(out.functionName)
 	eic := b.eventInvokeConfigs[out.functionName]
 
 	var functionArn, dlqTarget string

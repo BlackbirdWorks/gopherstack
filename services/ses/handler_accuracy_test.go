@@ -43,6 +43,9 @@ func TestSendEmail_CcBccReplyTo_Handler(t *testing.T) {
 
 	h := newHandler()
 	require.NoError(t, h.Backend.VerifyEmailIdentity("s@example.com"))
+	// AWS SES requires ConfigurationSetName to reference an existing configuration
+	// set (ConfigurationSetDoesNotExist otherwise), so create it up front.
+	require.NoError(t, h.Backend.CreateConfigurationSet("my-set"))
 
 	body := url.Values{
 		"Action":                            {"SendEmail"},
@@ -177,6 +180,9 @@ func TestSendEmail_Tags(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("s@example.com"))
+	// AWS SES requires ConfigurationSetName to reference an existing configuration
+	// set (ConfigurationSetDoesNotExist otherwise), so create it up front.
+	require.NoError(t, b.CreateConfigurationSet("cs1"))
 
 	tags := []ses.Tag{{Name: "k1", Value: "v1"}, {Name: "k2", Value: "v2"}}
 	msgID, err := b.SendEmail(ses.SendEmailInput{
@@ -245,7 +251,7 @@ func TestSetIdentityMailFromDomain_Persists(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("a@example.com"))
-	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com"))
+	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com", ""))
 
 	attrs := b.GetIdentityMailFromDomainAttributes([]string{"a@example.com"})
 	assert.Equal(t, "mail.example.com", attrs["a@example.com"].MailFromDomain)
@@ -257,8 +263,8 @@ func TestSetIdentityMailFromDomain_Clear(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("a@example.com"))
-	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com"))
-	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", ""))
+	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com", ""))
+	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "", ""))
 
 	attrs := b.GetIdentityMailFromDomainAttributes([]string{"a@example.com"})
 	assert.Empty(t, attrs["a@example.com"].MailFromDomain)
@@ -438,7 +444,7 @@ func TestSendBulkTemplatedEmail_PerDestination(t *testing.T) {
 		{To: []string{"b@example.com"}, Cc: []string{"cc@example.com"}},
 	}
 
-	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", "", destinations)
+	msgIDs, err := b.SendBulkTemplatedEmail("sender@example.com", "t", "", "", "", "", nil, destinations)
 	require.NoError(t, err)
 	assert.Len(t, msgIDs, 2)
 
@@ -506,7 +512,7 @@ func TestIdentityRecord_SnapshotRestore(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("a@example.com"))
 	require.NoError(t, b.SetIdentityDkimEnabled("a@example.com", true))
-	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com"))
+	require.NoError(t, b.SetIdentityMailFromDomain("a@example.com", "mail.example.com", ""))
 	require.NoError(t, b.SetIdentityNotificationTopic("a@example.com", "Bounce", "arn:topic"))
 
 	snap := b.Snapshot(t.Context())

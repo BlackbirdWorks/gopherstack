@@ -129,7 +129,7 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.jobs[input.JobID]; exists {
+	if b.jobs.Has(input.JobID) {
 		return nil, fmt.Errorf("job %q already exists: %w", input.JobID, ErrAlreadyExists)
 	}
 	now := float64(time.Now().Unix())
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 		CreatedAt:                  now,
 		LastUpdatedAt:              now,
 	}
-	b.jobs[input.JobID] = j
+	b.jobs.Put(j)
 
 	return cloneJob(j), nil
 }
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
@@ -172,9 +172,9 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*Job, 0, len(b.jobs))
-	for _, k := range sortedKeys(b.jobs) {
-		out = append(out, cloneJob(b.jobs[k]))
+	out := make([]*Job, 0, b.jobs.Len())
+	for _, v := range b.jobs.Snapshot() {
+		out = append(out, cloneJob(v))
 	}
 
 	return out
@@ -184,7 +184,7 @@ func (b *InMemoryBackend) UpdateJob(jobID, description string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
@@ -200,7 +200,7 @@ func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
@@ -214,14 +214,17 @@ func (b *InMemoryBackend) DeleteJob(jobID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[jobID]; !ok {
+	if !b.jobs.Has(jobID) {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
-	delete(b.jobs, jobID)
-	// Remove executions.
-	for k := range b.jobExecutions {
+	b.jobs.Delete(jobID)
+	// Remove executions. Preserves the original key-prefix check (including
+	// its edge case: a JobExecution with an empty ThingName is NOT deleted,
+	// since its key jobID+"|" has length exactly len(jobID)+1) byte-for-byte.
+	for _, exec := range b.jobExecutions.All() {
+		k := jobExecKey(exec.JobID, exec.ThingName)
 		if len(k) > len(jobID)+1 && k[:len(jobID)] == jobID {
-			delete(b.jobExecutions, k)
+			b.jobExecutions.Delete(k)
 		}
 	}
 
@@ -232,7 +235,7 @@ func (b *InMemoryBackend) GetJobDocument(jobID string) (string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	j, ok := b.jobs[jobID]
+	j, ok := b.jobs.Get(jobID)
 	if !ok {
 		return "", fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
@@ -249,7 +252,7 @@ func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExe
 	defer b.mu.RUnlock()
 
 	key := jobExecKey(jobID, thingName)
-	exec, ok := b.jobExecutions[key]
+	exec, ok := b.jobExecutions.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"job execution for job %q / thing %q not found: %w",
@@ -268,14 +271,14 @@ func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string) error {
 	defer b.mu.Unlock()
 
 	key := jobExecKey(jobID, thingName)
-	exec, ok := b.jobExecutions[key]
+	exec, ok := b.jobExecutions.Get(key)
 	if !ok {
 		// Create a canceled execution record.
-		b.jobExecutions[key] = &JobExecution{
+		b.jobExecutions.Put(&JobExecution{
 			JobID:     jobID,
 			ThingName: thingName,
 			Status:    JobExecCanceled,
-		}
+		})
 
 		return nil
 	}
@@ -289,7 +292,7 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string) error {
 	defer b.mu.Unlock()
 
 	key := jobExecKey(jobID, thingName)
-	delete(b.jobExecutions, key)
+	b.jobExecutions.Delete(key)
 
 	return nil
 }
@@ -339,7 +342,7 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.jobTemplates[input.JobTemplateID]; exists {
+	if b.jobTemplates.Has(input.JobTemplateID) {
 		return nil, fmt.Errorf(
 			"job template %q already exists: %w",
 			input.JobTemplateID,
@@ -358,7 +361,7 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 		Tags:                       input.Tags,
 		CreatedAt:                  float64(time.Now().Unix()),
 	}
-	b.jobTemplates[input.JobTemplateID] = jt
+	b.jobTemplates.Put(jt)
 
 	return cloneJobTemplate(jt), nil
 }
@@ -367,7 +370,7 @@ func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	jt, ok := b.jobTemplates[id]
+	jt, ok := b.jobTemplates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("job template %q not found: %w", id, ErrResourceNotFound)
 	}
@@ -379,9 +382,9 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*JobTemplate, 0, len(b.jobTemplates))
-	for _, k := range sortedKeys(b.jobTemplates) {
-		out = append(out, cloneJobTemplate(b.jobTemplates[k]))
+	out := make([]*JobTemplate, 0, b.jobTemplates.Len())
+	for _, v := range b.jobTemplates.Snapshot() {
+		out = append(out, cloneJobTemplate(v))
 	}
 
 	return out
@@ -391,10 +394,10 @@ func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobTemplates[id]; !ok {
+	if !b.jobTemplates.Has(id) {
 		return fmt.Errorf("job template %q not found: %w", id, ErrResourceNotFound)
 	}
-	delete(b.jobTemplates, id)
+	b.jobTemplates.Delete(id)
 
 	return nil
 }
@@ -437,7 +440,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.roleAliases[input.RoleAlias]; exists {
+	if b.roleAliases.Has(input.RoleAlias) {
 		return nil, fmt.Errorf(
 			"role alias %q already exists: %w",
 			input.RoleAlias,
@@ -457,7 +460,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 	if ra.CredentialDurationSeconds == 0 {
 		ra.CredentialDurationSeconds = 3600
 	}
-	b.roleAliases[input.RoleAlias] = ra
+	b.roleAliases.Put(ra)
 
 	return cloneRoleAlias(ra), nil
 }
@@ -466,7 +469,7 @@ func (b *InMemoryBackend) DescribeRoleAlias(alias string) (*RoleAlias, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ra, ok := b.roleAliases[alias]
+	ra, ok := b.roleAliases.Get(alias)
 	if !ok {
 		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
@@ -478,9 +481,9 @@ func (b *InMemoryBackend) ListRoleAliases() []*RoleAlias {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*RoleAlias, 0, len(b.roleAliases))
-	for _, k := range sortedKeys(b.roleAliases) {
-		out = append(out, cloneRoleAlias(b.roleAliases[k]))
+	out := make([]*RoleAlias, 0, b.roleAliases.Len())
+	for _, v := range b.roleAliases.Snapshot() {
+		out = append(out, cloneRoleAlias(v))
 	}
 
 	return out
@@ -493,7 +496,7 @@ func (b *InMemoryBackend) UpdateRoleAlias(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ra, ok := b.roleAliases[alias]
+	ra, ok := b.roleAliases.Get(alias)
 	if !ok {
 		return nil, fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
@@ -512,10 +515,10 @@ func (b *InMemoryBackend) DeleteRoleAlias(alias string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.roleAliases[alias]; !ok {
+	if !b.roleAliases.Has(alias) {
 		return fmt.Errorf("role alias %q not found: %w", alias, ErrResourceNotFound)
 	}
-	delete(b.roleAliases, alias)
+	b.roleAliases.Delete(alias)
 
 	return nil
 }
@@ -561,7 +564,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.domainConfigs[input.DomainConfigurationName]; exists {
+	if b.domainConfigs.Has(input.DomainConfigurationName) {
 		return nil, fmt.Errorf(
 			"domain configuration %q already exists: %w",
 			input.DomainConfigurationName,
@@ -582,7 +585,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 	if dc.ServiceType == "" {
 		dc.ServiceType = "DATA"
 	}
-	b.domainConfigs[input.DomainConfigurationName] = dc
+	b.domainConfigs.Put(dc)
 
 	return cloneDomainConfig(dc), nil
 }
@@ -591,7 +594,7 @@ func (b *InMemoryBackend) DescribeDomainConfiguration(name string) (*DomainConfi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	dc, ok := b.domainConfigs[name]
+	dc, ok := b.domainConfigs.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -603,9 +606,9 @@ func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*DomainConfiguration, 0, len(b.domainConfigs))
-	for _, k := range sortedKeys(b.domainConfigs) {
-		out = append(out, cloneDomainConfig(b.domainConfigs[k]))
+	out := make([]*DomainConfiguration, 0, b.domainConfigs.Len())
+	for _, v := range b.domainConfigs.Snapshot() {
+		out = append(out, cloneDomainConfig(v))
 	}
 
 	return out
@@ -617,7 +620,7 @@ func (b *InMemoryBackend) UpdateDomainConfiguration(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	dc, ok := b.domainConfigs[name]
+	dc, ok := b.domainConfigs.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -633,10 +636,10 @@ func (b *InMemoryBackend) DeleteDomainConfiguration(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainConfigs[name]; !ok {
+	if !b.domainConfigs.Has(name) {
 		return fmt.Errorf("domain configuration %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.domainConfigs, name)
+	b.domainConfigs.Delete(name)
 
 	return nil
 }
@@ -695,7 +698,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.provTemplates[input.TemplateName]; exists {
+	if b.provTemplates.Has(input.TemplateName) {
 		return nil, fmt.Errorf(
 			"provisioning template %q already exists: %w",
 			input.TemplateName,
@@ -716,7 +719,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 		CreationDate:        now,
 		LastModifiedDate:    now,
 	}
-	b.provTemplates[input.TemplateName] = pt
+	b.provTemplates.Put(pt)
 	// Create initial version.
 	b.provTemplateVersions[input.TemplateName] = []*ProvisioningTemplateVersion{
 		{VersionID: 1, TemplateBody: input.TemplateBody, CreationDate: now, IsDefaultVersion: true},
@@ -729,7 +732,7 @@ func (b *InMemoryBackend) DescribeProvisioningTemplate(name string) (*Provisioni
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	pt, ok := b.provTemplates[name]
+	pt, ok := b.provTemplates.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -741,9 +744,9 @@ func (b *InMemoryBackend) ListProvisioningTemplates() []*ProvisioningTemplate {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*ProvisioningTemplate, 0, len(b.provTemplates))
-	for _, k := range sortedKeys(b.provTemplates) {
-		out = append(out, cloneProvTemplate(b.provTemplates[k]))
+	out := make([]*ProvisioningTemplate, 0, b.provTemplates.Len())
+	for _, v := range b.provTemplates.Snapshot() {
+		out = append(out, cloneProvTemplate(v))
 	}
 
 	return out
@@ -757,7 +760,7 @@ func (b *InMemoryBackend) UpdateProvisioningTemplate(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	pt, ok := b.provTemplates[name]
+	pt, ok := b.provTemplates.Get(name)
 	if !ok {
 		return fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -779,10 +782,10 @@ func (b *InMemoryBackend) DeleteProvisioningTemplate(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.provTemplates[name]; !ok {
+	if !b.provTemplates.Has(name) {
 		return fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.provTemplates, name)
+	b.provTemplates.Delete(name)
 	delete(b.provTemplateVersions, name)
 
 	return nil
@@ -794,7 +797,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplateVersion(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.provTemplates[name]; !ok {
+	if !b.provTemplates.Has(name) {
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	versions := b.provTemplateVersions[name]
@@ -815,7 +818,7 @@ func (b *InMemoryBackend) ListProvisioningTemplateVersions(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.provTemplates[name]; !ok {
+	if !b.provTemplates.Has(name) {
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	src := b.provTemplateVersions[name]
@@ -829,7 +832,7 @@ func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, version
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.provTemplates[name]; !ok {
+	if !b.provTemplates.Has(name) {
 		return fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 	versions := b.provTemplateVersions[name]
@@ -889,7 +892,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.authorizers[input.AuthorizerName]; exists {
+	if b.authorizers.Has(input.AuthorizerName) {
 		return nil, fmt.Errorf(
 			"authorizer %q already exists: %w",
 			input.AuthorizerName,
@@ -913,7 +916,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 	if a.Status == "" {
 		a.Status = "ACTIVE"
 	}
-	b.authorizers[input.AuthorizerName] = a
+	b.authorizers.Put(a)
 
 	return cloneAuthorizer(a), nil
 }
@@ -922,7 +925,7 @@ func (b *InMemoryBackend) DescribeAuthorizer(name string) (*Authorizer, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	a, ok := b.authorizers[name]
+	a, ok := b.authorizers.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -934,9 +937,9 @@ func (b *InMemoryBackend) ListAuthorizers() []*Authorizer {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*Authorizer, 0, len(b.authorizers))
-	for _, k := range sortedKeys(b.authorizers) {
-		out = append(out, cloneAuthorizer(b.authorizers[k]))
+	out := make([]*Authorizer, 0, b.authorizers.Len())
+	for _, v := range b.authorizers.Snapshot() {
+		out = append(out, cloneAuthorizer(v))
 	}
 
 	return out
@@ -946,7 +949,7 @@ func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*A
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	a, ok := b.authorizers[name]
+	a, ok := b.authorizers.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -965,10 +968,10 @@ func (b *InMemoryBackend) DeleteAuthorizer(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.authorizers[name]; !ok {
+	if !b.authorizers.Has(name) {
 		return fmt.Errorf("authorizer %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.authorizers, name)
+	b.authorizers.Delete(name)
 
 	return nil
 }
@@ -1021,7 +1024,7 @@ func (b *InMemoryBackend) CreateBillingGroup(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.billingGroups[input.BillingGroupName]; exists {
+	if b.billingGroups.Has(input.BillingGroupName) {
 		return nil, fmt.Errorf(
 			"billing group %q already exists: %w",
 			input.BillingGroupName,
@@ -1039,7 +1042,7 @@ func (b *InMemoryBackend) CreateBillingGroup(
 		Tags:    input.Tags,
 		Version: 1,
 	}
-	b.billingGroups[input.BillingGroupName] = bg
+	b.billingGroups.Put(bg)
 
 	return cloneBillingGroup(bg), nil
 }
@@ -1048,7 +1051,7 @@ func (b *InMemoryBackend) DescribeBillingGroup(name string) (*BillingGroup, erro
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	bg, ok := b.billingGroups[name]
+	bg, ok := b.billingGroups.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1060,9 +1063,9 @@ func (b *InMemoryBackend) ListBillingGroups() []*BillingGroup {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*BillingGroup, 0, len(b.billingGroups))
-	for _, k := range sortedKeys(b.billingGroups) {
-		out = append(out, cloneBillingGroup(b.billingGroups[k]))
+	out := make([]*BillingGroup, 0, b.billingGroups.Len())
+	for _, v := range b.billingGroups.Snapshot() {
+		out = append(out, cloneBillingGroup(v))
 	}
 
 	return out
@@ -1075,7 +1078,7 @@ func (b *InMemoryBackend) UpdateBillingGroup(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	bg, ok := b.billingGroups[name]
+	bg, ok := b.billingGroups.Get(name)
 	if !ok {
 		return 0, fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1089,10 +1092,10 @@ func (b *InMemoryBackend) DeleteBillingGroup(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.billingGroups[name]; !ok {
+	if !b.billingGroups.Has(name) {
 		return fmt.Errorf("billing group %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.billingGroups, name)
+	b.billingGroups.Delete(name)
 
 	return nil
 }
@@ -1139,7 +1142,7 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.scheduledAudits[input.ScheduledAuditName]; exists {
+	if b.scheduledAudits.Has(input.ScheduledAuditName) {
 		return nil, fmt.Errorf(
 			"scheduled audit %q already exists: %w",
 			input.ScheduledAuditName,
@@ -1155,7 +1158,7 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 		TargetCheckNames:   append([]string(nil), input.TargetCheckNames...),
 		Tags:               input.Tags,
 	}
-	b.scheduledAudits[input.ScheduledAuditName] = sa
+	b.scheduledAudits.Put(sa)
 
 	return cloneScheduledAudit(sa), nil
 }
@@ -1164,7 +1167,7 @@ func (b *InMemoryBackend) DescribeScheduledAudit(name string) (*ScheduledAudit, 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	sa, ok := b.scheduledAudits[name]
+	sa, ok := b.scheduledAudits.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1176,9 +1179,9 @@ func (b *InMemoryBackend) ListScheduledAudits() []*ScheduledAudit {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*ScheduledAudit, 0, len(b.scheduledAudits))
-	for _, k := range sortedKeys(b.scheduledAudits) {
-		out = append(out, cloneScheduledAudit(b.scheduledAudits[k]))
+	out := make([]*ScheduledAudit, 0, b.scheduledAudits.Len())
+	for _, v := range b.scheduledAudits.Snapshot() {
+		out = append(out, cloneScheduledAudit(v))
 	}
 
 	return out
@@ -1191,7 +1194,7 @@ func (b *InMemoryBackend) UpdateScheduledAudit(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sa, ok := b.scheduledAudits[name]
+	sa, ok := b.scheduledAudits.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1215,10 +1218,10 @@ func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.scheduledAudits[name]; !ok {
+	if !b.scheduledAudits.Has(name) {
 		return fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.scheduledAudits, name)
+	b.scheduledAudits.Delete(name)
 
 	return nil
 }
@@ -1263,7 +1266,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.mitigationActions[input.ActionName]; exists {
+	if b.mitigationActions.Has(input.ActionName) {
 		return nil, fmt.Errorf(
 			"mitigation action %q already exists: %w",
 			input.ActionName,
@@ -1281,7 +1284,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
-	b.mitigationActions[input.ActionName] = ma
+	b.mitigationActions.Put(ma)
 
 	return cloneMitigationAction(ma), nil
 }
@@ -1290,7 +1293,7 @@ func (b *InMemoryBackend) DescribeMitigationAction(name string) (*MitigationActi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	ma, ok := b.mitigationActions[name]
+	ma, ok := b.mitigationActions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1302,9 +1305,9 @@ func (b *InMemoryBackend) ListMitigationActions() []*MitigationAction {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*MitigationAction, 0, len(b.mitigationActions))
-	for _, k := range sortedKeys(b.mitigationActions) {
-		out = append(out, cloneMitigationAction(b.mitigationActions[k]))
+	out := make([]*MitigationAction, 0, b.mitigationActions.Len())
+	for _, v := range b.mitigationActions.Snapshot() {
+		out = append(out, cloneMitigationAction(v))
 	}
 
 	return out
@@ -1317,7 +1320,7 @@ func (b *InMemoryBackend) UpdateMitigationAction(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	ma, ok := b.mitigationActions[name]
+	ma, ok := b.mitigationActions.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1336,10 +1339,10 @@ func (b *InMemoryBackend) DeleteMitigationAction(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.mitigationActions[name]; !ok {
+	if !b.mitigationActions.Has(name) {
 		return fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.mitigationActions, name)
+	b.mitigationActions.Delete(name)
 
 	return nil
 }
@@ -1382,7 +1385,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.securityProfiles[input.SecurityProfileName]; exists {
+	if b.securityProfiles.Has(input.SecurityProfileName) {
 		return nil, fmt.Errorf(
 			"security profile %q already exists: %w",
 			input.SecurityProfileName,
@@ -1399,7 +1402,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 		CreationDate:               now,
 		LastModifiedDate:           now,
 	}
-	b.securityProfiles[input.SecurityProfileName] = sp
+	b.securityProfiles.Put(sp)
 
 	return cloneSecurityProfile(sp), nil
 }
@@ -1408,7 +1411,7 @@ func (b *InMemoryBackend) DescribeSecurityProfile(name string) (*SecurityProfile
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	sp, ok := b.securityProfiles[name]
+	sp, ok := b.securityProfiles.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1420,9 +1423,9 @@ func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	out := make([]*SecurityProfile, 0, len(b.securityProfiles))
-	for _, k := range sortedKeys(b.securityProfiles) {
-		out = append(out, cloneSecurityProfile(b.securityProfiles[k]))
+	out := make([]*SecurityProfile, 0, b.securityProfiles.Len())
+	for _, v := range b.securityProfiles.Snapshot() {
+		out = append(out, cloneSecurityProfile(v))
 	}
 
 	return out
@@ -1434,7 +1437,7 @@ func (b *InMemoryBackend) UpdateSecurityProfile(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sp, ok := b.securityProfiles[name]
+	sp, ok := b.securityProfiles.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
@@ -1451,10 +1454,10 @@ func (b *InMemoryBackend) DeleteSecurityProfile(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityProfiles[name]; !ok {
+	if !b.securityProfiles.Has(name) {
 		return fmt.Errorf("security profile %q not found: %w", name, ErrResourceNotFound)
 	}
-	delete(b.securityProfiles, name)
+	b.securityProfiles.Delete(name)
 
 	return nil
 }

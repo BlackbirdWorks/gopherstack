@@ -17,11 +17,12 @@ func (b *InMemoryBackend) CreateClusterSnapshot(snapshotID, clusterID string) (*
 	b.mu.Lock("CreateClusterSnapshot")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	srcCluster, exists := b.clusters.Get(clusterID)
+	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	if _, exists := b.snapshots[snapshotID]; exists {
+	if b.snapshots.Has(snapshotID) {
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, snapshotID)
 	}
 
@@ -33,12 +34,12 @@ func (b *InMemoryBackend) CreateClusterSnapshot(snapshotID, clusterID string) (*
 		AccountsWithRestoreAccess:     []AccountWithRestoreAccess{},
 		ManualSnapshotRetentionPeriod: -1,
 		SnapshotCreateTime:            time.Now(),
-		NodeType:                      b.clusters[clusterID].NodeType,
-		DBName:                        b.clusters[clusterID].DBName,
-		MasterUsername:                b.clusters[clusterID].MasterUsername,
-		NumberOfNodes:                 b.clusters[clusterID].NumberOfNodes,
+		NodeType:                      srcCluster.NodeType,
+		DBName:                        srcCluster.DBName,
+		MasterUsername:                srcCluster.MasterUsername,
+		NumberOfNodes:                 srcCluster.NumberOfNodes,
 	}
-	b.snapshots[snapshotID] = snap
+	b.snapshots.Put(snap)
 
 	return cloneSnapshot(snap), nil
 }
@@ -52,13 +53,13 @@ func (b *InMemoryBackend) DeleteClusterSnapshot(snapshotID string) (*Snapshot, e
 	b.mu.Lock("DeleteClusterSnapshot")
 	defer b.mu.Unlock()
 
-	snap, exists := b.snapshots[snapshotID]
+	snap, exists := b.snapshots.Get(snapshotID)
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
 	cp := cloneSnapshot(snap)
-	delete(b.snapshots, snapshotID)
+	b.snapshots.Delete(snapshotID)
 
 	return cp, nil
 }
@@ -70,7 +71,7 @@ func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID, snapsh
 	defer b.mu.RUnlock()
 
 	if snapshotID != "" {
-		snap, exists := b.snapshots[snapshotID]
+		snap, exists := b.snapshots.Get(snapshotID)
 		if !exists {
 			return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 		}
@@ -78,9 +79,9 @@ func (b *InMemoryBackend) DescribeClusterSnapshots(snapshotID, clusterID, snapsh
 		return []Snapshot{*cloneSnapshot(snap)}, nil
 	}
 
-	result := make([]Snapshot, 0, len(b.snapshots))
+	result := make([]Snapshot, 0, b.snapshots.Len())
 
-	for _, snap := range b.snapshots {
+	for _, snap := range b.snapshots.All() {
 		if clusterID != "" && snap.ClusterIdentifier != clusterID {
 			continue
 		}
@@ -107,19 +108,19 @@ func (b *InMemoryBackend) CopyClusterSnapshot(
 	b.mu.Lock("CopyClusterSnapshot")
 	defer b.mu.Unlock()
 
-	src, exists := b.snapshots[sourceSnapshotID]
+	src, exists := b.snapshots.Get(sourceSnapshotID)
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, sourceSnapshotID)
 	}
 
-	if _, dstExists := b.snapshots[destinationSnapshotID]; dstExists {
+	if _, dstExists := b.snapshots.Get(destinationSnapshotID); dstExists {
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, destinationSnapshotID)
 	}
 
 	cp := cloneSnapshot(src)
 	cp.SnapshotIdentifier = destinationSnapshotID
 	cp.SnapshotType = "manual"
-	b.snapshots[destinationSnapshotID] = cp
+	b.snapshots.Put(cp)
 
 	result := cloneSnapshot(cp)
 
@@ -138,12 +139,12 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 	b.mu.Lock("RestoreFromClusterSnapshot")
 	defer b.mu.Unlock()
 
-	snap, exists := b.snapshots[snapshotID]
+	snap, exists := b.snapshots.Get(snapshotID)
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
-	if _, clusterExists := b.clusters[clusterID]; clusterExists {
+	if _, clusterExists := b.clusters.Get(clusterID); clusterExists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
 
@@ -180,7 +181,7 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 		NumberOfNodes:     numberOfNodes,
 	}
 
-	b.clusters[clusterID] = cluster
+	b.clusters.Put(cluster)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)

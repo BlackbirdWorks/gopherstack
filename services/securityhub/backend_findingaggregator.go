@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateFindingAggregator(
 		RegionLinkingMode:        regionLinkingMode,
 		Regions:                  regions,
 	}
-	b.findingAggregators[arn] = agg
+	b.findingAggregators.Put(agg)
 
 	return agg, nil
 }
@@ -43,7 +43,7 @@ func (b *InMemoryBackend) GetFindingAggregator(arn string) (*FindingAggregator, 
 	b.mu.RLock("GetFindingAggregator")
 	defer b.mu.RUnlock()
 
-	agg, ok := b.findingAggregators[arn]
+	agg, ok := b.findingAggregators.Get(arn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -57,9 +57,10 @@ func (b *InMemoryBackend) ListFindingAggregators(nextToken string, maxResults in
 	b.mu.RLock("ListFindingAggregators")
 	defer b.mu.RUnlock()
 
-	var all []*FindingAggregator //nolint:prealloc // existing issue.
+	snap := b.findingAggregators.All()
+	all := make([]*FindingAggregator, 0, len(snap))
 
-	for _, agg := range b.findingAggregators {
+	for _, agg := range snap {
 		cp := *agg
 		all = append(all, &cp)
 	}
@@ -74,7 +75,7 @@ func (b *InMemoryBackend) UpdateFindingAggregator(
 	b.mu.Lock("UpdateFindingAggregator")
 	defer b.mu.Unlock()
 
-	agg, ok := b.findingAggregators[arn]
+	agg, ok := b.findingAggregators.Get(arn)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -91,11 +92,9 @@ func (b *InMemoryBackend) DeleteFindingAggregator(arn string) error {
 	b.mu.Lock("DeleteFindingAggregator")
 	defer b.mu.Unlock()
 
-	if _, ok := b.findingAggregators[arn]; !ok {
+	if !b.findingAggregators.Delete(arn) {
 		return ErrNotFound
 	}
-
-	delete(b.findingAggregators, arn)
 
 	return nil
 }

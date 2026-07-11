@@ -14,8 +14,35 @@ import (
 // ErrInvalidNextToken is returned when a pagination NextToken is invalid or expired.
 var ErrInvalidNextToken = errors.New("InvalidParameterValue: NextToken is invalid or expired")
 
-// ErrValueAndStatisticSet is returned when both Value and StatisticSet are set in a MetricDatum.
-var ErrValueAndStatisticSet = errors.New("InvalidParameterCombination: Value and StatisticSet are mutually exclusive")
+// ErrValueAndStatisticSet is returned when more than one of Value, StatisticSet,
+// and the Values/Counts array are set on a MetricDatum. AWS treats all three
+// input shapes as mutually exclusive.
+var ErrValueAndStatisticSet = errors.New(
+	"InvalidParameterCombination: Value, StatisticValues, and Values/Counts are mutually exclusive",
+)
+
+// ErrValuesCountsLengthMismatch is returned when a MetricDatum's Counts array is
+// present but does not have the same number of elements as its Values array.
+var ErrValuesCountsLengthMismatch = errors.New(
+	"InvalidParameterValue: Values and Counts arrays must be the same length",
+)
+
+// ErrTooManyValues is returned when a MetricDatum's Values array exceeds the
+// 150-unique-value limit documented for PutMetricData.
+var ErrTooManyValues = errors.New(
+	"InvalidParameterValue: the maximum values array size is 150",
+)
+
+// ErrInvalidMetricValue is returned when a metric value (Value, Sum, Min, Max, or
+// an entry of the Values array) is NaN, +/-Infinity, or outside the documented
+// -2^360..2^360 range that CloudWatch accepts.
+var ErrInvalidMetricValue = errors.New(
+	"InvalidParameterValue: metric values must be finite and within -2^360 to 2^360",
+)
+
+// ErrMetricSeriesLimitExceeded is returned when storing a batch of MetricDatum
+// entries would push the namespace or account past its distinct-time-series cap.
+var ErrMetricSeriesLimitExceeded = errors.New("LimitExceeded: metric series limit reached")
 
 // tokenSecret is used to HMAC-sign pagination tokens so we can reject spoofed ones.
 // In a real system this would be loaded from config; here we use a deterministic value.
@@ -94,17 +121,96 @@ func parseSignedPageToken(token string) (int, error) {
 	return int(u), nil
 }
 
-// validateMetricDatum returns an error when a MetricDatum has both Value and a StatisticSet.
-// AWS rejects this combination with InvalidParameterCombination.
-// This must be called before the handler normalizes the datum (before Count/Sum/Min/Max are
-// derived from Value for single-value points).
+// cwMaxValuesArraySize is the documented cap on unique entries in a MetricDatum's
+// Values array (and, correspondingly, its Counts array).
+const cwMaxValuesArraySize = 150
+
+// metricValueExponent is the documented CloudWatch metric value range exponent:
+// values must fall within -2^metricValueExponent to 2^metricValueExponent.
+const metricValueExponent = 360
+
+// metricValueBound is CloudWatch's documented acceptable range for any metric
+// value: -2^360 to 2^360. NaN and +/-Infinity are rejected outright.
+var metricValueBound = math.Ldexp(1, metricValueExponent) //nolint:gochecknoglobals // fixed AWS-documented constant
+
+// validMetricValue reports whether v is a value CloudWatch would accept for
+// Value, Sum, Min, Max, or an entry of the Values array.
+func validMetricValue(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= -metricValueBound && v <= metricValueBound
+}
+
+// validateMetricDatum enforces the shape and range rules AWS applies to a single
+// PutMetricData MetricDatum entry:
+//   - Value, StatisticValues, and the Values/Counts array are mutually exclusive
+//     (InvalidParameterCombination)
+//   - a Values array carries at most 150 entries, and Counts (when supplied) must
+//     have the same length (InvalidParameterValue)
+//   - every numeric value (Value, Sum, Min, Max, or a Values entry) must be
+//     finite and within +/-2^360 (InvalidParameterValue)
+//
+// This must be called before the handler normalizes the datum (before
+// Count/Sum/Min/Max are derived from Value for single-value points).
 func validateMetricDatum(d MetricDatum) error {
-	if !d.HasStatisticSet {
-		return nil
+	if datumShapeCount(d) > 1 {
+		return fmt.Errorf("%w: MetricName=%s", ErrValueAndStatisticSet, d.MetricName)
 	}
 
-	if d.Value != 0 {
-		return fmt.Errorf("%w: MetricName=%s", ErrValueAndStatisticSet, d.MetricName)
+	if d.HasValuesArray {
+		return validateValuesArray(d)
+	}
+
+	if d.HasValue && !validMetricValue(d.Value) {
+		return fmt.Errorf("%w: MetricName=%s", ErrInvalidMetricValue, d.MetricName)
+	}
+
+	if d.HasStatisticSet {
+		return validateStatisticSetRange(d)
+	}
+
+	return nil
+}
+
+// datumShapeCount counts how many of the three mutually-exclusive PutMetricData
+// input shapes (Value, StatisticValues, Values/Counts) are present on d.
+func datumShapeCount(d MetricDatum) int {
+	shapes := 0
+	if d.HasValue {
+		shapes++
+	}
+	if d.HasStatisticSet {
+		shapes++
+	}
+	if d.HasValuesArray {
+		shapes++
+	}
+
+	return shapes
+}
+
+// validateValuesArray checks the size and per-entry range of a Values/Counts datum.
+func validateValuesArray(d MetricDatum) error {
+	if len(d.Values) > cwMaxValuesArraySize {
+		return fmt.Errorf("%w: MetricName=%s", ErrTooManyValues, d.MetricName)
+	}
+	if len(d.Counts) != len(d.Values) {
+		return fmt.Errorf("%w: MetricName=%s", ErrValuesCountsLengthMismatch, d.MetricName)
+	}
+	for _, v := range d.Values {
+		if !validMetricValue(v) {
+			return fmt.Errorf("%w: MetricName=%s", ErrInvalidMetricValue, d.MetricName)
+		}
+	}
+
+	return nil
+}
+
+// validateStatisticSetRange checks that a StatisticValues datum's Sum/Min/Max
+// are all within CloudWatch's acceptable metric value range.
+func validateStatisticSetRange(d MetricDatum) error {
+	for _, v := range []float64{d.Sum, d.Min, d.Max} {
+		if !validMetricValue(v) {
+			return fmt.Errorf("%w: MetricName=%s", ErrInvalidMetricValue, d.MetricName)
+		}
 	}
 
 	return nil

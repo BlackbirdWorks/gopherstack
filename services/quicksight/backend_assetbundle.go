@@ -3,7 +3,6 @@ package quicksight
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -66,7 +65,7 @@ func (j *storedAssetBundleImportJob) toAssetBundleImportJob() *AssetBundleImport
 // ---- Asset bundle export jobs ----
 
 func (b *InMemoryBackend) StartAssetBundleExportJob(
-	accountID, jobID, exportFormat string,
+	_, jobID, exportFormat string,
 	resourceArns []string,
 	includeAllDependencies bool,
 ) (*AssetBundleExportJob, error) {
@@ -93,7 +92,7 @@ func (b *InMemoryBackend) StartAssetBundleExportJob(
 		ExportFormat:           exportFormat,
 		IncludeAllDependencies: includeAllDependencies,
 	}
-	b.assetBundleExportJobs[assetBundleJobKey(accountID, jobID)] = job
+	b.assetBundleExportJobs.Put(job)
 
 	return job.toAssetBundleExportJob(), nil
 }
@@ -102,7 +101,7 @@ func (b *InMemoryBackend) DescribeAssetBundleExportJob(accountID, jobID string) 
 	b.mu.Lock("DescribeAssetBundleExportJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.assetBundleExportJobs[assetBundleJobKey(accountID, jobID)]
+	job, ok := b.assetBundleExportJobs.Get(assetBundleJobKey(accountID, jobID))
 	if !ok {
 		return nil, ErrAssetBundleExportJobNotFound
 	}
@@ -122,20 +121,14 @@ func (b *InMemoryBackend) DescribeAssetBundleExportJob(accountID, jobID string) 
 
 //nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListAssetBundleExportJobs(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*AssetBundleExportJob, string, error) {
 	b.mu.RLock("ListAssetBundleExportJobs")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	all := make([]*storedAssetBundleExportJob, 0, len(b.assetBundleExportJobs))
-	for k, job := range b.assetBundleExportJobs {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, job)
-		}
-	}
+	all := b.assetBundleExportJobs.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].JobID < all[j].JobID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
@@ -172,7 +165,7 @@ func (b *InMemoryBackend) ListAssetBundleExportJobs(
 // ---- Asset bundle import jobs ----
 
 func (b *InMemoryBackend) StartAssetBundleImportJob(
-	accountID, jobID, failureAction string,
+	_, jobID, failureAction string,
 ) (*AssetBundleImportJob, error) {
 	if jobID == "" {
 		return nil, ErrValidation
@@ -192,7 +185,7 @@ func (b *InMemoryBackend) StartAssetBundleImportJob(
 		Status:        assetBundleJobStatusQueued,
 		FailureAction: failureAction,
 	}
-	b.assetBundleImportJobs[assetBundleJobKey(accountID, jobID)] = job
+	b.assetBundleImportJobs.Put(job)
 
 	return job.toAssetBundleImportJob(), nil
 }
@@ -201,7 +194,7 @@ func (b *InMemoryBackend) DescribeAssetBundleImportJob(accountID, jobID string) 
 	b.mu.Lock("DescribeAssetBundleImportJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.assetBundleImportJobs[assetBundleJobKey(accountID, jobID)]
+	job, ok := b.assetBundleImportJobs.Get(assetBundleJobKey(accountID, jobID))
 	if !ok {
 		return nil, ErrAssetBundleImportJobNotFound
 	}
@@ -215,20 +208,14 @@ func (b *InMemoryBackend) DescribeAssetBundleImportJob(accountID, jobID string) 
 
 //nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListAssetBundleImportJobs(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*AssetBundleImportJob, string, error) {
 	b.mu.RLock("ListAssetBundleImportJobs")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	all := make([]*storedAssetBundleImportJob, 0, len(b.assetBundleImportJobs))
-	for k, job := range b.assetBundleImportJobs {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, job)
-		}
-	}
+	all := b.assetBundleImportJobs.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].JobID < all[j].JobID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {

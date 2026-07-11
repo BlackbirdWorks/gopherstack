@@ -105,7 +105,6 @@ type ScheduledInstance struct {
 // resetScheduledInstanceMapsLocked re-initialises the Scheduled Instance state maps.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) resetScheduledInstanceMapsLocked() {
-	b.scheduledInstances = make(map[string]*ScheduledInstance)
 	b.scheduledInstanceLaunched = make(map[string]int32)
 }
 
@@ -283,7 +282,7 @@ func (b *InMemoryBackend) PurchaseScheduledInstances(
 			TermEndDate:                 entry.FirstSlotStartTime.AddDate(0, 0, int(scheduledInstanceMaxTermDays)),
 			NextSlotStartTime:           entry.FirstSlotStartTime,
 		}
-		b.scheduledInstances[sci.ScheduledInstanceID] = sci
+		b.scheduledInstances.Put(sci)
 
 		cp := *sci
 		out = append(out, &cp)
@@ -310,9 +309,9 @@ func (b *InMemoryBackend) DescribeScheduledInstances(ids []string) []*ScheduledI
 		filter[id] = true
 	}
 
-	out := make([]*ScheduledInstance, 0, len(b.scheduledInstances))
+	out := make([]*ScheduledInstance, 0, b.scheduledInstances.Len())
 
-	for _, sci := range b.scheduledInstances {
+	for _, sci := range b.scheduledInstances.All() {
 		if len(filter) > 0 && !filter[sci.ScheduledInstanceID] {
 			continue
 		}
@@ -339,7 +338,7 @@ func (b *InMemoryBackend) RunScheduledInstances(
 	b.mu.Lock("RunScheduledInstances")
 	defer b.mu.Unlock()
 
-	sci, ok := b.scheduledInstances[scheduledInstanceID]
+	sci, ok := b.scheduledInstances.Get(scheduledInstanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrScheduledInstanceNotFound, scheduledInstanceID)
 	}
@@ -360,14 +359,14 @@ func (b *InMemoryBackend) RunScheduledInstances(
 
 	for range instanceCount {
 		instID := "i-" + uuid.New().String()[:17]
-		b.instances[instID] = &Instance{
+		b.instances.Put(&Instance{
 			ID:           instID,
 			ImageID:      imageID,
 			InstanceType: sci.InstanceType,
 			KeyName:      keyName,
 			LaunchTime:   now,
 			State:        StateRunning,
-		}
+		})
 		ids = append(ids, instID)
 	}
 

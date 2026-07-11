@@ -51,21 +51,18 @@ func (b *InMemoryBackend) CreateResourceDataSync(
 		syncName = "default-sync"
 	}
 
-	if b.resourceDataSyncs[region] == nil {
-		b.resourceDataSyncs[region] = make(map[string]*ResourceDataSync)
-	}
 	syncs := b.resourceDataSyncsStore(region)
-	if _, exists := syncs[syncName]; exists {
+	if syncs.Has(syncName) {
 		return nil, ErrResourceDataSyncExists
 	}
 
-	syncs[syncName] = &ResourceDataSync{
+	syncs.Put(&ResourceDataSync{
 		SyncName:        syncName,
 		SyncType:        input.SyncType,
 		LastStatus:      "InProgress",
 		SyncCreatedTime: time.Now().UTC(),
 		LastSyncTime:    time.Now().UTC(),
-	}
+	})
 
 	return &CreateResourceDataSyncOutput{}, nil
 }
@@ -84,13 +81,11 @@ func (b *InMemoryBackend) DeleteResourceDataSync(
 	}
 
 	syncs := b.resourceDataSyncsStore(region)
-	if _, exists := syncs[input.SyncName]; !exists {
+	if !syncs.Has(input.SyncName) {
 		return nil, fmt.Errorf("%w: %q", ErrResourceDataSyncNotFound, input.SyncName)
 	}
 
-	delete(syncs, input.SyncName)
-
-	cleanupEmptyInnerMap(b.resourceDataSyncs, region)
+	syncs.Delete(input.SyncName)
 
 	return &DeleteResourceDataSyncOutput{}, nil
 }
@@ -105,8 +100,8 @@ func (b *InMemoryBackend) ListResourceDataSync(
 	defer b.mu.RUnlock()
 
 	syncs := b.resourceDataSyncsStore(region)
-	items := make([]ResourceDataSync, 0, len(syncs))
-	for _, s := range syncs {
+	items := make([]ResourceDataSync, 0, syncs.Len())
+	for _, s := range syncs.All() {
 		items = append(items, *s)
 	}
 
@@ -130,7 +125,7 @@ func (b *InMemoryBackend) UpdateResourceDataSync(
 		return &UpdateResourceDataSyncOutput{}, nil
 	}
 
-	if sync, exists := b.resourceDataSyncsStore(region)[input.SyncName]; exists {
+	if sync, exists := b.resourceDataSyncsStore(region).Get(input.SyncName); exists {
 		sync.LastSyncTime = time.Now().UTC()
 	}
 
@@ -151,8 +146,8 @@ func (b *InMemoryBackend) DeregisterManagedInstance(
 
 	// Try to match by ActivationID (InstanceID in the request maps to ActivationID here).
 	activations := b.activationsStore(region)
-	if _, exists := activations[input.InstanceID]; exists {
-		delete(activations, input.InstanceID)
+	if activations.Has(input.InstanceID) {
+		activations.Delete(input.InstanceID)
 		delete(b.miscResourceTagsStore(region), input.InstanceID)
 	}
 
@@ -169,9 +164,10 @@ func (b *InMemoryBackend) UpdateManagedInstanceRole(
 	defer b.mu.Unlock()
 
 	activations := b.activationsStore(region)
-	if act, exists := activations[input.InstanceID]; exists {
+	if actPtr, exists := activations.Get(input.InstanceID); exists {
+		act := *actPtr
 		act.IamRole = input.IamRole
-		activations[input.InstanceID] = act
+		activations.Put(&act)
 	}
 
 	return &UpdateManagedInstanceRoleOutput{}, nil
@@ -189,10 +185,10 @@ func (b *InMemoryBackend) DescribeSessions(
 	defer b.mu.RUnlock()
 
 	sessions := b.sessionsStore(region)
-	list := make([]Session, 0, len(sessions))
-	for _, s := range sessions {
+	list := make([]Session, 0, sessions.Len())
+	for _, s := range sessions.All() {
 		if input.State == "" || s.Status == input.State {
-			list = append(list, s)
+			list = append(list, *s)
 		}
 	}
 
@@ -215,7 +211,7 @@ func (b *InMemoryBackend) GetConnectionStatus(
 	target := input.Target
 	status := "notConnected"
 
-	for _, s := range b.sessionsStore(region) {
+	for _, s := range b.sessionsStore(region).All() {
 		if s.Target == target && s.Status == sessionStatusConnected {
 			status = connectionStatusConnected
 
@@ -251,13 +247,14 @@ func (b *InMemoryBackend) ResumeSession(
 	defer b.mu.Unlock()
 
 	sessions := b.sessionsStore(region)
-	sess, exists := sessions[input.SessionID]
+	sessPtr, exists := sessions.Get(input.SessionID)
 	if !exists {
 		return &ResumeSessionOutputFull{SessionID: input.SessionID, StreamURL: ""}, nil
 	}
 
+	sess := *sessPtr
 	sess.Status = sessionStatusConnected
-	sessions[input.SessionID] = sess
+	sessions.Put(&sess)
 
 	return &ResumeSessionOutputFull{
 		SessionID:  sess.SessionID,
@@ -292,7 +289,7 @@ func (b *InMemoryBackend) GetServiceSetting(
 	b.mu.RLock("GetServiceSetting")
 	defer b.mu.RUnlock()
 
-	if s, exists := b.serviceSettingsStore(region)[input.SettingID]; exists {
+	if s, exists := b.serviceSettingsStore(region).Get(input.SettingID); exists {
 		return &GetServiceSettingOutputFull{ServiceSetting: s}, nil
 	}
 
@@ -312,14 +309,11 @@ func (b *InMemoryBackend) UpdateServiceSetting(
 	b.mu.Lock("UpdateServiceSetting")
 	defer b.mu.Unlock()
 
-	if b.serviceSettings[region] == nil {
-		b.serviceSettings[region] = make(map[string]*ServiceSetting)
-	}
-	b.serviceSettingsStore(region)[input.SettingID] = &ServiceSetting{
+	b.serviceSettingsStore(region).Put(&ServiceSetting{
 		SettingID:    input.SettingID,
 		SettingValue: input.SettingValue,
 		Status:       settingStatusCustomized,
-	}
+	})
 
 	return &UpdateServiceSettingOutput{}, nil
 }
@@ -333,7 +327,7 @@ func (b *InMemoryBackend) ResetServiceSetting(
 	b.mu.Lock("ResetServiceSetting")
 	defer b.mu.Unlock()
 
-	delete(b.serviceSettingsStore(region), input.SettingID)
+	b.serviceSettingsStore(region).Delete(input.SettingID)
 
 	return &ResetServiceSettingOutputFull{ServiceSetting: &ServiceSetting{
 		SettingID: input.SettingID,
@@ -442,10 +436,12 @@ func (b *InMemoryBackend) LabelParameterVersion(
 		}, nil
 	}
 
-	param, exists := b.parametersStore(region)[input.Name]
+	paramPtr, exists := b.parametersStore(region).Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: %q", ErrParameterNotFound, input.Name)
 	}
+
+	param := *paramPtr
 
 	version := input.ParameterVersion
 	if version == 0 {
@@ -520,7 +516,7 @@ func (b *InMemoryBackend) UnlabelParameterVersion(
 
 	version := input.ParameterVersion
 	if version == 0 {
-		if param, exists := b.parametersStore(region)[input.Name]; exists {
+		if param, exists := b.parametersStore(region).Get(input.Name); exists {
 			version = param.Version
 		}
 	}
@@ -633,10 +629,7 @@ func (b *InMemoryBackend) StartAutomationExecution(
 		exec.completeAfter = UnixTimeFloat(now) + b.automationExecDelaySecs
 	}
 
-	if b.automationExecutions[region] == nil {
-		b.automationExecutions[region] = make(map[string]*AutomationExecution)
-	}
-	b.automationExecutionsStore(region)[execID] = exec
+	b.automationExecutionsStore(region).Put(exec)
 
 	return &StartAutomationExecutionOutputFull{AutomationExecutionID: execID}, nil
 }
@@ -650,7 +643,7 @@ func (b *InMemoryBackend) GetAutomationExecution(
 	b.mu.Lock("GetAutomationExecution")
 	defer b.mu.Unlock()
 
-	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
+	exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: %q",
@@ -677,8 +670,8 @@ func (b *InMemoryBackend) DescribeAutomationExecutions(
 
 	now := time.Now().UTC()
 	execs := b.automationExecutionsStore(region)
-	list := make([]AutomationExecution, 0, len(execs))
-	for _, exec := range execs {
+	list := make([]AutomationExecution, 0, execs.Len())
+	for _, exec := range execs.All() {
 		materializeAutomationLocked(exec, now)
 		list = append(list, *exec)
 	}
@@ -699,7 +692,7 @@ func (b *InMemoryBackend) StopAutomationExecution(
 	b.mu.Lock("StopAutomationExecution")
 	defer b.mu.Unlock()
 
-	if exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]; exists {
+	if exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID); exists {
 		exec.Status = automationStatusStopped
 		exec.EndTime = UnixTimeFloat(time.Now().UTC())
 	}
@@ -717,7 +710,7 @@ func (b *InMemoryBackend) SendAutomationSignal(
 	b.mu.Lock("SendAutomationSignal")
 	defer b.mu.Unlock()
 
-	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
+	exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID)
 	if !exists {
 		return &SendAutomationSignalOutput{}, nil
 	}
@@ -743,7 +736,7 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 	b.mu.Lock("DescribeAutomationStepExecutions")
 	defer b.mu.Unlock()
 
-	exec, exists := b.automationExecutionsStore(region)[input.AutomationExecutionID]
+	exec, exists := b.automationExecutionsStore(region).Get(input.AutomationExecutionID)
 	if !exists {
 		return &DescribeAutomationStepExecutionsOutputFull{
 			StepExecutions: []AutomationStepExec{},
@@ -780,10 +773,7 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		ExecutionType:         "ChangeRequest",
 		Steps:                 b.buildAutomationSteps(region, input.DocumentName),
 	}
-	if b.automationExecutions[region] == nil {
-		b.automationExecutions[region] = make(map[string]*AutomationExecution)
-	}
-	b.automationExecutionsStore(region)[execID] = exec
+	b.automationExecutionsStore(region).Put(exec)
 
 	return &StartChangeRequestExecutionOutputFull{AutomationExecutionID: execID}, nil
 }
@@ -800,14 +790,11 @@ func (b *InMemoryBackend) StartExecutionPreview(
 	defer b.mu.Unlock()
 
 	previewID := previewIDPrefix + uuid.NewString()
-	if b.executionPreviews[region] == nil {
-		b.executionPreviews[region] = make(map[string]*ExecutionPreview)
-	}
-	b.executionPreviewsStore(region)[previewID] = &ExecutionPreview{
+	b.executionPreviewsStore(region).Put(&ExecutionPreview{
 		ExecutionPreviewID: previewID,
 		Status:             "Running",
 		DocumentName:       input.DocumentName,
-	}
+	})
 
 	return &StartExecutionPreviewOutputFull{ExecutionPreviewID: previewID}, nil
 }
@@ -821,7 +808,7 @@ func (b *InMemoryBackend) GetExecutionPreview(
 	b.mu.RLock("GetExecutionPreview")
 	defer b.mu.RUnlock()
 
-	preview, exists := b.executionPreviewsStore(region)[input.ExecutionPreviewID]
+	preview, exists := b.executionPreviewsStore(region).Get(input.ExecutionPreviewID)
 	if !exists {
 		return &GetExecutionPreviewOutputFull{
 			ExecutionPreviewID: input.ExecutionPreviewID,
@@ -858,7 +845,7 @@ func (b *InMemoryBackend) GetCalendarState(
 
 	documents := b.documentsStore(region)
 	for _, name := range input.CalendarNames {
-		doc, exists := documents[name]
+		doc, exists := documents.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: calendar document %q not found", ErrDocumentNotFound, name)
 		}
@@ -891,7 +878,7 @@ func (b *InMemoryBackend) GetOpsSummary(
 			{
 				ID: "AWS:OpsItem",
 				Data: map[string]OpsSummaryValue{
-					"Count": {Count: len(b.opsItemsStore(region)), Unit: "Count"},
+					"Count": {Count: b.opsItemsStore(region).Len(), Unit: "Count"},
 				},
 			},
 		},
@@ -908,9 +895,9 @@ func (b *InMemoryBackend) ListOpsMetadata(
 	defer b.mu.RUnlock()
 
 	opsMetadata := b.opsMetadataStore(region)
-	list := make([]OpsMetadata, 0, len(opsMetadata))
-	for _, m := range opsMetadata {
-		list = append(list, m)
+	list := make([]OpsMetadata, 0, opsMetadata.Len())
+	for _, m := range opsMetadata.All() {
+		list = append(list, *m)
 	}
 
 	sort.Slice(list, func(i, k int) bool {
@@ -932,14 +919,15 @@ func (b *InMemoryBackend) UpdateAssociationStatus(
 	defer b.mu.Unlock()
 
 	associations := b.associationsStore(region)
-	for id, assoc := range associations {
+	for _, assocPtr := range associations.All() {
+		assoc := *assocPtr
 		if assoc.InstanceID == input.InstanceID && assoc.Name == input.Name {
 			if assoc.Overview == nil {
 				assoc.Overview = &AssociationOverview{}
 			}
 
 			assoc.Overview.Status = input.AssociationStatus.Name
-			associations[id] = assoc
+			associations.Put(&assoc)
 
 			return &UpdateAssociationStatusOutputFull{AssociationDescription: assoc}, nil
 		}
@@ -966,9 +954,10 @@ func (b *InMemoryBackend) StartAssociationsOnce(
 
 	associations := b.associationsStore(region)
 	for _, assocID := range input.AssociationIDs {
-		if assoc, exists := associations[assocID]; exists {
+		if assocPtr, exists := associations.Get(assocID); exists {
+			assoc := *assocPtr
 			assoc.LastUpdateAssociationDate = float64(now.Unix())
-			associations[assocID] = assoc
+			associations.Put(&assoc)
 			// A one-time run produces a fresh, stable execution record.
 			b.recordAssociationExecutionLocked(region, assoc)
 		}
@@ -986,13 +975,13 @@ func (b *InMemoryBackend) ListAssociationVersions(
 	b.mu.RLock("ListAssociationVersions")
 	defer b.mu.RUnlock()
 
-	assoc, exists := b.associationsStore(region)[input.AssociationID]
+	assoc, exists := b.associationsStore(region).Get(input.AssociationID)
 	if !exists {
 		return &ListAssociationVersionsOutputFull{AssociationVersions: []Association{}}, nil
 	}
 
 	return &ListAssociationVersionsOutputFull{
-		AssociationVersions: []Association{assoc},
+		AssociationVersions: []Association{*assoc},
 	}, nil
 }
 
@@ -1085,7 +1074,7 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 	b.mu.Lock("DescribeAssociationExecutions")
 	defer b.mu.Unlock()
 
-	assoc, exists := b.associationsStore(region)[input.AssociationID]
+	assocPtr, exists := b.associationsStore(region).Get(input.AssociationID)
 	if !exists {
 		return &DescribeAssociationExecutionsOutputFull{
 			AssociationExecutions: []AssociationExecution{},
@@ -1094,7 +1083,7 @@ func (b *InMemoryBackend) DescribeAssociationExecutions(
 
 	execs := b.associationExecutionsStore(region)[input.AssociationID]
 	if len(execs) == 0 {
-		b.recordAssociationExecutionLocked(region, assoc)
+		b.recordAssociationExecutionLocked(region, *assocPtr)
 		execs = b.associationExecutionsStore(region)[input.AssociationID]
 	}
 
@@ -1123,12 +1112,14 @@ func (b *InMemoryBackend) DescribeAssociationExecutionTargets(
 		}, nil
 	}
 
-	assoc, exists := b.associationsStore(region)[input.AssociationID]
+	assocPtr, exists := b.associationsStore(region).Get(input.AssociationID)
 	if !exists {
 		return &DescribeAssociationExecutionTargetsOutputFull{
 			AssociationExecutionTargets: []AssociationExecutionTarget{},
 		}, nil
 	}
+
+	assoc := *assocPtr
 
 	execID := input.ExecutionID
 	if execID == "" {
@@ -1193,7 +1184,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 		}, nil
 	}
 
-	win, exists := b.maintenanceWindowsStore(region)[input.WindowID]
+	win, exists := b.maintenanceWindowsStore(region).Get(input.WindowID)
 	if !exists {
 		return &DescribeMaintenanceWindowExecutionsOutputFull{
 			WindowExecutions: []MaintenanceWindowExecution{},
@@ -1242,7 +1233,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
 	tasks := b.maintenanceWindowTasksStore(region)
 	result := make([]MaintenanceWindowExecutionTask, 0)
 
-	for _, task := range tasks {
+	for _, task := range tasks.All() {
 		if task.WindowID != windowID {
 			continue
 		}
@@ -1307,7 +1298,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowSchedule(
 	b.mu.RLock("DescribeMaintenanceWindowSchedule")
 	defer b.mu.RUnlock()
 
-	win, exists := b.maintenanceWindowsStore(region)[input.WindowID]
+	win, exists := b.maintenanceWindowsStore(region).Get(input.WindowID)
 	if !exists {
 		return &DescribeMaintenanceWindowScheduleOutputFull{
 			ScheduledWindowExecutions: []ScheduledWindowExecution{},
@@ -1349,7 +1340,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecution(
 	endTime := startTime.Add(time.Hour)
 
 	if windowID != "" {
-		win, exists := b.maintenanceWindowsStore(region)[windowID]
+		win, exists := b.maintenanceWindowsStore(region).Get(windowID)
 		if !exists {
 			return nil, ErrMaintenanceWindowNotFound
 		}
@@ -1395,7 +1386,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 	startTime := time.Now().UTC()
 
 	if windowTaskID != "" {
-		if task, ok := b.maintenanceWindowTasksStore(region)[windowTaskID]; ok {
+		if task, ok := b.maintenanceWindowTasksStore(region).Get(windowTaskID); ok {
 			endTime := startTime.Add(time.Minute)
 
 			return &GetMaintenanceWindowExecutionTaskOutputFull{
@@ -1440,7 +1431,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 	endTime := startTime.Add(time.Minute)
 
 	windowTargetID := ""
-	for _, target := range b.maintenanceWindowTargetsStore(region) {
+	for _, target := range b.maintenanceWindowTargetsStore(region).All() {
 		windowID, ok := mwWindowIDFromExec(input.WindowExecutionID)
 		if ok && target.WindowID == windowID {
 			windowTargetID = target.WindowTargetID
@@ -1475,8 +1466,8 @@ func (b *InMemoryBackend) ListNodes(
 	defer b.mu.RUnlock()
 
 	activations := b.activationsStore(region)
-	nodes := make([]NodeInfo, 0, len(activations))
-	for _, act := range activations {
+	nodes := make([]NodeInfo, 0, activations.Len())
+	for _, act := range activations.All() {
 		nodes = append(nodes, NodeInfo{
 			InstanceID:       act.ActivationID,
 			PlatformType:     platformTypeLinux,
@@ -1503,7 +1494,7 @@ func (b *InMemoryBackend) ListNodesSummary(
 
 	return &ListNodesSummaryOutputFull{
 		Summary: []map[string]string{
-			{"NodeCount": strconv.Itoa(len(b.activationsStore(region)))},
+			{"NodeCount": strconv.Itoa(b.activationsStore(region).Len())},
 		},
 	}, nil
 }
@@ -1521,7 +1512,8 @@ func (b *InMemoryBackend) DescribeEffectiveInstanceAssociations(
 
 	var result []InstanceAssociationInfo
 
-	for _, assoc := range b.associationsStore(region) {
+	for _, assocPtr := range b.associationsStore(region).All() {
+		assoc := *assocPtr
 		if assoc.InstanceID == input.InstanceID {
 			result = append(result, InstanceAssociationInfo{
 				AssociationID:      assoc.AssociationID,
@@ -1550,7 +1542,8 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 
 	var result []InstanceAssociationStatusInfo
 
-	for _, assoc := range b.associationsStore(region) {
+	for _, assocPtr := range b.associationsStore(region).All() {
+		assoc := *assocPtr
 		if assoc.InstanceID == input.InstanceID {
 			status := commandStatusSuccess
 			if assoc.Overview != nil {
@@ -1585,8 +1578,8 @@ func (b *InMemoryBackend) DescribeInstanceInformation(
 	defer b.mu.RUnlock()
 
 	activations := b.activationsStore(region)
-	list := make([]InstanceInformation, 0, len(activations))
-	for _, act := range activations {
+	list := make([]InstanceInformation, 0, activations.Len())
+	for _, act := range activations.All() {
 		list = append(list, InstanceInformation{
 			InstanceID:       act.ActivationID,
 			PingStatus:       "Online",
@@ -1608,16 +1601,16 @@ func (b *InMemoryBackend) DescribeInstancePatchStates(
 	b.mu.RLock("DescribeInstancePatchStates")
 	defer b.mu.RUnlock()
 
-	store := b.instancePatchStates[region]
+	patchStates := b.instancePatchStatesStore(region)
 	states := make([]InstancePatchState, 0)
 
 	if len(input.InstanceIDs) == 0 {
-		for _, s := range store {
+		for _, s := range patchStates.All() {
 			states = append(states, *s)
 		}
 	} else {
 		for _, instanceID := range input.InstanceIDs {
-			if s, exists := store[instanceID]; exists {
+			if s, exists := patchStates.Get(instanceID); exists {
 				states = append(states, *s)
 			}
 		}

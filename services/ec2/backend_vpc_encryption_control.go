@@ -156,11 +156,11 @@ func (b *InMemoryBackend) CreateVpcEncryptionControl(
 	b.mu.Lock("CreateVpcEncryptionControl")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	for _, existing := range b.vpcEncryptionControls {
+	for _, existing := range b.vpcEncryptionControls.All() {
 		if existing.VpcID == vpcID {
 			return nil, fmt.Errorf(
 				"%w: a VPC Encryption Control configuration already exists for %s",
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) CreateVpcEncryptionControl(
 		},
 		Tags: maps.Clone(tags),
 	}
-	b.vpcEncryptionControls[vec.VpcEncryptionControlID] = vec
+	b.vpcEncryptionControls.Put(vec)
 
 	return cloneVpcEncryptionControl(vec), nil
 }
@@ -201,15 +201,14 @@ func (b *InMemoryBackend) DeleteVpcEncryptionControl(id string) (*VpcEncryptionC
 	b.mu.Lock("DeleteVpcEncryptionControl")
 	defer b.mu.Unlock()
 
-	vec, ok := b.vpcEncryptionControls[id]
+	vec, ok := b.vpcEncryptionControls.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpcEncryptionControlNotFound, id)
 	}
 
 	vec.State = vpcEncryptionControlStateDeleted
 	out := cloneVpcEncryptionControl(vec)
-
-	delete(b.vpcEncryptionControls, id)
+	b.vpcEncryptionControls.Delete(id)
 
 	return out, nil
 }
@@ -230,9 +229,9 @@ func (b *InMemoryBackend) DescribeVpcEncryptionControls(ids, vpcIDs []string) []
 		vpcIDSet[id] = true
 	}
 
-	out := make([]*VpcEncryptionControl, 0, len(b.vpcEncryptionControls))
+	out := make([]*VpcEncryptionControl, 0, b.vpcEncryptionControls.Len())
 
-	for _, vec := range b.vpcEncryptionControls {
+	for _, vec := range b.vpcEncryptionControls.All() {
 		if len(idSet) > 0 && !idSet[vec.VpcEncryptionControlID] {
 			continue
 		}
@@ -266,7 +265,7 @@ func (b *InMemoryBackend) ModifyVpcEncryptionControl(
 	b.mu.Lock("ModifyVpcEncryptionControl")
 	defer b.mu.Unlock()
 
-	vec, ok := b.vpcEncryptionControls[id]
+	vec, ok := b.vpcEncryptionControls.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpcEncryptionControlNotFound, id)
 	}
@@ -295,7 +294,7 @@ func (b *InMemoryBackend) GetVpcResourcesBlockingEncryptionEnforcement(
 	b.mu.RLock("GetVpcResourcesBlockingEncryptionEnforcement")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 

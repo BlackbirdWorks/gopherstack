@@ -5,7 +5,7 @@ func ZoneCount(b *InMemoryBackend) int {
 	b.mu.RLock("ZoneCount")
 	defer b.mu.RUnlock()
 
-	return len(b.zones)
+	return b.zones.Len()
 }
 
 // HealthCheckCount returns the number of health checks in the backend for tests.
@@ -13,7 +13,7 @@ func HealthCheckCount(b *InMemoryBackend) int {
 	b.mu.RLock("HealthCheckCount")
 	defer b.mu.RUnlock()
 
-	return len(b.healthChecks)
+	return b.healthChecks.Len()
 }
 
 // KeySigningKeyCount returns the number of KSKs in the backend for tests.
@@ -21,7 +21,7 @@ func KeySigningKeyCount(b *InMemoryBackend) int {
 	b.mu.RLock("KeySigningKeyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.keySigningKeys)
+	return b.keySigningKeys.Len()
 }
 
 // CidrCollectionCount returns the number of CIDR collections for tests.
@@ -29,7 +29,7 @@ func CidrCollectionCount(b *InMemoryBackend) int {
 	b.mu.RLock("CidrCollectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.cidrCollections)
+	return b.cidrCollections.Len()
 }
 
 // QueryLoggingConfigCount returns the number of query logging configs for tests.
@@ -37,7 +37,7 @@ func QueryLoggingConfigCount(b *InMemoryBackend) int {
 	b.mu.RLock("QueryLoggingConfigCount")
 	defer b.mu.RUnlock()
 
-	return len(b.queryLoggingConfigs)
+	return b.queryLoggingConfigs.Len()
 }
 
 // DelegationSetCount returns the number of reusable delegation sets for tests.
@@ -45,7 +45,7 @@ func DelegationSetCount(b *InMemoryBackend) int {
 	b.mu.RLock("DelegationSetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.reusableDelegationSets)
+	return b.reusableDelegationSets.Len()
 }
 
 // TrafficPolicyCount returns the number of traffic policies for tests.
@@ -61,7 +61,7 @@ func TrafficPolicyInstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("TrafficPolicyInstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.trafficPolicyInstances)
+	return b.trafficPolicyInstances.Len()
 }
 
 // VPCAssociationCount returns the total number of VPC associations across all zones for tests.

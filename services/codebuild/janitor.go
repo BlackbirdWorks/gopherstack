@@ -80,18 +80,16 @@ func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 
 	var swept []string
 
-	for id, build := range j.Backend.builds {
+	// IDs are gathered first, then deleted, since store.Table.Delete mutates
+	// the very index groups a live iteration would otherwise be reading.
+	for _, build := range j.Backend.builds.All() {
 		if isTerminalBuild(build.BuildStatus) && build.EndTime > 0 && build.EndTime < cutoff {
-			swept = append(swept, id)
-			delete(j.Backend.buildARNIndex, build.Arn)
-			delete(j.Backend.builds, id)
-			if proj := j.Backend.buildsByProject[build.ProjectName]; proj != nil {
-				delete(proj, id)
-				if len(proj) == 0 {
-					delete(j.Backend.buildsByProject, build.ProjectName)
-				}
-			}
+			swept = append(swept, build.ID)
 		}
+	}
+
+	for _, id := range swept {
+		j.Backend.builds.Delete(id)
 	}
 
 	j.Backend.mu.Unlock()

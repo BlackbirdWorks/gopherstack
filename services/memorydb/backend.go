@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -301,17 +302,32 @@ type StorageBackend interface {
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+//
+// multiRegionClusters, multiRegionParameterGroups, and serviceUpdates are
+// partition-scoped (like AWS) and therefore NOT region-nested; they are
+// registered on registry so Reset/Snapshot/Restore collapse to one Registry
+// call each. Every other resource is nested per-region
+// (map[string]*store.Table[T], outer key is region) via the lazy "*Store"
+// accessors below. Per-region tables are deliberately NOT registered on
+// registry because the set of regions is only known at runtime -- see
+// store_setup.go and persistence.go for how they are (de)serialized instead.
+//
+// arnToResource and events are left as plain maps: arnToResource's value
+// (resourceRef) has no key of its own to feed a Table's keyFn (the ARN is the
+// map key, not a value field), and events is slice-valued
+// (map[string][]*Event), neither of which store.Table can represent.
 type InMemoryBackend struct {
-	multiRegionClusters        map[string]*MultiRegionCluster
-	multiRegionParameterGroups map[string]*MultiRegionParameterGroup
-	serviceUpdates             map[string]*ServiceUpdate
-	clusters                   map[string]map[string]*Cluster
-	acls                       map[string]map[string]*ACL
-	subnetGroups               map[string]map[string]*SubnetGroup
-	users                      map[string]map[string]*User
-	parameterGroups            map[string]map[string]*ParameterGroup
-	snapshots                  map[string]map[string]*Snapshot
-	reservedNodes              map[string]map[string]*ReservedNode
+	registry                   *store.Registry
+	multiRegionClusters        *store.Table[MultiRegionCluster]
+	multiRegionParameterGroups *store.Table[MultiRegionParameterGroup]
+	serviceUpdates             *store.Table[ServiceUpdate]
+	clusters                   map[string]*store.Table[Cluster]
+	acls                       map[string]*store.Table[ACL]
+	subnetGroups               map[string]*store.Table[SubnetGroup]
+	users                      map[string]*store.Table[User]
+	parameterGroups            map[string]*store.Table[ParameterGroup]
+	snapshots                  map[string]*store.Table[Snapshot]
+	reservedNodes              map[string]*store.Table[ReservedNode]
 	arnToResource              map[string]map[string]resourceRef
 	events                     map[string][]*Event
 	accountID                  string
@@ -330,110 +346,113 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		clusters:                   make(map[string]map[string]*Cluster),
-		acls:                       make(map[string]map[string]*ACL),
-		subnetGroups:               make(map[string]map[string]*SubnetGroup),
-		users:                      make(map[string]map[string]*User),
-		parameterGroups:            make(map[string]map[string]*ParameterGroup),
-		snapshots:                  make(map[string]map[string]*Snapshot),
-		multiRegionClusters:        make(map[string]*MultiRegionCluster),
-		multiRegionParameterGroups: make(map[string]*MultiRegionParameterGroup),
-		reservedNodes:              make(map[string]map[string]*ReservedNode),
-		serviceUpdates:             make(map[string]*ServiceUpdate),
-		events:                     make(map[string][]*Event),
-		arnToResource:              make(map[string]map[string]resourceRef),
-		accountID:                  accountID,
-		defaultRegion:              region,
+		registry:        store.NewRegistry(),
+		clusters:        make(map[string]*store.Table[Cluster]),
+		acls:            make(map[string]*store.Table[ACL]),
+		subnetGroups:    make(map[string]*store.Table[SubnetGroup]),
+		users:           make(map[string]*store.Table[User]),
+		parameterGroups: make(map[string]*store.Table[ParameterGroup]),
+		snapshots:       make(map[string]*store.Table[Snapshot]),
+		reservedNodes:   make(map[string]*store.Table[ReservedNode]),
+		events:          make(map[string][]*Event),
+		arnToResource:   make(map[string]map[string]resourceRef),
+		accountID:       accountID,
+		defaultRegion:   region,
 	}
+	b.multiRegionClusters = store.Register(b.registry, "multiRegionClusters", store.New(multiRegionClusterKeyFn))
+	b.multiRegionParameterGroups = store.Register(
+		b.registry, "multiRegionParameterGroups", store.New(multiRegionParameterGroupKeyFn),
+	)
+	b.serviceUpdates = store.Register(b.registry, "serviceUpdates", store.New(serviceUpdateKeyFn))
 
 	openAccessARN := arn.Build("memorydb", region, accountID, "acl/"+openAccessACL)
-	b.aclsStore(region)[openAccessACL] = &ACL{
+	b.aclsStore(region).Put(&ACL{
 		Name:      openAccessACL,
 		ARN:       openAccessARN,
 		Status:    aclStatusActive,
 		UserNames: []string{},
 		CreatedAt: time.Now(),
 		Tags:      make(map[string]string),
-	}
+	})
 	b.arnToResourceStore(region)[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 
-	b.serviceUpdates["memorydb-20240601-redis-security"] = &ServiceUpdate{
+	b.serviceUpdates.Put(&ServiceUpdate{
 		ServiceUpdateName:   "memorydb-20240601-redis-security",
 		ReleaseDate:         "2024-06-01",
 		Description:         "Security update for Redis 7.x clusters",
 		Status:              clusterStatusAvailable,
 		Type:                "security-update",
 		AutoUpdateStartDate: "2024-07-01",
-	}
-	b.serviceUpdates["memorydb-20240801-engine-update"] = &ServiceUpdate{
+	})
+	b.serviceUpdates.Put(&ServiceUpdate{
 		ServiceUpdateName:   "memorydb-20240801-engine-update",
 		ReleaseDate:         "2024-08-01",
 		Description:         "Engine update with performance improvements",
 		Status:              clusterStatusAvailable,
 		Type:                "engine-update",
 		AutoUpdateStartDate: "2024-09-01",
-	}
+	})
 
 	b.seedDefaultParameterGroupsLocked()
 
 	return b
 }
-func (b *InMemoryBackend) clustersStore(region string) map[string]*Cluster {
+func (b *InMemoryBackend) clustersStore(region string) *store.Table[Cluster] {
 	if b.clusters[region] == nil {
-		b.clusters[region] = make(map[string]*Cluster)
+		b.clusters[region] = store.New(clusterKeyFn)
 	}
 
 	return b.clusters[region]
 }
-func (b *InMemoryBackend) aclsStore(region string) map[string]*ACL {
+func (b *InMemoryBackend) aclsStore(region string) *store.Table[ACL] {
 	if b.acls[region] == nil {
-		b.acls[region] = make(map[string]*ACL)
+		b.acls[region] = store.New(aclKeyFn)
 		// Seed the open-access ACL into every region so CreateCluster works across regions.
 		openAccessARN := arn.Build("memorydb", region, b.accountID, "acl/"+openAccessACL)
-		b.acls[region][openAccessACL] = &ACL{
+		b.acls[region].Put(&ACL{
 			Name:      openAccessACL,
 			ARN:       openAccessARN,
 			Status:    aclStatusActive,
 			UserNames: []string{},
 			CreatedAt: time.Now(),
 			Tags:      make(map[string]string),
-		}
+		})
 	}
 
 	return b.acls[region]
 }
-func (b *InMemoryBackend) subnetGroupsStore(region string) map[string]*SubnetGroup {
+func (b *InMemoryBackend) subnetGroupsStore(region string) *store.Table[SubnetGroup] {
 	if b.subnetGroups[region] == nil {
-		b.subnetGroups[region] = make(map[string]*SubnetGroup)
+		b.subnetGroups[region] = store.New(subnetGroupKeyFn)
 	}
 
 	return b.subnetGroups[region]
 }
-func (b *InMemoryBackend) usersStore(region string) map[string]*User {
+func (b *InMemoryBackend) usersStore(region string) *store.Table[User] {
 	if b.users[region] == nil {
-		b.users[region] = make(map[string]*User)
+		b.users[region] = store.New(userKeyFn)
 	}
 
 	return b.users[region]
 }
 
-func (b *InMemoryBackend) parameterGroupsStore(region string) map[string]*ParameterGroup {
+func (b *InMemoryBackend) parameterGroupsStore(region string) *store.Table[ParameterGroup] {
 	if b.parameterGroups[region] == nil {
-		b.parameterGroups[region] = make(map[string]*ParameterGroup)
+		b.parameterGroups[region] = store.New(parameterGroupKeyFn)
 	}
 
 	return b.parameterGroups[region]
 }
-func (b *InMemoryBackend) snapshotsStore(region string) map[string]*Snapshot {
+func (b *InMemoryBackend) snapshotsStore(region string) *store.Table[Snapshot] {
 	if b.snapshots[region] == nil {
-		b.snapshots[region] = make(map[string]*Snapshot)
+		b.snapshots[region] = store.New(snapshotKeyFn)
 	}
 
 	return b.snapshots[region]
 }
-func (b *InMemoryBackend) reservedNodesStore(region string) map[string]*ReservedNode {
+func (b *InMemoryBackend) reservedNodesStore(region string) *store.Table[ReservedNode] {
 	if b.reservedNodes[region] == nil {
-		b.reservedNodes[region] = make(map[string]*ReservedNode)
+		b.reservedNodes[region] = store.New(reservedNodeKeyFn)
 	}
 
 	return b.reservedNodes[region]
@@ -453,46 +472,56 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.clusters = make(map[string]map[string]*Cluster)
-	b.acls = make(map[string]map[string]*ACL)
-	b.subnetGroups = make(map[string]map[string]*SubnetGroup)
-	b.users = make(map[string]map[string]*User)
-	b.parameterGroups = make(map[string]map[string]*ParameterGroup)
-	b.snapshots = make(map[string]map[string]*Snapshot)
-	b.multiRegionClusters = make(map[string]*MultiRegionCluster)
-	b.multiRegionParameterGroups = make(map[string]*MultiRegionParameterGroup)
-	b.reservedNodes = make(map[string]map[string]*ReservedNode)
-	b.serviceUpdates = make(map[string]*ServiceUpdate)
+	b.resetLocked()
+}
+
+// resetLocked does the work of Reset without acquiring b.mu, so it can also be
+// called from Restore's incompatible-snapshot-version guard, which already
+// holds the lock (calling the public, self-locking Reset there would
+// deadlock). Must hold b.mu.
+func (b *InMemoryBackend) resetLocked() {
+	b.clusters = make(map[string]*store.Table[Cluster])
+	b.acls = make(map[string]*store.Table[ACL])
+	b.subnetGroups = make(map[string]*store.Table[SubnetGroup])
+	b.users = make(map[string]*store.Table[User])
+	b.parameterGroups = make(map[string]*store.Table[ParameterGroup])
+	b.snapshots = make(map[string]*store.Table[Snapshot])
+	b.reservedNodes = make(map[string]*store.Table[ReservedNode])
 	b.events = make(map[string][]*Event)
 	b.arnToResource = make(map[string]map[string]resourceRef)
+	// b.multiRegionClusters, b.multiRegionParameterGroups, and b.serviceUpdates
+	// are registered on b.registry at construction and must keep their
+	// identity (store.Register panics on a duplicate name), so they are
+	// cleared in place via the registry rather than reassigned.
+	b.registry.ResetAll()
 
 	openAccessARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "acl/"+openAccessACL)
-	b.aclsStore(b.defaultRegion)[openAccessACL] = &ACL{
+	b.aclsStore(b.defaultRegion).Put(&ACL{
 		Name:      openAccessACL,
 		ARN:       openAccessARN,
 		Status:    aclStatusActive,
 		UserNames: []string{},
 		CreatedAt: time.Now(),
 		Tags:      make(map[string]string),
-	}
+	})
 	b.arnToResourceStore(b.defaultRegion)[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 
-	b.serviceUpdates["memorydb-20240601-redis-security"] = &ServiceUpdate{
+	b.serviceUpdates.Put(&ServiceUpdate{
 		ServiceUpdateName:   "memorydb-20240601-redis-security",
 		ReleaseDate:         "2024-06-01",
 		Description:         "Security update for Redis 7.x clusters",
 		Status:              clusterStatusAvailable,
 		Type:                "security-update",
 		AutoUpdateStartDate: "2024-07-01",
-	}
-	b.serviceUpdates["memorydb-20240801-engine-update"] = &ServiceUpdate{
+	})
+	b.serviceUpdates.Put(&ServiceUpdate{
 		ServiceUpdateName:   "memorydb-20240801-engine-update",
 		ReleaseDate:         "2024-08-01",
 		Description:         "Engine update with performance improvements",
 		Status:              clusterStatusAvailable,
 		Type:                "engine-update",
 		AutoUpdateStartDate: "2024-09-01",
-	}
+	})
 
 	b.seedDefaultParameterGroupsLocked()
 }
@@ -521,7 +550,7 @@ func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
 			Tags:        make(map[string]string),
 			CreatedAt:   time.Now(),
 		}
-		b.parameterGroupsStore(b.defaultRegion)[f.name] = pg
+		b.parameterGroupsStore(b.defaultRegion).Put(pg)
 		b.arnToResourceStore(b.defaultRegion)[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: f.name}
 	}
 
@@ -562,7 +591,7 @@ func (b *InMemoryBackend) seedDefaultParameterGroupsLocked() {
 			Tags:        make(map[string]string),
 			CreatedAt:   time.Now(),
 		}
-		b.multiRegionParameterGroups[f.name] = mrpg
+		b.multiRegionParameterGroups.Put(mrpg)
 	}
 }
 
@@ -597,18 +626,18 @@ func (b *InMemoryBackend) validateCreateClusterRefs(region string, req *createCl
 		aclName = openAccessACL
 	}
 
-	if _, ok := b.aclsStore(region)[aclName]; !ok {
+	if _, ok := b.aclsStore(region).Get(aclName); !ok {
 		return "", fmt.Errorf("ACL %q not found: %w", aclName, ErrACLNotFound)
 	}
 
 	if req.SubnetGroupName != "" {
-		if _, ok := b.subnetGroupsStore(region)[req.SubnetGroupName]; !ok {
+		if _, ok := b.subnetGroupsStore(region).Get(req.SubnetGroupName); !ok {
 			return "", fmt.Errorf("subnet group %q not found: %w", req.SubnetGroupName, ErrSubnetGroupNotFound)
 		}
 	}
 
 	if req.ParameterGroupName != "" {
-		if _, ok := b.parameterGroupsStore(region)[req.ParameterGroupName]; !ok {
+		if _, ok := b.parameterGroupsStore(region).Get(req.ParameterGroupName); !ok {
 			return "", fmt.Errorf("parameter group %q not found: %w", req.ParameterGroupName, ErrParameterGroupNotFound)
 		}
 	}
@@ -764,7 +793,7 @@ func (b *InMemoryBackend) seedAutomatedSnapshotLocked(region, accountID string, 
 			SnapshotWindow:         c.SnapshotWindow,
 		},
 	}
-	b.snapshotsStore(region)[autoName] = autoSnap
+	b.snapshotsStore(region).Put(autoSnap)
 	b.arnToResourceStore(region)[autoARN] = resourceRef{Kind: resourceKindSnapshot, Name: autoName}
 }
 
@@ -841,7 +870,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 		return nil, err
 	}
 
-	if _, exists := b.clustersStore(region)[req.ClusterName]; exists {
+	if _, exists := b.clustersStore(region).Get(req.ClusterName); exists {
 		return nil, ErrClusterAlreadyExists
 	}
 
@@ -852,7 +881,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 
 	var restoreSnap *Snapshot
 	if req.SnapshotName != "" {
-		s, ok := b.snapshotsStore(region)[req.SnapshotName]
+		s, ok := b.snapshotsStore(region).Get(req.SnapshotName)
 		if !ok {
 			return nil, fmt.Errorf("snapshot %q not found: %w", req.SnapshotName, ErrSnapshotNotFound)
 		}
@@ -878,7 +907,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 	clusterARN := arn.Build("memorydb", region, b.accountID, "cluster/"+req.ClusterName)
 	c := buildCluster(region, clusterARN, aclName, req, d)
 
-	b.clustersStore(region)[req.ClusterName] = c
+	b.clustersStore(region).Put(c)
 	b.arnToResourceStore(region)[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: req.ClusterName}
 
 	b.appendEventLocked(region, &Event{
@@ -901,10 +930,10 @@ func (b *InMemoryBackend) DescribeClusters(ctx context.Context, name string) ([]
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.clusters[region]
+	t := b.clusters[region]
 
 	if name != "" {
-		c, ok := store[name]
+		c, ok := tableGet(t, name)
 		if !ok {
 			return nil, ErrClusterNotFound
 		}
@@ -912,8 +941,9 @@ func (b *InMemoryBackend) DescribeClusters(ctx context.Context, name string) ([]
 		return []*Cluster{cloneCluster(c)}, nil
 	}
 
-	result := make([]*Cluster, 0, len(store))
-	for _, c := range store {
+	all := tableAll(t)
+	result := make([]*Cluster, 0, len(all))
+	for _, c := range all {
 		result = append(result, cloneCluster(c))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -930,12 +960,12 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Clus
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	c, ok := b.clustersStore(region)[name]
+	c, ok := b.clustersStore(region).Get(name)
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
 
-	delete(b.clustersStore(region), name)
+	b.clustersStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), c.ARN)
 
 	b.appendEventLocked(region, &Event{
@@ -958,7 +988,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	c, ok := b.clustersStore(region)[clusterName]
+	c, ok := b.clustersStore(region).Get(clusterName)
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
@@ -989,11 +1019,11 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 				SnapshotWindow:         c.SnapshotWindow,
 			},
 		}
-		b.snapshotsStore(region)[snapshotName] = s
+		b.snapshotsStore(region).Put(s)
 		b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}
 	}
 
-	delete(b.clustersStore(region), clusterName)
+	b.clustersStore(region).Delete(clusterName)
 	delete(b.arnToResourceStore(region), c.ARN)
 
 	b.appendEventLocked(region, &Event{
@@ -1123,7 +1153,7 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	c, ok := b.clustersStore(region)[req.ClusterName]
+	c, ok := b.clustersStore(region).Get(req.ClusterName)
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
@@ -1157,7 +1187,7 @@ func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) 
 		return nil, err
 	}
 
-	if _, exists := b.aclsStore(region)[req.ACLName]; exists {
+	if _, exists := b.aclsStore(region).Get(req.ACLName); exists {
 		return nil, ErrACLAlreadyExists
 	}
 
@@ -1177,7 +1207,7 @@ func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) 
 		CreatedAt: time.Now(),
 	}
 
-	b.aclsStore(region)[req.ACLName] = a
+	b.aclsStore(region).Put(a)
 	b.arnToResourceStore(region)[aclARN] = resourceRef{Kind: resourceKindACL, Name: req.ACLName}
 
 	b.appendEventLocked(region, &Event{
@@ -1196,10 +1226,10 @@ func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.acls[region]
+	t := b.acls[region]
 
 	if name != "" {
-		a, ok := store[name]
+		a, ok := tableGet(t, name)
 		if !ok {
 			return nil, ErrACLNotFound
 		}
@@ -1207,8 +1237,9 @@ func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL
 		return []*ACL{cloneACL(a)}, nil
 	}
 
-	result := make([]*ACL, 0, len(store))
-	for _, a := range store {
+	all := tableAll(t)
+	result := make([]*ACL, 0, len(all))
+	for _, a := range all {
 		result = append(result, cloneACL(a))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -1225,7 +1256,7 @@ func (b *InMemoryBackend) DeleteACL(ctx context.Context, name string) (*ACL, err
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	a, ok := b.aclsStore(region)[name]
+	a, ok := b.aclsStore(region).Get(name)
 	if !ok {
 		return nil, ErrACLNotFound
 	}
@@ -1234,13 +1265,13 @@ func (b *InMemoryBackend) DeleteACL(ctx context.Context, name string) (*ACL, err
 		return nil, fmt.Errorf("cannot delete system ACL %q: %w", name, ErrValidation)
 	}
 
-	for _, c := range b.clusters[region] {
+	for _, c := range tableAll(b.clusters[region]) {
 		if c.ACLName == name {
 			return nil, fmt.Errorf("ACL %q is associated with cluster %q: %w", name, c.Name, ErrACLInUse)
 		}
 	}
 
-	delete(b.aclsStore(region), name)
+	b.aclsStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), a.ARN)
 
 	b.appendEventLocked(region, &Event{
@@ -1260,7 +1291,7 @@ func (b *InMemoryBackend) UpdateACL(ctx context.Context, req *updateACLRequest) 
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	a, ok := b.aclsStore(region)[req.ACLName]
+	a, ok := b.aclsStore(region).Get(req.ACLName)
 	if !ok {
 		return nil, ErrACLNotFound
 	}
@@ -1271,7 +1302,7 @@ func (b *InMemoryBackend) UpdateACL(ctx context.Context, req *updateACLRequest) 
 	}
 
 	for _, u := range req.UserNamesToAdd {
-		if _, exists := b.users[region][u]; !exists {
+		if _, exists := tableGet(b.users[region], u); !exists {
 			return nil, fmt.Errorf("user %q not found: %w", u, ErrUserNotFound)
 		}
 	}
@@ -1320,7 +1351,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(ctx context.Context, req *createSubn
 		return nil, err
 	}
 
-	if _, exists := b.subnetGroupsStore(region)[req.SubnetGroupName]; exists {
+	if _, exists := b.subnetGroupsStore(region).Get(req.SubnetGroupName); exists {
 		return nil, ErrSubnetGroupAlreadyExists
 	}
 
@@ -1335,7 +1366,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(ctx context.Context, req *createSubn
 		CreatedAt:   time.Now(),
 	}
 
-	b.subnetGroupsStore(region)[req.SubnetGroupName] = sg
+	b.subnetGroupsStore(region).Put(sg)
 	b.arnToResourceStore(region)[sgARN] = resourceRef{Kind: resourceKindSubnetGroup, Name: req.SubnetGroupName}
 
 	return cloneSubnetGroup(sg), nil
@@ -1347,10 +1378,10 @@ func (b *InMemoryBackend) DescribeSubnetGroups(ctx context.Context, name string)
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.subnetGroups[region]
+	t := b.subnetGroups[region]
 
 	if name != "" {
-		sg, ok := store[name]
+		sg, ok := tableGet(t, name)
 
 		if !ok {
 			return nil, ErrSubnetGroupNotFound
@@ -1359,8 +1390,9 @@ func (b *InMemoryBackend) DescribeSubnetGroups(ctx context.Context, name string)
 		return []*SubnetGroup{cloneSubnetGroup(sg)}, nil
 	}
 
-	result := make([]*SubnetGroup, 0, len(store))
-	for _, sg := range store {
+	all := tableAll(t)
+	result := make([]*SubnetGroup, 0, len(all))
+	for _, sg := range all {
 		result = append(result, cloneSubnetGroup(sg))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -1377,12 +1409,12 @@ func (b *InMemoryBackend) DeleteSubnetGroup(ctx context.Context, name string) (*
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	sg, ok := b.subnetGroupsStore(region)[name]
+	sg, ok := b.subnetGroupsStore(region).Get(name)
 	if !ok {
 		return nil, ErrSubnetGroupNotFound
 	}
 
-	delete(b.subnetGroupsStore(region), name)
+	b.subnetGroupsStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), sg.ARN)
 
 	return sg, nil
@@ -1395,7 +1427,7 @@ func (b *InMemoryBackend) UpdateSubnetGroup(ctx context.Context, req *updateSubn
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	sg, ok := b.subnetGroupsStore(region)[req.SubnetGroupName]
+	sg, ok := b.subnetGroupsStore(region).Get(req.SubnetGroupName)
 	if !ok {
 		return nil, ErrSubnetGroupNotFound
 	}
@@ -1424,7 +1456,7 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, req *createUserRequest
 		return nil, err
 	}
 
-	if _, exists := b.usersStore(region)[req.UserName]; exists {
+	if _, exists := b.usersStore(region).Get(req.UserName); exists {
 		return nil, ErrUserAlreadyExists
 	}
 
@@ -1458,7 +1490,7 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, req *createUserRequest
 		CreatedAt:    time.Now(),
 	}
 
-	b.usersStore(region)[req.UserName] = u
+	b.usersStore(region).Put(u)
 	b.arnToResourceStore(region)[userARN] = resourceRef{Kind: resourceKindUser, Name: req.UserName}
 
 	b.appendEventLocked(region, &Event{
@@ -1477,10 +1509,10 @@ func (b *InMemoryBackend) DescribeUsers(ctx context.Context, name string) ([]*Us
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.users[region]
+	t := b.users[region]
 
 	if name != "" {
-		u, ok := store[name]
+		u, ok := tableGet(t, name)
 		if !ok {
 			return nil, ErrUserNotFound
 		}
@@ -1488,8 +1520,9 @@ func (b *InMemoryBackend) DescribeUsers(ctx context.Context, name string) ([]*Us
 		return []*User{cloneUser(u)}, nil
 	}
 
-	result := make([]*User, 0, len(store))
-	for _, u := range store {
+	all := tableAll(t)
+	result := make([]*User, 0, len(all))
+	for _, u := range all {
 		result = append(result, cloneUser(u))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -1506,18 +1539,18 @@ func (b *InMemoryBackend) DeleteUser(ctx context.Context, name string) (*User, e
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	u, ok := b.usersStore(region)[name]
+	u, ok := b.usersStore(region).Get(name)
 	if !ok {
 		return nil, ErrUserNotFound
 	}
 
-	for _, a := range b.acls[region] {
+	for _, a := range tableAll(b.acls[region]) {
 		if slices.Contains(a.UserNames, name) {
 			return nil, fmt.Errorf("user %q is a member of ACL %q: %w", name, a.Name, ErrUserInUse)
 		}
 	}
 
-	delete(b.usersStore(region), name)
+	b.usersStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), u.ARN)
 
 	return u, nil
@@ -1530,7 +1563,7 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, req *updateUserRequest
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	u, ok := b.usersStore(region)[req.UserName]
+	u, ok := b.usersStore(region).Get(req.UserName)
 	if !ok {
 		return nil, ErrUserNotFound
 	}
@@ -1571,7 +1604,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 		return nil, err
 	}
 
-	if _, exists := b.parameterGroupsStore(region)[req.ParameterGroupName]; exists {
+	if _, exists := b.parameterGroupsStore(region).Get(req.ParameterGroupName); exists {
 		return nil, ErrParameterGroupAlreadyExists
 	}
 
@@ -1587,7 +1620,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 		CreatedAt:   time.Now(),
 	}
 
-	b.parameterGroupsStore(region)[req.ParameterGroupName] = pg
+	b.parameterGroupsStore(region).Put(pg)
 	b.arnToResourceStore(region)[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: req.ParameterGroupName}
 
 	return pg, nil
@@ -1599,10 +1632,10 @@ func (b *InMemoryBackend) DescribeParameterGroups(ctx context.Context, name stri
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.parameterGroups[region]
+	t := b.parameterGroups[region]
 
 	if name != "" {
-		pg, ok := store[name]
+		pg, ok := tableGet(t, name)
 		if !ok {
 			return nil, ErrParameterGroupNotFound
 		}
@@ -1610,8 +1643,9 @@ func (b *InMemoryBackend) DescribeParameterGroups(ctx context.Context, name stri
 		return []*ParameterGroup{cloneParameterGroup(pg)}, nil
 	}
 
-	result := make([]*ParameterGroup, 0, len(store))
-	for _, pg := range store {
+	all := tableAll(t)
+	result := make([]*ParameterGroup, 0, len(all))
+	for _, pg := range all {
 		result = append(result, cloneParameterGroup(pg))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -1628,12 +1662,12 @@ func (b *InMemoryBackend) DeleteParameterGroup(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	pg, ok := b.parameterGroupsStore(region)[name]
+	pg, ok := b.parameterGroupsStore(region).Get(name)
 	if !ok {
 		return nil, ErrParameterGroupNotFound
 	}
 
-	delete(b.parameterGroupsStore(region), name)
+	b.parameterGroupsStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), pg.ARN)
 
 	return pg, nil
@@ -1649,7 +1683,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	pg, ok := b.parameterGroupsStore(region)[req.ParameterGroupName]
+	pg, ok := b.parameterGroupsStore(region).Get(req.ParameterGroupName)
 	if !ok {
 		return nil, ErrParameterGroupNotFound
 	}
@@ -1744,27 +1778,27 @@ func (b *InMemoryBackend) tagsForRef(region string, ref resourceRef) map[string]
 
 	switch ref.Kind {
 	case resourceKindCluster:
-		if c, ok := b.clusters[region][ref.Name]; ok {
+		if c, ok := tableGet(b.clusters[region], ref.Name); ok {
 			src = c.Tags
 		}
 	case resourceKindACL:
-		if a, ok := b.acls[region][ref.Name]; ok {
+		if a, ok := tableGet(b.acls[region], ref.Name); ok {
 			src = a.Tags
 		}
 	case resourceKindSubnetGroup:
-		if sg, ok := b.subnetGroups[region][ref.Name]; ok {
+		if sg, ok := tableGet(b.subnetGroups[region], ref.Name); ok {
 			src = sg.Tags
 		}
 	case resourceKindUser:
-		if u, ok := b.users[region][ref.Name]; ok {
+		if u, ok := tableGet(b.users[region], ref.Name); ok {
 			src = u.Tags
 		}
 	case resourceKindParameterGroup:
-		if pg, ok := b.parameterGroups[region][ref.Name]; ok {
+		if pg, ok := tableGet(b.parameterGroups[region], ref.Name); ok {
 			src = pg.Tags
 		}
 	case resourceKindSnapshot:
-		if s, ok := b.snapshots[region][ref.Name]; ok {
+		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			src = s.Tags
 		}
 	}
@@ -1784,27 +1818,27 @@ func mergeTags(dst *map[string]string, src map[string]string) {
 func (b *InMemoryBackend) applyTags(region string, ref resourceRef, tags map[string]string) {
 	switch ref.Kind {
 	case resourceKindCluster:
-		if c, ok := b.clusters[region][ref.Name]; ok {
+		if c, ok := tableGet(b.clusters[region], ref.Name); ok {
 			mergeTags(&c.Tags, tags)
 		}
 	case resourceKindACL:
-		if a, ok := b.acls[region][ref.Name]; ok {
+		if a, ok := tableGet(b.acls[region], ref.Name); ok {
 			mergeTags(&a.Tags, tags)
 		}
 	case resourceKindSubnetGroup:
-		if sg, ok := b.subnetGroups[region][ref.Name]; ok {
+		if sg, ok := tableGet(b.subnetGroups[region], ref.Name); ok {
 			mergeTags(&sg.Tags, tags)
 		}
 	case resourceKindUser:
-		if u, ok := b.users[region][ref.Name]; ok {
+		if u, ok := tableGet(b.users[region], ref.Name); ok {
 			mergeTags(&u.Tags, tags)
 		}
 	case resourceKindParameterGroup:
-		if pg, ok := b.parameterGroups[region][ref.Name]; ok {
+		if pg, ok := tableGet(b.parameterGroups[region], ref.Name); ok {
 			mergeTags(&pg.Tags, tags)
 		}
 	case resourceKindSnapshot:
-		if s, ok := b.snapshots[region][ref.Name]; ok {
+		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			mergeTags(&s.Tags, tags)
 		}
 	}
@@ -1826,27 +1860,27 @@ func (b *InMemoryBackend) removeTags(region string, ref resourceRef, tagKeys []s
 func (b *InMemoryBackend) tagsMapForRef(region string, ref resourceRef) map[string]string {
 	switch ref.Kind {
 	case resourceKindCluster:
-		if c, ok := b.clusters[region][ref.Name]; ok {
+		if c, ok := tableGet(b.clusters[region], ref.Name); ok {
 			return c.Tags
 		}
 	case resourceKindACL:
-		if a, ok := b.acls[region][ref.Name]; ok {
+		if a, ok := tableGet(b.acls[region], ref.Name); ok {
 			return a.Tags
 		}
 	case resourceKindSubnetGroup:
-		if sg, ok := b.subnetGroups[region][ref.Name]; ok {
+		if sg, ok := tableGet(b.subnetGroups[region], ref.Name); ok {
 			return sg.Tags
 		}
 	case resourceKindUser:
-		if u, ok := b.users[region][ref.Name]; ok {
+		if u, ok := tableGet(b.users[region], ref.Name); ok {
 			return u.Tags
 		}
 	case resourceKindParameterGroup:
-		if pg, ok := b.parameterGroups[region][ref.Name]; ok {
+		if pg, ok := tableGet(b.parameterGroups[region], ref.Name); ok {
 			return pg.Tags
 		}
 	case resourceKindSnapshot:
-		if s, ok := b.snapshots[region][ref.Name]; ok {
+		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			return s.Tags
 		}
 	}
@@ -1863,12 +1897,12 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	c, ok := b.clustersStore(region)[req.ClusterName]
+	c, ok := b.clustersStore(region).Get(req.ClusterName)
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
 
-	if _, exists := b.snapshotsStore(region)[req.SnapshotName]; exists {
+	if _, exists := b.snapshotsStore(region).Get(req.SnapshotName); exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
 
@@ -1901,7 +1935,7 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 		},
 	}
 
-	b.snapshotsStore(region)[req.SnapshotName] = s
+	b.snapshotsStore(region).Put(s)
 	b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.SnapshotName}
 
 	b.appendEventLocked(region, &Event{
@@ -1924,10 +1958,10 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.snapshots[region]
+	t := b.snapshots[region]
 
 	if name != "" {
-		s, ok := store[name]
+		s, ok := tableGet(t, name)
 		if !ok {
 			return nil, ErrSnapshotNotFound
 		}
@@ -1935,8 +1969,9 @@ func (b *InMemoryBackend) DescribeSnapshots(
 		return []*Snapshot{cloneSnapshot(s)}, nil
 	}
 
-	result := make([]*Snapshot, 0, len(store))
-	for _, s := range store {
+	all := tableAll(t)
+	result := make([]*Snapshot, 0, len(all))
+	for _, s := range all {
 		if clusterName != "" && s.ClusterName != clusterName {
 			continue
 		}
@@ -1962,7 +1997,7 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	src, ok := b.snapshotsStore(region)[req.SourceSnapshotName]
+	src, ok := b.snapshotsStore(region).Get(req.SourceSnapshotName)
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}
@@ -1971,7 +2006,7 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 		return cloneSnapshot(src), nil
 	}
 
-	if _, exists := b.snapshotsStore(region)[req.TargetSnapshotName]; exists {
+	if _, exists := b.snapshotsStore(region).Get(req.TargetSnapshotName); exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
 
@@ -2001,7 +2036,7 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 		ClusterConfiguration: src.ClusterConfiguration,
 	}
 
-	b.snapshotsStore(region)[req.TargetSnapshotName] = dst
+	b.snapshotsStore(region).Put(dst)
 	b.arnToResourceStore(region)[targetARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.TargetSnapshotName}
 
 	return dst, nil
@@ -2014,12 +2049,12 @@ func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, name string) (*Sna
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	s, ok := b.snapshotsStore(region)[name]
+	s, ok := b.snapshotsStore(region).Get(name)
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}
 
-	delete(b.snapshotsStore(region), name)
+	b.snapshotsStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), s.ARN)
 
 	b.appendEventLocked(region, &Event{
@@ -2039,7 +2074,7 @@ func (b *InMemoryBackend) ExportSnapshot(ctx context.Context, req *exportSnapsho
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	s, ok := b.snapshotsStore(region)[req.SnapshotName]
+	s, ok := b.snapshotsStore(region).Get(req.SnapshotName)
 	if !ok {
 		return nil, ErrSnapshotNotFound
 	}
@@ -2264,7 +2299,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 
 	fullName := "virv-" + req.MultiRegionClusterNameSuffix
 
-	if _, exists := b.multiRegionClusters[fullName]; exists {
+	if _, exists := b.multiRegionClusters.Get(fullName); exists {
 		return nil, ErrMultiRegionClusterAlreadyExists
 	}
 
@@ -2293,7 +2328,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 		CreatedAt:                     time.Now(),
 	}
 
-	b.multiRegionClusters[fullName] = mrc
+	b.multiRegionClusters.Put(mrc)
 	b.arnToResourceStore(region)[mrARN] = resourceRef{Kind: resourceKindMultiRegionCluster, Name: fullName}
 
 	return mrc, nil
@@ -2306,12 +2341,12 @@ func (b *InMemoryBackend) DeleteMultiRegionCluster(ctx context.Context, name str
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	mrc, ok := b.multiRegionClusters[name]
+	mrc, ok := b.multiRegionClusters.Get(name)
 	if !ok {
 		return nil, ErrMultiRegionClusterNotFound
 	}
 
-	delete(b.multiRegionClusters, name)
+	b.multiRegionClusters.Delete(name)
 	delete(b.arnToResourceStore(region), mrc.ARN)
 
 	return cloneMultiRegionCluster(mrc), nil
@@ -2323,7 +2358,7 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(_ context.Context, name st
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		mrc, ok := b.multiRegionClusters[name]
+		mrc, ok := b.multiRegionClusters.Get(name)
 		if !ok {
 			return nil, ErrMultiRegionClusterNotFound
 		}
@@ -2331,8 +2366,9 @@ func (b *InMemoryBackend) DescribeMultiRegionClusters(_ context.Context, name st
 		return []*MultiRegionCluster{cloneMultiRegionCluster(mrc)}, nil
 	}
 
-	result := make([]*MultiRegionCluster, 0, len(b.multiRegionClusters))
-	for _, mrc := range b.multiRegionClusters {
+	all := b.multiRegionClusters.All()
+	result := make([]*MultiRegionCluster, 0, len(all))
+	for _, mrc := range all {
 		result = append(result, cloneMultiRegionCluster(mrc))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -2350,7 +2386,7 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	mrc, ok := b.multiRegionClusters[req.MultiRegionClusterName]
+	mrc, ok := b.multiRegionClusters.Get(req.MultiRegionClusterName)
 	if !ok {
 		return nil, ErrMultiRegionClusterNotFound
 	}
@@ -2384,7 +2420,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		mrpg, ok := b.multiRegionParameterGroups[name]
+		mrpg, ok := b.multiRegionParameterGroups.Get(name)
 		if !ok {
 			return nil, ErrMultiRegionParameterGroupNotFound
 		}
@@ -2392,8 +2428,9 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(
 		return []*MultiRegionParameterGroup{cloneMultiRegionParameterGroup(mrpg)}, nil
 	}
 
-	result := make([]*MultiRegionParameterGroup, 0, len(b.multiRegionParameterGroups))
-	for _, mrpg := range b.multiRegionParameterGroups {
+	all := b.multiRegionParameterGroups.All()
+	result := make([]*MultiRegionParameterGroup, 0, len(all))
+	for _, mrpg := range all {
 		result = append(result, cloneMultiRegionParameterGroup(mrpg))
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -2419,7 +2456,7 @@ func (b *InMemoryBackend) DescribeParameters(
 		return nil, fmt.Errorf("parameter group name is required: %w", ErrValidation)
 	}
 
-	pg, ok := b.parameterGroups[region][parameterGroupName]
+	pg, ok := tableGet(b.parameterGroups[region], parameterGroupName)
 	if !ok {
 		return nil, ErrParameterGroupNotFound
 	}
@@ -2441,7 +2478,7 @@ func (b *InMemoryBackend) ResetParameterGroup(
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	pg, ok := b.parameterGroupsStore(region)[name]
+	pg, ok := b.parameterGroupsStore(region).Get(name)
 	if !ok {
 		return nil, ErrParameterGroupNotFound
 	}
@@ -2472,7 +2509,7 @@ func (b *InMemoryBackend) FailoverShard(ctx context.Context, clusterName, shardN
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	c, ok := b.clustersStore(region)[clusterName]
+	c, ok := b.clustersStore(region).Get(clusterName)
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
@@ -2514,7 +2551,7 @@ func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(ctx context.Context, cluste
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	if _, ok := b.clusters[region][clusterName]; !ok {
+	if _, ok := tableGet(b.clusters[region], clusterName); !ok {
 		return nil, ErrClusterNotFound
 	}
 
@@ -2530,7 +2567,7 @@ func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(
 
 	defer b.mu.RUnlock()
 
-	if _, ok := b.multiRegionClusters[clusterName]; !ok {
+	if _, ok := b.multiRegionClusters.Get(clusterName); !ok {
 		return nil, ErrMultiRegionClusterNotFound
 	}
 
@@ -2548,7 +2585,7 @@ func (b *InMemoryBackend) BatchUpdateCluster(ctx context.Context, clusterNames [
 
 	result := make(map[string]*Cluster, len(clusterNames))
 	for _, name := range clusterNames {
-		if c, ok := b.clusters[region][name]; ok {
+		if c, ok := tableGet(b.clusters[region], name); ok {
 			result[name] = cloneCluster(c)
 		}
 	}
@@ -2602,10 +2639,10 @@ func (b *InMemoryBackend) DescribeReservedNodes(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.reservedNodes[region]
+	all := tableAll(b.reservedNodes[region])
 
-	result := make([]*ReservedNode, 0, len(store))
-	for _, rn := range store {
+	result := make([]*ReservedNode, 0, len(all))
+	for _, rn := range all {
 		if req.ReservedNodeID != "" && rn.ReservedNodeID != req.ReservedNodeID {
 			continue
 		}
@@ -2706,7 +2743,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 		reservationID = req.ReservedNodesOfferingID + "-reservation"
 	}
 
-	if _, exists := b.reservedNodesStore(region)[reservationID]; exists {
+	if _, exists := b.reservedNodesStore(region).Get(reservationID); exists {
 		return nil, fmt.Errorf("reserved node %q already exists: %w", reservationID, ErrReservationAlreadyExists)
 	}
 
@@ -2732,7 +2769,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 		ARN:              rnARN,
 	}
 
-	b.reservedNodesStore(region)[reservationID] = rn
+	b.reservedNodesStore(region).Put(rn)
 
 	cp := *rn
 
@@ -2753,7 +2790,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(
 		return nil, fmt.Errorf("parameter group name is required: %w", ErrValidation)
 	}
 
-	mrpg, ok := b.multiRegionParameterGroups[parameterGroupName]
+	mrpg, ok := b.multiRegionParameterGroups.Get(parameterGroupName)
 	if !ok {
 		return nil, ErrMultiRegionParameterGroupNotFound
 	}
@@ -2769,8 +2806,9 @@ func (b *InMemoryBackend) DescribeServiceUpdates(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*ServiceUpdate, 0, len(b.serviceUpdates))
-	for _, su := range b.serviceUpdates {
+	allUpdates := b.serviceUpdates.All()
+	result := make([]*ServiceUpdate, 0, len(allUpdates))
+	for _, su := range allUpdates {
 		if req.ServiceUpdateName != "" && su.ServiceUpdateName != req.ServiceUpdateName {
 			continue
 		}
@@ -2819,8 +2857,8 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 	defer b.mu.RUnlock()
 
 	var result []*Cluster
-	for _, regionClusters := range b.clusters {
-		for _, c := range regionClusters {
+	for _, t := range b.clusters {
+		for _, c := range t.All() {
 			result = append(result, cloneCluster(c))
 		}
 	}
@@ -2838,46 +2876,46 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for region, regionClusters := range b.clusters {
-		purgeMemoryDBMap(ctx, regionClusters, cutoff,
+	for region, t := range b.clusters {
+		purgeTable(ctx, t, cutoff, clusterKeyFn,
 			func(c *Cluster) time.Time { return c.CreatedAt },
-			func(_ string, c *Cluster) { delete(b.arnToResource[region], c.ARN) },
+			func(c *Cluster) { delete(b.arnToResource[region], c.ARN) },
 		)
 	}
-	for region, regionACLs := range b.acls {
-		purgeMemoryDBMapFiltered(ctx, regionACLs, cutoff,
-			func(name string, _ *ACL) bool { return name == openAccessACL },
+	for region, t := range b.acls {
+		purgeTableFiltered(ctx, t, cutoff, aclKeyFn,
+			func(a *ACL) bool { return a.Name == openAccessACL },
 			func(a *ACL) time.Time { return a.CreatedAt },
-			func(_ string, a *ACL) { delete(b.arnToResource[region], a.ARN) },
+			func(a *ACL) { delete(b.arnToResource[region], a.ARN) },
 		)
 	}
-	for region, regionSGs := range b.subnetGroups {
-		purgeMemoryDBMap(ctx, regionSGs, cutoff,
+	for region, t := range b.subnetGroups {
+		purgeTable(ctx, t, cutoff, subnetGroupKeyFn,
 			func(sg *SubnetGroup) time.Time { return sg.CreatedAt },
-			func(_ string, sg *SubnetGroup) { delete(b.arnToResource[region], sg.ARN) },
+			func(sg *SubnetGroup) { delete(b.arnToResource[region], sg.ARN) },
 		)
 	}
-	for region, regionUsers := range b.users {
-		purgeMemoryDBMap(ctx, regionUsers, cutoff,
+	for region, t := range b.users {
+		purgeTable(ctx, t, cutoff, userKeyFn,
 			func(u *User) time.Time { return u.CreatedAt },
-			func(_ string, u *User) { delete(b.arnToResource[region], u.ARN) },
+			func(u *User) { delete(b.arnToResource[region], u.ARN) },
 		)
 	}
-	for region, regionPGs := range b.parameterGroups {
-		purgeMemoryDBMap(ctx, regionPGs, cutoff,
+	for region, t := range b.parameterGroups {
+		purgeTable(ctx, t, cutoff, parameterGroupKeyFn,
 			func(pg *ParameterGroup) time.Time { return pg.CreatedAt },
-			func(_ string, pg *ParameterGroup) { delete(b.arnToResource[region], pg.ARN) },
+			func(pg *ParameterGroup) { delete(b.arnToResource[region], pg.ARN) },
 		)
 	}
-	for region, regionSnaps := range b.snapshots {
-		purgeMemoryDBMap(ctx, regionSnaps, cutoff,
+	for region, t := range b.snapshots {
+		purgeTable(ctx, t, cutoff, snapshotKeyFn,
 			func(s *Snapshot) time.Time { return s.CreatedAt },
-			func(_ string, s *Snapshot) { delete(b.arnToResource[region], s.ARN) },
+			func(s *Snapshot) { delete(b.arnToResource[region], s.ARN) },
 		)
 	}
-	purgeMemoryDBMap(ctx, b.multiRegionClusters, cutoff,
+	purgeTable(ctx, b.multiRegionClusters, cutoff, multiRegionClusterKeyFn,
 		func(mrc *MultiRegionCluster) time.Time { return mrc.CreatedAt },
-		func(_ string, _ *MultiRegionCluster) {},
+		func(_ *MultiRegionCluster) {},
 	)
 
 	if ctx.Err() != nil {
@@ -2896,45 +2934,48 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	}
 }
 
-// purgeMemoryDBMap deletes entries from m that were created before cutoff,
-// calling cleanup for each deleted entry.
-func purgeMemoryDBMap[V any](
+// purgeTable deletes entries from t that were created before cutoff, calling
+// cleanup for each deleted entry. keyFn must be the same key function t was
+// constructed with (see store_setup.go).
+func purgeTable[V any](
 	ctx context.Context,
-	m map[string]V,
+	t *store.Table[V],
 	cutoff time.Time,
-	getTime func(V) time.Time,
-	cleanup func(string, V),
+	keyFn func(*V) string,
+	getTime func(*V) time.Time,
+	cleanup func(*V),
 ) {
-	for k, v := range m {
+	for _, v := range t.All() {
 		if ctx.Err() != nil {
 			return
 		}
 		if getTime(v).Before(cutoff) {
-			cleanup(k, v)
-			delete(m, k)
+			cleanup(v)
+			t.Delete(keyFn(v))
 		}
 	}
 }
 
-// purgeMemoryDBMapFiltered is like purgeMemoryDBMap but skips entries where skip returns true.
-func purgeMemoryDBMapFiltered[V any](
+// purgeTableFiltered is like purgeTable but skips entries where skip returns true.
+func purgeTableFiltered[V any](
 	ctx context.Context,
-	m map[string]V,
+	t *store.Table[V],
 	cutoff time.Time,
-	skip func(string, V) bool,
-	getTime func(V) time.Time,
-	cleanup func(string, V),
+	keyFn func(*V) string,
+	skip func(*V) bool,
+	getTime func(*V) time.Time,
+	cleanup func(*V),
 ) {
-	for k, v := range m {
+	for _, v := range t.All() {
 		if ctx.Err() != nil {
 			return
 		}
-		if skip(k, v) {
+		if skip(v) {
 			continue
 		}
 		if getTime(v).Before(cutoff) {
-			cleanup(k, v)
-			delete(m, k)
+			cleanup(v)
+			t.Delete(keyFn(v))
 		}
 	}
 }
@@ -3060,7 +3101,7 @@ func (b *InMemoryBackend) AddClusterInternal(name, nodeType string) *Cluster {
 		CreatedAt: time.Now(),
 		Region:    b.defaultRegion,
 	}
-	b.clustersStore(b.defaultRegion)[name] = c
+	b.clustersStore(b.defaultRegion).Put(c)
 	b.arnToResourceStore(b.defaultRegion)[clusterARN] = resourceRef{Kind: resourceKindCluster, Name: name}
 
 	return c
@@ -3080,7 +3121,7 @@ func (b *InMemoryBackend) AddACLInternal(name string) *ACL {
 		Tags:      make(map[string]string),
 		CreatedAt: time.Now(),
 	}
-	b.aclsStore(b.defaultRegion)[name] = a
+	b.aclsStore(b.defaultRegion).Put(a)
 	b.arnToResourceStore(b.defaultRegion)[aclARN] = resourceRef{Kind: resourceKindACL, Name: name}
 
 	return a
@@ -3100,7 +3141,7 @@ func (b *InMemoryBackend) AddSnapshotInternal(name, clusterName string) *Snapsho
 		Tags:        make(map[string]string),
 		CreatedAt:   time.Now(),
 	}
-	b.snapshotsStore(b.defaultRegion)[name] = s
+	b.snapshotsStore(b.defaultRegion).Put(s)
 	b.arnToResourceStore(b.defaultRegion)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: name}
 
 	return s
@@ -3120,7 +3161,7 @@ func (b *InMemoryBackend) AddUserInternal(name, accessString string) *User {
 		Tags:         make(map[string]string),
 		CreatedAt:    time.Now(),
 	}
-	b.usersStore(b.defaultRegion)[name] = u
+	b.usersStore(b.defaultRegion).Put(u)
 	b.arnToResourceStore(b.defaultRegion)[userARN] = resourceRef{Kind: resourceKindUser, Name: name}
 
 	return u
@@ -3138,7 +3179,7 @@ func (b *InMemoryBackend) AddSubnetGroupInternal(name string) *SubnetGroup {
 		Tags:      make(map[string]string),
 		CreatedAt: time.Now(),
 	}
-	b.subnetGroupsStore(b.defaultRegion)[name] = sg
+	b.subnetGroupsStore(b.defaultRegion).Put(sg)
 	b.arnToResourceStore(b.defaultRegion)[sgARN] = resourceRef{Kind: resourceKindSubnetGroup, Name: name}
 
 	return sg
@@ -3158,7 +3199,7 @@ func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *Parame
 		Tags:       make(map[string]string),
 		CreatedAt:  time.Now(),
 	}
-	b.parameterGroupsStore(b.defaultRegion)[name] = pg
+	b.parameterGroupsStore(b.defaultRegion).Put(pg)
 	b.arnToResourceStore(b.defaultRegion)[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: name}
 
 	return pg
@@ -3178,7 +3219,7 @@ func (b *InMemoryBackend) AddMultiRegionParameterGroupInternal(name, family stri
 		Parameters: make(map[string]string),
 		CreatedAt:  time.Now(),
 	}
-	b.multiRegionParameterGroups[name] = mrpg
+	b.multiRegionParameterGroups.Put(mrpg)
 
 	return mrpg
 }

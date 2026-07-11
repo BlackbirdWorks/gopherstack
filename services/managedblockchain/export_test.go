@@ -5,7 +5,7 @@ func NetworkCount(b *InMemoryBackend) int {
 	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
-	return len(b.networks)
+	return b.networks.Len()
 }
 
 // MemberCount returns the total number of members across all networks (for test use only).
@@ -13,13 +13,7 @@ func MemberCount(b *InMemoryBackend) int {
 	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, members := range b.members {
-		total += len(members)
-	}
-
-	return total
+	return b.members.Len()
 }
 
 // NodeCount returns the total number of nodes across all networks and members (for test use only).
@@ -27,15 +21,7 @@ func NodeCount(b *InMemoryBackend) int {
 	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, memberMap := range b.nodes {
-		for _, nodeMap := range memberMap {
-			total += len(nodeMap)
-		}
-	}
-
-	return total
+	return b.nodes.Len()
 }
 
 // AccessorCount returns the number of accessors stored in b (for test use only).
@@ -43,7 +29,7 @@ func AccessorCount(b *InMemoryBackend) int {
 	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
-	return len(b.accessors)
+	return b.accessors.Len()
 }
 
 // ProposalCount returns the total number of proposals across all networks (for test use only).
@@ -51,13 +37,7 @@ func ProposalCount(b *InMemoryBackend) int {
 	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, proposals := range b.proposals {
-		total += len(proposals)
-	}
-
-	return total
+	return b.proposals.Len()
 }
 
 // InvitationCount returns the number of invitations stored in b (for test use only).
@@ -65,7 +45,7 @@ func InvitationCount(b *InMemoryBackend) int {
 	b.mu.RLock("export_test")
 	defer b.mu.RUnlock()
 
-	return len(b.invitations)
+	return b.invitations.Len()
 }
 
 // HandlerOpsLen returns the number of supported operations for h (for test use only).

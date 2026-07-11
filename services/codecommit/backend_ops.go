@@ -19,10 +19,17 @@ type PullRequestApproval struct {
 }
 
 // PullRequestApprovalRule represents an approval rule on a pull request.
+//
+// PRID identifies the owning pull request. It exists purely so the flattened
+// store.Table[PullRequestApprovalRule] (see store_setup.go; this collection
+// was previously nested prID -> ruleName -> *rule) can derive its composite
+// "prID|ruleName" key from the value alone; it is not part of the CodeCommit
+// wire API, hence json:"-".
 type PullRequestApprovalRule struct {
 	RuleID              string `json:"approvalRuleId"`
 	RuleName            string `json:"approvalRuleName"`
 	ApprovalRuleContent string `json:"approvalRuleContent"`
+	PRID                string `json:"-"`
 }
 
 // PullRequestEvent represents an event on a pull request.
@@ -61,11 +68,18 @@ type Reaction struct {
 }
 
 // File represents a file stored in CodeCommit.
+//
+// RepoName identifies the owning repository. It exists purely so the
+// flattened store.Table[File] (see store_setup.go; this collection was
+// previously nested repoName -> filePath -> *File) can derive its composite
+// "repoName|filePath" key from the value alone; it is not part of the
+// CodeCommit wire API, hence json:"-".
 type File struct {
 	FilePath        string `json:"filePath"`
 	CommitSpecifier string `json:"commitSpecifier"`
 	BlobID          string `json:"blobId"`
 	FileMode        string `json:"fileMode"`
+	RepoName        string `json:"-"`
 	FileContent     []byte `json:"fileContent"`
 }
 
@@ -97,7 +111,7 @@ func (b *InMemoryBackend) UpdateRepositoryDescription(name, desc string) error {
 	b.mu.Lock("UpdateRepositoryDescription")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositories[name]
+	r, ok := b.repositories.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
 	}
@@ -112,12 +126,12 @@ func (b *InMemoryBackend) UpdateRepositoryName(oldName, newName string) error {
 	b.mu.Lock("UpdateRepositoryName")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositories[oldName]
+	r, ok := b.repositories.Get(oldName)
 	if !ok {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, oldName)
 	}
 
-	if _, exists := b.repositories[newName]; exists {
+	if b.repositories.Has(newName) {
 		return fmt.Errorf("%w: repository %s already exists", ErrAlreadyExists, newName)
 	}
 
@@ -125,27 +139,32 @@ func (b *InMemoryBackend) UpdateRepositoryName(oldName, newName string) error {
 	r.RepositoryName = newName
 	r.LastModifiedDate = time.Now().UTC()
 
-	// Re-key maps
-	delete(b.repositories, oldName)
-	b.repositories[newName] = r
+	// Re-key
+	b.repositories.Delete(oldName)
+	b.repositories.Put(r)
 	b.repositoriesByARN[r.ARN] = newName
 
-	// Migrate branches, commits, repoTemplateAssoc
-	if branches, hasBranches := b.branches[oldName]; hasBranches {
-		b.branches[newName] = branches
-		delete(b.branches, oldName)
+	// Migrate branches, commits, files (composite-keyed tables: delete the old
+	// key, update the entry's own repository field, re-insert under the new
+	// key) and repoTemplateAssoc/triggers (plain maps keyed by repo name).
+	for _, br := range append([]*Branch{}, b.branchesByRepo.Get(oldName)...) {
+		b.branches.Delete(branchKey(oldName, br.BranchName))
+		br.RepositoryName = newName
+		b.branches.Put(br)
 	}
-	if commits, hasCommits := b.commits[oldName]; hasCommits {
-		b.commits[newName] = commits
-		delete(b.commits, oldName)
+	for _, c := range append([]*Commit{}, b.commitsByRepo.Get(oldName)...) {
+		b.commits.Delete(commitKey(oldName, c.CommitID))
+		c.RepositoryName = newName
+		b.commits.Put(c)
 	}
 	if assoc, hasAssoc := b.repoTemplateAssoc[oldName]; hasAssoc {
 		b.repoTemplateAssoc[newName] = assoc
 		delete(b.repoTemplateAssoc, oldName)
 	}
-	if files, hasFiles := b.files[oldName]; hasFiles {
-		b.files[newName] = files
-		delete(b.files, oldName)
+	for _, f := range append([]*File{}, b.filesByRepo.Get(oldName)...) {
+		b.files.Delete(fileKey(oldName, f.FilePath))
+		f.RepoName = newName
+		b.files.Put(f)
 	}
 	if triggers, hasTriggers := b.triggers[oldName]; hasTriggers {
 		b.triggers[newName] = triggers
@@ -160,7 +179,7 @@ func (b *InMemoryBackend) UpdateRepositoryEncryptionKey(name, kmsKeyID string) e
 	b.mu.Lock("UpdateRepositoryEncryptionKey")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositories[name]
+	r, ok := b.repositories.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, name)
 	}
@@ -176,20 +195,13 @@ func (b *InMemoryBackend) UpdateDefaultBranch(repoName, branchName string) error
 	b.mu.Lock("UpdateDefaultBranch")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositories[repoName]
+	r, ok := b.repositories.Get(repoName)
 	if !ok {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 	// Validate the branch exists.
-	if repoBranches := b.branches[repoName]; repoBranches != nil {
-		if _, found := repoBranches[branchName]; !found {
-			return fmt.Errorf("%w: branch %s not found in repository %s", ErrBranchNotFound, branchName, repoName)
-		}
-	} else if branchName != "" {
-		return fmt.Errorf(
-			"%w: branch %s not found in repository %s (no branches exist)",
-			ErrBranchNotFound, branchName, repoName,
-		)
+	if branchName != "" && !b.branches.Has(branchKey(repoName, branchName)) {
+		return fmt.Errorf("%w: branch %s not found in repository %s", ErrBranchNotFound, branchName, repoName)
 	}
 	r.DefaultBranch = branchName
 	r.LastModifiedDate = time.Now().UTC()
@@ -204,10 +216,10 @@ func (b *InMemoryBackend) DeleteApprovalRuleTemplate(name string) error {
 	b.mu.Lock("DeleteApprovalRuleTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.approvalRuleTemplates[name]; !ok {
+	if !b.approvalRuleTemplates.Has(name) {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
 	}
-	delete(b.approvalRuleTemplates, name)
+	b.approvalRuleTemplates.Delete(name)
 
 	return nil
 }
@@ -217,7 +229,7 @@ func (b *InMemoryBackend) GetApprovalRuleTemplate(name string) (*ApprovalRuleTem
 	b.mu.RLock("GetApprovalRuleTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.approvalRuleTemplates[name]
+	t, ok := b.approvalRuleTemplates.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
 	}
@@ -231,11 +243,11 @@ func (b *InMemoryBackend) ListApprovalRuleTemplates() []*ApprovalRuleTemplate {
 	b.mu.RLock("ListApprovalRuleTemplates")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.approvalRuleTemplates)
+	snap := b.approvalRuleTemplates.Snapshot()
+	list := make([]*ApprovalRuleTemplate, 0, len(snap))
 
-	list := make([]*ApprovalRuleTemplate, 0, len(names))
-	for _, n := range names {
-		cp := *b.approvalRuleTemplates[n]
+	for _, t := range snap {
+		cp := *t
 		list = append(list, &cp)
 	}
 
@@ -247,7 +259,7 @@ func (b *InMemoryBackend) UpdateApprovalRuleTemplateContent(name, content string
 	b.mu.Lock("UpdateApprovalRuleTemplateContent")
 	defer b.mu.Unlock()
 
-	t, ok := b.approvalRuleTemplates[name]
+	t, ok := b.approvalRuleTemplates.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
 	}
@@ -262,7 +274,7 @@ func (b *InMemoryBackend) UpdateApprovalRuleTemplateDescription(name, desc strin
 	b.mu.Lock("UpdateApprovalRuleTemplateDescription")
 	defer b.mu.Unlock()
 
-	t, ok := b.approvalRuleTemplates[name]
+	t, ok := b.approvalRuleTemplates.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, name)
 	}
@@ -277,17 +289,17 @@ func (b *InMemoryBackend) UpdateApprovalRuleTemplateName(oldName, newName string
 	b.mu.Lock("UpdateApprovalRuleTemplateName")
 	defer b.mu.Unlock()
 
-	t, ok := b.approvalRuleTemplates[oldName]
+	t, ok := b.approvalRuleTemplates.Get(oldName)
 	if !ok {
 		return fmt.Errorf("%w: approval rule template %s not found", ErrApprovalRuleTemplateNotFound, oldName)
 	}
-	if _, exists := b.approvalRuleTemplates[newName]; exists {
+	if b.approvalRuleTemplates.Has(newName) {
 		return fmt.Errorf("%w: approval rule template %s already exists", ErrApprovalRuleTemplateAlreadyExists, newName)
 	}
 	t.ApprovalRuleTemplateName = newName
 	t.LastModifiedDate = time.Now().UTC()
-	delete(b.approvalRuleTemplates, oldName)
-	b.approvalRuleTemplates[newName] = t
+	b.approvalRuleTemplates.Delete(oldName)
+	b.approvalRuleTemplates.Put(t)
 
 	// Update repoTemplateAssoc
 	for _, assoc := range b.repoTemplateAssoc {
@@ -307,7 +319,7 @@ func (b *InMemoryBackend) ListAssociatedApprovalRuleTemplatesForRepository(repoN
 	b.mu.RLock("ListAssociatedApprovalRuleTemplatesForRepository")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -322,7 +334,7 @@ func (b *InMemoryBackend) ListRepositoriesForApprovalRuleTemplate(templateName s
 	b.mu.RLock("ListRepositoriesForApprovalRuleTemplate")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.approvalRuleTemplates[templateName]; !ok {
+	if !b.approvalRuleTemplates.Has(templateName) {
 		return nil, fmt.Errorf(
 			"%w: approval rule template %s not found",
 			ErrApprovalRuleTemplateNotFound,
@@ -348,7 +360,7 @@ func (b *InMemoryBackend) GetPullRequestApprovalStates(prID string) ([]PullReque
 	b.mu.RLock("GetPullRequestApprovalStates")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
@@ -366,7 +378,7 @@ func (b *InMemoryBackend) GetPullRequestOverrideState(prID string) (bool, string
 	b.mu.RLock("GetPullRequestOverrideState")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return false, "", fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
@@ -381,7 +393,7 @@ func (b *InMemoryBackend) OverridePullRequestApprovalRules(prID, overrideStatus,
 	b.mu.Lock("OverridePullRequestApprovalRules")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
@@ -401,7 +413,7 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalState(prID, userARN, approval
 	b.mu.Lock("UpdatePullRequestApprovalState")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -423,7 +435,7 @@ func (b *InMemoryBackend) UpdatePullRequestDescription(prID, desc string) error 
 	b.mu.Lock("UpdatePullRequestDescription")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -441,7 +453,7 @@ func (b *InMemoryBackend) UpdatePullRequestStatus(prID, status string) error {
 	b.mu.Lock("UpdatePullRequestStatus")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -457,7 +469,7 @@ func (b *InMemoryBackend) UpdatePullRequestTitle(prID, title string) error {
 	b.mu.Lock("UpdatePullRequestTitle")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -477,20 +489,17 @@ func (b *InMemoryBackend) CreatePullRequestApprovalRule(
 	b.mu.Lock("CreatePullRequestApprovalRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
-	}
-
-	if b.prApprovalRules[prID] == nil {
-		b.prApprovalRules[prID] = make(map[string]*PullRequestApprovalRule)
 	}
 
 	rule := &PullRequestApprovalRule{
 		RuleID:              uuid.NewString(),
 		RuleName:            ruleName,
 		ApprovalRuleContent: content,
+		PRID:                prID,
 	}
-	b.prApprovalRules[prID][ruleName] = rule
+	b.prApprovalRules.Put(rule)
 	cp := *rule
 
 	return &cp, nil
@@ -501,14 +510,14 @@ func (b *InMemoryBackend) DeletePullRequestApprovalRule(prID, ruleName string) e
 	b.mu.Lock("DeletePullRequestApprovalRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
-	if _, ok := b.prApprovalRules[prID][ruleName]; !ok {
+	if !b.prApprovalRules.Has(prApprovalRuleKey(prID, ruleName)) {
 		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrNotFound, ruleName, prID)
 	}
-	delete(b.prApprovalRules[prID], ruleName)
+	b.prApprovalRules.Delete(prApprovalRuleKey(prID, ruleName))
 
 	return nil
 }
@@ -518,11 +527,11 @@ func (b *InMemoryBackend) UpdatePullRequestApprovalRuleContent(prID, ruleName, c
 	b.mu.Lock("UpdatePullRequestApprovalRuleContent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
-	rule, ok := b.prApprovalRules[prID][ruleName]
+	rule, ok := b.prApprovalRules.Get(prApprovalRuleKey(prID, ruleName))
 	if !ok {
 		return fmt.Errorf("%w: approval rule %s not found on pull request %s", ErrNotFound, ruleName, prID)
 	}
@@ -536,7 +545,7 @@ func (b *InMemoryBackend) DescribePullRequestEvents(prID string) ([]PullRequestE
 	b.mu.RLock("DescribePullRequestEvents")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
@@ -555,11 +564,11 @@ func (b *InMemoryBackend) EvaluatePullRequestApprovalRules(prID string) ([]RuleE
 	b.mu.RLock("EvaluatePullRequestApprovalRules")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
-	rules := b.prApprovalRules[prID]
+	rules := b.prApprovalRulesByPR.Get(prID)
 	result := make([]RuleEvaluation, 0, len(rules))
 	for _, rule := range rules {
 		result = append(result, RuleEvaluation{RuleName: rule.RuleName, Satisfied: true})
@@ -579,7 +588,7 @@ func (b *InMemoryBackend) PostCommentForComparedCommit(repoName, _, afterCommitI
 	b.mu.Lock("PostCommentForComparedCommit")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -592,7 +601,7 @@ func (b *InMemoryBackend) PostCommentForComparedCommit(repoName, _, afterCommitI
 		RepoName:         repoName,
 		AfterCommitID:    afterCommitID,
 	}
-	b.comments[c.CommentID] = c
+	b.comments.Put(c)
 	cp := *c
 
 	return &cp, nil
@@ -603,7 +612,7 @@ func (b *InMemoryBackend) PostCommentForPullRequest(prID, repoName, content stri
 	b.mu.Lock("PostCommentForPullRequest")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
@@ -616,7 +625,7 @@ func (b *InMemoryBackend) PostCommentForPullRequest(prID, repoName, content stri
 		PRid:             prID,
 		RepoName:         repoName,
 	}
-	b.comments[c.CommentID] = c
+	b.comments.Put(c)
 	cp := *c
 
 	return &cp, nil
@@ -627,7 +636,7 @@ func (b *InMemoryBackend) PostCommentReply(inReplyTo, content string) (*Comment,
 	b.mu.Lock("PostCommentReply")
 	defer b.mu.Unlock()
 
-	if _, ok := b.comments[inReplyTo]; !ok {
+	if !b.comments.Has(inReplyTo) {
 		return nil, fmt.Errorf("%w: comment %s not found", ErrNotFound, inReplyTo)
 	}
 
@@ -639,7 +648,7 @@ func (b *InMemoryBackend) PostCommentReply(inReplyTo, content string) (*Comment,
 		LastModifiedDate: now,
 		InReplyTo:        inReplyTo,
 	}
-	b.comments[c.CommentID] = c
+	b.comments.Put(c)
 	cp := *c
 
 	return &cp, nil
@@ -650,7 +659,7 @@ func (b *InMemoryBackend) GetComment(commentID string) (*Comment, error) {
 	b.mu.RLock("GetComment")
 	defer b.mu.RUnlock()
 
-	c, ok := b.comments[commentID]
+	c, ok := b.comments.Get(commentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
 	}
@@ -664,7 +673,7 @@ func (b *InMemoryBackend) GetCommentReactions(commentID string) ([]Reaction, err
 	b.mu.RLock("GetCommentReactions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.comments[commentID]; !ok {
+	if !b.comments.Has(commentID) {
 		return nil, fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
 	}
 
@@ -680,12 +689,12 @@ func (b *InMemoryBackend) GetCommentsForComparedCommit(repoName, afterCommitID s
 	b.mu.RLock("GetCommentsForComparedCommit")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
 	var result []*Comment
-	for _, c := range b.comments {
+	for _, c := range b.comments.All() {
 		if c.RepoName == repoName && c.AfterCommitID == afterCommitID {
 			cp := *c
 			result = append(result, &cp)
@@ -700,12 +709,12 @@ func (b *InMemoryBackend) GetCommentsForPullRequest(prID string) ([]*Comment, er
 	b.mu.RLock("GetCommentsForPullRequest")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pullRequests[prID]; !ok {
+	if !b.pullRequests.Has(prID) {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
 
 	var result []*Comment
-	for _, c := range b.comments {
+	for _, c := range b.comments.All() {
 		if c.PRid == prID {
 			cp := *c
 			result = append(result, &cp)
@@ -720,7 +729,7 @@ func (b *InMemoryBackend) PutCommentReaction(commentID, emoji string) error {
 	b.mu.Lock("PutCommentReaction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.comments[commentID]; !ok {
+	if !b.comments.Has(commentID) {
 		return fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
 	}
 	b.commentReactions[commentID] = append(b.commentReactions[commentID], Reaction{Emoji: emoji})
@@ -733,7 +742,7 @@ func (b *InMemoryBackend) UpdateComment(commentID, content string) error {
 	b.mu.Lock("UpdateComment")
 	defer b.mu.Unlock()
 
-	c, ok := b.comments[commentID]
+	c, ok := b.comments.Get(commentID)
 	if !ok {
 		return fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
 	}
@@ -748,7 +757,7 @@ func (b *InMemoryBackend) DeleteCommentContent(commentID string) error {
 	b.mu.Lock("DeleteCommentContent")
 	defer b.mu.Unlock()
 
-	c, ok := b.comments[commentID]
+	c, ok := b.comments.Get(commentID)
 	if !ok {
 		return fmt.Errorf("%w: comment %s not found", ErrNotFound, commentID)
 	}
@@ -766,21 +775,19 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 	b.mu.Lock("PutFile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
 	blobID := uuid.NewString()
-	if b.files[repoName] == nil {
-		b.files[repoName] = make(map[string]*File)
-	}
-	b.files[repoName][filePath] = &File{
+	b.files.Put(&File{
 		FilePath:        filePath,
 		CommitSpecifier: branchName,
 		BlobID:          blobID,
 		FileMode:        fileModeDefault,
 		FileContent:     content,
-	}
+		RepoName:        repoName,
+	})
 
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
@@ -792,21 +799,15 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 		RepositoryName: repoName,
 		CreatedAt:      now,
 	}
-	if b.commits[repoName] == nil {
-		b.commits[repoName] = make(map[string]*Commit)
-	}
-	b.commits[repoName][commitID] = commit
+	b.commits.Put(commit)
 
 	// Update branch tip
 	if branchName != "" {
-		if b.branches[repoName] == nil {
-			b.branches[repoName] = make(map[string]*Branch)
-		}
-		b.branches[repoName][branchName] = &Branch{
+		b.branches.Put(&Branch{
 			BranchName:     branchName,
 			CommitID:       commitID,
 			RepositoryName: repoName,
-		}
+		})
 	}
 
 	cp := *commit
@@ -819,16 +820,11 @@ func (b *InMemoryBackend) GetFile(repoName, _ /* commitSpecifier */, filePath st
 	b.mu.RLock("GetFile")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoFiles := b.files[repoName]
-	if repoFiles == nil {
-		return nil, fmt.Errorf("%w: file %s not found", ErrNotFound, filePath)
-	}
-
-	f, ok := repoFiles[filePath]
+	f, ok := b.files.Get(fileKey(repoName, filePath))
 	if !ok {
 		return nil, fmt.Errorf("%w: file %s not found", ErrNotFound, filePath)
 	}
@@ -842,17 +838,18 @@ func (b *InMemoryBackend) GetFolder(repoName, _ /* commitSpecifier */, folderPat
 	b.mu.RLock("GetFolder")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoFiles := b.files[repoName]
+	repoFiles := b.filesByRepo.Get(repoName)
 	var paths []string
 	prefix := folderPath
 	if prefix != "" && prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
-	for fp := range repoFiles {
+	for _, f := range repoFiles {
+		fp := f.FilePath
 		if prefix == "" || fp == folderPath || len(fp) > len(prefix) && fp[:len(prefix)] == prefix {
 			paths = append(paths, fp)
 		}
@@ -868,17 +865,18 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, fold
 	b.mu.RLock("GetFolderFiles")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoFiles := b.files[repoName]
+	repoFiles := b.filesByRepo.Get(repoName)
 	var files []*File
 	prefix := folderPath
 	if prefix != "" && prefix[len(prefix)-1] != '/' {
 		prefix += "/"
 	}
-	for fp, f := range repoFiles {
+	for _, f := range repoFiles {
+		fp := f.FilePath
 		if prefix == "" || fp == folderPath || len(fp) > len(prefix) && fp[:len(prefix)] == prefix {
 			cp := *f
 			files = append(files, &cp)
@@ -896,13 +894,11 @@ func (b *InMemoryBackend) DeleteFile(repoName, branchName, filePath, _ /* parent
 	b.mu.Lock("DeleteFile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	if b.files[repoName] != nil {
-		delete(b.files[repoName], filePath)
-	}
+	b.files.Delete(fileKey(repoName, filePath))
 
 	commitID := uuid.NewString()
 	treeID := uuid.NewString()
@@ -914,21 +910,15 @@ func (b *InMemoryBackend) DeleteFile(repoName, branchName, filePath, _ /* parent
 		RepositoryName: repoName,
 		CreatedAt:      now,
 	}
-	if b.commits[repoName] == nil {
-		b.commits[repoName] = make(map[string]*Commit)
-	}
-	b.commits[repoName][commitID] = commit
+	b.commits.Put(commit)
 
 	// Update branch tip
 	if branchName != "" {
-		if b.branches[repoName] == nil {
-			b.branches[repoName] = make(map[string]*Branch)
-		}
-		b.branches[repoName][branchName] = &Branch{
+		b.branches.Put(&Branch{
 			BranchName:     branchName,
 			CommitID:       commitID,
 			RepositoryName: repoName,
-		}
+		})
 	}
 
 	cp := *commit
@@ -943,7 +933,7 @@ func (b *InMemoryBackend) GetRepositoryTriggers(repoName string) ([]RepositoryTr
 	b.mu.RLock("GetRepositoryTriggers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -959,7 +949,7 @@ func (b *InMemoryBackend) PutRepositoryTriggers(repoName string, triggers []Repo
 	b.mu.Lock("PutRepositoryTriggers")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -974,7 +964,7 @@ func (b *InMemoryBackend) TestRepositoryTriggers(repoName string) ([]string, err
 	b.mu.RLock("TestRepositoryTriggers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -996,7 +986,7 @@ func (b *InMemoryBackend) MergePullRequestByFastForward(
 	b.mu.Lock("MergePullRequestByFastForward")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -1017,7 +1007,7 @@ func (b *InMemoryBackend) MergePullRequestBySquash(
 	b.mu.Lock("MergePullRequestBySquash")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -1038,7 +1028,7 @@ func (b *InMemoryBackend) MergePullRequestByThreeWay(
 	b.mu.Lock("MergePullRequestByThreeWay")
 	defer b.mu.Unlock()
 
-	pr, ok := b.pullRequests[prID]
+	pr, ok := b.pullRequests.Get(prID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pull request %s not found", ErrPullRequestNotFound, prID)
 	}
@@ -1057,7 +1047,7 @@ func (b *InMemoryBackend) MergeBranchesByFastForward(repoName, sourceRef, destin
 	b.mu.Lock("MergeBranchesByFastForward")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -1071,20 +1061,14 @@ func (b *InMemoryBackend) MergeBranchesByFastForward(repoName, sourceRef, destin
 		RepositoryName: repoName,
 		CreatedAt:      now,
 	}
-	if b.commits[repoName] == nil {
-		b.commits[repoName] = make(map[string]*Commit)
-	}
-	b.commits[repoName][commitID] = commit
+	b.commits.Put(commit)
 
 	// Update destination branch tip
-	if b.branches[repoName] == nil {
-		b.branches[repoName] = make(map[string]*Branch)
-	}
-	b.branches[repoName][destinationRef] = &Branch{
+	b.branches.Put(&Branch{
 		BranchName:     destinationRef,
 		CommitID:       commitID,
 		RepositoryName: repoName,
-	}
+	})
 
 	cp := *commit
 
@@ -1098,7 +1082,7 @@ func (b *InMemoryBackend) GetMergeOptions(
 	b.mu.RLock("GetMergeOptions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -1112,11 +1096,11 @@ func (b *InMemoryBackend) GetBlob(repoName, blobID string) ([]byte, error) {
 	b.mu.RLock("GetBlob")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoFiles := b.files[repoName]
+	repoFiles := b.filesByRepo.Get(repoName)
 	for _, f := range repoFiles {
 		if f.BlobID == blobID {
 			result := make([]byte, len(f.FileContent))
@@ -1135,13 +1119,12 @@ func (b *InMemoryBackend) ListFileCommitHistory(repoName, filePath string) ([]*C
 	b.mu.RLock("ListFileCommitHistory")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoCommits := b.commits[repoName]
-
 	if filePath == "" {
+		repoCommits := b.commitsByRepo.Get(repoName)
 		result := make([]*Commit, 0, len(repoCommits))
 		for _, c := range repoCommits {
 			cp := *c
@@ -1161,7 +1144,7 @@ func (b *InMemoryBackend) ListFileCommitHistory(repoName, filePath string) ([]*C
 
 	result := make([]*Commit, 0, len(commitIDs))
 	for _, commitID := range commitIDs {
-		c, exists := repoCommits[commitID]
+		c, exists := b.commits.Get(commitKey(repoName, commitID))
 		if !exists {
 			continue
 		}
@@ -1181,7 +1164,7 @@ func (b *InMemoryBackend) CreateUnreferencedMergeCommit(
 	b.mu.Lock("CreateUnreferencedMergeCommit")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -1196,10 +1179,7 @@ func (b *InMemoryBackend) CreateUnreferencedMergeCommit(
 		Parents:        []string{sourceCommitID, destinationCommitID},
 		CreatedAt:      now,
 	}
-	if b.commits[repoName] == nil {
-		b.commits[repoName] = make(map[string]*Commit)
-	}
-	b.commits[repoName][commitID] = commit
+	b.commits.Put(commit)
 	cp := *commit
 	cp.Parents = make([]string, len(commit.Parents))
 	copy(cp.Parents, commit.Parents)
@@ -1215,11 +1195,11 @@ func (b *InMemoryBackend) GetMergeCommit(
 	b.mu.RLock("GetMergeCommit")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoCommits := b.commits[repoName]
+	repoCommits := b.commitsByRepo.Get(repoName)
 
 	// Prefer a commit whose parents include both specifiers (real merge commit shape).
 	for _, c := range repoCommits {
@@ -1266,7 +1246,7 @@ func (b *InMemoryBackend) GetMergeConflicts(
 	b.mu.RLock("GetMergeConflicts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return false, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
@@ -1279,11 +1259,11 @@ func (b *InMemoryBackend) GetDifferences(repoName, afterCommitSpecifier, _ strin
 	b.mu.RLock("GetDifferences")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositories[repoName]; !ok {
+	if !b.repositories.Has(repoName) {
 		return nil, fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
 	}
 
-	repoFiles := b.files[repoName]
+	repoFiles := b.filesByRepo.Get(repoName)
 	if len(repoFiles) == 0 {
 		return []FileDifference{}, nil
 	}

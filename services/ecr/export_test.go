@@ -9,12 +9,12 @@ func (b *InMemoryBackend) CreateRepoInternal(repositoryName string) {
 	b.mu.Lock("CreateRepoInternal")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repos[repositoryName]; !ok {
-		b.repos[repositoryName] = &Repository{
+	if !b.repos.Has(repositoryName) {
+		b.repos.Put(&Repository{
 			RepositoryName:     repositoryName,
 			RegistryID:         b.accountID,
 			ImageTagMutability: "MUTABLE",
-		}
+		})
 	}
 }
 
@@ -24,13 +24,7 @@ func (b *InMemoryBackend) ImageCount() int {
 	b.mu.RLock("ImageCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, imgs := range b.images {
-		total += len(imgs)
-	}
-
-	return total
+	return b.images.Len()
 }
 
 // PullThroughCacheRuleCount returns the number of pull-through cache rules stored.
@@ -38,7 +32,7 @@ func (b *InMemoryBackend) PullThroughCacheRuleCount() int {
 	b.mu.RLock("PullThroughCacheRuleCount")
 	defer b.mu.RUnlock()
 
-	return len(b.pullThroughCacheRules)
+	return b.pullThroughCacheRules.Len()
 }
 
 // RepositoryCreationTemplateCount returns the number of repository creation templates stored.
@@ -46,7 +40,7 @@ func (b *InMemoryBackend) RepositoryCreationTemplateCount() int {
 	b.mu.RLock("RepositoryCreationTemplateCount")
 	defer b.mu.RUnlock()
 
-	return len(b.repositoryCreationTemplates)
+	return b.repositoryCreationTemplates.Len()
 }
 
 // RepositoryCount returns the number of repositories.
@@ -55,7 +49,7 @@ func (b *InMemoryBackend) RepositoryCount() int {
 	b.mu.RLock("RepositoryCount")
 	defer b.mu.RUnlock()
 
-	return len(b.repos)
+	return b.repos.Len()
 }
 
 // LifecyclePolicyCount returns the number of lifecycle policies stored.
@@ -63,7 +57,7 @@ func (b *InMemoryBackend) LifecyclePolicyCount() int {
 	b.mu.RLock("LifecyclePolicyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.lifecyclePolicies)
+	return b.lifecyclePolicies.Len()
 }
 
 // UploadedLayerCount returns the total number of uploaded layers.
@@ -142,7 +136,7 @@ func (b *InMemoryBackend) RepoImageCount(repositoryName string) int {
 	b.mu.RLock("RepoImageCount")
 	defer b.mu.RUnlock()
 
-	return len(b.images[repositoryName])
+	return len(b.imagesByRepo.Get(repositoryName))
 }
 
 // HasImageDigest reports whether an image with the given digest exists in the repo.
@@ -150,9 +144,7 @@ func (b *InMemoryBackend) HasImageDigest(repositoryName, digest string) bool {
 	b.mu.RLock("HasImageDigest")
 	defer b.mu.RUnlock()
 
-	_, ok := b.images[repositoryName][digest]
-
-	return ok
+	return b.images.Has(imageTableKey(repositoryName, digest))
 }
 
 // LifecycleLastEvaluatedForTest returns the recorded lifecycle evaluation time
@@ -179,7 +171,7 @@ func (b *InMemoryBackend) AgeImageForTest(repositoryName, digest string, d time.
 	b.mu.Lock("AgeImageForTest")
 	defer b.mu.Unlock()
 
-	if img, ok := b.images[repositoryName][digest]; ok {
+	if img, ok := b.images.Get(imageTableKey(repositoryName, digest)); ok {
 		img.ImagePushedAt = img.ImagePushedAt.Add(-d)
 	}
 }

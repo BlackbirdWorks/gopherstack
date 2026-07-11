@@ -3,6 +3,7 @@ package route53resolver
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -165,18 +167,24 @@ type TargetIP struct {
 
 // FirewallRuleGroup represents a DNS Firewall rule group.
 type FirewallRuleGroup struct {
-	ID               string       `json:"id"`
-	ARN              string       `json:"arn"`
-	Name             string       `json:"name"`
-	CreatorRequestID string       `json:"creatorRequestId"`
-	Status           string       `json:"status"`
-	StatusMessage    string       `json:"statusMessage,omitempty"`
-	OwnerID          string       `json:"ownerId"`
-	ShareStatus      string       `json:"shareStatus"`
-	CreationTime     string       `json:"creationTime,omitempty"`
-	ModificationTime string       `json:"modificationTime,omitempty"`
-	Tags             []svcTags.KV `json:"tags,omitempty"`
-	RuleCount        int32        `json:"ruleCount"`
+	ID               string `json:"id"`
+	ARN              string `json:"arn"`
+	Name             string `json:"name"`
+	CreatorRequestID string `json:"creatorRequestId"`
+	Status           string `json:"status"`
+	StatusMessage    string `json:"statusMessage,omitempty"`
+	OwnerID          string `json:"ownerId"`
+	ShareStatus      string `json:"shareStatus"`
+	CreationTime     string `json:"creationTime,omitempty"`
+	ModificationTime string `json:"modificationTime,omitempty"`
+	// Region is the AWS region this rule group belongs to. It is not part of
+	// the wire response (handler.go builds a separate response type) -- it
+	// exists purely so store.Table's key function (see store_setup.go) can
+	// derive the region-scoped composite key ("<region>|<id>") that replaces
+	// the old map[region]map[id]*FirewallRuleGroup nesting.
+	Region    string       `json:"region"`
+	Tags      []svcTags.KV `json:"tags,omitempty"`
+	RuleCount int32        `json:"ruleCount"`
 }
 
 // FirewallRuleGroupAssociation represents an association between a rule group and a VPC.
@@ -193,20 +201,24 @@ type FirewallRuleGroupAssociation struct {
 	CreatorRequestID    string `json:"creatorRequestId,omitempty"`
 	CreationTime        string `json:"creationTime,omitempty"`
 	ModificationTime    string `json:"modificationTime,omitempty"`
-	Priority            int32  `json:"priority"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region   string `json:"region"`
+	Priority int32  `json:"priority"`
 }
 
 // FirewallDomainList represents a DNS Firewall domain list.
 type FirewallDomainList struct {
-	ID               string       `json:"id"`
-	ARN              string       `json:"arn"`
-	Name             string       `json:"name"`
-	CreatorRequestID string       `json:"creatorRequestId"`
-	Status           string       `json:"status"`
-	ManagedOwnerName string       `json:"managedOwnerName,omitempty"`
-	Tags             []svcTags.KV `json:"tags,omitempty"`
-	Domains          []string     `json:"domains,omitempty"`
-	DomainCount      int32        `json:"domainCount"`
+	ID               string `json:"id"`
+	ARN              string `json:"arn"`
+	Name             string `json:"name"`
+	CreatorRequestID string `json:"creatorRequestId"`
+	Status           string `json:"status"`
+	ManagedOwnerName string `json:"managedOwnerName,omitempty"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region      string       `json:"region"`
+	Tags        []svcTags.KV `json:"tags,omitempty"`
+	Domains     []string     `json:"domains,omitempty"`
+	DomainCount int32        `json:"domainCount"`
 }
 
 // FirewallRule represents a single rule within a DNS Firewall rule group.
@@ -225,34 +237,40 @@ type FirewallRule struct {
 	CreatorRequestID     string `json:"creatorRequestId,omitempty"`
 	CreationTime         string `json:"creationTime,omitempty"`
 	ModificationTime     string `json:"modificationTime,omitempty"`
-	BlockOverrideTTL     int32  `json:"blockOverrideTtl,omitempty"`
-	Priority             int32  `json:"priority"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region           string `json:"region"`
+	BlockOverrideTTL int32  `json:"blockOverrideTtl,omitempty"`
+	Priority         int32  `json:"priority"`
 }
 
 // OutpostResolver represents a Resolver on an Outpost.
 type OutpostResolver struct {
-	ID                    string       `json:"id"`
-	ARN                   string       `json:"arn"`
-	Name                  string       `json:"name"`
-	CreatorRequestID      string       `json:"creatorRequestId"`
-	OutpostARN            string       `json:"outpostArn"`
-	PreferredInstanceType string       `json:"preferredInstanceType"`
-	Status                string       `json:"status"`
-	Tags                  []svcTags.KV `json:"tags,omitempty"`
-	InstanceCount         int32        `json:"instanceCount"`
+	ID                    string `json:"id"`
+	ARN                   string `json:"arn"`
+	Name                  string `json:"name"`
+	CreatorRequestID      string `json:"creatorRequestId"`
+	OutpostARN            string `json:"outpostArn"`
+	PreferredInstanceType string `json:"preferredInstanceType"`
+	Status                string `json:"status"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region        string       `json:"region"`
+	Tags          []svcTags.KV `json:"tags,omitempty"`
+	InstanceCount int32        `json:"instanceCount"`
 }
 
 // ResolverQueryLogConfig represents a query logging configuration.
 type ResolverQueryLogConfig struct {
-	ID               string       `json:"id"`
-	ARN              string       `json:"arn"`
-	Name             string       `json:"name"`
-	CreatorRequestID string       `json:"creatorRequestId"`
-	DestinationARN   string       `json:"destinationArn"`
-	Status           string       `json:"status"`
-	OwnerID          string       `json:"ownerId"`
-	ShareStatus      string       `json:"shareStatus"`
-	CreationTime     string       `json:"creationTime,omitempty"`
+	ID               string `json:"id"`
+	ARN              string `json:"arn"`
+	Name             string `json:"name"`
+	CreatorRequestID string `json:"creatorRequestId"`
+	DestinationARN   string `json:"destinationArn"`
+	Status           string `json:"status"`
+	OwnerID          string `json:"ownerId"`
+	ShareStatus      string `json:"shareStatus"`
+	CreationTime     string `json:"creationTime,omitempty"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region           string       `json:"region"`
 	Tags             []svcTags.KV `json:"tags,omitempty"`
 	AssociationCount int32        `json:"associationCount"`
 }
@@ -266,6 +284,8 @@ type ResolverQueryLogConfigAssociation struct {
 	Error                    string `json:"error,omitempty"`
 	ErrorMessage             string `json:"errorMessage,omitempty"`
 	CreationTime             string `json:"creationTime,omitempty"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region string `json:"region"`
 }
 
 // ResolverRuleAssociation represents an association between a Resolver rule and a VPC.
@@ -275,6 +295,8 @@ type ResolverRuleAssociation struct {
 	ResolverRuleID string `json:"resolverRuleId"`
 	VPCID          string `json:"vpcId"`
 	Status         string `json:"status"`
+	// Region -- see FirewallRuleGroup.Region doc comment.
+	Region string `json:"region"`
 }
 
 // FirewallConfig represents the DNS Firewall configuration for a VPC.
@@ -283,6 +305,9 @@ type FirewallConfig struct {
 	OwnerID          string `json:"ownerId"`
 	ResourceID       string `json:"resourceId"`
 	FirewallFailOpen string `json:"firewallFailOpen"`
+	// Region -- see FirewallRuleGroup.Region doc comment. FirewallConfig is
+	// keyed by ResourceID (not ID) in the firewallConfigs table.
+	Region string `json:"region"`
 }
 
 // ResolverConfig represents the Resolver configuration for a VPC.
@@ -292,6 +317,8 @@ type ResolverConfig struct {
 	OwnerID            string `json:"ownerId"`
 	ResourceID         string `json:"resourceId"`
 	AutodefinedReverse string `json:"autodefinedReverse"`
+	// Region -- see FirewallConfig.Region doc comment; also keyed by ResourceID.
+	Region string `json:"region"`
 }
 
 // ResolverDnssecConfig represents the DNSSEC configuration for a VPC.
@@ -300,54 +327,81 @@ type ResolverDnssecConfig struct {
 	OwnerID          string `json:"ownerId"`
 	ResourceID       string `json:"resourceId"`
 	ValidationStatus string `json:"validationStatus"`
+	// Region -- see FirewallConfig.Region doc comment; also keyed by ResourceID.
+	Region string `json:"region"`
+}
+
+// regionalKey builds the composite key used by every region-scoped
+// store.Table below: id is unique only within a region (AWS resource IDs
+// across route53resolver are not globally namespaced), so the primary key
+// must fold the region in the same way the old map[region]map[id]*T nesting
+// kept regions isolated. See store_setup.go for the per-type key functions
+// built on top of this.
+func regionalKey(region, id string) string {
+	return region + "|" + id
 }
 
 type InMemoryBackend struct {
-	endpoints                     map[string]map[string]*ResolverEndpoint
-	rules                         map[string]map[string]*ResolverRule
-	tags                          map[string]map[string][]svcTags.KV
-	firewallRuleGroups            map[string]map[string]*FirewallRuleGroup
-	firewallRuleGroupAssociations map[string]map[string]*FirewallRuleGroupAssociation
-	firewallDomainLists           map[string]map[string]*FirewallDomainList
-	firewallRules                 map[string]map[string]*FirewallRule
-	outpostResolvers              map[string]map[string]*OutpostResolver
-	queryLogConfigs               map[string]map[string]*ResolverQueryLogConfig
-	queryLogConfigAssociations    map[string]map[string]*ResolverQueryLogConfigAssociation
-	ruleAssociations              map[string]map[string]*ResolverRuleAssociation
-	firewallConfigs               map[string]map[string]*FirewallConfig
-	resolverConfigs               map[string]map[string]*ResolverConfig
-	resolverDnssecConfigs         map[string]map[string]*ResolverDnssecConfig
-	firewallRuleGroupPolicies     map[string]map[string]string
-	queryLogConfigPolicies        map[string]map[string]string
-	resolverRulePolicies          map[string]map[string]string
-	mu                            *lockmetrics.RWMutex
-	accountID                     string
-	region                        string
+	// registry lets Reset collapse every table's lifecycle to one call
+	// (registry.ResetAll()) instead of hand-rolled re-initialization of each
+	// map. See store_setup.go for the full set of registrations.
+	registry                              *store.Registry
+	endpoints                             *store.Table[ResolverEndpoint]
+	endpointsByRegion                     *store.Index[ResolverEndpoint]
+	rules                                 *store.Table[ResolverRule]
+	rulesByRegion                         *store.Index[ResolverRule]
+	firewallRuleGroups                    *store.Table[FirewallRuleGroup]
+	firewallRuleGroupsByRegion            *store.Index[FirewallRuleGroup]
+	firewallRuleGroupAssociations         *store.Table[FirewallRuleGroupAssociation]
+	firewallRuleGroupAssociationsByRegion *store.Index[FirewallRuleGroupAssociation]
+	firewallDomainLists                   *store.Table[FirewallDomainList]
+	firewallDomainListsByRegion           *store.Index[FirewallDomainList]
+	firewallRules                         *store.Table[FirewallRule]
+	firewallRulesByRegion                 *store.Index[FirewallRule]
+	outpostResolvers                      *store.Table[OutpostResolver]
+	outpostResolversByRegion              *store.Index[OutpostResolver]
+	queryLogConfigs                       *store.Table[ResolverQueryLogConfig]
+	queryLogConfigsByRegion               *store.Index[ResolverQueryLogConfig]
+	queryLogConfigAssociations            *store.Table[ResolverQueryLogConfigAssociation]
+	queryLogConfigAssociationsByRegion    *store.Index[ResolverQueryLogConfigAssociation]
+	ruleAssociations                      *store.Table[ResolverRuleAssociation]
+	ruleAssociationsByRegion              *store.Index[ResolverRuleAssociation]
+	firewallConfigs                       *store.Table[FirewallConfig]
+	firewallConfigsByRegion               *store.Index[FirewallConfig]
+	resolverConfigs                       *store.Table[ResolverConfig]
+	resolverConfigsByRegion               *store.Index[ResolverConfig]
+	resolverDnssecConfigs                 *store.Table[ResolverDnssecConfig]
+	resolverDnssecConfigsByRegion         *store.Index[ResolverDnssecConfig]
+
+	// The following are deliberately left as plain region-nested maps (not
+	// store.Table): their values are not *T (svcTags.KV slices and bare
+	// policy-document strings), which store.Table's map[string]*V shape does
+	// not fit. See store_setup.go's file doc comment for the full rationale.
+	tags                      map[string]map[string][]svcTags.KV
+	firewallRuleGroupPolicies map[string]map[string]string
+	queryLogConfigPolicies    map[string]map[string]string
+	resolverRulePolicies      map[string]map[string]string
+
+	mu        *lockmetrics.RWMutex
+	accountID string
+	region    string
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		endpoints:                     make(map[string]map[string]*ResolverEndpoint),
-		rules:                         make(map[string]map[string]*ResolverRule),
-		tags:                          make(map[string]map[string][]svcTags.KV),
-		firewallRuleGroups:            make(map[string]map[string]*FirewallRuleGroup),
-		firewallRuleGroupAssociations: make(map[string]map[string]*FirewallRuleGroupAssociation),
-		firewallDomainLists:           make(map[string]map[string]*FirewallDomainList),
-		firewallRules:                 make(map[string]map[string]*FirewallRule),
-		outpostResolvers:              make(map[string]map[string]*OutpostResolver),
-		queryLogConfigs:               make(map[string]map[string]*ResolverQueryLogConfig),
-		queryLogConfigAssociations:    make(map[string]map[string]*ResolverQueryLogConfigAssociation),
-		ruleAssociations:              make(map[string]map[string]*ResolverRuleAssociation),
-		firewallConfigs:               make(map[string]map[string]*FirewallConfig),
-		resolverConfigs:               make(map[string]map[string]*ResolverConfig),
-		resolverDnssecConfigs:         make(map[string]map[string]*ResolverDnssecConfig),
-		firewallRuleGroupPolicies:     make(map[string]map[string]string),
-		queryLogConfigPolicies:        make(map[string]map[string]string),
-		resolverRulePolicies:          make(map[string]map[string]string),
-		accountID:                     accountID,
-		region:                        region,
-		mu:                            lockmetrics.New("route53resolver"),
+	b := &InMemoryBackend{
+		registry:                  store.NewRegistry(),
+		tags:                      make(map[string]map[string][]svcTags.KV),
+		firewallRuleGroupPolicies: make(map[string]map[string]string),
+		queryLogConfigPolicies:    make(map[string]map[string]string),
+		resolverRulePolicies:      make(map[string]map[string]string),
+		accountID:                 accountID,
+		region:                    region,
+		mu:                        lockmetrics.New("route53resolver"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -361,42 +415,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.endpoints = make(map[string]map[string]*ResolverEndpoint)
-	b.rules = make(map[string]map[string]*ResolverRule)
+	b.registry.ResetAll()
+
 	b.tags = make(map[string]map[string][]svcTags.KV)
-	b.firewallRuleGroups = make(map[string]map[string]*FirewallRuleGroup)
-	b.firewallRuleGroupAssociations = make(map[string]map[string]*FirewallRuleGroupAssociation)
-	b.firewallDomainLists = make(map[string]map[string]*FirewallDomainList)
-	b.firewallRules = make(map[string]map[string]*FirewallRule)
-	b.outpostResolvers = make(map[string]map[string]*OutpostResolver)
-	b.queryLogConfigs = make(map[string]map[string]*ResolverQueryLogConfig)
-	b.queryLogConfigAssociations = make(map[string]map[string]*ResolverQueryLogConfigAssociation)
-	b.ruleAssociations = make(map[string]map[string]*ResolverRuleAssociation)
-	b.firewallConfigs = make(map[string]map[string]*FirewallConfig)
-	b.resolverConfigs = make(map[string]map[string]*ResolverConfig)
-	b.resolverDnssecConfigs = make(map[string]map[string]*ResolverDnssecConfig)
 	b.firewallRuleGroupPolicies = make(map[string]map[string]string)
 	b.queryLogConfigPolicies = make(map[string]map[string]string)
 	b.resolverRulePolicies = make(map[string]map[string]string)
 }
 
-// Per-region lazy store helpers.
-
-func (b *InMemoryBackend) endpointsStore(region string) map[string]*ResolverEndpoint {
-	if b.endpoints[region] == nil {
-		b.endpoints[region] = make(map[string]*ResolverEndpoint)
-	}
-
-	return b.endpoints[region]
-}
-
-func (b *InMemoryBackend) rulesStore(region string) map[string]*ResolverRule {
-	if b.rules[region] == nil {
-		b.rules[region] = make(map[string]*ResolverRule)
-	}
-
-	return b.rules[region]
-}
+// Per-region lazy store helpers for the maps left un-converted (see the
+// InMemoryBackend field doc comment above).
 
 func (b *InMemoryBackend) tagsStore(region string) map[string][]svcTags.KV {
 	if b.tags[region] == nil {
@@ -404,94 +432,6 @@ func (b *InMemoryBackend) tagsStore(region string) map[string][]svcTags.KV {
 	}
 
 	return b.tags[region]
-}
-
-func (b *InMemoryBackend) firewallRuleGroupsStore(region string) map[string]*FirewallRuleGroup {
-	if b.firewallRuleGroups[region] == nil {
-		b.firewallRuleGroups[region] = make(map[string]*FirewallRuleGroup)
-	}
-
-	return b.firewallRuleGroups[region]
-}
-
-func (b *InMemoryBackend) firewallRuleGroupAssociationsStore(region string) map[string]*FirewallRuleGroupAssociation {
-	if b.firewallRuleGroupAssociations[region] == nil {
-		b.firewallRuleGroupAssociations[region] = make(map[string]*FirewallRuleGroupAssociation)
-	}
-
-	return b.firewallRuleGroupAssociations[region]
-}
-
-func (b *InMemoryBackend) firewallDomainListsStore(region string) map[string]*FirewallDomainList {
-	if b.firewallDomainLists[region] == nil {
-		b.firewallDomainLists[region] = make(map[string]*FirewallDomainList)
-	}
-
-	return b.firewallDomainLists[region]
-}
-
-func (b *InMemoryBackend) firewallRulesStore(region string) map[string]*FirewallRule {
-	if b.firewallRules[region] == nil {
-		b.firewallRules[region] = make(map[string]*FirewallRule)
-	}
-
-	return b.firewallRules[region]
-}
-
-func (b *InMemoryBackend) outpostResolversStore(region string) map[string]*OutpostResolver {
-	if b.outpostResolvers[region] == nil {
-		b.outpostResolvers[region] = make(map[string]*OutpostResolver)
-	}
-
-	return b.outpostResolvers[region]
-}
-
-func (b *InMemoryBackend) queryLogConfigsStore(region string) map[string]*ResolverQueryLogConfig {
-	if b.queryLogConfigs[region] == nil {
-		b.queryLogConfigs[region] = make(map[string]*ResolverQueryLogConfig)
-	}
-
-	return b.queryLogConfigs[region]
-}
-
-func (b *InMemoryBackend) queryLogConfigAssociationsStore(region string) map[string]*ResolverQueryLogConfigAssociation {
-	if b.queryLogConfigAssociations[region] == nil {
-		b.queryLogConfigAssociations[region] = make(map[string]*ResolverQueryLogConfigAssociation)
-	}
-
-	return b.queryLogConfigAssociations[region]
-}
-
-func (b *InMemoryBackend) ruleAssociationsStore(region string) map[string]*ResolverRuleAssociation {
-	if b.ruleAssociations[region] == nil {
-		b.ruleAssociations[region] = make(map[string]*ResolverRuleAssociation)
-	}
-
-	return b.ruleAssociations[region]
-}
-
-func (b *InMemoryBackend) firewallConfigsStore(region string) map[string]*FirewallConfig {
-	if b.firewallConfigs[region] == nil {
-		b.firewallConfigs[region] = make(map[string]*FirewallConfig)
-	}
-
-	return b.firewallConfigs[region]
-}
-
-func (b *InMemoryBackend) resolverConfigsStore(region string) map[string]*ResolverConfig {
-	if b.resolverConfigs[region] == nil {
-		b.resolverConfigs[region] = make(map[string]*ResolverConfig)
-	}
-
-	return b.resolverConfigs[region]
-}
-
-func (b *InMemoryBackend) resolverDnssecConfigsStore(region string) map[string]*ResolverDnssecConfig {
-	if b.resolverDnssecConfigs[region] == nil {
-		b.resolverDnssecConfigs[region] = make(map[string]*ResolverDnssecConfig)
-	}
-
-	return b.resolverDnssecConfigs[region]
 }
 
 func (b *InMemoryBackend) firewallRuleGroupPoliciesStore(region string) map[string]string {
@@ -606,7 +546,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		CreationTime:          now,
 		ModificationTime:      now,
 	}
-	b.endpointsStore(region)[id] = ep
+	b.endpoints.Put(ep)
 
 	return cloneEndpoint(ep), nil
 }
@@ -617,7 +557,7 @@ func (b *InMemoryBackend) ListResolverEndpointIPAddresses(ctx context.Context, e
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	ep, ok := b.endpointsStore(region)[endpointID]
+	ep, ok := b.endpoints.Get(regionalKey(region, endpointID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
 	}
@@ -632,7 +572,7 @@ func (b *InMemoryBackend) GetResolverEndpoint(ctx context.Context, id string) (*
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	ep, ok := b.endpointsStore(region)[id]
+	ep, ok := b.endpoints.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
@@ -645,9 +585,9 @@ func (b *InMemoryBackend) ListResolverEndpoints(ctx context.Context) []*Resolver
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.endpointsStore(region)
-	list := make([]*ResolverEndpoint, 0, len(store))
-	for _, ep := range store {
+	regionEps := b.endpointsByRegion.Get(region)
+	list := make([]*ResolverEndpoint, 0, len(regionEps))
+	for _, ep := range regionEps {
 		list = append(list, cloneEndpoint(ep))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
@@ -660,39 +600,39 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(ctx context.Context, id string)
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	eps := b.endpointsStore(region)
-	ep, ok := eps[id]
+	ep, ok := b.endpoints.Get(regionalKey(region, id))
 	if !ok {
 		return fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
 
 	tags := b.tagsStore(region)
-	rules := b.rulesStore(region)
-	ruleAssocs := b.ruleAssociationsStore(region)
 
 	// Clean up tags.
 	delete(tags, ep.ARN)
 
-	toDelete := make([]string, 0, len(rules))
-	for ruleID, r := range rules {
-		if r.ResolverEndpointID == id {
-			toDelete = append(toDelete, ruleID)
+	// Cascade: delete rules belonging to this endpoint, plus their tags and
+	// rule associations. slices.Clone before deleting in the loop: Table.Delete
+	// mutates the byRegion index in place, so iterating the live index result
+	// directly while deleting from it would be unsafe.
+	regionRules := slices.Clone(b.rulesByRegion.Get(region))
+	for _, r := range regionRules {
+		if r.ResolverEndpointID != id {
+			continue
 		}
-	}
-	for _, ruleID := range toDelete {
-		// Cascade: delete tags and all rule associations referencing this rule.
-		if rule, exists := rules[ruleID]; exists {
-			delete(tags, rule.ARN)
-		}
-		for assocID, assoc := range ruleAssocs {
-			if assoc.ResolverRuleID == ruleID {
-				delete(ruleAssocs, assocID)
+
+		delete(tags, r.ARN)
+
+		regionAssocs := slices.Clone(b.ruleAssociationsByRegion.Get(region))
+		for _, assoc := range regionAssocs {
+			if assoc.ResolverRuleID == r.ID {
+				b.ruleAssociations.Delete(regionalKey(region, assoc.ID))
 			}
 		}
-		delete(rules, ruleID)
+
+		b.rules.Delete(regionalKey(region, r.ID))
 	}
 
-	delete(eps, id)
+	b.endpoints.Delete(regionalKey(region, id))
 
 	return nil
 }
@@ -745,7 +685,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 	}
 
 	if endpointID != "" {
-		if _, ok := b.endpointsStore(region)[endpointID]; !ok {
+		if !b.endpoints.Has(regionalKey(region, endpointID)) {
 			return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
 		}
 	}
@@ -776,7 +716,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 		CreationTime:       now,
 		ModificationTime:   now,
 	}
-	b.rulesStore(region)[id] = r
+	b.rules.Put(r)
 	cp := cloneRule(r)
 
 	return cp, nil
@@ -787,7 +727,7 @@ func (b *InMemoryBackend) GetResolverRule(ctx context.Context, id string) (*Reso
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	r, ok := b.rulesStore(region)[id]
+	r, ok := b.rules.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
 	}
@@ -800,9 +740,9 @@ func (b *InMemoryBackend) ListResolverRules(ctx context.Context) []*ResolverRule
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.rulesStore(region)
-	list := make([]*ResolverRule, 0, len(store))
-	for _, r := range store {
+	regionRules := b.rulesByRegion.Get(region)
+	list := make([]*ResolverRule, 0, len(regionRules))
+	for _, r := range regionRules {
 		list = append(list, cloneRule(r))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
@@ -815,26 +755,26 @@ func (b *InMemoryBackend) DeleteResolverRule(ctx context.Context, id string) err
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rules := b.rulesStore(region)
-	r, ok := rules[id]
+	r, ok := b.rules.Get(regionalKey(region, id))
 	if !ok {
 		return fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
 	}
 
 	tags := b.tagsStore(region)
-	ruleAssocs := b.ruleAssociationsStore(region)
 
 	// Clean up tags.
 	delete(tags, r.ARN)
 
-	// Cascade: delete all associations referencing this rule.
-	for assocID, assoc := range ruleAssocs {
+	// Cascade: delete all associations referencing this rule. slices.Clone
+	// before deleting in the loop -- see DeleteResolverEndpoint's comment.
+	regionAssocs := slices.Clone(b.ruleAssociationsByRegion.Get(region))
+	for _, assoc := range regionAssocs {
 		if assoc.ResolverRuleID == id {
-			delete(ruleAssocs, assocID)
+			b.ruleAssociations.Delete(regionalKey(region, assoc.ID))
 		}
 	}
 
-	delete(rules, id)
+	b.rules.Delete(regionalKey(region, id))
 
 	return nil
 }
@@ -926,8 +866,9 @@ func (b *InMemoryBackend) CreateFirewallRuleGroup(
 		ShareStatus:      shareStatusNotShared,
 		CreationTime:     now,
 		ModificationTime: now,
+		Region:           region,
 	}
-	b.firewallRuleGroupsStore(region)[id] = g
+	b.firewallRuleGroups.Put(g)
 	cp := *g
 
 	return &cp, nil
@@ -943,9 +884,8 @@ func (b *InMemoryBackend) AssociateFirewallRuleGroup(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	groups := b.firewallRuleGroupsStore(region)
 
-	if _, ok := groups[firewallRuleGroupID]; !ok {
+	if !b.firewallRuleGroups.Has(regionalKey(region, firewallRuleGroupID)) {
 		return nil, fmt.Errorf(
 			"%w: firewall rule group %s not found",
 			ErrNotFound,
@@ -977,8 +917,9 @@ func (b *InMemoryBackend) AssociateFirewallRuleGroup(
 		CreatorRequestID:    creatorRequestID,
 		CreationTime:        now,
 		ModificationTime:    now,
+		Region:              region,
 	}
-	b.firewallRuleGroupAssociationsStore(region)[id] = assoc
+	b.firewallRuleGroupAssociations.Put(assoc)
 	cp := *assoc
 
 	return &cp, nil
@@ -993,7 +934,7 @@ func (b *InMemoryBackend) AssociateResolverEndpointIPAddress(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	ep, ok := b.endpointsStore(region)[endpointID]
+	ep, ok := b.endpoints.Get(regionalKey(region, endpointID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
 	}
@@ -1045,8 +986,9 @@ func (b *InMemoryBackend) CreateResolverQueryLogConfig(
 		OwnerID:          b.accountID,
 		ShareStatus:      shareStatusNotShared,
 		CreationTime:     now,
+		Region:           region,
 	}
-	b.queryLogConfigsStore(region)[id] = cfg
+	b.queryLogConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp, nil
@@ -1071,9 +1013,8 @@ func (b *InMemoryBackend) AssociateResolverQueryLogConfig(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	configs := b.queryLogConfigsStore(region)
-
-	if _, ok := configs[queryLogConfigID]; !ok {
+	cfg, ok := b.queryLogConfigs.Get(regionalKey(region, queryLogConfigID))
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: resolver query log config %s not found",
 			ErrNotFound,
@@ -1089,13 +1030,12 @@ func (b *InMemoryBackend) AssociateResolverQueryLogConfig(
 		ResourceID:               resourceID,
 		Status:                   statusActive,
 		CreationTime:             now,
+		Region:                   region,
 	}
-	b.queryLogConfigAssociationsStore(region)[id] = assoc
+	b.queryLogConfigAssociations.Put(assoc)
 
 	// Increment AssociationCount on the config.
-	if cfg, ok := configs[queryLogConfigID]; ok {
-		cfg.AssociationCount++
-	}
+	cfg.AssociationCount++
 
 	cp := *assoc
 
@@ -1112,7 +1052,7 @@ func (b *InMemoryBackend) AssociateResolverRule(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.rulesStore(region)[resolverRuleID]; !ok {
+	if !b.rules.Has(regionalKey(region, resolverRuleID)) {
 		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, resolverRuleID)
 	}
 
@@ -1123,8 +1063,9 @@ func (b *InMemoryBackend) AssociateResolverRule(
 		ResolverRuleID: resolverRuleID,
 		VPCID:          vpcID,
 		Status:         statusComplete,
+		Region:         region,
 	}
-	b.ruleAssociationsStore(region)[id] = assoc
+	b.ruleAssociations.Put(assoc)
 	cp := *assoc
 
 	return &cp, nil
@@ -1147,8 +1088,9 @@ func (b *InMemoryBackend) CreateFirewallDomainList(
 		Name:             name,
 		CreatorRequestID: creatorRequestID,
 		Status:           statusComplete,
+		Region:           region,
 	}
-	b.firewallDomainListsStore(region)[id] = dl
+	b.firewallDomainLists.Put(dl)
 	cp := *dl
 
 	return &cp, nil
@@ -1160,14 +1102,13 @@ func (b *InMemoryBackend) DeleteFirewallDomainList(ctx context.Context, id strin
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	lists := b.firewallDomainListsStore(region)
-	dl, ok := lists[id]
+	dl, ok := b.firewallDomainLists.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
 	}
 	cp := cloneFirewallDomainList(dl)
 	delete(b.tagsStore(region), dl.ARN)
-	delete(lists, id)
+	b.firewallDomainLists.Delete(regionalKey(region, id))
 
 	return cp, nil
 }
@@ -1194,16 +1135,15 @@ func (b *InMemoryBackend) CreateFirewallRule(ctx context.Context, p CreateFirewa
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	groups := b.firewallRuleGroupsStore(region)
-	rules := b.firewallRulesStore(region)
-
-	if _, ok := groups[p.FirewallRuleGroupID]; !ok {
+	group, ok := b.firewallRuleGroups.Get(regionalKey(region, p.FirewallRuleGroupID))
+	if !ok {
 		return nil, fmt.Errorf(
 			"%w: firewall rule group %s not found",
 			ErrNotFound,
 			p.FirewallRuleGroupID,
 		)
 	}
+	regionRules := b.firewallRulesByRegion.Get(region)
 
 	// Validate BLOCK+OVERRIDE requires BlockOverrideDomain and BlockOverrideDNSType.
 	if p.Action == firewallActionBlock && p.BlockResponse == blockResponseOVERRIDE {
@@ -1224,7 +1164,7 @@ func (b *InMemoryBackend) CreateFirewallRule(ctx context.Context, p CreateFirewa
 	// Auto-assign priority if not provided.
 	if p.Priority == 0 {
 		maxPriority := int32(0)
-		for _, existing := range rules {
+		for _, existing := range regionRules {
 			if existing.FirewallRuleGroupID == p.FirewallRuleGroupID &&
 				existing.Priority > maxPriority {
 				maxPriority = existing.Priority
@@ -1234,7 +1174,7 @@ func (b *InMemoryBackend) CreateFirewallRule(ctx context.Context, p CreateFirewa
 	}
 
 	// Validate priority uniqueness within the rule group.
-	for _, existing := range rules {
+	for _, existing := range regionRules {
 		if existing.FirewallRuleGroupID == p.FirewallRuleGroupID &&
 			existing.Priority == p.Priority {
 			return nil, fmt.Errorf(
@@ -1266,11 +1206,12 @@ func (b *InMemoryBackend) CreateFirewallRule(ctx context.Context, p CreateFirewa
 		CreationTime:         now,
 		ModificationTime:     now,
 		Priority:             p.Priority,
+		Region:               region,
 	}
-	rules[id] = rule
+	b.firewallRules.Put(rule)
 
 	// Increment rule count on the group.
-	groups[p.FirewallRuleGroupID].RuleCount++
+	group.RuleCount++
 
 	cp := *rule
 
@@ -1303,8 +1244,9 @@ func (b *InMemoryBackend) CreateOutpostResolver(
 		PreferredInstanceType: preferredInstanceType,
 		InstanceCount:         instanceCount,
 		Status:                statusOperational,
+		Region:                region,
 	}
-	b.outpostResolversStore(region)[id] = r
+	b.outpostResolvers.Put(r)
 	cp := *r
 
 	return &cp, nil
@@ -1360,7 +1302,7 @@ func (b *InMemoryBackend) AddEndpointInternal(name, direction string) *ResolverE
 		AccountID:        b.accountID,
 		Region:           b.region,
 	}
-	b.endpointsStore(b.region)[id] = ep
+	b.endpoints.Put(ep)
 
 	return cloneEndpoint(ep)
 }
@@ -1383,7 +1325,7 @@ func (b *InMemoryBackend) AddRuleInternal(name, domainName, ruleType string) *Re
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
-	b.rulesStore(b.region)[id] = r
+	b.rules.Put(r)
 
 	return cloneRule(r)
 }
@@ -1401,8 +1343,9 @@ func (b *InMemoryBackend) AddFirewallRuleGroupInternal(name string) *FirewallRul
 		Name:    name,
 		Status:  statusComplete,
 		OwnerID: b.accountID,
+		Region:  b.region,
 	}
-	b.firewallRuleGroupsStore(b.region)[id] = g
+	b.firewallRuleGroups.Put(g)
 	cp := *g
 
 	return &cp
@@ -1420,8 +1363,9 @@ func (b *InMemoryBackend) AddFirewallDomainListInternal(name string) *FirewallDo
 		ARN:    listARN,
 		Name:   name,
 		Status: statusComplete,
+		Region: b.region,
 	}
-	b.firewallDomainListsStore(b.region)[id] = dl
+	b.firewallDomainLists.Put(dl)
 	cp := *dl
 
 	return &cp
@@ -1441,8 +1385,9 @@ func (b *InMemoryBackend) AddOutpostResolverInternal(name, outpostARN string) *O
 		OutpostARN:    outpostARN,
 		InstanceCount: defaultOutpostResolverInstanceCount,
 		Status:        statusOperational,
+		Region:        b.region,
 	}
-	b.outpostResolversStore(b.region)[id] = r
+	b.outpostResolvers.Put(r)
 	cp := *r
 
 	return &cp
@@ -1469,8 +1414,9 @@ func (b *InMemoryBackend) AddQueryLogConfigInternal(
 		DestinationARN: destinationARN,
 		Status:         statusCreated,
 		OwnerID:        b.accountID,
+		Region:         b.region,
 	}
-	b.queryLogConfigsStore(b.region)[id] = cfg
+	b.queryLogConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp
@@ -1497,7 +1443,7 @@ func (b *InMemoryBackend) AddRuleInternalWithEndpoint(
 		AccountID:          b.accountID,
 		Region:             b.region,
 	}
-	b.rulesStore(b.region)[id] = r
+	b.rules.Put(r)
 
 	return cloneRule(r)
 }
@@ -1510,8 +1456,7 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 	b.mu.Lock("AddFirewallRuleInternal")
 	defer b.mu.Unlock()
 
-	groups := b.firewallRuleGroupsStore(b.region)
-	grp, ok := groups[groupID]
+	grp, ok := b.firewallRuleGroups.Get(regionalKey(b.region, groupID))
 	if !ok {
 		return nil
 	}
@@ -1529,8 +1474,9 @@ func (b *InMemoryBackend) AddFirewallRuleInternal(
 		Priority:             priority,
 		CreationTime:         now,
 		ModificationTime:     now,
+		Region:               b.region,
 	}
-	b.firewallRulesStore(b.region)[id] = rule
+	b.firewallRules.Put(rule)
 	grp.RuleCount++
 	cp := *rule
 
@@ -1545,17 +1491,16 @@ func (b *InMemoryBackend) DeleteFirewallRule(ctx context.Context, id string) (*F
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rules := b.firewallRulesStore(region)
-	rule, ok := rules[id]
+	rule, ok := b.firewallRules.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule %s not found", ErrNotFound, id)
 	}
 	cp := *rule
-	groups := b.firewallRuleGroupsStore(region)
-	if grp, exists := groups[rule.FirewallRuleGroupID]; exists && grp.RuleCount > 0 {
+	grp, exists := b.firewallRuleGroups.Get(regionalKey(region, rule.FirewallRuleGroupID))
+	if exists && grp.RuleCount > 0 {
 		grp.RuleCount--
 	}
-	delete(rules, id)
+	b.firewallRules.Delete(regionalKey(region, id))
 
 	return &cp, nil
 }
@@ -1581,8 +1526,7 @@ func (b *InMemoryBackend) UpdateFirewallRule(ctx context.Context, p UpdateFirewa
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rules := b.firewallRulesStore(region)
-	rule, ok := rules[p.ID]
+	rule, ok := b.firewallRules.Get(regionalKey(region, p.ID))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule %s not found", ErrNotFound, p.ID)
 	}
@@ -1628,9 +1572,9 @@ func (b *InMemoryBackend) ListFirewallRules(ctx context.Context, firewallRuleGro
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.firewallRulesStore(region)
-	list := make([]*FirewallRule, 0, len(store))
-	for _, r := range store {
+	regionRules := b.firewallRulesByRegion.Get(region)
+	list := make([]*FirewallRule, 0, len(regionRules))
+	for _, r := range regionRules {
 		if firewallRuleGroupID != "" && r.FirewallRuleGroupID != firewallRuleGroupID {
 			continue
 		}
@@ -1650,8 +1594,7 @@ func (b *InMemoryBackend) DeleteFirewallRuleGroup(ctx context.Context, id string
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	groups := b.firewallRuleGroupsStore(region)
-	grp, ok := groups[id]
+	grp, ok := b.firewallRuleGroups.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group %s not found", ErrNotFound, id)
 	}
@@ -1660,21 +1603,20 @@ func (b *InMemoryBackend) DeleteFirewallRuleGroup(ctx context.Context, id string
 	// Clean up tags.
 	delete(b.tagsStore(region), grp.ARN)
 
-	// Cascade: delete rules belonging to this group.
-	rules := b.firewallRulesStore(region)
-	for ruleID, rule := range rules {
+	// Cascade: delete rules belonging to this group. slices.Clone before
+	// deleting in the loop -- see DeleteResolverEndpoint's comment.
+	for _, rule := range slices.Clone(b.firewallRulesByRegion.Get(region)) {
 		if rule.FirewallRuleGroupID == id {
-			delete(rules, ruleID)
+			b.firewallRules.Delete(regionalKey(region, rule.ID))
 		}
 	}
 	// Cascade: delete associations for this group.
-	assocs := b.firewallRuleGroupAssociationsStore(region)
-	for assocID, assoc := range assocs {
+	for _, assoc := range slices.Clone(b.firewallRuleGroupAssociationsByRegion.Get(region)) {
 		if assoc.FirewallRuleGroupID == id {
-			delete(assocs, assocID)
+			b.firewallRuleGroupAssociations.Delete(regionalKey(region, assoc.ID))
 		}
 	}
-	delete(groups, id)
+	b.firewallRuleGroups.Delete(regionalKey(region, id))
 
 	return &cp, nil
 }
@@ -1685,7 +1627,7 @@ func (b *InMemoryBackend) GetFirewallRuleGroup(ctx context.Context, id string) (
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	grp, ok := b.firewallRuleGroupsStore(region)[id]
+	grp, ok := b.firewallRuleGroups.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group %s not found", ErrNotFound, id)
 	}
@@ -1700,9 +1642,9 @@ func (b *InMemoryBackend) ListFirewallRuleGroups(ctx context.Context) []*Firewal
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.firewallRuleGroupsStore(region)
-	list := make([]*FirewallRuleGroup, 0, len(store))
-	for _, g := range store {
+	regionGroups := b.firewallRuleGroupsByRegion.Get(region)
+	list := make([]*FirewallRuleGroup, 0, len(regionGroups))
+	for _, g := range regionGroups {
 		cp := *g
 		list = append(list, &cp)
 	}
@@ -1743,7 +1685,7 @@ func (b *InMemoryBackend) GetFirewallRuleGroupAssociation(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	assoc, ok := b.firewallRuleGroupAssociationsStore(region)[id]
+	assoc, ok := b.firewallRuleGroupAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
 	}
@@ -1761,9 +1703,9 @@ func (b *InMemoryBackend) ListFirewallRuleGroupAssociations(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.firewallRuleGroupAssociationsStore(region)
-	list := make([]*FirewallRuleGroupAssociation, 0, len(store))
-	for _, a := range store {
+	regionAssocs := b.firewallRuleGroupAssociationsByRegion.Get(region)
+	list := make([]*FirewallRuleGroupAssociation, 0, len(regionAssocs))
+	for _, a := range regionAssocs {
 		if vpcID != "" && a.VpcID != vpcID {
 			continue
 		}
@@ -1787,8 +1729,7 @@ func (b *InMemoryBackend) DisassociateFirewallRuleGroup(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	assocs := b.firewallRuleGroupAssociationsStore(region)
-	assoc, ok := assocs[id]
+	assoc, ok := b.firewallRuleGroupAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
 	}
@@ -1801,7 +1742,7 @@ func (b *InMemoryBackend) DisassociateFirewallRuleGroup(
 	}
 
 	cp := *assoc
-	delete(assocs, id)
+	b.firewallRuleGroupAssociations.Delete(regionalKey(region, id))
 
 	return &cp, nil
 }
@@ -1816,8 +1757,7 @@ func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	assocs := b.firewallRuleGroupAssociationsStore(region)
-	assoc, ok := assocs[id]
+	assoc, ok := b.firewallRuleGroupAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
 	}
@@ -1851,7 +1791,7 @@ func (b *InMemoryBackend) GetFirewallDomainList(ctx context.Context, id string) 
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	dl, ok := b.firewallDomainListsStore(region)[id]
+	dl, ok := b.firewallDomainLists.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
 	}
@@ -1866,9 +1806,9 @@ func (b *InMemoryBackend) ListFirewallDomainLists(ctx context.Context) []*Firewa
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.firewallDomainListsStore(region)
-	list := make([]*FirewallDomainList, 0, len(store))
-	for _, dl := range store {
+	regionLists := b.firewallDomainListsByRegion.Get(region)
+	list := make([]*FirewallDomainList, 0, len(regionLists))
+	for _, dl := range regionLists {
 		list = append(list, cloneFirewallDomainList(dl))
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
@@ -1882,7 +1822,7 @@ func (b *InMemoryBackend) ListFirewallDomains(ctx context.Context, id string) ([
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	dl, ok := b.firewallDomainListsStore(region)[id]
+	dl, ok := b.firewallDomainLists.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
 	}
@@ -1902,7 +1842,7 @@ func (b *InMemoryBackend) UpdateFirewallDomains(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	dl, ok := b.firewallDomainListsStore(region)[id]
+	dl, ok := b.firewallDomainLists.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
 	}
@@ -1957,7 +1897,7 @@ func (b *InMemoryBackend) ImportFirewallDomains(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	dl, ok := b.firewallDomainListsStore(region)[id]
+	dl, ok := b.firewallDomainLists.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall domain list %s not found", ErrNotFound, id)
 	}
@@ -2003,8 +1943,7 @@ func (b *InMemoryBackend) GetFirewallConfig(ctx context.Context, resourceID stri
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.firewallConfigsStore(region)
-	if cfg, ok := store[resourceID]; ok {
+	if cfg, ok := b.firewallConfigs.Get(regionalKey(region, resourceID)); ok {
 		cp := *cfg
 
 		return &cp
@@ -2015,8 +1954,9 @@ func (b *InMemoryBackend) GetFirewallConfig(ctx context.Context, resourceID stri
 		OwnerID:          b.accountID,
 		ResourceID:       resourceID,
 		FirewallFailOpen: firewallFailOpenDisabled,
+		Region:           region,
 	}
-	store[resourceID] = cfg
+	b.firewallConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp
@@ -2041,16 +1981,16 @@ func (b *InMemoryBackend) UpdateFirewallConfig(
 		)
 	}
 
-	store := b.firewallConfigsStore(region)
-	cfg, ok := store[resourceID]
+	cfg, ok := b.firewallConfigs.Get(regionalKey(region, resourceID))
 	if !ok {
 		id := "fwc-" + uuid.New().String()[:8]
 		cfg = &FirewallConfig{
 			ID:         id,
 			OwnerID:    b.accountID,
 			ResourceID: resourceID,
+			Region:     region,
 		}
-		store[resourceID] = cfg
+		b.firewallConfigs.Put(cfg)
 	}
 	cfg.FirewallFailOpen = firewallFailOpen
 	cp := *cfg
@@ -2064,9 +2004,9 @@ func (b *InMemoryBackend) ListFirewallConfigs(ctx context.Context) []*FirewallCo
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.firewallConfigsStore(region)
-	list := make([]*FirewallConfig, 0, len(store))
-	for _, cfg := range store {
+	regionConfigs := b.firewallConfigsByRegion.Get(region)
+	list := make([]*FirewallConfig, 0, len(regionConfigs))
+	for _, cfg := range regionConfigs {
 		cp := *cfg
 		list = append(list, &cp)
 	}
@@ -2083,8 +2023,7 @@ func (b *InMemoryBackend) GetResolverConfig(ctx context.Context, resourceID stri
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.resolverConfigsStore(region)
-	if cfg, ok := store[resourceID]; ok {
+	if cfg, ok := b.resolverConfigs.Get(regionalKey(region, resourceID)); ok {
 		cp := *cfg
 
 		return &cp
@@ -2097,8 +2036,9 @@ func (b *InMemoryBackend) GetResolverConfig(ctx context.Context, resourceID stri
 		OwnerID:            b.accountID,
 		ResourceID:         resourceID,
 		AutodefinedReverse: "DISABLED",
+		Region:             region,
 	}
-	store[resourceID] = cfg
+	b.resolverConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp
@@ -2124,8 +2064,7 @@ func (b *InMemoryBackend) UpdateResolverConfig(
 		)
 	}
 
-	store := b.resolverConfigsStore(region)
-	cfg, ok := store[resourceID]
+	cfg, ok := b.resolverConfigs.Get(regionalKey(region, resourceID))
 	if !ok {
 		id := "rslvr-rc-" + uuid.New().String()[:8]
 		cfgARN := arn.Build("route53resolver", region, b.accountID, "resolver-config/"+id)
@@ -2134,8 +2073,9 @@ func (b *InMemoryBackend) UpdateResolverConfig(
 			ARN:        cfgARN,
 			OwnerID:    b.accountID,
 			ResourceID: resourceID,
+			Region:     region,
 		}
-		store[resourceID] = cfg
+		b.resolverConfigs.Put(cfg)
 	}
 	if autodefinedReverse == autodefinedReverseEnabled {
 		cfg.AutodefinedReverse = "ENABLED"
@@ -2153,9 +2093,9 @@ func (b *InMemoryBackend) ListResolverConfigs(ctx context.Context) []*ResolverCo
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.resolverConfigsStore(region)
-	list := make([]*ResolverConfig, 0, len(store))
-	for _, cfg := range store {
+	regionConfigs := b.resolverConfigsByRegion.Get(region)
+	list := make([]*ResolverConfig, 0, len(regionConfigs))
+	for _, cfg := range regionConfigs {
 		cp := *cfg
 		list = append(list, &cp)
 	}
@@ -2172,8 +2112,7 @@ func (b *InMemoryBackend) GetResolverDnssecConfig(ctx context.Context, resourceI
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.resolverDnssecConfigsStore(region)
-	if cfg, ok := store[resourceID]; ok {
+	if cfg, ok := b.resolverDnssecConfigs.Get(regionalKey(region, resourceID)); ok {
 		cp := *cfg
 
 		return &cp
@@ -2184,8 +2123,9 @@ func (b *InMemoryBackend) GetResolverDnssecConfig(ctx context.Context, resourceI
 		OwnerID:          b.accountID,
 		ResourceID:       resourceID,
 		ValidationStatus: validationStatusDisabled,
+		Region:           region,
 	}
-	store[resourceID] = cfg
+	b.resolverDnssecConfigs.Put(cfg)
 	cp := *cfg
 
 	return &cp
@@ -2210,16 +2150,16 @@ func (b *InMemoryBackend) UpdateResolverDnssecConfig(
 		)
 	}
 
-	store := b.resolverDnssecConfigsStore(region)
-	cfg, ok := store[resourceID]
+	cfg, ok := b.resolverDnssecConfigs.Get(regionalKey(region, resourceID))
 	if !ok {
 		id := "rslvr-dnssec-" + uuid.New().String()[:8]
 		cfg = &ResolverDnssecConfig{
 			ID:         id,
 			OwnerID:    b.accountID,
 			ResourceID: resourceID,
+			Region:     region,
 		}
-		store[resourceID] = cfg
+		b.resolverDnssecConfigs.Put(cfg)
 	}
 	if validation == dnssecValidationEnable {
 		cfg.ValidationStatus = validationStatusEnabling
@@ -2237,9 +2177,9 @@ func (b *InMemoryBackend) ListResolverDnssecConfigs(ctx context.Context) []*Reso
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.resolverDnssecConfigsStore(region)
-	list := make([]*ResolverDnssecConfig, 0, len(store))
-	for _, cfg := range store {
+	regionConfigs := b.resolverDnssecConfigsByRegion.Get(region)
+	list := make([]*ResolverDnssecConfig, 0, len(regionConfigs))
+	for _, cfg := range regionConfigs {
 		cp := *cfg
 		list = append(list, &cp)
 	}
@@ -2256,13 +2196,12 @@ func (b *InMemoryBackend) DeleteOutpostResolver(ctx context.Context, id string) 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.outpostResolversStore(region)
-	r, ok := store[id]
+	r, ok := b.outpostResolvers.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: outpost resolver %s not found", ErrNotFound, id)
 	}
 	cp := *r
-	delete(store, id)
+	b.outpostResolvers.Delete(regionalKey(region, id))
 
 	return &cp, nil
 }
@@ -2273,7 +2212,7 @@ func (b *InMemoryBackend) GetOutpostResolver(ctx context.Context, id string) (*O
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	r, ok := b.outpostResolversStore(region)[id]
+	r, ok := b.outpostResolvers.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: outpost resolver %s not found", ErrNotFound, id)
 	}
@@ -2288,9 +2227,9 @@ func (b *InMemoryBackend) ListOutpostResolvers(ctx context.Context) []*OutpostRe
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.outpostResolversStore(region)
-	list := make([]*OutpostResolver, 0, len(store))
-	for _, r := range store {
+	regionResolvers := b.outpostResolversByRegion.Get(region)
+	list := make([]*OutpostResolver, 0, len(regionResolvers))
+	for _, r := range regionResolvers {
 		cp := *r
 		list = append(list, &cp)
 	}
@@ -2309,7 +2248,7 @@ func (b *InMemoryBackend) UpdateOutpostResolver(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	r, ok := b.outpostResolversStore(region)[id]
+	r, ok := b.outpostResolvers.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: outpost resolver %s not found", ErrNotFound, id)
 	}
@@ -2338,8 +2277,7 @@ func (b *InMemoryBackend) DeleteResolverQueryLogConfig(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	configs := b.queryLogConfigsStore(region)
-	cfg, ok := configs[id]
+	cfg, ok := b.queryLogConfigs.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver query log config %s not found", ErrNotFound, id)
 	}
@@ -2348,14 +2286,14 @@ func (b *InMemoryBackend) DeleteResolverQueryLogConfig(
 	// Clean up tags.
 	delete(b.tagsStore(region), cfg.ARN)
 
-	// Cascade: remove all associations referencing this config.
-	assocs := b.queryLogConfigAssociationsStore(region)
-	for assocID, assoc := range assocs {
+	// Cascade: remove all associations referencing this config. slices.Clone
+	// before deleting in the loop -- see DeleteResolverEndpoint's comment.
+	for _, assoc := range slices.Clone(b.queryLogConfigAssociationsByRegion.Get(region)) {
 		if assoc.ResolverQueryLogConfigID == id {
-			delete(assocs, assocID)
+			b.queryLogConfigAssociations.Delete(regionalKey(region, assoc.ID))
 		}
 	}
-	delete(configs, id)
+	b.queryLogConfigs.Delete(regionalKey(region, id))
 
 	return &cp, nil
 }
@@ -2366,7 +2304,7 @@ func (b *InMemoryBackend) GetResolverQueryLogConfig(ctx context.Context, id stri
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	cfg, ok := b.queryLogConfigsStore(region)[id]
+	cfg, ok := b.queryLogConfigs.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver query log config %s not found", ErrNotFound, id)
 	}
@@ -2381,9 +2319,9 @@ func (b *InMemoryBackend) ListResolverQueryLogConfigs(ctx context.Context) []*Re
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.queryLogConfigsStore(region)
-	list := make([]*ResolverQueryLogConfig, 0, len(store))
-	for _, cfg := range store {
+	regionConfigs := b.queryLogConfigsByRegion.Get(region)
+	list := make([]*ResolverQueryLogConfig, 0, len(regionConfigs))
+	for _, cfg := range regionConfigs {
 		cp := *cfg
 		list = append(list, &cp)
 	}
@@ -2401,7 +2339,7 @@ func (b *InMemoryBackend) GetResolverQueryLogConfigAssociation(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	assoc, ok := b.queryLogConfigAssociationsStore(region)[id]
+	assoc, ok := b.queryLogConfigAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: resolver query log config association %s not found",
@@ -2423,8 +2361,7 @@ func (b *InMemoryBackend) DisassociateResolverQueryLogConfig(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	assocs := b.queryLogConfigAssociationsStore(region)
-	assoc, ok := assocs[id]
+	assoc, ok := b.queryLogConfigAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: resolver query log config association %s not found",
@@ -2433,11 +2370,11 @@ func (b *InMemoryBackend) DisassociateResolverQueryLogConfig(
 		)
 	}
 	cp := *assoc
-	delete(assocs, id)
+	b.queryLogConfigAssociations.Delete(regionalKey(region, id))
 
 	// Decrement AssociationCount on the config.
-	configs := b.queryLogConfigsStore(region)
-	if cfg := configs[assoc.ResolverQueryLogConfigID]; cfg != nil && cfg.AssociationCount > 0 {
+	cfg, ok := b.queryLogConfigs.Get(regionalKey(region, assoc.ResolverQueryLogConfigID))
+	if ok && cfg.AssociationCount > 0 {
 		cfg.AssociationCount--
 	}
 
@@ -2452,9 +2389,9 @@ func (b *InMemoryBackend) ListResolverQueryLogConfigAssociations(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.queryLogConfigAssociationsStore(region)
-	list := make([]*ResolverQueryLogConfigAssociation, 0, len(store))
-	for _, a := range store {
+	regionAssocs := b.queryLogConfigAssociationsByRegion.Get(region)
+	list := make([]*ResolverQueryLogConfigAssociation, 0, len(regionAssocs))
+	for _, a := range regionAssocs {
 		cp := *a
 		list = append(list, &cp)
 	}
@@ -2492,7 +2429,7 @@ func (b *InMemoryBackend) GetResolverRuleAssociation(ctx context.Context, id str
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	assoc, ok := b.ruleAssociationsStore(region)[id]
+	assoc, ok := b.ruleAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver rule association %s not found", ErrNotFound, id)
 	}
@@ -2507,13 +2444,12 @@ func (b *InMemoryBackend) DisassociateResolverRule(ctx context.Context, id strin
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	assocs := b.ruleAssociationsStore(region)
-	assoc, ok := assocs[id]
+	assoc, ok := b.ruleAssociations.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver rule association %s not found", ErrNotFound, id)
 	}
 	cp := *assoc
-	delete(assocs, id)
+	b.ruleAssociations.Delete(regionalKey(region, id))
 
 	return &cp, nil
 }
@@ -2524,9 +2460,9 @@ func (b *InMemoryBackend) ListResolverRuleAssociations(ctx context.Context) []*R
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.ruleAssociationsStore(region)
-	list := make([]*ResolverRuleAssociation, 0, len(store))
-	for _, a := range store {
+	regionAssocs := b.ruleAssociationsByRegion.Get(region)
+	list := make([]*ResolverRuleAssociation, 0, len(regionAssocs))
+	for _, a := range regionAssocs {
 		cp := *a
 		list = append(list, &cp)
 	}
@@ -2568,7 +2504,7 @@ func (b *InMemoryBackend) UpdateResolverEndpoint(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	ep, ok := b.endpointsStore(region)[id]
+	ep, ok := b.endpoints.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
@@ -2605,7 +2541,7 @@ func (b *InMemoryBackend) DisassociateResolverEndpointIPAddress(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	ep, ok := b.endpointsStore(region)[endpointID]
+	ep, ok := b.endpoints.Get(regionalKey(region, endpointID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
 	}
@@ -2645,7 +2581,7 @@ func (b *InMemoryBackend) UpdateResolverRule(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	r, ok := b.rulesStore(region)[id]
+	r, ok := b.rules.Get(regionalKey(region, id))
 	if !ok {
 		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
 	}

@@ -50,7 +50,7 @@ func (b *InMemoryBackend) EnableLogging(clusterID, bucketName, s3KeyPrefix strin
 	b.mu.Lock("EnableLogging")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) DisableLogging(clusterID string) (*LoggingStatus, erro
 	b.mu.Lock("DisableLogging")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) DescribeEvents(sourceIdentifier, sourceType string) ([
 
 	var result []Event
 
-	for _, e := range b.events {
+	for _, e := range b.events.All() {
 		if sourceIdentifier != "" && e.SourceIdentifier != sourceIdentifier {
 			continue
 		}
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	b.mu.Lock("CreateEventSubscription")
 	defer b.mu.Unlock()
 
-	if _, exists := b.eventSubscriptions[subscriptionName]; exists {
+	if _, exists := b.eventSubscriptions.Get(subscriptionName); exists {
 		return nil, fmt.Errorf(
 			"%w: subscription %s already exists",
 			ErrEventSubscriptionAlreadyExists,
@@ -155,7 +155,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		Severity:            severity,
 		Enabled:             enabled,
 	}
-	b.eventSubscriptions[subscriptionName] = sub
+	b.eventSubscriptions.Put(sub)
 
 	cp := cloneEventSubscription(sub)
 
@@ -171,11 +171,11 @@ func (b *InMemoryBackend) DeleteEventSubscription(subscriptionName string) error
 	b.mu.Lock("DeleteEventSubscription")
 	defer b.mu.Unlock()
 
-	if _, exists := b.eventSubscriptions[subscriptionName]; !exists {
+	if _, exists := b.eventSubscriptions.Get(subscriptionName); !exists {
 		return fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
 	}
 
-	delete(b.eventSubscriptions, subscriptionName)
+	b.eventSubscriptions.Delete(subscriptionName)
 
 	return nil
 }
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(subscriptionName string) ([
 	defer b.mu.RUnlock()
 
 	if subscriptionName != "" {
-		sub, exists := b.eventSubscriptions[subscriptionName]
+		sub, exists := b.eventSubscriptions.Get(subscriptionName)
 		if !exists {
 			return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
 		}
@@ -194,8 +194,8 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(subscriptionName string) ([
 		return []EventSubscription{*cloneEventSubscription(sub)}, nil
 	}
 
-	result := make([]EventSubscription, 0, len(b.eventSubscriptions))
-	for _, sub := range b.eventSubscriptions {
+	result := make([]EventSubscription, 0, b.eventSubscriptions.Len())
+	for _, sub := range b.eventSubscriptions.All() {
 		result = append(result, *cloneEventSubscription(sub))
 	}
 
@@ -215,7 +215,7 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 	b.mu.Lock("ModifyEventSubscription")
 	defer b.mu.Unlock()
 
-	sub, exists := b.eventSubscriptions[subscriptionName]
+	sub, exists := b.eventSubscriptions.Get(subscriptionName)
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, subscriptionName)
 	}

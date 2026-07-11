@@ -114,6 +114,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"ListServiceDeployments",
 		"StopServiceDeployment",
+		"ContinueServiceDeployment",
 		// Daemon operations (stub implementations).
 		"CreateDaemon",
 		"DeleteDaemon",
@@ -303,8 +304,9 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"UntagResource":       service.WrapOp(h.handleUntagResource),
 		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
 		// Service deployments
-		"ListServiceDeployments": service.WrapOp(h.handleListServiceDeployments),
-		"StopServiceDeployment":  service.WrapOp(h.handleStopServiceDeployment),
+		"ListServiceDeployments":    service.WrapOp(h.handleListServiceDeployments),
+		"StopServiceDeployment":     service.WrapOp(h.handleStopServiceDeployment),
+		"ContinueServiceDeployment": service.WrapOp(h.handleContinueServiceDeployment),
 		// Daemon stubs
 		"CreateDaemon":                 service.WrapOp(h.handleCreateDaemon),
 		"DeleteDaemon":                 service.WrapOp(h.handleDeleteDaemon),
@@ -430,8 +432,11 @@ func errorCode(err error) string {
 // ----- Cluster handlers -----
 
 type createClusterInput struct {
-	ClusterName string               `json:"clusterName"`
-	Settings    []clusterSettingView `json:"settings,omitempty"`
+	ClusterName                     string                `json:"clusterName"`
+	Settings                        []clusterSettingView  `json:"settings,omitempty"`
+	CapacityProviders               []string              `json:"capacityProviders,omitempty"`
+	DefaultCapacityProviderStrategy []cpStrategyItemInput `json:"defaultCapacityProviderStrategy,omitempty"`
+	Tags                            []Tag                 `json:"tags,omitempty"`
 }
 
 type createClusterOutput struct {
@@ -448,14 +453,24 @@ func (h *Handler) handleCreateCluster(
 	}
 
 	cluster, err := h.Backend.CreateCluster(CreateClusterInput{
-		ClusterName: in.ClusterName,
-		Settings:    settings,
+		ClusterName:                     in.ClusterName,
+		Settings:                        settings,
+		CapacityProviders:               in.CapacityProviders,
+		DefaultCapacityProviderStrategy: toCPStrategyItems(in.DefaultCapacityProviderStrategy),
+		Tags:                            in.Tags,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &createClusterOutput{Cluster: toClusterView(*cluster)}, nil
+	view := toClusterView(*cluster)
+	// CreateCluster has no `include` gating (unlike DescribeClusters): the
+	// tags just supplied are echoed back on the created resource.
+	if len(in.Tags) > 0 {
+		view.Tags = in.Tags
+	}
+
+	return &createClusterOutput{Cluster: view}, nil
 }
 
 type listClustersInput struct {
@@ -491,12 +506,18 @@ func (h *Handler) handleListClusters(
 
 type describeClustersInput struct {
 	Clusters []string `json:"clusters"`
+	Include  []string `json:"include,omitempty"`
 }
 
 type describeClustersOutput struct {
 	Clusters []clusterView `json:"clusters"`
 	Failures []failureView `json:"failures"`
 }
+
+// describeClusterIncludeTags is the AWS-defined `include` value that requests
+// resource tags be returned alongside each Cluster (see also
+// describeTaskIncludeTags for the equivalent DescribeTaskDefinition option).
+const describeClusterIncludeTags = "TAGS"
 
 func (h *Handler) handleDescribeClusters(
 	_ context.Context,
@@ -507,9 +528,30 @@ func (h *Handler) handleDescribeClusters(
 		return nil, err
 	}
 
+	wantTags := false
+
+	for _, opt := range in.Include {
+		if strings.EqualFold(opt, describeClusterIncludeTags) {
+			wantTags = true
+
+			break
+		}
+	}
+
 	views := make([]clusterView, 0, len(clusters))
 	for _, c := range clusters {
-		views = append(views, toClusterView(c))
+		v := toClusterView(c)
+
+		if wantTags {
+			tags, terr := h.Backend.ListTagsForResource(c.ClusterArn)
+			if terr != nil {
+				return nil, terr
+			}
+
+			v.Tags = tags
+		}
+
+		views = append(views, v)
 	}
 
 	failViews := make([]failureView, 0, len(failures))
@@ -1113,6 +1155,7 @@ type clusterView struct {
 	DefaultCapacityProviderStrategy   []cpStrategyItemInput `json:"defaultCapacityProviderStrategy"`
 	Settings                          []clusterSettingView  `json:"settings,omitempty"`
 	CapacityProviders                 []string              `json:"capacityProviders"`
+	Tags                              []Tag                 `json:"tags,omitempty"`
 	CreatedAt                         float64               `json:"createdAt"`
 	ActiveServicesCount               int                   `json:"activeServicesCount"`
 	PendingTasksCount                 int                   `json:"pendingTasksCount"`

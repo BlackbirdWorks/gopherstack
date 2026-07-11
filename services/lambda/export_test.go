@@ -61,6 +61,12 @@ func StreamNameFromARN(arn string) string { return streamNameFromARN(arn) }
 // FunctionNameFromARN exports the internal functionNameFromARN function for testing.
 func FunctionNameFromARN(arn string) string { return functionNameFromARN(arn) }
 
+// FunctionNameAndQualifierFromARN exports the internal
+// functionNameAndQualifierFromARN function for testing.
+func FunctionNameAndQualifierFromARN(name string) (string, string) {
+	return functionNameAndQualifierFromARN(name)
+}
+
 // PollOnce triggers a single poll cycle on the given EventSourcePoller.
 func PollOnce(ctx context.Context, p *EventSourcePoller) { p.poll(ctx) }
 
@@ -462,10 +468,19 @@ func BuildFunctionURLHandler(b *InMemoryBackend, functionName string) http.Handl
 }
 
 // SetFunctionURLConfigForTest inserts a function URL config directly for testing.
+// The store.Table backing b.functionURLConfigs derives its key from
+// cfg.FunctionArn (see functionURLConfigsKeyFn in store_setup.go), so callers
+// that omit FunctionArn get it defaulted here to match functionName -- exactly
+// what CreateFunctionURLConfig itself would have set via buildURLARN.
 func SetFunctionURLConfigForTest(b *InMemoryBackend, functionName string, cfg *FunctionURLConfig) {
 	b.mu.Lock("SetFunctionURLConfigForTest")
 	defer b.mu.Unlock()
-	b.functionURLConfigs[functionName] = cfg
+
+	if cfg.FunctionArn == "" {
+		cfg.FunctionArn = buildURLARN(b.region, b.accountID, functionName)
+	}
+
+	b.functionURLConfigs.Put(cfg)
 }
 
 // AsyncOutcomeForTest describes a completed async invocation for delivery testing.
@@ -499,7 +514,7 @@ func GetFunctionStateForTest(b *InMemoryBackend, name string) FunctionState {
 	b.mu.RLock("GetFunctionStateForTest")
 	defer b.mu.RUnlock()
 
-	if fn, ok := b.functions[name]; ok {
+	if fn, ok := b.functions.Get(name); ok {
 		return fn.State
 	}
 

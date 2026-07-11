@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreateHsmClientCertificate(
 	b.mu.Lock("CreateHsmClientCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.hsmClientCerts[id]; exists {
+	if _, exists := b.hsmClientCerts.Get(id); exists {
 		return nil, fmt.Errorf("%w: certificate %s already exists", ErrHsmClientCertAlreadyExists, id)
 	}
 
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateHsmClientCertificate(
 		HsmClientCertificatePublicKey:  pubKey,
 		Tags:                           tagMap,
 	}
-	b.hsmClientCerts[id] = cert
+	b.hsmClientCerts.Put(cert)
 
 	cp := *cert
 
@@ -48,11 +48,11 @@ func (b *InMemoryBackend) DeleteHsmClientCertificate(id string) error {
 	b.mu.Lock("DeleteHsmClientCertificate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.hsmClientCerts[id]; !exists {
+	if _, exists := b.hsmClientCerts.Get(id); !exists {
 		return fmt.Errorf("%w: certificate %s not found", ErrHsmClientCertNotFound, id)
 	}
 
-	delete(b.hsmClientCerts, id)
+	b.hsmClientCerts.Delete(id)
 
 	return nil
 }
@@ -63,7 +63,7 @@ func (b *InMemoryBackend) DescribeHsmClientCertificates(id string) ([]HsmClientC
 	defer b.mu.RUnlock()
 
 	if id != "" {
-		c, exists := b.hsmClientCerts[id]
+		c, exists := b.hsmClientCerts.Get(id)
 		if !exists {
 			return nil, fmt.Errorf("%w: certificate %s not found", ErrHsmClientCertNotFound, id)
 		}
@@ -73,9 +73,9 @@ func (b *InMemoryBackend) DescribeHsmClientCertificates(id string) ([]HsmClientC
 		return []HsmClientCertificate{cp}, nil
 	}
 
-	result := make([]HsmClientCertificate, 0, len(b.hsmClientCerts))
+	result := make([]HsmClientCertificate, 0, b.hsmClientCerts.Len())
 
-	for _, c := range b.hsmClientCerts {
+	for _, c := range b.hsmClientCerts.All() {
 		result = append(result, *c)
 	}
 
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) CreateHsmConfiguration(
 	b.mu.Lock("CreateHsmConfiguration")
 	defer b.mu.Unlock()
 
-	if _, exists := b.hsmConfigs[id]; exists {
+	if _, exists := b.hsmConfigs.Get(id); exists {
 		return nil, fmt.Errorf("%w: configuration %s already exists", ErrHsmConfigAlreadyExists, id)
 	}
 
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) CreateHsmConfiguration(
 		HsmPartitionName:           hsmPartitionName,
 		Tags:                       tagMap,
 	}
-	b.hsmConfigs[id] = cfg
+	b.hsmConfigs.Put(cfg)
 
 	cp := *cfg
 
@@ -123,11 +123,11 @@ func (b *InMemoryBackend) DeleteHsmConfiguration(id string) error {
 	b.mu.Lock("DeleteHsmConfiguration")
 	defer b.mu.Unlock()
 
-	if _, exists := b.hsmConfigs[id]; !exists {
+	if _, exists := b.hsmConfigs.Get(id); !exists {
 		return fmt.Errorf("%w: configuration %s not found", ErrHsmConfigNotFound, id)
 	}
 
-	delete(b.hsmConfigs, id)
+	b.hsmConfigs.Delete(id)
 
 	return nil
 }
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) DescribeHsmConfigurations(id string) ([]HsmConfigurati
 	defer b.mu.RUnlock()
 
 	if id != "" {
-		c, exists := b.hsmConfigs[id]
+		c, exists := b.hsmConfigs.Get(id)
 		if !exists {
 			return nil, fmt.Errorf("%w: configuration %s not found", ErrHsmConfigNotFound, id)
 		}
@@ -148,9 +148,9 @@ func (b *InMemoryBackend) DescribeHsmConfigurations(id string) ([]HsmConfigurati
 		return []HsmConfiguration{cp}, nil
 	}
 
-	result := make([]HsmConfiguration, 0, len(b.hsmConfigs))
+	result := make([]HsmConfiguration, 0, b.hsmConfigs.Len())
 
-	for _, c := range b.hsmConfigs {
+	for _, c := range b.hsmConfigs.All() {
 		result = append(result, *c)
 	}
 
@@ -170,7 +170,7 @@ func (b *InMemoryBackend) CreateScheduledAction(
 	b.mu.Lock("CreateScheduledAction")
 	defer b.mu.Unlock()
 
-	if _, exists := b.scheduledActions[name]; exists {
+	if _, exists := b.scheduledActions.Get(name); exists {
 		return nil, fmt.Errorf("%w: scheduled action %s already exists", ErrScheduledActionAlreadyExists, name)
 	}
 
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) CreateScheduledAction(
 		State:                      "ACTIVE",
 		TargetAction:               targetAction,
 	}
-	b.scheduledActions[name] = action
+	b.scheduledActions.Put(action)
 
 	cp := *action
 
@@ -198,11 +198,11 @@ func (b *InMemoryBackend) DeleteScheduledAction(name string) error {
 	b.mu.Lock("DeleteScheduledAction")
 	defer b.mu.Unlock()
 
-	if _, exists := b.scheduledActions[name]; !exists {
+	if _, exists := b.scheduledActions.Get(name); !exists {
 		return fmt.Errorf("%w: scheduled action %s not found", ErrScheduledActionNotFound, name)
 	}
 
-	delete(b.scheduledActions, name)
+	b.scheduledActions.Delete(name)
 
 	return nil
 }
@@ -213,7 +213,7 @@ func (b *InMemoryBackend) DescribeScheduledActions(name string) ([]ScheduledActi
 	defer b.mu.RUnlock()
 
 	if name != "" {
-		a, exists := b.scheduledActions[name]
+		a, exists := b.scheduledActions.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: scheduled action %s not found", ErrScheduledActionNotFound, name)
 		}
@@ -223,9 +223,9 @@ func (b *InMemoryBackend) DescribeScheduledActions(name string) ([]ScheduledActi
 		return []ScheduledAction{cp}, nil
 	}
 
-	result := make([]ScheduledAction, 0, len(b.scheduledActions))
+	result := make([]ScheduledAction, 0, b.scheduledActions.Len())
 
-	for _, a := range b.scheduledActions {
+	for _, a := range b.scheduledActions.All() {
 		result = append(result, *a)
 	}
 
@@ -243,7 +243,7 @@ func (b *InMemoryBackend) ModifyScheduledAction(
 	b.mu.Lock("ModifyScheduledAction")
 	defer b.mu.Unlock()
 
-	a, exists := b.scheduledActions[name]
+	a, exists := b.scheduledActions.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: scheduled action %s not found", ErrScheduledActionNotFound, name)
 	}
@@ -287,7 +287,7 @@ func (b *InMemoryBackend) CreateTableRestoreStatus(
 		TargetTableName:       targetTableName,
 		RequestTime:           time.Now().UTC(),
 	}
-	b.tableRestores[restoreID] = tr
+	b.tableRestores.Put(tr)
 
 	cp := *tr
 

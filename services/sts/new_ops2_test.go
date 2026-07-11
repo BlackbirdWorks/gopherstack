@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -492,6 +493,73 @@ func TestGetDelegatedAccessToken_ValidationErrors(t *testing.T) {
 			b := sts.NewInMemoryBackend()
 			_, err := b.GetDelegatedAccessToken(tt.input)
 			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+// TestGetDelegatedAccessToken_TradeInTokenExpiry verifies that a JWT-shaped
+// TradeInToken is checked for expiry (AWS ExpiredTradeInTokenException),
+// mirroring the real GetDelegatedAccessToken behaviour documented by
+// aws-sdk-go-v2/service/sts/types.ExpiredTradeInTokenException: "The trade-in
+// token provided in the request has expired". Opaque (non-JWT) tokens remain
+// accepted unchanged, matching the emulator's existing permissive handling of
+// simple test fixtures that have no verifiable structure.
+func TestGetDelegatedAccessToken_TradeInTokenExpiry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr    error
+		buildToken func(t *testing.T) string
+		name       string
+	}{
+		{
+			name: "expired_jwt_shaped_token_rejected",
+			buildToken: func(t *testing.T) string {
+				t.Helper()
+
+				return buildJWT(t, map[string]any{
+					"sub": "delegate",
+					"exp": time.Now().Add(-time.Hour).Unix(),
+				})
+			},
+			wantErr: sts.ErrExpiredTradeInToken,
+		},
+		{
+			name: "unexpired_jwt_shaped_token_accepted",
+			buildToken: func(t *testing.T) string {
+				t.Helper()
+
+				return buildJWT(t, map[string]any{
+					"sub": "delegate",
+					"exp": time.Now().Add(time.Hour).Unix(),
+				})
+			},
+		},
+		{
+			name: "opaque_non_jwt_token_accepted",
+			buildToken: func(*testing.T) string {
+				return "opaque-trade-in-token-without-dots"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+			resp, err := b.GetDelegatedAccessToken(&sts.GetDelegatedAccessTokenInput{
+				TradeInToken: tt.buildToken(t),
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, resp.GetDelegatedAccessTokenResult.Credentials.AccessKeyID)
 		})
 	}
 }

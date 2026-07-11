@@ -3,6 +3,7 @@ package serverlessrepo
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // validNameRe matches AWS SAR-valid application names: alphanumeric and hyphens only.
@@ -80,12 +82,20 @@ type Application struct {
 
 // ApplicationVersion represents a version of a Serverless Application Repository application.
 type ApplicationVersion struct {
-	CreationTime         time.Time             `json:"creationTime"`
-	ApplicationID        string                `json:"applicationId"`
-	SemanticVersion      string                `json:"semanticVersion"`
-	SourceCodeURL        string                `json:"sourceCodeUrl,omitempty"`
-	SourceCodeArchiveURL string                `json:"sourceCodeArchiveUrl,omitempty"`
-	TemplateURL          string                `json:"templateUrl,omitempty"`
+	CreationTime         time.Time `json:"creationTime"`
+	ApplicationID        string    `json:"applicationId"`
+	SemanticVersion      string    `json:"semanticVersion"`
+	SourceCodeURL        string    `json:"sourceCodeUrl,omitempty"`
+	SourceCodeArchiveURL string    `json:"sourceCodeArchiveUrl,omitempty"`
+	TemplateURL          string    `json:"templateUrl,omitempty"`
+	// AppName identifies the owning application. It exists purely so the
+	// flattened store.Table[ApplicationVersion] (see store_setup.go; this
+	// collection was previously nested appName -> semanticVersion -> *version)
+	// can derive its composite "appName#semanticVersion" key from the value
+	// alone -- SemanticVersion is unique only within an application, not
+	// globally. It is not part of the Serverless Application Repository wire
+	// API, hence json:"-".
+	AppName              string                `json:"-"`
 	ParameterDefinitions []ParameterDefinition `json:"parameterDefinitions"`
 	RequiredCapabilities []string              `json:"requiredCapabilities"`
 	ResourcesSupported   bool                  `json:"resourcesSupported"`
@@ -100,16 +110,32 @@ type CloudFormationTemplate struct {
 	SemanticVersion string    `json:"semanticVersion,omitempty"`
 	Status          string    `json:"status"`
 	TemplateURL     string    `json:"templateUrl,omitempty"`
+	// AppName identifies the owning application. TemplateID is already
+	// globally unique (it is generated as "<appName>-<unixNano>"), so it
+	// remains the store.Table[CloudFormationTemplate] primary key (see
+	// store_setup.go); AppName exists purely to drive the additive "byApp"
+	// secondary index used for DeleteApplication's cascade delete. It is not
+	// part of the Serverless Application Repository wire API, hence json:"-".
+	AppName string `json:"-"`
 }
 
 // CloudFormationChangeSet represents a CloudFormation change set for an application.
 type CloudFormationChangeSet struct {
-	ApplicationID   string   `json:"applicationId"`
-	ChangeSetID     string   `json:"changeSetId"`
-	SemanticVersion string   `json:"semanticVersion,omitempty"`
-	StackID         string   `json:"stackId"`
-	Capabilities    []string `json:"capabilities,omitempty"`
-	Tags            []Tag    `json:"tags,omitempty"`
+	ApplicationID   string `json:"applicationId"`
+	ChangeSetID     string `json:"changeSetId"`
+	SemanticVersion string `json:"semanticVersion,omitempty"`
+	StackID         string `json:"stackId"`
+	// AppName identifies the owning application. It exists purely so the
+	// flattened store.Table[CloudFormationChangeSet] (see store_setup.go;
+	// this collection was previously nested appName -> changeSetID -> *cs)
+	// can derive its composite "appName#changeSetID" key from the value
+	// alone -- ChangeSetID is derived from a caller-supplied changeSetName/
+	// stackName and is unique only within an application, not globally. It is
+	// not part of the Serverless Application Repository wire API, hence
+	// json:"-".
+	AppName      string   `json:"-"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Tags         []Tag    `json:"tags,omitempty"`
 }
 
 // ApplicationPolicyStatement represents a policy statement for an application.
@@ -245,14 +271,34 @@ func clonePolicyStatements(stmts []*ApplicationPolicyStatement) []*ApplicationPo
 }
 
 // InMemoryBackend is an in-memory store for Serverless Application Repository resources.
+//
+// applications is a "clean" store.Table (registered directly on registry --
+// see store_setup.go). appVersions, cfTemplates, and cfChangeSets are "dirty"
+// tables: each was previously a map nested under appName, and each gained a
+// hidden AppName field purely to key (and, for cfTemplates, index) itself --
+// see the doc comments on those fields in this file. Because that field is
+// json:"-", persistence.go round-trips them through an ephemeral DTO
+// registry instead of registry.SnapshotAll()/RestoreAll() directly.
+//
+// appPolicies (map[string][]*ApplicationPolicyStatement) and appDependencies
+// (map[string]map[string][]*ApplicationDependency) are left as plain maps:
+// their values are slices, not *T, so they do not fit store.Table's
+// keyed-by-identity-value shape. appPolicies is additionally order-sensitive
+// (PutApplicationPolicy replaces the slice wholesale and GetApplicationPolicy
+// returns it in that same order).
 type InMemoryBackend struct {
-	applications map[string]*Application
-	// appVersions maps appName -> semanticVersion -> *ApplicationVersion
-	appVersions map[string]map[string]*ApplicationVersion
-	// cfTemplates maps appName -> templateID -> *CloudFormationTemplate
-	cfTemplates map[string]map[string]*CloudFormationTemplate
-	// cfChangeSets maps appName -> changeSetID -> *CloudFormationChangeSet
-	cfChangeSets map[string]map[string]*CloudFormationChangeSet
+	registry     *store.Registry
+	applications *store.Table[Application]
+
+	appVersions      *store.Table[ApplicationVersion]
+	appVersionsByApp *store.Index[ApplicationVersion]
+
+	cfTemplates      *store.Table[CloudFormationTemplate]
+	cfTemplatesByApp *store.Index[CloudFormationTemplate]
+
+	cfChangeSets      *store.Table[CloudFormationChangeSet]
+	cfChangeSetsByApp *store.Index[CloudFormationChangeSet]
+
 	// appPolicies maps appName -> []*ApplicationPolicyStatement
 	appPolicies map[string][]*ApplicationPolicyStatement
 	// appDependencies maps appName -> semanticVersion -> dependencies.
@@ -264,17 +310,17 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory Serverless Application Repository backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		applications:    make(map[string]*Application),
-		appVersions:     make(map[string]map[string]*ApplicationVersion),
-		cfTemplates:     make(map[string]map[string]*CloudFormationTemplate),
-		cfChangeSets:    make(map[string]map[string]*CloudFormationChangeSet),
+	b := &InMemoryBackend{
+		registry:        store.NewRegistry(),
 		appPolicies:     make(map[string][]*ApplicationPolicyStatement),
 		appDependencies: make(map[string]map[string][]*ApplicationDependency),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("serverlessrepo"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state.
@@ -282,12 +328,20 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.applications = make(map[string]*Application)
-	b.appVersions = make(map[string]map[string]*ApplicationVersion)
-	b.cfTemplates = make(map[string]map[string]*CloudFormationTemplate)
-	b.cfChangeSets = make(map[string]map[string]*CloudFormationChangeSet)
+	b.resetTablesLocked()
 	b.appPolicies = make(map[string][]*ApplicationPolicyStatement)
 	b.appDependencies = make(map[string]map[string][]*ApplicationDependency)
+}
+
+// resetTablesLocked resets every store.Table-backed field: applications via
+// the registry (the only "clean" table), and the three "dirty" tables
+// individually since they are deliberately not registered on b.registry --
+// see the InMemoryBackend doc comment. The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) resetTablesLocked() {
+	b.registry.ResetAll()
+	b.appVersions.Reset()
+	b.cfTemplates.Reset()
+	b.cfChangeSets.Reset()
 }
 
 // AccountID returns the AWS account ID this backend is configured for.
@@ -310,7 +364,7 @@ func (b *InMemoryBackend) AddApplicationInternal(name, description, author strin
 		Author:        author,
 		CreationTime:  time.Now(),
 	}
-	b.applications[name] = a
+	b.applications.Put(a)
 
 	return cloneApplication(a)
 }
@@ -321,24 +375,21 @@ func (b *InMemoryBackend) AddVersionInternal(appName, semanticVersion string) *A
 	b.mu.Lock("AddVersionInternal")
 	defer b.mu.Unlock()
 
-	app := b.applications[appName]
-	if app == nil {
+	app, ok := b.applications.Get(appName)
+	if !ok {
 		return nil
-	}
-
-	if _, exists := b.appVersions[appName]; !exists {
-		b.appVersions[appName] = make(map[string]*ApplicationVersion)
 	}
 
 	v := &ApplicationVersion{
 		ApplicationID:        app.ApplicationID,
 		SemanticVersion:      semanticVersion,
+		AppName:              appName,
 		CreationTime:         time.Now(),
 		ParameterDefinitions: []ParameterDefinition{},
 		RequiredCapabilities: []string{},
 		ResourcesSupported:   true,
 	}
-	b.appVersions[appName][semanticVersion] = v
+	b.appVersions.Put(v)
 
 	return cloneVersion(v)
 }
@@ -421,7 +472,7 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, err
 	}
 
-	if _, ok := b.applications[name]; ok {
+	if b.applications.Has(name) {
 		return nil, fmt.Errorf("%w: application %s already exists", ErrApplicationAlreadyExists, name)
 	}
 
@@ -440,7 +491,7 @@ func (b *InMemoryBackend) CreateApplication(
 		CreationTime:    time.Now(),
 		Labels:          nonNilStringSlice(cloneStringSlice(labels)),
 	}
-	b.applications[name] = a
+	b.applications.Put(a)
 
 	return cloneApplication(a), nil
 }
@@ -450,7 +501,7 @@ func (b *InMemoryBackend) SetApplicationReadmeURL(name, readmeURL string) (*Appl
 	b.mu.Lock("SetApplicationReadmeURL")
 	defer b.mu.Unlock()
 
-	a, ok := b.applications[name]
+	a, ok := b.applications.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
 	}
@@ -465,7 +516,7 @@ func (b *InMemoryBackend) GetApplication(name string) (*Application, error) {
 	b.mu.RLock("GetApplication")
 	defer b.mu.RUnlock()
 
-	a, ok := b.applications[name]
+	a, ok := b.applications.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
 	}
@@ -478,15 +529,15 @@ func (b *InMemoryBackend) ListApplications() []*Application {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	list := make([]*Application, 0, len(b.applications))
+	// Table.Snapshot returns entries ordered by key ascending; the table is
+	// keyed by Application.Name (see store_setup.go), which is exactly the
+	// sort order this method has always returned.
+	snap := b.applications.Snapshot()
+	list := make([]*Application, 0, len(snap))
 
-	for _, a := range b.applications {
+	for _, a := range snap {
 		list = append(list, cloneApplication(a))
 	}
-
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].Name < list[j].Name
-	})
 
 	return list
 }
@@ -498,7 +549,7 @@ func (b *InMemoryBackend) UpdateApplication(
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
-	a, ok := b.applications[name]
+	a, ok := b.applications.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
 	}
@@ -535,7 +586,7 @@ func (b *InMemoryBackend) UpdateApplicationLabels(name string, labels []string) 
 	b.mu.Lock("UpdateApplicationLabels")
 	defer b.mu.Unlock()
 
-	a, ok := b.applications[name]
+	a, ok := b.applications.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
 	}
@@ -549,19 +600,32 @@ func (b *InMemoryBackend) UpdateApplicationLabels(name string, labels []string) 
 	return cloneApplication(a), nil
 }
 
-// DeleteApplication deletes an application by name.
+// DeleteApplication deletes an application by name, cascading to every
+// version, CloudFormation template, and CloudFormation change set owned by
+// it. The byApp index results are cloned before the delete loops since
+// deleting from the underlying table mutates the index's backing slice.
 func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[name]; !ok {
+	if !b.applications.Has(name) {
 		return fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, name)
 	}
 
-	delete(b.applications, name)
-	delete(b.appVersions, name)
-	delete(b.cfTemplates, name)
-	delete(b.cfChangeSets, name)
+	b.applications.Delete(name)
+
+	for _, v := range slices.Clone(b.appVersionsByApp.Get(name)) {
+		b.appVersions.Delete(versionKey(v.AppName, v.SemanticVersion))
+	}
+
+	for _, t := range slices.Clone(b.cfTemplatesByApp.Get(name)) {
+		b.cfTemplates.Delete(t.TemplateID)
+	}
+
+	for _, cs := range slices.Clone(b.cfChangeSetsByApp.Get(name)) {
+		b.cfChangeSets.Delete(changeSetKey(cs.AppName, cs.ChangeSetID))
+	}
+
 	delete(b.appPolicies, name)
 	delete(b.appDependencies, name)
 
@@ -590,7 +654,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 	b.mu.Lock("CreateApplicationVersion")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[appName]
+	app, ok := b.applications.Get(appName)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
@@ -610,11 +674,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 		)
 	}
 
-	if _, exists := b.appVersions[appName]; !exists {
-		b.appVersions[appName] = make(map[string]*ApplicationVersion)
-	}
-
-	if _, exists := b.appVersions[appName][semanticVersion]; exists {
+	if b.appVersions.Has(versionKey(appName, semanticVersion)) {
 		return nil, fmt.Errorf(
 			"%w: version %s already exists for application %q",
 			ErrVersionAlreadyExists,
@@ -636,6 +696,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 	v := &ApplicationVersion{
 		ApplicationID:        app.ApplicationID,
 		SemanticVersion:      semanticVersion,
+		AppName:              appName,
 		SourceCodeURL:        opts.SourceCodeURL,
 		SourceCodeArchiveURL: opts.SourceCodeArchiveURL,
 		TemplateURL:          resolvedTemplateURL,
@@ -644,7 +705,7 @@ func (b *InMemoryBackend) CreateApplicationVersionWithOptions(
 		RequiredCapabilities: []string{},
 		ResourcesSupported:   true,
 	}
-	b.appVersions[appName][semanticVersion] = v
+	b.appVersions.Put(v)
 
 	// Track the latest created version on the application itself so GetApplication
 	// returns the most recently created version by default.
@@ -658,21 +719,11 @@ func (b *InMemoryBackend) GetApplicationVersion(appName, semanticVersion string)
 	b.mu.RLock("GetApplicationVersion")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
-	versions, ok := b.appVersions[appName]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find version %q for application %q",
-			ErrApplicationNotFound,
-			semanticVersion,
-			appName,
-		)
-	}
-
-	v, ok := versions[semanticVersion]
+	v, ok := b.appVersions.Get(versionKey(appName, semanticVersion))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: could not find version %q for application %q",
@@ -690,17 +741,20 @@ func (b *InMemoryBackend) ListApplicationVersions(appName string) ([]*Applicatio
 	b.mu.RLock("ListApplicationVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
-	versions := b.appVersions[appName]
+	versions := b.appVersionsByApp.Get(appName)
 	list := make([]*ApplicationVersion, 0, len(versions))
 
 	for _, v := range versions {
 		list = append(list, cloneVersion(v))
 	}
 
+	// store.Index preserves insertion order, not sort order -- explicit sort
+	// is required for the deterministic-by-semanticVersion result this
+	// method has always returned.
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].SemanticVersion < list[j].SemanticVersion
 	})
@@ -715,13 +769,9 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 	b.mu.Lock("CreateCloudFormationTemplate")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[appName]
+	app, ok := b.applications.Get(appName)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
-	}
-
-	if _, exists := b.cfTemplates[appName]; !exists {
-		b.cfTemplates[appName] = make(map[string]*CloudFormationTemplate)
 	}
 
 	now := time.Now()
@@ -729,6 +779,7 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 	t := &CloudFormationTemplate{
 		ApplicationID:   app.ApplicationID,
 		TemplateID:      templateID,
+		AppName:         appName,
 		SemanticVersion: semanticVersion,
 		Status:          templateStatusActive,
 		CreationTime:    now,
@@ -739,7 +790,7 @@ func (b *InMemoryBackend) CreateCloudFormationTemplate(
 			templateID,
 		),
 	}
-	b.cfTemplates[appName][templateID] = t
+	b.cfTemplates.Put(t)
 
 	return cloneTemplate(t), nil
 }
@@ -749,22 +800,12 @@ func (b *InMemoryBackend) GetCloudFormationTemplate(appName, templateID string) 
 	b.mu.RLock("GetCloudFormationTemplate")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
-	templates, ok := b.cfTemplates[appName]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: could not find template %q for application %q",
-			ErrTemplateNotFound,
-			templateID,
-			appName,
-		)
-	}
-
-	t, ok := templates[templateID]
-	if !ok {
+	t, ok := b.cfTemplates.Get(templateID)
+	if !ok || t.AppName != appName {
 		return nil, fmt.Errorf(
 			"%w: could not find template %q for application %q",
 			ErrTemplateNotFound,
@@ -803,7 +844,7 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 	b.mu.Lock("CreateCloudFormationChangeSet")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[appName]
+	app, ok := b.applications.Get(appName)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
@@ -812,10 +853,6 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 		if !isValidCapability(capability) {
 			return nil, fmt.Errorf("%w: unsupported capability %q", ErrValidation, capability)
 		}
-	}
-
-	if _, exists := b.cfChangeSets[appName]; !exists {
-		b.cfChangeSets[appName] = make(map[string]*CloudFormationChangeSet)
 	}
 
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -841,12 +878,13 @@ func (b *InMemoryBackend) CreateCloudFormationChangeSetWithOptions(
 	cs := &CloudFormationChangeSet{
 		ApplicationID:   app.ApplicationID,
 		ChangeSetID:     changeSetID,
+		AppName:         appName,
 		SemanticVersion: semanticVersion,
 		StackID:         stackID,
 		Capabilities:    cloneStringSlice(opts.Capabilities),
 		Tags:            cloneTags(opts.Tags),
 	}
-	b.cfChangeSets[appName][changeSetID] = cloneChangeSet(cs)
+	b.cfChangeSets.Put(cloneChangeSet(cs))
 
 	return cloneChangeSet(cs), nil
 }
@@ -856,7 +894,7 @@ func (b *InMemoryBackend) GetApplicationPolicy(appName string) ([]*ApplicationPo
 	b.mu.RLock("GetApplicationPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
@@ -871,7 +909,7 @@ func (b *InMemoryBackend) PutApplicationPolicy(
 	b.mu.Lock("PutApplicationPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
@@ -909,7 +947,7 @@ func (b *InMemoryBackend) AddApplicationDependencyInternal(
 	b.mu.Lock("AddApplicationDependencyInternal")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
@@ -930,7 +968,7 @@ func (b *InMemoryBackend) ListApplicationDependencies(
 	b.mu.RLock("ListApplicationDependencies")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return nil, fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 
@@ -974,7 +1012,7 @@ func (b *InMemoryBackend) UnshareApplication(appName, _ string) error {
 	b.mu.Lock("UnshareApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return fmt.Errorf("%w: could not find application %q", ErrApplicationNotFound, appName)
 	}
 

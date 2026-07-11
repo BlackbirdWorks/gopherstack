@@ -1,11 +1,12 @@
 package firehose
 
-// StreamCount returns the number of streams in the backend (for white-box testing).
+// StreamCount returns the total number of delivery streams in the backend,
+// across every region (for white-box testing).
 func StreamCount(b *InMemoryBackend) int {
 	b.mu.RLock("StreamCount")
 	defer b.mu.RUnlock()
 
-	return len(b.streams)
+	return b.streams.Len()
 }
 
 // HandlerOpsLen returns the number of pre-built dispatch operations.
@@ -19,12 +20,7 @@ func StreamFailedRecords(b *InMemoryBackend, region, name string) int64 {
 	b.mu.RLock("StreamFailedRecords")
 	defer b.mu.RUnlock()
 
-	streams, ok := b.streams[region]
-	if !ok {
-		return -1
-	}
-
-	s, ok := streams[name]
+	s, ok := b.streams.Get(regionKey(region, name))
 	if !ok {
 		return -1
 	}

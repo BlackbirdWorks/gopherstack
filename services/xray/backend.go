@@ -16,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -275,44 +276,68 @@ var validKMSKeyID = regexp.MustCompile(
 type serviceInsightWindow struct {
 	WindowStart time.Time
 	InsightID   string
-	Total       int64
-	FaultCount  int64
+	// Name is the service name this window tracks. It is the store.Table
+	// identity key; serviceWindows is ephemeral insight-detection state that
+	// is never persisted (reset fresh on Restore), so Name is tagged json:"-"
+	// defensively even though it is never actually marshaled.
+	Name       string `json:"-"`
+	Total      int64
+	FaultCount int64
 }
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
 	lastRuleModification time.Time
-	groupsByARN          map[string]*Group
-	retrievedTraces      map[string][]*Trace
-	parsedSegments       map[string]*Segment
-	traceSegments        map[string][]*Segment
-	insights             map[string]*Insight
-	insightEvents        map[string][]*InsightEvent
-	resourcePolicies     map[string]*ResourcePolicy
-	retrievalTimes       map[string]time.Time
-	groups               map[string]*Group
-	resourceTags         map[string]map[string]string
-	traces               map[string]*Trace
-	samplingStats        map[string]*SamplingStatisticSummary
-	traceRetrievals      map[string]*TraceRetrieval
-	serviceWindows       map[string]*serviceInsightWindow
-	encryptionConfig     *EncryptionConfig
-	mu                   *lockmetrics.RWMutex
-	samplingRules        map[string]*SamplingRule
-	traceSegmentDest     string
-	region               string
-	accountID            string
-	telemetry            []*TelemetryRecord
-	indexingRules        []*IndexingRule
-	telemetryIdx         int
+	// registry is the lifecycle registry for every store.Table below. It
+	// collapses Reset() to one registry.ResetAll() call instead of one
+	// hand-written make() per map. Snapshot/Restore deliberately do NOT use
+	// registry.SnapshotAll()/RestoreAll() wholesale -- parsedSegments and
+	// serviceWindows are excluded from persistence (see persistence.go) so
+	// their JSON round-trip is driven by hand, table by table.
+	registry *store.Registry
+	// groupsByARN is a secondary index on groups, keyed by GroupARN.
+	groupsByARN *store.Index[Group]
+	// retrievedTraces is keyed by retrieval token; its values are slices,
+	// not *T, so it is left as a plain map (see store_setup.go).
+	retrievedTraces map[string][]*Trace
+	parsedSegments  *store.Table[Segment]
+	// traceSegments is a secondary index on parsedSegments, keyed by TraceID
+	// ("segments of a trace").
+	traceSegments *store.Index[Segment]
+	insights      *store.Table[Insight]
+	// insightEvents is keyed by insight ID; its values are slices, not *T,
+	// so it is left as a plain map (see store_setup.go).
+	insightEvents    map[string][]*InsightEvent
+	resourcePolicies *store.Table[ResourcePolicy]
+	// retrievalTimes is map[string]time.Time -- not a *T map -- so it is
+	// left as a plain map (see store_setup.go).
+	retrievalTimes map[string]time.Time
+	groups         *store.Table[Group]
+	// resourceTags is map[string]map[string]string -- not a *T map -- so it
+	// is left as a plain map (see store_setup.go).
+	resourceTags     map[string]map[string]string
+	traces           *store.Table[Trace]
+	samplingStats    *store.Table[SamplingStatisticSummary]
+	traceRetrievals  *store.Table[TraceRetrieval]
+	serviceWindows   *store.Table[serviceInsightWindow]
+	encryptionConfig *EncryptionConfig
+	mu               *lockmetrics.RWMutex
+	samplingRules    *store.Table[SamplingRule]
+	traceSegmentDest string
+	region           string
+	accountID        string
+	telemetry        []*TelemetryRecord
+	indexingRules    []*IndexingRule
+	telemetryIdx     int
 }
 
-// defaultSamplingRules returns the built-in X-Ray sampling rules that are always present.
-// The "Default" rule matches all requests and has the lowest priority (10000).
-func (b *InMemoryBackend) defaultSamplingRules() map[string]*SamplingRule {
+// defaultSamplingRule returns the built-in X-Ray sampling rule that is always
+// present. The "Default" rule matches all requests and has the lowest
+// priority (10000).
+func (b *InMemoryBackend) defaultSamplingRule() *SamplingRule {
 	now := time.Now()
-	rules := make(map[string]*SamplingRule, 1)
-	rules[defaultSamplingRuleName] = &SamplingRule{
+
+	return &SamplingRule{
 		RuleName:      defaultSamplingRuleName,
 		RuleARN:       b.samplingRuleARN(defaultSamplingRuleName),
 		ResourceARN:   "*",
@@ -327,38 +352,28 @@ func (b *InMemoryBackend) defaultSamplingRules() map[string]*SamplingRule {
 		CreatedAt:     now,
 		ModifiedAt:    now,
 	}
-
-	return rules
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given accountID and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		groups:           make(map[string]*Group),
-		traces:           make(map[string]*Trace),
-		parsedSegments:   make(map[string]*Segment),
-		traceSegments:    make(map[string][]*Segment),
-		insights:         make(map[string]*Insight),
-		insightEvents:    make(map[string][]*InsightEvent),
-		resourcePolicies: make(map[string]*ResourcePolicy),
-		traceRetrievals:  make(map[string]*TraceRetrieval),
-		retrievedTraces:  make(map[string][]*Trace),
-		resourceTags:     make(map[string]map[string]string),
-		indexingRules:    defaultIndexingRules(),
-		samplingStats:    make(map[string]*SamplingStatisticSummary),
-		telemetry:        make([]*TelemetryRecord, telemetryRingSize),
-		mu:               lockmetrics.New("xray"),
+		registry:        store.NewRegistry(),
+		insightEvents:   make(map[string][]*InsightEvent),
+		retrievedTraces: make(map[string][]*Trace),
+		resourceTags:    make(map[string]map[string]string),
+		indexingRules:   defaultIndexingRules(),
+		telemetry:       make([]*TelemetryRecord, telemetryRingSize),
+		mu:              lockmetrics.New("xray"),
 		encryptionConfig: &EncryptionConfig{
 			Type:   "NONE",
 			Status: statusActive,
 		},
 		region:         region,
 		accountID:      accountID,
-		groupsByARN:    make(map[string]*Group),
 		retrievalTimes: make(map[string]time.Time),
-		serviceWindows: make(map[string]*serviceInsightWindow),
 	}
-	b.samplingRules = b.defaultSamplingRules()
+	registerAllTables(b)
+	b.samplingRules.Put(b.defaultSamplingRule())
 
 	return b
 }
@@ -402,7 +417,7 @@ func (b *InMemoryBackend) CreateGroup(name, filterExpr string) (*Group, error) {
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[name]; ok {
+	if b.groups.Has(name) {
 		return nil, fmt.Errorf("%w: group %s already exists", ErrGroupAlreadyExists, name)
 	}
 
@@ -412,8 +427,7 @@ func (b *InMemoryBackend) CreateGroup(name, filterExpr string) (*Group, error) {
 		FilterExpression: filterExpr,
 		CreatedAt:        time.Now(),
 	}
-	b.groups[name] = g
-	b.groupsByARN[g.GroupARN] = g
+	b.groups.Put(g)
 
 	return cloneGroup(g), nil
 }
@@ -423,7 +437,7 @@ func (b *InMemoryBackend) CreateGroupWithInsights(name, filterExpr string, ic In
 	b.mu.Lock("CreateGroupWithInsights")
 	defer b.mu.Unlock()
 
-	if _, ok := b.groups[name]; ok {
+	if b.groups.Has(name) {
 		return nil, fmt.Errorf("%w: group %s already exists", ErrGroupAlreadyExists, name)
 	}
 
@@ -434,8 +448,7 @@ func (b *InMemoryBackend) CreateGroupWithInsights(name, filterExpr string, ic In
 		InsightsConfiguration: ic,
 		CreatedAt:             time.Now(),
 	}
-	b.groups[name] = g
-	b.groupsByARN[g.GroupARN] = g
+	b.groups.Put(g)
 
 	return cloneGroup(g), nil
 }
@@ -445,7 +458,7 @@ func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
 
-	g, ok := b.groups[name]
+	g, ok := b.groups.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
 	}
@@ -458,8 +471,8 @@ func (b *InMemoryBackend) GetGroupByARN(arn string) (*Group, error) {
 	b.mu.RLock("GetGroupByARN")
 	defer b.mu.RUnlock()
 
-	if g, ok := b.groupsByARN[arn]; ok {
-		return cloneGroup(g), nil
+	if list := b.groupsByARN.Get(arn); len(list) > 0 {
+		return cloneGroup(list[0]), nil
 	}
 
 	return nil, fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
@@ -470,8 +483,10 @@ func (b *InMemoryBackend) GetGroups() []Group {
 	b.mu.RLock("GetGroups")
 	defer b.mu.RUnlock()
 
-	out := make([]Group, 0, len(b.groups))
-	for _, g := range b.groups {
+	all := b.groups.All()
+	out := make([]Group, 0, len(all))
+
+	for _, g := range all {
 		out = append(out, *cloneGroup(g))
 	}
 
@@ -487,7 +502,7 @@ func (b *InMemoryBackend) UpdateGroup(name, filterExpr string) (*Group, error) {
 	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[name]
+	g, ok := b.groups.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
 	}
@@ -505,9 +520,11 @@ func (b *InMemoryBackend) UpdateGroupByARN(name, arn, filterExpr string) (*Group
 	var g *Group
 
 	if arn != "" {
-		g = b.groupsByARN[arn]
+		if list := b.groupsByARN.Get(arn); len(list) > 0 {
+			g = list[0]
+		}
 	} else {
-		g = b.groups[name]
+		g, _ = b.groups.Get(name)
 	}
 
 	if g == nil {
@@ -529,13 +546,9 @@ func (b *InMemoryBackend) DeleteGroup(name string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.groups[name]
-	if !ok {
+	if !b.groups.Delete(name) {
 		return fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
 	}
-
-	delete(b.groupsByARN, g.GroupARN)
-	delete(b.groups, name)
 
 	return nil
 }
@@ -546,24 +559,19 @@ func (b *InMemoryBackend) DeleteGroupByARN(name, arn string) error {
 	defer b.mu.Unlock()
 
 	if arn != "" {
-		g, ok := b.groupsByARN[arn]
-		if !ok {
+		list := b.groupsByARN.Get(arn)
+		if len(list) == 0 {
 			return fmt.Errorf("%w: group with ARN %s not found", ErrGroupNotFound, arn)
 		}
 
-		delete(b.groupsByARN, arn)
-		delete(b.groups, g.GroupName)
+		b.groups.Delete(list[0].GroupName)
 
 		return nil
 	}
 
-	g, ok := b.groups[name]
-	if !ok {
+	if !b.groups.Delete(name) {
 		return fmt.Errorf("%w: group %s not found", ErrGroupNotFound, name)
 	}
-
-	delete(b.groupsByARN, g.GroupARN)
-	delete(b.groups, name)
 
 	return nil
 }
@@ -598,7 +606,7 @@ func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, 
 	b.mu.Lock("CreateSamplingRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.samplingRules[rule.RuleName]; ok {
+	if b.samplingRules.Has(rule.RuleName) {
 		return nil, fmt.Errorf("%w: sampling rule %s already exists", ErrSamplingRuleAlreadyExists, rule.RuleName)
 	}
 
@@ -606,7 +614,7 @@ func (b *InMemoryBackend) CreateSamplingRule(rule SamplingRule) (*SamplingRule, 
 	now := time.Now()
 	rule.CreatedAt = now
 	rule.ModifiedAt = now
-	b.samplingRules[rule.RuleName] = &rule
+	b.samplingRules.Put(&rule)
 	b.lastRuleModification = now
 
 	return cloneRule(&rule), nil
@@ -617,8 +625,10 @@ func (b *InMemoryBackend) GetSamplingRules() []SamplingRule {
 	b.mu.RLock("GetSamplingRules")
 	defer b.mu.RUnlock()
 
-	out := make([]SamplingRule, 0, len(b.samplingRules))
-	for _, r := range b.samplingRules {
+	all := b.samplingRules.All()
+	out := make([]SamplingRule, 0, len(all))
+
+	for _, r := range all {
 		out = append(out, *cloneRule(r))
 	}
 
@@ -639,7 +649,7 @@ func (b *InMemoryBackend) UpdateSamplingRule(ruleName string, updates SamplingRu
 	b.mu.Lock("UpdateSamplingRule")
 	defer b.mu.Unlock()
 
-	r, ok := b.samplingRules[ruleName]
+	r, ok := b.samplingRules.Get(ruleName)
 	if !ok {
 		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
 	}
@@ -686,7 +696,7 @@ func (b *InMemoryBackend) UpdateSamplingRuleWithPointers(
 	b.mu.Lock("UpdateSamplingRuleWithPointers")
 	defer b.mu.Unlock()
 
-	r, ok := b.samplingRules[ruleName]
+	r, ok := b.samplingRules.Get(ruleName)
 	if !ok {
 		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
 	}
@@ -747,13 +757,13 @@ func (b *InMemoryBackend) DeleteSamplingRule(ruleName string) (*SamplingRule, er
 	b.mu.Lock("DeleteSamplingRule")
 	defer b.mu.Unlock()
 
-	r, ok := b.samplingRules[ruleName]
+	r, ok := b.samplingRules.Get(ruleName)
 	if !ok {
 		return nil, fmt.Errorf("%w: sampling rule %s not found", ErrSamplingRuleNotFound, ruleName)
 	}
 
 	deleted := cloneRule(r)
-	delete(b.samplingRules, ruleName)
+	b.samplingRules.Delete(ruleName)
 	b.lastRuleModification = time.Now()
 
 	return deleted, nil
@@ -782,14 +792,14 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 			continue
 		}
 
-		t, ok := b.traces[hdr.TraceID]
+		t, ok := b.traces.Get(hdr.TraceID)
 		if !ok {
 			t = &Trace{
 				TraceID:   hdr.TraceID,
 				StartTime: time.Now(),
 				Segments:  []string{},
 			}
-			b.traces[hdr.TraceID] = t
+			b.traces.Put(t)
 		}
 
 		// Cap per-trace segment count.
@@ -806,9 +816,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 		if err := json.Unmarshal([]byte(seg), &parsed); err == nil {
 			parsed.Document = seg
 
-			segKey := hdr.TraceID + ":" + parsed.ID
-			b.parsedSegments[segKey] = &parsed
-			b.traceSegments[hdr.TraceID] = append(b.traceSegments[hdr.TraceID], &parsed)
+			b.parsedSegments.Put(&parsed)
 			newlyParsed = append(newlyParsed, &parsed)
 
 			// Update trace StartTime from the earliest segment start_time.
@@ -839,7 +847,7 @@ func (b *InMemoryBackend) maybeResetInsightWindow(w *serviceInsightWindow, now t
 	if w.InsightID != "" && w.Total > 0 {
 		rate := float64(w.FaultCount) / float64(w.Total)
 		if rate < insightFaultThreshold {
-			if ins, exists := b.insights[w.InsightID]; exists {
+			if ins, exists := b.insights.Get(w.InsightID); exists {
 				ins.State = "CLOSED"
 				ins.EndTime = now
 			}
@@ -866,7 +874,7 @@ func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName stri
 	}
 
 	insightID := uuid.NewString()
-	b.insights[insightID] = &Insight{
+	b.insights.Put(&Insight{
 		InsightID: insightID,
 		GroupARN:  b.groupARN("default"),
 		GroupName: "default",
@@ -876,7 +884,7 @@ func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName stri
 			"Elevated fault rate detected for service %q (%.0f%%)",
 			svcName, rate*pctMultiplier,
 		),
-	}
+	})
 	b.insightEvents[insightID] = []*InsightEvent{{
 		InsightID: insightID,
 		EventTime: now,
@@ -899,10 +907,10 @@ func (b *InMemoryBackend) detectInsights(newSegs []*Segment) {
 	}
 
 	for svcName, segs := range byService {
-		w, ok := b.serviceWindows[svcName]
+		w, ok := b.serviceWindows.Get(svcName)
 		if !ok {
-			w = &serviceInsightWindow{WindowStart: now}
-			b.serviceWindows[svcName] = w
+			w = &serviceInsightWindow{Name: svcName, WindowStart: now}
+			b.serviceWindows.Put(w)
 		}
 
 		b.maybeResetInsightWindow(w, now)
@@ -923,8 +931,10 @@ func (b *InMemoryBackend) GetTraceSummaries() []Trace {
 	b.mu.RLock("GetTraceSummaries")
 	defer b.mu.RUnlock()
 
-	out := make([]Trace, 0, len(b.traces))
-	for _, t := range b.traces {
+	all := b.traces.All()
+	out := make([]Trace, 0, len(all))
+
+	for _, t := range all {
 		cp := *t
 		cp.Segments = make([]string, len(t.Segments))
 		copy(cp.Segments, t.Segments)
@@ -943,7 +953,7 @@ func (b *InMemoryBackend) GetTrace(traceID string) *Trace {
 	b.mu.RLock("GetTrace")
 	defer b.mu.RUnlock()
 
-	t, ok := b.traces[traceID]
+	t, ok := b.traces.Get(traceID)
 	if !ok {
 		return nil
 	}
@@ -960,23 +970,29 @@ func (b *InMemoryBackend) GetParsedSegments(traceID string) []*Segment {
 	b.mu.RLock("GetParsedSegments")
 	defer b.mu.RUnlock()
 
-	segs := b.traceSegments[traceID]
+	segs := b.traceSegments.Get(traceID)
 	out := make([]*Segment, len(segs))
 	copy(out, segs)
 
 	return out
 }
 
-// GetAllParsedSegments returns all parsed segments.
+// GetAllParsedSegments returns all parsed segments, keyed by trace ID.
 func (b *InMemoryBackend) GetAllParsedSegments() map[string][]*Segment {
 	b.mu.RLock("GetAllParsedSegments")
 	defer b.mu.RUnlock()
 
-	out := make(map[string][]*Segment, len(b.traceSegments))
-	for k, v := range b.traceSegments {
-		cp := make([]*Segment, len(v))
-		copy(cp, v)
-		out[k] = cp
+	out := make(map[string][]*Segment)
+
+	for _, t := range b.traces.All() {
+		segs := b.traceSegments.Get(t.TraceID)
+		if len(segs) == 0 {
+			continue
+		}
+
+		cp := make([]*Segment, len(segs))
+		copy(cp, segs)
+		out[t.TraceID] = cp
 	}
 
 	return out
@@ -987,20 +1003,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.groups = make(map[string]*Group)
-	b.groupsByARN = make(map[string]*Group)
-	b.samplingRules = b.defaultSamplingRules()
-	b.traces = make(map[string]*Trace)
-	b.parsedSegments = make(map[string]*Segment)
-	b.traceSegments = make(map[string][]*Segment)
-	b.insights = make(map[string]*Insight)
+	// Resets every store.Table-backed resource map in one call instead of
+	// the per-map make() calls this used to be (Phase 3.3 pkgs/store
+	// conversion). See registerAllTables in store_setup.go for the full
+	// list of tables this covers.
+	b.registry.ResetAll()
+	b.samplingRules.Put(b.defaultSamplingRule())
+
 	b.insightEvents = make(map[string][]*InsightEvent)
-	b.resourcePolicies = make(map[string]*ResourcePolicy)
-	b.traceRetrievals = make(map[string]*TraceRetrieval)
 	b.retrievedTraces = make(map[string][]*Trace)
 	b.retrievalTimes = make(map[string]time.Time)
-	b.serviceWindows = make(map[string]*serviceInsightWindow)
-	b.samplingStats = make(map[string]*SamplingStatisticSummary)
 	b.telemetry = make([]*TelemetryRecord, telemetryRingSize)
 	b.telemetryIdx = 0
 	b.indexingRules = defaultIndexingRules()
@@ -1075,7 +1087,7 @@ func (b *InMemoryBackend) AddInsightInternal(insight Insight) {
 	b.mu.Lock("AddInsightInternal")
 	defer b.mu.Unlock()
 
-	b.insights[insight.InsightID] = &insight
+	b.insights.Put(&insight)
 }
 
 // AddInsightEventInternal seeds an event for an insight directly for testing.
@@ -1091,7 +1103,7 @@ func (b *InMemoryBackend) GetInsight(insightID string) (*Insight, error) {
 	b.mu.RLock("GetInsight")
 	defer b.mu.RUnlock()
 
-	i, ok := b.insights[insightID]
+	i, ok := b.insights.Get(insightID)
 	if !ok {
 		return nil, fmt.Errorf("%w: insight %s not found", ErrInsightNotFound, insightID)
 	}
@@ -1104,7 +1116,7 @@ func (b *InMemoryBackend) GetInsightEvents(insightID string) ([]*InsightEvent, e
 	b.mu.RLock("GetInsightEvents")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.insights[insightID]; !ok {
+	if !b.insights.Has(insightID) {
 		return nil, fmt.Errorf("%w: insight %s not found", ErrInsightNotFound, insightID)
 	}
 
@@ -1149,9 +1161,10 @@ func (b *InMemoryBackend) GetInsightSummaries(states []string) ([]Insight, error
 		stateSet[s] = true
 	}
 
-	out := make([]Insight, 0, len(b.insights))
+	all := b.insights.All()
+	out := make([]Insight, 0, len(all))
 
-	for _, i := range b.insights {
+	for _, i := range all {
 		if !wantAll && !stateSet[i.State] {
 			continue
 		}
@@ -1188,9 +1201,9 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revision
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
-	existing, exists := b.resourcePolicies[policyName]
+	existing, exists := b.resourcePolicies.Get(policyName)
 
-	if !exists && len(b.resourcePolicies) >= maxResourcePolicies {
+	if !exists && b.resourcePolicies.Len() >= maxResourcePolicies {
 		return nil, fmt.Errorf(
 			"%w: maximum of %d resource policies per account",
 			ErrTooManyPolicies,
@@ -1208,7 +1221,7 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument, revision
 		PolicyDocument:   policyDocument,
 		PolicyRevisionID: uuid.NewString(),
 	}
-	b.resourcePolicies[policyName] = p
+	b.resourcePolicies.Put(p)
 
 	return cloneResourcePolicy(p), nil
 }
@@ -1218,8 +1231,10 @@ func (b *InMemoryBackend) ListResourcePolicies() []ResourcePolicy {
 	b.mu.RLock("ListResourcePolicies")
 	defer b.mu.RUnlock()
 
-	out := make([]ResourcePolicy, 0, len(b.resourcePolicies))
-	for _, p := range b.resourcePolicies {
+	all := b.resourcePolicies.All()
+	out := make([]ResourcePolicy, 0, len(all))
+
+	for _, p := range all {
 		out = append(out, *cloneResourcePolicy(p))
 	}
 
@@ -1235,11 +1250,9 @@ func (b *InMemoryBackend) DeleteResourcePolicy(policyName string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourcePolicies[policyName]; !ok {
+	if !b.resourcePolicies.Delete(policyName) {
 		return fmt.Errorf("%w: resource policy %s not found", ErrResourcePolicyNotFound, policyName)
 	}
-
-	delete(b.resourcePolicies, policyName)
 
 	return nil
 }
@@ -1249,7 +1262,7 @@ func (b *InMemoryBackend) AddResourcePolicyInternal(policy ResourcePolicy) {
 	b.mu.Lock("AddResourcePolicyInternal")
 	defer b.mu.Unlock()
 
-	b.resourcePolicies[policy.PolicyName] = cloneResourcePolicy(&policy)
+	b.resourcePolicies.Put(cloneResourcePolicy(&policy))
 }
 
 // --- Indexing rule operations ---
@@ -1275,7 +1288,7 @@ func (b *InMemoryBackend) AddTraceRetrievalInternal(retrieval TraceRetrieval) {
 	b.mu.Lock("AddTraceRetrievalInternal")
 	defer b.mu.Unlock()
 
-	b.traceRetrievals[retrieval.RetrievalToken] = &retrieval
+	b.traceRetrievals.Put(&retrieval)
 }
 
 // CancelTraceRetrieval marks a trace retrieval as cancelled.
@@ -1284,7 +1297,7 @@ func (b *InMemoryBackend) CancelTraceRetrieval(retrievalToken string) {
 	b.mu.Lock("CancelTraceRetrieval")
 	defer b.mu.Unlock()
 
-	delete(b.traceRetrievals, retrievalToken)
+	b.traceRetrievals.Delete(retrievalToken)
 }
 
 // GetRetrievedTracesGraph returns the status and services for a retrieval token.
@@ -1293,11 +1306,12 @@ func (b *InMemoryBackend) GetRetrievedTracesGraph(retrievalToken string) (string
 	b.mu.RLock("GetRetrievedTracesGraph")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.traceRetrievals[retrievalToken]; !ok {
+	tr, ok := b.traceRetrievals.Get(retrievalToken)
+	if !ok {
 		return traceRetrievalStatusComplete, nil
 	}
 
-	return b.traceRetrievals[retrievalToken].Status, nil
+	return tr.Status, nil
 }
 
 // --- Sampling statistic operations ---
@@ -1307,8 +1321,10 @@ func (b *InMemoryBackend) GetSamplingStatisticSummaries() []SamplingStatisticSum
 	b.mu.RLock("GetSamplingStatisticSummaries")
 	defer b.mu.RUnlock()
 
-	out := make([]SamplingStatisticSummary, 0, len(b.samplingStats))
-	for _, s := range b.samplingStats {
+	all := b.samplingStats.All()
+	out := make([]SamplingStatisticSummary, 0, len(all))
+
+	for _, s := range all {
 		cp := *s
 		out = append(out, cp)
 	}
@@ -1368,7 +1384,7 @@ func (b *InMemoryBackend) GetSamplingTargets(
 			continue
 		}
 
-		r, ok := b.samplingRules[d.RuleName]
+		r, ok := b.samplingRules.Get(d.RuleName)
 		if !ok {
 			unprocessed = append(unprocessed, UnprocessedStatisticsResult{
 				RuleName:  d.RuleName,
@@ -1380,19 +1396,19 @@ func (b *InMemoryBackend) GetSamplingTargets(
 		}
 
 		// Accumulate statistics.
-		if existing := b.samplingStats[d.RuleName]; existing != nil {
+		if existing, exists := b.samplingStats.Get(d.RuleName); exists {
 			existing.RequestCount += d.RequestCount
 			existing.SampledCount += d.SampledCount
 			existing.BorrowCount += d.BorrowCount
 			existing.Timestamp = time.Now()
 		} else {
-			b.samplingStats[d.RuleName] = &SamplingStatisticSummary{
+			b.samplingStats.Put(&SamplingStatisticSummary{
 				RuleName:     d.RuleName,
 				RequestCount: d.RequestCount,
 				SampledCount: d.SampledCount,
 				BorrowCount:  d.BorrowCount,
 				Timestamp:    time.Now(),
-			}
+			})
 		}
 
 		targets = append(targets, SamplingTargetResult{
@@ -1657,7 +1673,9 @@ func (b *InMemoryBackend) GetServiceGraph(startTime, endTime time.Time) []map[st
 	// Filter segments to those within the time window.
 	filtered := map[string][]*Segment{}
 
-	for traceID, segs := range b.traceSegments {
+	for _, t := range b.traces.All() {
+		segs := b.traceSegments.Get(t.TraceID)
+
 		var inWindow []*Segment
 
 		for _, seg := range segs {
@@ -1667,14 +1685,14 @@ func (b *InMemoryBackend) GetServiceGraph(startTime, endTime time.Time) []map[st
 				continue
 			}
 
-			t := time.Unix(int64(seg.StartTime), 0)
-			if !t.Before(startTime) && !t.After(endTime) {
+			segTime := time.Unix(int64(seg.StartTime), 0)
+			if !segTime.Before(startTime) && !segTime.After(endTime) {
 				inWindow = append(inWindow, seg)
 			}
 		}
 
 		if len(inWindow) > 0 {
-			filtered[traceID] = inWindow
+			filtered[t.TraceID] = inWindow
 		}
 	}
 
@@ -1693,7 +1711,7 @@ func (b *InMemoryBackend) GetTraceGraph(traceIDs []string) []map[string]any {
 	filtered := map[string][]*Segment{}
 
 	for _, id := range traceIDs {
-		if segs, ok := b.traceSegments[id]; ok {
+		if segs := b.traceSegments.Get(id); len(segs) > 0 {
 			filtered[id] = segs
 		}
 	}
@@ -1775,14 +1793,16 @@ func (b *InMemoryBackend) GetTimeSeriesServiceStatistics(startTime, endTime time
 
 	buckets := map[int64]*tsBucket{}
 
-	for _, segs := range b.traceSegments {
+	for _, t := range b.traces.All() {
+		segs := b.traceSegments.Get(t.TraceID)
+
 		for _, seg := range segs {
 			if seg.StartTime == 0 {
 				continue
 			}
 
-			t := time.Unix(int64(seg.StartTime), 0)
-			if t.Before(startTime) || t.After(endTime) {
+			segTime := time.Unix(int64(seg.StartTime), 0)
+			if segTime.Before(startTime) || segTime.After(endTime) {
 				continue
 			}
 
@@ -1845,11 +1865,7 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 		Status:         traceRetrievalStatusComplete,
 	}
 
-	if b.traceRetrievals == nil {
-		b.traceRetrievals = make(map[string]*TraceRetrieval)
-	}
-
-	b.traceRetrievals[token] = retrieval
+	b.traceRetrievals.Put(retrieval)
 	b.retrievalTimes[token] = now
 
 	// Pre-populate results using stored traces that match the requested IDs.
@@ -1860,7 +1876,7 @@ func (b *InMemoryBackend) StartTraceRetrieval(traceIDs []string) string {
 	results := make([]*Trace, 0, len(traceIDs))
 
 	for _, id := range traceIDs {
-		if t, ok := b.traces[id]; ok {
+		if t, ok := b.traces.Get(id); ok {
 			cp := *t
 			results = append(results, &cp)
 		}
@@ -1876,11 +1892,11 @@ func (b *InMemoryBackend) ListRetrievedTraces(retrievalToken string) (string, []
 	b.mu.RLock("ListRetrievedTraces")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.traceRetrievals[retrievalToken]; !ok {
+	tr, ok := b.traceRetrievals.Get(retrievalToken)
+	if !ok {
 		return traceRetrievalStatusComplete, nil
 	}
 
-	status := b.traceRetrievals[retrievalToken].Status
 	traces := b.retrievedTraces[retrievalToken]
 
 	out := make([]*Trace, len(traces))
@@ -1889,7 +1905,7 @@ func (b *InMemoryBackend) ListRetrievedTraces(retrievalToken string) (string, []
 		out[i] = &cp
 	}
 
-	return status, out
+	return tr.Status, out
 }
 
 // --- UpdateIndexingRule ---

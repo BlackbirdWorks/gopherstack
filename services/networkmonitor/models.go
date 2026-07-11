@@ -3,12 +3,20 @@ package networkmonitor
 import "time"
 
 // Monitor represents an AWS CloudWatch Network Monitor monitor.
+//
+// Region is not part of the AWS wire shape (handler.go always builds a
+// dedicated response DTO rather than marshaling Monitor directly); it exists
+// purely to carry the store.Table composite-key component ("region|name",
+// see regionKey in backend.go) through JSON round-tripping, since monitors
+// were previously nested by region (map[string]map[string]*Monitor) instead
+// of carrying their region on the value itself. See store_setup.go.
 type Monitor struct {
 	CreatedAt         *time.Time        `json:"createdAt,omitempty"`
 	ModifiedAt        *time.Time        `json:"modifiedAt,omitempty"`
 	Tags              map[string]string `json:"tags,omitempty"`
 	MonitorArn        string            `json:"monitorArn"`
 	MonitorName       string            `json:"monitorName"`
+	Region            string            `json:"region"`
 	State             string            `json:"state"`
 	Probes            []*Probe          `json:"probes,omitempty"`
 	AggregationPeriod int64             `json:"aggregationPeriod"`

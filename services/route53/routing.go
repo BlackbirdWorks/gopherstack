@@ -217,7 +217,7 @@ func (b *InMemoryBackend) recordHealthy(rrs *ResourceRecordSet) bool {
 		return true
 	}
 
-	hc, ok := b.healthChecks[rrs.HealthCheckID]
+	hc, ok := b.healthChecks.Get(rrs.HealthCheckID)
 	if !ok {
 		return true
 	}

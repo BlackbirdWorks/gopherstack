@@ -99,10 +99,13 @@ type StorageBackend interface {
 	ListTrafficPolicyInstancesByHostedZone(hostedZoneID string) ([]*TrafficPolicyInstance, error)
 	ListTrafficPolicyInstancesByPolicy(tpID string, tpVersion int32) ([]*TrafficPolicyInstance, error)
 
-	// Tags operations
-	ListTagsForResource(resourceID string) map[string]string
-	ListTagsForResources(resourceIDs []string) map[string]map[string]string
-	ChangeTagsForResource(resourceID string, addTags map[string]string, removeKeys []string) error
+	// Tags operations. resourceType is the AWS TagResourceType wire value
+	// ("hostedzone" or "healthcheck"); it is used to validate that the
+	// resource actually exists (and to pick the right NoSuch* error) before
+	// reading or mutating tags.
+	ListTagsForResource(resourceType, resourceID string) (map[string]string, error)
+	ListTagsForResources(resourceType string, resourceIDs []string) (map[string]map[string]string, error)
+	ChangeTagsForResource(resourceType, resourceID string, addTags map[string]string, removeKeys []string) error
 
 	// Lifecycle
 	Reset()

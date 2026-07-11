@@ -483,9 +483,22 @@ func TestLambda_FunctionNameFromARN(t *testing.T) {
 			expected: "",
 		},
 		{
+			// Bug fix (parity-sweep-3): the old implementation SplitN'd on ":"
+			// with a fixed part count and returned "" for any input shorter
+			// than a full ARN, silently dropping bare function names. A bare
+			// name is a legitimate input (callers fall back to it when the
+			// ARN doesn't parse) and must round-trip unchanged.
 			name:     "just a name",
 			arn:      "my-function",
-			expected: "",
+			expected: "my-function",
+		},
+		{
+			// Qualified ARN: the qualifier segment must be stripped, not
+			// glued onto the name (previously "arn:...:function:my-func:PROD"
+			// incorrectly returned "PROD" as the "name").
+			name:     "qualified ARN with alias",
+			arn:      "arn:aws:lambda:us-east-1:000000000000:function:my-function:PROD",
+			expected: "my-function",
 		},
 	}
 

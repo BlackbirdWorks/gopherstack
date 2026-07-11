@@ -194,11 +194,11 @@ func (h *Handler) deleteUser(ctx context.Context, c *echo.Context, form url.Valu
 	u, err := h.Backend.DeleteUser(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
+			return xmlError(c, http.StatusNotFound, "UserNotFound", "User not found")
 		}
 
 		if errors.Is(err, ErrUserNotInGroup) {
-			return xmlError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -235,7 +235,7 @@ func (h *Handler) describeUsers(ctx context.Context, c *echo.Context, form url.V
 	p, err := h.Backend.DescribeUsers(ctx, userID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
+			return xmlError(c, http.StatusNotFound, "UserNotFound", "User not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -260,7 +260,7 @@ func (h *Handler) modifyUser(ctx context.Context, c *echo.Context, form url.Valu
 	u, err := h.Backend.ModifyUser(ctx, userID, accessString, noPasswordRequired)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserNotFound", "User not found")
+			return xmlError(c, http.StatusNotFound, "UserNotFound", "User not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -299,11 +299,11 @@ func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url
 	ug, err := h.Backend.CreateUserGroupValidated(ctx, groupID, description, engine, userIDs)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupAlreadyExists) {
-			return xmlError(c, http.StatusBadRequest, "UserGroupAlreadyExistsFault", "User group already exists")
+			return xmlError(c, http.StatusBadRequest, "UserGroupAlreadyExists", "User group already exists")
 		}
 
 		if errors.Is(err, ErrGroupUserNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserNotFound", err.Error())
+			return xmlError(c, http.StatusNotFound, "UserNotFound", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -342,7 +342,7 @@ func (h *Handler) deleteUserGroup(ctx context.Context, c *echo.Context, form url
 	ug, err := h.Backend.DeleteUserGroup(ctx, groupID)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserGroupNotFound", "User group not found")
+			return xmlError(c, http.StatusNotFound, "UserGroupNotFound", "User group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -382,7 +382,7 @@ func (h *Handler) describeUserGroups(ctx context.Context, c *echo.Context, form 
 	p, err := h.Backend.DescribeUserGroups(ctx, groupID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserGroupNotFound", "User group not found")
+			return xmlError(c, http.StatusNotFound, "UserGroupNotFound", "User group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -407,7 +407,7 @@ func (h *Handler) modifyUserGroup(ctx context.Context, c *echo.Context, form url
 	ug, err := h.Backend.ModifyUserGroup(ctx, groupID, userIDsToAdd, userIDsToRemove)
 	if err != nil {
 		if errors.Is(err, ErrUserGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "UserGroupNotFound", "User group not found")
+			return xmlError(c, http.StatusNotFound, "UserGroupNotFound", "User group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -449,7 +449,7 @@ func (h *Handler) deleteGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -479,7 +479,7 @@ func (h *Handler) describeGlobalReplicationGroups(ctx context.Context, c *echo.C
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -512,7 +512,7 @@ func (h *Handler) disassociateGlobalReplicationGroup(ctx context.Context, c *ech
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -543,7 +543,7 @@ func (h *Handler) failoverGlobalReplicationGroup(ctx context.Context, c *echo.Co
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -577,7 +577,7 @@ func (h *Handler) increaseNodeGroupsInGlobalReplicationGroup(
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -611,7 +611,7 @@ func (h *Handler) decreaseNodeGroupsInGlobalReplicationGroup(
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -643,7 +643,7 @@ func (h *Handler) modifyGlobalReplicationGroup(ctx context.Context, c *echo.Cont
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -672,7 +672,7 @@ func (h *Handler) rebalanceSlotsInGlobalReplicationGroup(ctx context.Context, c 
 		if errors.Is(err, ErrGlobalReplicationGroupNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"GlobalReplicationGroupNotFoundFault",
 				"Global replication group not found",
 			)
@@ -702,7 +702,7 @@ func (h *Handler) describeReservedCacheNodes(ctx context.Context, c *echo.Contex
 	p, err := h.Backend.DescribeReservedCacheNodes(ctx, id, cacheNodeType, offeringType, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReservedCacheNodeNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReservedCacheNodeNotFound", "Reserved cache node not found")
+			return xmlError(c, http.StatusNotFound, "ReservedCacheNodeNotFound", "Reserved cache node not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -740,7 +740,7 @@ func (h *Handler) describeReservedCacheNodesOfferings(ctx context.Context, c *ec
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"ReservedCacheNodesOfferingNotFound",
 				"Reserved cache nodes offering not found",
 			)
@@ -782,14 +782,14 @@ func (h *Handler) purchaseReservedCacheNodesOffering(ctx context.Context, c *ech
 		if errors.Is(err, ErrReservedCacheNodesOfferingNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"ReservedCacheNodesOfferingNotFound",
 				"Reserved cache nodes offering not found",
 			)
 		}
 
 		if errors.Is(err, ErrReservedCacheNodeAlreadyExists) {
-			return xmlError(c, http.StatusConflict, "ReservedCacheNodeAlreadyExists", err.Error())
+			return xmlError(c, http.StatusNotFound, "ReservedCacheNodeAlreadyExists", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -813,7 +813,7 @@ func (h *Handler) deleteServerlessCache(ctx context.Context, c *echo.Context, fo
 	sc, err := h.Backend.DeleteServerlessCache(ctx, name)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
+			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -839,7 +839,7 @@ func (h *Handler) deleteServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"ServerlessCacheSnapshotNotFoundFault",
 				"Serverless cache snapshot not found",
 			)
@@ -867,7 +867,7 @@ func (h *Handler) describeServerlessCaches(ctx context.Context, c *echo.Context,
 	p, err := h.Backend.DescribeServerlessCaches(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
+			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -894,7 +894,7 @@ func (h *Handler) describeServerlessCacheSnapshots(ctx context.Context, c *echo.
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"ServerlessCacheSnapshotNotFoundFault",
 				"Serverless cache snapshot not found",
 			)
@@ -935,7 +935,7 @@ func (h *Handler) exportServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
 				c,
-				http.StatusBadRequest,
+				http.StatusNotFound,
 				"ServerlessCacheSnapshotNotFoundFault",
 				"Serverless cache snapshot not found",
 			)
@@ -963,7 +963,7 @@ func (h *Handler) modifyServerlessCache(ctx context.Context, c *echo.Context, fo
 	sc, err := h.Backend.ModifyServerlessCache(ctx, name, description)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ServerlessCacheNotFound", "Serverless cache not found")
+			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -987,7 +987,7 @@ func (h *Handler) startMigration(ctx context.Context, c *echo.Context, form url.
 	rg, err := h.Backend.StartMigration(ctx, replicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1011,7 +1011,7 @@ func (h *Handler) testMigration(ctx context.Context, c *echo.Context, form url.V
 	rg, err := h.Backend.TestMigration(ctx, replicationGroupID)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1036,7 +1036,7 @@ func (h *Handler) increaseReplicaCount(ctx context.Context, c *echo.Context, for
 	rg, err := h.Backend.IncreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1061,7 +1061,7 @@ func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, for
 	rg, err := h.Backend.DecreaseReplicaCount(ctx, replicationGroupID, int32(newReplicaCount))
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1090,7 +1090,11 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(
 	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(ctx, replicationGroupID, int32(nodeGroupCount))
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+			return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
+		}
+
+		if errors.Is(err, ErrClusterModeRequired) {
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1149,7 +1153,7 @@ func (h *Handler) rebootCacheCluster(ctx context.Context, c *echo.Context, form 
 	cl, err := h.Backend.RebootCacheCluster(ctx, clusterID, nodeIDs)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
+			return xmlError(c, http.StatusNotFound, "CacheClusterNotFound", "Cache cluster not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1173,7 +1177,7 @@ func (h *Handler) deleteCacheSecurityGroup(ctx context.Context, c *echo.Context,
 	err := h.Backend.DeleteCacheSecurityGroup(ctx, name)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
+			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1194,7 +1198,7 @@ func (h *Handler) describeCacheSecurityGroups(ctx context.Context, c *echo.Conte
 	p, err := h.Backend.DescribeCacheSecurityGroups(ctx, name, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
+			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -1222,7 +1226,7 @@ func (h *Handler) revokeCacheSecurityGroupIngress(ctx context.Context, c *echo.C
 	sg, err := h.Backend.RevokeCacheSecurityGroupIngress(ctx, name, ec2SecurityGroupName, ec2SecurityGroupOwnerID)
 	if err != nil {
 		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
-			return xmlError(c, http.StatusBadRequest, "CacheSecurityGroupNotFound", "Cache security group not found")
+			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

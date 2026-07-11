@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -134,7 +135,7 @@ type AutoScalingPolicyExecutor interface {
 
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
-	PutMetricData(namespace string, data []MetricDatum) ([]UnprocessedMetricDatum, error)
+	PutMetricData(namespace string, data []MetricDatum) error
 	GetMetricStatistics(
 		namespace, metricName string,
 		dimensions []Dimension,
@@ -150,7 +151,7 @@ type StorageBackend interface {
 	ListMetrics(
 		namespace, metricName string,
 		dimensions []Dimension,
-		nextToken string,
+		recentlyActive, nextToken string,
 		maxResults int,
 	) (page.Page[Metric], error)
 	PutMetricAlarm(alarm *MetricAlarm) error
@@ -230,17 +231,22 @@ type metricRecord struct {
 // metrics is a two-level map: namespace -> composite-key -> *metricRecord.
 // The composite key is produced by metricStorageKey(metricName, dims) so that
 // different dimension sets for the same metric name are stored separately.
+// metrics and alarmHistory are deliberately left as plain maps rather than
+// store.Table -- see the comment block at the top of store_setup.go for why.
+// Every other resource field is registered on registry -- see
+// registerAllTables in store_setup.go.
 type InMemoryBackend struct {
 	metrics          map[string]map[string]*metricRecord
-	alarms           map[string]*MetricAlarm
-	compositeAlarms  map[string]*CompositeAlarm
 	alarmHistory     map[string][]AlarmHistoryItem
-	dashboards       map[string]*dashboardRecord
-	anomalyDetectors map[string]*AnomalyDetector
-	insightRules     map[string]*InsightRule
-	metricStreams    map[string]*MetricStream
-	alarmMuteRules   map[string]*AlarmMuteRule
-	metricFilters    map[string]*MetricFilter
+	alarms           *store.Table[MetricAlarm]
+	compositeAlarms  *store.Table[CompositeAlarm]
+	dashboards       *store.Table[dashboardRecord]
+	anomalyDetectors *store.Table[AnomalyDetector]
+	insightRules     *store.Table[InsightRule]
+	metricStreams    *store.Table[MetricStream]
+	alarmMuteRules   *store.Table[AlarmMuteRule]
+	metricFilters    *store.Table[MetricFilter]
+	registry         *store.Registry
 	snsPublisher     SNSPublisher
 	lambdaInvoker    LambdaInvoker
 	ec2Actioner      EC2InstanceActioner
@@ -267,21 +273,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		accountID:        accountID,
-		region:           region,
-		metrics:          make(map[string]map[string]*metricRecord),
-		alarms:           make(map[string]*MetricAlarm),
-		compositeAlarms:  make(map[string]*CompositeAlarm),
-		alarmHistory:     make(map[string][]AlarmHistoryItem),
-		dashboards:       make(map[string]*dashboardRecord),
-		anomalyDetectors: make(map[string]*AnomalyDetector),
-		insightRules:     make(map[string]*InsightRule),
-		metricStreams:    make(map[string]*MetricStream),
-		alarmMuteRules:   make(map[string]*AlarmMuteRule),
-		metricFilters:    make(map[string]*MetricFilter),
-		mu:               lockmetrics.New("cloudwatch"),
+	b := &InMemoryBackend{
+		accountID:    accountID,
+		region:       region,
+		metrics:      make(map[string]map[string]*metricRecord),
+		alarmHistory: make(map[string][]AlarmHistoryItem),
+		registry:     store.NewRegistry(),
+		mu:           lockmetrics.New("cloudwatch"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // dimensionSetKey returns a stable string key for a slice of Dimensions,
@@ -408,46 +411,62 @@ func (b *InMemoryBackend) SetAutoScalingExecutor(e AutoScalingPolicyExecutor) {
 	b.asgExecutor = e
 }
 
-// storeDatum validates and stores a single MetricDatum into the namespace map.
-// Returns a non-nil *UnprocessedMetricDatum when the datum cannot be stored.
+// validatePutMetricDataBatch checks every datum in a PutMetricData request for
+// shape/range validity and confirms the batch would not push the namespace or
+// account past its distinct-time-series cap. It performs no mutation, so a
+// failing batch leaves backend state untouched — real CloudWatch has no
+// partial-success shape for PutMetricData (PutMetricDataOutput carries no
+// fields besides the request ID), so the whole request must be validated
+// before any of it is committed.
 // Caller must hold b.mu (write lock).
-func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) *UnprocessedMetricDatum {
-	if err := validateMetricDatum(d); err != nil {
-		return &UnprocessedMetricDatum{
-			MetricName:   d.MetricName,
-			ErrorCode:    "InvalidParameterCombination",
-			ErrorMessage: err.Error(),
+func (b *InMemoryBackend) validatePutMetricDataBatch(namespace string, data []MetricDatum) error {
+	existing := len(b.metrics[namespace])
+	newKeys := make(map[string]bool)
+
+	for _, d := range data {
+		if err := validateMetricDatum(d); err != nil {
+			return err
+		}
+
+		if err := validateStorageResolution(d.StorageResolution); err != nil {
+			return err
+		}
+
+		key := metricStorageKey(d.MetricName, d.Dimensions)
+		if _, ok := b.metrics[namespace][key]; !ok {
+			newKeys[key] = true
 		}
 	}
 
-	if err := validateStorageResolution(d.StorageResolution); err != nil {
-		return &UnprocessedMetricDatum{
-			MetricName:   d.MetricName,
-			ErrorCode:    "InvalidParameterValue",
-			ErrorMessage: err.Error(),
-		}
+	if existing+len(newKeys) > cwMaxMetricNamesPerNamespace {
+		return fmt.Errorf("%w: namespace metric series limit reached", ErrMetricSeriesLimitExceeded)
+	}
+
+	if b.countTotalMetrics()+len(newKeys) > cwMaxTotalMetricRecords {
+		return fmt.Errorf("%w: global metric series limit reached", ErrMetricSeriesLimitExceeded)
+	}
+
+	return nil
+}
+
+// storeDatum stores an already-validated MetricDatum into the namespace map.
+// Caller must hold b.mu (write lock) and must have already validated the full
+// batch via validatePutMetricDataBatch.
+//
+// A Values/Counts datum carries no pre-aggregated Sum/SampleCount/Min/Max (unlike
+// a StatisticSet, whose caller supplies them directly), so this is the single
+// place that derives them from the raw array pair before the point is stored;
+// every caller of PutMetricData — the form handler, the rpc-v2-cbor handler, and
+// direct backend callers/tests — gets consistent aggregation this way.
+func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) {
+	if d.HasValuesArray && len(d.Values) == len(d.Counts) {
+		d.Sum, d.Count, d.Min, d.Max = aggregateValuesCounts(d.Values, d.Counts)
 	}
 
 	key := metricStorageKey(d.MetricName, d.Dimensions)
 	rec, exists := b.metrics[namespace][key]
 
 	if !exists {
-		if len(b.metrics[namespace]) >= cwMaxMetricNamesPerNamespace {
-			return &UnprocessedMetricDatum{
-				MetricName:   d.MetricName,
-				ErrorCode:    "LimitExceeded",
-				ErrorMessage: "namespace metric series limit reached",
-			}
-		}
-
-		if b.countTotalMetrics() >= cwMaxTotalMetricRecords {
-			return &UnprocessedMetricDatum{
-				MetricName:   d.MetricName,
-				ErrorCode:    "LimitExceeded",
-				ErrorMessage: "global metric series limit reached",
-			}
-		}
-
 		dims := make([]Dimension, len(d.Dimensions))
 		copy(dims, d.Dimensions)
 		rec = &metricRecord{MetricName: d.MetricName, Dimensions: dims}
@@ -464,18 +483,21 @@ func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) *Unprocess
 		copy(fresh, rec.Points[len(rec.Points)-cwMaxMetricDataPoints:])
 		rec.Points = fresh
 	}
-
-	return nil
 }
 
 // PutMetricData stores metric data points for the given namespace.
-// Returns a slice of UnprocessedMetricDatum for any entries that could not be stored.
+//
+// Real CloudWatch has no partial-failure response for this operation: the
+// request either succeeds in full or fails in full with a single API error
+// (PutMetricDataOutput has no members other than the request ID). This
+// validates the entire batch before storing any of it, matching that
+// all-or-nothing contract.
 func (b *InMemoryBackend) PutMetricData(
 	namespace string,
 	data []MetricDatum,
-) ([]UnprocessedMetricDatum, error) {
+) error {
 	if len(data) > cwMaxMetricDataPerRequest {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: PutMetricData accepts at most %d MetricDatum entries per request",
 			ErrValidation,
 			cwMaxMetricDataPerRequest,
@@ -488,14 +510,15 @@ func (b *InMemoryBackend) PutMetricData(
 		b.metrics[namespace] = make(map[string]*metricRecord)
 	}
 
-	var unprocessed []UnprocessedMetricDatum
+	if err := b.validatePutMetricDataBatch(namespace, data); err != nil {
+		b.mu.Unlock()
+
+		return err
+	}
 
 	for _, d := range data {
 		d.Namespace = namespace
-
-		if u := b.storeDatum(namespace, d); u != nil {
-			unprocessed = append(unprocessed, *u)
-		}
+		b.storeDatum(namespace, d)
 	}
 
 	// Collect matching running stream names while holding the write lock; the
@@ -510,14 +533,14 @@ func (b *InMemoryBackend) PutMetricData(
 		now := time.Now().UTC()
 		b.mu.Lock("PutMetricData.streamDelivery")
 		for _, name := range matchingStreams {
-			if s, ok := b.metricStreams[name]; ok && s.State == metricStreamStateRunning {
+			if s, ok := b.metricStreams.Get(name); ok && s.State == metricStreamStateRunning {
 				s.LastUpdateDate = now
 			}
 		}
 		b.mu.Unlock()
 	}
 
-	return unprocessed, nil
+	return nil
 }
 
 // filterExcludesMetric returns true when an ExcludeFilters entry denies the metric.
@@ -583,14 +606,14 @@ func (b *InMemoryBackend) matchingRunningStreamNames(
 ) []string {
 	var names []string
 
-	for name, s := range b.metricStreams {
+	for _, s := range b.metricStreams.All() {
 		if s.State != metricStreamStateRunning {
 			continue
 		}
 
 		for _, d := range data {
 			if streamAllowsMetric(s, namespace, d.MetricName) {
-				names = append(names, name)
+				names = append(names, s.Name)
 
 				break
 			}
@@ -887,7 +910,7 @@ func (b *InMemoryBackend) annotateAnomalyBand(
 	// Look for a detector matching this metric (any stat matches since band is stat-agnostic).
 	var matchedDetector *AnomalyDetector
 
-	for _, d := range b.anomalyDetectors {
+	for _, d := range b.anomalyDetectors.All() {
 		if d.Namespace != namespace || d.MetricName != metricName {
 			continue
 		}
@@ -1154,37 +1177,106 @@ func statValue(dp Datapoint, stat string) float64 {
 	return 0
 }
 
+// cwRecentlyActiveValue is the only value CloudWatch accepts for ListMetrics'
+// RecentlyActive parameter, filtering results to metrics that have had data
+// points published in the past three hours.
+const cwRecentlyActiveValue = "PT3H"
+
+// cwRecentlyActiveWindow is the lookback window RecentlyActive=PT3H applies.
+const cwRecentlyActiveWindow = 3 * time.Hour
+
+// recordHasRecentPoint reports whether rec has at least one datapoint with a
+// timestamp within the last cwRecentlyActiveWindow of now. Caller must hold
+// b.mu (read or write lock).
+func recordHasRecentPoint(rec *metricRecord, now time.Time) bool {
+	cutoff := now.Add(-cwRecentlyActiveWindow)
+	for _, pt := range rec.Points {
+		if !pt.Timestamp.Before(cutoff) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// listMetricsFilter bundles the ListMetrics query filters so the namespace/record
+// matching loop can be factored out of ListMetrics itself.
+type listMetricsFilter struct {
+	now                   time.Time
+	namespace, metricName string
+	recentlyActive        string
+	dimensions            []Dimension
+}
+
+// matches reports whether rec (in namespace ns) satisfies the filter.
+func (f listMetricsFilter) matches(rec *metricRecord) bool {
+	if f.metricName != "" && rec.MetricName != f.metricName {
+		return false
+	}
+	if !dimsMatchListFilter(rec.Dimensions, f.dimensions) {
+		return false
+	}
+	if f.recentlyActive != "" && !recordHasRecentPoint(rec, f.now) {
+		return false
+	}
+
+	return true
+}
+
+// matchingMetricsInNamespace returns the Metric entries in nsMap that satisfy
+// the filter, or nil immediately when ns itself is excluded by the namespace filter.
+func (f listMetricsFilter) matchingMetricsInNamespace(
+	ns string,
+	nsMap map[string]*metricRecord,
+) []Metric {
+	if f.namespace != "" && ns != f.namespace {
+		return nil
+	}
+
+	var result []Metric
+
+	for _, rec := range nsMap {
+		if !f.matches(rec) {
+			continue
+		}
+
+		dims := make([]Dimension, len(rec.Dimensions))
+		copy(dims, rec.Dimensions)
+		result = append(result, Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims})
+	}
+
+	return result
+}
+
 // ListMetrics returns a page of unique metrics matching optional namespace, metricName, and
 // dimension filters. dimensions specifies an exact set that must match (all filter dims present
-// with matching values and no extra dims in the stored record).
+// with matching values and no extra dims in the stored record). recentlyActive, when set, must be
+// "PT3H" (the only value CloudWatch documents) and restricts results to metrics that received a
+// data point in the last 3 hours.
 func (b *InMemoryBackend) ListMetrics(
 	namespace, metricName string,
 	dimensions []Dimension,
-	nextToken string,
+	recentlyActive, nextToken string,
 	maxResults int,
 ) (page.Page[Metric], error) {
+	if recentlyActive != "" && recentlyActive != cwRecentlyActiveValue {
+		return page.Page[Metric]{}, fmt.Errorf(
+			"%w: RecentlyActive must be %q, got %q", ErrValidation, cwRecentlyActiveValue, recentlyActive,
+		)
+	}
+
 	b.mu.RLock("ListMetrics")
 	defer b.mu.RUnlock()
 
+	filter := listMetricsFilter{
+		namespace: namespace, metricName: metricName,
+		dimensions: dimensions, recentlyActive: recentlyActive,
+		now: time.Now().UTC(),
+	}
+
 	var result []Metric
 	for ns, nsMap := range b.metrics {
-		if namespace != "" && ns != namespace {
-			continue
-		}
-		for _, rec := range nsMap {
-			if metricName != "" && rec.MetricName != metricName {
-				continue
-			}
-			if !dimsMatchListFilter(rec.Dimensions, dimensions) {
-				continue
-			}
-			dims := make([]Dimension, len(rec.Dimensions))
-			copy(dims, rec.Dimensions)
-			result = append(
-				result,
-				Metric{Namespace: ns, MetricName: rec.MetricName, Dimensions: dims},
-			)
-		}
+		result = append(result, filter.matchingMetricsInNamespace(ns, nsMap)...)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1228,7 +1320,7 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	b.mu.Lock("PutMetricAlarm")
 	defer b.mu.Unlock()
 
-	isNew := b.alarms[alarm.AlarmName] == nil
+	isNew := !b.alarms.Has(alarm.AlarmName)
 
 	if alarm.AlarmArn == "" {
 		alarm.AlarmArn = arn.Build("cloudwatch", b.region, b.accountID, "alarm:"+alarm.AlarmName)
@@ -1241,7 +1333,7 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		alarm.CreatedAt = now
 	}
 	// Preserve the state-transitioned timestamp from an existing alarm if the state did not change.
-	if existing, ok := b.alarms[alarm.AlarmName]; ok {
+	if existing, ok := b.alarms.Get(alarm.AlarmName); ok {
 		if existing.StateValue == alarm.StateValue {
 			alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
 		} else {
@@ -1253,7 +1345,7 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	alarm.AlarmConfigurationUpdatedTimestamp = now
 
 	cp := *alarm
-	b.alarms[alarm.AlarmName] = &cp
+	b.alarms.Put(&cp)
 
 	histType := historyTypeConfigurationUpdate
 	historySummary := fmt.Sprintf("Alarm %q updated", alarm.AlarmName)
@@ -1277,7 +1369,7 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 	b.mu.Lock("PutCompositeAlarm")
 	defer b.mu.Unlock()
 
-	isNew := b.compositeAlarms[alarm.AlarmName] == nil
+	isNew := !b.compositeAlarms.Has(alarm.AlarmName)
 
 	if alarm.AlarmArn == "" {
 		alarm.AlarmArn = arn.Build("cloudwatch", b.region, b.accountID, "alarm:"+alarm.AlarmName)
@@ -1288,7 +1380,7 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 
 	// Evaluate state based on AlarmRule and current child alarm states.
 	newState := b.evalCompositeRule(alarm.AlarmRule)
-	if existing, ok := b.compositeAlarms[alarm.AlarmName]; ok {
+	if existing, ok := b.compositeAlarms.Get(alarm.AlarmName); ok {
 		if existing.StateTransitionedTimestamp.IsZero() || newState != existing.StateValue {
 			alarm.StateTransitionedTimestamp = time.Now().UTC()
 		} else {
@@ -1303,7 +1395,7 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 	}
 
 	cp := *alarm
-	b.compositeAlarms[alarm.AlarmName] = &cp
+	b.compositeAlarms.Put(&cp)
 
 	histType := historyTypeConfigurationUpdate
 	historySummary := fmt.Sprintf("Composite alarm %q updated", alarm.AlarmName)
@@ -1338,10 +1430,10 @@ func (b *InMemoryBackend) evalCompositeRuleDepth(
 	}
 
 	resolve := func(name string) string {
-		if a, ok := b.alarms[name]; ok {
+		if a, ok := b.alarms.Get(name); ok {
 			return a.StateValue
 		}
-		if ca, ok := b.compositeAlarms[name]; ok {
+		if ca, ok := b.compositeAlarms.Get(name); ok {
 			if visited[name] {
 				// Circular dependency detected: treat as INSUFFICIENT_DATA.
 				return alarmStateInsufficientData
@@ -1443,7 +1535,7 @@ func (b *InMemoryBackend) collectMetricAlarms(
 
 	var result []MetricAlarm
 
-	for _, alarm := range b.alarms {
+	for _, alarm := range b.alarms.All() {
 		if len(nameSet) > 0 && !nameSet[alarm.AlarmName] {
 			continue
 		}
@@ -1479,7 +1571,7 @@ func (b *InMemoryBackend) collectCompositeAlarms(
 
 	var result []CompositeAlarm
 
-	for _, alarm := range b.compositeAlarms {
+	for _, alarm := range b.compositeAlarms.All() {
 		if len(nameSet) > 0 && !nameSet[alarm.AlarmName] {
 			continue
 		}
@@ -1519,7 +1611,7 @@ func (b *InMemoryBackend) DescribeAlarmsForMetric(
 	}
 
 	var result []MetricAlarm
-	for _, alarm := range b.alarms {
+	for _, alarm := range b.alarms.All() {
 		if namespace != "" && alarm.Namespace != namespace {
 			continue
 		}
@@ -1599,8 +1691,8 @@ func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
 	defer b.mu.Unlock()
 
 	for _, name := range alarmNames {
-		delete(b.alarms, name)
-		delete(b.compositeAlarms, name)
+		b.alarms.Delete(name)
+		b.compositeAlarms.Delete(name)
 		// Release the per-alarm history so it cannot accumulate across the
 		// lifetime of the backend once the alarm itself is gone.
 		delete(b.alarmHistory, name)
@@ -1616,8 +1708,8 @@ func (b *InMemoryBackend) SetAlarmState(
 ) error {
 	b.mu.Lock("SetAlarmState")
 
-	metricAlarm, hasMetric := b.alarms[alarmName]
-	compositeAlarm, hasComposite := b.compositeAlarms[alarmName]
+	metricAlarm, hasMetric := b.alarms.Get(alarmName)
+	compositeAlarm, hasComposite := b.compositeAlarms.Get(alarmName)
 
 	if !hasMetric && !hasComposite {
 		b.mu.Unlock()
@@ -1703,7 +1795,7 @@ func (b *InMemoryBackend) SetAlarmState(
 			stateValue,
 			stateReason,
 		)
-		b.executeActions(ctx, actions, alarmName, payload, deps)
+		b.executeActions(ctx, actions, alarmName, histAlarmType, payload, deps)
 	}
 
 	b.fireCompositeTransitions(ctx, compositeTransitions, deps)
@@ -1725,7 +1817,7 @@ func (b *InMemoryBackend) fireCompositeTransitions(
 			tr.alarmName, tr.alarmDesc, tr.alarmArn,
 			tr.oldState, tr.newState, tr.reason,
 		)
-		b.executeActions(ctx, tr.actions, tr.alarmName, payload, compositeDeps)
+		b.executeActions(ctx, tr.actions, tr.alarmName, "CompositeAlarm", payload, compositeDeps)
 	}
 }
 
@@ -1760,10 +1852,10 @@ func (b *InMemoryBackend) EnableAlarmActions(alarmNames []string) error {
 	defer b.mu.Unlock()
 
 	for _, name := range alarmNames {
-		if a, ok := b.alarms[name]; ok {
+		if a, ok := b.alarms.Get(name); ok {
 			a.ActionsEnabled = true
 		}
-		if ca, ok := b.compositeAlarms[name]; ok {
+		if ca, ok := b.compositeAlarms.Get(name); ok {
 			ca.ActionsEnabled = true
 		}
 	}
@@ -1777,10 +1869,10 @@ func (b *InMemoryBackend) DisableAlarmActions(alarmNames []string) error {
 	defer b.mu.Unlock()
 
 	for _, name := range alarmNames {
-		if a, ok := b.alarms[name]; ok {
+		if a, ok := b.alarms.Get(name); ok {
 			a.ActionsEnabled = false
 		}
-		if ca, ok := b.compositeAlarms[name]; ok {
+		if ca, ok := b.compositeAlarms.Get(name); ok {
 			ca.ActionsEnabled = false
 		}
 	}
@@ -1846,11 +1938,14 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 // executeActions delivers the alarm action notifications to SNS topics, Lambda
 // functions, EC2 instances (arn:aws:automate), and Auto Scaling scaling policies.
 // Delivery errors are logged as warnings but do not prevent other actions from
-// running. Each fired action is recorded as an Action history entry on the alarm.
+// running. Each fired action is recorded as an Action history entry on the alarm,
+// tagged with alarmTypeName ("MetricAlarm" or "CompositeAlarm") so
+// DescribeAlarmHistory's AlarmType filter matches composite-alarm action entries
+// too (previously hardcoded to "MetricAlarm" even when firing for a composite alarm).
 func (b *InMemoryBackend) executeActions(
 	ctx context.Context,
 	actions []string,
-	alarmName string,
+	alarmName, alarmTypeName string,
 	payload []byte,
 	deps alarmActionDeps,
 ) {
@@ -1891,7 +1986,7 @@ func (b *InMemoryBackend) executeActions(
 		if alarmName != "" {
 			summary := fmt.Sprintf("Alarm %q action executed: %s → %s", alarmName, action, actionResult)
 			b.mu.Lock("executeActions-history")
-			b.appendHistory(alarmName, "MetricAlarm", historyTypeAction, summary, "")
+			b.appendHistory(alarmName, alarmTypeName, historyTypeAction, summary, "")
 			b.mu.Unlock()
 		}
 	}
@@ -2036,7 +2131,7 @@ type compositeAlarmTransition struct {
 func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition {
 	var transitions []compositeAlarmTransition
 
-	for _, ca := range b.compositeAlarms {
+	for _, ca := range b.compositeAlarms.All() {
 		newState := b.evalCompositeRule(ca.AlarmRule)
 		if newState == ca.StateValue {
 			continue
@@ -2092,11 +2187,11 @@ func (b *InMemoryBackend) PutDashboard(name, body string) error {
 	b.mu.Lock("PutDashboard")
 	defer b.mu.Unlock()
 
-	b.dashboards[name] = &dashboardRecord{
+	b.dashboards.Put(&dashboardRecord{
 		Name:         name,
 		Body:         body,
 		LastModified: time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -2106,7 +2201,7 @@ func (b *InMemoryBackend) GetDashboard(name string) (DashboardEntry, string, err
 	b.mu.RLock("GetDashboard")
 	defer b.mu.RUnlock()
 
-	rec, ok := b.dashboards[name]
+	rec, ok := b.dashboards.Get(name)
 	if !ok {
 		return DashboardEntry{}, "", fmt.Errorf("%w: %s", ErrDashboardNotFound, name)
 	}
@@ -2123,7 +2218,7 @@ func (b *InMemoryBackend) ListDashboards(
 
 	var result []DashboardEntry
 
-	for _, rec := range b.dashboards {
+	for _, rec := range b.dashboards.All() {
 		if prefix != "" && !strings.HasPrefix(rec.Name, prefix) {
 			continue
 		}
@@ -2144,7 +2239,7 @@ func (b *InMemoryBackend) DeleteDashboards(names []string) error {
 	defer b.mu.Unlock()
 
 	for _, name := range names {
-		delete(b.dashboards, name)
+		b.dashboards.Delete(name)
 	}
 
 	return nil
@@ -2168,15 +2263,8 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.metrics = make(map[string]map[string]*metricRecord)
-	b.alarms = make(map[string]*MetricAlarm)
-	b.compositeAlarms = make(map[string]*CompositeAlarm)
 	b.alarmHistory = make(map[string][]AlarmHistoryItem)
-	b.dashboards = make(map[string]*dashboardRecord)
-	b.anomalyDetectors = make(map[string]*AnomalyDetector)
-	b.insightRules = make(map[string]*InsightRule)
-	b.metricStreams = make(map[string]*MetricStream)
-	b.alarmMuteRules = make(map[string]*AlarmMuteRule)
-	b.metricFilters = make(map[string]*MetricFilter)
+	b.registry.ResetAll()
 }
 
 // aggregateContributorPoint updates the running aggregation for a single metric record point.
@@ -2257,7 +2345,7 @@ func (b *InMemoryBackend) GetInsightRuleContributors(
 	maxContributorCount int,
 	orderBy string,
 ) ([]AlarmContributor, error) {
-	if _, ok := b.insightRules[ruleName]; !ok {
+	if !b.insightRules.Has(ruleName) {
 		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, ruleName)
 	}
 	if maxContributorCount <= 0 {
@@ -2297,11 +2385,11 @@ func (b *InMemoryBackend) DeleteAlarmMuteRule(muteName string) error {
 	b.mu.Lock("DeleteAlarmMuteRule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.alarmMuteRules[muteName]; !ok {
+	if !b.alarmMuteRules.Has(muteName) {
 		return fmt.Errorf("%w: %s", ErrAlarmMuteRuleNotFound, muteName)
 	}
 
-	delete(b.alarmMuteRules, muteName)
+	b.alarmMuteRules.Delete(muteName)
 
 	return nil
 }
@@ -2312,7 +2400,7 @@ func (b *InMemoryBackend) GetAlarmMuteRule(muteName string) (*AlarmMuteRule, err
 	b.mu.RLock("GetAlarmMuteRule")
 	defer b.mu.RUnlock()
 
-	rule, ok := b.alarmMuteRules[muteName]
+	rule, ok := b.alarmMuteRules.Get(muteName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrAlarmMuteRuleNotFound, muteName)
 	}
@@ -2330,8 +2418,8 @@ func (b *InMemoryBackend) ListAlarmMuteRules(
 	b.mu.RLock("ListAlarmMuteRules")
 	defer b.mu.RUnlock()
 
-	result := make([]AlarmMuteRule, 0, len(b.alarmMuteRules))
-	for _, rule := range b.alarmMuteRules {
+	result := make([]AlarmMuteRule, 0, b.alarmMuteRules.Len())
+	for _, rule := range b.alarmMuteRules.All() {
 		result = append(result, *rule)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].MuteName < result[j].MuteName })
@@ -2350,7 +2438,7 @@ func (b *InMemoryBackend) ListManagedInsightRules(
 	defer b.mu.RUnlock()
 
 	result := make([]InsightRule, 0)
-	for _, rule := range b.insightRules {
+	for _, rule := range b.insightRules.All() {
 		if !rule.ManagedRule {
 			continue
 		}
@@ -2374,7 +2462,7 @@ func (b *InMemoryBackend) PutAlarmMuteRuleInternal(rule *AlarmMuteRule) {
 		cp.CreationTime = time.Now().UTC()
 	}
 
-	b.alarmMuteRules[rule.MuteName] = &cp
+	b.alarmMuteRules.Put(&cp)
 }
 
 // DeleteAnomalyDetector removes an anomaly detector.
@@ -2385,11 +2473,11 @@ func (b *InMemoryBackend) DeleteAnomalyDetector(namespace, metricName, stat stri
 
 	key := anomalyDetectorKey(namespace, metricName, stat, dims)
 
-	if _, ok := b.anomalyDetectors[key]; !ok {
+	if !b.anomalyDetectors.Has(key) {
 		return fmt.Errorf("%w: %s/%s/%s", ErrAnomalyDetectorNotFound, namespace, metricName, stat)
 	}
 
-	delete(b.anomalyDetectors, key)
+	b.anomalyDetectors.Delete(key)
 
 	return nil
 }
@@ -2399,14 +2487,13 @@ func (b *InMemoryBackend) PutAnomalyDetectorInternal(detector *AnomalyDetector) 
 	b.mu.Lock("PutAnomalyDetectorInternal")
 	defer b.mu.Unlock()
 
-	key := anomalyDetectorKey(detector.Namespace, detector.MetricName, detector.Stat, detector.Dimensions)
 	cp := *detector
 	if cp.StateValue == "" {
 		// TRAINED_INSUFFICIENT_DATA is the realistic initial state for a new detector.
 		cp.StateValue = statusTrainedInsufficient
 	}
 
-	b.anomalyDetectors[key] = &cp
+	b.anomalyDetectors.Put(&cp)
 }
 
 // DescribeAnomalyDetectors returns a filtered, paginated list of anomaly detectors.
@@ -2424,7 +2511,7 @@ func (b *InMemoryBackend) DescribeAnomalyDetectors(
 
 	var entries []entry
 
-	for k, d := range b.anomalyDetectors {
+	for _, d := range b.anomalyDetectors.All() {
 		if namespace != "" && d.Namespace != namespace {
 			continue
 		}
@@ -2433,6 +2520,7 @@ func (b *InMemoryBackend) DescribeAnomalyDetectors(
 			continue
 		}
 
+		k := anomalyDetectorKey(d.Namespace, d.MetricName, d.Stat, d.Dimensions)
 		entries = append(entries, entry{key: k, detector: *d})
 	}
 
@@ -2457,7 +2545,7 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 	var failures []InsightRuleFailure
 
 	for _, name := range ruleNames {
-		if _, ok := b.insightRules[name]; !ok {
+		if !b.insightRules.Has(name) {
 			failures = append(failures, InsightRuleFailure{
 				RuleName:           name,
 				FailureCode:        errResourceNotFoundException,
@@ -2467,7 +2555,7 @@ func (b *InMemoryBackend) DeleteInsightRules(ruleNames []string) ([]InsightRuleF
 			continue
 		}
 
-		delete(b.insightRules, name)
+		b.insightRules.Delete(name)
 	}
 
 	return failures, nil
@@ -2489,7 +2577,7 @@ func (b *InMemoryBackend) GetInsightRule(name string) (*InsightRule, error) {
 	b.mu.RLock("GetInsightRule")
 	defer b.mu.RUnlock()
 
-	rule, ok := b.insightRules[name]
+	rule, ok := b.insightRules.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInsightRuleNotFound, name)
 	}
@@ -2517,7 +2605,7 @@ func (b *InMemoryBackend) PutInsightRuleInternal(rule *InsightRule) {
 		cp.Arn = arn.Build("cloudwatch", b.region, b.accountID, "insight-rule/"+rule.Name)
 	}
 
-	b.insightRules[rule.Name] = &cp
+	b.insightRules.Put(&cp)
 }
 
 // DescribeInsightRules returns a paginated list of insight rules.
@@ -2528,9 +2616,9 @@ func (b *InMemoryBackend) DescribeInsightRules(
 	b.mu.RLock("DescribeInsightRules")
 	defer b.mu.RUnlock()
 
-	result := make([]InsightRule, 0, len(b.insightRules))
+	result := make([]InsightRule, 0, b.insightRules.Len())
 
-	for _, r := range b.insightRules {
+	for _, r := range b.insightRules.All() {
 		result = append(result, *r)
 	}
 
@@ -2549,7 +2637,7 @@ func (b *InMemoryBackend) DisableInsightRules(ruleNames []string) ([]InsightRule
 	var failures []InsightRuleFailure
 
 	for _, name := range ruleNames {
-		rule, ok := b.insightRules[name]
+		rule, ok := b.insightRules.Get(name)
 		if !ok {
 			failures = append(failures, InsightRuleFailure{
 				RuleName:           name,
@@ -2574,7 +2662,7 @@ func (b *InMemoryBackend) EnableInsightRules(ruleNames []string) ([]InsightRuleF
 	var failures []InsightRuleFailure
 
 	for _, name := range ruleNames {
-		rule, ok := b.insightRules[name]
+		rule, ok := b.insightRules.Get(name)
 		if !ok {
 			failures = append(failures, InsightRuleFailure{
 				RuleName:           name,
@@ -2607,7 +2695,7 @@ func (b *InMemoryBackend) GetMetricStream(name string) (*MetricStream, error) {
 	b.mu.RLock("GetMetricStream")
 	defer b.mu.RUnlock()
 
-	stream, ok := b.metricStreams[name]
+	stream, ok := b.metricStreams.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrMetricStreamNotFound, name)
 	}
@@ -2623,11 +2711,11 @@ func (b *InMemoryBackend) DeleteMetricStream(name string) error {
 	b.mu.Lock("DeleteMetricStream")
 	defer b.mu.Unlock()
 
-	if _, ok := b.metricStreams[name]; !ok {
+	if !b.metricStreams.Has(name) {
 		return fmt.Errorf("%w: %s", ErrMetricStreamNotFound, name)
 	}
 
-	delete(b.metricStreams, name)
+	b.metricStreams.Delete(name)
 
 	return nil
 }
@@ -2649,7 +2737,7 @@ func (b *InMemoryBackend) PutMetricStreamInternal(stream *MetricStream) {
 	}
 
 	// Preserve the existing state if not explicitly set so that Stop/Start calls are honoured.
-	if existing, ok := b.metricStreams[stream.Name]; ok && cp.State == "" {
+	if existing, ok := b.metricStreams.Get(stream.Name); ok && cp.State == "" {
 		cp.State = existing.State
 	}
 
@@ -2657,7 +2745,7 @@ func (b *InMemoryBackend) PutMetricStreamInternal(stream *MetricStream) {
 		cp.State = metricStreamStateRunning
 	}
 
-	b.metricStreams[stream.Name] = &cp
+	b.metricStreams.Put(&cp)
 }
 
 // DescribeAlarmContributors returns a page of contributors for the specified alarm.
@@ -2674,7 +2762,7 @@ func (b *InMemoryBackend) DescribeAlarmContributors(
 	b.mu.RLock("DescribeAlarmContributors")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.alarms[alarmName]; ok {
+	if b.alarms.Has(alarmName) {
 		// Metric alarms have no contributors in AWS.
 		return page.New(
 			[]AlarmContributor{},
@@ -2684,7 +2772,7 @@ func (b *InMemoryBackend) DescribeAlarmContributors(
 		), nil
 	}
 
-	ca, ok := b.compositeAlarms[alarmName]
+	ca, ok := b.compositeAlarms.Get(alarmName)
 	if !ok {
 		return page.Page[AlarmContributor]{}, fmt.Errorf("%w: %s", ErrAlarmNotFound, alarmName)
 	}
@@ -2705,10 +2793,10 @@ func (b *InMemoryBackend) compositeContributorsLocked(ca *CompositeAlarm) []Alar
 	refs := extractAlarmRuleRefs(ca.AlarmRule)
 
 	resolve := func(name string) string {
-		if a, ok := b.alarms[name]; ok {
+		if a, ok := b.alarms.Get(name); ok {
 			return a.StateValue
 		}
-		if child, ok := b.compositeAlarms[name]; ok {
+		if child, ok := b.compositeAlarms.Get(name); ok {
 			return child.StateValue
 		}
 
@@ -2748,10 +2836,10 @@ func (b *InMemoryBackend) GetAlarmARNs(names []string) []string {
 
 	arns := make([]string, 0, len(names))
 	for _, name := range names {
-		if a, ok := b.alarms[name]; ok && a.AlarmArn != "" {
+		if a, ok := b.alarms.Get(name); ok && a.AlarmArn != "" {
 			arns = append(arns, a.AlarmArn)
 		}
-		if ca, ok := b.compositeAlarms[name]; ok && ca.AlarmArn != "" {
+		if ca, ok := b.compositeAlarms.Get(name); ok && ca.AlarmArn != "" {
 			arns = append(arns, ca.AlarmArn)
 		}
 	}
@@ -2767,7 +2855,7 @@ func (b *InMemoryBackend) GetDashboardARNs(names []string) []string {
 
 	arns := make([]string, 0, len(names))
 	for _, name := range names {
-		if _, ok := b.dashboards[name]; ok {
+		if b.dashboards.Has(name) {
 			arns = append(arns, arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+name))
 		}
 	}
@@ -2793,8 +2881,8 @@ func (b *InMemoryBackend) ListMetricStreams(
 	b.mu.RLock("ListMetricStreams")
 	defer b.mu.RUnlock()
 
-	result := make([]MetricStream, 0, len(b.metricStreams))
-	for _, s := range b.metricStreams {
+	result := make([]MetricStream, 0, b.metricStreams.Len())
+	for _, s := range b.metricStreams.All() {
 		result = append(result, *s)
 	}
 
@@ -2817,7 +2905,7 @@ func (b *InMemoryBackend) StartMetricStreams(names []string) error {
 	defer b.mu.Unlock()
 
 	for _, name := range names {
-		if s, ok := b.metricStreams[name]; ok {
+		if s, ok := b.metricStreams.Get(name); ok {
 			s.State = metricStreamStateRunning
 			s.LastUpdateDate = time.Now().UTC()
 		}
@@ -2833,7 +2921,7 @@ func (b *InMemoryBackend) StopMetricStreams(names []string) error {
 	defer b.mu.Unlock()
 
 	for _, name := range names {
-		if s, ok := b.metricStreams[name]; ok {
+		if s, ok := b.metricStreams.Get(name); ok {
 			s.State = metricStreamStateStopped
 			s.LastUpdateDate = time.Now().UTC()
 		}
@@ -2864,7 +2952,7 @@ func (b *InMemoryBackend) PutMetricFilter(filter *MetricFilter) error {
 		cp.CreationTime = time.Now().UTC()
 	}
 
-	b.metricFilters[metricFilterKey(filter.FilterName, filter.LogGroupName)] = &cp
+	b.metricFilters.Put(&cp)
 
 	return nil
 }
@@ -2878,7 +2966,7 @@ func (b *InMemoryBackend) DescribeMetricFilters(
 	defer b.mu.RUnlock()
 
 	var result []MetricFilter
-	for _, f := range b.metricFilters {
+	for _, f := range b.metricFilters.All() {
 		if logGroupName != "" && f.LogGroupName != logGroupName {
 			continue
 		}
@@ -2906,11 +2994,11 @@ func (b *InMemoryBackend) DeleteMetricFilter(filterName, logGroupName string) er
 	defer b.mu.Unlock()
 
 	key := metricFilterKey(filterName, logGroupName)
-	if _, ok := b.metricFilters[key]; !ok {
+	if !b.metricFilters.Has(key) {
 		return fmt.Errorf("%w: %s/%s", ErrMetricFilterNotFound, logGroupName, filterName)
 	}
 
-	delete(b.metricFilters, key)
+	b.metricFilters.Delete(key)
 
 	return nil
 }
@@ -2929,7 +3017,7 @@ func (b *InMemoryBackend) EvaluateAlarms(ctx context.Context, now time.Time) {
 
 	var snaps []alarmSnap
 
-	for _, a := range b.alarms {
+	for _, a := range b.alarms.All() {
 		isMultiMetric := len(a.Metrics) > 0
 		if !isMultiMetric && (a.MetricName == "" || a.Namespace == "" || a.Period <= 0) {
 			continue
@@ -3291,6 +3379,7 @@ func extractDatapointValue(dp Datapoint, statistic, extendedStatistic string) *f
 // breachesThreshold reports whether value breaches the threshold for the given operator.
 // lowerBound and upperBound are used for anomaly-detection operators:
 //   - GreaterThanUpperThreshold: fires when value > upperBound
+//   - LessThanLowerThreshold: fires when value < lowerBound
 //   - LessThanLowerOrGreaterThanUpperThreshold: fires when value < lowerBound OR value > upperBound
 //
 // For non-anomaly alarms, pass threshold for both lowerBound and upperBound.
@@ -3306,6 +3395,8 @@ func breachesThreshold(value, lowerBound, upperBound float64, op string) bool {
 		return value <= lowerBound
 	case "GreaterThanUpperThreshold":
 		return value > upperBound
+	case "LessThanLowerThreshold":
+		return value < lowerBound
 	case "LessThanLowerOrGreaterThanUpperThreshold":
 		return value < lowerBound || value > upperBound
 	default:

@@ -110,7 +110,8 @@ func (b *InMemoryBackend) auditMitigationFindingIDs(target *AuditMitigationActio
 	}
 
 	var ids []string
-	for id, f := range b.auditFindings {
+	for _, f := range b.auditFindings.All() {
+		id := f.FindingID
 		switch {
 		case target.AuditTaskID != "" && f.TaskID == target.AuditTaskID:
 			ids = append(ids, id)
@@ -137,7 +138,7 @@ func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 	if input.TaskID == "" {
 		return nil, fmt.Errorf("%w: taskId is required", ErrValidation)
 	}
-	if _, exists := b.auditMitigationTaskObjects[input.TaskID]; exists {
+	if b.auditMitigationTaskObjects.Has(input.TaskID) {
 		return nil, fmt.Errorf(
 			"audit mitigation actions task %q already exists: %w",
 			input.TaskID,
@@ -163,7 +164,7 @@ func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 
 	for _, findingID := range findingIDs {
 		checkName := ""
-		if f, ok := b.auditFindings[findingID]; ok {
+		if f, ok := b.auditFindings.Get(findingID); ok {
 			checkName = f.CheckName
 		}
 
@@ -176,7 +177,7 @@ func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 
 		for _, actionName := range input.AuditCheckToActionsMapping[checkName] {
 			actionID := ""
-			if ma, ok := b.mitigationActions[actionName]; ok {
+			if ma, ok := b.mitigationActions.Get(actionName); ok {
 				actionID = ma.ActionID
 			}
 			executions = append(executions, &AuditMitigationActionExecution{
@@ -190,7 +191,7 @@ func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 		}
 	}
 
-	b.auditMitigationTaskObjects[input.TaskID] = task
+	b.auditMitigationTaskObjects.Put(task)
 	b.auditMitigationExecutions[input.TaskID] = executions
 	// Keep the legacy status map (read by CancelAuditMitigationActionsTask's
 	// original implementation) in sync with the rich task object.
@@ -205,7 +206,7 @@ func (b *InMemoryBackend) DescribeAuditMitigationActionsTask(taskID string) (*Au
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	t, ok := b.auditMitigationTaskObjects[taskID]
+	t, ok := b.auditMitigationTaskObjects.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("audit mitigation actions task %q not found: %w", taskID, ErrResourceNotFound)
 	}
@@ -219,11 +220,11 @@ func (b *InMemoryBackend) ListAuditMitigationActionsTasks(auditTaskID, taskStatu
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.auditMitigationTaskObjects)
-	out := make([]*AuditMitigationTask, 0, len(keys))
+	items := b.auditMitigationTaskObjects.Snapshot()
+	out := make([]*AuditMitigationTask, 0, len(items))
 
-	for _, k := range keys {
-		t := b.auditMitigationTaskObjects[k]
+	for _, v := range items {
+		t := v
 		if auditTaskID != "" && (t.Target == nil || t.Target.AuditTaskID != auditTaskID) {
 			continue
 		}
@@ -366,14 +367,14 @@ func (b *InMemoryBackend) detectMitigationViolationIDs(target *DetectMitigationA
 
 	var ids []string
 
-	for id, v := range b.activeViolations {
+	for _, v := range b.activeViolations.All() {
 		if target.SecurityProfileName != "" && v.SecurityProfileName != target.SecurityProfileName {
 			continue
 		}
 		if target.BehaviorName != "" && (v.Behavior == nil || v.Behavior.Name != target.BehaviorName) {
 			continue
 		}
-		ids = append(ids, id)
+		ids = append(ids, v.ViolationID)
 	}
 	sort.Strings(ids)
 
@@ -392,7 +393,7 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 	if input.TaskID == "" {
 		return nil, fmt.Errorf("%w: taskId is required", ErrValidation)
 	}
-	if _, exists := b.detectMitigationTasks[input.TaskID]; exists {
+	if b.detectMitigationTasks.Has(input.TaskID) {
 		return nil, fmt.Errorf(
 			"detect mitigation actions task %q already exists: %w",
 			input.TaskID,
@@ -420,7 +421,7 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 
 	for _, violationID := range violationIDs {
 		thingName := ""
-		if v, ok := b.activeViolations[violationID]; ok {
+		if v, ok := b.activeViolations.Get(violationID); ok {
 			thingName = v.ThingName
 		}
 
@@ -437,7 +438,7 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 		}
 	}
 
-	b.detectMitigationTasks[input.TaskID] = task
+	b.detectMitigationTasks.Put(task)
 	b.detectMitigationExecutions[input.TaskID] = executions
 
 	return cloneDetectMitigationTask(task), nil
@@ -449,7 +450,7 @@ func (b *InMemoryBackend) DescribeDetectMitigationActionsTask(taskID string) (*D
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	t, ok := b.detectMitigationTasks[taskID]
+	t, ok := b.detectMitigationTasks.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("detect mitigation actions task %q not found: %w", taskID, ErrResourceNotFound)
 	}
@@ -464,11 +465,11 @@ func (b *InMemoryBackend) ListDetectMitigationActionsTasks(startTime, endTime fl
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.detectMitigationTasks)
-	out := make([]*DetectMitigationTask, 0, len(keys))
+	items := b.detectMitigationTasks.Snapshot()
+	out := make([]*DetectMitigationTask, 0, len(items))
 
-	for _, k := range keys {
-		t := b.detectMitigationTasks[k]
+	for _, v := range items {
+		t := v
 		if startTime > 0 && t.StartTime < startTime {
 			continue
 		}
@@ -487,7 +488,7 @@ func (b *InMemoryBackend) CancelDetectMitigationActionsTask(taskID string) error
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	t, ok := b.detectMitigationTasks[taskID]
+	t, ok := b.detectMitigationTasks.Get(taskID)
 	if !ok {
 		return fmt.Errorf("detect mitigation actions task %q not found: %w", taskID, ErrResourceNotFound)
 	}
@@ -632,7 +633,7 @@ func (b *InMemoryBackend) SeedActiveViolation(input *SeedActiveViolationInput) (
 		VerificationState:   verificationState,
 		ViolationStartTime:  now,
 	}
-	b.activeViolations[violationID] = v
+	b.activeViolations.Put(v)
 
 	b.violationEvents = append(b.violationEvents, &ViolationEvent{
 		ViolationID:         violationID,
@@ -656,11 +657,10 @@ func (b *InMemoryBackend) ListActiveViolations(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.activeViolations)
-	out := make([]*ActiveViolation, 0, len(keys))
+	items := b.activeViolations.Snapshot()
+	out := make([]*ActiveViolation, 0, len(items))
 
-	for _, k := range keys {
-		v := b.activeViolations[k]
+	for _, v := range items {
 		if thingName != "" && v.ThingName != thingName {
 			continue
 		}
@@ -717,7 +717,7 @@ func (b *InMemoryBackend) PutVerificationStateOnViolation(violationID, verificat
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	v, ok := b.activeViolations[violationID]
+	v, ok := b.activeViolations.Get(violationID)
 	if !ok {
 		return fmt.Errorf("violation %q not found: %w", violationID, ErrResourceNotFound)
 	}
@@ -734,23 +734,20 @@ func (b *InMemoryBackend) PutVerificationStateOnViolation(violationID, verificat
 // deviceDefenderSnapshot bundles the Device Defender fields of backendSnapshot
 // so Snapshot/Restore can delegate to a single helper each, keeping their own
 // cyclomatic complexity low.
+// deviceDefenderSnapshot now only carries the raw (non-Table) Device Defender
+// fields. AuditMitigationTaskObjects, DetectMitigationTasks, and
+// ActiveViolations moved to store.Table[T]s registered on b.registry (see
+// store_setup.go) and round-trip via registry.SnapshotAll()/RestoreAll()
+// instead of through this bundle.
 type deviceDefenderSnapshot struct {
-	AuditMitigationTaskObjects map[string]*AuditMitigationTask
 	AuditMitigationExecutions  map[string][]*AuditMitigationActionExecution
-	DetectMitigationTasks      map[string]*DetectMitigationTask
 	DetectMitigationExecutions map[string][]*DetectMitigationActionExecution
-	ActiveViolations           map[string]*ActiveViolation
 	ViolationEvents            []*ViolationEvent
 }
 
-// snapshotDeviceDefender deep-copies all Device Defender state. Must be called
-// with b.mu held (read or write).
+// snapshotDeviceDefender deep-copies the raw (non-Table) Device Defender
+// state. Must be called with b.mu held (read or write).
 func (b *InMemoryBackend) snapshotDeviceDefender() deviceDefenderSnapshot {
-	auditMitigationTaskObjects := make(map[string]*AuditMitigationTask, len(b.auditMitigationTaskObjects))
-	for k, v := range b.auditMitigationTaskObjects {
-		auditMitigationTaskObjects[k] = cloneAuditMitigationTask(v)
-	}
-
 	auditMitigationExecutions := make(
 		map[string][]*AuditMitigationActionExecution,
 		len(b.auditMitigationExecutions),
@@ -761,11 +758,6 @@ func (b *InMemoryBackend) snapshotDeviceDefender() deviceDefenderSnapshot {
 			cp[i] = cloneAuditMitigationExecution(e)
 		}
 		auditMitigationExecutions[k] = cp
-	}
-
-	detectMitigationTasks := make(map[string]*DetectMitigationTask, len(b.detectMitigationTasks))
-	for k, v := range b.detectMitigationTasks {
-		detectMitigationTasks[k] = cloneDetectMitigationTask(v)
 	}
 
 	detectMitigationExecutions := make(
@@ -780,34 +772,21 @@ func (b *InMemoryBackend) snapshotDeviceDefender() deviceDefenderSnapshot {
 		detectMitigationExecutions[k] = cp
 	}
 
-	activeViolations := make(map[string]*ActiveViolation, len(b.activeViolations))
-	for k, v := range b.activeViolations {
-		activeViolations[k] = cloneActiveViolation(v)
-	}
-
 	violationEvents := make([]*ViolationEvent, len(b.violationEvents))
 	for i, e := range b.violationEvents {
 		violationEvents[i] = cloneViolationEvent(e)
 	}
 
 	return deviceDefenderSnapshot{
-		AuditMitigationTaskObjects: auditMitigationTaskObjects,
 		AuditMitigationExecutions:  auditMitigationExecutions,
-		DetectMitigationTasks:      detectMitigationTasks,
 		DetectMitigationExecutions: detectMitigationExecutions,
-		ActiveViolations:           activeViolations,
 		ViolationEvents:            violationEvents,
 	}
 }
 
-// restoreDeviceDefender deep-copies snap into the backend's Device Defender
-// state. Must be called with b.mu held (write).
+// restoreDeviceDefender deep-copies snap into the backend's raw (non-Table)
+// Device Defender state. Must be called with b.mu held (write).
 func (b *InMemoryBackend) restoreDeviceDefender(snap deviceDefenderSnapshot) {
-	b.auditMitigationTaskObjects = make(map[string]*AuditMitigationTask, len(snap.AuditMitigationTaskObjects))
-	for k, v := range snap.AuditMitigationTaskObjects {
-		b.auditMitigationTaskObjects[k] = cloneAuditMitigationTask(v)
-	}
-
 	b.auditMitigationExecutions = make(
 		map[string][]*AuditMitigationActionExecution,
 		len(snap.AuditMitigationExecutions),
@@ -820,11 +799,6 @@ func (b *InMemoryBackend) restoreDeviceDefender(snap deviceDefenderSnapshot) {
 		b.auditMitigationExecutions[k] = cp
 	}
 
-	b.detectMitigationTasks = make(map[string]*DetectMitigationTask, len(snap.DetectMitigationTasks))
-	for k, v := range snap.DetectMitigationTasks {
-		b.detectMitigationTasks[k] = cloneDetectMitigationTask(v)
-	}
-
 	b.detectMitigationExecutions = make(
 		map[string][]*DetectMitigationActionExecution,
 		len(snap.DetectMitigationExecutions),
@@ -835,11 +809,6 @@ func (b *InMemoryBackend) restoreDeviceDefender(snap deviceDefenderSnapshot) {
 			cp[i] = cloneDetectMitigationExecution(e)
 		}
 		b.detectMitigationExecutions[k] = cp
-	}
-
-	b.activeViolations = make(map[string]*ActiveViolation, len(snap.ActiveViolations))
-	for k, v := range snap.ActiveViolations {
-		b.activeViolations[k] = cloneActiveViolation(v)
 	}
 
 	b.violationEvents = make([]*ViolationEvent, len(snap.ViolationEvents))

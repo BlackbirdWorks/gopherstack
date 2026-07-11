@@ -173,9 +173,16 @@ type Stage struct {
 	DeploymentID        string                   `json:"deploymentId"`
 	Description         string                   `json:"description,omitempty"`
 	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
+	// CacheClusterSize is the cache cluster's capacity in GB (e.g. "0.5"), only
+	// meaningful when CacheClusterEnabled is true.
+	CacheClusterSize string `json:"cacheClusterSize,omitempty"`
+	// CacheClusterStatus mirrors AWS's CacheClusterStatus enum
+	// (AVAILABLE/NOT_AVAILABLE/...), derived from CacheClusterEnabled.
+	CacheClusterStatus string `json:"cacheClusterStatus,omitempty"`
 	// InvokeURL is the invoke URL for this stage (non-AWS field used by gopherstack UI).
-	InvokeURL      string `json:"invokeUrl,omitempty"`
-	TracingEnabled bool   `json:"tracingEnabled,omitempty"`
+	InvokeURL           string `json:"invokeUrl,omitempty"`
+	TracingEnabled      bool   `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled bool   `json:"cacheClusterEnabled,omitempty"`
 }
 
 // Deployment represents a REST API deployment.
@@ -233,13 +240,18 @@ type PutIntegrationResponseInput struct {
 
 // Authorizer represents an API Gateway authorizer.
 type Authorizer struct {
-	ID                           string   `json:"id"`
-	Name                         string   `json:"name"`
-	Type                         string   `json:"type"`
-	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
-	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
-	IdentitySource               string   `json:"identitySource,omitempty"`
-	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ID                           string `json:"id"`
+	Name                         string `json:"name"`
+	Type                         string `json:"type"`
+	AuthorizerURI                string `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string `json:"identitySource,omitempty"`
+	IdentityValidationExpression string `json:"identityValidationExpression,omitempty"`
+	// RestAPIID identifies the owning REST API. It is internal storage-layer
+	// identity (composite key for the backend's flat store.Table[Authorizer]),
+	// never part of the wire response, matching the same json:"-" convention
+	// already used by Resource/Stage/Deployment/Model for the identical purpose.
+	RestAPIID                    string   `json:"-"`
 	ProviderARNs                 []string `json:"providerARNs,omitempty"`
 	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
@@ -270,8 +282,12 @@ type UpdateAuthorizerInput struct {
 
 // RequestValidator represents an API Gateway request validator.
 type RequestValidator struct {
-	ID                        string `json:"id"`
-	Name                      string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// RestAPIID identifies the owning REST API. Internal storage-layer identity
+	// only (composite key for the backend's flat store.Table[RequestValidator]);
+	// never part of the wire response — see the identical Authorizer.RestAPIID doc.
+	RestAPIID                 string `json:"-"`
 	ValidateRequestBody       bool   `json:"validateRequestBody"`
 	ValidateRequestParameters bool   `json:"validateRequestParameters"`
 }
@@ -463,7 +479,9 @@ type CreateStageInput struct {
 	DeploymentID        string                   `json:"deploymentId"`
 	Description         string                   `json:"description,omitempty"`
 	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
+	CacheClusterSize    string                   `json:"cacheClusterSize,omitempty"`
 	TracingEnabled      bool                     `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled bool                     `json:"cacheClusterEnabled,omitempty"`
 }
 
 // ThrottleSettings controls request rate limiting for a usage plan.
@@ -506,6 +524,11 @@ type UsagePlanKey struct {
 	Type  string `json:"type"`
 	Value string `json:"value,omitempty"`
 	Name  string `json:"name,omitempty"`
+	// UsagePlanID identifies the owning usage plan. Internal storage-layer
+	// identity only (composite key for the backend's flat
+	// store.Table[UsagePlanKey]); never part of the wire response — see the
+	// identical Authorizer.RestAPIID doc.
+	UsagePlanID string `json:"-"`
 }
 
 // CreateUsagePlanKeyInput is the input for CreateUsagePlanKey.
@@ -533,11 +556,13 @@ type UpdateStageInput struct {
 	CanarySettings      *CanarySettings          `json:"canarySettings,omitempty"`
 	AccessLogSettings   *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	TracingEnabled      *bool                    `json:"tracingEnabled,omitempty"`
+	CacheClusterEnabled *bool                    `json:"cacheClusterEnabled,omitempty"`
 	MethodSettings      map[string]MethodSetting `json:"methodSettings,omitempty"`
 	Variables           map[string]string        `json:"variables,omitempty"`
 	DeploymentID        string                   `json:"deploymentId,omitempty"`
 	Description         string                   `json:"description,omitempty"`
 	ClientCertificateID string                   `json:"clientCertificateId,omitempty"`
+	CacheClusterSize    string                   `json:"cacheClusterSize,omitempty"`
 }
 
 // Account represents the API Gateway account settings.
@@ -704,9 +729,14 @@ type UpdateMethodResponseInput struct {
 	StatusCode         string            `json:"statusCode"`
 }
 
-// UpdateAccountInput is the input for UpdateAccount.
+// UpdateAccountInput is the input for UpdateAccount. The real AWS wire shape
+// carries only "patchOperations" (see aws-sdk-go-v2 apigateway
+// UpdateAccountInput); handler.go flattens the patch document into these
+// named fields (CloudwatchRoleARN via top-level "/cloudwatchRoleArn",
+// ThrottleSettings via nested "/throttle/{rateLimit,burstLimit}" — see patch.go).
 type UpdateAccountInput struct {
-	ThrottleSettings *ThrottleSettings `json:"throttleSettings,omitempty"`
+	ThrottleSettings  *ThrottleSettings `json:"throttleSettings,omitempty"`
+	CloudwatchRoleARN string            `json:"cloudwatchRoleArn,omitempty"`
 }
 
 // TestInvokeAuthorizerInput is the input for TestInvokeAuthorizer.

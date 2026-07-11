@@ -62,10 +62,10 @@ type sseInfo struct {
 	// SSECKeyMD5 is the base64-encoded MD5 of the customer-supplied key.
 	SSECKeyMD5 string
 	// SSECKeyB64 is the base64-encoded raw customer key. Kept on the
-	// request-scoped sseInfo only — not persisted — so the backend can
-	// encrypt the body on PUT and the GET handler can decrypt when the
+	// request-scoped sseInfo only — not persisted (json:"-") — so the backend
+	// can encrypt the body on PUT and the GET handler can decrypt when the
 	// caller re-supplies it.
-	SSECKeyB64 string
+	SSECKeyB64 string `json:"-"`
 }
 
 // extractSSEInfo reads SSE-* request headers and validates SSE-C when present.

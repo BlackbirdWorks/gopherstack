@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -40,7 +39,24 @@ type snsLambdaMessageAttr struct {
 	Value string `json:"Value"`
 }
 
+// subscriptionUnsubscribeURL builds the AWS-shape unsubscribe link embedded in
+// notification envelopes: https://sns.<region>.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=<arn>.
+// The region is derived from topicARN; it falls back to "us-east-1" for a
+// malformed ARN so the URL is always well-formed.
+func subscriptionUnsubscribeURL(topicARN, subscriptionARN string) string {
+	region := arnRegion(topicARN)
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	return "https://sns." + region + ".amazonaws.com/?Action=Unsubscribe&SubscriptionArn=" + subscriptionARN
+}
+
 // buildLambdaPayload constructs the SNS → Lambda invocation payload per the AWS spec.
+// The Timestamp/Signature/SigningCertURL are the real values computed once per
+// Publish call (see buildPublishedEvent) rather than fabricated per-delivery, so a
+// Lambda function that verifies the SNS signature (as AWS recommends) succeeds
+// against the same envelope other channels (SQS, HTTP/HTTPS) receive.
 func buildLambdaPayload(
 	ev *events.SNSPublishedEvent,
 	sub events.SNSSubscriptionSnapshot,
@@ -60,11 +76,11 @@ func buildLambdaPayload(
 			TopicArn:          ev.TopicARN,
 			Subject:           ev.Subject,
 			Message:           ev.Message,
-			Timestamp:         time.Now().UTC().Format(time.RFC3339),
-			SignatureVersion:  "1",
-			Signature:         uuid.NewString(),
-			SigningCertURL:    "",
-			UnsubscribeURL:    "",
+			Timestamp:         ev.Timestamp,
+			SignatureVersion:  "2",
+			Signature:         ev.Signature,
+			SigningCertURL:    ev.SigningCertURL,
+			UnsubscribeURL:    subscriptionUnsubscribeURL(ev.TopicARN, sub.SubscriptionARN),
 			MessageAttributes: attrs,
 		},
 	}
@@ -75,6 +91,34 @@ func buildLambdaPayload(
 	}
 
 	return payload
+}
+
+// buildFirehoseEnvelope wraps the published message in the same SNS Notification
+// JSON envelope AWS sends to SQS/HTTP subscribers, for delivery to a Firehose
+// subscription whose RawMessageDelivery attribute is false (the AWS default).
+// Reuses the Timestamp/Signature/SigningCertURL computed once for this publish.
+func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscriptionSnapshot) []byte {
+	env := snsHTTPNotification{
+		Type:             messageTypeNotification,
+		MessageID:        ev.MessageID,
+		TopicArn:         ev.TopicARN,
+		Message:          ev.Message,
+		Timestamp:        ev.Timestamp,
+		SignatureVersion: "2",
+		Signature:        ev.Signature,
+		SigningCertURL:   ev.SigningCertURL,
+		UnsubscribeURL:   subscriptionUnsubscribeURL(ev.TopicARN, sub.SubscriptionARN),
+	}
+	if ev.Subject != "" {
+		env.Subject = ev.Subject
+	}
+
+	enc, err := json.Marshal(env)
+	if err != nil {
+		return []byte(ev.Message)
+	}
+
+	return enc
 }
 
 // deliverToLambdaSubscriptions invokes each Lambda-protocol subscription endpoint.
@@ -90,7 +134,7 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 
 	b.mu.RLock("lambda-topic-policy")
 	var topicEffectivePolicy string
-	if topic, ok := b.topics[ev.TopicARN]; ok {
+	if topic, ok := b.topics.Get(ev.TopicARN); ok {
 		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
 	}
 	b.mu.RUnlock()
@@ -123,8 +167,10 @@ func (b *InMemoryBackend) deliverToLambdaSubscriptions(ev *events.SNSPublishedEv
 }
 
 // deliverToFirehoseSubscriptions puts each Firehose-protocol subscription message as a batch record.
-// On delivery failure, the message is forwarded to the subscription DLQ when a RedrivePolicy is
-// configured and a SQSSender is wired — matching the HTTP/HTTPS and Lambda paths.
+// When the subscription's RawMessageDelivery attribute is false (the AWS default), the record is
+// the full SNS Notification JSON envelope, matching real AWS SNS→Firehose delivery; RawMessageDelivery=true
+// delivers the bare message body. On delivery failure, the message is forwarded to the subscription DLQ
+// when a RedrivePolicy is configured and a SQSSender is wired — matching the HTTP/HTTPS and Lambda paths.
 func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublishedEvent) {
 	firehose := b.firehoseBackend
 	if firehose == nil {
@@ -135,7 +181,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 
 	b.mu.RLock("firehose-topic-policy")
 	var topicEffectivePolicy string
-	if topic, ok := b.topics[ev.TopicARN]; ok {
+	if topic, ok := b.topics.Get(ev.TopicARN); ok {
 		topicEffectivePolicy = topic.Attributes["EffectiveDeliveryPolicy"]
 	}
 	b.mu.RUnlock()
@@ -150,10 +196,15 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 			continue
 		}
 
+		record := []byte(ev.Message)
+		if !sub.RawMessageDelivery {
+			record = buildFirehoseEnvelope(ev, sub)
+		}
+
 		numRetries := getRetryConfig(topicEffectivePolicy, sub.DeliveryPolicy, protocolFirehose)
 		var err error
 		for i := 0; i <= numRetries; i++ {
-			_, err = firehose.PutRecordBatch(streamName, [][]byte{[]byte(ev.Message)})
+			_, err = firehose.PutRecordBatch(streamName, [][]byte{record})
 			if err == nil {
 				b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "SUCCESS", nil)
 
@@ -164,7 +215,7 @@ func (b *InMemoryBackend) deliverToFirehoseSubscriptions(ev *events.SNSPublished
 		if err != nil {
 			b.logDeliveryStatus(b.svcCtx, ev.TopicARN, protocolFirehose, sub.Endpoint, "FAILURE", err)
 			if sub.RedrivePolicy != "" && sqsSender != nil {
-				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, ev.Message)
+				sendLambdaDLQ(b.svcCtx, sqsSender, sub.RedrivePolicy, string(record))
 			}
 		}
 	}
@@ -208,7 +259,7 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 		}
 
 		b.mu.RLock("deliverToApplicationSubscriptions")
-		ep, exists := b.platformEndpoints[sub.Endpoint]
+		ep, exists := b.platformEndpoints.Get(sub.Endpoint)
 		enabled := exists && ep.Attributes["Enabled"] != boolFalseStr
 		b.mu.RUnlock()
 
@@ -219,11 +270,11 @@ func (b *InMemoryBackend) deliverToApplicationSubscriptions(ev *events.SNSPublis
 		msgID := uuid.New().String()
 
 		b.mu.Lock("deliverToApplicationSubscriptions-record")
-		b.applicationDeliveries = append(b.applicationDeliveries, ApplicationDelivery{
+		b.applicationDeliveries = appendBounded(b.applicationDeliveries, ApplicationDelivery{
 			EndpointARN: sub.Endpoint,
 			Message:     ev.Message,
 			MessageID:   msgID,
-		})
+		}, maxRecordedDeliveries)
 		b.mu.Unlock()
 	}
 }

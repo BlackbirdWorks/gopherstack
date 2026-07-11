@@ -5,7 +5,7 @@ func DetectorCount(b *InMemoryBackend) int {
 	b.mu.RLock("DetectorCount")
 	defer b.mu.RUnlock()
 
-	return len(b.detectors)
+	return b.detectors.Len()
 }
 
 // FilterCount returns the number of stored filters for a detector.
@@ -13,7 +13,7 @@ func FilterCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("FilterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.filters[detectorID])
+	return len(b.filtersByDetector.Get(detectorID))
 }
 
 // FindingCount returns the number of stored findings for a detector.
@@ -21,7 +21,7 @@ func FindingCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("FindingCount")
 	defer b.mu.RUnlock()
 
-	return len(b.findings[detectorID])
+	return len(b.findingsByDetector.Get(detectorID))
 }
 
 // IPSetCount returns the number of stored IP sets for a detector.
@@ -29,7 +29,7 @@ func IPSetCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("IPSetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.ipSets[detectorID])
+	return len(b.ipSetsByDetector.Get(detectorID))
 }
 
 // ThreatIntelSetCount returns the number of stored threat intel sets for a detector.
@@ -37,7 +37,7 @@ func ThreatIntelSetCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("ThreatIntelSetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.threatIntelSets[detectorID])
+	return len(b.threatIntelSetsByDetector.Get(detectorID))
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
@@ -50,7 +50,7 @@ func MemberCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("MemberCount")
 	defer b.mu.RUnlock()
 
-	return len(b.members[detectorID])
+	return len(b.membersByDetector.Get(detectorID))
 }
 
 // PublishingDestinationCount returns the number of stored publishing destinations.
@@ -58,7 +58,7 @@ func PublishingDestinationCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("PublishingDestinationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.publishingDestinations[detectorID])
+	return len(b.publishingDestinationsByDetector.Get(detectorID))
 }
 
 // ThreatEntitySetCount returns the number of stored threat entity sets for a detector.
@@ -66,5 +66,5 @@ func ThreatEntitySetCount(b *InMemoryBackend, detectorID string) int {
 	b.mu.RLock("ThreatEntitySetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.threatEntitySets[detectorID])
+	return len(b.threatEntitySetsByDetector.Get(detectorID))
 }

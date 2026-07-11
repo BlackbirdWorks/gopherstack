@@ -7,12 +7,7 @@ func SecretCount(b *InMemoryBackend) int {
 	b.mu.RLock("SecretCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionSecrets := range b.secrets {
-		total += len(regionSecrets)
-	}
-
-	return total
+	return b.secrets.Len()
 }
 
 // ResourcePolicyCount returns the total number of resource policies across all regions.

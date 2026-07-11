@@ -235,7 +235,42 @@ func TestSNS_FirehoseDelivery_PutsRecord(t *testing.T) {
 
 	records := firehose.RecordsFor(streamName)
 	require.Len(t, records, 1)
-	assert.Equal(t, "firehose-message", string(records[0]))
+
+	// AWS SNS→Firehose delivery defaults to RawMessageDelivery=false (the
+	// subscription created above never sets it), so the delivered record is the
+	// full SNS Notification JSON envelope, not the bare message body.
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(records[0], &envelope))
+	assert.Equal(t, "Notification", envelope["Type"])
+	assert.Equal(t, "firehose-message", envelope["Message"])
+	assert.Equal(t, topicARN, envelope["TopicArn"])
+	assert.NotEmpty(t, envelope["Signature"])
+	assert.NotEmpty(t, envelope["SigningCertURL"])
+}
+
+func TestSNS_FirehoseDelivery_RawMessageDeliveryPutsBareMessage(t *testing.T) {
+	t.Parallel()
+
+	b := newTestSNSBackend(t)
+	firehose := newMockFirehose()
+	b.SetFirehoseBackend(firehose)
+
+	streamName := "raw-delivery-stream"
+	streamARN := "arn:aws:firehose:us-east-1:123456789012:deliverystream/" + streamName
+
+	topic, err := b.CreateTopic("raw-firehose-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(topic.TopicArn, "firehose", streamARN, "")
+	require.NoError(t, err)
+	require.NoError(t, b.SetSubscriptionAttributes(sub.SubscriptionArn, "RawMessageDelivery", "true"))
+
+	_, err = b.Publish(topic.TopicArn, "raw-message", "", "", nil)
+	require.NoError(t, err)
+
+	records := firehose.RecordsFor(streamName)
+	require.Len(t, records, 1)
+	assert.Equal(t, "raw-message", string(records[0]))
 }
 
 func TestSNS_FirehoseDelivery_NoBackendDoesNothing(t *testing.T) {

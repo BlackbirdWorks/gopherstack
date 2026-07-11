@@ -1,9 +1,17 @@
 package appconfig
 
+import "context"
+
 // StorageBackend defines the operations supported by the AppConfig in-memory backend.
 type StorageBackend interface {
 	// PaginationSecret returns the HMAC secret used to sign pagination tokens.
 	PaginationSecret() string
+
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks AppConfig up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 
 	// CreateApplication creates a new AppConfig application.
 	CreateApplication(name, description string) (*Application, error)

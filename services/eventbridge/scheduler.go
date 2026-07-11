@@ -61,7 +61,7 @@ func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time)
 
 	for _, regRules := range s.backend.rules {
 		for _, busRules := range regRules {
-			for _, rule := range busRules {
+			for _, rule := range busRules.All() {
 				if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
 					lastFired[rule.Arn] = now
 				}
@@ -87,7 +87,7 @@ func (s *Scheduler) processTick( //nolint:gocognit // existing issue.
 	activeARNs := make(map[string]struct{})
 	for region, regRules := range s.backend.rules {
 		for busName, busRules := range regRules {
-			for _, rule := range busRules {
+			for _, rule := range busRules.All() {
 				if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
 					scheduled = append(scheduled, ruleInfo{rule: *rule, busName: busName, region: region})
 				}

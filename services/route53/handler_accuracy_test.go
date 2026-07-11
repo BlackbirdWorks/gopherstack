@@ -1286,9 +1286,11 @@ func TestCreateTrafficPolicy_NameUniqueness(t *testing.T) {
 	rec := send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", body)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	// Second attempt with same name must fail.
+	// Second attempt with same name must fail. Real Route 53 returns
+	// TrafficPolicyAlreadyExists with httpStatusCode 409 (confirmed against
+	// the botocore api-2.json route53 model), not 400.
 	rec = send(t, h, http.MethodPost, "/2013-04-01/trafficpolicy", body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "TrafficPolicyAlreadyExists")
 }
 
@@ -1369,11 +1371,14 @@ func TestDeleteKeySigningKey_RequiresInactive(t *testing.T) {
 	rec = send(t, h, http.MethodPost, "/2013-04-01/keysigningkey", kskBody)
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	// Delete without deactivating first — must fail.
+	// Delete without deactivating first — must fail. Real Route 53 has no
+	// "KeySigningKeyNotInactive" error code; the wire error for this case is
+	// InvalidKeySigningKeyStatus (confirmed against aws-sdk-go-v2's route53
+	// error types and the botocore api-2.json model, both http 400).
 	rec = send(t, h, http.MethodDelete,
 		"/2013-04-01/keysigningkey/"+zoneID+"/active-key", "")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "KeySigningKeyNotInactive")
+	assert.Contains(t, rec.Body.String(), "InvalidKeySigningKeyStatus")
 
 	// Deactivate then delete — must succeed.
 	rec = send(t, h, http.MethodPost,

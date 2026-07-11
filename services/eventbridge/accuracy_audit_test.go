@@ -1775,7 +1775,8 @@ func TestAudit_PutPartnerEvents_RecordsResults(t *testing.T) {
 		{Source: "aws.partner/example.com/app", DetailType: "OrderPlaced", Detail: `{"orderId":"o1"}`},
 	}
 
-	results := b.PutPartnerEvents(context.Background(), entries)
+	results, err := b.PutPartnerEvents(context.Background(), entries)
+	require.NoError(t, err)
 	assert.Len(t, results, 2)
 	for _, r := range results {
 		assert.Empty(t, r.ErrorCode)
@@ -1954,9 +1955,10 @@ func TestAudit_PutEvents_BatchSizeLimit(t *testing.T) {
 
 	// Build one massive entry > 256KiB in detail.
 	bigDetail := strings.Repeat("x", 260*1024)
-	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+	results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "s", DetailType: "T", Detail: bigDetail},
 	})
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "EventSizeLimitExceeded", results[0].ErrorCode)
 }
@@ -1967,24 +1969,139 @@ func TestAudit_PutEvents_MixedBatch(t *testing.T) {
 
 	// First entry is small (accepted), second is huge (rejected), third is small (accepted).
 	bigDetail := strings.Repeat("y", 260*1024)
-	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+	results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "s", DetailType: "T", Detail: `{}`},
 		{Source: "s", DetailType: "T", Detail: bigDetail},
 		{Source: "s", DetailType: "T", Detail: `{}`},
 	})
+	require.NoError(t, err)
 	require.Len(t, results, 3)
 	assert.Empty(t, results[0].ErrorCode)
 	assert.Equal(t, "EventSizeLimitExceeded", results[1].ErrorCode)
 	assert.Empty(t, results[2].ErrorCode)
 }
 
+// TestAudit_PutEvents_EntryCountLimit proves AWS's 1-10 entries-per-request
+// constraint on PutEvents (PutEventsRequestEntryList: Array Members Minimum
+// 1, Maximum 10 item(s)): 0 or 11 entries fail the whole request, while 1
+// and 10 succeed.
+func TestAudit_PutEvents_EntryCountLimit(t *testing.T) {
+	t.Parallel()
+
+	makeEntries := func(n int) []eventbridge.EventEntry {
+		entries := make([]eventbridge.EventEntry, n)
+		for i := range entries {
+			entries[i] = eventbridge.EventEntry{Source: "s", DetailType: "T", Detail: `{}`}
+		}
+
+		return entries
+	}
+
+	tests := []struct {
+		name    string
+		count   int
+		wantErr bool
+	}{
+		{"zero entries rejected", 0, true},
+		{"one entry accepted", 1, false},
+		{"ten entries accepted", 10, false},
+		{"eleven entries rejected", 11, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newBackend()
+			results, err := b.PutEvents(context.Background(), makeEntries(tt.count))
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+				assert.Nil(t, results)
+
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, results, tt.count)
+			for _, r := range results {
+				assert.Empty(t, r.ErrorCode)
+			}
+		})
+	}
+}
+
+// TestAudit_PutEvents_RequiredFields proves that Source, DetailType, and
+// Detail are required on every PutEvents entry (per aws-sdk-go-v2's
+// PutEventsRequestEntry doc: "Detail, DetailType, and Source are required
+// for EventBridge to successfully send an event... If you include event
+// entries in a request that do not include each of those properties,
+// EventBridge fails that entry. If you submit a request in which none of the
+// entries have each of these properties, EventBridge fails the entire
+// request.").
+func TestAudit_PutEvents_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("entry missing Source fails individually", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{DetailType: "T", Detail: `{}`},
+			{Source: "s", DetailType: "T", Detail: `{}`},
+		})
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, "InvalidArgument", results[0].ErrorCode)
+		assert.NotEmpty(t, results[0].ErrorMessage)
+		assert.Empty(t, results[1].ErrorCode)
+		assert.NotEmpty(t, results[1].EventID)
+	})
+
+	t.Run("entry missing DetailType fails individually", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "s", Detail: `{}`},
+			{Source: "s", DetailType: "T", Detail: `{}`},
+		})
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, "InvalidArgument", results[0].ErrorCode)
+		assert.Empty(t, results[1].ErrorCode)
+	})
+
+	t.Run("entry missing Detail fails individually", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{Source: "s", DetailType: "T"},
+			{Source: "s", DetailType: "T", Detail: `{}`},
+		})
+		require.NoError(t, err)
+		require.Len(t, results, 2)
+		assert.Equal(t, "InvalidArgument", results[0].ErrorCode)
+		assert.Empty(t, results[1].ErrorCode)
+	})
+
+	t.Run("no entry complete fails the whole request", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+			{DetailType: "T", Detail: `{}`},
+			{Source: "s", Detail: `{}`},
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
+		assert.Nil(t, results)
+	})
+}
+
 func TestAudit_PutEvents_DefaultBus(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+	results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "default.test", DetailType: "Ping", Detail: `{}`},
 	})
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Empty(t, results[0].ErrorCode)
 	assert.NotEmpty(t, results[0].EventID)
@@ -1997,9 +2114,10 @@ func TestAudit_PutEvents_NamedBus(t *testing.T) {
 	_, err := b.CreateEventBus(context.Background(), "named-bus", "")
 	require.NoError(t, err)
 
-	results := b.PutEvents(context.Background(), []eventbridge.EventEntry{
+	results, err := b.PutEvents(context.Background(), []eventbridge.EventEntry{
 		{Source: "s", DetailType: "T", Detail: `{}`, EventBusName: "named-bus"},
 	})
+	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Empty(t, results[0].ErrorCode)
 }

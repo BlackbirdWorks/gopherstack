@@ -276,7 +276,9 @@ func TestSecretsManagerBackendListSecrets(t *testing.T) {
 		_, _ = backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{Name: "deleted"})
 		_, _ = backend.DeleteSecret(context.Background(), &secretsmanager.DeleteSecretInput{SecretID: "deleted"})
 
-		out, err := backend.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{IncludeDeleted: true})
+		out, err := backend.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{
+			IncludePlannedDeletion: true,
+		})
 		require.NoError(t, err)
 		assert.Len(t, out.SecretList, 2)
 	})

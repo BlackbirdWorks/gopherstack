@@ -172,6 +172,78 @@ func TestQueryProtocol_MessageMoveTasks(t *testing.T) {
 	}
 }
 
+// TestQueryProtocol_SingleXMLDeclaration verifies that Query-protocol XML
+// responses contain exactly one "<?xml ... ?>" declaration. echo's
+// c.XMLBlob already writes that declaration before the response body;
+// marshalXML/writeQueryError/buildQueryError previously ALSO prepended it,
+// producing a body with two XML prologs — not well-formed XML (a second
+// "<?xml ...?>" processing instruction is only legal at byte offset 0).
+// Go's encoding/xml happens to tolerate it, which is why this went unnoticed
+// by tests that merely xml.Unmarshal the body, but a strict XML parser in a
+// non-Go AWS SDK could reject the response outright.
+func TestQueryProtocol_SingleXMLDeclaration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals url.Values
+		name string
+	}{
+		{
+			name: "success_response",
+			vals: url.Values{"Action": {"CreateQueue"}, "QueueName": {"xml-decl-queue"}},
+		},
+		{
+			name: "error_response",
+			vals: url.Values{
+				"Action":   {"GetQueueAttributes"},
+				"QueueUrl": {"http://localhost/000000000000/does-not-exist"},
+			},
+		},
+		{
+			name: "unknown_action_response",
+			vals: url.Values{"Action": {"TotallyBogusAction"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doQueryRequest(t, h, tt.vals)
+
+			count := strings.Count(rec.Body.String(), "<?xml")
+			assert.Equal(t, 1, count, "body must contain exactly one XML declaration, got %d: %s",
+				count, rec.Body.String())
+		})
+	}
+}
+
+// TestQueryProtocol_ReceiveMessageInvalidVisibilityTimeout verifies that the
+// Query (XML) protocol rejects an out-of-range VisibilityTimeout on
+// ReceiveMessage exactly like the JSON protocol already does. Previously only
+// the JSON handler (handleReceiveMessage) range-checked this parameter — the
+// Query path parsed it and passed it straight to the backend unchecked, so an
+// out-of-range value (e.g. above the 12-hour AWS maximum) silently produced a
+// message that would effectively never become visible again instead of the
+// AWS InvalidParameterValue error.
+func TestQueryProtocol_ReceiveMessageInvalidVisibilityTimeout(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := queryCreateQueue(t, h, "query-vt-range-queue")
+
+	rec := doQueryRequest(t, h, url.Values{
+		"Action":            {"ReceiveMessage"},
+		"QueueUrl":          {queueURL},
+		"VisibilityTimeout": {"999999"}, // AWS max is 43200 (12h).
+	})
+
+	assert.NotEqual(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue",
+		"out-of-range VisibilityTimeout must be rejected on the Query protocol, not silently accepted")
+}
+
 // queryQueueArn fetches the QueueArn attribute for queueURL via the Query protocol.
 func queryQueueArn(t *testing.T, h *sqs.Handler, queueURL string) string {
 	t.Helper()

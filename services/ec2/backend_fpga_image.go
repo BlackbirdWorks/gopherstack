@@ -81,7 +81,7 @@ func (b *InMemoryBackend) CreateFpgaImage(name, description string) (*FpgaImage,
 		CreateTime:        now,
 		UpdateTime:        now,
 	}
-	b.fpgaImages[afiID] = img
+	b.fpgaImages.Put(img)
 
 	cp := *img
 
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) CopyFpgaImage(
 	b.mu.Lock("CopyFpgaImage")
 	defer b.mu.Unlock()
 
-	src, ok := b.fpgaImages[sourceFpgaImageID]
+	src, ok := b.fpgaImages.Get(sourceFpgaImageID)
 	if sourceRegion == b.Region {
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrFpgaImageNotFound, sourceFpgaImageID)
@@ -143,7 +143,7 @@ func (b *InMemoryBackend) CopyFpgaImage(
 		CreateTime:        now,
 		UpdateTime:        now,
 	}
-	b.fpgaImages[afiID] = img
+	b.fpgaImages.Put(img)
 
 	cp := *img
 
@@ -159,11 +159,10 @@ func (b *InMemoryBackend) DeleteFpgaImage(id string) error {
 	b.mu.Lock("DeleteFpgaImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fpgaImages[id]; !ok {
+	if _, ok := b.fpgaImages.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrFpgaImageNotFound, id)
 	}
-
-	delete(b.fpgaImages, id)
+	b.fpgaImages.Delete(id)
 
 	return nil
 }
@@ -180,7 +179,7 @@ func (b *InMemoryBackend) DescribeFpgaImages(ids []string) []*FpgaImage {
 
 	var out []*FpgaImage
 
-	for _, img := range b.fpgaImages {
+	for _, img := range b.fpgaImages.All() {
 		if len(filter) > 0 && !filter[img.FpgaImageID] {
 			continue
 		}
@@ -204,7 +203,7 @@ func (b *InMemoryBackend) DescribeFpgaImageAttribute(id, attribute string) (*Fpg
 	b.mu.RLock("DescribeFpgaImageAttribute")
 	defer b.mu.RUnlock()
 
-	img, ok := b.fpgaImages[id]
+	img, ok := b.fpgaImages.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrFpgaImageNotFound, id)
 	}
@@ -252,7 +251,7 @@ func (b *InMemoryBackend) ModifyFpgaImageAttribute(
 	b.mu.Lock("ModifyFpgaImageAttribute")
 	defer b.mu.Unlock()
 
-	img, ok := b.fpgaImages[id]
+	img, ok := b.fpgaImages.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrFpgaImageNotFound, id)
 	}
@@ -358,7 +357,7 @@ func (b *InMemoryBackend) ResetFpgaImageAttribute(id, attribute string) error {
 	b.mu.Lock("ResetFpgaImageAttribute")
 	defer b.mu.Unlock()
 
-	img, ok := b.fpgaImages[id]
+	img, ok := b.fpgaImages.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrFpgaImageNotFound, id)
 	}

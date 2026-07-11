@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ApplicationStateCreating is the state when an application is being created.
@@ -110,14 +112,18 @@ type JobRun struct {
 
 // InMemoryBackend stores EMR Serverless state in memory.
 type InMemoryBackend struct {
-	applications    map[string]*Application
-	applicationARNs map[string]string    // application ARN → applicationID
-	jobRunARNs      map[string][2]string // job run ARN → {applicationID, jobRunID}
-	sessionARNs     map[string][2]string // session ARN → {applicationID, sessionID}
-	// jobRuns maps applicationID -> jobRunID -> JobRun.
-	jobRuns       map[string]map[string]*JobRun
-	sessions      map[string]map[string]*Session
+	applications          *store.Table[Application]
+	applicationsByARN     *store.Index[Application]
+	jobRuns               *store.Table[JobRun]
+	jobRunsByApplication  *store.Index[JobRun]
+	jobRunsByARN          *store.Index[JobRun]
+	sessions              *store.Table[Session]
+	sessionsByApplication *store.Index[Session]
+	sessionsByARN         *store.Index[Session]
+	// sessionTokens maps applicationID -> clientToken -> sessionID. Left as a
+	// plain map (not store.Table-backed): see store_setup.go's file doc.
 	sessionTokens map[string]map[string]string
+	registry      *store.Registry
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
@@ -125,18 +131,17 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		applications:    make(map[string]*Application),
-		applicationARNs: make(map[string]string),
-		jobRunARNs:      make(map[string][2]string),
-		sessionARNs:     make(map[string][2]string),
-		jobRuns:         make(map[string]map[string]*JobRun),
-		sessions:        make(map[string]map[string]*Session),
-		sessionTokens:   make(map[string]map[string]string),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("emrserverless"),
+	b := &InMemoryBackend{
+		sessionTokens: make(map[string]map[string]string),
+		accountID:     accountID,
+		region:        region,
+		registry:      store.NewRegistry(),
+		mu:            lockmetrics.New("emrserverless"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state, returning it to the initial empty state.
@@ -144,12 +149,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.applications = make(map[string]*Application)
-	b.applicationARNs = make(map[string]string)
-	b.jobRunARNs = make(map[string][2]string)
-	b.sessionARNs = make(map[string][2]string)
-	b.jobRuns = make(map[string]map[string]*JobRun)
-	b.sessions = make(map[string]map[string]*Session)
+	b.registry.ResetAll()
 	b.sessionTokens = make(map[string]map[string]string)
 }
 
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) CreateApplication(
 		return nil, fmt.Errorf("%w: type is required", ErrValidation)
 	}
 
-	for _, app := range b.applications {
+	for _, app := range b.applications.All() {
 		if app.Name == name {
 			return nil, fmt.Errorf("%w: application %s already exists", ErrAlreadyExists, name)
 		}
@@ -225,8 +225,7 @@ func (b *InMemoryBackend) CreateApplication(
 		UpdatedAt:     now,
 		Tags:          tagsCopy,
 	}
-	b.applications[id] = app
-	b.applicationARNs[app.Arn] = id
+	b.applications.Put(app)
 
 	return cloneApplication(app), nil
 }
@@ -236,7 +235,7 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 	b.mu.RLock("GetApplication")
 	defer b.mu.RUnlock()
 
-	app, ok := b.applications[id]
+	app, ok := b.applications.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
@@ -251,9 +250,10 @@ func (b *InMemoryBackend) ListApplications(
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	list := make([]*Application, 0, len(b.applications))
+	all := b.applications.All()
+	list := make([]*Application, 0, len(all))
 
-	for _, app := range b.applications {
+	for _, app := range all {
 		list = append(list, cloneApplication(app))
 	}
 
@@ -289,7 +289,7 @@ func (b *InMemoryBackend) UpdateApplication(id string, update func(*Application)
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[id]
+	app, ok := b.applications.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
@@ -306,7 +306,7 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[id]
+	app, ok := b.applications.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
@@ -319,19 +319,17 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 		)
 	}
 
-	delete(b.applicationARNs, app.Arn)
-
-	// Clean up job run ARN index entries for this application's job runs.
-	for _, jr := range b.jobRuns[id] {
-		delete(b.jobRunARNs, jr.Arn)
+	// Cascade-delete this application's job runs and sessions. Clone the
+	// index result first: deleting from the table mutates the same backing
+	// slice the index lookup returned (see store.Index.Get's ownership note).
+	for _, jr := range slices.Clone(b.jobRunsByApplication.Get(id)) {
+		b.jobRuns.Delete(jr.JobRunID)
 	}
-	for _, session := range b.sessions[id] {
-		delete(b.sessionARNs, session.Arn)
+	for _, session := range slices.Clone(b.sessionsByApplication.Get(id)) {
+		b.sessions.Delete(session.SessionID)
 	}
 
-	delete(b.applications, id)
-	delete(b.jobRuns, id)
-	delete(b.sessions, id)
+	b.applications.Delete(id)
 	delete(b.sessionTokens, id)
 
 	return nil
@@ -342,7 +340,7 @@ func (b *InMemoryBackend) StartApplication(id string) error {
 	b.mu.Lock("StartApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[id]
+	app, ok := b.applications.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
@@ -373,7 +371,7 @@ func (b *InMemoryBackend) StopApplication(id string) error {
 	b.mu.Lock("StopApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[id]
+	app, ok := b.applications.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
@@ -401,7 +399,7 @@ func (b *InMemoryBackend) StartJobRun(
 		return nil, fmt.Errorf("%w: executionRoleArn is required", ErrValidation)
 	}
 
-	app, ok := b.applications[applicationID]
+	app, ok := b.applications.Get(applicationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
@@ -430,12 +428,7 @@ func (b *InMemoryBackend) StartJobRun(
 		Tags:             tagsCopy,
 	}
 
-	if b.jobRuns[applicationID] == nil {
-		b.jobRuns[applicationID] = make(map[string]*JobRun)
-	}
-
-	b.jobRuns[applicationID][jobRunID] = jr
-	b.jobRunARNs[jr.Arn] = [2]string{applicationID, jobRunID}
+	b.jobRuns.Put(jr)
 
 	return cloneJobRun(jr), nil
 }
@@ -445,17 +438,12 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, er
 	b.mu.RLock("GetJobRun")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
-	runs, ok := b.jobRuns[applicationID]
-	if !ok {
-		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
-	}
-
-	jr, ok := runs[jobRunID]
-	if !ok {
+	jr, ok := b.jobRuns.Get(jobRunID)
+	if !ok || jr.ApplicationID != applicationID {
 		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
@@ -469,11 +457,11 @@ func (b *InMemoryBackend) ListJobRuns(
 	b.mu.RLock("ListJobRuns")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return nil, "", fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
-	runs := b.jobRuns[applicationID]
+	runs := b.jobRunsByApplication.Get(applicationID)
 	list := make([]*JobRun, 0, len(runs))
 
 	for _, jr := range runs {
@@ -517,17 +505,12 @@ func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun,
 	b.mu.Lock("CancelJobRun")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
-	runs, ok := b.jobRuns[applicationID]
-	if !ok {
-		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
-	}
-
-	jr, ok := runs[jobRunID]
-	if !ok {
+	jr, ok := b.jobRuns.Get(jobRunID)
+	if !ok || jr.ApplicationID != applicationID {
 		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
@@ -596,34 +579,16 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 // findTagsByARN looks up the tags map for a resource by ARN using O(1) index lookups.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, bool) {
-	if id, ok := b.applicationARNs[resourceARN]; ok {
-		return b.applications[id].Tags, true
+	if list := b.applicationsByARN.Get(resourceARN); len(list) > 0 {
+		return list[0].Tags, true
 	}
 
-	if key, ok := b.jobRunARNs[resourceARN]; ok {
-		runs, runsOK := b.jobRuns[key[0]]
-		if !runsOK {
-			return nil, false
-		}
-		jr, jrOK := runs[key[1]]
-		if !jrOK {
-			return nil, false
-		}
-
-		return jr.Tags, true
+	if list := b.jobRunsByARN.Get(resourceARN); len(list) > 0 {
+		return list[0].Tags, true
 	}
 
-	if key, ok := b.sessionARNs[resourceARN]; ok {
-		sessions, sessionsOK := b.sessions[key[0]]
-		if !sessionsOK {
-			return nil, false
-		}
-		session, sessionOK := sessions[key[1]]
-		if !sessionOK {
-			return nil, false
-		}
-
-		return session.Tags, true
+	if list := b.sessionsByARN.Get(resourceARN); len(list) > 0 {
+		return list[0].Tags, true
 	}
 
 	return nil, false
@@ -652,16 +617,12 @@ func (b *InMemoryBackend) GetDashboardForJobRun(applicationID, jobRunID string) 
 	b.mu.RLock("GetDashboardForJobRun")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return "", fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
-	runs, ok := b.jobRuns[applicationID]
-	if !ok {
-		return "", fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
-	}
-
-	if _, exists := runs[jobRunID]; !exists {
+	jr, ok := b.jobRuns.Get(jobRunID)
+	if !ok || jr.ApplicationID != applicationID {
 		return "", fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
@@ -679,17 +640,12 @@ func (b *InMemoryBackend) ListJobRunAttempts(
 	b.mu.RLock("ListJobRunAttempts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.applications[applicationID]; !ok {
+	if !b.applications.Has(applicationID) {
 		return nil, "", fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
-	runs, ok := b.jobRuns[applicationID]
-	if !ok {
-		return nil, "", fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
-	}
-
-	jr, ok := runs[jobRunID]
-	if !ok {
+	jr, ok := b.jobRuns.Get(jobRunID)
+	if !ok || jr.ApplicationID != applicationID {
 		return nil, "", fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
@@ -753,12 +709,7 @@ func (b *InMemoryBackend) AddApplicationInternal(app *Application) {
 		app.Tags = make(map[string]string)
 	}
 
-	b.applications[app.ApplicationID] = app
-	b.applicationARNs[app.Arn] = app.ApplicationID
-
-	if b.jobRuns[app.ApplicationID] == nil {
-		b.jobRuns[app.ApplicationID] = make(map[string]*JobRun)
-	}
+	b.applications.Put(app)
 }
 
 // AddJobRunInternal directly inserts a JobRun into the backend without going through
@@ -771,12 +722,7 @@ func (b *InMemoryBackend) AddJobRunInternal(jr *JobRun) {
 		jr.Tags = make(map[string]string)
 	}
 
-	if b.jobRuns[jr.ApplicationID] == nil {
-		b.jobRuns[jr.ApplicationID] = make(map[string]*JobRun)
-	}
-
-	b.jobRuns[jr.ApplicationID][jr.JobRunID] = jr
-	b.jobRunARNs[jr.Arn] = [2]string{jr.ApplicationID, jr.JobRunID}
+	b.jobRuns.Put(jr)
 }
 
 // emrPaginate applies token-based pagination to a sorted slice of pointers.

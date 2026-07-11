@@ -143,7 +143,7 @@ func (b *InMemoryBackend) RegisterConnectionType(name, description string) (*Con
 		Capabilities:   rwCaps(),
 		BuiltIn:        false,
 	}
-	b.customConnectionTypes[norm] = info
+	b.customConnectionTypes.Put(info)
 
 	clone := *info
 
@@ -166,11 +166,11 @@ func (b *InMemoryBackend) DeleteConnectionType(name string) error {
 	b.mu.Lock("DeleteConnectionType")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customConnectionTypes[norm]; !ok {
+	if !b.customConnectionTypes.Has(norm) {
 		return awserr.New("connection type "+norm+" not found", awserr.ErrNotFound)
 	}
 
-	delete(b.customConnectionTypes, norm)
+	b.customConnectionTypes.Delete(norm)
 
 	return nil
 }
@@ -190,7 +190,7 @@ func (b *InMemoryBackend) DescribeConnectionType(name string) (*ConnectionTypeIn
 	b.mu.RLock("DescribeConnectionType")
 	defer b.mu.RUnlock()
 
-	if info, ok := b.customConnectionTypes[norm]; ok {
+	if info, ok := b.customConnectionTypes.Get(norm); ok {
 		clone := *info
 
 		return &clone, nil
@@ -205,8 +205,8 @@ func (b *InMemoryBackend) ListConnectionTypes() []*ConnectionTypeInfo {
 	byName := builtInConnectionTypes()
 
 	b.mu.RLock("ListConnectionTypes")
-	for name, info := range b.customConnectionTypes {
-		byName[name] = *info
+	for _, info := range b.customConnectionTypes.All() {
+		byName[info.ConnectionType] = *info
 	}
 	b.mu.RUnlock()
 

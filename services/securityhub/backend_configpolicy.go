@@ -56,7 +56,7 @@ func (b *InMemoryBackend) CreateConfigurationPolicy(
 		ConfigurationPolicy: policy,
 		Tags:                tags,
 	}
-	b.configPolicies[id] = cp
+	b.configPolicies.Put(cp)
 
 	return cp, nil
 }
@@ -65,10 +65,10 @@ func (b *InMemoryBackend) GetConfigurationPolicy(identifier string) (*Configurat
 	b.mu.RLock("GetConfigurationPolicy")
 	defer b.mu.RUnlock()
 
-	cp, ok := b.configPolicies[identifier]
+	cp, ok := b.configPolicies.Get(identifier)
 	if !ok {
 		// also try by ARN
-		for _, p := range b.configPolicies {
+		for _, p := range b.configPolicies.All() {
 			if p.Arn == identifier || p.Name == identifier {
 				c := *p
 
@@ -93,10 +93,10 @@ func (b *InMemoryBackend) UpdateConfigurationPolicy(
 
 	var target *ConfigurationPolicy
 
-	if cp, ok := b.configPolicies[identifier]; ok {
+	if cp, ok := b.configPolicies.Get(identifier); ok {
 		target = cp
 	} else {
-		for _, p := range b.configPolicies {
+		for _, p := range b.configPolicies.All() {
 			if p.Arn == identifier || p.Name == identifier {
 				target = p
 
@@ -133,15 +133,13 @@ func (b *InMemoryBackend) DeleteConfigurationPolicy(identifier string) error {
 	b.mu.Lock("DeleteConfigurationPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configPolicies[identifier]; ok {
-		delete(b.configPolicies, identifier)
-
+	if b.configPolicies.Delete(identifier) {
 		return nil
 	}
 
-	for id, p := range b.configPolicies {
+	for _, p := range b.configPolicies.All() {
 		if p.Arn == identifier || p.Name == identifier {
-			delete(b.configPolicies, id)
+			b.configPolicies.Delete(p.Id)
 
 			return nil
 		}
@@ -154,9 +152,10 @@ func (b *InMemoryBackend) ListConfigurationPolicies(nextToken string, maxResults
 	b.mu.RLock("ListConfigurationPolicies")
 	defer b.mu.RUnlock()
 
-	var all []*ConfigurationPolicy //nolint:prealloc // existing issue.
+	snap := b.configPolicies.All()
+	all := make([]*ConfigurationPolicy, 0, len(snap))
 
-	for _, p := range b.configPolicies {
+	for _, p := range snap {
 		cp := *p
 		all = append(all, &cp)
 	}
@@ -172,9 +171,9 @@ func (b *InMemoryBackend) StartConfigurationPolicyAssociation(
 
 	var policyID string
 
-	for id, p := range b.configPolicies {
-		if id == configPolicyIdentifier || p.Arn == configPolicyIdentifier || p.Name == configPolicyIdentifier {
-			policyID = id
+	for _, p := range b.configPolicies.All() {
+		if p.Id == configPolicyIdentifier || p.Arn == configPolicyIdentifier || p.Name == configPolicyIdentifier {
+			policyID = p.Id
 
 			break
 		}
@@ -194,7 +193,7 @@ func (b *InMemoryBackend) StartConfigurationPolicyAssociation(
 		AssociationStatus:        "SUCCESS", //nolint:goconst // existing issue.
 		AssociationStatusMessage: "",
 	}
-	b.configPolicyAssocs[targetID] = assoc
+	b.configPolicyAssocs.Put(assoc)
 
 	return assoc, nil
 }
@@ -205,7 +204,7 @@ func (b *InMemoryBackend) StartConfigurationPolicyDisassociation(
 	b.mu.Lock("StartConfigurationPolicyDisassociation")
 	defer b.mu.Unlock()
 
-	delete(b.configPolicyAssocs, targetID)
+	b.configPolicyAssocs.Delete(targetID)
 
 	return nil
 }
@@ -216,7 +215,7 @@ func (b *InMemoryBackend) GetConfigurationPolicyAssociation(
 	b.mu.RLock("GetConfigurationPolicyAssociation")
 	defer b.mu.RUnlock()
 
-	assoc, ok := b.configPolicyAssocs[targetID]
+	assoc, ok := b.configPolicyAssocs.Get(targetID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -235,7 +234,7 @@ func (b *InMemoryBackend) ListConfigurationPolicyAssociations(
 
 	var all []*ConfigurationPolicyAssociation
 
-	for _, assoc := range b.configPolicyAssocs {
+	for _, assoc := range b.configPolicyAssocs.All() {
 		if filterPolicyID != "" && assoc.ConfigurationPolicyId != filterPolicyID {
 			continue
 		}
@@ -271,7 +270,7 @@ func (b *InMemoryBackend) BatchGetConfigurationPolicyAssociations(
 			targetID, _ = req["TargetId"].(string)
 		}
 
-		if assoc, ok := b.configPolicyAssocs[targetID]; ok {
+		if assoc, ok := b.configPolicyAssocs.Get(targetID); ok {
 			cp := *assoc
 			found = append(found, &cp)
 		} else {

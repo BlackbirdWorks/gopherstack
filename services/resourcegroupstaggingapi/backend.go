@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -160,8 +161,9 @@ const resourceCacheTTL = 30 * time.Second
 // created in different regions are fully isolated.
 type InMemoryBackend struct {
 	mu                *lockmetrics.RWMutex
-	reportStates      map[string]*reportCreationState // region → report state
-	caches            map[string]*resourceCache       // region → resource cache
+	registry          *store.Registry
+	reportStates      *store.Table[reportCreationState] // region → report state
+	caches            map[string]*resourceCache         // region → resource cache
 	nowFunc           func() string
 	clockFunc         func() time.Time
 	accountID         string
@@ -178,9 +180,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:     accountID,
 		defaultRegion: region,
 		mu:            lockmetrics.New("resourcegroupstaggingapi"),
-		reportStates:  make(map[string]*reportCreationState),
+		registry:      store.NewRegistry(),
 		caches:        make(map[string]*resourceCache),
 	}
+
+	registerAllTables(b)
 
 	b.nowFunc = b.defaultNow
 	b.clockFunc = time.Now
@@ -207,7 +211,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	clear(b.reportStates)
+	b.reportStates.Reset()
 	clear(b.caches)
 }
 
@@ -1078,8 +1082,13 @@ const reportS3PathTemplate = "AwsTagPolicies/report.csv"
 const reportRunningDuration = 30 * time.Second
 
 // reportCreationState holds the state of a StartReportCreation job.
+// Region is tagged json:"-" -- it exists solely so store.Table's keyFn (see
+// store_setup.go) has something to key on, since nothing in the AWS wire
+// shape needs a report state to carry its own region (report state is
+// always looked up by request-scoped region, never serialized directly).
 type reportCreationState struct {
 	startedAt  time.Time
+	Region     string `json:"-"`
 	S3Location string `json:"s3Location"`
 	StartDate  string `json:"startDate"`
 	Status     string `json:"status"`
@@ -1116,18 +1125,19 @@ func (b *InMemoryBackend) StartReportCreation(
 	now := b.clockFunc()
 
 	// Reject concurrent report creation while a previous report is still running.
-	if state := b.reportStates[region]; state != nil &&
+	if state, ok := b.reportStates.Get(region); ok &&
 		state.Status == reportStatusRunning &&
 		now.Before(state.startedAt.Add(reportRunningDuration)) {
 		return nil, ErrConcurrentModification
 	}
 
-	b.reportStates[region] = &reportCreationState{
+	b.reportStates.Put(&reportCreationState{
+		Region:     region,
 		S3Location: "s3://" + input.S3Bucket + "/" + reportS3PathTemplate,
 		StartDate:  b.now(),
 		Status:     reportStatusRunning,
 		startedAt:  now,
-	}
+	})
 
 	return &StartReportCreationOutput{}, nil
 }
@@ -1154,9 +1164,9 @@ func (b *InMemoryBackend) DescribeReportCreation(ctx context.Context) *DescribeR
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	state := b.reportStates[region]
 
-	if state == nil {
+	state, ok := b.reportStates.Get(region)
+	if !ok {
 		return &DescribeReportCreationOutput{}
 	}
 

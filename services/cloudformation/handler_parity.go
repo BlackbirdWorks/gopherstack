@@ -130,7 +130,7 @@ func (h *Handler) handleDescribeChangeSetFull(form url.Values, c *echo.Context) 
 
 	cs, err := h.Backend.DescribeChangeSet(stackName, changeSetName)
 	if err != nil {
-		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
+		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
 
 	type targetXML struct {

@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -48,6 +49,8 @@ var (
 	ErrOpsMetadataNotFound                = errors.New("OpsMetadataNotFoundException")
 	ErrPatchBaselineNotFound              = errors.New("DoesNotExistException")
 	ErrOpsMetadataAlreadyExists           = errors.New("OpsMetadataAlreadyExistsException")
+	ErrHierarchyLevelLimitExceeded        = errors.New("HierarchyLevelLimitExceededException")
+	ErrParameterMaxVersionLimitExceeded   = errors.New("ParameterMaxVersionLimitExceeded")
 )
 
 const (
@@ -72,6 +75,11 @@ const (
 var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
 
 const maxParamNameLength = 2048
+
+// maxParamHierarchyLevels is the maximum number of "/"-delimited path segments
+// allowed in a parameter name. AWS: "A parameter name hierarchy can have a
+// maximum of 15 levels" — e.g. /L1/L2/.../L15/name is valid, one more is not.
+const maxParamHierarchyLevels = 15
 
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {
@@ -106,7 +114,31 @@ func validateParameterName(name string) error {
 		return fmt.Errorf("%w: parameter name contains invalid characters", ErrValidationException)
 	}
 
+	if levels := parameterHierarchyLevels(name); levels > maxParamHierarchyLevels {
+		return fmt.Errorf(
+			"%w: parameter name hierarchy has %d levels, maximum is %d",
+			ErrHierarchyLevelLimitExceeded, levels, maxParamHierarchyLevels,
+		)
+	}
+
 	return nil
+}
+
+// parameterHierarchyLevels counts the "/"-delimited, non-empty segments of a
+// parameter name, including the final name segment itself. AWS counts a
+// leading slash as the hierarchy root (not a level) — e.g. "/a/b/c" has 3
+// levels, matching how AWS reports HierarchyLevelLimitExceededException.
+func parameterHierarchyLevels(name string) int {
+	segments := strings.Split(name, "/")
+
+	levels := 0
+	for _, s := range segments {
+		if s != "" {
+			levels++
+		}
+	}
+
+	return levels
 }
 
 // aes256KeyLen is the byte length of an AES-256 key.
@@ -181,37 +213,38 @@ type KMSEncryptor interface {
 type InMemoryBackend struct {
 	kms                        KMSEncryptor
 	gcm                        cipher.AEAD // per-instance key; not shared across backends
-	activations                map[string]map[string]Activation
-	maintenanceWindows         map[string]map[string]MaintenanceWindow
-	maintenanceWindowTargets   map[string]map[string]MaintenanceWindowTarget
-	maintenanceWindowTasks     map[string]map[string]MaintenanceWindowTask
-	sessions                   map[string]map[string]Session
+	registry                   *store.Registry
+	activations                map[string]*store.Table[Activation]
+	maintenanceWindows         map[string]*store.Table[MaintenanceWindow]
+	maintenanceWindowTargets   map[string]*store.Table[MaintenanceWindowTarget]
+	maintenanceWindowTasks     map[string]*store.Table[MaintenanceWindowTask]
+	sessions                   map[string]*store.Table[Session]
 	patchGroupToBaseline       map[string]map[string]string
 	tags                       map[string]map[string]*tags.Tags
-	associations               map[string]map[string]Association
+	associations               map[string]*store.Table[Association]
 	documentVersions           map[string]map[string][]DocumentVersion
 	documentPermissions        map[string]map[string][]string
-	commands                   map[string]map[string]Command
+	commands                   map[string]*store.Table[Command]
 	commandInvocations         map[string]map[string][]CommandInvocation
 	history                    map[string]map[string][]ParameterHistory
-	parameters                 map[string]map[string]Parameter
-	documents                  map[string]map[string]Document
-	opsItems                   map[string]map[string]OpsItem
+	parameters                 map[string]*store.Table[Parameter]
+	documents                  map[string]*store.Table[Document]
+	opsItems                   map[string]*store.Table[OpsItem]
 	opsItemRelatedItems        map[string]map[string][]OpsItemRelatedItem
-	opsMetadata                map[string]map[string]OpsMetadata
-	patchBaselines             map[string]map[string]PatchBaseline
+	opsMetadata                map[string]*store.Table[OpsMetadata]
+	patchBaselines             map[string]*store.Table[PatchBaseline]
 	inventory                  map[string]map[string][]InventoryItem  // key: instanceID
 	compliance                 map[string]map[string][]ComplianceItem // key: resourceID
-	resourceDataSyncs          map[string]map[string]*ResourceDataSync
-	parameterLabels            map[string]map[string]map[int64][]string    // paramName → version → labels (0 = latest)
-	automationExecutions       map[string]map[string]*AutomationExecution  // executionID → exec
-	serviceSettings            map[string]map[string]*ServiceSetting       // settingID → setting
-	resourcePolicies           map[string]map[string][]*ResourcePolicy     // resourceARN → policies
-	executionPreviews          map[string]map[string]*ExecutionPreview     // previewID → preview
-	instancePatchStates        map[string]map[string]*InstancePatchState   // region → instanceID → state
-	instancePatches            map[string]map[string][]PatchComplianceData // region → instanceID → patches
-	instanceProperties         map[string]map[string]*InstanceProperty     // region → instanceID → properties
-	availablePatches           map[string][]Patch                          // region → patches
+	resourceDataSyncs          map[string]*store.Table[ResourceDataSync]
+	parameterLabels            map[string]map[string]map[int64][]string     // paramName → version → labels (0 = latest)
+	automationExecutions       map[string]*store.Table[AutomationExecution] // executionID → exec
+	serviceSettings            map[string]*store.Table[ServiceSetting]      // settingID → setting
+	resourcePolicies           map[string]map[string][]*ResourcePolicy      // resourceARN → policies
+	executionPreviews          map[string]*store.Table[ExecutionPreview]    // previewID → preview
+	instancePatchStates        map[string]*store.Table[InstancePatchState]  // region → instanceID → state
+	instancePatches            map[string]map[string][]PatchComplianceData  // region → instanceID → patches
+	instanceProperties         map[string]*store.Table[InstanceProperty]    // region → instanceID → properties
+	availablePatches           map[string][]Patch                           // region → patches
 	mu                         *lockmetrics.RWMutex
 	miscResourceTags           map[string]map[string]map[string]string
 	resourceIDToOpsMetadataArn map[string]map[string]string
@@ -234,36 +267,37 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
 		gcm:                        newInstanceGCM(),
-		parameters:                 make(map[string]map[string]Parameter),
+		registry:                   store.NewRegistry(),
+		parameters:                 make(map[string]*store.Table[Parameter]),
 		history:                    make(map[string]map[string][]ParameterHistory),
 		tags:                       make(map[string]map[string]*tags.Tags),
-		documents:                  make(map[string]map[string]Document),
+		documents:                  make(map[string]*store.Table[Document]),
 		documentVersions:           make(map[string]map[string][]DocumentVersion),
 		documentPermissions:        make(map[string]map[string][]string),
-		commands:                   make(map[string]map[string]Command),
+		commands:                   make(map[string]*store.Table[Command]),
 		commandInvocations:         make(map[string]map[string][]CommandInvocation),
-		activations:                make(map[string]map[string]Activation),
-		associations:               make(map[string]map[string]Association),
-		maintenanceWindows:         make(map[string]map[string]MaintenanceWindow),
-		maintenanceWindowTargets:   make(map[string]map[string]MaintenanceWindowTarget),
-		maintenanceWindowTasks:     make(map[string]map[string]MaintenanceWindowTask),
-		sessions:                   make(map[string]map[string]Session),
+		activations:                make(map[string]*store.Table[Activation]),
+		associations:               make(map[string]*store.Table[Association]),
+		maintenanceWindows:         make(map[string]*store.Table[MaintenanceWindow]),
+		maintenanceWindowTargets:   make(map[string]*store.Table[MaintenanceWindowTarget]),
+		maintenanceWindowTasks:     make(map[string]*store.Table[MaintenanceWindowTask]),
+		sessions:                   make(map[string]*store.Table[Session]),
 		patchGroupToBaseline:       make(map[string]map[string]string),
-		opsItems:                   make(map[string]map[string]OpsItem),
+		opsItems:                   make(map[string]*store.Table[OpsItem]),
 		opsItemRelatedItems:        make(map[string]map[string][]OpsItemRelatedItem),
-		opsMetadata:                make(map[string]map[string]OpsMetadata),
-		patchBaselines:             make(map[string]map[string]PatchBaseline),
+		opsMetadata:                make(map[string]*store.Table[OpsMetadata]),
+		patchBaselines:             make(map[string]*store.Table[PatchBaseline]),
 		inventory:                  make(map[string]map[string][]InventoryItem),
 		compliance:                 make(map[string]map[string][]ComplianceItem),
-		resourceDataSyncs:          make(map[string]map[string]*ResourceDataSync),
+		resourceDataSyncs:          make(map[string]*store.Table[ResourceDataSync]),
 		parameterLabels:            make(map[string]map[string]map[int64][]string),
-		automationExecutions:       make(map[string]map[string]*AutomationExecution),
-		serviceSettings:            make(map[string]map[string]*ServiceSetting),
+		automationExecutions:       make(map[string]*store.Table[AutomationExecution]),
+		serviceSettings:            make(map[string]*store.Table[ServiceSetting]),
 		resourcePolicies:           make(map[string]map[string][]*ResourcePolicy),
-		executionPreviews:          make(map[string]map[string]*ExecutionPreview),
-		instancePatchStates:        make(map[string]map[string]*InstancePatchState),
+		executionPreviews:          make(map[string]*store.Table[ExecutionPreview]),
+		instancePatchStates:        make(map[string]*store.Table[InstancePatchState]),
 		instancePatches:            make(map[string]map[string][]PatchComplianceData),
-		instanceProperties:         make(map[string]map[string]*InstanceProperty),
+		instanceProperties:         make(map[string]*store.Table[InstanceProperty]),
 		availablePatches:           make(map[string][]Patch),
 		commandExpirySecs:          defaultCommandExpirySecs,
 		mu:                         lockmetrics.New("ssm"),
@@ -332,8 +366,8 @@ func getRegion(ctx context.Context) string {
 	return defaultRegion
 }
 
-func (b *InMemoryBackend) parametersStore(region string) map[string]Parameter {
-	return b.parameters[region]
+func (b *InMemoryBackend) parametersStore(region string) *store.Table[Parameter] {
+	return getOrCreateTable(b, b.parameters, "parameters", region, parameterKeyFn)
 }
 
 func (b *InMemoryBackend) historyStore(region string) map[string][]ParameterHistory {
@@ -344,8 +378,8 @@ func (b *InMemoryBackend) tagsStore(region string) map[string]*tags.Tags {
 	return b.tags[region]
 }
 
-func (b *InMemoryBackend) documentsStore(region string) map[string]Document {
-	return b.documents[region]
+func (b *InMemoryBackend) documentsStore(region string) *store.Table[Document] {
+	return getOrCreateTable(b, b.documents, "documents", region, documentKeyFn)
 }
 
 func (b *InMemoryBackend) documentVersionsStore(region string) map[string][]DocumentVersion {
@@ -356,20 +390,20 @@ func (b *InMemoryBackend) documentPermissionsStore(region string) map[string][]s
 	return b.documentPermissions[region]
 }
 
-func (b *InMemoryBackend) commandsStore(region string) map[string]Command {
-	return b.commands[region]
+func (b *InMemoryBackend) commandsStore(region string) *store.Table[Command] {
+	return getOrCreateTable(b, b.commands, "commands", region, commandKeyFn)
 }
 
 func (b *InMemoryBackend) commandInvocationsStore(region string) map[string][]CommandInvocation {
 	return b.commandInvocations[region]
 }
 
-func (b *InMemoryBackend) activationsStore(region string) map[string]Activation {
-	return b.activations[region]
+func (b *InMemoryBackend) activationsStore(region string) *store.Table[Activation] {
+	return getOrCreateTable(b, b.activations, "activations", region, activationKeyFn)
 }
 
-func (b *InMemoryBackend) associationsStore(region string) map[string]Association {
-	return b.associations[region]
+func (b *InMemoryBackend) associationsStore(region string) *store.Table[Association] {
+	return getOrCreateTable(b, b.associations, "associations", region, associationKeyFn)
 }
 
 func (b *InMemoryBackend) associationExecutionsStore(
@@ -384,44 +418,48 @@ func (b *InMemoryBackend) associationExecTargetsStore(
 	return b.associationExecTargets[region]
 }
 
-func (b *InMemoryBackend) maintenanceWindowsStore(region string) map[string]MaintenanceWindow {
-	return b.maintenanceWindows[region]
+func (b *InMemoryBackend) maintenanceWindowsStore(region string) *store.Table[MaintenanceWindow] {
+	return getOrCreateTable(b, b.maintenanceWindows, "maintenanceWindows", region, maintenanceWindowKeyFn)
 }
 
 func (b *InMemoryBackend) maintenanceWindowTargetsStore(
 	region string,
-) map[string]MaintenanceWindowTarget {
-	return b.maintenanceWindowTargets[region]
+) *store.Table[MaintenanceWindowTarget] {
+	return getOrCreateTable(
+		b, b.maintenanceWindowTargets, "maintenanceWindowTargets", region, maintenanceWindowTargetKeyFn,
+	)
 }
 
 func (b *InMemoryBackend) maintenanceWindowTasksStore(
 	region string,
-) map[string]MaintenanceWindowTask {
-	return b.maintenanceWindowTasks[region]
+) *store.Table[MaintenanceWindowTask] {
+	return getOrCreateTable(
+		b, b.maintenanceWindowTasks, "maintenanceWindowTasks", region, maintenanceWindowTaskKeyFn,
+	)
 }
 
-func (b *InMemoryBackend) sessionsStore(region string) map[string]Session {
-	return b.sessions[region]
+func (b *InMemoryBackend) sessionsStore(region string) *store.Table[Session] {
+	return getOrCreateTable(b, b.sessions, "sessions", region, sessionKeyFn)
 }
 
 func (b *InMemoryBackend) patchGroupToBaselineStore(region string) map[string]string {
 	return b.patchGroupToBaseline[region]
 }
 
-func (b *InMemoryBackend) opsItemsStore(region string) map[string]OpsItem {
-	return b.opsItems[region]
+func (b *InMemoryBackend) opsItemsStore(region string) *store.Table[OpsItem] {
+	return getOrCreateTable(b, b.opsItems, "opsItems", region, opsItemKeyFn)
 }
 
 func (b *InMemoryBackend) opsItemRelatedItemsStore(region string) map[string][]OpsItemRelatedItem {
 	return b.opsItemRelatedItems[region]
 }
 
-func (b *InMemoryBackend) opsMetadataStore(region string) map[string]OpsMetadata {
-	return b.opsMetadata[region]
+func (b *InMemoryBackend) opsMetadataStore(region string) *store.Table[OpsMetadata] {
+	return getOrCreateTable(b, b.opsMetadata, "opsMetadata", region, opsMetadataKeyFn)
 }
 
-func (b *InMemoryBackend) patchBaselinesStore(region string) map[string]PatchBaseline {
-	return b.patchBaselines[region]
+func (b *InMemoryBackend) patchBaselinesStore(region string) *store.Table[PatchBaseline] {
+	return getOrCreateTable(b, b.patchBaselines, "patchBaselines", region, patchBaselineKeyFn)
 }
 
 func (b *InMemoryBackend) inventoryStore(region string) map[string][]InventoryItem {
@@ -436,28 +474,30 @@ func (b *InMemoryBackend) complianceStore(region string) map[string][]Compliance
 	return b.compliance[region]
 }
 
-func (b *InMemoryBackend) resourceDataSyncsStore(region string) map[string]*ResourceDataSync {
-	return b.resourceDataSyncs[region]
+func (b *InMemoryBackend) resourceDataSyncsStore(region string) *store.Table[ResourceDataSync] {
+	return getOrCreateTable(b, b.resourceDataSyncs, "resourceDataSyncs", region, resourceDataSyncKeyFn)
 }
 
 func (b *InMemoryBackend) parameterLabelsStore(region string) map[string]map[int64][]string {
 	return b.parameterLabels[region]
 }
 
-func (b *InMemoryBackend) automationExecutionsStore(region string) map[string]*AutomationExecution {
-	return b.automationExecutions[region]
+func (b *InMemoryBackend) automationExecutionsStore(region string) *store.Table[AutomationExecution] {
+	return getOrCreateTable(
+		b, b.automationExecutions, "automationExecutions", region, automationExecutionKeyFn,
+	)
 }
 
-func (b *InMemoryBackend) serviceSettingsStore(region string) map[string]*ServiceSetting {
-	return b.serviceSettings[region]
+func (b *InMemoryBackend) serviceSettingsStore(region string) *store.Table[ServiceSetting] {
+	return getOrCreateTable(b, b.serviceSettings, "serviceSettings", region, serviceSettingKeyFn)
 }
 
 func (b *InMemoryBackend) resourcePoliciesStore(region string) map[string][]*ResourcePolicy {
 	return b.resourcePolicies[region]
 }
 
-func (b *InMemoryBackend) executionPreviewsStore(region string) map[string]*ExecutionPreview {
-	return b.executionPreviews[region]
+func (b *InMemoryBackend) executionPreviewsStore(region string) *store.Table[ExecutionPreview] {
+	return getOrCreateTable(b, b.executionPreviews, "executionPreviews", region, executionPreviewKeyFn)
 }
 
 func (b *InMemoryBackend) miscResourceTagsStore(region string) map[string]map[string]string {
@@ -472,16 +512,16 @@ func (b *InMemoryBackend) opsItemEventsStore(region string) []OpsItemEventSummar
 	return b.opsItemEvents[region]
 }
 
-func (b *InMemoryBackend) instancePatchStatesStore(region string) map[string]*InstancePatchState {
-	return b.instancePatchStates[region]
+func (b *InMemoryBackend) instancePatchStatesStore(region string) *store.Table[InstancePatchState] {
+	return getOrCreateTable(b, b.instancePatchStates, "instancePatchStates", region, instancePatchStateKeyFn)
 }
 
 func (b *InMemoryBackend) instancePatchesStore(region string) map[string][]PatchComplianceData {
 	return b.instancePatches[region]
 }
 
-func (b *InMemoryBackend) instancePropertiesStore(region string) map[string]*InstanceProperty {
-	return b.instanceProperties[region]
+func (b *InMemoryBackend) instancePropertiesStore(region string) *store.Table[InstanceProperty] {
+	return getOrCreateTable(b, b.instanceProperties, "instanceProperties", region, instancePropertyKeyFn)
 }
 
 // encryptSSMValue encrypts a SecureString value using KMS (when keyID is set
@@ -574,30 +614,51 @@ func validateAllowedPattern(pattern, value string) error {
 	return nil
 }
 
-// resolveTier canonicalises the tier string and enforces per-tier value size limits.
-// Returns the resolved tier name or an error.
-func resolveTier(tier, value string) (string, error) {
+// resolveTier canonicalises the tier string and enforces per-tier value size
+// limits, returning the resolved tier name or an error.
+//
+// AWS auto-upgrades Intelligent-Tiering parameters to Advanced whenever the
+// request needs a capability Standard doesn't support — a value over 4 KiB or
+// parameter policies attached — rather than rejecting the request. An
+// explicit Standard tier still hard-fails on those same conditions, since the
+// caller opted out of auto-selection.
+func resolveTier(tier, value, policies string) (string, error) {
 	if tier == "" {
 		tier = tierStandard
 	}
 
+	needsAdvanced := len(value) > maxStandardValueBytes || policies != ""
+
 	switch tier {
-	case tierStandard, tierIntelligentTiering:
+	case tierIntelligentTiering:
+		if needsAdvanced {
+			tier = tierAdvanced
+		}
+	case tierStandard:
 		if len(value) > maxStandardValueBytes {
 			return "", fmt.Errorf(
-				"%w: parameter value exceeds %d bytes for %s tier",
-				ErrValidationException, maxStandardValueBytes, tier,
+				"%w: parameter value exceeds %d bytes for Standard tier",
+				ErrValidationException, maxStandardValueBytes,
+			)
+		}
+
+		if policies != "" {
+			return "", fmt.Errorf(
+				"%w: parameter policies are only supported for Advanced tier parameters",
+				ErrValidationException,
 			)
 		}
 	case tierAdvanced:
-		if len(value) > maxAdvancedValueBytes {
-			return "", fmt.Errorf(
-				"%w: parameter value exceeds %d bytes for Advanced tier",
-				ErrValidationException, maxAdvancedValueBytes,
-			)
-		}
+		// already Advanced; size checked below.
 	default:
 		return "", fmt.Errorf("%w: invalid Tier %q", ErrValidationException, tier)
+	}
+
+	if tier == tierAdvanced && len(value) > maxAdvancedValueBytes {
+		return "", fmt.Errorf(
+			"%w: parameter value exceeds %d bytes for Advanced tier",
+			ErrValidationException, maxAdvancedValueBytes,
+		)
 	}
 
 	return tier, nil
@@ -637,10 +698,12 @@ func splitParameterSelector(name string) (string, string) {
 func (b *InMemoryBackend) resolveParameterSelector(
 	region, baseName, selector string,
 ) (Parameter, error) {
-	current, exists := b.parametersStore(region)[baseName]
+	currentPtr, exists := b.parametersStore(region).Get(baseName)
 	if !exists {
 		return Parameter{}, ErrParameterNotFound
 	}
+
+	current := *currentPtr
 
 	if selector == "" {
 		return current, nil
@@ -752,7 +815,7 @@ func validatePutParameterInput(input *PutParameterInput) (putParameterValidated,
 		return putParameterValidated{}, err
 	}
 
-	tier, err := resolveTier(input.Tier, input.Value)
+	tier, err := resolveTier(input.Tier, input.Value, input.Policies)
 	if err != nil {
 		return putParameterValidated{}, err
 	}
@@ -776,18 +839,15 @@ func (b *InMemoryBackend) PutParameter(
 	b.mu.Lock("PutParameter")
 	defer b.mu.Unlock()
 
-	if b.parameters[region] == nil {
-		b.parameters[region] = make(map[string]Parameter)
-	}
 	params := b.parametersStore(region)
-	existing, exists := params[input.Name]
+	existingPtr, exists := params.Get(input.Name)
 	if exists && !input.Overwrite {
 		return nil, ErrParameterAlreadyExists
 	}
 
 	version := int64(1)
 	if exists {
-		version = existing.Version + 1
+		version = existingPtr.Version + 1
 	}
 
 	// Encrypt if SecureString type; use KMS when a KeyID is specified.
@@ -814,7 +874,25 @@ func (b *InMemoryBackend) PutParameter(
 		Policies:         input.Policies,
 	}
 
-	params[input.Name] = param
+	// AWS retains only the most recent maxHistoryCap versions of a parameter,
+	// automatically deleting the oldest version when a new one is created. If
+	// the oldest version has a label attached, AWS refuses to delete it (and
+	// therefore refuses to create the new version) with
+	// ParameterMaxVersionLimitExceeded, since that would silently orphan the
+	// label. Check this before mutating any state.
+	if existingHist := b.historyStore(region)[input.Name]; len(existingHist) >= maxHistoryCap {
+		oldest := existingHist[0]
+		if labels := b.parameterLabelsStore(region)[input.Name][oldest.Version]; len(labels) > 0 {
+			return nil, fmt.Errorf(
+				"%w: version %d, the oldest version, can't be deleted because it has a label"+
+					" associated with it. Move the label to another version of the parameter,"+
+					" and try again",
+				ErrParameterMaxVersionLimitExceeded, oldest.Version,
+			)
+		}
+	}
+
+	params.Put(&param)
 
 	// Store in history (store encrypted value for SecureString)
 	paramHistory := ParameterHistory{
@@ -838,7 +916,18 @@ func (b *InMemoryBackend) PutParameter(
 
 	// Cap history to the most recent maxHistoryCap entries to prevent unbounded growth.
 	if len(history[input.Name]) > maxHistoryCap {
+		evicted := history[input.Name][:len(history[input.Name])-maxHistoryCap]
 		history[input.Name] = history[input.Name][len(history[input.Name])-maxHistoryCap:]
+
+		// Evicted versions can never be labeled here (the pre-check above bars
+		// evicting a labeled oldest version) but their version-label map
+		// entries — created lazily on first label — may still exist as empty
+		// slices; drop them so parameterLabels doesn't grow unboundedly.
+		if versionLabels := b.parameterLabelsStore(region)[input.Name]; versionLabels != nil {
+			for _, ev := range evicted {
+				delete(versionLabels, ev.Version)
+			}
+		}
 	}
 
 	return &PutParameterOutput{Version: version, Tier: tier}, nil
@@ -944,11 +1033,11 @@ func (b *InMemoryBackend) DeleteParameter(
 	defer b.mu.Unlock()
 
 	params := b.parametersStore(region)
-	if _, exists := params[input.Name]; !exists {
+	if !params.Has(input.Name) {
 		return nil, ErrParameterNotFound
 	}
 
-	delete(params, input.Name)
+	params.Delete(input.Name)
 	delete(b.historyStore(region), input.Name)
 
 	tags := b.tagsStore(region)
@@ -982,8 +1071,8 @@ func (b *InMemoryBackend) DeleteParameters(
 	}
 
 	for _, name := range input.Names {
-		if _, exists := params[name]; exists {
-			delete(params, name)
+		if params.Has(name) {
+			params.Delete(name)
 			delete(history, name)
 			if t, ok := tags[name]; ok {
 				t.Close()
@@ -1093,10 +1182,10 @@ func (b *InMemoryBackend) ListAll(ctx context.Context) []Parameter {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	paramsMap := b.parametersStore(region)
-	params := make([]Parameter, 0, len(paramsMap))
-	for _, p := range paramsMap {
-		params = append(params, p)
+	paramsTable := b.parametersStore(region)
+	params := make([]Parameter, 0, paramsTable.Len())
+	for _, p := range paramsTable.All() {
+		params = append(params, *p)
 	}
 
 	sort.Slice(params, func(i, j int) bool {
@@ -1131,13 +1220,14 @@ func paramByPathMatchesFilters(param Parameter, filters []ParameterFilter) bool 
 // approach that required maintaining a sorted slice on every PutParameter write
 // (O(n) insert); the emulator write path is now O(1) and reads are O(n log n).
 func collectPathParams(
-	store map[string]Parameter,
+	paramsTable *store.Table[Parameter],
 	path string,
 	recursive bool,
 	filters []ParameterFilter,
 ) []Parameter {
 	var matched []Parameter
-	for name, param := range store {
+	for _, p := range paramsTable.All() {
+		name, param := p.Name, *p
 		if !strings.HasPrefix(name, path) {
 			continue
 		}
@@ -1167,11 +1257,18 @@ func cleanupEmptyInnerMap[V any](outer map[string]map[string]V, region string) {
 	}
 }
 
-// cleanupEmptyParamRegion removes the per-region inner maps for parameters,
-// history, and tags when the last parameter in a region is deleted.
+// cleanupEmptyParamRegion removes the per-region inner maps for history and
+// tags when the last parameter in a region is deleted. b.parameters is
+// intentionally NOT pruned here: it is now a *store.Table[Parameter] per
+// region, registered once by name ("parameters/"+region) on b.registry (see
+// store_setup.go's getOrCreateTable); store.Registry has no unregister, so
+// deleting the region's entry from b.parameters would make a later write to
+// the same region re-register the same name and panic. An empty Table left
+// in place is observably identical to an absent one (Len() == 0, no
+// entries) — this only affects internal bookkeeping, never a caller-visible
+// response.
 // Caller must hold the write lock.
 func (b *InMemoryBackend) cleanupEmptyParamRegion(region string) {
-	cleanupEmptyInnerMap(b.parameters, region)
 	cleanupEmptyInnerMap(b.history, region)
 	cleanupEmptyInnerMap(b.tags, region)
 }
@@ -1270,10 +1367,10 @@ func (b *InMemoryBackend) DescribeParameters(
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
 
-	paramsMap := b.parametersStore(region)
-	all := make([]ParameterMetadata, 0, len(paramsMap))
+	paramsTable := b.parametersStore(region)
+	all := make([]ParameterMetadata, 0, paramsTable.Len())
 
-	for _, p := range paramsMap {
+	for _, p := range paramsTable.All() {
 		all = append(all, ParameterMetadata{
 			Name:             p.Name,
 			Type:             p.Type,
@@ -1424,7 +1521,7 @@ func (b *InMemoryBackend) AddTagsToResource(
 
 		params := b.parametersStore(region)
 		name := input.ResourceID
-		if _, ok := params[name]; !ok {
+		if !params.Has(name) {
 			return ErrParameterNotFound
 		}
 		if b.tags[region] == nil {
@@ -1471,7 +1568,7 @@ func (b *InMemoryBackend) RemoveTagsFromResource(
 
 		params := b.parametersStore(region)
 		name := input.ResourceID
-		if _, ok := params[name]; !ok {
+		if !params.Has(name) {
 			return ErrParameterNotFound
 		}
 		tagsStore := b.tagsStore(region)
@@ -1508,7 +1605,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 
 		params := b.parametersStore(region)
 		name := input.ResourceID
-		if _, ok := params[name]; !ok {
+		if !params.Has(name) {
 			return nil, ErrParameterNotFound
 		}
 		var tagList []Tag
@@ -1565,9 +1662,6 @@ func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 		},
 	}
 
-	if b.documents[region] == nil {
-		b.documents[region] = make(map[string]Document)
-	}
 	if b.documentVersions[region] == nil {
 		b.documentVersions[region] = make(map[string][]DocumentVersion)
 	}
@@ -1588,7 +1682,7 @@ func (b *InMemoryBackend) registerDefaultDocuments(region string) {
 			LatestVersion:   "1",
 			DefaultVersion:  "1",
 		}
-		documents[d.name] = doc
+		documents.Put(&doc)
 		documentVersions[d.name] = []DocumentVersion{
 			{
 				Name:             d.name,
@@ -1614,11 +1708,8 @@ func (b *InMemoryBackend) CreateDocument(
 	b.mu.Lock("CreateDocument")
 	defer b.mu.Unlock()
 
-	if b.documents[region] == nil {
-		b.documents[region] = make(map[string]Document)
-	}
-	store := b.documentsStore(region)
-	if _, exists := store[input.Name]; exists {
+	documentsTable := b.documentsStore(region)
+	if documentsTable.Has(input.Name) {
 		return nil, ErrDocumentAlreadyExists
 	}
 
@@ -1650,7 +1741,7 @@ func (b *InMemoryBackend) CreateDocument(
 		Requires:        input.Requires,
 	}
 
-	store[input.Name] = doc
+	documentsTable.Put(&doc)
 	if b.documentVersions[region] == nil {
 		b.documentVersions[region] = make(map[string][]DocumentVersion)
 	}
@@ -1667,7 +1758,52 @@ func (b *InMemoryBackend) CreateDocument(
 		},
 	}
 
-	return &CreateDocumentOutput{DocumentDescription: doc}, nil
+	return &CreateDocumentOutput{DocumentDescription: doc.toDocumentDescription()}, nil
+}
+
+// toDocumentDescription converts an internal Document (which carries Content
+// for GetDocument's use) to the wire-accurate DocumentDescription shape
+// returned by CreateDocument/UpdateDocument/DescribeDocument — real AWS never
+// includes Content in these metadata responses.
+func (d Document) toDocumentDescription() DocumentDescription {
+	return DocumentDescription{
+		TargetType:        d.TargetType,
+		LatestVersion:     d.LatestVersion,
+		DocumentType:      d.DocumentType,
+		DocumentFormat:    d.DocumentFormat,
+		Status:            d.Status,
+		StatusInformation: d.StatusInformation,
+		DefaultVersion:    d.DefaultVersion,
+		Name:              d.Name,
+		SchemaVersion:     d.SchemaVersion,
+		Description:       d.Description,
+		DocumentVersion:   d.DocumentVersion,
+		PlatformTypes:     d.PlatformTypes,
+		Attachments:       d.Attachments,
+		Requires:          d.Requires,
+		CreatedDate:       d.CreatedDate,
+	}
+}
+
+// resolveDocumentVersionSelector resolves the "$LATEST"/"$DEFAULT" selectors
+// to a concrete version string. An explicit "$DEFAULT" always resolves to
+// the document's DefaultVersion (set by UpdateDocumentDefaultVersion), which
+// can genuinely differ from LatestVersion — this emulator previously
+// conflated the two, always serving the latest content even when $DEFAULT
+// was explicitly requested. An omitted DocumentVersion is treated the same
+// as this emulator has always treated it (latest), since AWS's own docs
+// don't state a default and existing callers depend on that behavior.
+func resolveDocumentVersionSelector(doc Document, requested string) string {
+	switch requested {
+	case "":
+		return doc.LatestVersion
+	case "$DEFAULT":
+		return doc.DefaultVersion
+	case "$LATEST":
+		return doc.LatestVersion
+	default:
+		return requested
+	}
 }
 
 // GetDocument retrieves a document's content.
@@ -1679,40 +1815,32 @@ func (b *InMemoryBackend) GetDocument(
 	b.mu.RLock("GetDocument")
 	defer b.mu.RUnlock()
 
-	doc, exists := b.documentsStore(region)[input.Name]
+	docPtr, exists := b.documentsStore(region).Get(input.Name)
 	if !exists {
 		return nil, ErrDocumentNotFound
 	}
 
-	content := doc.Content
-	version := doc.DocumentVersion
+	doc := *docPtr
 
-	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" &&
-		input.DocumentVersion != "$DEFAULT" {
-		versions := b.documentVersionsStore(region)[input.Name]
-		found := false
-		for _, v := range versions {
-			if v.DocumentVersion == input.DocumentVersion {
-				found = true
-				version = v.DocumentVersion
-				content = v.Content
+	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
 
-				break
-			}
+	versions := b.documentVersionsStore(region)[input.Name]
+	for _, v := range versions {
+		if v.DocumentVersion != target {
+			continue
 		}
-		if !found {
-			return nil, ErrInvalidDocumentVersion
-		}
+
+		return &GetDocumentOutput{
+			Name:            doc.Name,
+			Content:         v.Content,
+			DocumentType:    doc.DocumentType,
+			DocumentFormat:  v.DocumentFormat,
+			DocumentVersion: v.DocumentVersion,
+			Status:          v.Status,
+		}, nil
 	}
 
-	return &GetDocumentOutput{
-		Name:            doc.Name,
-		Content:         content,
-		DocumentType:    doc.DocumentType,
-		DocumentFormat:  doc.DocumentFormat,
-		DocumentVersion: version,
-		Status:          doc.Status,
-	}, nil
+	return nil, ErrInvalidDocumentVersion
 }
 
 // documentMatchesFilters returns true when doc satisfies all provided DocumentFilters.
@@ -1747,12 +1875,39 @@ func (b *InMemoryBackend) DescribeDocument(
 	b.mu.RLock("DescribeDocument")
 	defer b.mu.RUnlock()
 
-	doc, exists := b.documentsStore(region)[input.Name]
+	docPtr, exists := b.documentsStore(region).Get(input.Name)
 	if !exists {
 		return nil, ErrDocumentNotFound
 	}
 
-	return &DescribeDocumentOutput{Document: doc}, nil
+	doc := *docPtr
+
+	description := doc.toDocumentDescription()
+
+	// Honor a specific/$LATEST/$DEFAULT DocumentVersion selector: the
+	// per-version fields (DocumentVersion, DocumentFormat, Status) must
+	// reflect the resolved version, not always the latest.
+	target := resolveDocumentVersionSelector(doc, input.DocumentVersion)
+	if target != doc.DocumentVersion {
+		found := false
+
+		for _, v := range b.documentVersionsStore(region)[input.Name] {
+			if v.DocumentVersion == target {
+				description.DocumentVersion = v.DocumentVersion
+				description.DocumentFormat = v.DocumentFormat
+				description.Status = v.Status
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, ErrInvalidDocumentVersion
+		}
+	}
+
+	return &DescribeDocumentOutput{Document: description}, nil
 }
 
 // ListDocuments returns a list of document identifiers filtered by key-value criteria.
@@ -1769,9 +1924,10 @@ func (b *InMemoryBackend) ListDocuments(
 	allFilters = append(allFilters, input.Filters...)
 	allFilters = append(allFilters, input.DocumentFilters...)
 
-	store := b.documentsStore(region)
-	all := make([]DocumentIdentifier, 0, len(store))
-	for _, doc := range store {
+	docsTable := b.documentsStore(region)
+	all := make([]DocumentIdentifier, 0, docsTable.Len())
+	for _, docPtr := range docsTable.All() {
+		doc := *docPtr
 		if !documentMatchesFilters(doc, allFilters) {
 			continue
 		}
@@ -1824,11 +1980,13 @@ func (b *InMemoryBackend) UpdateDocument(
 	b.mu.Lock("UpdateDocument")
 	defer b.mu.Unlock()
 
-	store := b.documentsStore(region)
-	doc, exists := store[input.Name]
+	docsTable := b.documentsStore(region)
+	docPtr, exists := docsTable.Get(input.Name)
 	if !exists {
 		return nil, ErrDocumentNotFound
 	}
+
+	doc := *docPtr
 
 	// Validate DocumentVersion if provided.
 	if input.DocumentVersion != "" {
@@ -1853,7 +2011,7 @@ func (b *InMemoryBackend) UpdateDocument(
 	doc.DocumentVersion = newVer
 	doc.LatestVersion = newVer
 	doc.DocumentFormat = format
-	store[input.Name] = doc
+	docsTable.Put(&doc)
 
 	versionStore := b.documentVersionsStore(region)
 	versionStore[input.Name] = append(versionStore[input.Name], DocumentVersion{
@@ -1871,7 +2029,7 @@ func (b *InMemoryBackend) UpdateDocument(
 		versionStore[input.Name] = vers[len(vers)-maxDocumentVersionCap:]
 	}
 
-	return &UpdateDocumentOutput{DocumentDescription: doc}, nil
+	return &UpdateDocumentOutput{DocumentDescription: doc.toDocumentDescription()}, nil
 }
 
 // DeleteDocument removes a document and all its versions and permissions.
@@ -1883,15 +2041,17 @@ func (b *InMemoryBackend) DeleteDocument(
 	b.mu.Lock("DeleteDocument")
 	defer b.mu.Unlock()
 
-	if _, exists := b.documentsStore(region)[input.Name]; !exists {
+	if !b.documentsStore(region).Has(input.Name) {
 		return nil, ErrDocumentNotFound
 	}
 
-	delete(b.documentsStore(region), input.Name)
+	b.documentsStore(region).Delete(input.Name)
 	delete(b.documentVersionsStore(region), input.Name)
 	delete(b.documentPermissionsStore(region), input.Name)
 
-	cleanupEmptyInnerMap(b.documents, region)
+	// b.documents itself is not pruned here — see the comment on
+	// cleanupEmptyParamRegion above for why a Table-backed region entry must
+	// never be removed from its outer map once registered.
 	cleanupEmptyInnerMap(b.documentVersions, region)
 	cleanupEmptyInnerMap(b.documentPermissions, region)
 
@@ -1907,7 +2067,7 @@ func (b *InMemoryBackend) DescribeDocumentPermission(
 	b.mu.RLock("DescribeDocumentPermission")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.documentsStore(region)[input.Name]; !exists {
+	if !b.documentsStore(region).Has(input.Name) {
 		return nil, ErrDocumentNotFound
 	}
 
@@ -1931,15 +2091,15 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 	b.mu.Lock("ModifyDocumentPermission")
 	defer b.mu.Unlock()
 
-	if _, exists := b.documentsStore(region)[input.Name]; !exists {
+	if !b.documentsStore(region).Has(input.Name) {
 		return nil, ErrDocumentNotFound
 	}
 
 	if b.documentPermissions[region] == nil {
 		b.documentPermissions[region] = make(map[string][]string)
 	}
-	store := b.documentPermissionsStore(region)
-	current := store[input.Name]
+	permStore := b.documentPermissionsStore(region)
+	current := permStore[input.Name]
 
 	for _, id := range input.AccountIDsToAdd {
 		if !slices.Contains(current, id) {
@@ -1951,7 +2111,7 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 		current = slices.DeleteFunc(current, func(v string) bool { return v == id })
 	}
 
-	store[input.Name] = current
+	permStore[input.Name] = current
 
 	return &ModifyDocumentPermissionOutput{}, nil
 }
@@ -1965,7 +2125,7 @@ func (b *InMemoryBackend) ListDocumentVersions(
 	b.mu.RLock("ListDocumentVersions")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.documentsStore(region)[input.Name]; !exists {
+	if !b.documentsStore(region).Has(input.Name) {
 		return nil, ErrDocumentNotFound
 	}
 
@@ -2012,7 +2172,7 @@ func (b *InMemoryBackend) SendCommand(
 	// documents that exist account-wide without needing to be created first;
 	// only it (of the ones this emulator can act on) is recognised implicitly
 	// here rather than requiring pre-registration like customer documents.
-	_, exists := b.documentsStore(region)[input.DocumentName]
+	exists := b.documentsStore(region).Has(input.DocumentName)
 	if !exists && input.DocumentName != docRunPatchBaseline {
 		return nil, ErrDocumentNotFound
 	}
@@ -2044,10 +2204,7 @@ func (b *InMemoryBackend) SendCommand(
 		OutputS3Region:     input.OutputS3Region,
 	}
 
-	if b.commands[region] == nil {
-		b.commands[region] = make(map[string]Command)
-	}
-	b.commandsStore(region)[cmdID] = cmd
+	b.commandsStore(region).Put(&cmd)
 
 	stdout, stderr, finalStatus := renderCommandOutput(input.DocumentName, input.Parameters)
 
@@ -2087,13 +2244,15 @@ func (b *InMemoryBackend) SendCommand(
 	if b.commandExecDelaySecs <= 0 {
 		b.completeCommand(region, cmdID)
 	} else {
-		pending := b.commandsStore(region)[cmdID]
+		pendingPtr, _ := b.commandsStore(region).Get(cmdID)
+		pending := *pendingPtr
 		pending.completeAfter = now + b.commandExecDelaySecs
-		b.commandsStore(region)[cmdID] = pending
+		b.commandsStore(region).Put(&pending)
 	}
 
 	// Return a snapshot of the current state.
-	finalCmd := b.commandsStore(region)[cmdID]
+	finalCmdPtr, _ := b.commandsStore(region).Get(cmdID)
+	finalCmd := *finalCmdPtr
 
 	return &SendCommandOutput{Command: finalCmd}, nil
 }
@@ -2101,16 +2260,17 @@ func (b *InMemoryBackend) SendCommand(
 // setCommandStatus mutates the command and all its invocations to the given
 // non-terminal status. Must be called with b.mu held for writing.
 func (b *InMemoryBackend) setCommandStatus(region, cmdID, status string) {
-	store := b.commandsStore(region)
+	cmdTable := b.commandsStore(region)
 
-	cmd, ok := store[cmdID]
+	cmdPtr, ok := cmdTable.Get(cmdID)
 	if !ok {
 		return
 	}
 
+	cmd := *cmdPtr
 	cmd.Status = status
 	cmd.StatusDetails = status
-	store[cmdID] = cmd
+	cmdTable.Put(&cmd)
 
 	invStore := b.commandInvocationsStore(region)
 	invs := invStore[cmdID]
@@ -2128,12 +2288,14 @@ func (b *InMemoryBackend) setCommandStatus(region, cmdID, status string) {
 // worst per-invocation status (Failed dominates Success). Must be called with
 // b.mu held for writing.
 func (b *InMemoryBackend) completeCommand(region, cmdID string) {
-	store := b.commandsStore(region)
+	cmdTable := b.commandsStore(region)
 
-	cmd, ok := store[cmdID]
+	cmdPtr, ok := cmdTable.Get(cmdID)
 	if !ok {
 		return
 	}
+
+	cmd := *cmdPtr
 
 	invStore := b.commandInvocationsStore(region)
 	invs := invStore[cmdID]
@@ -2161,18 +2323,18 @@ func (b *InMemoryBackend) completeCommand(region, cmdID string) {
 	cmd.Status = overall
 	cmd.StatusDetails = overall
 	cmd.completeAfter = 0
-	store[cmdID] = cmd
+	cmdTable.Put(&cmd)
 }
 
 // materializeCommandLocked lazily completes an InProgress command whose exec
 // delay has elapsed. Must be called with b.mu held for writing.
 func (b *InMemoryBackend) materializeCommandLocked(region, cmdID string, nowUnix float64) {
-	cmd, ok := b.commandsStore(region)[cmdID]
-	if !ok || cmd.Status != commandStatusInProgress {
+	cmdPtr, ok := b.commandsStore(region).Get(cmdID)
+	if !ok || cmdPtr.Status != commandStatusInProgress {
 		return
 	}
 
-	if cmd.completeAfter == 0 || nowUnix >= cmd.completeAfter {
+	if cmdPtr.completeAfter == 0 || nowUnix >= cmdPtr.completeAfter {
 		b.completeCommand(region, cmdID)
 	}
 }
@@ -2180,8 +2342,8 @@ func (b *InMemoryBackend) materializeCommandLocked(region, cmdID string, nowUnix
 // materializeCommandsLocked lazily completes every eligible InProgress command
 // in the region. Must be called with b.mu held for writing.
 func (b *InMemoryBackend) materializeCommandsLocked(region string, nowUnix float64) {
-	for cmdID := range b.commandsStore(region) {
-		b.materializeCommandLocked(region, cmdID, nowUnix)
+	for _, cmdPtr := range b.commandsStore(region).All() {
+		b.materializeCommandLocked(region, cmdPtr.CommandID, nowUnix)
 	}
 }
 
@@ -2196,13 +2358,13 @@ func (b *InMemoryBackend) ListCommands(
 
 	b.materializeCommandsLocked(region, UnixTimeFloat(timeNow()))
 
-	store := b.commandsStore(region)
-	all := make([]Command, 0, len(store))
-	for _, cmd := range store {
-		if input.CommandID != "" && cmd.CommandID != input.CommandID {
+	cmdTable := b.commandsStore(region)
+	all := make([]Command, 0, cmdTable.Len())
+	for _, cmdPtr := range cmdTable.All() {
+		if input.CommandID != "" && cmdPtr.CommandID != input.CommandID {
 			continue
 		}
-		all = append(all, cmd)
+		all = append(all, *cmdPtr)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].CommandID < all[j].CommandID })
@@ -2243,7 +2405,7 @@ func (b *InMemoryBackend) GetCommandInvocation(
 	b.mu.Lock("GetCommandInvocation")
 	defer b.mu.Unlock()
 
-	if _, exists := b.commandsStore(region)[input.CommandID]; !exists {
+	if !b.commandsStore(region).Has(input.CommandID) {
 		return nil, ErrCommandNotFound
 	}
 
@@ -2340,39 +2502,65 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
-	b.parameters = make(map[string]map[string]Parameter)
+	// b.registry is rebuilt from scratch (rather than registry.ResetAll'd)
+	// because Reset also reallocates every *store.Table[V] field below to a
+	// brand-new map[string]*store.Table[V] -- the old *store.Table[V]
+	// pointers (and their registry registrations under "<name>/<region>")
+	// are discarded entirely, so a stale registry would panic on
+	// re-registration the next time a region is touched (store.Register
+	// panics on a duplicate name; see store_setup.go's getOrCreateTable).
+	b.registry = store.NewRegistry()
+
+	b.parameters = make(map[string]*store.Table[Parameter])
 	b.history = make(map[string]map[string][]ParameterHistory)
 	b.tags = make(map[string]map[string]*tags.Tags)
-	b.documents = make(map[string]map[string]Document)
+	b.documents = make(map[string]*store.Table[Document])
 	b.documentVersions = make(map[string]map[string][]DocumentVersion)
 	b.documentPermissions = make(map[string]map[string][]string)
-	b.commands = make(map[string]map[string]Command)
+	b.commands = make(map[string]*store.Table[Command])
 	b.commandInvocations = make(map[string]map[string][]CommandInvocation)
-	b.activations = make(map[string]map[string]Activation)
-	b.associations = make(map[string]map[string]Association)
-	b.maintenanceWindows = make(map[string]map[string]MaintenanceWindow)
-	b.maintenanceWindowTargets = make(map[string]map[string]MaintenanceWindowTarget)
-	b.maintenanceWindowTasks = make(map[string]map[string]MaintenanceWindowTask)
-	b.sessions = make(map[string]map[string]Session)
+	b.activations = make(map[string]*store.Table[Activation])
+	b.associations = make(map[string]*store.Table[Association])
+	b.maintenanceWindows = make(map[string]*store.Table[MaintenanceWindow])
+	b.maintenanceWindowTargets = make(map[string]*store.Table[MaintenanceWindowTarget])
+	b.maintenanceWindowTasks = make(map[string]*store.Table[MaintenanceWindowTask])
+	b.sessions = make(map[string]*store.Table[Session])
 	b.patchGroupToBaseline = make(map[string]map[string]string)
-	b.opsItems = make(map[string]map[string]OpsItem)
+	b.opsItems = make(map[string]*store.Table[OpsItem])
 	b.opsItemRelatedItems = make(map[string]map[string][]OpsItemRelatedItem)
-	b.opsMetadata = make(map[string]map[string]OpsMetadata)
-	b.patchBaselines = make(map[string]map[string]PatchBaseline)
+	b.opsMetadata = make(map[string]*store.Table[OpsMetadata])
+	b.patchBaselines = make(map[string]*store.Table[PatchBaseline])
 	b.resourceIDToOpsMetadataArn = make(map[string]map[string]string)
 	b.miscResourceTags = make(map[string]map[string]map[string]string)
-	b.resourceDataSyncs = make(map[string]map[string]*ResourceDataSync)
+	b.resourceDataSyncs = make(map[string]*store.Table[ResourceDataSync])
 	b.parameterLabels = make(map[string]map[string]map[int64][]string)
-	b.automationExecutions = make(map[string]map[string]*AutomationExecution)
-	b.serviceSettings = make(map[string]map[string]*ServiceSetting)
+	b.automationExecutions = make(map[string]*store.Table[AutomationExecution])
+	b.serviceSettings = make(map[string]*store.Table[ServiceSetting])
 	b.resourcePolicies = make(map[string]map[string][]*ResourcePolicy)
-	b.executionPreviews = make(map[string]map[string]*ExecutionPreview)
+	b.executionPreviews = make(map[string]*store.Table[ExecutionPreview])
 	b.inventory = make(map[string]map[string][]InventoryItem)
 	b.compliance = make(map[string]map[string][]ComplianceItem)
 	b.associationExecutions = make(map[string]map[string][]AssociationExecution)
 	b.associationExecTargets = make(map[string]map[string][]AssociationExecutionTarget)
 	b.inventoryDeletions = make(map[string][]InventoryDeletion)
 	b.opsItemEvents = nil
+
+	// instancePatchStates/instanceProperties are deliberately NOT reallocated
+	// above -- Reset() never cleared them even before this conversion (a
+	// pre-existing gap in Reset's coverage, left as-is to avoid changing
+	// behavior). Since b.registry was just replaced with an empty one, their
+	// existing *store.Table[V] values (untouched, from before Reset) must be
+	// re-registered onto it under their original names, or a later access to
+	// an already-touched region would try to register that name a second
+	// time and panic (store.Register panics on a duplicate name).
+	for region, t := range b.instancePatchStates {
+		store.Register(b.registry, "instancePatchStates/"+region, t)
+	}
+
+	for region, t := range b.instanceProperties {
+		store.Register(b.registry, "instanceProperties/"+region, t)
+	}
+
 	b.registerDefaultDocuments(defaultRegion)
 }
 
@@ -2446,14 +2634,15 @@ func (b *InMemoryBackend) CancelCommand(
 	b.mu.Lock("CancelCommand")
 	defer b.mu.Unlock()
 
-	store := b.commandsStore(region)
-	cmd, exists := store[input.CommandID]
+	cmdTable := b.commandsStore(region)
+	cmdPtr, exists := cmdTable.Get(input.CommandID)
 	if !exists {
 		return nil, ErrCommandNotFound
 	}
 
+	cmd := *cmdPtr
 	cmd.Status = commandStatusCancelled
-	store[input.CommandID] = cmd
+	cmdTable.Put(&cmd)
 
 	invStore := b.commandInvocationsStore(region)
 	invs := invStore[input.CommandID]
@@ -2516,10 +2705,7 @@ func (b *InMemoryBackend) CreateActivation(
 		CreatedDate:         now,
 	}
 
-	if b.activations[region] == nil {
-		b.activations[region] = make(map[string]Activation)
-	}
-	b.activationsStore(region)[activationID] = act
+	b.activationsStore(region).Put(&act)
 
 	if len(input.Tags) > 0 {
 		if b.miscResourceTags[region] == nil {
@@ -2582,7 +2768,7 @@ func (b *InMemoryBackend) CreateAssociation(
 	b.mu.Lock("CreateAssociation")
 	defer b.mu.Unlock()
 
-	if _, exists := b.documentsStore(region)[input.Name]; !exists {
+	if !b.documentsStore(region).Has(input.Name) {
 		return nil, ErrDocumentNotFound
 	}
 
@@ -2601,10 +2787,7 @@ func (b *InMemoryBackend) CreateAssociation(
 		LastUpdateAssociationDate: now,
 	}
 
-	if b.associations[region] == nil {
-		b.associations[region] = make(map[string]Association)
-	}
-	b.associationsStore(region)[assocID] = assoc
+	b.associationsStore(region).Put(&assoc)
 	b.recordAssociationExecutionLocked(region, assoc)
 
 	return &CreateAssociationOutput{AssociationDescription: assoc}, nil
@@ -2626,13 +2809,10 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 
 	now := UnixTimeFloat(time.Now())
 	docs := b.documentsStore(region)
-	if b.associations[region] == nil {
-		b.associations[region] = make(map[string]Association)
-	}
 	assocs := b.associationsStore(region)
 
 	for _, entry := range input.Entries {
-		if _, exists := docs[entry.Name]; !exists {
+		if !docs.Has(entry.Name) {
 			output.Failed = append(output.Failed, FailedCreateAssociation{
 				Entry:   entry,
 				Message: ErrDocumentNotFound.Error(),
@@ -2655,7 +2835,7 @@ func (b *InMemoryBackend) CreateAssociationBatch(
 			LastUpdateAssociationDate: now,
 		}
 
-		assocs[assocID] = assoc
+		assocs.Put(&assoc)
 		b.recordAssociationExecutionLocked(region, assoc)
 		output.Successful = append(output.Successful, assoc)
 	}
@@ -2706,10 +2886,7 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 		ModifiedDate:             now,
 	}
 
-	if b.maintenanceWindows[region] == nil {
-		b.maintenanceWindows[region] = make(map[string]MaintenanceWindow)
-	}
-	b.maintenanceWindowsStore(region)[windowID] = mw
+	b.maintenanceWindowsStore(region).Put(&mw)
 
 	if len(input.Tags) > 0 {
 		if b.miscResourceTags[region] == nil {
@@ -2763,10 +2940,7 @@ func (b *InMemoryBackend) CreateOpsItem(
 		LastModifiedTime: now,
 	}
 
-	if b.opsItems[region] == nil {
-		b.opsItems[region] = make(map[string]OpsItem)
-	}
-	b.opsItemsStore(region)[opsItemID] = item
+	b.opsItemsStore(region).Put(&item)
 
 	b.opsItemEvents[region] = append(b.opsItemEvents[region], OpsItemEventSummary{
 		OpsItemID: opsItemID,
@@ -2801,7 +2975,7 @@ func (b *InMemoryBackend) AssociateOpsItemRelatedItem(
 	b.mu.Lock("AssociateOpsItemRelatedItem")
 	defer b.mu.Unlock()
 
-	if _, exists := b.opsItemsStore(region)[input.OpsItemID]; !exists {
+	if !b.opsItemsStore(region).Has(input.OpsItemID) {
 		return nil, ErrOpsItemNotFound
 	}
 
@@ -2859,10 +3033,7 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 		LastModifiedDate: now,
 	}
 
-	if b.opsMetadata[region] == nil {
-		b.opsMetadata[region] = make(map[string]OpsMetadata)
-	}
-	b.opsMetadataStore(region)[arn] = meta
+	b.opsMetadataStore(region).Put(&meta)
 	resToArn[input.ResourceID] = arn
 
 	return &CreateOpsMetadataOutput{OpsMetadataArn: arn}, nil
@@ -2902,10 +3073,7 @@ func (b *InMemoryBackend) CreatePatchBaseline(
 		ModifiedDate:                   now,
 	}
 
-	if b.patchBaselines[region] == nil {
-		b.patchBaselines[region] = make(map[string]PatchBaseline)
-	}
-	b.patchBaselinesStore(region)[baselineID] = bl
+	b.patchBaselinesStore(region).Put(&bl)
 
 	if len(input.Tags) > 0 {
 		if b.miscResourceTags[region] == nil {

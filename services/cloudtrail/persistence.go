@@ -2,22 +2,39 @@ package cloudtrail
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// cloudtrailSnapshotVersion identifies the shape of [backendSnapshot]. It
+// must be bumped whenever a change to backendSnapshot (or a value type held
+// by one of the registered tables) would make an older snapshot unsafe to
+// decode as the current shape. Restore compares this against the persisted
+// value and discards (ResetAll, not a partial decode) any mismatch -- see
+// Restore. The pre-Phase-3.3 snapshot format had no version field at all, so
+// an old snapshot decodes with Version == 0, which is guaranteed to mismatch
+// cloudtrailSnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const cloudtrailSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the CloudTrail backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// b.registry.SnapshotAll() -- every store.Table-backed resource field is a
+// "clean" table (see store_setup.go's file doc comment), so no ephemeral DTO
+// registry is needed here. Events is the one field left un-converted (it is
+// an append-only []Event log, not a map[string]*T). Version guards against
+// decoding a snapshot from an incompatible (older or newer) build of this
+// backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	TrailsByARN      map[string]string          `json:"trailsByArn"`
-	Channels         map[string]*Channel        `json:"channels,omitempty"`
-	Dashboards       map[string]*Dashboard      `json:"dashboards,omitempty"`
-	EventDataStores  map[string]*EventDataStore `json:"eventDataStores,omitempty"`
-	Queries          map[string]*Query          `json:"queries,omitempty"`
-	ResourcePolicies map[string]*ResourcePolicy `json:"resourcePolicies,omitempty"`
-	Imports          map[string]*Import         `json:"imports,omitempty"`
-	Trails           map[string]*Trail          `json:"trails"`
-	Region           string                     `json:"region"`
+	Tables           map[string]json.RawMessage `json:"tables"`
 	AccountID        string                     `json:"accountID"`
+	Region           string                     `json:"region"`
 	Events           []Event                    `json:"events,omitempty"`
+	Version          int                        `json:"version"`
 	ChannelCounter   int                        `json:"channelCounter"`
 	DashboardCounter int                        `json:"dashboardCounter"`
 	EDSCounter       int                        `json:"edsCounter"`
@@ -31,16 +48,25 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are all plain JSON-friendly structs, so a
+		// marshal failure here would indicate a programming error rather
+		// than bad input data. Log and skip the snapshot rather than panic,
+		// matching the persistence.Persistable contract (nil is skipped by
+		// the Manager).
+		logger.Load(ctx).WarnContext(ctx, "cloudtrail: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
+	events := make([]Event, len(b.events))
+	copy(events, b.events)
+
 	snap := backendSnapshot{
-		Trails:           b.trails,
-		TrailsByARN:      b.trailsByARN,
-		Channels:         b.channels,
-		Dashboards:       b.dashboards,
-		EventDataStores:  b.eventDataStores,
-		Queries:          b.queries,
-		ResourcePolicies: b.resourcePolicies,
-		Imports:          b.imports,
-		Events:           b.events,
+		Version:          cloudtrailSnapshotVersion,
+		Tables:           tables,
+		Events:           events,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		ChannelCounter:   b.channelCounter,
@@ -50,7 +76,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ImportCounter:    b.importCounter,
 	}
 
-	return persistence.MarshalSnapshot(ctx, "cloudtrail", snap)
+	return persistence.MarshalSnapshot(ctx, "cloudtrail", &snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -65,16 +91,34 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	ensureSnapMaps(&snap)
+	if snap.Version != cloudtrailSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"cloudtrail: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", cloudtrailSnapshotVersion)
 
-	b.trails = snap.Trails
-	b.trailsByARN = snap.TrailsByARN
-	b.channels = snap.Channels
-	b.dashboards = snap.Dashboards
-	b.eventDataStores = snap.EventDataStores
-	b.queries = snap.Queries
-	b.resourcePolicies = snap.ResourcePolicies
-	b.imports = snap.Imports
+		b.registry.ResetAll()
+		b.events = nil
+		b.accountID = snap.AccountID
+		b.region = snap.Region
+		b.channelCounter = 0
+		b.dashboardCounter = 0
+		b.edsCounter = 0
+		b.queryCounter = 0
+		b.importCounter = 0
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("cloudtrail: restore snapshot tables: %w", err)
+	}
+
 	b.events = snap.Events
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -84,54 +128,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.queryCounter = snap.QueryCounter
 	b.importCounter = snap.ImportCounter
 
-	// Rebuild secondary indexes from restored state.
-	b.channelsByARN = make(map[string]string, len(b.channels))
-	b.channelsByName = make(map[string]string, len(b.channels))
-	for id, ch := range b.channels {
-		b.channelsByARN[ch.ChannelARN] = id
-		b.channelsByName[ch.Name] = id
-	}
-	b.dashboardsByARN = make(map[string]string, len(b.dashboards))
-	b.dashboardsByName = make(map[string]string, len(b.dashboards))
-	for id, d := range b.dashboards {
-		b.dashboardsByARN[d.DashboardARN] = id
-		b.dashboardsByName[d.Name] = id
-	}
-	b.edsByARN = make(map[string]string, len(b.eventDataStores))
-	b.edsByName = make(map[string]string, len(b.eventDataStores))
-	for id, eds := range b.eventDataStores {
-		b.edsByARN[eds.EventDataStoreARN] = id
-		b.edsByName[eds.Name] = id
-	}
-
 	return nil
-}
-
-func ensureSnapMaps(snap *backendSnapshot) {
-	if snap.Trails == nil {
-		snap.Trails = make(map[string]*Trail)
-	}
-	if snap.TrailsByARN == nil {
-		snap.TrailsByARN = make(map[string]string)
-	}
-	if snap.Channels == nil {
-		snap.Channels = make(map[string]*Channel)
-	}
-	if snap.Dashboards == nil {
-		snap.Dashboards = make(map[string]*Dashboard)
-	}
-	if snap.EventDataStores == nil {
-		snap.EventDataStores = make(map[string]*EventDataStore)
-	}
-	if snap.Queries == nil {
-		snap.Queries = make(map[string]*Query)
-	}
-	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]*ResourcePolicy)
-	}
-	if snap.Imports == nil {
-		snap.Imports = make(map[string]*Import)
-	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

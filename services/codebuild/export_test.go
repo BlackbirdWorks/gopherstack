@@ -14,7 +14,7 @@ func (b *InMemoryBackend) BuildCount() int {
 	b.mu.RLock("BuildCount")
 	defer b.mu.RUnlock()
 
-	return len(b.builds)
+	return b.builds.Len()
 }
 
 // BuildARNIndexSize returns the number of entries in the build ARN index.
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) BuildARNIndexSize() int {
 	b.mu.RLock("BuildARNIndexSize")
 	defer b.mu.RUnlock()
 
-	return len(b.buildARNIndex)
+	return b.buildsByARN.Len()
 }
 
 // BuildsByProjectSize returns the number of build IDs tracked for projectName.
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) BuildsByProjectSize(projectName string) int {
 	b.mu.RLock("BuildsByProjectSize")
 	defer b.mu.RUnlock()
 
-	return len(b.buildsByProject[projectName])
+	return len(b.buildsByProject.Get(projectName))
 }
 
 // SetBuildEndTime overrides the EndTime and BuildStatus of a build.
@@ -42,7 +42,7 @@ func (b *InMemoryBackend) SetBuildEndTime(id string, status string, endTime time
 	b.mu.Lock("SetBuildEndTime")
 	defer b.mu.Unlock()
 
-	if build, ok := b.builds[id]; ok {
+	if build, ok := b.builds.Get(id); ok {
 		build.BuildStatus = status
 		build.CurrentPhase = "COMPLETED"
 
@@ -52,6 +52,15 @@ func (b *InMemoryBackend) SetBuildEndTime(id string, status string, endTime time
 			build.EndTime = float64(endTime.Unix())
 		}
 	}
+}
+
+// ProjectCount returns the number of projects stored in the backend.
+// Used only in tests.
+func (b *InMemoryBackend) ProjectCount() int {
+	b.mu.RLock("ProjectCount")
+	defer b.mu.RUnlock()
+
+	return b.projects.Len()
 }
 
 // GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.

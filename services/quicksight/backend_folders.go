@@ -223,7 +223,7 @@ func (b *InMemoryBackend) CreateFolder(
 	defer b.mu.Unlock()
 
 	key := folderKey(accountID, folderID)
-	if _, exists := b.folders[key]; exists {
+	if b.folders.Has(key) {
 		return nil, ErrFolderAlreadyExists
 	}
 
@@ -238,7 +238,7 @@ func (b *InMemoryBackend) CreateFolder(
 		ParentFolderArn: parentFolderArn,
 		Permissions:     clonePermissions(permissions),
 	}
-	b.folders[key] = f
+	b.folders.Put(f)
 
 	if len(tags) > 0 {
 		b.tags[f.Arn] = maps.Clone(tags)
@@ -251,7 +251,7 @@ func (b *InMemoryBackend) DescribeFolder(accountID, folderID string) (*Folder, e
 	b.mu.RLock("DescribeFolder")
 	defer b.mu.RUnlock()
 
-	f, ok := b.folders[folderKey(accountID, folderID)]
+	f, ok := b.folders.Get(folderKey(accountID, folderID))
 	if !ok {
 		return nil, ErrFolderNotFound
 	}
@@ -264,7 +264,7 @@ func (b *InMemoryBackend) UpdateFolder(accountID, folderID, name string) (*Folde
 	defer b.mu.Unlock()
 
 	key := folderKey(accountID, folderID)
-	f, ok := b.folders[key]
+	f, ok := b.folders.Get(key)
 	if !ok {
 		return nil, ErrFolderNotFound
 	}
@@ -282,32 +282,25 @@ func (b *InMemoryBackend) DeleteFolder(accountID, folderID string) error {
 	defer b.mu.Unlock()
 
 	key := folderKey(accountID, folderID)
-	f, ok := b.folders[key]
+	f, ok := b.folders.Get(key)
 	if !ok {
 		return ErrFolderNotFound
 	}
 
 	delete(b.tags, f.Arn)
-	delete(b.folders, key)
+	b.folders.Delete(key)
 
-	memberPrefix := accountID + "/" + folderID + "/"
-	for k := range b.folderMembers {
-		if strings.HasPrefix(k, memberPrefix) {
-			delete(b.folderMembers, k)
+	for _, m := range b.folderMembers.All() {
+		if m.FolderID == folderID {
+			b.folderMembers.Delete(folderMemberKey(accountID, folderID, m.MemberType, m.MemberID))
 		}
 	}
 
 	return nil
 }
 
-func (b *InMemoryBackend) allFoldersLocked(accountID string) []*storedFolder {
-	prefix := accountID + "/"
-	all := make([]*storedFolder, 0, len(b.folders))
-	for k, f := range b.folders {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, f)
-		}
-	}
+func (b *InMemoryBackend) allFoldersLocked(_ string) []*storedFolder {
+	all := b.folders.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].FolderID < all[j].FolderID })
 
 	return all
@@ -417,7 +410,7 @@ func (b *InMemoryBackend) CreateFolderMembership(
 	b.mu.Lock("CreateFolderMembership")
 	defer b.mu.Unlock()
 
-	if _, ok := b.folders[folderKey(accountID, folderID)]; !ok {
+	if !b.folders.Has(folderKey(accountID, folderID)) {
 		return nil, ErrFolderNotFound
 	}
 
@@ -426,7 +419,7 @@ func (b *InMemoryBackend) CreateFolderMembership(
 		MemberID:   memberID,
 		MemberType: memberType,
 	}
-	b.folderMembers[folderMemberKey(accountID, folderID, memberType, memberID)] = m
+	b.folderMembers.Put(m)
 
 	return m.toFolderMember(), nil
 }
@@ -436,11 +429,9 @@ func (b *InMemoryBackend) DeleteFolderMembership(accountID, folderID, memberID, 
 	defer b.mu.Unlock()
 
 	key := folderMemberKey(accountID, folderID, memberType, memberID)
-	if _, ok := b.folderMembers[key]; !ok {
+	if !b.folderMembers.Delete(key) {
 		return ErrFolderMemberNotFound
 	}
-
-	delete(b.folderMembers, key)
 
 	return nil
 }
@@ -453,14 +444,13 @@ func (b *InMemoryBackend) ListFolderMembers(
 	b.mu.RLock("ListFolderMembers")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.folders[folderKey(accountID, folderID)]; !ok {
+	if !b.folders.Has(folderKey(accountID, folderID)) {
 		return nil, "", ErrFolderNotFound
 	}
 
-	prefix := accountID + "/" + folderID + "/"
 	var all []*storedFolderMember
-	for k, m := range b.folderMembers {
-		if strings.HasPrefix(k, prefix) {
+	for _, m := range b.folderMembers.All() {
+		if m.FolderID == folderID {
 			all = append(all, m)
 		}
 	}
@@ -509,7 +499,7 @@ func (b *InMemoryBackend) DescribeFolderPermissions(accountID, folderID string) 
 	b.mu.RLock("DescribeFolderPermissions")
 	defer b.mu.RUnlock()
 
-	f, ok := b.folders[folderKey(accountID, folderID)]
+	f, ok := b.folders.Get(folderKey(accountID, folderID))
 	if !ok {
 		return nil, ErrFolderNotFound
 	}
@@ -524,7 +514,7 @@ func (b *InMemoryBackend) UpdateFolderPermissions(
 	b.mu.Lock("UpdateFolderPermissions")
 	defer b.mu.Unlock()
 
-	f, ok := b.folders[folderKey(accountID, folderID)]
+	f, ok := b.folders.Get(folderKey(accountID, folderID))
 	if !ok {
 		return nil, ErrFolderNotFound
 	}
@@ -541,7 +531,7 @@ func (b *InMemoryBackend) DescribeFolderResolvedPermissions(
 	b.mu.RLock("DescribeFolderResolvedPermissions")
 	defer b.mu.RUnlock()
 
-	f, ok := b.folders[folderKey(accountID, folderID)]
+	f, ok := b.folders.Get(folderKey(accountID, folderID))
 	if !ok {
 		return nil, ErrFolderNotFound
 	}
@@ -557,7 +547,7 @@ func (b *InMemoryBackend) DescribeFolderResolvedPermissions(
 		}
 		visited[parentID] = true
 
-		parent, foundParent := b.folders[folderKey(accountID, parentID)]
+		parent, foundParent := b.folders.Get(folderKey(accountID, parentID))
 		if !foundParent {
 			break
 		}
@@ -621,9 +611,8 @@ func (b *InMemoryBackend) ListFoldersForResource(
 	}
 
 	var folderIDs []string
-	prefix := accountID + "/"
-	for k, m := range b.folderMembers {
-		if strings.HasPrefix(k, prefix) && m.MemberType == memberType && m.MemberID == memberID {
+	for _, m := range b.folderMembers.All() {
+		if m.MemberType == memberType && m.MemberID == memberID {
 			folderIDs = append(folderIDs, m.FolderID)
 		}
 	}
@@ -654,7 +643,7 @@ func (b *InMemoryBackend) ListFoldersForResource(
 
 	result := make([]string, 0, end-start)
 	for _, id := range folderIDs[start:end] {
-		if f, exists := b.folders[folderKey(accountID, id)]; exists {
+		if f, exists := b.folders.Get(folderKey(accountID, id)); exists {
 			result = append(result, f.Arn)
 		}
 	}

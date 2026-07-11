@@ -25,7 +25,7 @@ func (b *InMemoryBackend) CreateSAMLProvider(name, samlMetadataDocument string) 
 		return nil, err
 	}
 
-	if _, exists := b.samlProviders[providerArn]; exists {
+	if _, exists := b.samlProviders.Get(providerArn); exists {
 		return nil, fmt.Errorf("%w: SAML provider %q already exists", ErrSAMLProviderAlreadyExists, name)
 	}
 
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateSAMLProvider(name, samlMetadataDocument string) 
 		SAMLMetadataDocument: samlMetadataDocument,
 		CreateDate:           time.Now().UTC(),
 	}
-	b.samlProviders[providerArn] = p
+	b.samlProviders.Put(&p)
 
 	return &p, nil
 }
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) UpdateSAMLProvider(providerArn, samlMetadataDocument s
 	b.mu.Lock("UpdateSAMLProvider")
 	defer b.mu.Unlock()
 
-	p, exists := b.samlProviders[providerArn]
+	p, exists := b.samlProviders.Get(providerArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: SAML provider %q not found", ErrSAMLProviderNotFound, providerArn)
 	}
@@ -54,9 +54,9 @@ func (b *InMemoryBackend) UpdateSAMLProvider(providerArn, samlMetadataDocument s
 	}
 
 	p.SAMLMetadataDocument = samlMetadataDocument
-	b.samlProviders[providerArn] = p
+	b.samlProviders.Put(p)
 
-	return &p, nil
+	return p, nil
 }
 
 // DeleteSAMLProvider removes a SAML provider by ARN.
@@ -64,11 +64,11 @@ func (b *InMemoryBackend) DeleteSAMLProvider(providerArn string) error {
 	b.mu.Lock("DeleteSAMLProvider")
 	defer b.mu.Unlock()
 
-	if _, exists := b.samlProviders[providerArn]; !exists {
+	if _, exists := b.samlProviders.Get(providerArn); !exists {
 		return fmt.Errorf("%w: SAML provider %q not found", ErrSAMLProviderNotFound, providerArn)
 	}
 
-	delete(b.samlProviders, providerArn)
+	b.samlProviders.Delete(providerArn)
 
 	return nil
 }
@@ -78,12 +78,12 @@ func (b *InMemoryBackend) GetSAMLProvider(providerArn string) (*SAMLProvider, er
 	b.mu.RLock("GetSAMLProvider")
 	defer b.mu.RUnlock()
 
-	p, exists := b.samlProviders[providerArn]
+	p, exists := b.samlProviders.Get(providerArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: SAML provider %q not found", ErrSAMLProviderNotFound, providerArn)
 	}
 
-	return &p, nil
+	return p, nil
 }
 
 // ListSAMLProviders returns all SAML providers sorted by ARN.
@@ -91,9 +91,9 @@ func (b *InMemoryBackend) ListSAMLProviders() ([]SAMLProvider, error) {
 	b.mu.RLock("ListSAMLProviders")
 	defer b.mu.RUnlock()
 
-	result := make([]SAMLProvider, 0, len(b.samlProviders))
-	for _, p := range b.samlProviders {
-		result = append(result, p)
+	result := make([]SAMLProvider, 0, b.samlProviders.Len())
+	for _, p := range b.samlProviders.All() {
+		result = append(result, *p)
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].Arn < result[j].Arn })
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) CreateOpenIDConnectProvider(
 		return nil, vErr
 	}
 
-	if _, exists := b.oidcProviders[providerArn]; exists {
+	if _, exists := b.oidcProviders.Get(providerArn); exists {
 		return nil, fmt.Errorf("%w: OIDC provider for URL %q already exists", ErrOIDCProviderAlreadyExists, rawURL)
 	}
 
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) CreateOpenIDConnectProvider(
 		ThumbprintList: append([]string(nil), thumbprints...),
 		CreateDate:     time.Now().UTC(),
 	}
-	b.oidcProviders[providerArn] = p
+	b.oidcProviders.Put(&p)
 
 	return &p, nil
 }
@@ -168,7 +168,7 @@ func (b *InMemoryBackend) UpdateOpenIDConnectProviderThumbprint(providerArn stri
 	b.mu.Lock("UpdateOpenIDConnectProviderThumbprint")
 	defer b.mu.Unlock()
 
-	p, exists := b.oidcProviders[providerArn]
+	p, exists := b.oidcProviders.Get(providerArn)
 	if !exists {
 		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
 	}
@@ -178,7 +178,7 @@ func (b *InMemoryBackend) UpdateOpenIDConnectProviderThumbprint(providerArn stri
 	}
 
 	p.ThumbprintList = append([]string(nil), thumbprints...)
-	b.oidcProviders[providerArn] = p
+	b.oidcProviders.Put(p)
 
 	return nil
 }
@@ -188,11 +188,11 @@ func (b *InMemoryBackend) DeleteOpenIDConnectProvider(providerArn string) error 
 	b.mu.Lock("DeleteOpenIDConnectProvider")
 	defer b.mu.Unlock()
 
-	if _, exists := b.oidcProviders[providerArn]; !exists {
+	if _, exists := b.oidcProviders.Get(providerArn); !exists {
 		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
 	}
 
-	delete(b.oidcProviders, providerArn)
+	b.oidcProviders.Delete(providerArn)
 
 	return nil
 }
@@ -202,12 +202,12 @@ func (b *InMemoryBackend) GetOpenIDConnectProvider(providerArn string) (*OIDCPro
 	b.mu.RLock("GetOpenIDConnectProvider")
 	defer b.mu.RUnlock()
 
-	p, exists := b.oidcProviders[providerArn]
+	p, exists := b.oidcProviders.Get(providerArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
 	}
 
-	return &p, nil
+	return p, nil
 }
 
 // ListOpenIDConnectProviders returns all OIDC providers sorted by ARN.
@@ -215,9 +215,9 @@ func (b *InMemoryBackend) ListOpenIDConnectProviders() ([]OIDCProvider, error) {
 	b.mu.RLock("ListOpenIDConnectProviders")
 	defer b.mu.RUnlock()
 
-	result := make([]OIDCProvider, 0, len(b.oidcProviders))
-	for _, p := range b.oidcProviders {
-		result = append(result, p)
+	result := make([]OIDCProvider, 0, b.oidcProviders.Len())
+	for _, p := range b.oidcProviders.All() {
+		result = append(result, *p)
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].Arn < result[j].Arn })
@@ -242,11 +242,11 @@ func (b *InMemoryBackend) CreateLoginProfile(
 	// Check resource existence before password policy so callers receive
 	// the correct entity error (NoSuchEntity / EntityAlreadyExists) even if
 	// the password also violates policy.
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	if _, exists := b.loginProfiles[userName]; exists {
+	if _, exists := b.loginProfiles.Get(userName); exists {
 		return nil, fmt.Errorf("%w: login profile for user %q already exists", ErrLoginProfileAlreadyExists, userName)
 	}
 
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) CreateLoginProfile(
 		CreateDate:            time.Now().UTC(),
 		PasswordResetRequired: passwordResetRequired,
 	}
-	b.loginProfiles[userName] = lp
+	b.loginProfiles.Put(&lp)
 
 	return &lp, nil
 }
@@ -275,7 +275,7 @@ func (b *InMemoryBackend) UpdateLoginProfile(
 		return fmt.Errorf("%w: password must not be empty", ErrInvalidPassword)
 	}
 
-	lp, exists := b.loginProfiles[userName]
+	lp, exists := b.loginProfiles.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: login profile for user %q not found", ErrLoginProfileNotFound, userName)
 	}
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) UpdateLoginProfile(
 	}
 
 	lp.PasswordResetRequired = passwordResetRequired
-	b.loginProfiles[userName] = lp
+	b.loginProfiles.Put(lp)
 
 	return nil
 }
@@ -295,11 +295,11 @@ func (b *InMemoryBackend) DeleteLoginProfile(userName string) error {
 	b.mu.Lock("DeleteLoginProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.loginProfiles[userName]; !exists {
+	if _, exists := b.loginProfiles.Get(userName); !exists {
 		return fmt.Errorf("%w: login profile for user %q not found", ErrLoginProfileNotFound, userName)
 	}
 
-	delete(b.loginProfiles, userName)
+	b.loginProfiles.Delete(userName)
 
 	return nil
 }
@@ -338,10 +338,10 @@ func (b *InMemoryBackend) GetLoginProfile(userName string) (*LoginProfile, error
 	b.mu.RLock("GetLoginProfile")
 	defer b.mu.RUnlock()
 
-	lp, exists := b.loginProfiles[userName]
+	lp, exists := b.loginProfiles.Get(userName)
 	if !exists {
 		return nil, fmt.Errorf("%w: login profile for user %q not found", ErrLoginProfileNotFound, userName)
 	}
 
-	return &lp, nil
+	return lp, nil
 }

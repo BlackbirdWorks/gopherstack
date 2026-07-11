@@ -2,7 +2,6 @@ package quicksight
 
 import (
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -56,7 +55,7 @@ func flowKey(accountID, flowID string) string {
 
 // seedFlow inserts f directly into backend state. Exported for tests only
 // (via export_test.go's SeedFlow) since QuickSight has no CreateFlow API.
-func (b *InMemoryBackend) seedFlow(accountID string, f *Flow) {
+func (b *InMemoryBackend) seedFlow(_ string, f *Flow) {
 	b.mu.Lock("seedFlow")
 	defer b.mu.Unlock()
 
@@ -65,7 +64,7 @@ func (b *InMemoryBackend) seedFlow(accountID string, f *Flow) {
 		arn = b.buildARN("flow", f.FlowID)
 	}
 
-	b.flows[flowKey(accountID, f.FlowID)] = &storedFlow{
+	b.flows.Put(&storedFlow{
 		CreatedTime:     f.CreatedTime,
 		LastUpdatedTime: f.LastUpdatedTime,
 		LastPublishedAt: f.LastPublishedAt,
@@ -80,26 +79,20 @@ func (b *InMemoryBackend) seedFlow(accountID string, f *Flow) {
 		RunCount:        f.RunCount,
 		UserCount:       f.UserCount,
 		Permissions:     clonePermissions(f.Permissions),
-	}
+	})
 }
 
 // ---- Flows ----
 
 func (b *InMemoryBackend) ListFlows(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*Flow, string, error) {
 	b.mu.RLock("ListFlows")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	var all []*storedFlow
-	for k, f := range b.flows {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, f)
-		}
-	}
+	all := b.flows.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].FlowID < all[j].FlowID })
 
 	result, next := paginateFlows(all, maxResults, nextToken)
@@ -108,7 +101,7 @@ func (b *InMemoryBackend) ListFlows(
 }
 
 func (b *InMemoryBackend) SearchFlows(
-	accountID string,
+	_ string,
 	filters []SearchFilter,
 	maxResults int32,
 	nextToken string,
@@ -116,10 +109,9 @@ func (b *InMemoryBackend) SearchFlows(
 	b.mu.RLock("SearchFlows")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
 	var filtered []*storedFlow
-	for k, f := range b.flows {
-		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(f.Name, filters, filterFlowAssetName) {
+	for _, f := range b.flows.All() {
+		if matchesAllNameFilters(f.Name, filters, filterFlowAssetName) {
 			filtered = append(filtered, f)
 		}
 	}
@@ -166,7 +158,7 @@ func (b *InMemoryBackend) GetFlowMetadata(accountID, flowID string) (*Flow, erro
 	b.mu.RLock("GetFlowMetadata")
 	defer b.mu.RUnlock()
 
-	f, ok := b.flows[flowKey(accountID, flowID)]
+	f, ok := b.flows.Get(flowKey(accountID, flowID))
 	if !ok {
 		return nil, ErrFlowNotFound
 	}
@@ -180,7 +172,7 @@ func (b *InMemoryBackend) GetFlowPermissions(accountID, flowID string) (*Flow, [
 	b.mu.RLock("GetFlowPermissions")
 	defer b.mu.RUnlock()
 
-	f, ok := b.flows[flowKey(accountID, flowID)]
+	f, ok := b.flows.Get(flowKey(accountID, flowID))
 	if !ok {
 		return nil, nil, ErrFlowNotFound
 	}
@@ -196,7 +188,7 @@ func (b *InMemoryBackend) UpdateFlowPermissions(
 	defer b.mu.Unlock()
 
 	key := flowKey(accountID, flowID)
-	f, ok := b.flows[key]
+	f, ok := b.flows.Get(key)
 	if !ok {
 		return nil, nil, ErrFlowNotFound
 	}

@@ -6,13 +6,14 @@ import (
 	"maps"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -103,30 +104,47 @@ type FlywheelIteration struct {
 }
 
 // InMemoryBackend stores Comprehend state safely for concurrent requests.
+//
+// jobs, resources, and iterations are *store.Table[T] (see store_setup.go).
+// Each keys off a real, non-json:"-" identity field the value type already
+// carries (Job.JobID, Resource.Arn, FlywheelIteration.FlywheelIterationID),
+// so all three register directly on registry -- no DTO indirection is
+// needed. Neither table needs a secondary store.Index: every filtered
+// listing (ListJobs by JobType, ListResources by Type,
+// ListFlywheelIterations by FlywheelArn) scans the table's full contents,
+// exactly as the original map-range loops did, and none of the fields
+// mutated in place by advanceJob/advanceTrainingResource/etc. are ever used
+// as an index key. tags, policies, and policyRevisions are left as plain
+// maps: their values are not *T (map[string]string / string), so they do not
+// fit store.Table's keyed-by-identity-value shape.
 type InMemoryBackend struct {
-	jobs            map[string]*Job
-	resources       map[string]*Resource
-	iterations      map[string]*FlywheelIteration
+	jobs            *store.Table[Job]
+	resources       *store.Table[Resource]
+	iterations      *store.Table[FlywheelIteration]
+	registry        *store.Registry
 	tags            map[string]map[string]string
 	policies        map[string]string
 	policyRevisions map[string]string
+	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
-	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a configured Comprehend backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		jobs:            make(map[string]*Job),
-		resources:       make(map[string]*Resource),
-		iterations:      make(map[string]*FlywheelIteration),
+	b := &InMemoryBackend{
+		registry:        store.NewRegistry(),
 		tags:            make(map[string]map[string]string),
 		policies:        make(map[string]string),
 		policyRevisions: make(map[string]string),
 		accountID:       accountID,
 		region:          region,
+		mu:              lockmetrics.New("comprehend"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns configured AWS region.
@@ -134,12 +152,10 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // Reset clears all stored Comprehend resources.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.jobs = make(map[string]*Job)
-	b.resources = make(map[string]*Resource)
-	b.iterations = make(map[string]*FlywheelIteration)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.policies = make(map[string]string)
 	b.policyRevisions = make(map[string]string)
@@ -151,10 +167,10 @@ func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any) 
 		return nil, fmt.Errorf("%w: JobName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("StartJob")
 	defer b.mu.Unlock()
 
-	for _, job := range b.jobs {
+	for _, job := range b.jobs.All() {
 		if job.JobType == jobType && job.JobName == name {
 			return nil, fmt.Errorf("%w: job %q already exists", ErrConflict, name)
 		}
@@ -177,17 +193,17 @@ func (b *InMemoryBackend) StartJob(jobType, name string, values map[string]any) 
 		SubmitTime:            time.Now().UTC(),
 		shouldFail:            strings.Contains(strings.ToLower(name), failedMarker),
 	}
-	b.jobs[id] = job
+	b.jobs.Put(job)
 
 	return cloneJob(job), nil
 }
 
 // DescribeJob retrieves and advances a submitted job through its lifecycle.
 func (b *InMemoryBackend) DescribeJob(id, jobType string) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("DescribeJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobs[id]
+	job, ok := b.jobs.Get(id)
 	if !ok || job.JobType != jobType {
 		return nil, fmt.Errorf("%w: job %q", ErrNotFound, id)
 	}
@@ -200,10 +216,10 @@ func (b *InMemoryBackend) DescribeJob(id, jobType string) (*Job, error) {
 // StopJob starts cancellation of an active job. AWS returns InvalidRequestException
 // when the job is already in a terminal state (COMPLETED, FAILED, STOPPED, STOP_REQUESTED).
 func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("StopJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobs[id]
+	job, ok := b.jobs.Get(id)
 	if !ok || job.JobType != jobType {
 		return nil, fmt.Errorf("%w: job %q", ErrNotFound, id)
 	}
@@ -221,11 +237,12 @@ func (b *InMemoryBackend) StopJob(id, jobType string) (*Job, error) {
 
 // ListJobs returns jobs for one operation family in stable submission order.
 func (b *InMemoryBackend) ListJobs(jobType string) []*Job {
-	b.mu.RLock()
+	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
-	out := make([]*Job, 0, len(b.jobs))
-	for _, job := range b.jobs {
+	all := b.jobs.All()
+	out := make([]*Job, 0, len(all))
+	for _, job := range all {
 		if job.JobType == jobType {
 			out = append(out, cloneJob(job))
 		}
@@ -265,10 +282,10 @@ func (b *InMemoryBackend) CreateResource(
 	}
 
 	resourceArn := b.resourceARN(resourceType, name, versionName)
-	b.mu.Lock()
+	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resources[resourceArn]; ok {
+	if b.resources.Has(resourceArn) {
 		return nil, fmt.Errorf("%w: resource %q already exists", ErrConflict, name)
 	}
 
@@ -291,7 +308,7 @@ func (b *InMemoryBackend) CreateResource(
 	case resourceTypeDataset:
 		resource.DatasetArn = resourceArn
 	}
-	b.resources[resourceArn] = resource
+	b.resources.Put(resource)
 	b.tags[resourceArn] = tagsMap(tags)
 
 	return cloneResource(resource), nil
@@ -301,10 +318,10 @@ func (b *InMemoryBackend) CreateResource(
 // Describe call advances training lifecycle: SUBMITTED → IN_PROGRESS → TRAINED
 // (or FAILED when the name contains "[fail]"). This mirrors AWS async training.
 func (b *InMemoryBackend) GetResource(resourceArn, resourceType string) (*Resource, error) {
-	b.mu.Lock()
+	b.mu.Lock("GetResource")
 	defer b.mu.Unlock()
 
-	resource, ok := b.resources[resourceArn]
+	resource, ok := b.resources.Get(resourceArn)
 	if !ok || resource.Type != resourceType {
 		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
@@ -319,11 +336,12 @@ func (b *InMemoryBackend) GetResource(resourceArn, resourceType string) (*Resour
 // status poll), consistent with how Describe advances it. This lets a
 // create→describe→list→delete flow reach a deletable (TRAINED) state.
 func (b *InMemoryBackend) ListResources(resourceType string) []*Resource {
-	b.mu.Lock()
+	b.mu.Lock("ListResources")
 	defer b.mu.Unlock()
 
-	out := make([]*Resource, 0, len(b.resources))
-	for _, resource := range b.resources {
+	all := b.resources.All()
+	out := make([]*Resource, 0, len(all))
+	for _, resource := range all {
 		if resource.Type == resourceType {
 			advanceTrainingResource(resource)
 			out = append(out, cloneResource(resource))
@@ -336,10 +354,10 @@ func (b *InMemoryBackend) ListResources(resourceType string) []*Resource {
 
 // UpdateResource changes stored configuration of a mutable resource.
 func (b *InMemoryBackend) UpdateResource(resourceArn, resourceType string, values map[string]any) (*Resource, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
-	resource, ok := b.resources[resourceArn]
+	resource, ok := b.resources.Get(resourceArn)
 	if !ok || resource.Type != resourceType {
 		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
@@ -354,10 +372,10 @@ func (b *InMemoryBackend) UpdateResource(resourceArn, resourceType string, value
 // ResourceInUseException when deleting a classifier or recognizer that is
 // still training (status SUBMITTED or IN_PROGRESS).
 func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
 
-	resource, ok := b.resources[resourceArn]
+	resource, ok := b.resources.Get(resourceArn)
 	if !ok || resource.Type != resourceType {
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}
@@ -370,7 +388,7 @@ func (b *InMemoryBackend) DeleteResource(resourceArn, resourceType string) error
 		)
 	}
 
-	delete(b.resources, resourceArn)
+	b.resources.Delete(resourceArn)
 	delete(b.tags, resourceArn)
 
 	return nil
@@ -382,7 +400,7 @@ func (b *InMemoryBackend) StartFlywheelIteration(flywheelArn string) (*FlywheelI
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("StartFlywheelIteration")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()
@@ -392,17 +410,17 @@ func (b *InMemoryBackend) StartFlywheelIteration(flywheelArn string) (*FlywheelI
 		FlywheelIterationID:     id,
 		FlywheelIterationStatus: statusSubmitted,
 	}
-	b.iterations[id] = iteration
+	b.iterations.Put(iteration)
 
 	return cloneIteration(iteration), nil
 }
 
 // GetFlywheelIteration returns and advances an iteration.
 func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, error) {
-	b.mu.Lock()
+	b.mu.Lock("GetFlywheelIteration")
 	defer b.mu.Unlock()
 
-	iteration, ok := b.iterations[id]
+	iteration, ok := b.iterations.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: iteration %q", ErrNotFound, id)
 	}
@@ -420,11 +438,12 @@ func (b *InMemoryBackend) GetFlywheelIteration(id string) (*FlywheelIteration, e
 
 // ListFlywheelIterations lists iterations belonging to one flywheel.
 func (b *InMemoryBackend) ListFlywheelIterations(flywheelArn string) []*FlywheelIteration {
-	b.mu.RLock()
+	b.mu.RLock("ListFlywheelIterations")
 	defer b.mu.RUnlock()
 
-	out := make([]*FlywheelIteration, 0, len(b.iterations))
-	for _, iteration := range b.iterations {
+	all := b.iterations.All()
+	out := make([]*FlywheelIteration, 0, len(all))
+	for _, iteration := range all {
 		if iteration.FlywheelArn == flywheelArn {
 			out = append(out, cloneIteration(iteration))
 		}
@@ -435,7 +454,7 @@ func (b *InMemoryBackend) ListFlywheelIterations(flywheelArn string) []*Flywheel
 
 // TagResource adds or replaces tags on an existing resource.
 func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	current, ok := b.tags[resourceArn]
@@ -451,7 +470,7 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags []Tag) error {
 
 // UntagResource removes keys from an existing resource.
 func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	current, ok := b.tags[resourceArn]
@@ -467,7 +486,7 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, keys []string) error
 
 // ListTags returns sorted resource tags.
 func (b *InMemoryBackend) ListTags(resourceArn string) ([]Tag, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
 	current, ok := b.tags[resourceArn]
@@ -485,7 +504,7 @@ func (b *InMemoryBackend) ListTags(resourceArn string) ([]Tag, error) {
 
 // PutResourcePolicy saves a resource policy.
 func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy, expectedRevision string) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
 	if expectedRevision != "" && b.policyRevisions[resourceArn] != expectedRevision {
@@ -501,7 +520,7 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy, expectedRevisio
 
 // GetResourcePolicy retrieves a resource policy.
 func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
 	policy, ok := b.policies[resourceArn]
@@ -514,7 +533,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceArn string) (string, string,
 
 // DeleteResourcePolicy removes a resource policy.
 func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn, expectedRevision string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
 	if expectedRevision != "" && b.policyRevisions[resourceArn] != expectedRevision {
@@ -532,10 +551,10 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceArn, expectedRevision str
 
 // StopTrainingResource sets a trainable resource's status to STOPPED.
 func (b *InMemoryBackend) StopTrainingResource(resourceArn, resourceType string) error {
-	b.mu.Lock()
+	b.mu.Lock("StopTrainingResource")
 	defer b.mu.Unlock()
 
-	resource, ok := b.resources[resourceArn]
+	resource, ok := b.resources.Get(resourceArn)
 	if !ok || resource.Type != resourceType {
 		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceArn)
 	}

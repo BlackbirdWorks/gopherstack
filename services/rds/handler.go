@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -830,8 +831,11 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 
 func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
+	skipFinalSnapshot := vals.Get("SkipFinalSnapshot") == formTrue
+	finalSnapshotID := vals.Get("FinalDBSnapshotIdentifier")
+	deleteAutomatedBackups := vals.Get("DeleteAutomatedBackups") != "false"
 
-	inst, err := h.Backend.DeleteDBInstance(id)
+	inst, err := h.Backend.DeleteDBInstanceWithOptions(id, skipFinalSnapshot, finalSnapshotID, deleteAutomatedBackups)
 	if err != nil {
 		return nil, err
 	}
@@ -842,9 +846,101 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 	}, nil
 }
 
+// isKnownDBInstanceFilterName reports whether name is a Filters.Filter.N.Name
+// value AWS recognizes for DescribeDBInstances. "domain" is accepted by AWS
+// but has no meaningful analog in this emulator (Directory Service domain
+// membership), so it is not implemented as a match predicate — an instance
+// passes it vacuously.
+func isKnownDBInstanceFilterName(name string) bool {
+	switch name {
+	case "db-cluster-id", "db-instance-id", "dbi-resource-id", "domain", "engine":
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBInstanceFilters narrows instances per the AWS DescribeDBInstances
+// Filters contract: each filter ANDs together, and a filter's Values list is
+// OR-matched against the corresponding instance field. An unrecognized filter
+// name returns InvalidParameterValue, matching real AWS.
+func applyDBInstanceFilters(vals url.Values, instances []DBInstance) ([]DBInstance, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return instances, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBInstanceFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBInstance, 0, len(instances))
+	for _, inst := range instances {
+		if matchesAllDBInstanceFilters(inst, filters) {
+			filtered = append(filtered, inst)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBInstanceFilters(inst DBInstance, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case "db-cluster-id":
+			if !slices.Contains(values, inst.DBClusterIdentifier) {
+				return false
+			}
+		case "db-instance-id":
+			if !slices.Contains(values, inst.DBInstanceIdentifier) {
+				return false
+			}
+		case "dbi-resource-id":
+			if !slices.Contains(values, inst.DbiResourceID) {
+				return false
+			}
+		case "engine":
+			if !slices.Contains(values, inst.Engine) {
+				return false
+			}
+		case "domain":
+			// No domain-membership state is modeled; accept unconditionally.
+		}
+	}
+
+	return true
+}
+
+// parseDescribeFilters parses the AWS query-protocol "Filters.Filter.N.Name" /
+// "Filters.Filter.N.Values.member.M" parameters into a filter-name -> values map.
+func parseDescribeFilters(vals url.Values) map[string][]string {
+	filters := make(map[string][]string)
+	for i := 1; ; i++ {
+		name := vals.Get(fmt.Sprintf("Filters.Filter.%d.Name", i))
+		if name == "" {
+			return filters
+		}
+		var values []string
+		for j := 1; ; j++ {
+			v := vals.Get(fmt.Sprintf("Filters.Filter.%d.Values.member.%d", i, j))
+			if v == "" {
+				break
+			}
+			values = append(values, v)
+		}
+		filters[name] = values
+	}
+}
+
 func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instances, err := h.Backend.DescribeDBInstances(id)
+	if err != nil {
+		return nil, err
+	}
+	instances, err = applyDBInstanceFilters(vals, instances)
 	if err != nil {
 		return nil, err
 	}
@@ -1982,7 +2078,10 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 
 func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.DeleteDBCluster(id)
+	skipFinalSnapshot := vals.Get("SkipFinalSnapshot") == formTrue
+	finalSnapshotID := vals.Get("FinalDBSnapshotIdentifier")
+
+	cluster, err := h.Backend.DeleteDBClusterWithOptions(id, skipFinalSnapshot, finalSnapshotID)
 	if err != nil {
 		return nil, err
 	}

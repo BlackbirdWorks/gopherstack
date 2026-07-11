@@ -42,9 +42,9 @@ func (b *InMemoryBackend) Purge(_ context.Context, cutoff time.Time) {
 func (b *InMemoryBackend) buildPurgePlanLocked(cutoff time.Time) purgePlan {
 	plan := purgePlan{revByFamily: make(map[string][]string)}
 
-	for name, c := range b.clusters {
+	for _, c := range b.clusters.All() {
 		if c.CreatedAt.Before(cutoff) {
-			plan.clusters = append(plan.clusters, name)
+			plan.clusters = append(plan.clusters, c.ClusterName)
 		}
 	}
 
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) applyPurgePlanLocked(plan purgePlan, cutoff time.Time)
 	removed := make([]string, 0, len(plan.clusters))
 
 	for _, name := range plan.clusters {
-		c, ok := b.clusters[name]
+		c, ok := b.clusters.Get(name)
 		if !ok || !c.CreatedAt.Before(cutoff) {
 			// Cluster was removed or re-created between the plan and apply phases.
 			continue
@@ -88,31 +88,29 @@ func (b *InMemoryBackend) applyPurgePlanLocked(plan purgePlan, cutoff time.Time)
 // lifecycle, attribute, reverse-index, and daemon entries that older code paths
 // leaked. Must be called with the write lock held.
 func (b *InMemoryBackend) purgeClusterLocked(name string) {
-	if svcs, ok := b.services[name]; ok {
-		for svcName, svc := range svcs {
-			delete(b.serviceIndex, svcRef{cluster: name, name: svcName})
-			delete(b.serviceDeployments, svc.ServiceArn)
-			delete(b.taskSets, svc.ServiceArn)
+	for _, svc := range b.servicesInClusterLocked(name) {
+		delete(b.serviceIndex, svcRef{cluster: name, name: svc.ServiceName})
+		b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
+		b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
 
-			for _, rev := range b.serviceRevisions[svc.ServiceArn] {
-				delete(b.serviceRevisionsByArn, rev.ServiceRevisionArn)
-			}
-
-			delete(b.serviceRevisions, svc.ServiceArn)
+		for _, rev := range b.serviceRevisions[svc.ServiceArn] {
+			delete(b.serviceRevisionsByArn, rev.ServiceRevisionArn)
 		}
+
+		delete(b.serviceRevisions, svc.ServiceArn)
 	}
 
-	for taskArn := range b.tasks[name] {
-		delete(b.taskProtections, taskArn)
-		delete(b.lifecycle, taskArn)
+	for _, task := range b.tasksInClusterLocked(name) {
+		b.taskProtections.Delete(task.TaskArn)
+		delete(b.lifecycle, task.TaskArn)
 	}
 
 	b.purgeDaemonsLocked(name)
 
-	delete(b.clusters, name)
-	delete(b.services, name)
-	delete(b.tasks, name)
-	delete(b.containerInstances, name)
+	b.clusters.Delete(name)
+	b.deleteServicesForClusterLocked(name)
+	b.deleteTasksForClusterLocked(name)
+	b.deleteContainerInstancesForClusterLocked(name)
 	delete(b.attributes, name)
 	delete(b.tasksByInstance, name)
 }
@@ -121,8 +119,8 @@ func (b *InMemoryBackend) purgeClusterLocked(name string) {
 // definitions, revisions, and deployment records. Must be called with the write
 // lock held.
 func (b *InMemoryBackend) purgeDaemonsLocked(clusterName string) {
-	daemons, ok := b.daemons[clusterName]
-	if !ok {
+	daemons := b.daemonsInClusterLocked(clusterName)
+	if len(daemons) == 0 {
 		return
 	}
 
@@ -131,16 +129,20 @@ func (b *InMemoryBackend) purgeDaemonsLocked(clusterName string) {
 	for _, d := range daemons {
 		daemonArns[d.DaemonArn] = true
 		delete(b.daemonTaskDefs, d.DaemonArn)
-		delete(b.daemonRevisions, d.DaemonArn)
+		// NOTE: daemonRevisions is keyed by DaemonRevisionArn (see
+		// createDaemonRevisionLocked), not DaemonArn -- this delete never
+		// actually matches an entry. Preserved byte-for-byte from the
+		// pre-conversion map-based code rather than fixed, per the Phase 3.3
+		// mechanical-conversion mandate.
+		b.daemonRevisions.Delete(d.DaemonArn)
+		b.daemons.Delete(daemonsKeyFn(d))
 	}
 
-	for id, dep := range b.daemonDeployments {
+	for _, dep := range b.daemonDeployments.All() {
 		if daemonArns[dep.DaemonArn] {
-			delete(b.daemonDeployments, id)
+			b.daemonDeployments.Delete(dep.DaemonDeploymentArn)
 		}
 	}
-
-	delete(b.daemons, clusterName)
 }
 
 // purgeTaskDefRevisionsLocked removes the given (already-identified) revisions
@@ -163,7 +165,7 @@ func (b *InMemoryBackend) purgeTaskDefRevisionsLocked(family string, arns []stri
 
 	for _, td := range revs {
 		if remove[td.TaskDefinitionArn] && td.RegisteredAt.Before(cutoff) {
-			delete(b.taskDefByArn, td.TaskDefinitionArn)
+			b.taskDefByArn.Delete(td.TaskDefinitionArn)
 
 			continue
 		}

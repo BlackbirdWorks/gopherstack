@@ -25,7 +25,7 @@ func (b *InMemoryBackend) ForceStackStatus(stackName, status string) {
 	b.mu.Lock("ForceStackStatus")
 	defer b.mu.Unlock()
 
-	if s, ok := b.stacks[stackName]; ok {
+	if s, ok := b.stacks.Get(stackName); ok {
 		s.StackStatus = status
 	}
 }
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) DriftDetectionCount(stackID string) int {
 
 	count := 0
 
-	for _, status := range b.driftDetections {
+	for _, status := range b.driftDetections.All() {
 		if status.StackID == stackID {
 			count++
 		}
@@ -100,7 +100,7 @@ func (b *InMemoryBackend) ForceRemoveResource(stackName, logicalID string) {
 	b.mu.Lock("ForceRemoveResource")
 	defer b.mu.Unlock()
 
-	stack, ok := b.stacks[stackName]
+	stack, ok := b.stacks.Get(stackName)
 	if !ok {
 		return
 	}
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) ForceModifyResourceProperties(stackName, logicalID str
 	b.mu.Lock("ForceModifyResourceProperties")
 	defer b.mu.Unlock()
 
-	stack, ok := b.stacks[stackName]
+	stack, ok := b.stacks.Get(stackName)
 	if !ok {
 		return
 	}

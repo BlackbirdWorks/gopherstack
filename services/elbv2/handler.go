@@ -792,6 +792,43 @@ func (h *Handler) handleDescribeTargetGroupAttributes(vals url.Values) (any, err
 
 // --- target handlers ---
 
+// resolveTargetGroupPort looks up a target group's configured port, used to
+// default omitted Targets.member.N.Port values. AWS treats Port as optional
+// for instance/ip/alb target types and defaults it to the target group's port;
+// Lambda target groups have no port (tgPort is 0 and no defaulting occurs).
+func (h *Handler) resolveTargetGroupPort(tgArn string) (int32, error) {
+	tgs, err := h.Backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	if err != nil {
+		return 0, err
+	}
+
+	if len(tgs) == 0 {
+		return 0, ErrTargetGroupNotFound
+	}
+
+	return tgs[0].Port, nil
+}
+
+// defaultTargetPorts fills in omitted (zero-value) target ports with the
+// target group's port. A zero tgPort (e.g. Lambda target groups) is a no-op.
+func defaultTargetPorts(targets []Target, tgPort int32) []Target {
+	if tgPort == 0 {
+		return targets
+	}
+
+	out := make([]Target, len(targets))
+
+	for i, t := range targets {
+		if t.Port == 0 {
+			t.Port = tgPort
+		}
+
+		out[i] = t
+	}
+
+	return out
+}
+
 func (h *Handler) handleRegisterTargets(vals url.Values) (any, error) {
 	tgArn := vals.Get("TargetGroupArn")
 	if tgArn == "" {
@@ -800,8 +837,15 @@ func (h *Handler) handleRegisterTargets(vals url.Values) (any, error) {
 
 	targets := parseTargets(vals, "Targets.member")
 
-	if err := h.Backend.RegisterTargets(tgArn, targets); err != nil {
+	tgPort, err := h.resolveTargetGroupPort(tgArn)
+	if err != nil {
 		return nil, err
+	}
+
+	targets = defaultTargetPorts(targets, tgPort)
+
+	if regErr := h.Backend.RegisterTargets(tgArn, targets); regErr != nil {
+		return nil, regErr
 	}
 
 	return &registerTargetsResponse{
@@ -818,8 +862,15 @@ func (h *Handler) handleDeregisterTargets(vals url.Values) (any, error) {
 
 	targets := parseTargets(vals, "Targets.member")
 
-	if err := h.Backend.DeregisterTargets(tgArn, targets); err != nil {
+	tgPort, err := h.resolveTargetGroupPort(tgArn)
+	if err != nil {
 		return nil, err
+	}
+
+	targets = defaultTargetPorts(targets, tgPort)
+
+	if deregErr := h.Backend.DeregisterTargets(tgArn, targets); deregErr != nil {
+		return nil, deregErr
 	}
 
 	return &deregisterTargetsResponse{
@@ -844,6 +895,10 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 	// reason "Target.NotRegistered", matching real AWS behaviour.
 	requestedTargets := parseTargets(vals, "Targets.member")
 	if len(requestedTargets) > 0 {
+		if tgPort, pErr := h.resolveTargetGroupPort(tgArn); pErr == nil {
+			requestedTargets = defaultTargetPorts(requestedTargets, tgPort)
+		}
+
 		registeredMap := make(map[string]TargetHealthDescription, len(targets))
 		for _, t := range targets {
 			registeredMap[t.Target.ID+":"+strconv.Itoa(int(t.Target.Port))] = t
@@ -954,7 +1009,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		Tags:                 tagKVs,
 		Certificates:         certs,
 		SSLPolicy:            vals.Get("SslPolicy"),
-		AlpnPolicy:           vals.Get("AlpnPolicy.member.1"),
+		AlpnPolicy:           parseMembers(vals, "AlpnPolicy.member"),
 		MutualAuthentication: mutualAuth,
 	})
 	if createErr != nil {
@@ -1077,7 +1132,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		DefaultActions:       parseActions(vals, "DefaultActions.member"),
 		Certificates:         parseCerts(vals),
 		SSLPolicy:            vals.Get("SslPolicy"),
-		AlpnPolicy:           vals.Get("AlpnPolicy.member.1"),
+		AlpnPolicy:           parseMembers(vals, "AlpnPolicy.member"),
 		MutualAuthentication: mutualAuth,
 	})
 	if err != nil {
@@ -1433,8 +1488,21 @@ func (h *Handler) handleAddTrustStoreRevocations(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	members := make([]xmlRevocationContent, 0, len(revocations))
+	for _, r := range revocations {
+		members = append(members, xmlRevocationContent{
+			RevocationID:           r.RevocationID,
+			RevocationType:         r.RevocationType,
+			NumberOfRevokedEntries: r.NumberOfRevokedEntries,
+			TrustStoreArn:          tsArn,
+		})
+	}
+
 	return &addTrustStoreRevocationsResponse{
-		Xmlns:            elbv2XMLNS,
+		Xmlns: elbv2XMLNS,
+		Result: addTrustStoreRevocationsResult{
+			TrustStoreRevocations: xmlRevocationContentList{Members: members},
+		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-add-ts-revocations"},
 	}, nil
 }
@@ -1889,13 +1957,18 @@ func (h *Handler) handleDescribeTrustStoreRevocations(vals url.Values) (any, err
 
 	members := make([]xmlRevocationContent, 0, len(revocations))
 	for _, r := range revocations {
-		members = append(members, xmlRevocationContent(r))
+		members = append(members, xmlRevocationContent{
+			RevocationID:           r.RevocationID,
+			RevocationType:         r.RevocationType,
+			NumberOfRevokedEntries: r.NumberOfRevokedEntries,
+			TrustStoreArn:          tsArn,
+		})
 	}
 
 	return &describeTrustStoreRevocationsResponse{
 		Xmlns: elbv2XMLNS,
 		Result: describeTrustStoreRevocationsResult{
-			RevocationContents: xmlRevocationContentList{Members: members},
+			TrustStoreRevocations: xmlRevocationContentList{Members: members},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-ts-revocations"},
 	}, nil
@@ -2122,19 +2195,26 @@ func elbv2ErrorCode(opErr error) (string, int) {
 		httpCode int
 	}
 
+	// NOTE: real AWS ELBv2 uses the classic AWS "Query" protocol (like EC2), where
+	// EVERY client error — including NotFound and AlreadyExists conditions — is
+	// returned with HTTP status 400; the client SDK dispatches on the XML <Code>
+	// element, not the HTTP status. Verified against the elasticloadbalancingv2
+	// API model (api-2.json), which sets httpStatusCode=400 for every exception
+	// shape in this service. Using 404/409 here (as a REST-JSON service would)
+	// is wire-inaccurate for a query-protocol service.
 	mappings := []errorMapping{
-		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusNotFound},
-		{ErrTargetGroupNotFound, "TargetGroupNotFound", http.StatusNotFound},
-		{ErrListenerNotFound, "ListenerNotFound", http.StatusNotFound},
-		{ErrRuleNotFound, "RuleNotFound", http.StatusNotFound},
-		{ErrTrustStoreNotFound, "TrustStoreNotFound", http.StatusNotFound},
-		{ErrResourcePolicyNotFound, "ResourceNotFound", http.StatusNotFound},
-		{ErrTrustStoreAssociationNotFound, "AssociationNotFound", http.StatusNotFound},
-		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
-		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusConflict},
-		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusConflict},
-		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
-		{ErrDuplicateRulePriority, "DuplicatePriority", http.StatusBadRequest},
+		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusBadRequest},
+		{ErrTargetGroupNotFound, "TargetGroupNotFound", http.StatusBadRequest},
+		{ErrListenerNotFound, "ListenerNotFound", http.StatusBadRequest},
+		{ErrRuleNotFound, "RuleNotFound", http.StatusBadRequest},
+		{ErrTrustStoreNotFound, "TrustStoreNotFound", http.StatusBadRequest},
+		{ErrResourcePolicyNotFound, "ResourceNotFound", http.StatusBadRequest},
+		{ErrTrustStoreAssociationNotFound, "AssociationNotFound", http.StatusBadRequest},
+		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusBadRequest},
+		{ErrTargetGroupAlreadyExists, "DuplicateTargetGroupName", http.StatusBadRequest},
+		{ErrTrustStoreAlreadyExists, "DuplicateTrustStoreName", http.StatusBadRequest},
+		{ErrDuplicateListener, "DuplicateListener", http.StatusBadRequest},
+		{ErrDuplicateRulePriority, "PriorityInUse", http.StatusBadRequest},
 		{ErrTargetGroupInUse, "ResourceInUse", http.StatusBadRequest},
 		{ErrOperationNotPermitted, "OperationNotPermitted", http.StatusBadRequest},
 		{ErrInvalidConfigurationRequest, "InvalidConfigurationRequest", http.StatusBadRequest},
@@ -2539,8 +2619,18 @@ func parseConditionAt(vals url.Values, prefix string, i int, result *[]Condition
 	switch field {
 	case "host-header":
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.HostHeaderConfig.Values.member", prefix, i))
+		if len(cond.Values) == 0 {
+			// Legacy top-level Values field (deprecated by AWS in favor of
+			// HostHeaderConfig, but still accepted on the wire).
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.Values.member", prefix, i))
+		}
 	case "path-pattern":
 		cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.PathPatternConfig.Values.member", prefix, i))
+		if len(cond.Values) == 0 {
+			// Legacy top-level Values field (deprecated by AWS in favor of
+			// PathPatternConfig, but still accepted on the wire).
+			cond.Values = parseMembers(vals, fmt.Sprintf("%s.%d.Values.member", prefix, i))
+		}
 	case "http-request-method":
 		methods := parseMembers(vals, fmt.Sprintf("%s.%d.HttpRequestMethodConfig.Values.member", prefix, i))
 		for _, m := range methods {
@@ -2757,7 +2847,6 @@ func toXMLListener(l *Listener) xmlListener {
 		Port:            l.Port,
 		DefaultActions:  xmlActionList{Members: actions},
 		SslPolicy:       l.SSLPolicy,
-		AlpnPolicy:      l.AlpnPolicy,
 	}
 
 	if l.MutualAuthentication != nil {
@@ -2775,6 +2864,15 @@ func toXMLListener(l *Listener) xmlListener {
 		}
 
 		xl.Certificates = &xmlListenerCertificateList{Members: certs}
+	}
+
+	if len(l.AlpnPolicy) > 0 {
+		members := make([]xmlStringValue, 0, len(l.AlpnPolicy))
+		for _, p := range l.AlpnPolicy {
+			members = append(members, xmlStringValue{Value: p})
+		}
+
+		xl.AlpnPolicy = &xmlStringList{Members: members}
 	}
 
 	return xl
@@ -3215,11 +3313,11 @@ type xmlActionList struct {
 type xmlListener struct {
 	MutualAuthentication *xmlMutualAuthentication    `xml:"MutualAuthentication,omitempty"`
 	Certificates         *xmlListenerCertificateList `xml:"Certificates,omitempty"`
+	AlpnPolicy           *xmlStringList              `xml:"AlpnPolicy,omitempty"`
 	ListenerArn          string                      `xml:"ListenerArn"`
 	LoadBalancerArn      string                      `xml:"LoadBalancerArn"`
 	Protocol             string                      `xml:"Protocol"`
 	SslPolicy            string                      `xml:"SslPolicy,omitempty"`
-	AlpnPolicy           string                      `xml:"AlpnPolicy,omitempty"`
 	DefaultActions       xmlActionList               `xml:"DefaultActions"`
 	Port                 int32                       `xml:"Port"`
 }
@@ -3489,9 +3587,10 @@ type deleteSharedTrustStoreAssociationResponse struct {
 }
 
 type addTrustStoreRevocationsResponse struct {
-	XMLName          xml.Name            `xml:"AddTrustStoreRevocationsResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                       `xml:"AddTrustStoreRevocationsResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
+	Result           addTrustStoreRevocationsResult `xml:"AddTrustStoreRevocationsResult"`
 }
 
 type xmlTrustStoreAssociation struct {
@@ -3664,9 +3763,14 @@ type modifyTrustStoreResponse struct {
 	Result           modifyTrustStoreResult `xml:"ModifyTrustStoreResult"`
 }
 
+// xmlRevocationContent mirrors both aws-sdk-go-v2 types.TrustStoreRevocation (used in
+// AddTrustStoreRevocationsResult) and types.DescribeTrustStoreRevocation (used in
+// DescribeTrustStoreRevocationsResult) — both have the same RevocationId/RevocationType/
+// NumberOfRevokedEntries/TrustStoreArn fields on the wire.
 type xmlRevocationContent struct {
 	RevocationID           string `xml:"RevocationId"`
 	RevocationType         string `xml:"RevocationType,omitempty"`
+	TrustStoreArn          string `xml:"TrustStoreArn,omitempty"`
 	NumberOfRevokedEntries int64  `xml:"NumberOfRevokedEntries,omitempty"`
 }
 
@@ -3674,8 +3778,11 @@ type xmlRevocationContentList struct {
 	Members []xmlRevocationContent `xml:"member"`
 }
 
+// describeTrustStoreRevocationsResult's list field is named TrustStoreRevocations on the
+// wire (verified against aws-sdk-go-v2's deserializer) — NOT "RevocationContents", which
+// is only the request-side field name for AddTrustStoreRevocations.
 type describeTrustStoreRevocationsResult struct {
-	RevocationContents xmlRevocationContentList `xml:"RevocationContents"`
+	TrustStoreRevocations xmlRevocationContentList `xml:"TrustStoreRevocations"`
 }
 
 type describeTrustStoreRevocationsResponse struct {
@@ -3683,6 +3790,12 @@ type describeTrustStoreRevocationsResponse struct {
 	Xmlns            string                              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
 	Result           describeTrustStoreRevocationsResult `xml:"DescribeTrustStoreRevocationsResult"`
+}
+
+// addTrustStoreRevocationsResult reports the revocation files that were added, matching
+// AWS's AddTrustStoreRevocationsOutput.TrustStoreRevocations.
+type addTrustStoreRevocationsResult struct {
+	TrustStoreRevocations xmlRevocationContentList `xml:"TrustStoreRevocations"`
 }
 
 type removeTrustStoreRevocationsResponse struct {

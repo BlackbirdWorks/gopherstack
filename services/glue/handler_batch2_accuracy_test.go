@@ -184,7 +184,7 @@ func TestBatch2Accuracy_StartBlueprintRun_NotFound(t *testing.T) {
 }
 
 // TestBatch2Accuracy_CreateBlueprint_NameRequired verifies CreateBlueprint
-// rejects an empty Name with ValidationException.
+// rejects an empty Name with InvalidInputException.
 func TestBatch2Accuracy_CreateBlueprint_NameRequired(t *testing.T) {
 	t.Parallel()
 
@@ -198,7 +198,7 @@ func TestBatch2Accuracy_CreateBlueprint_NameRequired(t *testing.T) {
 			name:      "empty_name_rejected",
 			bpName:    "",
 			wantCode:  http.StatusBadRequest,
-			wantError: "ValidationException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:     "valid_name_accepted",
@@ -236,19 +236,19 @@ func TestBatch2Accuracy_CreateCustomEntityType_Validation(t *testing.T) {
 			name:      "empty_name_rejected",
 			body:      map[string]any{"Name": "", "RegexString": "\\d+"},
 			wantCode:  http.StatusBadRequest,
-			wantError: "ValidationException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:      "empty_regex_rejected",
 			body:      map[string]any{"Name": "my-cet", "RegexString": ""},
 			wantCode:  http.StatusBadRequest,
-			wantError: "ValidationException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:      "missing_regex_rejected",
 			body:      map[string]any{"Name": "my-cet2"},
 			wantCode:  http.StatusBadRequest,
-			wantError: "ValidationException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:     "valid_name_and_regex_accepted",
@@ -272,7 +272,7 @@ func TestBatch2Accuracy_CreateCustomEntityType_Validation(t *testing.T) {
 }
 
 // TestBatch2Accuracy_CreateUsageProfile_NameRequired verifies CreateUsageProfile
-// rejects an empty Name with ValidationException.
+// rejects an empty Name with InvalidInputException.
 func TestBatch2Accuracy_CreateUsageProfile_NameRequired(t *testing.T) {
 	t.Parallel()
 
@@ -286,7 +286,7 @@ func TestBatch2Accuracy_CreateUsageProfile_NameRequired(t *testing.T) {
 			name:      "empty_name_rejected",
 			profName:  "",
 			wantCode:  http.StatusBadRequest,
-			wantError: "ValidationException",
+			wantError: "InvalidInputException",
 		},
 		{
 			name:     "valid_name_accepted",

@@ -179,23 +179,27 @@ func TestParity_AssumeRoleWithSAML_SAMLAssertionViaHandler(t *testing.T) {
 	}
 }
 
-// ── Parity Fix 3: GetWebIdentityToken not in GetSupportedOperations ──────────────
+// ── Parity Fix 3: GetWebIdentityToken IS a real AWS STS operation ────────────────
+//
+// A previous sweep incorrectly believed GetWebIdentityToken was a gopherstack-only
+// extension and asserted it must be absent from GetSupportedOperations. The pinned
+// aws-sdk-go-v2/service/sts module ships api_op_GetWebIdentityToken.go, confirming
+// it is a real, documented AWS STS action — so it belongs in the supported list
+// (and is routed by dispatch). This test is corrected to assert presence.
 
-func TestParity_GetWebIdentityToken_NotInSupportedOps(t *testing.T) {
+func TestParity_GetWebIdentityToken_InSupportedOps(t *testing.T) {
 	t.Parallel()
 
 	b := sts.NewInMemoryBackend()
 	h := sts.NewHandler(b)
 	ops := h.GetSupportedOperations()
 
-	for _, op := range ops {
-		assert.NotEqual(
-			t,
-			"GetWebIdentityToken",
-			op,
-			"GetWebIdentityToken is not a real AWS STS operation and must not be in GetSupportedOperations",
-		)
-	}
+	assert.Contains(
+		t,
+		ops,
+		"GetWebIdentityToken",
+		"GetWebIdentityToken is a real AWS STS operation and must be listed in GetSupportedOperations",
+	)
 }
 
 // ── Parity Fix 4: DecodeAuthorizationMessage — only STS-issued messages accepted ──

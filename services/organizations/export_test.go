@@ -5,7 +5,7 @@ func AccountCount(b *InMemoryBackend) int {
 	b.mu.RLock("AccountCount")
 	defer b.mu.RUnlock()
 
-	return len(b.accounts)
+	return b.accounts.Len()
 }
 
 // PolicyCount returns the number of policies in the backend.
@@ -13,7 +13,7 @@ func PolicyCount(b *InMemoryBackend) int {
 	b.mu.RLock("PolicyCount")
 	defer b.mu.RUnlock()
 
-	return len(b.policies)
+	return b.policies.Len()
 }
 
 // OUCount returns the number of OUs in the backend.
@@ -21,7 +21,7 @@ func OUCount(b *InMemoryBackend) int {
 	b.mu.RLock("OUCount")
 	defer b.mu.RUnlock()
 
-	return len(b.ous)
+	return b.ous.Len()
 }
 
 // HandshakeCount returns the number of handshakes in the backend.
@@ -29,7 +29,7 @@ func HandshakeCount(b *InMemoryBackend) int {
 	b.mu.RLock("HandshakeCount")
 	defer b.mu.RUnlock()
 
-	return len(b.handshakes)
+	return b.handshakes.Len()
 }
 
 // TagCount returns the number of tag-tracked resources in the backend.

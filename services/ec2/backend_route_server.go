@@ -126,7 +126,7 @@ func (b *InMemoryBackend) CreateRouteServer(
 		PersistRoutesState:      persistRoutesState,
 		PersistRoutesDuration:   persistRoutesDuration,
 	}
-	b.routeServers[id] = rs
+	b.routeServers.Put(rs)
 
 	cp := *rs
 
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DescribeRouteServers(ids []string) []*RouteServer {
 
 	var result []*RouteServer
 
-	for _, rs := range b.routeServers {
+	for _, rs := range b.routeServers.All() {
 		if len(ids) > 0 && !slices.Contains(ids, rs.RouteServerID) {
 			continue
 		}
@@ -159,14 +159,14 @@ func (b *InMemoryBackend) DeleteRouteServer(id string) (*RouteServer, error) {
 	b.mu.Lock("DeleteRouteServer")
 	defer b.mu.Unlock()
 
-	rs, ok := b.routeServers[id]
+	rs, ok := b.routeServers.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerNotFound, id)
 	}
 
 	cp := *rs
 	cp.State = stateDeleting
-	delete(b.routeServers, id)
+	b.routeServers.Delete(id)
 
 	return &cp, nil
 }
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) ModifyRouteServer(
 	b.mu.Lock("ModifyRouteServer")
 	defer b.mu.Unlock()
 
-	rs, ok := b.routeServers[id]
+	rs, ok := b.routeServers.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerNotFound, id)
 	}
@@ -214,11 +214,11 @@ func (b *InMemoryBackend) CreateRouteServerEndpoint(routeServerID, subnetID stri
 	b.mu.Lock("CreateRouteServerEndpoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.routeServers[routeServerID]; !ok {
+	if _, ok := b.routeServers.Get(routeServerID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerNotFound, routeServerID)
 	}
 
-	subnet, ok := b.subnets[subnetID]
+	subnet, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
@@ -234,7 +234,7 @@ func (b *InMemoryBackend) CreateRouteServerEndpoint(routeServerID, subnetID stri
 		EniAddress:            b.allocPrivateIP(),
 		State:                 routeServerStateAvailable,
 	}
-	b.routeServerEndpoints[id] = ep
+	b.routeServerEndpoints.Put(ep)
 
 	cp := *ep
 
@@ -248,7 +248,7 @@ func (b *InMemoryBackend) DescribeRouteServerEndpoints(ids []string) []*RouteSer
 
 	var result []*RouteServerEndpoint
 
-	for _, ep := range b.routeServerEndpoints {
+	for _, ep := range b.routeServerEndpoints.All() {
 		if len(ids) > 0 && !slices.Contains(ids, ep.RouteServerEndpointID) {
 			continue
 		}
@@ -269,14 +269,14 @@ func (b *InMemoryBackend) DeleteRouteServerEndpoint(id string) (*RouteServerEndp
 	b.mu.Lock("DeleteRouteServerEndpoint")
 	defer b.mu.Unlock()
 
-	ep, ok := b.routeServerEndpoints[id]
+	ep, ok := b.routeServerEndpoints.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerEndpointNotFound, id)
 	}
 
 	cp := *ep
 	cp.State = stateDeleting
-	delete(b.routeServerEndpoints, id)
+	b.routeServerEndpoints.Delete(id)
 
 	return &cp, nil
 }
@@ -298,7 +298,7 @@ func (b *InMemoryBackend) CreateRouteServerPeer(
 	b.mu.Lock("CreateRouteServerPeer")
 	defer b.mu.Unlock()
 
-	ep, ok := b.routeServerEndpoints[endpointID]
+	ep, ok := b.routeServerEndpoints.Get(endpointID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerEndpointNotFound, endpointID)
 	}
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) CreateRouteServerPeer(
 		BgpStatus:                    "down",
 		BgpStatusPeerState:           "idle",
 	}
-	b.routeServerPeers[id] = peer
+	b.routeServerPeers.Put(peer)
 
 	cp := *peer
 
@@ -338,7 +338,7 @@ func (b *InMemoryBackend) DescribeRouteServerPeers(ids []string) []*RouteServerP
 
 	var result []*RouteServerPeer
 
-	for _, p := range b.routeServerPeers {
+	for _, p := range b.routeServerPeers.All() {
 		if len(ids) > 0 && !slices.Contains(ids, p.RouteServerPeerID) {
 			continue
 		}
@@ -357,14 +357,14 @@ func (b *InMemoryBackend) DeleteRouteServerPeer(id string) (*RouteServerPeer, er
 	b.mu.Lock("DeleteRouteServerPeer")
 	defer b.mu.Unlock()
 
-	p, ok := b.routeServerPeers[id]
+	p, ok := b.routeServerPeers.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerPeerNotFound, id)
 	}
 
 	cp := *p
 	cp.State = stateDeleting
-	delete(b.routeServerPeers, id)
+	b.routeServerPeers.Delete(id)
 
 	return &cp, nil
 }
@@ -378,21 +378,20 @@ func (b *InMemoryBackend) AssociateRouteServer(routeServerID, vpcID string) (*Ro
 	b.mu.Lock("AssociateRouteServer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.routeServers[routeServerID]; !ok {
+	if _, ok := b.routeServers.Get(routeServerID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerNotFound, routeServerID)
 	}
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	key := routeServerID + "/" + vpcID
 	assoc := &RouteServerAssociation{
 		RouteServerID: routeServerID,
 		VpcID:         vpcID,
 		State:         associationStateAssociated,
 	}
-	b.routeServerAssociations[key] = assoc
+	b.routeServerAssociations.Put(assoc)
 
 	cp := *assoc
 
@@ -405,15 +404,14 @@ func (b *InMemoryBackend) DisassociateRouteServer(routeServerID, vpcID string) (
 	defer b.mu.Unlock()
 
 	key := routeServerID + "/" + vpcID
-
-	assoc, ok := b.routeServerAssociations[key]
+	assoc, ok := b.routeServerAssociations.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s/%s", ErrRouteServerAssociationNotFound, routeServerID, vpcID)
 	}
 
 	cp := *assoc
 	cp.State = "disassociating"
-	delete(b.routeServerAssociations, key)
+	b.routeServerAssociations.Delete(key)
 
 	return &cp, nil
 }
@@ -425,7 +423,7 @@ func (b *InMemoryBackend) GetRouteServerAssociations(routeServerID string) []*Ro
 
 	var result []*RouteServerAssociation
 
-	for _, a := range b.routeServerAssociations {
+	for _, a := range b.routeServerAssociations.All() {
 		if a.RouteServerID != routeServerID {
 			continue
 		}
@@ -450,21 +448,20 @@ func (b *InMemoryBackend) EnableRouteServerPropagation(
 	b.mu.Lock("EnableRouteServerPropagation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.routeServers[routeServerID]; !ok {
+	if _, ok := b.routeServers.Get(routeServerID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerNotFound, routeServerID)
 	}
 
-	if _, ok := b.routeTables[routeTableID]; !ok {
+	if _, ok := b.routeTables.Get(routeTableID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteTableNotFound, routeTableID)
 	}
 
-	key := routeServerID + "/" + routeTableID
 	prop := &RouteServerPropagation{
 		RouteServerID: routeServerID,
 		RouteTableID:  routeTableID,
 		State:         propagationStateEnabled,
 	}
-	b.routeServerPropagations[key] = prop
+	b.routeServerPropagations.Put(prop)
 
 	cp := *prop
 
@@ -479,15 +476,14 @@ func (b *InMemoryBackend) DisableRouteServerPropagation(
 	defer b.mu.Unlock()
 
 	key := routeServerID + "/" + routeTableID
-
-	prop, ok := b.routeServerPropagations[key]
+	prop, ok := b.routeServerPropagations.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s/%s", ErrRouteServerPropagationNotFound, routeServerID, routeTableID)
 	}
 
 	cp := *prop
 	cp.State = "disabling"
-	delete(b.routeServerPropagations, key)
+	b.routeServerPropagations.Delete(key)
 
 	return &cp, nil
 }
@@ -499,7 +495,7 @@ func (b *InMemoryBackend) GetRouteServerPropagations(routeServerID string) []*Ro
 
 	var result []*RouteServerPropagation
 
-	for _, p := range b.routeServerPropagations {
+	for _, p := range b.routeServerPropagations.All() {
 		if p.RouteServerID != routeServerID {
 			continue
 		}
@@ -522,7 +518,7 @@ func (b *InMemoryBackend) GetRouteServerRoutingDatabase(routeServerID string) ([
 	b.mu.RLock("GetRouteServerRoutingDatabase")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.routeServers[routeServerID]; !ok {
+	if _, ok := b.routeServers.Get(routeServerID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRouteServerNotFound, routeServerID)
 	}
 

@@ -28,7 +28,7 @@ func (b *InMemoryBackend) ReplaceNetworkACLEntry(
 	b.mu.Lock("ReplaceNetworkACLEntry")
 	defer b.mu.Unlock()
 
-	acl, ok := b.networkACLs[aclID]
+	acl, ok := b.networkACLs.Get(aclID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
 	}
@@ -71,16 +71,16 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 	b.mu.Lock("ReplaceNetworkACLAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkACLs[aclID]; !ok {
+	if _, ok := b.networkACLs.Get(aclID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
 	}
 
-	if _, ok := b.subnets[subnetID]; !ok {
+	if _, ok := b.subnets.Get(subnetID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
 	// Remove subnetID from any existing ACL.
-	for _, existing := range b.networkACLs {
+	for _, existing := range b.networkACLs.All() {
 		for i, assoc := range existing.AssociationIDs {
 			if assoc == subnetID {
 				existing.AssociationIDs = append(
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) ReplaceNetworkACLAssociation(aclID, subnetID string) (
 		}
 	}
 
-	target := b.networkACLs[aclID]
+	target, _ := b.networkACLs.Get(aclID)
 	target.AssociationIDs = append(target.AssociationIDs, subnetID)
 	newAssocID := "aclassoc-" + uuid.New().String()[:8]
 
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) ExportKeyPair(name string) (string, error) {
 	b.mu.RLock("ExportKeyPair")
 	defer b.mu.RUnlock()
 
-	kp, ok := b.keyPairs[name]
+	kp, ok := b.keyPairs.Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", errR3KeyPairNotFound, name)
 	}
@@ -197,7 +197,7 @@ func (b *InMemoryBackend) CreateVpcPeeringConnection(
 	b.mu.Lock("CreateVpcPeeringConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[requesterVPCID]; !ok {
+	if _, ok := b.vpcs.Get(requesterVPCID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, requesterVPCID)
 	}
 
@@ -207,7 +207,7 @@ func (b *InMemoryBackend) CreateVpcPeeringConnection(
 		AccepterVpcID:          accepterVPCID,
 		State:                  "pending-acceptance",
 	}
-	b.vpcPeeringConnections[pc.VpcPeeringConnectionID] = pc
+	b.vpcPeeringConnections.Put(pc)
 
 	cp := *pc
 
@@ -223,11 +223,10 @@ func (b *InMemoryBackend) DeleteVpcPeeringConnection(id string) error {
 	b.mu.Lock("DeleteVpcPeeringConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcPeeringConnections[id]; !ok {
+	if _, ok := b.vpcPeeringConnections.Get(id); !ok {
 		return fmt.Errorf("%w: peering connection %s not found", ErrInvalidParameter, id)
 	}
-
-	delete(b.vpcPeeringConnections, id)
+	b.vpcPeeringConnections.Delete(id)
 
 	return nil
 }
@@ -252,9 +251,9 @@ func (b *InMemoryBackend) DescribeTransitGateways(ids []string) []*TransitGatewa
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGateway, 0, len(b.transitGateways))
+	out := make([]*TransitGateway, 0, b.transitGateways.Len())
 
-	for _, tgw := range b.transitGateways {
+	for _, tgw := range b.transitGateways.All() {
 		if len(idSet) > 0 && !idSet[tgw.ID] {
 			continue
 		}
@@ -281,7 +280,7 @@ func (b *InMemoryBackend) CreateTransitGateway(description string) (*TransitGate
 		State:       stateAvailable,
 		OwnerID:     b.AccountID,
 	}
-	b.transitGateways[tgw.ID] = tgw
+	b.transitGateways.Put(tgw)
 
 	cp := *tgw
 
@@ -297,11 +296,10 @@ func (b *InMemoryBackend) DeleteTransitGateway(id string) error {
 	b.mu.Lock("DeleteTransitGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways[id]; !ok {
+	if _, ok := b.transitGateways.Get(id); !ok {
 		return fmt.Errorf("%w: transit gateway %s not found", ErrInvalidParameter, id)
 	}
-
-	delete(b.transitGateways, id)
+	b.transitGateways.Delete(id)
 
 	return nil
 }

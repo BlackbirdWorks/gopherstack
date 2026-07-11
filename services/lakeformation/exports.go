@@ -8,7 +8,7 @@ func (b *InMemoryBackend) ResourceCount() int {
 	b.mu.RLock("ResourceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.resources)
+	return b.resources.Len()
 }
 
 // TagCount returns the number of LF-tags in the backend (test helper).
@@ -16,7 +16,7 @@ func (b *InMemoryBackend) TagCount() int {
 	b.mu.RLock("TagCount")
 	defer b.mu.RUnlock()
 
-	return len(b.lfTags)
+	return b.lfTags.Len()
 }
 
 // PermissionCount returns the number of permission entries in the backend (test helper).
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) DataCellsFilterCount() int {
 	b.mu.RLock("DataCellsFilterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.dataCellsFilters)
+	return b.dataCellsFilters.Len()
 }
 
 // LFTagExpressionCount returns the number of LF-tag expressions in the backend (test helper).
@@ -40,7 +40,7 @@ func (b *InMemoryBackend) LFTagExpressionCount() int {
 	b.mu.RLock("LFTagExpressionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.lfTagExpressions)
+	return b.lfTagExpressions.Len()
 }
 
 // OptInCount returns the number of opt-in entries in the backend (test helper).
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) TransactionCount() int {
 	b.mu.RLock("TransactionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.transactions)
+	return b.transactions.Len()
 }
 
 // HandlerOpsLen returns the number of cached dispatch operations in the handler (test helper).
@@ -77,5 +77,5 @@ func (b *InMemoryBackend) IdentityCenterConfigCount() int {
 	b.mu.RLock("IdentityCenterConfigCount")
 	defer b.mu.RUnlock()
 
-	return len(b.identityCenterConfigs)
+	return b.identityCenterConfigs.Len()
 }

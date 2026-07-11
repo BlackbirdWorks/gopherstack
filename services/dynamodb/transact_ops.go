@@ -458,15 +458,15 @@ func (db *InMemoryDB) lockTablesWrite(
 	tables := make(map[string]*Table, len(tableNames))
 
 	db.mu.RLock("TransactWriteItems")
-	regionTables, exists := db.Tables[region]
-	if !exists {
+
+	if len(db.tablesByRegion.Get(region)) == 0 {
 		db.mu.RUnlock()
 
 		return nil, NewResourceNotFoundException("Table not found in region " + region)
 	}
 
 	for _, name := range tableNames {
-		t, ok := regionTables[name]
+		t, ok := db.tables.Get(tableKey(region, name))
 		if !ok {
 			db.mu.RUnlock()
 
@@ -491,15 +491,15 @@ func (db *InMemoryDB) lockTablesRead(
 	tables := make(map[string]*Table, len(tableNames))
 
 	db.mu.RLock("TransactGetItems")
-	regionTables, exists := db.Tables[region]
-	if !exists {
+
+	if len(db.tablesByRegion.Get(region)) == 0 {
 		db.mu.RUnlock()
 
 		return nil, NewResourceNotFoundException("Table not found in region " + region)
 	}
 
 	for _, name := range tableNames {
-		t, ok := regionTables[name]
+		t, ok := db.tables.Get(tableKey(region, name))
 		if !ok {
 			db.mu.RUnlock()
 

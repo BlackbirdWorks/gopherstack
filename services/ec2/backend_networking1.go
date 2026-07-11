@@ -80,7 +80,7 @@ func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
 	b.mu.Lock("CreateTransitGatewayVpcAttachment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways[tgwID]; !ok {
+	if _, ok := b.transitGateways.Get(tgwID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, tgwID)
 	}
 
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) CreateTransitGatewayVpcAttachment(
 		State:                      stateAvailable,
 		CreationTime:               time.Now().UTC(),
 	}
-	b.tgwVpcAttachments[att.TransitGatewayAttachmentID] = att
+	b.tgwVpcAttachments.Put(att)
 
 	cp := *att
 
@@ -110,9 +110,9 @@ func (b *InMemoryBackend) DescribeTransitGatewayVpcAttachments(
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGatewayVpcAttachment, 0, len(b.tgwVpcAttachments))
+	out := make([]*TransitGatewayVpcAttachment, 0, b.tgwVpcAttachments.Len())
 
-	for _, att := range b.tgwVpcAttachments {
+	for _, att := range b.tgwVpcAttachments.All() {
 		if len(idSet) > 0 && !idSet[att.TransitGatewayAttachmentID] {
 			continue
 		}
@@ -137,11 +137,10 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 	b.mu.Lock("DeleteTransitGatewayVpcAttachment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwVpcAttachments[id]; !ok {
+	if _, ok := b.tgwVpcAttachments.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWAttachmentNotFound, id)
 	}
-
-	delete(b.tgwVpcAttachments, id)
+	b.tgwVpcAttachments.Delete(id)
 
 	return nil
 }
@@ -155,7 +154,7 @@ func (b *InMemoryBackend) ModifyTransitGatewayAttribute(id, description string) 
 	b.mu.Lock("ModifyTransitGatewayAttribute")
 	defer b.mu.Unlock()
 
-	tgw, ok := b.transitGateways[id]
+	tgw, ok := b.transitGateways.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, id)
 	}
@@ -201,7 +200,7 @@ func (b *InMemoryBackend) CreateFlowLogs(
 			FlowLogStatus:      "ACTIVE",
 			CreationTime:       time.Now().UTC(),
 		}
-		b.flowLogs[fl.FlowLogID] = fl
+		b.flowLogs.Put(fl)
 
 		cp := *fl
 		out = append(out, &cp)
@@ -220,9 +219,9 @@ func (b *InMemoryBackend) DescribeFlowLogs(ids []string) []*FlowLog {
 		idSet[id] = true
 	}
 
-	out := make([]*FlowLog, 0, len(b.flowLogs))
+	out := make([]*FlowLog, 0, b.flowLogs.Len())
 
-	for _, fl := range b.flowLogs {
+	for _, fl := range b.flowLogs.All() {
 		if len(idSet) > 0 && !idSet[fl.FlowLogID] {
 			continue
 		}
@@ -248,13 +247,13 @@ func (b *InMemoryBackend) DeleteFlowLogs(ids []string) error {
 	defer b.mu.Unlock()
 
 	for _, id := range ids {
-		if _, ok := b.flowLogs[id]; !ok {
+		if _, ok := b.flowLogs.Get(id); !ok {
 			return fmt.Errorf("%w: %s", ErrFlowLogNotFound, id)
 		}
 	}
 
 	for _, id := range ids {
-		delete(b.flowLogs, id)
+		b.flowLogs.Delete(id)
 	}
 
 	return nil
@@ -272,7 +271,7 @@ func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration) (*DhcpO
 		Configurations:   configs,
 		AssociatedVPCIDs: []string{},
 	}
-	b.dhcpOptionSets[opts.DhcpOptionsID] = opts
+	b.dhcpOptionSets.Put(opts)
 
 	cp := *opts
 
@@ -289,9 +288,9 @@ func (b *InMemoryBackend) DescribeDhcpOptions(ids []string) []*DhcpOptions {
 		idSet[id] = true
 	}
 
-	out := make([]*DhcpOptions, 0, len(b.dhcpOptionSets))
+	out := make([]*DhcpOptions, 0, b.dhcpOptionSets.Len())
 
-	for _, opts := range b.dhcpOptionSets {
+	for _, opts := range b.dhcpOptionSets.All() {
 		if len(idSet) > 0 && !idSet[opts.DhcpOptionsID] {
 			continue
 		}
@@ -316,7 +315,7 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 	b.mu.Lock("AssociateDhcpOptions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -325,7 +324,7 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 		return nil
 	}
 
-	opts, ok := b.dhcpOptionSets[dhcpOptionsID]
+	opts, ok := b.dhcpOptionSets.Get(dhcpOptionsID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrDhcpOptionsNotFound, dhcpOptionsID)
 	}
@@ -346,11 +345,10 @@ func (b *InMemoryBackend) DeleteDhcpOptions(id string) error {
 	b.mu.Lock("DeleteDhcpOptions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dhcpOptionSets[id]; !ok {
+	if _, ok := b.dhcpOptionSets.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrDhcpOptionsNotFound, id)
 	}
-
-	delete(b.dhcpOptionSets, id)
+	b.dhcpOptionSets.Delete(id)
 
 	return nil
 }
@@ -369,7 +367,7 @@ func (b *InMemoryBackend) ModifyLaunchTemplate(
 	b.mu.Lock("ModifyLaunchTemplate")
 	defer b.mu.Unlock()
 
-	lt, ok := b.launchTemplates[id]
+	lt, ok := b.launchTemplates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
@@ -394,7 +392,7 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 	b.mu.Lock("CreateLaunchTemplateVersion")
 	defer b.mu.Unlock()
 
-	lt, ok := b.launchTemplates[id]
+	lt, ok := b.launchTemplates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
@@ -435,7 +433,7 @@ func (b *InMemoryBackend) DeleteLaunchTemplateVersions(
 	b.mu.Lock("DeleteLaunchTemplateVersions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.launchTemplates[id]; !ok {
+	if _, ok := b.launchTemplates.Get(id); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
 
@@ -454,7 +452,7 @@ func (b *InMemoryBackend) GetLaunchTemplateData(instanceID string) (*LaunchTempl
 	b.mu.RLock("GetLaunchTemplateData")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}

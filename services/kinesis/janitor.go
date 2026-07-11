@@ -76,12 +76,7 @@ func (j *Janitor) sweepRetention(ctx context.Context) {
 	totalTrimmed := 0
 
 	j.Backend.mu.RLock("KinesisJanitor")
-	var streamsToSweep []*Stream
-	for _, regionStreams := range j.Backend.streams {
-		for _, stream := range regionStreams {
-			streamsToSweep = append(streamsToSweep, stream)
-		}
-	}
+	streamsToSweep := j.Backend.streams.All()
 	j.Backend.mu.RUnlock()
 
 	for _, stream := range streamsToSweep {

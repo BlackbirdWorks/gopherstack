@@ -3,7 +3,6 @@ package quicksight
 import (
 	"maps"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -63,7 +62,7 @@ func (b *InMemoryBackend) CreateActionConnector(
 	defer b.mu.Unlock()
 
 	key := actionConnectorKey(accountID, actionConnectorID)
-	if _, exists := b.actionConnectors[key]; exists {
+	if b.actionConnectors.Has(key) {
 		return nil, ErrActionConnectorAlreadyExists
 	}
 
@@ -82,7 +81,7 @@ func (b *InMemoryBackend) CreateActionConnector(
 		Status:               statusCreationSuccessful,
 		Permissions:          clonePermissions(permissions),
 	}
-	b.actionConnectors[key] = a
+	b.actionConnectors.Put(a)
 
 	if len(tags) > 0 {
 		b.tags[arn] = maps.Clone(tags)
@@ -95,7 +94,7 @@ func (b *InMemoryBackend) DescribeActionConnector(accountID, actionConnectorID s
 	b.mu.RLock("DescribeActionConnector")
 	defer b.mu.RUnlock()
 
-	a, ok := b.actionConnectors[actionConnectorKey(accountID, actionConnectorID)]
+	a, ok := b.actionConnectors.Get(actionConnectorKey(accountID, actionConnectorID))
 	if !ok {
 		return nil, ErrActionConnectorNotFound
 	}
@@ -111,7 +110,7 @@ func (b *InMemoryBackend) UpdateActionConnector(
 	defer b.mu.Unlock()
 
 	key := actionConnectorKey(accountID, actionConnectorID)
-	a, ok := b.actionConnectors[key]
+	a, ok := b.actionConnectors.Get(key)
 	if !ok {
 		return nil, ErrActionConnectorNotFound
 	}
@@ -139,32 +138,26 @@ func (b *InMemoryBackend) DeleteActionConnector(accountID, actionConnectorID str
 	defer b.mu.Unlock()
 
 	key := actionConnectorKey(accountID, actionConnectorID)
-	a, ok := b.actionConnectors[key]
+	a, ok := b.actionConnectors.Get(key)
 	if !ok {
 		return nil, ErrActionConnectorNotFound
 	}
 
 	delete(b.tags, a.Arn)
-	delete(b.actionConnectors, key)
+	b.actionConnectors.Delete(key)
 
 	return a.toActionConnector(), nil
 }
 
 func (b *InMemoryBackend) ListActionConnectors(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*ActionConnector, string, error) {
 	b.mu.RLock("ListActionConnectors")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	var all []*storedActionConnector
-	for k, a := range b.actionConnectors {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, a)
-		}
-	}
+	all := b.actionConnectors.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].ActionConnectorID < all[j].ActionConnectorID })
 
 	result, next := paginateActionConnectors(all, maxResults, nextToken)
@@ -173,7 +166,7 @@ func (b *InMemoryBackend) ListActionConnectors(
 }
 
 func (b *InMemoryBackend) SearchActionConnectors(
-	accountID string,
+	_ string,
 	filters []SearchFilter,
 	maxResults int32,
 	nextToken string,
@@ -181,10 +174,9 @@ func (b *InMemoryBackend) SearchActionConnectors(
 	b.mu.RLock("SearchActionConnectors")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
 	var filtered []*storedActionConnector
-	for k, a := range b.actionConnectors {
-		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(a.Name, filters, filterActionConnectorName) {
+	for _, a := range b.actionConnectors.All() {
+		if matchesAllNameFilters(a.Name, filters, filterActionConnectorName) {
 			filtered = append(filtered, a)
 		}
 	}
@@ -239,7 +231,7 @@ func (b *InMemoryBackend) DescribeActionConnectorPermissions(
 	b.mu.RLock("DescribeActionConnectorPermissions")
 	defer b.mu.RUnlock()
 
-	a, ok := b.actionConnectors[actionConnectorKey(accountID, actionConnectorID)]
+	a, ok := b.actionConnectors.Get(actionConnectorKey(accountID, actionConnectorID))
 	if !ok {
 		return nil, nil, ErrActionConnectorNotFound
 	}
@@ -255,7 +247,7 @@ func (b *InMemoryBackend) UpdateActionConnectorPermissions(
 	defer b.mu.Unlock()
 
 	key := actionConnectorKey(accountID, actionConnectorID)
-	a, ok := b.actionConnectors[key]
+	a, ok := b.actionConnectors.Get(key)
 	if !ok {
 		return nil, nil, ErrActionConnectorNotFound
 	}

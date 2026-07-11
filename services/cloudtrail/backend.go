@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -230,21 +231,22 @@ type InsightSelector struct {
 
 // InMemoryBackend is the in-memory store for CloudTrail resources.
 type InMemoryBackend struct {
-	edsByARN         map[string]string
-	dashboardsByName map[string]string
-	trailsByARN      map[string]string
-	channels         map[string]*Channel
-	channelsByARN    map[string]string
-	channelsByName   map[string]string
-	dashboards       map[string]*Dashboard
-	queries          map[string]*Query
-	edsByName        map[string]string
-	eventDataStores  map[string]*EventDataStore
-	trails           map[string]*Trail
+	edsByARN         *store.Index[EventDataStore]
+	dashboardsByName *store.Index[Dashboard]
+	trailsByARN      *store.Index[Trail]
+	channels         *store.Table[Channel]
+	channelsByARN    *store.Index[Channel]
+	channelsByName   *store.Index[Channel]
+	dashboards       *store.Table[Dashboard]
+	queries          *store.Table[Query]
+	edsByName        *store.Index[EventDataStore]
+	eventDataStores  *store.Table[EventDataStore]
+	trails           *store.Table[Trail]
 	mu               *lockmetrics.RWMutex
-	dashboardsByARN  map[string]string
-	resourcePolicies map[string]*ResourcePolicy
-	imports          map[string]*Import
+	dashboardsByARN  *store.Index[Dashboard]
+	resourcePolicies *store.Table[ResourcePolicy]
+	imports          *store.Table[Import]
+	registry         *store.Registry
 	accountID        string
 	region           string
 	events           []Event
@@ -257,25 +259,16 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory CloudTrail backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		trails:           make(map[string]*Trail),
-		trailsByARN:      make(map[string]string),
-		channels:         make(map[string]*Channel),
-		channelsByARN:    make(map[string]string),
-		channelsByName:   make(map[string]string),
-		dashboards:       make(map[string]*Dashboard),
-		dashboardsByARN:  make(map[string]string),
-		dashboardsByName: make(map[string]string),
-		eventDataStores:  make(map[string]*EventDataStore),
-		edsByARN:         make(map[string]string),
-		edsByName:        make(map[string]string),
-		queries:          make(map[string]*Query),
-		resourcePolicies: make(map[string]*ResourcePolicy),
-		imports:          make(map[string]*Import),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("cloudtrail"),
+	b := &InMemoryBackend{
+		accountID: accountID,
+		region:    region,
+		mu:        lockmetrics.New("cloudtrail"),
+		registry:  store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all state in the backend.
@@ -283,33 +276,20 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, t := range b.trails {
+	for _, t := range b.trails.All() {
 		t.Tags.Close()
 	}
-	for _, ch := range b.channels {
+	for _, ch := range b.channels.All() {
 		ch.Tags.Close()
 	}
-	for _, d := range b.dashboards {
+	for _, d := range b.dashboards.All() {
 		d.Tags.Close()
 	}
-	for _, eds := range b.eventDataStores {
+	for _, eds := range b.eventDataStores.All() {
 		eds.Tags.Close()
 	}
 
-	b.trails = make(map[string]*Trail)
-	b.trailsByARN = make(map[string]string)
-	b.channels = make(map[string]*Channel)
-	b.channelsByARN = make(map[string]string)
-	b.channelsByName = make(map[string]string)
-	b.dashboards = make(map[string]*Dashboard)
-	b.dashboardsByARN = make(map[string]string)
-	b.dashboardsByName = make(map[string]string)
-	b.eventDataStores = make(map[string]*EventDataStore)
-	b.edsByARN = make(map[string]string)
-	b.edsByName = make(map[string]string)
-	b.queries = make(map[string]*Query)
-	b.resourcePolicies = make(map[string]*ResourcePolicy)
-	b.imports = make(map[string]*Import)
+	b.registry.ResetAll()
 	b.events = nil
 	b.channelCounter = 0
 	b.dashboardCounter = 0
@@ -331,7 +311,7 @@ func (b *InMemoryBackend) CreateTrail(
 	b.mu.Lock("CreateTrail")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trails[name]; ok {
+	if b.trails.Has(name) {
 		return nil, fmt.Errorf("%w: trail %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -364,8 +344,7 @@ func (b *InMemoryBackend) CreateTrail(
 		CreationTime:               time.Now().UTC(),
 		Tags:                       t,
 	}
-	b.trails[name] = trail
-	b.trailsByARN[trailARN] = name
+	b.trails.Put(trail)
 	cp := *trail
 
 	return &cp, nil
@@ -381,22 +360,15 @@ func (b *InMemoryBackend) GetTrail(nameOrARN string) (*Trail, error) {
 
 // findTrailLocked looks up a trail by name or ARN (must hold at least a read lock).
 func (b *InMemoryBackend) findTrailLocked(nameOrARN string) (*Trail, error) {
-	if t, ok := b.trails[nameOrARN]; ok {
-		cp := *t
-		cp.EventSelectors = copyEventSelectors(t.EventSelectors)
-
-		return &cp, nil
-	}
-	if name, ok := b.trailsByARN[nameOrARN]; ok {
-		if t, found := b.trails[name]; found {
-			cp := *t
-			cp.EventSelectors = copyEventSelectors(t.EventSelectors)
-
-			return &cp, nil
-		}
+	t := b.findByNameOrARNLocked(nameOrARN)
+	if t == nil {
+		return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
 
-	return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
+	cp := *t
+	cp.EventSelectors = copyEventSelectors(t.EventSelectors)
+
+	return &cp, nil
 }
 
 // DescribeTrails returns trails matching the given name list.
@@ -406,8 +378,9 @@ func (b *InMemoryBackend) DescribeTrails(nameList []string) []*Trail {
 	defer b.mu.RUnlock()
 
 	if len(nameList) == 0 {
-		list := make([]*Trail, 0, len(b.trails))
-		for _, t := range b.trails {
+		all := b.trails.All()
+		list := make([]*Trail, 0, len(all))
+		for _, t := range all {
 			cp := *t
 			cp.EventSelectors = copyEventSelectors(t.EventSelectors)
 			list = append(list, &cp)
@@ -437,15 +410,8 @@ func (b *InMemoryBackend) UpdateTrail(
 	b.mu.Lock("UpdateTrail")
 	defer b.mu.Unlock()
 
-	t, ok := b.trails[name]
-	if !ok {
-		if trailName, found := b.trailsByARN[name]; found {
-			t = b.trails[trailName]
-			ok = t != nil
-		}
-	}
-
-	if !ok || t == nil {
+	t := b.findByNameOrARNLocked(name)
+	if t == nil {
 		return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, name)
 	}
 
@@ -489,24 +455,15 @@ func (b *InMemoryBackend) DeleteTrail(nameOrARN string) error {
 	b.mu.Lock("DeleteTrail")
 	defer b.mu.Unlock()
 
-	if t, ok := b.trails[nameOrARN]; ok {
-		t.Tags.Close()
-		delete(b.trailsByARN, t.TrailARN)
-		delete(b.trails, nameOrARN)
-
-		return nil
-	}
-	if name, ok := b.trailsByARN[nameOrARN]; ok {
-		if t, exists := b.trails[name]; exists {
-			t.Tags.Close()
-		}
-		delete(b.trailsByARN, nameOrARN)
-		delete(b.trails, name)
-
-		return nil
+	t := b.findByNameOrARNLocked(nameOrARN)
+	if t == nil {
+		return fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
 	}
 
-	return fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
+	t.Tags.Close()
+	b.trails.Delete(t.Name)
+
+	return nil
 }
 
 // StartLogging sets the isLogging flag for a trail to true and records the start time.
@@ -654,27 +611,15 @@ func (b *InMemoryBackend) findResourceTagsLocked(resourceID string) (*tags.Tags,
 		return t.Tags, nil
 	}
 
-	id := resourceID
-	if mapped, ok := b.channelsByARN[resourceID]; ok {
-		id = mapped
-	}
-	if ch, ok := b.channels[id]; ok {
+	if ch := b.findChannelLocked(resourceID); ch != nil {
 		return ch.Tags, nil
 	}
 
-	id = resourceID
-	if mapped, ok := b.dashboardsByARN[resourceID]; ok {
-		id = mapped
-	}
-	if d, ok := b.dashboards[id]; ok {
+	if d := b.findDashboardLocked(resourceID); d != nil {
 		return d.Tags, nil
 	}
 
-	id = resourceID
-	if mapped, ok := b.edsByARN[resourceID]; ok {
-		id = mapped
-	}
-	if eds, ok := b.eventDataStores[id]; ok {
+	if eds := b.findEventDataStoreLocked(resourceID); eds != nil {
 		return eds.Tags, nil
 	}
 
@@ -686,8 +631,9 @@ func (b *InMemoryBackend) ListTrails() []*Trail {
 	b.mu.RLock("ListTrails")
 	defer b.mu.RUnlock()
 
-	list := make([]*Trail, 0, len(b.trails))
-	for _, t := range b.trails {
+	all := b.trails.All()
+	list := make([]*Trail, 0, len(all))
+	for _, t := range all {
 		cp := *t
 		cp.EventSelectors = copyEventSelectors(t.EventSelectors)
 		list = append(list, &cp)
@@ -699,11 +645,47 @@ func (b *InMemoryBackend) ListTrails() []*Trail {
 
 // findByNameOrARNLocked looks up a trail by name or ARN without locking.
 func (b *InMemoryBackend) findByNameOrARNLocked(nameOrARN string) *Trail {
-	if t, ok := b.trails[nameOrARN]; ok {
+	if t, ok := b.trails.Get(nameOrARN); ok {
 		return t
 	}
-	if name, ok := b.trailsByARN[nameOrARN]; ok {
-		return b.trails[name]
+	if matches := b.trailsByARN.Get(nameOrARN); len(matches) > 0 {
+		return matches[0]
+	}
+
+	return nil
+}
+
+// findChannelLocked looks up a channel by ID or ARN without locking.
+func (b *InMemoryBackend) findChannelLocked(idOrARN string) *Channel {
+	if ch, ok := b.channels.Get(idOrARN); ok {
+		return ch
+	}
+	if matches := b.channelsByARN.Get(idOrARN); len(matches) > 0 {
+		return matches[0]
+	}
+
+	return nil
+}
+
+// findDashboardLocked looks up a dashboard by ID or ARN without locking.
+func (b *InMemoryBackend) findDashboardLocked(idOrARN string) *Dashboard {
+	if d, ok := b.dashboards.Get(idOrARN); ok {
+		return d
+	}
+	if matches := b.dashboardsByARN.Get(idOrARN); len(matches) > 0 {
+		return matches[0]
+	}
+
+	return nil
+}
+
+// findEventDataStoreLocked looks up an event data store by ID or ARN without locking.
+func (b *InMemoryBackend) findEventDataStoreLocked(idOrARN string) *EventDataStore {
+	if eds, ok := b.eventDataStores.Get(idOrARN); ok {
+		return eds
+	}
+	if matches := b.edsByARN.Get(idOrARN); len(matches) > 0 {
+		return matches[0]
 	}
 
 	return nil
@@ -773,7 +755,7 @@ func (b *InMemoryBackend) CreateChannel(
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
-	if _, exists := b.channelsByName[name]; exists {
+	if matches := b.channelsByName.Get(name); len(matches) > 0 {
 		return nil, fmt.Errorf("%w: channel %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -792,9 +774,7 @@ func (b *InMemoryBackend) CreateChannel(
 		Destinations: destinations,
 		Tags:         t,
 	}
-	b.channels[id] = ch
-	b.channelsByARN[channelARN] = id
-	b.channelsByName[name] = id
+	b.channels.Put(ch)
 
 	cp := *ch
 
@@ -806,18 +786,13 @@ func (b *InMemoryBackend) DeleteChannel(channelIDOrARN string) error {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	id := channelIDOrARN
-	if mapped, ok := b.channelsByARN[channelIDOrARN]; ok {
-		id = mapped
-	}
-	ch, ok := b.channels[id]
-	if !ok {
+	ch := b.findChannelLocked(channelIDOrARN)
+	if ch == nil {
 		return fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
 	}
-	delete(b.channelsByARN, ch.ChannelARN)
-	delete(b.channelsByName, ch.Name)
+
 	ch.Tags.Close()
-	delete(b.channels, id)
+	b.channels.Delete(ch.ChannelID)
 
 	return nil
 }
@@ -830,7 +805,7 @@ func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]s
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
-	if _, exists := b.dashboardsByName[name]; exists {
+	if matches := b.dashboardsByName.Get(name); len(matches) > 0 {
 		return nil, fmt.Errorf("%w: dashboard %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -849,9 +824,7 @@ func (b *InMemoryBackend) CreateDashboard(name, dashType string, kv map[string]s
 		Status:       "CREATED",
 		Tags:         t,
 	}
-	b.dashboards[id] = d
-	b.dashboardsByARN[dashARN] = id
-	b.dashboardsByName[name] = id
+	b.dashboards.Put(d)
 
 	cp := *d
 
@@ -863,18 +836,13 @@ func (b *InMemoryBackend) DeleteDashboard(dashboardIDOrARN string) error {
 	b.mu.Lock("DeleteDashboard")
 	defer b.mu.Unlock()
 
-	id := dashboardIDOrARN
-	if mapped, ok := b.dashboardsByARN[dashboardIDOrARN]; ok {
-		id = mapped
-	}
-	d, ok := b.dashboards[id]
-	if !ok {
+	d := b.findDashboardLocked(dashboardIDOrARN)
+	if d == nil {
 		return fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashboardIDOrARN)
 	}
-	delete(b.dashboardsByARN, d.DashboardARN)
-	delete(b.dashboardsByName, d.Name)
+
 	d.Tags.Close()
-	delete(b.dashboards, id)
+	b.dashboards.Delete(d.DashboardID)
 
 	return nil
 }
@@ -894,7 +862,7 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
-	if _, exists := b.edsByName[name]; exists {
+	if matches := b.edsByName.Get(name); len(matches) > 0 {
 		return nil, fmt.Errorf("%w: event data store %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -929,9 +897,7 @@ func (b *InMemoryBackend) CreateEventDataStore(
 		UpdatedTimestamp:       now,
 		Tags:                   t,
 	}
-	b.eventDataStores[id] = eds
-	b.edsByARN[edsARN] = id
-	b.edsByName[name] = id
+	b.eventDataStores.Put(eds)
 
 	cp := *eds
 	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(eds.AdvancedEventSelectors)
@@ -945,12 +911,8 @@ func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
 	b.mu.Lock("DeleteEventDataStore")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	if eds.TerminationProtected {
@@ -960,10 +922,9 @@ func (b *InMemoryBackend) DeleteEventDataStore(edsIDOrARN string) error {
 			edsIDOrARN,
 		)
 	}
-	delete(b.edsByARN, eds.EventDataStoreARN)
-	delete(b.edsByName, eds.Name)
+
 	eds.Tags.Close()
-	delete(b.eventDataStores, id)
+	b.eventDataStores.Delete(eds.EventDataStoreID)
 
 	return nil
 }
@@ -973,10 +934,9 @@ func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourcePolicies[resourceARN]; !ok {
+	if !b.resourcePolicies.Delete(resourceARN) {
 		return fmt.Errorf("%w: resource policy for %s not found", ErrNotFound, resourceARN)
 	}
-	delete(b.resourcePolicies, resourceARN)
 
 	return nil
 }
@@ -1010,7 +970,7 @@ func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI string) 
 		DeliveryS3URI:     deliveryS3URI,
 		CreationTime:      time.Now().UTC(),
 	}
-	b.queries[qid] = q
+	b.queries.Put(q)
 
 	cp := *q
 
@@ -1026,7 +986,7 @@ func (b *InMemoryBackend) CancelQuery(queryID string) (*Query, error) {
 		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
 	}
 
-	q, ok := b.queries[queryID]
+	q, ok := b.queries.Get(queryID)
 	if !ok {
 		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
@@ -1048,7 +1008,7 @@ func (b *InMemoryBackend) DescribeQuery(queryID string) (*Query, error) {
 		return nil, fmt.Errorf("%w: QueryId is required", ErrValidation)
 	}
 
-	q, ok := b.queries[queryID]
+	q, ok := b.queries.Get(queryID)
 	if !ok {
 		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
@@ -1062,12 +1022,8 @@ func (b *InMemoryBackend) GetEventDataStore(edsIDOrARN string) (*EventDataStore,
 	b.mu.RLock("GetEventDataStore")
 	defer b.mu.RUnlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	cp := *eds
@@ -1087,18 +1043,17 @@ func (b *InMemoryBackend) UpdateEventDataStore(
 	b.mu.Lock("UpdateEventDataStore")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	if name != "" && name != eds.Name {
-		delete(b.edsByName, eds.Name)
+		// eds.Name is an indexed field (edsByName): delete before mutating so
+		// the old index entry is removed using the pre-mutation value, then
+		// re-Put to rebuild every index (byARN, byName) under the new state.
+		b.eventDataStores.Delete(eds.EventDataStoreID)
 		eds.Name = name
-		b.edsByName[name] = id
+		b.eventDataStores.Put(eds)
 	}
 	if multiRegionEnabled != nil {
 		eds.MultiRegionEnabled = *multiRegionEnabled
@@ -1133,8 +1088,9 @@ func (b *InMemoryBackend) ListEventDataStores() []*EventDataStore {
 	b.mu.RLock("ListEventDataStores")
 	defer b.mu.RUnlock()
 
-	list := make([]*EventDataStore, 0, len(b.eventDataStores))
-	for _, eds := range b.eventDataStores {
+	all := b.eventDataStores.All()
+	list := make([]*EventDataStore, 0, len(all))
+	for _, eds := range all {
 		cp := *eds
 		list = append(list, &cp)
 	}
@@ -1148,12 +1104,8 @@ func (b *InMemoryBackend) RestoreEventDataStore(edsIDOrARN string) (*EventDataSt
 	b.mu.Lock("RestoreEventDataStore")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	eds.Status = statusEnabled
@@ -1168,12 +1120,8 @@ func (b *InMemoryBackend) StartEventDataStoreIngestion(edsIDOrARN string) error 
 	b.mu.Lock("StartEventDataStoreIngestion")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	eds.Status = statusEnabled
@@ -1187,12 +1135,8 @@ func (b *InMemoryBackend) StopEventDataStoreIngestion(edsIDOrARN string) error {
 	b.mu.Lock("StopEventDataStoreIngestion")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	eds.Status = "STOPPED_INGESTION"
@@ -1206,12 +1150,8 @@ func (b *InMemoryBackend) GetChannel(channelIDOrARN string) (*Channel, error) {
 	b.mu.RLock("GetChannel")
 	defer b.mu.RUnlock()
 
-	id := channelIDOrARN
-	if mapped, ok := b.channelsByARN[channelIDOrARN]; ok {
-		id = mapped
-	}
-	ch, ok := b.channels[id]
-	if !ok {
+	ch := b.findChannelLocked(channelIDOrARN)
+	if ch == nil {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
 	}
 	cp := *ch
@@ -1224,12 +1164,8 @@ func (b *InMemoryBackend) UpdateChannel(channelIDOrARN string, destinations []De
 	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
-	id := channelIDOrARN
-	if mapped, ok := b.channelsByARN[channelIDOrARN]; ok {
-		id = mapped
-	}
-	ch, ok := b.channels[id]
-	if !ok {
+	ch := b.findChannelLocked(channelIDOrARN)
+	if ch == nil {
 		return nil, fmt.Errorf("%w: channel %s not found", ErrChannelNotFound, channelIDOrARN)
 	}
 	if destinations != nil {
@@ -1245,8 +1181,9 @@ func (b *InMemoryBackend) ListChannels() []*Channel {
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	list := make([]*Channel, 0, len(b.channels))
-	for _, ch := range b.channels {
+	all := b.channels.All()
+	list := make([]*Channel, 0, len(all))
+	for _, ch := range all {
 		cp := *ch
 		list = append(list, &cp)
 	}
@@ -1260,12 +1197,8 @@ func (b *InMemoryBackend) GetDashboard(dashIDOrARN string) (*Dashboard, error) {
 	b.mu.RLock("GetDashboard")
 	defer b.mu.RUnlock()
 
-	id := dashIDOrARN
-	if mapped, ok := b.dashboardsByARN[dashIDOrARN]; ok {
-		id = mapped
-	}
-	d, ok := b.dashboards[id]
-	if !ok {
+	d := b.findDashboardLocked(dashIDOrARN)
+	if d == nil {
 		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
 	}
 	cp := *d
@@ -1278,18 +1211,17 @@ func (b *InMemoryBackend) UpdateDashboard(dashIDOrARN string, name string) (*Das
 	b.mu.Lock("UpdateDashboard")
 	defer b.mu.Unlock()
 
-	id := dashIDOrARN
-	if mapped, ok := b.dashboardsByARN[dashIDOrARN]; ok {
-		id = mapped
-	}
-	d, ok := b.dashboards[id]
-	if !ok {
+	d := b.findDashboardLocked(dashIDOrARN)
+	if d == nil {
 		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
 	}
 	if name != "" && name != d.Name {
-		delete(b.dashboardsByName, d.Name)
+		// d.Name is an indexed field (dashboardsByName): delete before mutating
+		// so the old index entry is removed using the pre-mutation value, then
+		// re-Put to rebuild every index (byARN, byName) under the new state.
+		b.dashboards.Delete(d.DashboardID)
 		d.Name = name
-		b.dashboardsByName[name] = id
+		b.dashboards.Put(d)
 	}
 	cp := *d
 
@@ -1301,8 +1233,9 @@ func (b *InMemoryBackend) ListDashboards() []*Dashboard {
 	b.mu.RLock("ListDashboards")
 	defer b.mu.RUnlock()
 
-	list := make([]*Dashboard, 0, len(b.dashboards))
-	for _, d := range b.dashboards {
+	all := b.dashboards.All()
+	list := make([]*Dashboard, 0, len(all))
+	for _, d := range all {
 		cp := *d
 		list = append(list, &cp)
 	}
@@ -1316,12 +1249,8 @@ func (b *InMemoryBackend) StartDashboardRefresh(dashIDOrARN string) (*Dashboard,
 	b.mu.Lock("StartDashboardRefresh")
 	defer b.mu.Unlock()
 
-	id := dashIDOrARN
-	if mapped, ok := b.dashboardsByARN[dashIDOrARN]; ok {
-		id = mapped
-	}
-	d, ok := b.dashboards[id]
-	if !ok {
+	d := b.findDashboardLocked(dashIDOrARN)
+	if d == nil {
 		return nil, fmt.Errorf("%w: dashboard %s not found", ErrDashboardNotFound, dashIDOrARN)
 	}
 	d.Status = "REFRESHING"
@@ -1335,7 +1264,7 @@ func (b *InMemoryBackend) GetQueryResults(queryID string) (*Query, error) {
 	b.mu.RLock("GetQueryResults")
 	defer b.mu.RUnlock()
 
-	q, ok := b.queries[queryID]
+	q, ok := b.queries.Get(queryID)
 	if !ok {
 		return nil, fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
 	}
@@ -1349,8 +1278,9 @@ func (b *InMemoryBackend) ListQueries() []*Query {
 	b.mu.RLock("ListQueries")
 	defer b.mu.RUnlock()
 
-	list := make([]*Query, 0, len(b.queries))
-	for _, q := range b.queries {
+	all := b.queries.All()
+	list := make([]*Query, 0, len(all))
+	for _, q := range all {
 		cp := *q
 		list = append(list, &cp)
 	}
@@ -1375,7 +1305,7 @@ func (b *InMemoryBackend) StartImport(destinations []string, importSource string
 		CreatedTimestamp: now,
 		UpdatedTimestamp: now,
 	}
-	b.imports[id] = imp
+	b.imports.Put(imp)
 	cp := *imp
 
 	return &cp, nil
@@ -1386,7 +1316,7 @@ func (b *InMemoryBackend) GetImport(importID string) (*Import, error) {
 	b.mu.RLock("GetImport")
 	defer b.mu.RUnlock()
 
-	imp, ok := b.imports[importID]
+	imp, ok := b.imports.Get(importID)
 	if !ok {
 		return nil, fmt.Errorf("%w: import %s not found", ErrNotFound, importID)
 	}
@@ -1400,8 +1330,9 @@ func (b *InMemoryBackend) ListImports() []*Import {
 	b.mu.RLock("ListImports")
 	defer b.mu.RUnlock()
 
-	list := make([]*Import, 0, len(b.imports))
-	for _, imp := range b.imports {
+	all := b.imports.All()
+	list := make([]*Import, 0, len(all))
+	for _, imp := range all {
 		cp := *imp
 		list = append(list, &cp)
 	}
@@ -1415,7 +1346,7 @@ func (b *InMemoryBackend) StopImport(importID string) (*Import, error) {
 	b.mu.Lock("StopImport")
 	defer b.mu.Unlock()
 
-	imp, ok := b.imports[importID]
+	imp, ok := b.imports.Get(importID)
 	if !ok {
 		return nil, fmt.Errorf("%w: import %s not found", ErrNotFound, importID)
 	}
@@ -1472,7 +1403,7 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (*ResourcePolicy
 	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
-	rp, ok := b.resourcePolicies[resourceARN]
+	rp, ok := b.resourcePolicies.Get(resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource policy for %s not found", ErrNotFound, resourceARN)
 	}
@@ -1487,7 +1418,7 @@ func (b *InMemoryBackend) PutResourcePolicy(resourceARN, policy string) *Resourc
 	defer b.mu.Unlock()
 
 	rp := &ResourcePolicy{ResourceARN: resourceARN, ResourcePolicy: policy}
-	b.resourcePolicies[resourceARN] = rp
+	b.resourcePolicies.Put(rp)
 	cp := *rp
 
 	return &cp
@@ -1507,12 +1438,8 @@ func (b *InMemoryBackend) DisableFederation(edsIDOrARN string) (*EventDataStore,
 	b.mu.Lock("DisableFederation")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	eds.FederationStatus = "DISABLED"
@@ -1528,12 +1455,8 @@ func (b *InMemoryBackend) EnableFederation(edsIDOrARN, federationRoleArn string)
 	b.mu.Lock("EnableFederation")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	eds.FederationStatus = "ENABLED"
@@ -1557,7 +1480,7 @@ func (b *InMemoryBackend) GenerateQuery(_ []string, requestedQueryMaxResults int
 		QueryStatus:  "QUEUED",
 		CreationTime: time.Now().UTC(),
 	}
-	b.queries[qid] = q
+	b.queries.Put(q)
 	cp := *q
 
 	return &cp, nil
@@ -1753,12 +1676,8 @@ func (b *InMemoryBackend) PutEDSInsightSelectors(
 	b.mu.Lock("PutEDSInsightSelectors")
 	defer b.mu.Unlock()
 
-	id := edsIDOrARN
-	if mapped, ok := b.edsByARN[edsIDOrARN]; ok {
-		id = mapped
-	}
-	eds, ok := b.eventDataStores[id]
-	if !ok {
+	eds := b.findEventDataStoreLocked(edsIDOrARN)
+	if eds == nil {
 		return nil, fmt.Errorf("%w: event data store %s not found", ErrEventDataStoreNotFound, edsIDOrARN)
 	}
 	eds.InsightSelectors = make([]InsightSelector, len(selectors))

@@ -2,7 +2,10 @@ package ecs
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -13,30 +16,54 @@ type Snapshottable interface {
 	Restore(context.Context, []byte) error
 }
 
+// ecsSnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set/shape of resources registered on b.registry -- see
+// registerAllTables in store_setup.go). It must be bumped whenever a change
+// there would make an older snapshot unsafe to decode as the current shape.
+// Restore compares this against the persisted value and discards (rather than
+// attempts to partially decode) any mismatch -- see Restore below. This
+// mirrors the ec2 (commit 12e611a4) and sqs (commit 0f09d77c) Phase 3.3
+// conversions.
+const ecsSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the ECS backend.
+//
+// Tables holds one JSON-encoded array per registry-registered store.Table
+// (clusters, services, tasks, containerInstances, taskSets, capacityProviders,
+// accountSettings, taskProtections, serviceDeployments, expressGatewayServices,
+// daemons, daemonRevisions, daemonDeployments -- see registerAllTables),
+// produced by store.Registry.SnapshotAll(). The nested cluster/service-scoped
+// resources (services, tasks, containerInstances, taskSets, daemons) are
+// stored flatly, keyed by their store.Table composite primary key, rather than
+// as nested JSON objects the way the pre-conversion map[string]map[string]*T
+// fields were -- Version guards against decoding an older snapshot (with the
+// old nested shape) as though it were this shape.
+//
+// The remaining fields are resources deliberately left as plain maps by the
+// conversion (see the exclusion list in registerAllTables' doc comment) and
+// so are still serialised directly, exactly as before.
 type backendSnapshot struct {
-	Clusters               map[string]*Cluster                      `json:"clusters"`
-	TaskDefinitions        map[string][]*TaskDefinition             `json:"taskDefinitions"`
-	Services               map[string]map[string]*Service           `json:"services"`
-	Tasks                  map[string]map[string]*Task              `json:"tasks"`
-	ContainerInstances     map[string]map[string]*ContainerInstance `json:"containerInstances"`
-	TaskSets               map[string]map[string]*TaskSet           `json:"taskSets"`
-	CapacityProviders      map[string]*CapacityProvider             `json:"capacityProviders"`
-	AccountSettings        map[string]*AccountSetting               `json:"accountSettings"`
-	Attributes             map[string]map[string]*Attribute         `json:"attributes"`
-	ServiceDeployments     map[string]*ServiceDeployment            `json:"serviceDeployments"`
-	ExpressGatewayServices map[string]*ExpressGatewayService        `json:"expressGatewayServices"`
-	TaskProtections        map[string]*TaskProtection               `json:"taskProtections"`
-	Daemons                map[string]*Daemon                       `json:"daemons"`
-	DaemonTaskDefinitions  map[string][]*DaemonTaskDefinition       `json:"daemonTaskDefinitions"`
-	DaemonDeployments      map[string]*DaemonDeployment             `json:"daemonDeployments"`
-	DaemonRevisions        map[string]*DaemonRevision               `json:"daemonRevisions"`
+	Tables                map[string]json.RawMessage         `json:"tables"`
+	TaskDefinitions       map[string][]*TaskDefinition       `json:"taskDefinitions"`
+	Attributes            map[string]map[string]*Attribute   `json:"attributes"`
+	DaemonTaskDefinitions map[string][]*DaemonTaskDefinition `json:"daemonTaskDefinitions"`
+	// ResourceTags holds tags applied via TagResource/UntagResource, keyed by
+	// resourceTagKey(resourceArn). Clusters and Services carry their tags inline
+	// on their own struct, but task definitions and daemon task definitions are
+	// tagged only through this side map (see TagResource/ListTagsForResource in
+	// backend_refinement1.go), so it must be persisted like any other resource
+	// state or tags silently vanish across a snapshot/restore cycle.
+	ResourceTags map[string][]Tag `json:"resourceTags"`
+	Version      int              `json:"version"`
 }
 
-func snapshotClusters(src map[string]*Cluster) map[string]*Cluster {
-	dst := make(map[string]*Cluster, len(src))
+// snapshotResourceTags deep-copies the TagResource side map (see the
+// backendSnapshot.ResourceTags doc comment for why this must be persisted
+// alongside the primary resource maps).
+func snapshotResourceTags(src map[string][]Tag) map[string][]Tag {
+	dst := make(map[string][]Tag, len(src))
 	for k, v := range src {
-		cp := *v
-		dst[k] = &cp
+		dst[k] = copyTags(v)
 	}
 
 	return dst
@@ -56,70 +83,15 @@ func snapshotTaskDefinitions(src map[string][]*TaskDefinition) map[string][]*Tas
 	return dst
 }
 
-func snapshotServices(src map[string]map[string]*Service) map[string]map[string]*Service {
-	dst := make(map[string]map[string]*Service, len(src))
-	for cluster, svcMap := range src {
-		cp := make(map[string]*Service, len(svcMap))
-		for name, svc := range svcMap {
-			s := *svc
-			cp[name] = &s
+func snapshotDaemonTaskDefinitions(src map[string][]*DaemonTaskDefinition) map[string][]*DaemonTaskDefinition {
+	dst := make(map[string][]*DaemonTaskDefinition, len(src))
+	for family, revs := range src {
+		revsCp := make([]*DaemonTaskDefinition, len(revs))
+		for i, td := range revs {
+			cp := *td
+			revsCp[i] = &cp
 		}
-		dst[cluster] = cp
-	}
-
-	return dst
-}
-
-func snapshotTasks(src map[string]map[string]*Task) map[string]map[string]*Task {
-	dst := make(map[string]map[string]*Task, len(src))
-	for cluster, taskMap := range src {
-		cp := make(map[string]*Task, len(taskMap))
-		for arn, task := range taskMap {
-			t := *task
-			cp[arn] = &t
-		}
-		dst[cluster] = cp
-	}
-
-	return dst
-}
-
-func snapshotContainerInstances(
-	src map[string]map[string]*ContainerInstance,
-) map[string]map[string]*ContainerInstance {
-	dst := make(map[string]map[string]*ContainerInstance, len(src))
-	for cluster, ciMap := range src {
-		cp := make(map[string]*ContainerInstance, len(ciMap))
-		for arn, ci := range ciMap {
-			c := *ci
-			cp[arn] = &c
-		}
-		dst[cluster] = cp
-	}
-
-	return dst
-}
-
-func snapshotTaskSets(src map[string]map[string]*TaskSet) map[string]map[string]*TaskSet {
-	dst := make(map[string]map[string]*TaskSet, len(src))
-	for key, tsMap := range src {
-		cp := make(map[string]*TaskSet, len(tsMap))
-		for arn, ts := range tsMap {
-			t := *ts
-			cp[arn] = &t
-		}
-		dst[key] = cp
-	}
-
-	return dst
-}
-
-func snapshotCapacityProviders(src map[string]*CapacityProvider) map[string]*CapacityProvider {
-	dst := make(map[string]*CapacityProvider, len(src))
-	for k, v := range src {
-		cp := *v
-		cp.Tags = copyTags(v.Tags)
-		dst[k] = &cp
+		dst[family] = revsCp
 	}
 
 	return dst
@@ -139,135 +111,29 @@ func snapshotAttributes(src map[string]map[string]*Attribute) map[string]map[str
 	return dst
 }
 
-func snapshotTaskProtections(src map[string]*TaskProtection) map[string]*TaskProtection {
-	dst := make(map[string]*TaskProtection, len(src))
-	for k, v := range src {
-		cp := *v
-		dst[k] = &cp
-	}
-
-	return dst
-}
-
-func snapshotExpressGatewayServices(
-	src map[string]*ExpressGatewayService,
-) map[string]*ExpressGatewayService {
-	dst := make(map[string]*ExpressGatewayService, len(src))
-	for k, v := range src {
-		cp := *v
-		cp.Tags = copyTags(v.Tags)
-		dst[k] = &cp
-	}
-
-	return dst
-}
-
-// snapshotDaemons flattens the cluster-nested in-memory daemon index (see
-// InMemoryBackend.daemons in backend.go, keyed by clusterName then daemonName)
-// into the flat ARN-keyed shape persisted on disk, preserving the existing
-// "daemons" snapshot field shape. restoreDaemons performs the inverse.
-func snapshotDaemons(src map[string]map[string]*Daemon) map[string]*Daemon {
-	dst := make(map[string]*Daemon)
-	for _, clusterDaemons := range src {
-		for _, v := range clusterDaemons {
-			cp := *v
-			cp.Tags = copyTags(v.Tags)
-			dst[cp.DaemonArn] = &cp
-		}
-	}
-
-	return dst
-}
-
-// restoreDaemons re-nests a flat ARN-keyed daemon snapshot (see snapshotDaemons)
-// back into the clusterName -> daemonName -> Daemon index used at runtime.
-func restoreDaemons(src map[string]*Daemon) map[string]map[string]*Daemon {
-	dst := make(map[string]map[string]*Daemon)
-
-	for arn, d := range src {
-		clusterName, daemonName, ok := parseDaemonArn(arn)
-		if !ok {
-			continue
-		}
-
-		if dst[clusterName] == nil {
-			dst[clusterName] = make(map[string]*Daemon)
-		}
-
-		dst[clusterName][daemonName] = d
-	}
-
-	return dst
-}
-
-func snapshotDaemonTaskDefinitions(src map[string][]*DaemonTaskDefinition) map[string][]*DaemonTaskDefinition {
-	dst := make(map[string][]*DaemonTaskDefinition, len(src))
-	for family, revs := range src {
-		revsCp := make([]*DaemonTaskDefinition, len(revs))
-		for i, td := range revs {
-			cp := *td
-			revsCp[i] = &cp
-		}
-		dst[family] = revsCp
-	}
-
-	return dst
-}
-
-func snapshotDaemonDeployments(src map[string]*DaemonDeployment) map[string]*DaemonDeployment {
-	dst := make(map[string]*DaemonDeployment, len(src))
-	for k, v := range src {
-		cp := *v
-		dst[k] = &cp
-	}
-
-	return dst
-}
-
-func snapshotDaemonRevisions(src map[string]*DaemonRevision) map[string]*DaemonRevision {
-	dst := make(map[string]*DaemonRevision, len(src))
-	for k, v := range src {
-		cp := *v
-		dst[k] = &cp
-	}
-
-	return dst
-}
-
 // Snapshot serialises the backend state to JSON.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	accountSettings := make(map[string]*AccountSetting, len(b.accountSettings))
-	for k, v := range b.accountSettings {
-		cp := *v
-		accountSettings[k] = &cp
-	}
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "ecs: snapshot table marshal failed", "error", err)
 
-	serviceDeployments := make(map[string]*ServiceDeployment, len(b.serviceDeployments))
-	for k, v := range b.serviceDeployments {
-		cp := *v
-		serviceDeployments[k] = &cp
+		return nil
 	}
 
 	snap := backendSnapshot{
-		Clusters:               snapshotClusters(b.clusters),
-		TaskDefinitions:        snapshotTaskDefinitions(b.taskDefinitions),
-		Services:               snapshotServices(b.services),
-		Tasks:                  snapshotTasks(b.tasks),
-		ContainerInstances:     snapshotContainerInstances(b.containerInstances),
-		TaskSets:               snapshotTaskSets(b.taskSets),
-		CapacityProviders:      snapshotCapacityProviders(b.capacityProviders),
-		AccountSettings:        accountSettings,
-		Attributes:             snapshotAttributes(b.attributes),
-		ServiceDeployments:     serviceDeployments,
-		ExpressGatewayServices: snapshotExpressGatewayServices(b.expressGatewayServices),
-		TaskProtections:        snapshotTaskProtections(b.taskProtections),
-		Daemons:                snapshotDaemons(b.daemons),
-		DaemonTaskDefinitions:  snapshotDaemonTaskDefinitions(b.daemonTaskDefinitions),
-		DaemonDeployments:      snapshotDaemonDeployments(b.daemonDeployments),
-		DaemonRevisions:        snapshotDaemonRevisions(b.daemonRevisions),
+		Version:               ecsSnapshotVersion,
+		Tables:                tables,
+		TaskDefinitions:       snapshotTaskDefinitions(b.taskDefinitions),
+		Attributes:            snapshotAttributes(b.attributes),
+		DaemonTaskDefinitions: snapshotDaemonTaskDefinitions(b.daemonTaskDefinitions),
+		ResourceTags:          snapshotResourceTags(b.resourceTags),
 	}
 
 	return persistence.MarshalSnapshot(ctx, "ecs", snap)
@@ -276,75 +142,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // initSnapshotDefaults ensures all maps in the snapshot are non-nil so callers
 // can safely assign them to the backend without nil-map panics.
 func initSnapshotDefaults(snap *backendSnapshot) {
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*Cluster)
-	}
-
 	if snap.TaskDefinitions == nil {
 		snap.TaskDefinitions = make(map[string][]*TaskDefinition)
-	}
-
-	if snap.Services == nil {
-		snap.Services = make(map[string]map[string]*Service)
-	}
-
-	if snap.Tasks == nil {
-		snap.Tasks = make(map[string]map[string]*Task)
-	}
-
-	if snap.ContainerInstances == nil {
-		snap.ContainerInstances = make(map[string]map[string]*ContainerInstance)
-	}
-
-	if snap.TaskSets == nil {
-		snap.TaskSets = make(map[string]map[string]*TaskSet)
-	}
-
-	if snap.CapacityProviders == nil {
-		snap.CapacityProviders = make(map[string]*CapacityProvider)
-	}
-
-	if snap.AccountSettings == nil {
-		snap.AccountSettings = make(map[string]*AccountSetting)
 	}
 
 	if snap.Attributes == nil {
 		snap.Attributes = make(map[string]map[string]*Attribute)
 	}
 
-	if snap.ServiceDeployments == nil {
-		snap.ServiceDeployments = make(map[string]*ServiceDeployment)
-	}
-
-	if snap.ExpressGatewayServices == nil {
-		snap.ExpressGatewayServices = make(map[string]*ExpressGatewayService)
-	}
-
-	if snap.TaskProtections == nil {
-		snap.TaskProtections = make(map[string]*TaskProtection)
-	}
-
-	initDaemonSnapshotDefaults(snap)
-}
-
-// initDaemonSnapshotDefaults ensures the daemon-related maps in the snapshot
-// are non-nil. Split out from initSnapshotDefaults to keep cyclomatic
-// complexity within limits.
-func initDaemonSnapshotDefaults(snap *backendSnapshot) {
-	if snap.Daemons == nil {
-		snap.Daemons = make(map[string]*Daemon)
-	}
-
 	if snap.DaemonTaskDefinitions == nil {
 		snap.DaemonTaskDefinitions = make(map[string][]*DaemonTaskDefinition)
 	}
 
-	if snap.DaemonDeployments == nil {
-		snap.DaemonDeployments = make(map[string]*DaemonDeployment)
-	}
-
-	if snap.DaemonRevisions == nil {
-		snap.DaemonRevisions = make(map[string]*DaemonRevision)
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string][]Tag)
 	}
 }
 
@@ -355,42 +166,79 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	initSnapshotDefaults(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	initSnapshotDefaults(&snap)
+	if snap.Version != ecsSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields (e.g. the pre-conversion nested
+		// map[string]map[string]*T shape for services/tasks/containerInstances/
+		// taskSets/daemons vs. the flat store.Table composite-key shape).
+		// Discard cleanly and start empty instead of erroring, since this is an
+		// expected, recoverable condition (e.g. upgrading gopherstack across a
+		// snapshot-format change), not data corruption. Mirrors the ec2/sqs
+		// Phase 3.3 conversions.
+		logger.Load(ctx).WarnContext(ctx,
+			"ecs: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", ecsSnapshotVersion)
 
-	b.clusters = snap.Clusters
+		b.registry.ResetAll()
+		b.taskDefByArn.Reset()
+		b.daemonTaskDefByArn.Reset()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("ecs: restore snapshot tables: %w", err)
+	}
+
 	b.taskDefinitions = snap.TaskDefinitions
-	b.services = snap.Services
-	b.tasks = snap.Tasks
-	b.containerInstances = snap.ContainerInstances
-	b.taskSets = snap.TaskSets
-	b.capacityProviders = snap.CapacityProviders
-	b.accountSettings = snap.AccountSettings
 	b.attributes = snap.Attributes
-	b.serviceDeployments = snap.ServiceDeployments
-	b.expressGatewayServices = snap.ExpressGatewayServices
-	b.taskProtections = snap.TaskProtections
-	b.daemons = restoreDaemons(snap.Daemons)
 	b.daemonTaskDefinitions = snap.DaemonTaskDefinitions
-	b.daemonDeployments = snap.DaemonDeployments
-	b.daemonRevisions = snap.DaemonRevisions
+	b.resourceTags = snap.ResourceTags
 
 	// Rebuild the ARN→TaskDefinition cache from restored task definitions.
-	b.taskDefByArn = make(map[string]*TaskDefinition)
+	// Not part of the registry-driven Tables blob: it is a derived cache, not
+	// independently persisted state (see taskDefByArnKeyFn's doc comment).
+	b.taskDefByArn.Reset()
 	for _, revs := range b.taskDefinitions {
 		for _, td := range revs {
-			b.taskDefByArn[td.TaskDefinitionArn] = td
+			b.taskDefByArn.Put(td)
 		}
 	}
 
 	// Rebuild the ARN→DaemonTaskDefinition cache from restored daemon task definitions.
-	b.daemonTaskDefByArn = make(map[string]*DaemonTaskDefinition)
+	b.daemonTaskDefByArn.Reset()
 	for _, revs := range b.daemonTaskDefinitions {
 		for _, td := range revs {
-			b.daemonTaskDefByArn[td.DaemonTaskDefinitionArn] = td
+			b.daemonTaskDefByArn.Put(td)
 		}
+	}
+
+	// Rebuild the flat serviceIndex from the restored services table. Unlike
+	// tasksByInstance (which enrichContainerInstance falls back to a linear scan
+	// for), getServicesForReconciler reads serviceIndex with no fallback: leaving
+	// it empty after a restore would silently stop the deployment reconciler
+	// from ever seeing pre-existing services again (deployments/scaling would
+	// freeze forever post-restart).
+	allServices := b.services.All()
+	b.serviceIndex = make(map[svcRef]bool, len(allServices))
+
+	for _, svc := range allServices {
+		b.serviceIndex[svcRef{cluster: clusterKey(svc.ClusterArn), name: svc.ServiceName}] = true
+	}
+
+	// Rebuild the containerInstance→task reverse index from the restored tasks
+	// table. enrichContainerInstance already falls back to a linear scan when
+	// this index is empty, but rebuilding it here keeps post-restore behavior on
+	// the fast O(k) path instead of silently degrading to O(n) for every describe.
+	b.tasksByInstance = make(map[string]map[string]map[string]bool, len(allServices))
+	for _, task := range b.tasks.All() {
+		b.indexTaskOnInstance(clusterKey(task.ClusterArn), task.ContainerInstanceArn, task.TaskArn)
 	}
 
 	return nil

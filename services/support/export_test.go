@@ -5,7 +5,7 @@ func CaseCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.cases)
+	return b.cases.Len()
 }
 
 // AttachmentCount returns the number of attachments in the backend.
@@ -13,7 +13,7 @@ func AttachmentCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.attachments)
+	return b.attachments.Len()
 }
 
 // CheckRefreshStatusCount returns the number of tracked refresh statuses.
@@ -21,7 +21,7 @@ func CheckRefreshStatusCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.checkRefreshStatuses)
+	return b.checkRefreshStatuses.Len()
 }
 
 // CommunicationCount returns the total number of communications across all cases.

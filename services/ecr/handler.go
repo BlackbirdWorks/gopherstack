@@ -2,7 +2,9 @@ package ecr
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -484,6 +486,12 @@ func (h *Handler) classifyError(err error) (int, string) { //nolint:cyclop // 1 
 		return http.StatusBadRequest, "LayerInaccessibleException"
 	case errors.Is(err, ErrLayersNotFound):
 		return http.StatusBadRequest, "LayersNotFoundException"
+	case errors.Is(err, ErrLayerAlreadyExists):
+		return http.StatusBadRequest, "LayerAlreadyExistsException"
+	case errors.Is(err, ErrInvalidLayerPart):
+		return http.StatusBadRequest, "InvalidLayerPartException"
+	case errors.Is(err, ErrImageDigestDoesNotMatch):
+		return http.StatusBadRequest, "ImageDigestDoesNotMatchException"
 	case errors.Is(err, ErrPullThroughCacheRuleAlreadyExists):
 		return http.StatusBadRequest, "PullThroughCacheRuleAlreadyExistsException"
 	case errors.Is(err, ErrRepositoryCreationTemplateAlreadyExists):
@@ -1952,6 +1960,22 @@ type putImageOutput struct {
 }
 
 func (h *Handler) handlePutImage(ctx context.Context, in *putImageInput) (*putImageOutput, error) {
+	// AWS validates a caller-supplied imageDigest against the digest it computes
+	// from the manifest and rejects a mismatch with ImageDigestDoesNotMatchException,
+	// independent of any backend state (this is pure request validation).
+	if in.ImageDigest != "" {
+		sum := sha256.Sum256([]byte(in.ImageManifest))
+		computed := "sha256:" + hex.EncodeToString(sum[:])
+
+		if in.ImageDigest != computed {
+			return nil, fmt.Errorf(
+				"%w: manifest validation failed, digest calculated from the image manifest does"+
+					" not match the provided digest",
+				ErrImageDigestDoesNotMatch,
+			)
+		}
+	}
+
 	img, err := h.Backend.PutImage(ctx, in.RepositoryName, Image{
 		ImageDigest:            in.ImageDigest,
 		ImageManifest:          in.ImageManifest,

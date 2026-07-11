@@ -10,13 +10,7 @@ func MonitorCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, regionMons := range b.monitors {
-		total += len(regionMons)
-	}
-
-	return total
+	return b.monitors.Len()
 }
 
 // HandlerOpsLen returns the number of operations the handler supports.

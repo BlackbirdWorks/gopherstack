@@ -22,34 +22,34 @@ type ExportedTagDTO = TagDTO
 
 // ChannelCount returns the number of channels in the backend (for white-box testing).
 func ChannelCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ChannelCount")
 	defer b.mu.RUnlock()
 
-	return len(b.channels)
+	return b.channels.Len()
 }
 
 // DatastoreCount returns the number of datastores in the backend (for white-box testing).
 func DatastoreCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("DatastoreCount")
 	defer b.mu.RUnlock()
 
-	return len(b.datastores)
+	return b.datastores.Len()
 }
 
 // DatasetCount returns the number of datasets in the backend (for white-box testing).
 func DatasetCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("DatasetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.datasets)
+	return b.datasets.Len()
 }
 
 // PipelineCount returns the number of pipelines in the backend (for white-box testing).
 func PipelineCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("PipelineCount")
 	defer b.mu.RUnlock()
 
-	return len(b.pipelines)
+	return b.pipelines.Len()
 }
 
 // HandlerOpsLen returns the number of pre-built dispatch operations.

@@ -53,7 +53,7 @@ func automationJobKey(accountID, automationGroupID, automationID, jobID string) 
 // API to create automation groups/automations themselves (they're authored
 // via the console), so any non-empty IDs are accepted.
 func (b *InMemoryBackend) StartAutomationJob(
-	accountID, automationGroupID, automationID, inputPayload string,
+	_, automationGroupID, automationID, inputPayload string,
 ) (*AutomationJob, error) {
 	if automationGroupID == "" || automationID == "" {
 		return nil, ErrValidation
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) StartAutomationJob(
 		Status:            automationJobStatusRunning,
 		InputPayload:      inputPayload,
 	}
-	b.automationJobs[automationJobKey(accountID, automationGroupID, automationID, jobID)] = j
+	b.automationJobs.Put(j)
 
 	return j.toAutomationJob(), nil
 }
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) DescribeAutomationJob(
 	b.mu.Lock("DescribeAutomationJob")
 	defer b.mu.Unlock()
 
-	j, ok := b.automationJobs[automationJobKey(accountID, automationGroupID, automationID, jobID)]
+	j, ok := b.automationJobs.Get(automationJobKey(accountID, automationGroupID, automationID, jobID))
 	if !ok {
 		return nil, ErrAutomationJobNotFound
 	}

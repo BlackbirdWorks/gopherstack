@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -4821,6 +4822,182 @@ func TestCloudWatchLogsBackend_MetricFilterEmission_NoEmitterNoPanic(t *testing.
 	require.NoError(t, err)
 }
 
+// ---- Metric filter field extraction (MetricValue "$name" / "$.path" references) ----
+//
+// A metric filter's MetricValue may be a literal number (published as-is for every
+// matched event) or a "$"-prefixed field reference that must be extracted from each
+// individual matched log event: "$size" for a named field in a space-delimited pattern
+// ("[ip, level, size]"), "$.bytes" for a JSON selector pattern. Real CloudWatch Logs
+// silently skips publishing a data point for a matched event whose referenced field is
+// absent or non-numeric -- it does not fabricate a value (DefaultValue is documented for
+// periods with zero *matching* events, not failed per-event extraction), so these cases
+// assert zero emissions rather than a fallback constant.
+
+func TestCloudWatchLogsBackend_MetricFilterEmission_FieldExtraction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		filterPattern string
+		metricValue   string
+		message       string
+		wantEmitted   []float64 // nil means "no emission for this event"
+	}{
+		{
+			name:          "json_field_extracted_per_event",
+			filterPattern: `{ $.level = "ERROR" }`,
+			metricValue:   "$.bytes",
+			message:       `{"level":"ERROR","bytes":512}`,
+			wantEmitted:   []float64{512},
+		},
+		{
+			name:          "space_field_extracted_per_event",
+			filterPattern: "[ip, level, bytes]",
+			metricValue:   "$bytes",
+			message:       "1.2.3.4 ERROR 256",
+			wantEmitted:   []float64{256},
+		},
+		{
+			name:          "missing_json_field_skips_emission",
+			filterPattern: `{ $.level = "ERROR" }`,
+			metricValue:   "$.bytes",
+			message:       `{"level":"ERROR"}`,
+			wantEmitted:   nil,
+		},
+		{
+			name:          "non_numeric_field_skips_emission",
+			filterPattern: `{ $.level = "ERROR" }`,
+			metricValue:   "$.bytes",
+			message:       `{"level":"ERROR","bytes":"lots"}`,
+			wantEmitted:   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var mu sync.Mutex
+			var emitted []float64
+
+			emitter := cloudwatchlogs.MetricEmitterFunc(
+				func(_, _ string, value float64, _ string) error {
+					mu.Lock()
+					emitted = append(emitted, value)
+					mu.Unlock()
+
+					return nil
+				},
+			)
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			b.SetMetricEmitter(emitter)
+
+			_, err := b.CreateLogGroup(context.Background(), "grp", "", "")
+			require.NoError(t, err)
+			_, err = b.CreateLogStream(context.Background(), "grp", "stream")
+			require.NoError(t, err)
+
+			err = b.PutMetricFilter(
+				context.Background(),
+				"grp",
+				"mf",
+				tt.filterPattern,
+				[]cloudwatchlogs.MetricTransformation{
+					{MetricNamespace: "MyApp", MetricName: "Bytes", MetricValue: tt.metricValue},
+				},
+			)
+			require.NoError(t, err)
+
+			_, err = b.PutLogEvents(
+				context.Background(),
+				"grp",
+				"stream",
+				"",
+				[]cloudwatchlogs.InputLogEvent{
+					{Message: tt.message, Timestamp: time.Now().UnixMilli()},
+				},
+			)
+			require.NoError(t, err)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if tt.wantEmitted == nil {
+				assert.Empty(t, emitted)
+
+				return
+			}
+
+			require.Len(t, emitted, len(tt.wantEmitted))
+			for i, want := range tt.wantEmitted {
+				assert.InDelta(t, want, emitted[i], 0.001)
+			}
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_TestMetricFilter_ExtractedValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		pattern    string
+		messages   []string
+		wantValues []map[string]string // one entry per expected match, in order
+	}{
+		{
+			name:    "json_pattern_extracts_referenced_selector",
+			pattern: `{ $.level = "ERROR" }`,
+			messages: []string{
+				`{"level":"ERROR","bytes":512}`,
+				`{"level":"INFO","bytes":10}`,
+			},
+			wantValues: []map[string]string{
+				{"$.level": "ERROR"},
+			},
+		},
+		{
+			name:    "space_pattern_extracts_named_fields",
+			pattern: "[ip, level, bytes]",
+			messages: []string{
+				"1.2.3.4 ERROR 256",
+				"5.6.7.8 INFO 10",
+			},
+			wantValues: []map[string]string{
+				{"$ip": "1.2.3.4", "$level": "ERROR", "$bytes": "256"},
+				{"$ip": "5.6.7.8", "$level": "INFO", "$bytes": "10"},
+			},
+		},
+		{
+			name:    "plain_text_pattern_has_no_addressable_fields",
+			pattern: "ERROR",
+			messages: []string{
+				"an ERROR occurred",
+			},
+			wantValues: []map[string]string{
+				{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+
+			matches, err := b.TestMetricFilter(tt.pattern, tt.messages)
+			require.NoError(t, err)
+			require.Len(t, matches, len(tt.wantValues))
+
+			for i, want := range tt.wantValues {
+				assert.Equal(t, want, matches[i].ExtractedValues)
+			}
+		})
+	}
+}
+
 // ---- Item 1: LogGroupClass ----
 
 func TestCloudWatchLogsBackend_CreateLogGroup_WithClass(t *testing.T) {
@@ -5015,7 +5192,7 @@ func TestCloudWatchLogsBackend_PutLogEvents_RejectedLogEventsInfo(t *testing.T) 
 			if tt.wantTooOld || tt.wantTooNew || tt.wantExpired {
 				require.NotNil(t, result.RejectedLogEventsInfo)
 				if tt.wantTooOld {
-					assert.NotNil(t, result.RejectedLogEventsInfo.TooOldLogEventStartIndex)
+					assert.NotNil(t, result.RejectedLogEventsInfo.TooOldLogEventEndIndex)
 				}
 				if tt.wantTooNew {
 					assert.NotNil(t, result.RejectedLogEventsInfo.TooNewLogEventStartIndex)
@@ -5030,45 +5207,50 @@ func TestCloudWatchLogsBackend_PutLogEvents_RejectedLogEventsInfo(t *testing.T) 
 	}
 }
 
-// ---- Item 3: SequenceToken strictness ----
+// ---- Item 3: SequenceToken is ignored (matches current AWS behavior) ----
+//
+// aws-sdk-go-v2 cloudwatchlogs.PutLogEvents doc: "The sequence token is now
+// ignored in PutLogEvents actions. PutLogEvents actions are always accepted and
+// never return InvalidSequenceTokenException or DataAlreadyAcceptedException
+// even if the sequence token is not valid." So every case below must succeed
+// regardless of whether the supplied token matches the stream's actual length,
+// and NextSequenceToken must reflect the real post-append event count rather
+// than echoing (or validating against) the caller-supplied token.
 
-func TestCloudWatchLogsBackend_PutLogEvents_SequenceToken(t *testing.T) {
+func TestCloudWatchLogsBackend_PutLogEvents_SequenceTokenIgnored(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UnixMilli()
 
 	tests := []struct {
-		wantErr       error
 		name          string
 		sequenceToken string
 		setupEvents   int
 	}{
 		{
-			name:          "no_token_accepted",
+			name:          "no_token",
 			setupEvents:   0,
 			sequenceToken: "",
 		},
 		{
-			name:          "correct_token",
+			name:          "matching_token",
 			setupEvents:   2,
 			sequenceToken: "2",
 		},
 		{
-			name:          "wrong_token",
+			name:          "stale_token_still_accepted",
 			setupEvents:   2,
 			sequenceToken: "99",
-			wantErr:       cloudwatchlogs.ErrInvalidSequenceToken,
 		},
 		{
-			name:          "token_on_empty_stream_correct",
+			name:          "token_on_empty_stream_matching",
 			setupEvents:   0,
 			sequenceToken: "0",
 		},
 		{
-			name:          "token_on_empty_stream_wrong",
+			name:          "token_on_empty_stream_wrong_still_accepted",
 			setupEvents:   0,
 			sequenceToken: "5",
-			wantErr:       cloudwatchlogs.ErrInvalidSequenceToken,
 		},
 	}
 
@@ -5095,7 +5277,7 @@ func TestCloudWatchLogsBackend_PutLogEvents_SequenceToken(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			_, err = b.PutLogEvents(
+			result, err := b.PutLogEvents(
 				context.Background(),
 				"g",
 				"s",
@@ -5105,13 +5287,9 @@ func TestCloudWatchLogsBackend_PutLogEvents_SequenceToken(t *testing.T) {
 				},
 			)
 
-			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
-
-				return
-			}
-
 			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, strconv.Itoa(tt.setupEvents+1), result.NextSequenceToken)
 		})
 	}
 }

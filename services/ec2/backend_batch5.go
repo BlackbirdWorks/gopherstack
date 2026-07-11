@@ -207,7 +207,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilter(description string) (*Traffi
 		TrafficMirrorFilterID: id,
 		Description:           description,
 	}
-	b.trafficMirrorFilters[id] = f
+	b.trafficMirrorFilters.Put(f)
 
 	cp := *f
 
@@ -218,11 +218,10 @@ func (b *InMemoryBackend) DeleteTrafficMirrorFilter(id string) error {
 	b.mu.Lock("DeleteTrafficMirrorFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trafficMirrorFilters[id]; !ok {
+	if _, ok := b.trafficMirrorFilters.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, id)
 	}
-
-	delete(b.trafficMirrorFilters, id)
+	b.trafficMirrorFilters.Delete(id)
 
 	return nil
 }
@@ -233,7 +232,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorFilters(ids []string) []*TrafficM
 
 	var result []*TrafficMirrorFilter
 
-	for _, f := range b.trafficMirrorFilters {
+	for _, f := range b.trafficMirrorFilters.All() {
 		if len(ids) > 0 && !slices.Contains(ids, f.TrafficMirrorFilterID) {
 			continue
 		}
@@ -253,7 +252,7 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterNetworkServices(id string, ad
 	b.mu.Lock("ModifyTrafficMirrorFilterNetworkServices")
 	defer b.mu.Unlock()
 
-	f, ok := b.trafficMirrorFilters[id]
+	f, ok := b.trafficMirrorFilters.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, id)
 	}
@@ -289,7 +288,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 	b.mu.Lock("CreateTrafficMirrorFilterRule")
 	defer b.mu.Unlock()
 
-	f, ok := b.trafficMirrorFilters[filterID]
+	f, ok := b.trafficMirrorFilters.Get(filterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, filterID)
 	}
@@ -317,8 +316,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorFilterRule(
 	} else {
 		f.IngressFilterRules = append(f.IngressFilterRules, rule)
 	}
-
-	b.trafficMirrorFilterRules[id] = rule
+	b.trafficMirrorFilterRules.Put(rule)
 
 	cp := *rule
 
@@ -329,17 +327,16 @@ func (b *InMemoryBackend) DeleteTrafficMirrorFilterRule(id string) error {
 	b.mu.Lock("DeleteTrafficMirrorFilterRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.trafficMirrorFilterRules[id]
+	rule, ok := b.trafficMirrorFilterRules.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterRuleNotFound, id)
 	}
 
-	if f, found := b.trafficMirrorFilters[rule.TrafficMirrorFilterID]; found {
+	if f, found := b.trafficMirrorFilters.Get(rule.TrafficMirrorFilterID); found {
 		f.IngressFilterRules = removeTrafficMirrorFilterRule(f.IngressFilterRules, id)
 		f.EgressFilterRules = removeTrafficMirrorFilterRule(f.EgressFilterRules, id)
 	}
-
-	delete(b.trafficMirrorFilterRules, id)
+	b.trafficMirrorFilterRules.Delete(id)
 
 	return nil
 }
@@ -359,7 +356,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorFilterRules(filterID string) ([]*
 	b.mu.RLock("DescribeTrafficMirrorFilterRules")
 	defer b.mu.RUnlock()
 
-	f, ok := b.trafficMirrorFilters[filterID]
+	f, ok := b.trafficMirrorFilters.Get(filterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTrafficMirrorFilterNotFound, filterID)
 	}
@@ -383,7 +380,7 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(id, action, description 
 	b.mu.Lock("ModifyTrafficMirrorFilterRule")
 	defer b.mu.Unlock()
 
-	rule, ok := b.trafficMirrorFilterRules[id]
+	rule, ok := b.trafficMirrorFilterRules.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorFilterRuleNotFound, id)
 	}
@@ -424,7 +421,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorSession(
 		PacketLength:           pl,
 		VirtualNetworkID:       trafficMirrorSessionVNI(id),
 	}
-	b.trafficMirrorSessions[id] = s
+	b.trafficMirrorSessions.Put(s)
 
 	cp := *s
 
@@ -447,11 +444,10 @@ func (b *InMemoryBackend) DeleteTrafficMirrorSession(id string) error {
 	b.mu.Lock("DeleteTrafficMirrorSession")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trafficMirrorSessions[id]; !ok {
+	if _, ok := b.trafficMirrorSessions.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorSessionNotFound, id)
 	}
-
-	delete(b.trafficMirrorSessions, id)
+	b.trafficMirrorSessions.Delete(id)
 
 	return nil
 }
@@ -462,7 +458,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorSessions(ids []string) []*Traffic
 
 	var result []*TrafficMirrorSession
 
-	for _, s := range b.trafficMirrorSessions {
+	for _, s := range b.trafficMirrorSessions.All() {
 		if len(ids) > 0 && !slices.Contains(ids, s.TrafficMirrorSessionID) {
 			continue
 		}
@@ -482,7 +478,7 @@ func (b *InMemoryBackend) ModifyTrafficMirrorSession(id, targetID, filterID, des
 	b.mu.Lock("ModifyTrafficMirrorSession")
 	defer b.mu.Unlock()
 
-	s, ok := b.trafficMirrorSessions[id]
+	s, ok := b.trafficMirrorSessions.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorSessionNotFound, id)
 	}
@@ -528,7 +524,7 @@ func (b *InMemoryBackend) CreateTrafficMirrorTarget(
 		),
 		Description: description,
 	}
-	b.trafficMirrorTargets[id] = t
+	b.trafficMirrorTargets.Put(t)
 
 	cp := *t
 
@@ -554,11 +550,10 @@ func (b *InMemoryBackend) DeleteTrafficMirrorTarget(id string) error {
 	b.mu.Lock("DeleteTrafficMirrorTarget")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trafficMirrorTargets[id]; !ok {
+	if _, ok := b.trafficMirrorTargets.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTrafficMirrorTargetNotFound, id)
 	}
-
-	delete(b.trafficMirrorTargets, id)
+	b.trafficMirrorTargets.Delete(id)
 
 	return nil
 }
@@ -569,7 +564,7 @@ func (b *InMemoryBackend) DescribeTrafficMirrorTargets(ids []string) []*TrafficM
 
 	var result []*TrafficMirrorTarget
 
-	for _, t := range b.trafficMirrorTargets {
+	for _, t := range b.trafficMirrorTargets.All() {
 		if len(ids) > 0 && !slices.Contains(ids, t.TrafficMirrorTargetID) {
 			continue
 		}
@@ -603,7 +598,7 @@ func (b *InMemoryBackend) CreateFleet(fleetType string, totalTargetCapacity int)
 		TotalTargetCapacity:             totalTargetCapacity,
 		ExcessCapacityTerminationPolicy: "termination",
 	}
-	b.fleets[id] = f
+	b.fleets.Put(f)
 
 	cp := *f
 
@@ -617,9 +612,9 @@ func (b *InMemoryBackend) DeleteFleets(ids []string) []string {
 	var deleted []string
 
 	for _, id := range ids {
-		if _, ok := b.fleets[id]; ok {
-			b.fleets[id].FleetState = tgwRouteStateDeleted
-			delete(b.fleets, id)
+		if f, ok := b.fleets.Get(id); ok {
+			f.FleetState = tgwRouteStateDeleted
+			b.fleets.Delete(id)
 			deleted = append(deleted, id)
 		}
 	}
@@ -633,7 +628,7 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 
 	var result []*Fleet
 
-	for _, f := range b.fleets {
+	for _, f := range b.fleets.All() {
 		if len(ids) > 0 && !slices.Contains(ids, f.FleetID) {
 			continue
 		}
@@ -653,7 +648,7 @@ func (b *InMemoryBackend) ModifyFleet(id string, totalTargetCapacity int, excess
 	b.mu.Lock("ModifyFleet")
 	defer b.mu.Unlock()
 
-	f, ok := b.fleets[id]
+	f, ok := b.fleets.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrFleetNotFound, id)
 	}
@@ -691,7 +686,7 @@ func (b *InMemoryBackend) CreateNetworkInsightsPath(
 		Protocol:               protocol,
 		DestinationPort:        destinationPort,
 	}
-	b.networkInsightsPaths[id] = p
+	b.networkInsightsPaths.Put(p)
 
 	cp := *p
 
@@ -702,11 +697,10 @@ func (b *InMemoryBackend) DeleteNetworkInsightsPath(id string) error {
 	b.mu.Lock("DeleteNetworkInsightsPath")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInsightsPaths[id]; !ok {
+	if _, ok := b.networkInsightsPaths.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsPathNotFound, id)
 	}
-
-	delete(b.networkInsightsPaths, id)
+	b.networkInsightsPaths.Delete(id)
 
 	return nil
 }
@@ -717,7 +711,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsPaths(ids []string) []*NetworkI
 
 	var result []*NetworkInsightsPath
 
-	for _, p := range b.networkInsightsPaths {
+	for _, p := range b.networkInsightsPaths.All() {
 		if len(ids) > 0 && !slices.Contains(ids, p.NetworkInsightsPathID) {
 			continue
 		}
@@ -737,7 +731,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAnalysis(pathID string) (*NetworkI
 	b.mu.Lock("StartNetworkInsightsAnalysis")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInsightsPaths[pathID]; !ok {
+	if _, ok := b.networkInsightsPaths.Get(pathID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInsightsPathNotFound, pathID)
 	}
 
@@ -748,7 +742,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAnalysis(pathID string) (*NetworkI
 		Status:                    stateAnalysisSucceeded,
 		NetworkPathFound:          true,
 	}
-	b.networkInsightsAnalyses[id] = a
+	b.networkInsightsAnalyses.Put(a)
 
 	cp := *a
 
@@ -759,11 +753,10 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAnalysis(id string) error {
 	b.mu.Lock("DeleteNetworkInsightsAnalysis")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInsightsAnalyses[id]; !ok {
+	if _, ok := b.networkInsightsAnalyses.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsAnalysisNotFound, id)
 	}
-
-	delete(b.networkInsightsAnalyses, id)
+	b.networkInsightsAnalyses.Delete(id)
 
 	return nil
 }
@@ -774,7 +767,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAnalyses(ids []string) []*Netwo
 
 	var result []*NetworkInsightsAnalysis
 
-	for _, a := range b.networkInsightsAnalyses {
+	for _, a := range b.networkInsightsAnalyses.All() {
 		if len(ids) > 0 && !slices.Contains(ids, a.NetworkInsightsAnalysisID) {
 			continue
 		}
@@ -799,7 +792,7 @@ func (b *InMemoryBackend) CreateNetworkInsightsAccessScope() (*NetworkInsightsAc
 		NetworkInsightsAccessScopeID:  id,
 		NetworkInsightsAccessScopeArn: "arn:aws:ec2:" + b.Region + ":" + b.AccountID + ":network-insights-access-scope/" + id,
 	}
-	b.networkInsightsAccessScopes[id] = s
+	b.networkInsightsAccessScopes.Put(s)
 
 	cp := *s
 
@@ -810,11 +803,10 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAccessScope(id string) error {
 	b.mu.Lock("DeleteNetworkInsightsAccessScope")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInsightsAccessScopes[id]; !ok {
+	if _, ok := b.networkInsightsAccessScopes.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsAccessScopeNF, id)
 	}
-
-	delete(b.networkInsightsAccessScopes, id)
+	b.networkInsightsAccessScopes.Delete(id)
 
 	return nil
 }
@@ -825,7 +817,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAccessScopes(ids []string) []*N
 
 	var result []*NetworkInsightsAccessScope
 
-	for _, s := range b.networkInsightsAccessScopes {
+	for _, s := range b.networkInsightsAccessScopes.All() {
 		if len(ids) > 0 && !slices.Contains(ids, s.NetworkInsightsAccessScopeID) {
 			continue
 		}
@@ -847,7 +839,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAccessScopeAnalysis(
 	b.mu.Lock("StartNetworkInsightsAccessScopeAnalysis")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInsightsAccessScopes[scopeID]; !ok {
+	if _, ok := b.networkInsightsAccessScopes.Get(scopeID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNetworkInsightsAccessScopeNF, scopeID)
 	}
 
@@ -858,7 +850,7 @@ func (b *InMemoryBackend) StartNetworkInsightsAccessScopeAnalysis(
 		Status:                               stateAnalysisSucceeded,
 		AnalyzedEniCount:                     0,
 	}
-	b.networkInsightsAccessScopeAnalyses[id] = a
+	b.networkInsightsAccessScopeAnalyses.Put(a)
 
 	cp := *a
 
@@ -869,11 +861,10 @@ func (b *InMemoryBackend) DeleteNetworkInsightsAccessScopeAnalysis(id string) er
 	b.mu.Lock("DeleteNetworkInsightsAccessScopeAnalysis")
 	defer b.mu.Unlock()
 
-	if _, ok := b.networkInsightsAccessScopeAnalyses[id]; !ok {
+	if _, ok := b.networkInsightsAccessScopeAnalyses.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInsightsAccessScopeAnaNF, id)
 	}
-
-	delete(b.networkInsightsAccessScopeAnalyses, id)
+	b.networkInsightsAccessScopeAnalyses.Delete(id)
 
 	return nil
 }
@@ -886,7 +877,7 @@ func (b *InMemoryBackend) DescribeNetworkInsightsAccessScopeAnalyses(
 
 	var result []*NetworkInsightsAccessScopeAnalysis
 
-	for _, a := range b.networkInsightsAccessScopeAnalyses {
+	for _, a := range b.networkInsightsAccessScopeAnalyses.All() {
 		if len(ids) > 0 && !slices.Contains(ids, a.NetworkInsightsAccessScopeAnalysisID) {
 			continue
 		}
@@ -917,7 +908,7 @@ func (b *InMemoryBackend) ProvisionByoipCidr(cidr, description string) (*ByoipCi
 		State:         "pending-provision",
 		StatusMessage: description,
 	}
-	b.byoipCidrs[cidr] = entry
+	b.byoipCidrs.Put(entry)
 
 	cp := *entry
 
@@ -932,13 +923,13 @@ func (b *InMemoryBackend) DeprovisionByoipCidr(cidr string) (*ByoipCidr, error) 
 	b.mu.Lock("DeprovisionByoipCidr")
 	defer b.mu.Unlock()
 
-	entry, ok := b.byoipCidrs[cidr]
+	entry, ok := b.byoipCidrs.Get(cidr)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, cidr)
 	}
 
 	entry.State = "pending-deprovision"
-	delete(b.byoipCidrs, cidr)
+	b.byoipCidrs.Delete(cidr)
 
 	cp := *entry
 
@@ -953,10 +944,10 @@ func (b *InMemoryBackend) WithdrawByoipCidr(cidr string) (*ByoipCidr, error) {
 	b.mu.Lock("WithdrawByoipCidr")
 	defer b.mu.Unlock()
 
-	entry, ok := b.byoipCidrs[cidr]
+	entry, ok := b.byoipCidrs.Get(cidr)
 	if !ok {
 		entry = &ByoipCidr{Cidr: cidr}
-		b.byoipCidrs[cidr] = entry
+		b.byoipCidrs.Put(entry)
 	}
 
 	entry.State = stateByoipAdvertised
@@ -983,7 +974,7 @@ func (b *InMemoryBackend) CreateCarrierGateway(vpcID string) (*CarrierGateway, e
 		State:            stateAvailableImg,
 		OwnerID:          b.AccountID,
 	}
-	b.carrierGateways[id] = gw
+	b.carrierGateways.Put(gw)
 
 	cp := *gw
 
@@ -994,11 +985,10 @@ func (b *InMemoryBackend) DeleteCarrierGateway(id string) error {
 	b.mu.Lock("DeleteCarrierGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.carrierGateways[id]; !ok {
+	if _, ok := b.carrierGateways.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrCarrierGatewayNotFound, id)
 	}
-
-	delete(b.carrierGateways, id)
+	b.carrierGateways.Delete(id)
 
 	return nil
 }
@@ -1009,7 +999,7 @@ func (b *InMemoryBackend) DescribeCarrierGateways(ids []string) []*CarrierGatewa
 
 	var result []*CarrierGateway
 
-	for _, gw := range b.carrierGateways {
+	for _, gw := range b.carrierGateways.All() {
 		if len(ids) > 0 && !slices.Contains(ids, gw.CarrierGatewayID) {
 			continue
 		}
@@ -1033,7 +1023,7 @@ func (b *InMemoryBackend) DescribeReservedInstances(ids []string) []*ReservedIns
 
 	var result []*ReservedInstance
 
-	for _, ri := range b.reservedInstances {
+	for _, ri := range b.reservedInstances.All() {
 		if len(ids) > 0 && !slices.Contains(ids, ri.ReservedInstancesID) {
 			continue
 		}
@@ -1057,7 +1047,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesOfferings(
 
 	var result []*ReservedInstancesOffering
 
-	for _, o := range b.reservedInstancesOfferings {
+	for _, o := range b.reservedInstancesOfferings.All() {
 		if instanceType != "" && o.InstanceType != instanceType {
 			continue
 		}
@@ -1088,7 +1078,7 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 	b.mu.Lock("PurchaseReservedInstancesOffering")
 	defer b.mu.Unlock()
 
-	offering, ok := b.reservedInstancesOfferings[offeringID]
+	offering, ok := b.reservedInstancesOfferings.Get(offeringID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, offeringID)
 	}
@@ -1106,7 +1096,7 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 		InstanceCount:       instanceCount,
 		State:               SpotFleetStateActive,
 	}
-	b.reservedInstances[id] = ri
+	b.reservedInstances.Put(ri)
 
 	cp := *ri
 
@@ -1126,7 +1116,7 @@ func (b *InMemoryBackend) CreateReservedInstancesListing(
 		ReservedInstancesID:        reservedInstancesID,
 		Status:                     SpotFleetStateActive,
 	}
-	b.reservedInstancesListings[id] = l
+	b.reservedInstancesListings.Put(l)
 
 	cp := *l
 
@@ -1137,7 +1127,7 @@ func (b *InMemoryBackend) CancelReservedInstancesListing(id string) error {
 	b.mu.Lock("CancelReservedInstancesListing")
 	defer b.mu.Unlock()
 
-	l, ok := b.reservedInstancesListings[id]
+	l, ok := b.reservedInstancesListings.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrReservedInstancesListingNotFound, id)
 	}
@@ -1153,7 +1143,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesListings(ids []string) []*Res
 
 	var result []*ReservedInstancesListing
 
-	for _, l := range b.reservedInstancesListings {
+	for _, l := range b.reservedInstancesListings.All() {
 		if len(ids) > 0 && !slices.Contains(ids, l.ReservedInstancesListingID) {
 			continue
 		}
@@ -1175,7 +1165,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesModifications(ids []string) [
 
 	var result []*ReservedInstancesModification
 
-	for _, m := range b.reservedInstancesModifications {
+	for _, m := range b.reservedInstancesModifications.All() {
 		if len(ids) > 0 && !slices.Contains(ids, m.ReservedInstancesModificationID) {
 			continue
 		}
@@ -1205,7 +1195,7 @@ func (b *InMemoryBackend) ModifyReservedInstances(
 		Status:                          "fulfilled",
 		StatusMessage:                   "Modification fulfilled",
 	}
-	b.reservedInstancesModifications[id] = m
+	b.reservedInstancesModifications.Put(m)
 
 	cp := *m
 
@@ -1217,6 +1207,6 @@ func (b *InMemoryBackend) DeleteQueuedReservedInstances(ids []string) {
 	defer b.mu.Unlock()
 
 	for _, id := range ids {
-		delete(b.reservedInstances, id)
+		b.reservedInstances.Delete(id)
 	}
 }

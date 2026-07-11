@@ -24,7 +24,7 @@ func (b *InMemoryBackend) ModifyCluster(
 	b.mu.Lock("ModifyCluster")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -80,7 +80,7 @@ func (b *InMemoryBackend) RebootCluster(id string) (*Cluster, error) {
 	b.mu.Lock("RebootCluster")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) PauseCluster(id string) (*Cluster, error) {
 	b.mu.Lock("PauseCluster")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) ResumeCluster(id string) (*Cluster, error) {
 	b.mu.Lock("ResumeCluster")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) ResizeCluster(
 	b.mu.Lock("ResizeCluster")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -177,7 +177,7 @@ func (b *InMemoryBackend) RotateEncryptionKey(id string) (*Cluster, error) {
 	b.mu.Lock("RotateEncryptionKey")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -197,7 +197,7 @@ func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles
 	b.mu.Lock("ModifyClusterIamRoles")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
@@ -241,7 +241,7 @@ func (b *InMemoryBackend) ModifyClusterMaintenance(
 	b.mu.Lock("ModifyClusterMaintenance")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[id]
+	cluster, exists := b.clusters.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // timeFormat is the ISO 8601 timestamp format used by Verified Permissions API responses.
@@ -129,7 +131,11 @@ type PolicyStoreSchema struct {
 	CreatedDate time.Time `json:"createdDate"`
 	LastUpdated time.Time `json:"lastUpdated"`
 	Schema      string    `json:"schema"`
-	Namespaces  []string  `json:"namespaces,omitempty"`
+	// policyStoreID is the store.Table primary key (one schema per policy
+	// store). It is never part of the wire API, so it carries no json tag
+	// and is round-tripped separately through a DTO in persistence.go.
+	policyStoreID string
+	Namespaces    []string `json:"namespaces,omitempty"`
 }
 
 // AuthorizationRequest represents a single authorization evaluation request.
@@ -264,6 +270,19 @@ func identitySourceARN(accountID, policyStoreID, sourceID string) string {
 	return arn.Build("verifiedpermissions", "", accountID, resource)
 }
 
+// policyKey, policyTemplateKey, and identitySourceKey build the composite
+// store.Table primary key ("policyStoreID/id") shared by the resource tables
+// that were previously nested by policy store (see store_setup.go).
+func policyKey(policyStoreID, policyID string) string { return policyStoreID + "/" + policyID }
+
+func policyTemplateKey(policyStoreID, policyTemplateID string) string {
+	return policyStoreID + "/" + policyTemplateID
+}
+
+func identitySourceKey(policyStoreID, identitySourceID string) string {
+	return policyStoreID + "/" + identitySourceID
+}
+
 // clonePolicyStore returns a deep copy of a PolicyStore.
 func clonePolicyStore(ps *PolicyStore) *PolicyStore {
 	cp := *ps
@@ -319,12 +338,39 @@ func cloneIdentitySource(is *IdentitySource) *IdentitySource {
 }
 
 // InMemoryBackend is the in-memory store for Verified Permissions resources.
+//
+// policyStores registers directly on b.registry, keyed by its real
+// PolicyStoreID field. policies, policyTemplates, and identitySources were
+// previously nested by policy store (map[string]map[string]*T); each is now a
+// flat *store.Table keyed by the composite "policyStoreID/id" string (see
+// policyKey/policyTemplateKey/identitySourceKey), with a companion
+// *store.Index grouping entries by policy store for the per-store scans the
+// nested maps used to answer directly -- the same pattern services/codeartifact
+// uses for its region-nested maps. All three carry real, wire-visible
+// PolicyStoreID fields, so each is a "clean" table registered directly on
+// b.registry, no DTO wrapper needed (see persistence.go).
+//
+// schemas has no wire-visible identity field at all (one schema per policy
+// store, keyed only by the outer map's policyStoreID), so it gained a hidden
+// policyStoreID field purely for this key; it is a "dirty" table (store.New
+// only, deliberately NOT store.Register-ed onto b.registry) round-tripped
+// through a DTO wrapper in persistence.go.
+//
+// arnIndex is a derived cache rebuilt from the tables above on Restore, so it
+// is never itself persisted. resourceTags, policySetCache, and policySetDirty
+// remain plain maps: resourceTags is a non-*T value map (map[string]string)
+// still persisted directly; policySetCache/policySetDirty are ephemeral
+// caches that are never persisted.
 type InMemoryBackend struct {
-	policyStores    map[string]*PolicyStore               // policyStoreID -> PolicyStore
-	policies        map[string]map[string]*Policy         // policyStoreID -> policyID -> Policy
-	policyTemplates map[string]map[string]*PolicyTemplate // policyStoreID -> templateID -> PolicyTemplate
-	identitySources map[string]map[string]*IdentitySource // policyStoreID -> identitySourceID -> IdentitySource
-	schemas         map[string]*PolicyStoreSchema         // policyStoreID -> schema
+	registry               *store.Registry
+	policyStores           *store.Table[PolicyStore]
+	policies               *store.Table[Policy]
+	policiesByStore        *store.Index[Policy]
+	policyTemplates        *store.Table[PolicyTemplate]
+	policyTemplatesByStore *store.Index[PolicyTemplate]
+	identitySources        *store.Table[IdentitySource]
+	identitySourcesByStore *store.Index[IdentitySource]
+	schemas                *store.Table[PolicyStoreSchema]
 	// arnIndex maps ARN -> (resourceType, policyStoreID, resourceID) for O(1) tag ops
 	// values are encoded as "policyStore:<id>", "policy:<storeID>:<policyID>", etc.
 	arnIndex     map[string]string
@@ -340,20 +386,20 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		policyStores:    make(map[string]*PolicyStore),
-		policies:        make(map[string]map[string]*Policy),
-		policyTemplates: make(map[string]map[string]*PolicyTemplate),
-		identitySources: make(map[string]map[string]*IdentitySource),
-		schemas:         make(map[string]*PolicyStoreSchema),
-		arnIndex:        make(map[string]string),
-		resourceTags:    make(map[string]map[string]string),
-		policySetCache:  make(map[string]*cedar.PolicySet),
-		policySetDirty:  make(map[string]bool),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("verifiedpermissions"),
+	b := &InMemoryBackend{
+		registry:       store.NewRegistry(),
+		arnIndex:       make(map[string]string),
+		resourceTags:   make(map[string]map[string]string),
+		policySetCache: make(map[string]*cedar.PolicySet),
+		policySetDirty: make(map[string]bool),
+		accountID:      accountID,
+		region:         region,
+		mu:             lockmetrics.New("verifiedpermissions"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the AWS account ID configured for this backend.
@@ -432,8 +478,8 @@ func (b *InMemoryBackend) buildCedarPolicySet(policyStoreID string) *cedar.Polic
 
 	ps := cedar.NewPolicySet()
 
-	policies := b.policies[policyStoreID]
-	for id, p := range policies {
+	policies := b.policiesByStore.Get(policyStoreID)
+	for _, p := range policies {
 		if p.PolicyType != policyTypeStatic || p.Statement == "" {
 			continue
 		}
@@ -444,7 +490,7 @@ func (b *InMemoryBackend) buildCedarPolicySet(policyStoreID string) *cedar.Polic
 		}
 
 		for i, pol := range list {
-			pid := cedar.PolicyID(fmt.Sprintf("%s_p%d", id, i))
+			pid := cedar.PolicyID(fmt.Sprintf("%s_p%d", p.PolicyID, i))
 			polCopy := pol
 
 			ps.Add(pid, polCopy)
@@ -552,10 +598,7 @@ func (b *InMemoryBackend) CreatePolicyStore(
 		ValidationMode:     validationMode,
 		DeletionProtection: deletionProtection,
 	}
-	b.policyStores[id] = ps
-	b.policies[id] = make(map[string]*Policy)
-	b.policyTemplates[id] = make(map[string]*PolicyTemplate)
-	b.identitySources[id] = make(map[string]*IdentitySource)
+	b.policyStores.Put(ps)
 	b.arnIndex[ps.Arn] = arnKindPolicyStore + ":" + id
 	if len(merged) > 0 {
 		b.resourceTags[ps.Arn] = maps.Clone(merged)
@@ -569,7 +612,7 @@ func (b *InMemoryBackend) GetPolicyStore(policyStoreID string) (*PolicyStore, er
 	b.mu.RLock("GetPolicyStore")
 	defer b.mu.RUnlock()
 
-	ps, ok := b.policyStores[policyStoreID]
+	ps, ok := b.policyStores.Get(policyStoreID)
 	if !ok {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
@@ -582,8 +625,9 @@ func (b *InMemoryBackend) ListPolicyStores(nextToken string, maxResults int) ([]
 	b.mu.RLock("ListPolicyStores")
 	defer b.mu.RUnlock()
 
-	out := make([]PolicyStore, 0, len(b.policyStores))
-	for _, ps := range b.policyStores {
+	all := b.policyStores.All()
+	out := make([]PolicyStore, 0, len(all))
+	for _, ps := range all {
 		out = append(out, *clonePolicyStore(ps))
 	}
 
@@ -601,7 +645,7 @@ func (b *InMemoryBackend) UpdatePolicyStore(
 	b.mu.Lock("UpdatePolicyStore")
 	defer b.mu.Unlock()
 
-	ps, ok := b.policyStores[policyStoreID]
+	ps, ok := b.policyStores.Get(policyStoreID)
 	if !ok {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
@@ -625,7 +669,7 @@ func (b *InMemoryBackend) DeletePolicyStore(policyStoreID string) error {
 	b.mu.Lock("DeletePolicyStore")
 	defer b.mu.Unlock()
 
-	ps, ok := b.policyStores[policyStoreID]
+	ps, ok := b.policyStores.Get(policyStoreID)
 	if !ok {
 		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
@@ -634,25 +678,27 @@ func (b *InMemoryBackend) DeletePolicyStore(policyStoreID string) error {
 		return fmt.Errorf("%w: policy store %s has deletion protection enabled", ErrConflict, policyStoreID)
 	}
 
-	// Remove ARN index entries for all child resources.
-	for policyID := range b.policies[policyStoreID] {
-		delete(b.arnIndex, policyARN(b.accountID, policyStoreID, policyID))
+	// Remove ARN index entries for all child resources, then delete the
+	// child resources themselves. Index result slices mutate under Delete,
+	// so clone before the delete loop.
+	for _, p := range slices.Clone(b.policiesByStore.Get(policyStoreID)) {
+		delete(b.arnIndex, policyARN(b.accountID, policyStoreID, p.PolicyID))
+		b.policies.Delete(policyKey(policyStoreID, p.PolicyID))
 	}
 
-	for templateID := range b.policyTemplates[policyStoreID] {
-		delete(b.arnIndex, policyTemplateARN(b.accountID, policyStoreID, templateID))
+	for _, pt := range slices.Clone(b.policyTemplatesByStore.Get(policyStoreID)) {
+		delete(b.arnIndex, policyTemplateARN(b.accountID, policyStoreID, pt.PolicyTemplateID))
+		b.policyTemplates.Delete(policyTemplateKey(policyStoreID, pt.PolicyTemplateID))
 	}
 
-	for sourceID := range b.identitySources[policyStoreID] {
-		delete(b.arnIndex, identitySourceARN(b.accountID, policyStoreID, sourceID))
+	for _, is := range slices.Clone(b.identitySourcesByStore.Get(policyStoreID)) {
+		delete(b.arnIndex, identitySourceARN(b.accountID, policyStoreID, is.IdentitySourceID))
+		b.identitySources.Delete(identitySourceKey(policyStoreID, is.IdentitySourceID))
 	}
 
 	delete(b.arnIndex, ps.Arn)
-	delete(b.policyStores, policyStoreID)
-	delete(b.policies, policyStoreID)
-	delete(b.policyTemplates, policyStoreID)
-	delete(b.identitySources, policyStoreID)
-	delete(b.schemas, policyStoreID)
+	b.policyStores.Delete(policyStoreID)
+	b.schemas.Delete(policyStoreID)
 
 	return nil
 }
@@ -662,8 +708,7 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
-	_, ok := b.policyStores[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
@@ -675,7 +720,7 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 
 	if params.PolicyType == policyTypeTemplateLinked {
 		// Validate the referenced template exists.
-		if _, exists := b.policyTemplates[policyStoreID][params.PolicyTemplateID]; !exists {
+		if !b.policyTemplates.Has(policyTemplateKey(policyStoreID, params.PolicyTemplateID)) {
 			return nil, fmt.Errorf(
 				"%w: policy template %s not found in policy store %s",
 				ErrPolicyTemplateNotFound, params.PolicyTemplateID, policyStoreID,
@@ -699,7 +744,7 @@ func (b *InMemoryBackend) CreatePolicy(policyStoreID string, params CreatePolicy
 		CreatedDate:         now,
 		LastUpdated:         now,
 	}
-	b.policies[policyStoreID][id] = p
+	b.policies.Put(p)
 	b.arnIndex[policyARN(b.accountID, policyStoreID, id)] = arnKindPolicy + ":" + policyStoreID + ":" + id
 	b.invalidatePolicySetCache(policyStoreID)
 
@@ -711,12 +756,11 @@ func (b *InMemoryBackend) GetPolicy(policyStoreID, policyID string) (*Policy, er
 	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
-	policies, ok := b.policies[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	p, ok := policies[policyID]
+	p, ok := b.policies.Get(policyKey(policyStoreID, policyID))
 	if !ok {
 		return nil, fmt.Errorf("%w: policy %s not found", ErrPolicyNotFound, policyID)
 	}
@@ -734,11 +778,11 @@ func (b *InMemoryBackend) ListPolicies(
 	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
-	policies, ok := b.policies[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, "", fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
+	policies := b.policiesByStore.Get(policyStoreID)
 	out := make([]Policy, 0, len(policies))
 
 	for _, p := range policies {
@@ -792,12 +836,11 @@ func (b *InMemoryBackend) UpdatePolicy(policyStoreID, policyID string, params Up
 	b.mu.Lock("UpdatePolicy")
 	defer b.mu.Unlock()
 
-	policies, ok := b.policies[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	p, ok := policies[policyID]
+	p, ok := b.policies.Get(policyKey(policyStoreID, policyID))
 	if !ok {
 		return nil, fmt.Errorf("%w: policy %s not found", ErrPolicyNotFound, policyID)
 	}
@@ -845,17 +888,16 @@ func (b *InMemoryBackend) DeletePolicy(policyStoreID, policyID string) error {
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
-	policies, ok := b.policies[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	if _, exists := policies[policyID]; !exists {
+	if !b.policies.Has(policyKey(policyStoreID, policyID)) {
 		return fmt.Errorf("%w: policy %s not found", ErrPolicyNotFound, policyID)
 	}
 
 	delete(b.arnIndex, policyARN(b.accountID, policyStoreID, policyID))
-	delete(policies, policyID)
+	b.policies.Delete(policyKey(policyStoreID, policyID))
 	b.invalidatePolicySetCache(policyStoreID)
 
 	return nil
@@ -866,7 +908,7 @@ func (b *InMemoryBackend) CreatePolicyTemplate(policyStoreID, description, state
 	b.mu.Lock("CreatePolicyTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
@@ -880,7 +922,7 @@ func (b *InMemoryBackend) CreatePolicyTemplate(policyStoreID, description, state
 		CreatedDate:      now,
 		LastUpdated:      now,
 	}
-	b.policyTemplates[policyStoreID][id] = pt
+	b.policyTemplates.Put(pt)
 	b.arnIndex[policyTemplateARN(b.accountID, policyStoreID, id)] = arnKindPolicyTemplate + ":" + policyStoreID + ":" + id
 
 	return clonePolicyTemplate(pt), nil
@@ -891,12 +933,11 @@ func (b *InMemoryBackend) GetPolicyTemplate(policyStoreID, policyTemplateID stri
 	b.mu.RLock("GetPolicyTemplate")
 	defer b.mu.RUnlock()
 
-	templates, ok := b.policyTemplates[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	pt, ok := templates[policyTemplateID]
+	pt, ok := b.policyTemplates.Get(policyTemplateKey(policyStoreID, policyTemplateID))
 	if !ok {
 		return nil, fmt.Errorf("%w: policy template %s not found", ErrPolicyTemplateNotFound, policyTemplateID)
 	}
@@ -912,21 +953,16 @@ func (b *InMemoryBackend) ListPolicyTemplates(
 	b.mu.RLock("ListPolicyTemplates")
 	defer b.mu.RUnlock()
 
-	templates, ok := b.policyTemplates[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, "", fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	out := make([]PolicyTemplate, 0, len(templates))
-	for _, pt := range templates {
-		out = append(out, *clonePolicyTemplate(pt))
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CreatedDate.Before(out[j].CreatedDate)
-	})
-
-	page, tok := paginate(out, nextToken, maxResults, func(pt PolicyTemplate) string { return pt.PolicyTemplateID })
+	templates := b.policyTemplatesByStore.Get(policyStoreID)
+	page, tok := listByPolicyStore(templates, nextToken, maxResults,
+		func(pt *PolicyTemplate) PolicyTemplate { return *clonePolicyTemplate(pt) },
+		func(pt PolicyTemplate) time.Time { return pt.CreatedDate },
+		func(pt PolicyTemplate) string { return pt.PolicyTemplateID },
+	)
 
 	return page, tok, nil
 }
@@ -938,12 +974,11 @@ func (b *InMemoryBackend) UpdatePolicyTemplate(
 	b.mu.Lock("UpdatePolicyTemplate")
 	defer b.mu.Unlock()
 
-	templates, ok := b.policyTemplates[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	pt, ok := templates[policyTemplateID]
+	pt, ok := b.policyTemplates.Get(policyTemplateKey(policyStoreID, policyTemplateID))
 	if !ok {
 		return nil, fmt.Errorf("%w: policy template %s not found", ErrPolicyTemplateNotFound, policyTemplateID)
 	}
@@ -966,17 +1001,16 @@ func (b *InMemoryBackend) DeletePolicyTemplate(policyStoreID, policyTemplateID s
 	b.mu.Lock("DeletePolicyTemplate")
 	defer b.mu.Unlock()
 
-	templates, ok := b.policyTemplates[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	if _, exists := templates[policyTemplateID]; !exists {
+	if !b.policyTemplates.Has(policyTemplateKey(policyStoreID, policyTemplateID)) {
 		return fmt.Errorf("%w: policy template %s not found", ErrPolicyTemplateNotFound, policyTemplateID)
 	}
 
 	delete(b.arnIndex, policyTemplateARN(b.accountID, policyStoreID, policyTemplateID))
-	delete(templates, policyTemplateID)
+	b.policyTemplates.Delete(policyTemplateKey(policyStoreID, policyTemplateID))
 
 	return nil
 }
@@ -986,11 +1020,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.policyStores = make(map[string]*PolicyStore)
-	b.policies = make(map[string]map[string]*Policy)
-	b.policyTemplates = make(map[string]map[string]*PolicyTemplate)
-	b.identitySources = make(map[string]map[string]*IdentitySource)
-	b.schemas = make(map[string]*PolicyStoreSchema)
+	b.registry.ResetAll()
+	// schemas is a "dirty" table (hidden policyStoreID field) deliberately
+	// NOT on b.registry -- see store_setup.go's registerAllTables doc -- so
+	// it needs its own Reset() call here.
+	b.schemas.Reset()
 	b.arnIndex = make(map[string]string)
 	b.resourceTags = make(map[string]map[string]string)
 	b.policySetCache = make(map[string]*cedar.PolicySet)
@@ -1078,8 +1112,7 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 	entries := make([]entry, 0, len(items))
 
 	for _, item := range items {
-		policies, ok := b.policies[item.PolicyStoreID]
-		if !ok {
+		if !b.policyStores.Has(item.PolicyStoreID) {
 			entries = append(entries, entry{err: &batchGetPolicyErrorItem{
 				PolicyStoreID: item.PolicyStoreID,
 				PolicyID:      item.PolicyID,
@@ -1090,7 +1123,7 @@ func (b *InMemoryBackend) BatchGetPolicy(items []BatchGetPolicyItem) BatchGetPol
 			continue
 		}
 
-		p, ok := policies[item.PolicyID]
+		p, ok := b.policies.Get(policyKey(item.PolicyStoreID, item.PolicyID))
 		if !ok {
 			entries = append(entries, entry{err: &batchGetPolicyErrorItem{
 				PolicyStoreID: item.PolicyStoreID,
@@ -1142,7 +1175,7 @@ func (b *InMemoryBackend) BatchIsAuthorized(
 
 	b.mu.Lock("BatchIsAuthorized")
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
@@ -1176,7 +1209,7 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 
 	b.mu.Lock("BatchIsAuthorizedWithToken")
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
@@ -1198,7 +1231,7 @@ func (b *InMemoryBackend) BatchIsAuthorizedWithToken(
 func (b *InMemoryBackend) IsAuthorized(policyStoreID string, req AuthorizationRequest) (*AuthDecision, error) {
 	b.mu.Lock("IsAuthorized")
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
@@ -1219,7 +1252,7 @@ func (b *InMemoryBackend) IsAuthorizedWithToken(
 ) (*AuthDecision, error) {
 	b.mu.Lock("IsAuthorizedWithToken")
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
@@ -1241,7 +1274,7 @@ func (b *InMemoryBackend) CreateIdentitySource(
 	b.mu.Lock("CreateIdentitySource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
@@ -1258,11 +1291,7 @@ func (b *InMemoryBackend) CreateIdentitySource(
 
 	applyIdentitySourceConfig(is, cfg)
 
-	if b.identitySources[policyStoreID] == nil {
-		b.identitySources[policyStoreID] = make(map[string]*IdentitySource)
-	}
-
-	b.identitySources[policyStoreID][id] = is
+	b.identitySources.Put(is)
 	b.arnIndex[identitySourceARN(b.accountID, policyStoreID, id)] = arnKindIdentitySource + ":" + policyStoreID + ":" + id
 
 	return cloneIdentitySource(is), nil
@@ -1273,12 +1302,11 @@ func (b *InMemoryBackend) GetIdentitySource(policyStoreID, identitySourceID stri
 	b.mu.RLock("GetIdentitySource")
 	defer b.mu.RUnlock()
 
-	sources, ok := b.identitySources[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	is, ok := sources[identitySourceID]
+	is, ok := b.identitySources.Get(identitySourceKey(policyStoreID, identitySourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
 	}
@@ -1291,17 +1319,16 @@ func (b *InMemoryBackend) DeleteIdentitySource(policyStoreID, identitySourceID s
 	b.mu.Lock("DeleteIdentitySource")
 	defer b.mu.Unlock()
 
-	sources, ok := b.identitySources[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	if _, exists := sources[identitySourceID]; !exists {
+	if !b.identitySources.Has(identitySourceKey(policyStoreID, identitySourceID)) {
 		return fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
 	}
 
 	delete(b.arnIndex, identitySourceARN(b.accountID, policyStoreID, identitySourceID))
-	delete(sources, identitySourceID)
+	b.identitySources.Delete(identitySourceKey(policyStoreID, identitySourceID))
 
 	return nil
 }
@@ -1311,7 +1338,7 @@ func (b *InMemoryBackend) PutSchema(policyStoreID, schema string) ([]string, err
 	b.mu.Lock("PutSchema")
 	defer b.mu.Unlock()
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
@@ -1323,19 +1350,20 @@ func (b *InMemoryBackend) PutSchema(policyStoreID, schema string) ([]string, err
 	namespaces := extractSchemaNamespaces(schema)
 
 	now := time.Now()
-	existing, ok := b.schemas[policyStoreID]
+	existing, ok := b.schemas.Get(policyStoreID)
 
 	if ok {
 		existing.Schema = schema
 		existing.LastUpdated = now
 		existing.Namespaces = namespaces
 	} else {
-		b.schemas[policyStoreID] = &PolicyStoreSchema{
-			Schema:      schema,
-			CreatedDate: now,
-			LastUpdated: now,
-			Namespaces:  namespaces,
-		}
+		b.schemas.Put(&PolicyStoreSchema{
+			Schema:        schema,
+			CreatedDate:   now,
+			LastUpdated:   now,
+			Namespaces:    namespaces,
+			policyStoreID: policyStoreID,
+		})
 	}
 
 	return namespaces, nil
@@ -1346,11 +1374,11 @@ func (b *InMemoryBackend) GetSchema(policyStoreID string) (*PolicyStoreSchema, e
 	b.mu.RLock("GetSchema")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	s, ok := b.schemas[policyStoreID]
+	s, ok := b.schemas.Get(policyStoreID)
 	if !ok {
 		return nil, fmt.Errorf("%w: no schema found for policy store %s", ErrSchemaNotFound, policyStoreID)
 	}
@@ -1372,22 +1400,16 @@ func (b *InMemoryBackend) ListIdentitySources(
 	b.mu.RLock("ListIdentitySources")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.policyStores[policyStoreID]; !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, "", fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	sources := b.identitySources[policyStoreID]
-	out := make([]IdentitySource, 0, len(sources))
-
-	for _, is := range sources {
-		out = append(out, *cloneIdentitySource(is))
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CreatedDate.Before(out[j].CreatedDate)
-	})
-
-	page, tok := paginate(out, nextToken, maxResults, func(is IdentitySource) string { return is.IdentitySourceID })
+	sources := b.identitySourcesByStore.Get(policyStoreID)
+	page, tok := listByPolicyStore(sources, nextToken, maxResults,
+		func(is *IdentitySource) IdentitySource { return *cloneIdentitySource(is) },
+		func(is IdentitySource) time.Time { return is.CreatedDate },
+		func(is IdentitySource) string { return is.IdentitySourceID },
+	)
 
 	return page, tok, nil
 }
@@ -1400,12 +1422,11 @@ func (b *InMemoryBackend) UpdateIdentitySource(
 	b.mu.Lock("UpdateIdentitySource")
 	defer b.mu.Unlock()
 
-	sources, ok := b.identitySources[policyStoreID]
-	if !ok {
+	if !b.policyStores.Has(policyStoreID) {
 		return nil, fmt.Errorf("%w: policy store %s not found", ErrPolicyStoreNotFound, policyStoreID)
 	}
 
-	is, ok := sources[identitySourceID]
+	is, ok := b.identitySources.Get(identitySourceKey(policyStoreID, identitySourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: identity source %s not found", ErrIdentitySourceNotFound, identitySourceID)
 	}
@@ -1465,6 +1486,33 @@ func applyIdentitySourceConfig(is *IdentitySource, cfg IdentitySourceConfig) {
 	}
 }
 
+// listByPolicyStore clones every entry in a policy-store-scoped store.Index
+// group via cloneFn, sorts the clones by createdAtFn ascending, and paginates
+// the result via idFn. It factors out the identical clone/sort/paginate shape
+// shared by ListPolicyTemplates and ListIdentitySources (both: look up the
+// index group for a policy store, clone into a value slice, sort by creation
+// date, paginate by the resource's own ID) so the two call sites differ only
+// in the type-specific clone/field accessors passed in.
+func listByPolicyStore[V any](
+	entries []*V,
+	nextToken string,
+	maxResults int,
+	cloneFn func(*V) V,
+	createdAtFn func(V) time.Time,
+	idFn func(V) string,
+) ([]V, string) {
+	out := make([]V, 0, len(entries))
+	for _, v := range entries {
+		out = append(out, cloneFn(v))
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return createdAtFn(out[i]).Before(createdAtFn(out[j]))
+	})
+
+	return paginate(out, nextToken, maxResults, idFn)
+}
+
 // paginate slices items starting after nextToken and up to maxResults.
 // Returns the page and the next continuation token (empty string if last page).
 // Tokens are base64-encoded resource IDs to prevent clients from relying on their format.
@@ -1512,10 +1560,7 @@ func (b *InMemoryBackend) AddPolicyStoreInternal(ps *PolicyStore) {
 	b.mu.Lock("AddPolicyStoreInternal")
 	defer b.mu.Unlock()
 
-	b.policyStores[ps.PolicyStoreID] = ps
-	b.policies[ps.PolicyStoreID] = make(map[string]*Policy)
-	b.policyTemplates[ps.PolicyStoreID] = make(map[string]*PolicyTemplate)
-	b.identitySources[ps.PolicyStoreID] = make(map[string]*IdentitySource)
+	b.policyStores.Put(ps)
 	b.arnIndex[ps.Arn] = arnKindPolicyStore + ":" + ps.PolicyStoreID
 }
 
@@ -1524,11 +1569,7 @@ func (b *InMemoryBackend) AddPolicyInternal(p *Policy) {
 	b.mu.Lock("AddPolicyInternal")
 	defer b.mu.Unlock()
 
-	if b.policies[p.PolicyStoreID] == nil {
-		b.policies[p.PolicyStoreID] = make(map[string]*Policy)
-	}
-
-	b.policies[p.PolicyStoreID][p.PolicyID] = p
+	b.policies.Put(p)
 	b.arnIndex[policyARN(b.accountID, p.PolicyStoreID, p.PolicyID)] =
 		arnKindPolicy + ":" + p.PolicyStoreID + ":" + p.PolicyID
 }
@@ -1538,11 +1579,7 @@ func (b *InMemoryBackend) AddPolicyTemplateInternal(pt *PolicyTemplate) {
 	b.mu.Lock("AddPolicyTemplateInternal")
 	defer b.mu.Unlock()
 
-	if b.policyTemplates[pt.PolicyStoreID] == nil {
-		b.policyTemplates[pt.PolicyStoreID] = make(map[string]*PolicyTemplate)
-	}
-
-	b.policyTemplates[pt.PolicyStoreID][pt.PolicyTemplateID] = pt
+	b.policyTemplates.Put(pt)
 	b.arnIndex[policyTemplateARN(b.accountID, pt.PolicyStoreID, pt.PolicyTemplateID)] =
 		arnKindPolicyTemplate + ":" + pt.PolicyStoreID + ":" + pt.PolicyTemplateID
 }
@@ -1552,11 +1589,7 @@ func (b *InMemoryBackend) AddIdentitySourceInternal(is *IdentitySource) {
 	b.mu.Lock("AddIdentitySourceInternal")
 	defer b.mu.Unlock()
 
-	if b.identitySources[is.PolicyStoreID] == nil {
-		b.identitySources[is.PolicyStoreID] = make(map[string]*IdentitySource)
-	}
-
-	b.identitySources[is.PolicyStoreID][is.IdentitySourceID] = is
+	b.identitySources.Put(is)
 	b.arnIndex[identitySourceARN(b.accountID, is.PolicyStoreID, is.IdentitySourceID)] =
 		arnKindIdentitySource + ":" + is.PolicyStoreID + ":" + is.IdentitySourceID
 }

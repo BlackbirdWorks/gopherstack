@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -185,23 +186,28 @@ type MedicalTranscriptionJob struct {
 
 // InMemoryBackend is the in-memory store for Transcribe jobs.
 type InMemoryBackend struct {
-	jobs                     map[string]*TranscriptionJob
-	callAnalyticsCategories  map[string]*CallAnalyticsCategory
-	languageModels           map[string]*LanguageModel
-	medicalVocabularies      map[string]*MedicalVocabulary
-	vocabularies             map[string]*Vocabulary
-	vocabularyFilters        map[string]*VocabularyFilter
-	callAnalyticsJobs        map[string]*CallAnalyticsJob
-	medicalScribeJobs        map[string]*MedicalScribeJob
-	medicalTranscriptionJobs map[string]*MedicalTranscriptionJob
+	jobs                     *store.Table[TranscriptionJob]
+	callAnalyticsCategories  *store.Table[CallAnalyticsCategory]
+	languageModels           *store.Table[LanguageModel]
+	medicalVocabularies      *store.Table[MedicalVocabulary]
+	vocabularies             *store.Table[Vocabulary]
+	vocabularyFilters        *store.Table[VocabularyFilter]
+	callAnalyticsJobs        *store.Table[CallAnalyticsJob]
+	medicalScribeJobs        *store.Table[MedicalScribeJob]
+	medicalTranscriptionJobs *store.Table[MedicalTranscriptionJob]
+	registry                 *store.Registry
 	resourceTags             map[string]map[string]string // ARN → tag map
 	mu                       *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	b := &InMemoryBackend{mu: lockmetrics.New("transcribe")}
-	b.ensureNonNilMaps()
+	b := &InMemoryBackend{
+		mu:       lockmetrics.New("transcribe"),
+		registry: store.NewRegistry(),
+	}
+	registerAllTables(b)
+	b.resourceTags = make(map[string]map[string]string)
 
 	return b
 }
@@ -211,26 +217,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.ensureNonNilMaps()
+	b.registry.ResetAll()
+	b.resourceTags = make(map[string]map[string]string)
 }
 
 // AccountID returns the synthetic AWS account ID used by this backend.
 func (b *InMemoryBackend) AccountID() string { return defaultAccountID }
-
-// ensureNonNilMaps initialises all maps. Must be called with b.mu held (or
-// before the backend is shared between goroutines, as in NewInMemoryBackend).
-func (b *InMemoryBackend) ensureNonNilMaps() {
-	b.jobs = make(map[string]*TranscriptionJob)
-	b.callAnalyticsCategories = make(map[string]*CallAnalyticsCategory)
-	b.languageModels = make(map[string]*LanguageModel)
-	b.medicalVocabularies = make(map[string]*MedicalVocabulary)
-	b.vocabularies = make(map[string]*Vocabulary)
-	b.vocabularyFilters = make(map[string]*VocabularyFilter)
-	b.callAnalyticsJobs = make(map[string]*CallAnalyticsJob)
-	b.medicalScribeJobs = make(map[string]*MedicalScribeJob)
-	b.medicalTranscriptionJobs = make(map[string]*MedicalTranscriptionJob)
-	b.resourceTags = make(map[string]map[string]string)
-}
 
 // StartTranscriptionJob creates a new transcription job with synthetic results.
 // The input struct carries all supported fields; validation is performed before storage.
@@ -242,7 +234,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 	b.mu.Lock("StartTranscriptionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[input.JobName]; ok {
+	if b.jobs.Has(input.JobName) {
 		return nil, fmt.Errorf("%w: job %s already exists", ErrAlreadyExists, input.JobName)
 	}
 
@@ -251,7 +243,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 		job = buildQueuedTranscriptionJob(input)
 	}
 
-	b.jobs[input.JobName] = &job
+	b.jobs.Put(&job)
 	cp := job
 
 	return &cp, nil
@@ -357,7 +349,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 	b.mu.Lock("GetTranscriptionJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.jobs[jobName]
+	job, ok := b.jobs.Get(jobName)
 	if !ok {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
@@ -375,8 +367,8 @@ func (b *InMemoryBackend) ListTranscriptionJobs(
 	b.mu.RLock("ListTranscriptionJobs")
 	defer b.mu.RUnlock()
 
-	all := make([]TranscriptionJob, 0, len(b.jobs))
-	for _, j := range b.jobs {
+	all := make([]TranscriptionJob, 0, b.jobs.Len())
+	for _, j := range b.jobs.All() {
 		if statusFilter == "" || j.JobStatus == statusFilter {
 			all = append(all, *j)
 		}
@@ -396,11 +388,9 @@ func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
 	b.mu.Lock("DeleteTranscriptionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[jobName]; !ok {
+	if !b.jobs.Delete(jobName) {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
-
-	delete(b.jobs, jobName)
 
 	return nil
 }
@@ -418,7 +408,7 @@ func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCatego
 	b.mu.Lock("CreateCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
-	if _, ok := b.callAnalyticsCategories[input.CategoryName]; ok {
+	if b.callAnalyticsCategories.Has(input.CategoryName) {
 		return nil, fmt.Errorf("%w: category %s already exists", ErrAlreadyExists, input.CategoryName)
 	}
 
@@ -426,7 +416,7 @@ func (b *InMemoryBackend) CreateCallAnalyticsCategory(input *CallAnalyticsCatego
 	cat := *input
 	cat.CreateTime = now
 	cat.LastUpdateTime = now
-	b.callAnalyticsCategories[input.CategoryName] = &cat
+	b.callAnalyticsCategories.Put(&cat)
 
 	cp := cat
 
@@ -442,11 +432,9 @@ func (b *InMemoryBackend) DeleteCallAnalyticsCategory(categoryName string) error
 	b.mu.Lock("DeleteCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
-	if _, ok := b.callAnalyticsCategories[categoryName]; !ok {
+	if !b.callAnalyticsCategories.Delete(categoryName) {
 		return fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
 	}
-
-	delete(b.callAnalyticsCategories, categoryName)
 
 	return nil
 }
@@ -482,7 +470,7 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 	b.mu.Lock("CreateLanguageModel")
 	defer b.mu.Unlock()
 
-	if _, ok := b.languageModels[input.ModelName]; ok {
+	if b.languageModels.Has(input.ModelName) {
 		return nil, fmt.Errorf("%w: language model %s already exists", ErrAlreadyExists, input.ModelName)
 	}
 
@@ -491,7 +479,7 @@ func (b *InMemoryBackend) CreateLanguageModel(input *LanguageModel) (*LanguageMo
 	m.ModelStatus = modelStatusCompleted
 	m.CreateTime = now
 	m.LastModifiedTime = now
-	b.languageModels[input.ModelName] = &m
+	b.languageModels.Put(&m)
 
 	cp := m
 
@@ -507,11 +495,9 @@ func (b *InMemoryBackend) DeleteLanguageModel(modelName string) error {
 	b.mu.Lock("DeleteLanguageModel")
 	defer b.mu.Unlock()
 
-	if _, ok := b.languageModels[modelName]; !ok {
+	if !b.languageModels.Delete(modelName) {
 		return fmt.Errorf("%w: language model %s not found", ErrNotFound, modelName)
 	}
-
-	delete(b.languageModels, modelName)
 
 	return nil
 }
@@ -535,7 +521,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 	b.mu.Lock("CreateMedicalVocabulary")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalVocabularies[vocabularyName]; ok {
+	if b.medicalVocabularies.Has(vocabularyName) {
 		return nil, fmt.Errorf(
 			"%w: medical vocabulary %s already exists",
 			ErrAlreadyExists,
@@ -551,7 +537,7 @@ func (b *InMemoryBackend) CreateMedicalVocabulary(
 		VocabularyFileURI: vocabularyFileURI,
 		LastModifiedTime:  now,
 	}
-	b.medicalVocabularies[vocabularyName] = v
+	b.medicalVocabularies.Put(v)
 
 	cp := *v
 
@@ -584,7 +570,7 @@ func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, erro
 	b.mu.Lock("CreateVocabulary")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vocabularies[input.VocabularyName]; ok {
+	if b.vocabularies.Has(input.VocabularyName) {
 		return nil, fmt.Errorf("%w: vocabulary %s already exists", ErrAlreadyExists, input.VocabularyName)
 	}
 
@@ -592,7 +578,7 @@ func (b *InMemoryBackend) CreateVocabulary(input *Vocabulary) (*Vocabulary, erro
 	v := *input
 	v.VocabularyState = vocabStateReady
 	v.LastModifiedTime = now
-	b.vocabularies[input.VocabularyName] = &v
+	b.vocabularies.Put(&v)
 
 	cp := v
 
@@ -629,7 +615,7 @@ func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*Voca
 	b.mu.Lock("CreateVocabularyFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vocabularyFilters[input.VocabularyFilterName]; ok {
+	if b.vocabularyFilters.Has(input.VocabularyFilterName) {
 		return nil, fmt.Errorf(
 			"%w: vocabulary filter %s already exists",
 			ErrAlreadyExists,
@@ -640,7 +626,7 @@ func (b *InMemoryBackend) CreateVocabularyFilter(input *VocabularyFilter) (*Voca
 	now := time.Now()
 	f := *input
 	f.LastModifiedTime = now
-	b.vocabularyFilters[input.VocabularyFilterName] = &f
+	b.vocabularyFilters.Put(&f)
 
 	cp := f
 
@@ -656,11 +642,9 @@ func (b *InMemoryBackend) DeleteCallAnalyticsJob(jobName string) error {
 	b.mu.Lock("DeleteCallAnalyticsJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.callAnalyticsJobs[jobName]; !ok {
+	if !b.callAnalyticsJobs.Delete(jobName) {
 		return fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
 	}
-
-	delete(b.callAnalyticsJobs, jobName)
 
 	return nil
 }
@@ -674,11 +658,9 @@ func (b *InMemoryBackend) DeleteMedicalScribeJob(jobName string) error {
 	b.mu.Lock("DeleteMedicalScribeJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalScribeJobs[jobName]; !ok {
+	if !b.medicalScribeJobs.Delete(jobName) {
 		return fmt.Errorf("%w: medical scribe job %s not found", ErrNotFound, jobName)
 	}
-
-	delete(b.medicalScribeJobs, jobName)
 
 	return nil
 }
@@ -692,11 +674,9 @@ func (b *InMemoryBackend) DeleteMedicalTranscriptionJob(jobName string) error {
 	b.mu.Lock("DeleteMedicalTranscriptionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalTranscriptionJobs[jobName]; !ok {
+	if !b.medicalTranscriptionJobs.Delete(jobName) {
 		return fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
 	}
-
-	delete(b.medicalTranscriptionJobs, jobName)
 
 	return nil
 }
@@ -707,7 +687,7 @@ func (b *InMemoryBackend) AddCallAnalyticsJobInternal(job *CallAnalyticsJob) {
 	defer b.mu.Unlock()
 
 	cp := *job
-	b.callAnalyticsJobs[job.CallAnalyticsJobName] = &cp
+	b.callAnalyticsJobs.Put(&cp)
 }
 
 // AddMedicalScribeJobInternal seeds a Medical Scribe job directly (test helper).
@@ -716,7 +696,7 @@ func (b *InMemoryBackend) AddMedicalScribeJobInternal(job *MedicalScribeJob) {
 	defer b.mu.Unlock()
 
 	cp := *job
-	b.medicalScribeJobs[job.MedicalScribeJobName] = &cp
+	b.medicalScribeJobs.Put(&cp)
 }
 
 // AddMedicalTranscriptionJobInternal seeds a Medical Transcription job directly (test helper).
@@ -725,7 +705,7 @@ func (b *InMemoryBackend) AddMedicalTranscriptionJobInternal(job *MedicalTranscr
 	defer b.mu.Unlock()
 
 	cp := *job
-	b.medicalTranscriptionJobs[job.MedicalTranscriptionJobName] = &cp
+	b.medicalTranscriptionJobs.Put(&cp)
 }
 
 // AddCallAnalyticsCategoryInternal seeds a Call Analytics category directly (test helper).
@@ -734,7 +714,7 @@ func (b *InMemoryBackend) AddCallAnalyticsCategoryInternal(cat *CallAnalyticsCat
 	defer b.mu.Unlock()
 
 	cp := *cat
-	b.callAnalyticsCategories[cat.CategoryName] = &cp
+	b.callAnalyticsCategories.Put(&cp)
 }
 
 // AddLanguageModelInternal seeds a language model directly (test helper).
@@ -743,7 +723,7 @@ func (b *InMemoryBackend) AddLanguageModelInternal(m *LanguageModel) {
 	defer b.mu.Unlock()
 
 	cp := *m
-	b.languageModels[m.ModelName] = &cp
+	b.languageModels.Put(&cp)
 }
 
 // AddMedicalVocabularyInternal seeds a medical vocabulary directly (test helper).
@@ -752,7 +732,7 @@ func (b *InMemoryBackend) AddMedicalVocabularyInternal(v *MedicalVocabulary) {
 	defer b.mu.Unlock()
 
 	cp := *v
-	b.medicalVocabularies[v.VocabularyName] = &cp
+	b.medicalVocabularies.Put(&cp)
 }
 
 // AddVocabularyInternal seeds a vocabulary directly (test helper).
@@ -761,7 +741,7 @@ func (b *InMemoryBackend) AddVocabularyInternal(v *Vocabulary) {
 	defer b.mu.Unlock()
 
 	cp := *v
-	b.vocabularies[v.VocabularyName] = &cp
+	b.vocabularies.Put(&cp)
 }
 
 // AddVocabularyFilterInternal seeds a vocabulary filter directly (test helper).
@@ -770,7 +750,7 @@ func (b *InMemoryBackend) AddVocabularyFilterInternal(f *VocabularyFilter) {
 	defer b.mu.Unlock()
 
 	cp := *f
-	b.vocabularyFilters[f.VocabularyFilterName] = &cp
+	b.vocabularyFilters.Put(&cp)
 }
 
 // --- Call Analytics jobs ---
@@ -792,7 +772,7 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 	b.mu.Lock("StartCallAnalyticsJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.callAnalyticsJobs[input.CallAnalyticsJobName]; ok {
+	if b.callAnalyticsJobs.Has(input.CallAnalyticsJobName) {
 		return nil, fmt.Errorf(
 			"%w: call analytics job %s already exists",
 			ErrAlreadyExists,
@@ -806,7 +786,7 @@ func (b *InMemoryBackend) StartCallAnalyticsJob(input *CallAnalyticsJob) (*CallA
 	job.CreationTime = now
 	job.StartTime = now
 	job.CompletionTime = now
-	b.callAnalyticsJobs[input.CallAnalyticsJobName] = &job
+	b.callAnalyticsJobs.Put(&job)
 
 	cp := job
 
@@ -818,7 +798,7 @@ func (b *InMemoryBackend) GetCallAnalyticsJob(jobName string) (*CallAnalyticsJob
 	b.mu.RLock("GetCallAnalyticsJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.callAnalyticsJobs[jobName]
+	job, ok := b.callAnalyticsJobs.Get(jobName)
 	if !ok {
 		return nil, fmt.Errorf("%w: call analytics job %s not found", ErrNotFound, jobName)
 	}
@@ -835,8 +815,8 @@ func (b *InMemoryBackend) ListCallAnalyticsJobs(
 	b.mu.RLock("ListCallAnalyticsJobs")
 	defer b.mu.RUnlock()
 
-	all := make([]CallAnalyticsJob, 0, len(b.callAnalyticsJobs))
-	for _, j := range b.callAnalyticsJobs {
+	all := make([]CallAnalyticsJob, 0, b.callAnalyticsJobs.Len())
+	for _, j := range b.callAnalyticsJobs.All() {
 		if statusFilter == "" || j.CallAnalyticsJobStatus == statusFilter {
 			all = append(all, *j)
 		}
@@ -859,7 +839,7 @@ func (b *InMemoryBackend) GetCallAnalyticsCategory(
 	b.mu.RLock("GetCallAnalyticsCategory")
 	defer b.mu.RUnlock()
 
-	cat, ok := b.callAnalyticsCategories[categoryName]
+	cat, ok := b.callAnalyticsCategories.Get(categoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: category %s not found", ErrNotFound, categoryName)
 	}
@@ -882,7 +862,7 @@ func (b *InMemoryBackend) UpdateCallAnalyticsCategory(input *CallAnalyticsCatego
 	b.mu.Lock("UpdateCallAnalyticsCategory")
 	defer b.mu.Unlock()
 
-	cat, ok := b.callAnalyticsCategories[input.CategoryName]
+	cat, ok := b.callAnalyticsCategories.Get(input.CategoryName)
 	if !ok {
 		return nil, fmt.Errorf("%w: category %s not found", ErrNotFound, input.CategoryName)
 	}
@@ -903,8 +883,8 @@ func (b *InMemoryBackend) ListCallAnalyticsCategories(
 	b.mu.RLock("ListCallAnalyticsCategories")
 	defer b.mu.RUnlock()
 
-	all := make([]CallAnalyticsCategory, 0, len(b.callAnalyticsCategories))
-	for _, c := range b.callAnalyticsCategories {
+	all := make([]CallAnalyticsCategory, 0, b.callAnalyticsCategories.Len())
+	for _, c := range b.callAnalyticsCategories.All() {
 		all = append(all, *c)
 	}
 
@@ -920,7 +900,7 @@ func (b *InMemoryBackend) GetVocabulary(vocabularyName string) (*Vocabulary, err
 	b.mu.RLock("GetVocabulary")
 	defer b.mu.RUnlock()
 
-	v, ok := b.vocabularies[vocabularyName]
+	v, ok := b.vocabularies.Get(vocabularyName)
 	if !ok {
 		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrVocabularyNotFound, vocabularyName)
 	}
@@ -947,7 +927,7 @@ func (b *InMemoryBackend) UpdateVocabulary(
 	b.mu.Lock("UpdateVocabulary")
 	defer b.mu.Unlock()
 
-	v, ok := b.vocabularies[input.VocabularyName]
+	v, ok := b.vocabularies.Get(input.VocabularyName)
 	if !ok {
 		return nil, fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, input.VocabularyName)
 	}
@@ -980,11 +960,9 @@ func (b *InMemoryBackend) DeleteVocabulary(vocabularyName string) error {
 	b.mu.Lock("DeleteVocabulary")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vocabularies[vocabularyName]; !ok {
+	if !b.vocabularies.Delete(vocabularyName) {
 		return fmt.Errorf("%w: vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
-
-	delete(b.vocabularies, vocabularyName)
 
 	return nil
 }
@@ -994,8 +972,8 @@ func (b *InMemoryBackend) ListVocabularies(stateFilter, nextToken string) ([]Voc
 	b.mu.RLock("ListVocabularies")
 	defer b.mu.RUnlock()
 
-	all := make([]Vocabulary, 0, len(b.vocabularies))
-	for _, v := range b.vocabularies {
+	all := make([]Vocabulary, 0, b.vocabularies.Len())
+	for _, v := range b.vocabularies.All() {
 		if stateFilter == "" || v.VocabularyState == stateFilter {
 			all = append(all, *v)
 		}
@@ -1015,7 +993,7 @@ func (b *InMemoryBackend) GetVocabularyFilter(
 	b.mu.RLock("GetVocabularyFilter")
 	defer b.mu.RUnlock()
 
-	f, ok := b.vocabularyFilters[vocabularyFilterName]
+	f, ok := b.vocabularyFilters.Get(vocabularyFilterName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: vocabulary filter %s not found",
@@ -1046,7 +1024,7 @@ func (b *InMemoryBackend) UpdateVocabularyFilter(
 	b.mu.Lock("UpdateVocabularyFilter")
 	defer b.mu.Unlock()
 
-	f, ok := b.vocabularyFilters[input.VocabularyFilterName]
+	f, ok := b.vocabularyFilters.Get(input.VocabularyFilterName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: vocabulary filter %s not found",
@@ -1083,11 +1061,9 @@ func (b *InMemoryBackend) DeleteVocabularyFilter(vocabularyFilterName string) er
 	b.mu.Lock("DeleteVocabularyFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vocabularyFilters[vocabularyFilterName]; !ok {
+	if !b.vocabularyFilters.Delete(vocabularyFilterName) {
 		return fmt.Errorf("%w: vocabulary filter %s not found", ErrNotFound, vocabularyFilterName)
 	}
-
-	delete(b.vocabularyFilters, vocabularyFilterName)
 
 	return nil
 }
@@ -1097,8 +1073,8 @@ func (b *InMemoryBackend) ListVocabularyFilters(nextToken string) ([]VocabularyF
 	b.mu.RLock("ListVocabularyFilters")
 	defer b.mu.RUnlock()
 
-	all := make([]VocabularyFilter, 0, len(b.vocabularyFilters))
-	for _, f := range b.vocabularyFilters {
+	all := make([]VocabularyFilter, 0, b.vocabularyFilters.Len())
+	for _, f := range b.vocabularyFilters.All() {
 		all = append(all, *f)
 	}
 
@@ -1117,7 +1093,7 @@ func (b *InMemoryBackend) GetMedicalVocabulary(vocabularyName string) (*MedicalV
 	b.mu.RLock("GetMedicalVocabulary")
 	defer b.mu.RUnlock()
 
-	v, ok := b.medicalVocabularies[vocabularyName]
+	v, ok := b.medicalVocabularies.Get(vocabularyName)
 	if !ok {
 		return nil, fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
@@ -1138,7 +1114,7 @@ func (b *InMemoryBackend) UpdateMedicalVocabulary(
 	b.mu.Lock("UpdateMedicalVocabulary")
 	defer b.mu.Unlock()
 
-	v, ok := b.medicalVocabularies[vocabularyName]
+	v, ok := b.medicalVocabularies.Get(vocabularyName)
 	if !ok {
 		return nil, fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
@@ -1167,11 +1143,9 @@ func (b *InMemoryBackend) DeleteMedicalVocabulary(vocabularyName string) error {
 	b.mu.Lock("DeleteMedicalVocabulary")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalVocabularies[vocabularyName]; !ok {
+	if !b.medicalVocabularies.Delete(vocabularyName) {
 		return fmt.Errorf("%w: medical vocabulary %s not found", ErrNotFound, vocabularyName)
 	}
-
-	delete(b.medicalVocabularies, vocabularyName)
 
 	return nil
 }
@@ -1183,8 +1157,8 @@ func (b *InMemoryBackend) ListMedicalVocabularies(
 	b.mu.RLock("ListMedicalVocabularies")
 	defer b.mu.RUnlock()
 
-	all := make([]MedicalVocabulary, 0, len(b.medicalVocabularies))
-	for _, v := range b.medicalVocabularies {
+	all := make([]MedicalVocabulary, 0, b.medicalVocabularies.Len())
+	for _, v := range b.medicalVocabularies.All() {
 		if stateFilter == "" || v.VocabularyState == stateFilter {
 			all = append(all, *v)
 		}
@@ -1214,7 +1188,7 @@ func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*Medic
 	b.mu.Lock("StartMedicalScribeJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalScribeJobs[input.MedicalScribeJobName]; ok {
+	if b.medicalScribeJobs.Has(input.MedicalScribeJobName) {
 		return nil, fmt.Errorf(
 			"%w: medical scribe job %s already exists",
 			ErrAlreadyExists,
@@ -1228,7 +1202,7 @@ func (b *InMemoryBackend) StartMedicalScribeJob(input *MedicalScribeJob) (*Medic
 	job.CreationTime = now
 	job.StartTime = now
 	job.CompletionTime = now
-	b.medicalScribeJobs[input.MedicalScribeJobName] = &job
+	b.medicalScribeJobs.Put(&job)
 
 	cp := job
 
@@ -1240,7 +1214,7 @@ func (b *InMemoryBackend) GetMedicalScribeJob(jobName string) (*MedicalScribeJob
 	b.mu.RLock("GetMedicalScribeJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.medicalScribeJobs[jobName]
+	job, ok := b.medicalScribeJobs.Get(jobName)
 	if !ok {
 		return nil, fmt.Errorf("%w: medical scribe job %s not found", ErrNotFound, jobName)
 	}
@@ -1257,8 +1231,8 @@ func (b *InMemoryBackend) ListMedicalScribeJobs(
 	b.mu.RLock("ListMedicalScribeJobs")
 	defer b.mu.RUnlock()
 
-	all := make([]MedicalScribeJob, 0, len(b.medicalScribeJobs))
-	for _, j := range b.medicalScribeJobs {
+	all := make([]MedicalScribeJob, 0, b.medicalScribeJobs.Len())
+	for _, j := range b.medicalScribeJobs.All() {
 		if statusFilter == "" || j.MedicalScribeJobStatus == statusFilter {
 			all = append(all, *j)
 		}
@@ -1316,7 +1290,7 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 	b.mu.Lock("StartMedicalTranscriptionJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.medicalTranscriptionJobs[input.MedicalTranscriptionJobName]; ok {
+	if b.medicalTranscriptionJobs.Has(input.MedicalTranscriptionJobName) {
 		return nil, fmt.Errorf(
 			"%w: medical transcription job %s already exists",
 			ErrAlreadyExists,
@@ -1332,7 +1306,7 @@ func (b *InMemoryBackend) StartMedicalTranscriptionJob(
 	job.CompletionTime = now
 	job.TranscriptJSON = synthesizeTranscriptJSON(input.MedicalTranscriptionJobName,
 		"Medical transcription result for "+input.MedicalTranscriptionJobName+".")
-	b.medicalTranscriptionJobs[input.MedicalTranscriptionJobName] = &job
+	b.medicalTranscriptionJobs.Put(&job)
 
 	cp := job
 
@@ -1346,7 +1320,7 @@ func (b *InMemoryBackend) GetMedicalTranscriptionJob(
 	b.mu.RLock("GetMedicalTranscriptionJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.medicalTranscriptionJobs[jobName]
+	job, ok := b.medicalTranscriptionJobs.Get(jobName)
 	if !ok {
 		return nil, fmt.Errorf("%w: medical transcription job %s not found", ErrNotFound, jobName)
 	}
@@ -1363,8 +1337,8 @@ func (b *InMemoryBackend) ListMedicalTranscriptionJobs(
 	b.mu.RLock("ListMedicalTranscriptionJobs")
 	defer b.mu.RUnlock()
 
-	all := make([]MedicalTranscriptionJob, 0, len(b.medicalTranscriptionJobs))
-	for _, j := range b.medicalTranscriptionJobs {
+	all := make([]MedicalTranscriptionJob, 0, b.medicalTranscriptionJobs.Len())
+	for _, j := range b.medicalTranscriptionJobs.All() {
 		if statusFilter == "" || j.TranscriptionJobStatus == statusFilter {
 			all = append(all, *j)
 		}
@@ -1384,7 +1358,7 @@ func (b *InMemoryBackend) DescribeLanguageModel(modelName string) (*LanguageMode
 	b.mu.RLock("DescribeLanguageModel")
 	defer b.mu.RUnlock()
 
-	m, ok := b.languageModels[modelName]
+	m, ok := b.languageModels.Get(modelName)
 	if !ok {
 		return nil, fmt.Errorf("%w: language model %s not found", ErrNotFound, modelName)
 	}
@@ -1401,8 +1375,8 @@ func (b *InMemoryBackend) ListLanguageModels(
 	b.mu.RLock("ListLanguageModels")
 	defer b.mu.RUnlock()
 
-	all := make([]LanguageModel, 0, len(b.languageModels))
-	for _, m := range b.languageModels {
+	all := make([]LanguageModel, 0, b.languageModels.Len())
+	for _, m := range b.languageModels.All() {
 		if statusFilter == "" || m.ModelStatus == statusFilter {
 			all = append(all, *m)
 		}

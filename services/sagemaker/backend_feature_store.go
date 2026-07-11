@@ -14,6 +14,12 @@ import (
 type FeatureRecord struct {
 	// Record maps feature name → feature value
 	Record map[string]string `json:"Record"`
+	// Key is the internal store.Table primary key (featureRecordKey(featureGroupName,
+	// recordIDValue)), carried on the value itself so the Table's keyFn can derive it
+	// and Restore can rebuild it after a JSON round-trip. Exported (with a json tag)
+	// solely so it survives persistence — handler.go never marshals FeatureRecord
+	// directly to API callers, so this has no effect on the AWS wire shape.
+	Key string `json:"key"`
 }
 
 // FeatureMetadata stores metadata (description + parameters) for a feature in a group.
@@ -21,7 +27,14 @@ type FeatureMetadata struct {
 	Description string            `json:"Description,omitempty"`
 	Parameters  map[string]string `json:"Parameters,omitempty"`
 	FeatureName string            `json:"FeatureName"`
-	FeatureType string            `json:"FeatureType,omitempty"`
+	// GroupName is the owning feature group's name, carried internally so the
+	// store.Table's keyFn can derive featureMetaKey(GroupName, FeatureName) and
+	// Restore can rebuild it after a JSON round-trip. Exported (with a json tag)
+	// solely so it survives persistence — handler.go never marshals
+	// FeatureMetadata directly to API callers, so this has no effect on the AWS
+	// wire shape.
+	GroupName   string `json:"groupName"`
+	FeatureType string `json:"FeatureType,omitempty"`
 }
 
 // featureRecordKey builds the map key for a feature record.
@@ -45,7 +58,7 @@ func (b *InMemoryBackend) PutRecord(
 
 	region := getRegion(ctx, b.region)
 
-	fg, ok := b.featureGroupsStore(region)[featureGroupName]
+	fg, ok := b.featureGroupsStore(region).Get(featureGroupName)
 	if !ok {
 		return fmt.Errorf(
 			"%w: feature group %q not found",
@@ -68,7 +81,7 @@ func (b *InMemoryBackend) PutRecord(
 	cp := make(map[string]string, len(record))
 	maps.Copy(cp, record)
 
-	b.featureRecordsStore(region)[key] = &FeatureRecord{Record: cp}
+	b.featureRecordsStore(region).Put(&FeatureRecord{Record: cp, Key: key})
 
 	return nil
 }
@@ -84,7 +97,7 @@ func (b *InMemoryBackend) GetRecord(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region)[featureGroupName]; !ok {
+	if _, ok := b.featureGroupsStore(region).Get(featureGroupName); !ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -94,7 +107,7 @@ func (b *InMemoryBackend) GetRecord(
 
 	key := featureRecordKey(featureGroupName, recordIDValue)
 
-	rec, ok := b.featureRecordsStore(region)[key]
+	rec, ok := b.featureRecordsStore(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: record %q not found in feature group %q",
@@ -130,7 +143,7 @@ func (b *InMemoryBackend) DeleteRecord(ctx context.Context, featureGroupName, re
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region)[featureGroupName]; !ok {
+	if _, ok := b.featureGroupsStore(region).Get(featureGroupName); !ok {
 		return fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -140,7 +153,7 @@ func (b *InMemoryBackend) DeleteRecord(ctx context.Context, featureGroupName, re
 
 	key := featureRecordKey(featureGroupName, recordIDValue)
 	store := b.featureRecordsStore(region)
-	delete(store, key)
+	store.Delete(key)
 
 	return nil
 }
@@ -176,7 +189,7 @@ func (b *InMemoryBackend) BatchGetRecord(
 			RecordIdentifierValueAsString: ident.RecordIdentifierValueAsString,
 		}
 
-		fg, ok := b.featureGroupsStore(region)[ident.FeatureGroupName]
+		fg, ok := b.featureGroupsStore(region).Get(ident.FeatureGroupName)
 		if !ok {
 			result.ErrorCode = "ResourceNotFoundException"
 			result.ErrorMessage = "feature group " + ident.FeatureGroupName + " not found"
@@ -187,7 +200,7 @@ func (b *InMemoryBackend) BatchGetRecord(
 
 		key := featureRecordKey(fg.FeatureGroupName, ident.RecordIdentifierValueAsString)
 
-		rec, ok := b.featureRecordsStore(region)[key]
+		rec, ok := b.featureRecordsStore(region).Get(key)
 		if !ok {
 			result.ErrorCode = "ResourceNotFoundException"
 			result.ErrorMessage = "record " + ident.RecordIdentifierValueAsString + " not found"
@@ -227,7 +240,7 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 
 	region := getRegion(ctx, b.region)
 
-	fg, ok := b.featureGroupsStore(region)[featureGroupName]
+	fg, ok := b.featureGroupsStore(region).Get(featureGroupName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %q not found",
@@ -249,7 +262,7 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 
 	key := featureMetaKey(featureGroupName, featureName)
 
-	meta, ok := b.featureMetadataStore(region)[key]
+	meta, ok := b.featureMetadataStore(region).Get(key)
 	if !ok {
 		// Return default metadata if not explicitly set.
 		return &FeatureMetadata{
@@ -276,7 +289,7 @@ func (b *InMemoryBackend) UpdateFeatureMetadata(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region)[featureGroupName]; !ok {
+	if _, ok := b.featureGroupsStore(region).Get(featureGroupName); !ok {
 		return fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -287,9 +300,9 @@ func (b *InMemoryBackend) UpdateFeatureMetadata(
 	key := featureMetaKey(featureGroupName, featureName)
 
 	metaStore := b.featureMetadataStore(region)
-	existing, ok := metaStore[key]
+	existing, ok := metaStore.Get(key)
 	if !ok {
-		existing = &FeatureMetadata{FeatureName: featureName}
+		existing = &FeatureMetadata{FeatureName: featureName, GroupName: featureGroupName}
 	}
 
 	if description != "" {
@@ -303,7 +316,7 @@ func (b *InMemoryBackend) UpdateFeatureMetadata(
 		maps.Copy(existing.Parameters, parameters)
 	}
 
-	metaStore[key] = existing
+	metaStore.Put(existing)
 
 	return nil
 }

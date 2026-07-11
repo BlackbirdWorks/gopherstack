@@ -2,26 +2,26 @@ package omics
 
 // ReferenceStoreCount returns the number of reference stores in the backend.
 func ReferenceStoreCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ReferenceStoreCount")
 	defer b.mu.RUnlock()
 
-	return len(b.region(b.defaultRegion).referenceStores)
+	return b.referenceStores.Len()
 }
 
 // SequenceStoreCount returns the number of sequence stores in the backend.
 func SequenceStoreCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("SequenceStoreCount")
 	defer b.mu.RUnlock()
 
-	return len(b.region(b.defaultRegion).sequenceStores)
+	return b.sequenceStores.Len()
 }
 
 // WorkflowCount returns the number of workflows in the backend.
 func WorkflowCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("WorkflowCount")
 	defer b.mu.RUnlock()
 
-	return len(b.region(b.defaultRegion).workflows)
+	return b.workflows.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.

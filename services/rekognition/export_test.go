@@ -5,7 +5,7 @@ func CollectionCount(b *InMemoryBackend) int {
 	b.mu.RLock("CollectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.collections)
+	return b.collections.Len()
 }
 
 // FaceCount returns the number of indexed faces in a collection.
@@ -13,7 +13,7 @@ func FaceCount(b *InMemoryBackend, collectionID string) int {
 	b.mu.RLock("FaceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.faces[collectionID])
+	return len(b.facesByCollection.Get(collectionID))
 }
 
 // StreamProcessorCount returns the number of stored stream processors.
@@ -21,7 +21,7 @@ func StreamProcessorCount(b *InMemoryBackend) int {
 	b.mu.RLock("StreamProcessorCount")
 	defer b.mu.RUnlock()
 
-	return len(b.streamProcessors)
+	return b.streamProcessors.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.

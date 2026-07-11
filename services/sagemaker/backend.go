@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -480,59 +481,60 @@ func cloneModelPackage(mp *ModelPackage) *ModelPackage {
 // are created lazily via the *Store helpers. Callers must hold b.mu while
 // accessing the inner maps.
 type InMemoryBackend struct {
-	models                     map[string]map[string]*Model
-	endpointConfigs            map[string]map[string]*EndpointConfig
-	endpoints                  map[string]map[string]*Endpoint
-	trainingJobs               map[string]map[string]*TrainingJob
-	notebooks                  map[string]map[string]*NotebookInstance
-	hpTuningJobs               map[string]map[string]*HyperParameterTuningJob
-	associations               map[string]map[string]*Association
-	trialComponentAssociations map[string]map[string]*TrialComponentAssociation
-	actions                    map[string]map[string]*Action
-	artifacts                  map[string]map[string]*Artifact // region -> ArtifactArn -> Artifact
-	contexts                   map[string]map[string]*Context  // region -> ContextName -> Context
-	algorithms                 map[string]map[string]*Algorithm
-	clusters                   map[string]map[string]*Cluster
-	modelPackages              map[string]map[string]*ModelPackage
-	modelPackageGroups         map[string]map[string]*ModelPackageGroup
-	autoMLJobs                 map[string]map[string]*AutoMLJob
-	codeRepositories           map[string]map[string]*CodeRepository
-	projects                   map[string]map[string]*Project
-	spaces                     map[string]map[string]*Space
-	smImages                   map[string]map[string]*SMImage
+	models                     map[string]*store.Table[Model]
+	endpointConfigs            map[string]*store.Table[EndpointConfig]
+	endpoints                  map[string]*store.Table[Endpoint]
+	trainingJobs               map[string]*store.Table[TrainingJob]
+	notebooks                  map[string]*store.Table[NotebookInstance]
+	hpTuningJobs               map[string]*store.Table[HyperParameterTuningJob]
+	associations               map[string]*store.Table[Association]
+	trialComponentAssociations map[string]*store.Table[TrialComponentAssociation]
+	actions                    map[string]*store.Table[Action]
+	artifacts                  map[string]*store.Table[Artifact] // region -> ArtifactArn -> Artifact
+	contexts                   map[string]*store.Table[Context]  // region -> ContextName -> Context
+	algorithms                 map[string]*store.Table[Algorithm]
+	clusters                   map[string]*store.Table[Cluster]
+	modelPackages              map[string]*store.Table[ModelPackage]
+	modelPackageGroups         map[string]*store.Table[ModelPackageGroup]
+	autoMLJobs                 map[string]*store.Table[AutoMLJob]
+	codeRepositories           map[string]*store.Table[CodeRepository]
+	projects                   map[string]*store.Table[Project]
+	spaces                     map[string]*store.Table[Space]
+	smImages                   map[string]*store.Table[SMImage]
 	imageVersions              map[string]map[string]map[int]*ImageVersion // region → imageName → version → ImageVersion
 	imageVersionCounts         map[string]map[string]int                   // region → imageName → latest version number
-	compilationJobs            map[string]map[string]*CompilationJob
-	monitoringSchedules        map[string]map[string]*MonitoringSchedule
-	workteams                  map[string]map[string]*Workteam
-	labelingJobs               map[string]map[string]*LabelingJob
-	dataQualityJobDefs         map[string]map[string]*JobDefinition
-	modelBiasJobDefs           map[string]map[string]*JobDefinition
-	modelQualityJobDefs        map[string]map[string]*JobDefinition
-	modelExplainJobDefs        map[string]map[string]*JobDefinition
-	// monitoringAlerts is region -> scheduleName -> alertName -> alert.
-	monitoringAlerts map[string]map[string]map[string]*MonitoringAlert
+	compilationJobs            map[string]*store.Table[CompilationJob]
+	monitoringSchedules        map[string]*store.Table[MonitoringSchedule]
+	workteams                  map[string]*store.Table[Workteam]
+	labelingJobs               map[string]*store.Table[LabelingJob]
+	dataQualityJobDefs         map[string]*store.Table[JobDefinition]
+	modelBiasJobDefs           map[string]*store.Table[JobDefinition]
+	modelQualityJobDefs        map[string]*store.Table[JobDefinition]
+	modelExplainJobDefs        map[string]*store.Table[JobDefinition]
+	// monitoringAlerts is region -> store.Table[MonitoringAlert], keyed by
+	// monitoringAlertKey(scheduleName, alertName).
+	monitoringAlerts map[string]*store.Table[MonitoringAlert]
 	// monitoringAlertHistory is region -> history entries.
 	monitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry
 	// monitoringExecutions is region -> "scheduleName|processingJobArn" -> execution.
-	monitoringExecutions   map[string]map[string]*MonitoringExecution
-	humanTaskUis           map[string]map[string]*HumanTaskUI
-	workforces             map[string]map[string]*Workforce
-	flowDefinitions        map[string]map[string]*FlowDefinition
-	appImageConfigs        map[string]map[string]*AppImageConfig
-	inferenceExperiments   map[string]map[string]*InferenceExperiment
-	mlflowTrackingServers  map[string]map[string]*MlflowTrackingServer
-	mlflowApps             map[string]map[string]*MlflowApp
-	modelCards             map[string]map[string]*ModelCard
-	optimizationJobs       map[string]map[string]*OptimizationJob
-	studioLifecycleConfigs map[string]map[string]*StudioLifecycleConfig
-	partnerApps            map[string]map[string]*PartnerApp
-	trainingPlans          map[string]map[string]*TrainingPlan
-	reservedCapacities     map[string]map[string]*ReservedCapacity
+	monitoringExecutions   map[string]*store.Table[MonitoringExecution]
+	humanTaskUis           map[string]*store.Table[HumanTaskUI]
+	workforces             map[string]*store.Table[Workforce]
+	flowDefinitions        map[string]*store.Table[FlowDefinition]
+	appImageConfigs        map[string]*store.Table[AppImageConfig]
+	inferenceExperiments   map[string]*store.Table[InferenceExperiment]
+	mlflowTrackingServers  map[string]*store.Table[MlflowTrackingServer]
+	mlflowApps             map[string]*store.Table[MlflowApp]
+	modelCards             map[string]*store.Table[ModelCard]
+	optimizationJobs       map[string]*store.Table[OptimizationJob]
+	studioLifecycleConfigs map[string]*store.Table[StudioLifecycleConfig]
+	partnerApps            map[string]*store.Table[PartnerApp]
+	trainingPlans          map[string]*store.Table[TrainingPlan]
+	reservedCapacities     map[string]*store.Table[ReservedCapacity]
 	// trainingPlanExtensionOfferings is region -> extensionOfferingID -> pending extension offer.
-	trainingPlanExtensionOfferings map[string]map[string]*pendingTrainingPlanExtension
+	trainingPlanExtensionOfferings map[string]*store.Table[pendingTrainingPlanExtension]
 	// modelCardExportJobs is region -> ModelCardExportJobArn -> job.
-	modelCardExportJobs          map[string]map[string]*ModelCardExportJob
+	modelCardExportJobs          map[string]*store.Table[ModelCardExportJob]
 	modelARNIndex                map[string]map[string]string // region → ARN → model name
 	endpointConfigARNIndex       map[string]map[string]string // region → ARN → endpoint config name
 	endpointARNIndex             map[string]map[string]string // region → ARN → endpoint name
@@ -546,44 +548,53 @@ type InMemoryBackend struct {
 	modelPackageARNIndex         map[string]map[string]string // region → ARN → model package ARN
 	processingJobARNIndex        map[string]map[string]string // region → ARN → job name
 	transformJobARNIndex         map[string]map[string]string // region → ARN → job name
-	domains                      map[string]map[string]*Domain
-	userProfiles                 map[string]map[userProfileKey]*UserProfile
-	apps                         map[string]map[appKey]*App
-	featureGroups                map[string]map[string]*FeatureGroup
-	featureRecords               map[string]map[string]*FeatureRecord
-	featureMetadata              map[string]map[string]*FeatureMetadata
-	pipelines                    map[string]map[string]*Pipeline
-	pipelineExecutions           map[string]map[string]*PipelineExecution
-	pipelineExecSteps            map[string]map[string]*PipelineExecutionStep
-	experiments                  map[string]map[string]*Experiment
-	trials                       map[string]map[string]*Trial
-	trialComponents              map[string]map[string]*TrialComponent
-	notebookLifecycleConfigs     map[string]map[string]*NotebookInstanceLifecycleConfig
-	processingJobs               map[string]map[string]*ProcessingJob
-	transformJobs                map[string]map[string]*TransformJob
-	edgePackagingJobs            map[string]map[string]*EdgePackagingJob
-	edgeDeploymentPlans          map[string]map[string]*EdgeDeploymentPlan
-	inferenceRecommendationsJobs map[string]map[string]*InferenceRecommendationsJob
-	deviceFleets                 map[string]map[string]*DeviceFleet
-	devices                      map[string]map[deviceKey]*Device
-	inferenceComponents          map[string]map[string]*InferenceComponent
-	clusterSchedulerConfigs      map[string]map[string]*ClusterSchedulerConfig
-	computeQuotas                map[string]map[string]*ComputeQuota
-	hubs                         map[string]map[string]*Hub
-	hubContents                  map[string]map[hubContentKey]*HubContent
+	domains                      map[string]*store.Table[Domain]
+	userProfiles                 map[string]*store.Table[UserProfile]
+	apps                         map[string]*store.Table[App]
+	featureGroups                map[string]*store.Table[FeatureGroup]
+	featureRecords               map[string]*store.Table[FeatureRecord]
+	featureMetadata              map[string]*store.Table[FeatureMetadata]
+	pipelines                    map[string]*store.Table[Pipeline]
+	pipelineExecutions           map[string]*store.Table[PipelineExecution]
+	pipelineExecSteps            map[string]*store.Table[PipelineExecutionStep]
+	experiments                  map[string]*store.Table[Experiment]
+	trials                       map[string]*store.Table[Trial]
+	trialComponents              map[string]*store.Table[TrialComponent]
+	notebookLifecycleConfigs     map[string]*store.Table[NotebookInstanceLifecycleConfig]
+	processingJobs               map[string]*store.Table[ProcessingJob]
+	transformJobs                map[string]*store.Table[TransformJob]
+	edgePackagingJobs            map[string]*store.Table[EdgePackagingJob]
+	edgeDeploymentPlans          map[string]*store.Table[EdgeDeploymentPlan]
+	inferenceRecommendationsJobs map[string]*store.Table[InferenceRecommendationsJob]
+	deviceFleets                 map[string]*store.Table[DeviceFleet]
+	devices                      map[string]*store.Table[Device]
+	inferenceComponents          map[string]*store.Table[InferenceComponent]
+	clusterSchedulerConfigs      map[string]*store.Table[ClusterSchedulerConfig]
+	computeQuotas                map[string]*store.Table[ComputeQuota]
+	hubs                         map[string]*store.Table[Hub]
+	hubContents                  map[string]*store.Table[HubContent]
 	// pipelineVersions is region -> pipelineName -> versions, ordered oldest-first.
 	pipelineVersions map[string]map[string][]*PipelineVersion
 	// servicecatalogPortfolioEnabled is region -> whether the SageMaker
 	// Service Catalog portfolio has been enabled via
 	// EnableSagemakerServicecatalogPortfolio. Absent/false means Disabled.
 	servicecatalogPortfolioEnabled map[string]bool
-	lifecycleParent                context.Context
-	lifecycleCtx                   context.Context
-	lifecycleCancel                context.CancelFunc
-	mu                             *lockmetrics.RWMutex
-	accountID                      string
-	region                         string
-	wg                             sync.WaitGroup
+	// registry lets Reset collapse the per-region store.Table lifecycle for
+	// every resource collection below to one registry.ResetAll() call, and
+	// backs Snapshot/Restore via registry.SnapshotAll()/RestoreAll(). Each
+	// resource field above is itself a map[string]*store.Table[T] keyed by
+	// region (one store.Table per region, registered lazily on first use of
+	// that region) rather than a single flat store.Table[T], because these
+	// resources are natively region-partitioned collections; see the
+	// xxxStore(r) helpers below for the lazy-create-and-register point.
+	registry        *store.Registry
+	lifecycleParent context.Context
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
+	wg              sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
@@ -595,6 +606,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // lifecycle goroutines (status-transition simulators) are children of svcCtx, so
 // they are cancelled when the service shuts down rather than leaking. If svcCtx is
 // nil, [context.Background] is used.
+//
+//nolint:funlen // must initialise every resource map field; splitting would obscure the invariant
 func NewInMemoryBackendWithContext(
 	svcCtx context.Context,
 	accountID, region string,
@@ -605,51 +618,51 @@ func NewInMemoryBackendWithContext(
 
 	b := &InMemoryBackend{
 		lifecycleParent:              svcCtx,
-		models:                       make(map[string]map[string]*Model),
-		endpointConfigs:              make(map[string]map[string]*EndpointConfig),
-		endpoints:                    make(map[string]map[string]*Endpoint),
-		trainingJobs:                 make(map[string]map[string]*TrainingJob),
-		notebooks:                    make(map[string]map[string]*NotebookInstance),
-		hpTuningJobs:                 make(map[string]map[string]*HyperParameterTuningJob),
-		associations:                 make(map[string]map[string]*Association),
-		trialComponentAssociations:   make(map[string]map[string]*TrialComponentAssociation),
-		actions:                      make(map[string]map[string]*Action),
-		artifacts:                    make(map[string]map[string]*Artifact),
-		contexts:                     make(map[string]map[string]*Context),
-		algorithms:                   make(map[string]map[string]*Algorithm),
-		clusters:                     make(map[string]map[string]*Cluster),
-		modelPackages:                make(map[string]map[string]*ModelPackage),
-		modelPackageGroups:           make(map[string]map[string]*ModelPackageGroup),
-		autoMLJobs:                   make(map[string]map[string]*AutoMLJob),
-		codeRepositories:             make(map[string]map[string]*CodeRepository),
-		projects:                     make(map[string]map[string]*Project),
-		spaces:                       make(map[string]map[string]*Space),
-		smImages:                     make(map[string]map[string]*SMImage),
+		models:                       make(map[string]*store.Table[Model]),
+		endpointConfigs:              make(map[string]*store.Table[EndpointConfig]),
+		endpoints:                    make(map[string]*store.Table[Endpoint]),
+		trainingJobs:                 make(map[string]*store.Table[TrainingJob]),
+		notebooks:                    make(map[string]*store.Table[NotebookInstance]),
+		hpTuningJobs:                 make(map[string]*store.Table[HyperParameterTuningJob]),
+		associations:                 make(map[string]*store.Table[Association]),
+		trialComponentAssociations:   make(map[string]*store.Table[TrialComponentAssociation]),
+		actions:                      make(map[string]*store.Table[Action]),
+		artifacts:                    make(map[string]*store.Table[Artifact]),
+		contexts:                     make(map[string]*store.Table[Context]),
+		algorithms:                   make(map[string]*store.Table[Algorithm]),
+		clusters:                     make(map[string]*store.Table[Cluster]),
+		modelPackages:                make(map[string]*store.Table[ModelPackage]),
+		modelPackageGroups:           make(map[string]*store.Table[ModelPackageGroup]),
+		autoMLJobs:                   make(map[string]*store.Table[AutoMLJob]),
+		codeRepositories:             make(map[string]*store.Table[CodeRepository]),
+		projects:                     make(map[string]*store.Table[Project]),
+		spaces:                       make(map[string]*store.Table[Space]),
+		smImages:                     make(map[string]*store.Table[SMImage]),
 		imageVersions:                make(map[string]map[string]map[int]*ImageVersion),
 		imageVersionCounts:           make(map[string]map[string]int),
-		compilationJobs:              make(map[string]map[string]*CompilationJob),
-		monitoringSchedules:          make(map[string]map[string]*MonitoringSchedule),
-		workteams:                    make(map[string]map[string]*Workteam),
-		labelingJobs:                 make(map[string]map[string]*LabelingJob),
-		dataQualityJobDefs:           make(map[string]map[string]*JobDefinition),
-		modelBiasJobDefs:             make(map[string]map[string]*JobDefinition),
-		modelQualityJobDefs:          make(map[string]map[string]*JobDefinition),
-		modelExplainJobDefs:          make(map[string]map[string]*JobDefinition),
-		monitoringAlerts:             make(map[string]map[string]map[string]*MonitoringAlert),
+		compilationJobs:              make(map[string]*store.Table[CompilationJob]),
+		monitoringSchedules:          make(map[string]*store.Table[MonitoringSchedule]),
+		workteams:                    make(map[string]*store.Table[Workteam]),
+		labelingJobs:                 make(map[string]*store.Table[LabelingJob]),
+		dataQualityJobDefs:           make(map[string]*store.Table[JobDefinition]),
+		modelBiasJobDefs:             make(map[string]*store.Table[JobDefinition]),
+		modelQualityJobDefs:          make(map[string]*store.Table[JobDefinition]),
+		modelExplainJobDefs:          make(map[string]*store.Table[JobDefinition]),
+		monitoringAlerts:             make(map[string]*store.Table[MonitoringAlert]),
 		monitoringAlertHistory:       make(map[string][]*MonitoringAlertHistoryEntry),
-		monitoringExecutions:         make(map[string]map[string]*MonitoringExecution),
-		humanTaskUis:                 make(map[string]map[string]*HumanTaskUI),
-		workforces:                   make(map[string]map[string]*Workforce),
-		flowDefinitions:              make(map[string]map[string]*FlowDefinition),
-		appImageConfigs:              make(map[string]map[string]*AppImageConfig),
-		inferenceExperiments:         make(map[string]map[string]*InferenceExperiment),
-		mlflowTrackingServers:        make(map[string]map[string]*MlflowTrackingServer),
-		mlflowApps:                   make(map[string]map[string]*MlflowApp),
-		modelCards:                   make(map[string]map[string]*ModelCard),
-		optimizationJobs:             make(map[string]map[string]*OptimizationJob),
-		studioLifecycleConfigs:       make(map[string]map[string]*StudioLifecycleConfig),
-		partnerApps:                  make(map[string]map[string]*PartnerApp),
-		trainingPlans:                make(map[string]map[string]*TrainingPlan),
+		monitoringExecutions:         make(map[string]*store.Table[MonitoringExecution]),
+		humanTaskUis:                 make(map[string]*store.Table[HumanTaskUI]),
+		workforces:                   make(map[string]*store.Table[Workforce]),
+		flowDefinitions:              make(map[string]*store.Table[FlowDefinition]),
+		appImageConfigs:              make(map[string]*store.Table[AppImageConfig]),
+		inferenceExperiments:         make(map[string]*store.Table[InferenceExperiment]),
+		mlflowTrackingServers:        make(map[string]*store.Table[MlflowTrackingServer]),
+		mlflowApps:                   make(map[string]*store.Table[MlflowApp]),
+		modelCards:                   make(map[string]*store.Table[ModelCard]),
+		optimizationJobs:             make(map[string]*store.Table[OptimizationJob]),
+		studioLifecycleConfigs:       make(map[string]*store.Table[StudioLifecycleConfig]),
+		partnerApps:                  make(map[string]*store.Table[PartnerApp]),
+		trainingPlans:                make(map[string]*store.Table[TrainingPlan]),
 		modelARNIndex:                make(map[string]map[string]string),
 		endpointConfigARNIndex:       make(map[string]map[string]string),
 		endpointARNIndex:             make(map[string]map[string]string),
@@ -663,34 +676,35 @@ func NewInMemoryBackendWithContext(
 		modelPackageARNIndex:         make(map[string]map[string]string),
 		processingJobARNIndex:        make(map[string]map[string]string),
 		transformJobARNIndex:         make(map[string]map[string]string),
-		domains:                      make(map[string]map[string]*Domain),
-		userProfiles:                 make(map[string]map[userProfileKey]*UserProfile),
-		apps:                         make(map[string]map[appKey]*App),
-		featureGroups:                make(map[string]map[string]*FeatureGroup),
-		featureRecords:               make(map[string]map[string]*FeatureRecord),
-		featureMetadata:              make(map[string]map[string]*FeatureMetadata),
-		pipelines:                    make(map[string]map[string]*Pipeline),
-		pipelineExecutions:           make(map[string]map[string]*PipelineExecution),
-		pipelineExecSteps:            make(map[string]map[string]*PipelineExecutionStep),
-		experiments:                  make(map[string]map[string]*Experiment),
-		trials:                       make(map[string]map[string]*Trial),
-		trialComponents:              make(map[string]map[string]*TrialComponent),
-		notebookLifecycleConfigs:     make(map[string]map[string]*NotebookInstanceLifecycleConfig),
-		processingJobs:               make(map[string]map[string]*ProcessingJob),
-		transformJobs:                make(map[string]map[string]*TransformJob),
-		edgePackagingJobs:            make(map[string]map[string]*EdgePackagingJob),
-		edgeDeploymentPlans:          make(map[string]map[string]*EdgeDeploymentPlan),
-		inferenceRecommendationsJobs: make(map[string]map[string]*InferenceRecommendationsJob),
-		deviceFleets:                 make(map[string]map[string]*DeviceFleet),
-		devices:                      make(map[string]map[deviceKey]*Device),
-		inferenceComponents:          make(map[string]map[string]*InferenceComponent),
-		clusterSchedulerConfigs:      make(map[string]map[string]*ClusterSchedulerConfig),
-		computeQuotas:                make(map[string]map[string]*ComputeQuota),
-		hubs:                         make(map[string]map[string]*Hub),
-		hubContents:                  make(map[string]map[hubContentKey]*HubContent),
+		domains:                      make(map[string]*store.Table[Domain]),
+		userProfiles:                 make(map[string]*store.Table[UserProfile]),
+		apps:                         make(map[string]*store.Table[App]),
+		featureGroups:                make(map[string]*store.Table[FeatureGroup]),
+		featureRecords:               make(map[string]*store.Table[FeatureRecord]),
+		featureMetadata:              make(map[string]*store.Table[FeatureMetadata]),
+		pipelines:                    make(map[string]*store.Table[Pipeline]),
+		pipelineExecutions:           make(map[string]*store.Table[PipelineExecution]),
+		pipelineExecSteps:            make(map[string]*store.Table[PipelineExecutionStep]),
+		experiments:                  make(map[string]*store.Table[Experiment]),
+		trials:                       make(map[string]*store.Table[Trial]),
+		trialComponents:              make(map[string]*store.Table[TrialComponent]),
+		notebookLifecycleConfigs:     make(map[string]*store.Table[NotebookInstanceLifecycleConfig]),
+		processingJobs:               make(map[string]*store.Table[ProcessingJob]),
+		transformJobs:                make(map[string]*store.Table[TransformJob]),
+		edgePackagingJobs:            make(map[string]*store.Table[EdgePackagingJob]),
+		edgeDeploymentPlans:          make(map[string]*store.Table[EdgeDeploymentPlan]),
+		inferenceRecommendationsJobs: make(map[string]*store.Table[InferenceRecommendationsJob]),
+		deviceFleets:                 make(map[string]*store.Table[DeviceFleet]),
+		devices:                      make(map[string]*store.Table[Device]),
+		inferenceComponents:          make(map[string]*store.Table[InferenceComponent]),
+		clusterSchedulerConfigs:      make(map[string]*store.Table[ClusterSchedulerConfig]),
+		computeQuotas:                make(map[string]*store.Table[ComputeQuota]),
+		hubs:                         make(map[string]*store.Table[Hub]),
+		hubContents:                  make(map[string]*store.Table[HubContent]),
 		accountID:                    accountID,
 		region:                       region,
 		mu:                           lockmetrics.New("sagemaker"),
+		registry:                     store.NewRegistry(),
 	}
 	b.initTrainingPlanExtMaps()
 	b.resetLifecycleContext()
@@ -709,128 +723,196 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 // Callers must hold b.mu.
 // ---------------------------------------------------------------------------
 
-func (b *InMemoryBackend) modelsStore(r string) map[string]*Model {
+func (b *InMemoryBackend) modelsStore(r string) *store.Table[Model] {
 	if b.models[r] == nil {
-		b.models[r] = make(map[string]*Model)
+		b.models[r] = store.Register(b.registry, "models:"+r, store.New(func(v *Model) string { return v.ModelName }))
 	}
 
 	return b.models[r]
 }
-func (b *InMemoryBackend) endpointConfigsStore(r string) map[string]*EndpointConfig {
+func (b *InMemoryBackend) endpointConfigsStore(r string) *store.Table[EndpointConfig] {
 	if b.endpointConfigs[r] == nil {
-		b.endpointConfigs[r] = make(map[string]*EndpointConfig)
+		b.endpointConfigs[r] = store.Register(
+			b.registry,
+			"endpointConfigs:"+r,
+			store.New(func(v *EndpointConfig) string { return v.EndpointConfigName }),
+		)
 	}
 
 	return b.endpointConfigs[r]
 }
-func (b *InMemoryBackend) endpointsStore(r string) map[string]*Endpoint {
+func (b *InMemoryBackend) endpointsStore(r string) *store.Table[Endpoint] {
 	if b.endpoints[r] == nil {
-		b.endpoints[r] = make(map[string]*Endpoint)
+		b.endpoints[r] = store.Register(
+			b.registry,
+			"endpoints:"+r,
+			store.New(func(v *Endpoint) string { return v.EndpointName }),
+		)
 	}
 
 	return b.endpoints[r]
 }
-func (b *InMemoryBackend) trainingJobsStore(r string) map[string]*TrainingJob {
+func (b *InMemoryBackend) trainingJobsStore(r string) *store.Table[TrainingJob] {
 	if b.trainingJobs[r] == nil {
-		b.trainingJobs[r] = make(map[string]*TrainingJob)
+		b.trainingJobs[r] = store.Register(
+			b.registry,
+			"trainingJobs:"+r,
+			store.New(func(v *TrainingJob) string { return v.TrainingJobName }),
+		)
 	}
 
 	return b.trainingJobs[r]
 }
-func (b *InMemoryBackend) notebooksStore(r string) map[string]*NotebookInstance {
+func (b *InMemoryBackend) notebooksStore(r string) *store.Table[NotebookInstance] {
 	if b.notebooks[r] == nil {
-		b.notebooks[r] = make(map[string]*NotebookInstance)
+		b.notebooks[r] = store.Register(
+			b.registry,
+			"notebooks:"+r,
+			store.New(func(v *NotebookInstance) string { return v.NotebookInstanceName }),
+		)
 	}
 
 	return b.notebooks[r]
 }
-func (b *InMemoryBackend) hpTuningJobsStore(r string) map[string]*HyperParameterTuningJob {
+func (b *InMemoryBackend) hpTuningJobsStore(r string) *store.Table[HyperParameterTuningJob] {
 	if b.hpTuningJobs[r] == nil {
-		b.hpTuningJobs[r] = make(map[string]*HyperParameterTuningJob)
+		b.hpTuningJobs[r] = store.Register(
+			b.registry,
+			"hpTuningJobs:"+r,
+			store.New(func(v *HyperParameterTuningJob) string { return v.HyperParameterTuningJobName }),
+		)
 	}
 
 	return b.hpTuningJobs[r]
 }
-func (b *InMemoryBackend) associationsStore(r string) map[string]*Association {
+func (b *InMemoryBackend) associationsStore(r string) *store.Table[Association] {
 	if b.associations[r] == nil {
-		b.associations[r] = make(map[string]*Association)
+		b.associations[r] = store.Register(
+			b.registry,
+			"associations:"+r,
+			store.New(func(v *Association) string { return associationKey(v.SourceArn, v.DestinationArn) }),
+		)
 	}
 
 	return b.associations[r]
 }
-func (b *InMemoryBackend) trialComponentAssociationsStore(r string) map[string]*TrialComponentAssociation {
+func (b *InMemoryBackend) trialComponentAssociationsStore(r string) *store.Table[TrialComponentAssociation] {
 	if b.trialComponentAssociations[r] == nil {
-		b.trialComponentAssociations[r] = make(map[string]*TrialComponentAssociation)
+		b.trialComponentAssociations[r] = store.Register(
+			b.registry,
+			"trialComponentAssociations:"+r,
+			store.New(
+				func(v *TrialComponentAssociation) string { return trialComponentKey(v.TrialName, v.TrialComponentName) },
+			),
+		)
 	}
 
 	return b.trialComponentAssociations[r]
 }
-func (b *InMemoryBackend) actionsStore(r string) map[string]*Action {
+func (b *InMemoryBackend) actionsStore(r string) *store.Table[Action] {
 	if b.actions[r] == nil {
-		b.actions[r] = make(map[string]*Action)
+		b.actions[r] = store.Register(
+			b.registry,
+			"actions:"+r,
+			store.New(func(v *Action) string { return v.ActionName }),
+		)
 	}
 
 	return b.actions[r]
 }
-func (b *InMemoryBackend) algorithmsStore(r string) map[string]*Algorithm {
+func (b *InMemoryBackend) algorithmsStore(r string) *store.Table[Algorithm] {
 	if b.algorithms[r] == nil {
-		b.algorithms[r] = make(map[string]*Algorithm)
+		b.algorithms[r] = store.Register(
+			b.registry,
+			"algorithms:"+r,
+			store.New(func(v *Algorithm) string { return v.AlgorithmName }),
+		)
 	}
 
 	return b.algorithms[r]
 }
-func (b *InMemoryBackend) clustersStore(r string) map[string]*Cluster {
+func (b *InMemoryBackend) clustersStore(r string) *store.Table[Cluster] {
 	if b.clusters[r] == nil {
-		b.clusters[r] = make(map[string]*Cluster)
+		b.clusters[r] = store.Register(
+			b.registry,
+			"clusters:"+r,
+			store.New(func(v *Cluster) string { return v.ClusterName }),
+		)
 	}
 
 	return b.clusters[r]
 }
-func (b *InMemoryBackend) modelPackagesStore(r string) map[string]*ModelPackage {
+func (b *InMemoryBackend) modelPackagesStore(r string) *store.Table[ModelPackage] {
 	if b.modelPackages[r] == nil {
-		b.modelPackages[r] = make(map[string]*ModelPackage)
+		b.modelPackages[r] = store.Register(
+			b.registry,
+			"modelPackages:"+r,
+			store.New(func(v *ModelPackage) string { return v.ModelPackageArn }),
+		)
 	}
 
 	return b.modelPackages[r]
 }
-func (b *InMemoryBackend) modelPackageGroupsStore(r string) map[string]*ModelPackageGroup {
+func (b *InMemoryBackend) modelPackageGroupsStore(r string) *store.Table[ModelPackageGroup] {
 	if b.modelPackageGroups[r] == nil {
-		b.modelPackageGroups[r] = make(map[string]*ModelPackageGroup)
+		b.modelPackageGroups[r] = store.Register(
+			b.registry,
+			"modelPackageGroups:"+r,
+			store.New(func(v *ModelPackageGroup) string { return v.ModelPackageGroupName }),
+		)
 	}
 
 	return b.modelPackageGroups[r]
 }
-func (b *InMemoryBackend) autoMLJobsStore(r string) map[string]*AutoMLJob {
+func (b *InMemoryBackend) autoMLJobsStore(r string) *store.Table[AutoMLJob] {
 	if b.autoMLJobs[r] == nil {
-		b.autoMLJobs[r] = make(map[string]*AutoMLJob)
+		b.autoMLJobs[r] = store.Register(
+			b.registry,
+			"autoMLJobs:"+r,
+			store.New(func(v *AutoMLJob) string { return v.AutoMLJobName }),
+		)
 	}
 
 	return b.autoMLJobs[r]
 }
-func (b *InMemoryBackend) codeRepositoriesStore(r string) map[string]*CodeRepository {
+func (b *InMemoryBackend) codeRepositoriesStore(r string) *store.Table[CodeRepository] {
 	if b.codeRepositories[r] == nil {
-		b.codeRepositories[r] = make(map[string]*CodeRepository)
+		b.codeRepositories[r] = store.Register(
+			b.registry,
+			"codeRepositories:"+r,
+			store.New(func(v *CodeRepository) string { return v.CodeRepositoryName }),
+		)
 	}
 
 	return b.codeRepositories[r]
 }
-func (b *InMemoryBackend) projectsStore(r string) map[string]*Project {
+func (b *InMemoryBackend) projectsStore(r string) *store.Table[Project] {
 	if b.projects[r] == nil {
-		b.projects[r] = make(map[string]*Project)
+		b.projects[r] = store.Register(
+			b.registry,
+			"projects:"+r,
+			store.New(func(v *Project) string { return v.ProjectName }),
+		)
 	}
 
 	return b.projects[r]
 }
-func (b *InMemoryBackend) spacesStore(r string) map[string]*Space {
+func (b *InMemoryBackend) spacesStore(r string) *store.Table[Space] {
 	if b.spaces[r] == nil {
-		b.spaces[r] = make(map[string]*Space)
+		b.spaces[r] = store.Register(b.registry, "spaces:"+r, store.New(func(v *Space) string {
+			return spaceKey(v.DomainID, v.SpaceName)
+		}))
 	}
 
 	return b.spaces[r]
 }
-func (b *InMemoryBackend) smImagesStore(r string) map[string]*SMImage {
+func (b *InMemoryBackend) smImagesStore(r string) *store.Table[SMImage] {
 	if b.smImages[r] == nil {
-		b.smImages[r] = make(map[string]*SMImage)
+		b.smImages[r] = store.Register(
+			b.registry,
+			"smImages:"+r,
+			store.New(func(v *SMImage) string { return v.ImageName }),
+		)
 	}
 
 	return b.smImages[r]
@@ -849,163 +931,257 @@ func (b *InMemoryBackend) imageVersionCountsStore(r string) map[string]int {
 
 	return b.imageVersionCounts[r]
 }
-func (b *InMemoryBackend) compilationJobsStore(r string) map[string]*CompilationJob {
+func (b *InMemoryBackend) compilationJobsStore(r string) *store.Table[CompilationJob] {
 	if b.compilationJobs[r] == nil {
-		b.compilationJobs[r] = make(map[string]*CompilationJob)
+		b.compilationJobs[r] = store.Register(
+			b.registry,
+			"compilationJobs:"+r,
+			store.New(func(v *CompilationJob) string { return v.CompilationJobName }),
+		)
 	}
 
 	return b.compilationJobs[r]
 }
-func (b *InMemoryBackend) monitoringSchedulesStore(r string) map[string]*MonitoringSchedule {
+func (b *InMemoryBackend) monitoringSchedulesStore(r string) *store.Table[MonitoringSchedule] {
 	if b.monitoringSchedules[r] == nil {
-		b.monitoringSchedules[r] = make(map[string]*MonitoringSchedule)
+		b.monitoringSchedules[r] = store.Register(
+			b.registry,
+			"monitoringSchedules:"+r,
+			store.New(func(v *MonitoringSchedule) string { return v.MonitoringScheduleName }),
+		)
 	}
 
 	return b.monitoringSchedules[r]
 }
-func (b *InMemoryBackend) workteamsStore(r string) map[string]*Workteam {
+func (b *InMemoryBackend) workteamsStore(r string) *store.Table[Workteam] {
 	if b.workteams[r] == nil {
-		b.workteams[r] = make(map[string]*Workteam)
+		b.workteams[r] = store.Register(
+			b.registry,
+			"workteams:"+r,
+			store.New(func(v *Workteam) string { return v.WorkteamName }),
+		)
 	}
 
 	return b.workteams[r]
 }
-func (b *InMemoryBackend) dataQualityJobDefsStore(r string) map[string]*JobDefinition {
+func (b *InMemoryBackend) dataQualityJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.dataQualityJobDefs[r] == nil {
-		b.dataQualityJobDefs[r] = make(map[string]*JobDefinition)
+		b.dataQualityJobDefs[r] = store.Register(
+			b.registry,
+			"dataQualityJobDefs:"+r,
+			store.New(func(v *JobDefinition) string { return v.JobDefinitionName }),
+		)
 	}
 
 	return b.dataQualityJobDefs[r]
 }
-func (b *InMemoryBackend) modelBiasJobDefsStore(r string) map[string]*JobDefinition {
+func (b *InMemoryBackend) modelBiasJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.modelBiasJobDefs[r] == nil {
-		b.modelBiasJobDefs[r] = make(map[string]*JobDefinition)
+		b.modelBiasJobDefs[r] = store.Register(
+			b.registry,
+			"modelBiasJobDefs:"+r,
+			store.New(func(v *JobDefinition) string { return v.JobDefinitionName }),
+		)
 	}
 
 	return b.modelBiasJobDefs[r]
 }
-func (b *InMemoryBackend) modelQualityJobDefsStore(r string) map[string]*JobDefinition {
+func (b *InMemoryBackend) modelQualityJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.modelQualityJobDefs[r] == nil {
-		b.modelQualityJobDefs[r] = make(map[string]*JobDefinition)
+		b.modelQualityJobDefs[r] = store.Register(
+			b.registry,
+			"modelQualityJobDefs:"+r,
+			store.New(func(v *JobDefinition) string { return v.JobDefinitionName }),
+		)
 	}
 
 	return b.modelQualityJobDefs[r]
 }
-func (b *InMemoryBackend) modelExplainJobDefsStore(r string) map[string]*JobDefinition {
+func (b *InMemoryBackend) modelExplainJobDefsStore(r string) *store.Table[JobDefinition] {
 	if b.modelExplainJobDefs[r] == nil {
-		b.modelExplainJobDefs[r] = make(map[string]*JobDefinition)
+		b.modelExplainJobDefs[r] = store.Register(
+			b.registry,
+			"modelExplainJobDefs:"+r,
+			store.New(func(v *JobDefinition) string { return v.JobDefinitionName }),
+		)
 	}
 
 	return b.modelExplainJobDefs[r]
 }
-func (b *InMemoryBackend) monitoringExecutionsStore(r string) map[string]*MonitoringExecution {
+func (b *InMemoryBackend) monitoringExecutionsStore(r string) *store.Table[MonitoringExecution] {
 	if b.monitoringExecutions[r] == nil {
-		b.monitoringExecutions[r] = make(map[string]*MonitoringExecution)
+		b.monitoringExecutions[r] = store.Register(
+			b.registry,
+			"monitoringExecutions:"+r,
+			store.New(
+				func(v *MonitoringExecution) string { return v.MonitoringScheduleName + "|" + v.ProcessingJobArn },
+			),
+		)
 	}
 
 	return b.monitoringExecutions[r]
 }
-func (b *InMemoryBackend) humanTaskUisStore(r string) map[string]*HumanTaskUI {
+func (b *InMemoryBackend) humanTaskUisStore(r string) *store.Table[HumanTaskUI] {
 	if b.humanTaskUis[r] == nil {
-		b.humanTaskUis[r] = make(map[string]*HumanTaskUI)
+		b.humanTaskUis[r] = store.Register(
+			b.registry,
+			"humanTaskUis:"+r,
+			store.New(func(v *HumanTaskUI) string { return v.HumanTaskUIName }),
+		)
 	}
 
 	return b.humanTaskUis[r]
 }
-func (b *InMemoryBackend) workforcesStore(r string) map[string]*Workforce {
+func (b *InMemoryBackend) workforcesStore(r string) *store.Table[Workforce] {
 	if b.workforces[r] == nil {
-		b.workforces[r] = make(map[string]*Workforce)
+		b.workforces[r] = store.Register(
+			b.registry,
+			"workforces:"+r,
+			store.New(func(v *Workforce) string { return v.WorkforceName }),
+		)
 	}
 
 	return b.workforces[r]
 }
-func (b *InMemoryBackend) flowDefinitionsStore(r string) map[string]*FlowDefinition {
+func (b *InMemoryBackend) flowDefinitionsStore(r string) *store.Table[FlowDefinition] {
 	if b.flowDefinitions[r] == nil {
-		b.flowDefinitions[r] = make(map[string]*FlowDefinition)
+		b.flowDefinitions[r] = store.Register(
+			b.registry,
+			"flowDefinitions:"+r,
+			store.New(func(v *FlowDefinition) string { return v.FlowDefinitionName }),
+		)
 	}
 
 	return b.flowDefinitions[r]
 }
-func (b *InMemoryBackend) appImageConfigsStore(r string) map[string]*AppImageConfig {
+func (b *InMemoryBackend) appImageConfigsStore(r string) *store.Table[AppImageConfig] {
 	if b.appImageConfigs[r] == nil {
-		b.appImageConfigs[r] = make(map[string]*AppImageConfig)
+		b.appImageConfigs[r] = store.Register(
+			b.registry,
+			"appImageConfigs:"+r,
+			store.New(func(v *AppImageConfig) string { return v.AppImageConfigName }),
+		)
 	}
 
 	return b.appImageConfigs[r]
 }
-func (b *InMemoryBackend) inferenceExperimentsStore(r string) map[string]*InferenceExperiment {
+func (b *InMemoryBackend) inferenceExperimentsStore(r string) *store.Table[InferenceExperiment] {
 	if b.inferenceExperiments[r] == nil {
-		b.inferenceExperiments[r] = make(map[string]*InferenceExperiment)
+		b.inferenceExperiments[r] = store.Register(
+			b.registry,
+			"inferenceExperiments:"+r,
+			store.New(func(v *InferenceExperiment) string { return v.Name }),
+		)
 	}
 
 	return b.inferenceExperiments[r]
 }
-func (b *InMemoryBackend) mlflowTrackingServersStore(r string) map[string]*MlflowTrackingServer {
+func (b *InMemoryBackend) mlflowTrackingServersStore(r string) *store.Table[MlflowTrackingServer] {
 	if b.mlflowTrackingServers[r] == nil {
-		b.mlflowTrackingServers[r] = make(map[string]*MlflowTrackingServer)
+		b.mlflowTrackingServers[r] = store.Register(
+			b.registry,
+			"mlflowTrackingServers:"+r,
+			store.New(func(v *MlflowTrackingServer) string { return v.TrackingServerName }),
+		)
 	}
 
 	return b.mlflowTrackingServers[r]
 }
-func (b *InMemoryBackend) mlflowAppsStore(r string) map[string]*MlflowApp {
+func (b *InMemoryBackend) mlflowAppsStore(r string) *store.Table[MlflowApp] {
 	if b.mlflowApps[r] == nil {
-		b.mlflowApps[r] = make(map[string]*MlflowApp)
+		b.mlflowApps[r] = store.Register(
+			b.registry,
+			"mlflowApps:"+r,
+			store.New(func(v *MlflowApp) string { return v.Arn }),
+		)
 	}
 
 	return b.mlflowApps[r]
 }
-func (b *InMemoryBackend) modelCardsStore(r string) map[string]*ModelCard {
+func (b *InMemoryBackend) modelCardsStore(r string) *store.Table[ModelCard] {
 	if b.modelCards[r] == nil {
-		b.modelCards[r] = make(map[string]*ModelCard)
+		b.modelCards[r] = store.Register(
+			b.registry,
+			"modelCards:"+r,
+			store.New(func(v *ModelCard) string { return v.ModelCardName }),
+		)
 	}
 
 	return b.modelCards[r]
 }
-func (b *InMemoryBackend) optimizationJobsStore(r string) map[string]*OptimizationJob {
+func (b *InMemoryBackend) optimizationJobsStore(r string) *store.Table[OptimizationJob] {
 	if b.optimizationJobs[r] == nil {
-		b.optimizationJobs[r] = make(map[string]*OptimizationJob)
+		b.optimizationJobs[r] = store.Register(
+			b.registry,
+			"optimizationJobs:"+r,
+			store.New(func(v *OptimizationJob) string { return v.OptimizationJobName }),
+		)
 	}
 
 	return b.optimizationJobs[r]
 }
-func (b *InMemoryBackend) studioLifecycleConfigsStore(r string) map[string]*StudioLifecycleConfig {
+func (b *InMemoryBackend) studioLifecycleConfigsStore(r string) *store.Table[StudioLifecycleConfig] {
 	if b.studioLifecycleConfigs[r] == nil {
-		b.studioLifecycleConfigs[r] = make(map[string]*StudioLifecycleConfig)
+		b.studioLifecycleConfigs[r] = store.Register(
+			b.registry,
+			"studioLifecycleConfigs:"+r,
+			store.New(func(v *StudioLifecycleConfig) string { return v.StudioLifecycleConfigName }),
+		)
 	}
 
 	return b.studioLifecycleConfigs[r]
 }
-func (b *InMemoryBackend) partnerAppsStore(r string) map[string]*PartnerApp {
+func (b *InMemoryBackend) partnerAppsStore(r string) *store.Table[PartnerApp] {
 	if b.partnerApps[r] == nil {
-		b.partnerApps[r] = make(map[string]*PartnerApp)
+		b.partnerApps[r] = store.Register(
+			b.registry,
+			"partnerApps:"+r,
+			store.New(func(v *PartnerApp) string { return v.Arn }),
+		)
 	}
 
 	return b.partnerApps[r]
 }
-func (b *InMemoryBackend) trainingPlansStore(r string) map[string]*TrainingPlan {
+func (b *InMemoryBackend) trainingPlansStore(r string) *store.Table[TrainingPlan] {
 	if b.trainingPlans[r] == nil {
-		b.trainingPlans[r] = make(map[string]*TrainingPlan)
+		b.trainingPlans[r] = store.Register(
+			b.registry,
+			"trainingPlans:"+r,
+			store.New(func(v *TrainingPlan) string { return v.TrainingPlanName }),
+		)
 	}
 
 	return b.trainingPlans[r]
 }
-func (b *InMemoryBackend) reservedCapacitiesStore(r string) map[string]*ReservedCapacity {
+func (b *InMemoryBackend) reservedCapacitiesStore(r string) *store.Table[ReservedCapacity] {
 	if b.reservedCapacities[r] == nil {
-		b.reservedCapacities[r] = make(map[string]*ReservedCapacity)
+		b.reservedCapacities[r] = store.Register(
+			b.registry,
+			"reservedCapacities:"+r,
+			store.New(func(v *ReservedCapacity) string { return v.ReservedCapacityArn }),
+		)
 	}
 
 	return b.reservedCapacities[r]
 }
-func (b *InMemoryBackend) trainingPlanExtensionOfferingsStore(r string) map[string]*pendingTrainingPlanExtension {
+func (b *InMemoryBackend) trainingPlanExtensionOfferingsStore(r string) *store.Table[pendingTrainingPlanExtension] {
 	if b.trainingPlanExtensionOfferings[r] == nil {
-		b.trainingPlanExtensionOfferings[r] = make(map[string]*pendingTrainingPlanExtension)
+		b.trainingPlanExtensionOfferings[r] = store.Register(
+			b.registry,
+			"trainingPlanExtensionOfferings:"+r,
+			store.New(func(v *pendingTrainingPlanExtension) string { return v.ID }),
+		)
 	}
 
 	return b.trainingPlanExtensionOfferings[r]
 }
-func (b *InMemoryBackend) modelCardExportJobsStore(r string) map[string]*ModelCardExportJob {
+func (b *InMemoryBackend) modelCardExportJobsStore(r string) *store.Table[ModelCardExportJob] {
 	if b.modelCardExportJobs[r] == nil {
-		b.modelCardExportJobs[r] = make(map[string]*ModelCardExportJob)
+		b.modelCardExportJobs[r] = store.Register(
+			b.registry,
+			"modelCardExportJobs:"+r,
+			store.New(func(v *ModelCardExportJob) string { return v.ModelCardExportJobArn }),
+		)
 	}
 
 	return b.modelCardExportJobs[r]
@@ -1018,9 +1194,9 @@ func (b *InMemoryBackend) modelCardExportJobsStore(r string) map[string]*ModelCa
 // ModelCard export job maps, plus the ModelPackageGroup policy / Servicecatalog
 // portfolio / Pipeline version state introduced in a later de-stubbing round.
 func (b *InMemoryBackend) initTrainingPlanExtMaps() {
-	b.reservedCapacities = make(map[string]map[string]*ReservedCapacity)
-	b.trainingPlanExtensionOfferings = make(map[string]map[string]*pendingTrainingPlanExtension)
-	b.modelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
+	b.reservedCapacities = make(map[string]*store.Table[ReservedCapacity])
+	b.trainingPlanExtensionOfferings = make(map[string]*store.Table[pendingTrainingPlanExtension])
+	b.modelCardExportJobs = make(map[string]*store.Table[ModelCardExportJob])
 	b.pipelineVersions = make(map[string]map[string][]*PipelineVersion)
 	b.servicecatalogPortfolioEnabled = make(map[string]bool)
 }
@@ -1108,163 +1284,250 @@ func (b *InMemoryBackend) transformJobARNIndexStore(r string) map[string]string 
 
 	return b.transformJobARNIndex[r]
 }
-func (b *InMemoryBackend) domainsStore(r string) map[string]*Domain {
+func (b *InMemoryBackend) domainsStore(r string) *store.Table[Domain] {
 	if b.domains[r] == nil {
-		b.domains[r] = make(map[string]*Domain)
+		b.domains[r] = store.Register(b.registry, "domains:"+r, store.New(func(v *Domain) string { return v.DomainID }))
 	}
 
 	return b.domains[r]
 }
-func (b *InMemoryBackend) userProfilesStore(r string) map[userProfileKey]*UserProfile {
+func (b *InMemoryBackend) userProfilesStore(r string) *store.Table[UserProfile] {
 	if b.userProfiles[r] == nil {
-		b.userProfiles[r] = make(map[userProfileKey]*UserProfile)
+		b.userProfiles[r] = store.Register(b.registry, "userProfiles:"+r, store.New(func(v *UserProfile) string {
+			return userProfileKeyString(userProfileKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName})
+		}))
 	}
 
 	return b.userProfiles[r]
 }
-func (b *InMemoryBackend) appsStore(r string) map[appKey]*App {
+func (b *InMemoryBackend) appsStore(r string) *store.Table[App] {
 	if b.apps[r] == nil {
-		b.apps[r] = make(map[appKey]*App)
+		b.apps[r] = store.Register(b.registry, "apps:"+r, store.New(func(v *App) string {
+			return appKeyString(
+				appKey{
+					DomainID:        v.DomainID,
+					UserProfileName: v.UserProfileName,
+					AppType:         v.AppType,
+					AppName:         v.AppName,
+				},
+			)
+		}))
 	}
 
 	return b.apps[r]
 }
-func (b *InMemoryBackend) featureGroupsStore(r string) map[string]*FeatureGroup {
+func (b *InMemoryBackend) featureGroupsStore(r string) *store.Table[FeatureGroup] {
 	if b.featureGroups[r] == nil {
-		b.featureGroups[r] = make(map[string]*FeatureGroup)
+		b.featureGroups[r] = store.Register(
+			b.registry,
+			"featureGroups:"+r,
+			store.New(func(v *FeatureGroup) string { return v.FeatureGroupName }),
+		)
 	}
 
 	return b.featureGroups[r]
 }
-func (b *InMemoryBackend) featureRecordsStore(r string) map[string]*FeatureRecord {
+func (b *InMemoryBackend) featureRecordsStore(r string) *store.Table[FeatureRecord] {
 	if b.featureRecords[r] == nil {
-		b.featureRecords[r] = make(map[string]*FeatureRecord)
+		b.featureRecords[r] = store.Register(
+			b.registry,
+			"featureRecords:"+r,
+			store.New(func(v *FeatureRecord) string { return v.Key }),
+		)
 	}
 
 	return b.featureRecords[r]
 }
-func (b *InMemoryBackend) featureMetadataStore(r string) map[string]*FeatureMetadata {
+func (b *InMemoryBackend) featureMetadataStore(r string) *store.Table[FeatureMetadata] {
 	if b.featureMetadata[r] == nil {
-		b.featureMetadata[r] = make(map[string]*FeatureMetadata)
+		b.featureMetadata[r] = store.Register(
+			b.registry,
+			"featureMetadata:"+r,
+			store.New(func(v *FeatureMetadata) string { return featureMetaKey(v.GroupName, v.FeatureName) }),
+		)
 	}
 
 	return b.featureMetadata[r]
 }
-func (b *InMemoryBackend) pipelinesStore(r string) map[string]*Pipeline {
+func (b *InMemoryBackend) pipelinesStore(r string) *store.Table[Pipeline] {
 	if b.pipelines[r] == nil {
-		b.pipelines[r] = make(map[string]*Pipeline)
+		b.pipelines[r] = store.Register(
+			b.registry,
+			"pipelines:"+r,
+			store.New(func(v *Pipeline) string { return v.PipelineName }),
+		)
 	}
 
 	return b.pipelines[r]
 }
-func (b *InMemoryBackend) pipelineExecutionsStore(r string) map[string]*PipelineExecution {
+func (b *InMemoryBackend) pipelineExecutionsStore(r string) *store.Table[PipelineExecution] {
 	if b.pipelineExecutions[r] == nil {
-		b.pipelineExecutions[r] = make(map[string]*PipelineExecution)
+		b.pipelineExecutions[r] = store.Register(
+			b.registry,
+			"pipelineExecutions:"+r,
+			store.New(func(v *PipelineExecution) string { return v.PipelineExecutionArn }),
+		)
 	}
 
 	return b.pipelineExecutions[r]
 }
-func (b *InMemoryBackend) pipelineExecStepsStore(r string) map[string]*PipelineExecutionStep {
+func (b *InMemoryBackend) pipelineExecStepsStore(r string) *store.Table[PipelineExecutionStep] {
 	if b.pipelineExecSteps[r] == nil {
-		b.pipelineExecSteps[r] = make(map[string]*PipelineExecutionStep)
+		b.pipelineExecSteps[r] = store.Register(
+			b.registry,
+			"pipelineExecSteps:"+r,
+			store.New(
+				func(v *PipelineExecutionStep) string { return pipelineExecutionStepsKey(v.ExecutionArn, v.StepName) },
+			),
+		)
 	}
 
 	return b.pipelineExecSteps[r]
 }
-func (b *InMemoryBackend) experimentsStore(r string) map[string]*Experiment {
+func (b *InMemoryBackend) experimentsStore(r string) *store.Table[Experiment] {
 	if b.experiments[r] == nil {
-		b.experiments[r] = make(map[string]*Experiment)
+		b.experiments[r] = store.Register(
+			b.registry,
+			"experiments:"+r,
+			store.New(func(v *Experiment) string { return v.ExperimentName }),
+		)
 	}
 
 	return b.experiments[r]
 }
-func (b *InMemoryBackend) trialsStore(r string) map[string]*Trial {
+func (b *InMemoryBackend) trialsStore(r string) *store.Table[Trial] {
 	if b.trials[r] == nil {
-		b.trials[r] = make(map[string]*Trial)
+		b.trials[r] = store.Register(b.registry, "trials:"+r, store.New(func(v *Trial) string { return v.TrialName }))
 	}
 
 	return b.trials[r]
 }
-func (b *InMemoryBackend) trialComponentsStore(r string) map[string]*TrialComponent {
+func (b *InMemoryBackend) trialComponentsStore(r string) *store.Table[TrialComponent] {
 	if b.trialComponents[r] == nil {
-		b.trialComponents[r] = make(map[string]*TrialComponent)
+		b.trialComponents[r] = store.Register(
+			b.registry,
+			"trialComponents:"+r,
+			store.New(func(v *TrialComponent) string { return v.TrialComponentName }),
+		)
 	}
 
 	return b.trialComponents[r]
 }
-func (b *InMemoryBackend) notebookLifecycleConfigsStore(r string) map[string]*NotebookInstanceLifecycleConfig {
+func (b *InMemoryBackend) notebookLifecycleConfigsStore(r string) *store.Table[NotebookInstanceLifecycleConfig] {
 	if b.notebookLifecycleConfigs[r] == nil {
-		b.notebookLifecycleConfigs[r] = make(map[string]*NotebookInstanceLifecycleConfig)
+		b.notebookLifecycleConfigs[r] = store.Register(
+			b.registry,
+			"notebookLifecycleConfigs:"+r,
+			store.New(func(v *NotebookInstanceLifecycleConfig) string { return v.Name }),
+		)
 	}
 
 	return b.notebookLifecycleConfigs[r]
 }
-func (b *InMemoryBackend) processingJobsStore(r string) map[string]*ProcessingJob {
+func (b *InMemoryBackend) processingJobsStore(r string) *store.Table[ProcessingJob] {
 	if b.processingJobs[r] == nil {
-		b.processingJobs[r] = make(map[string]*ProcessingJob)
+		b.processingJobs[r] = store.Register(
+			b.registry,
+			"processingJobs:"+r,
+			store.New(func(v *ProcessingJob) string { return v.ProcessingJobName }),
+		)
 	}
 
 	return b.processingJobs[r]
 }
-func (b *InMemoryBackend) transformJobsStore(r string) map[string]*TransformJob {
+func (b *InMemoryBackend) transformJobsStore(r string) *store.Table[TransformJob] {
 	if b.transformJobs[r] == nil {
-		b.transformJobs[r] = make(map[string]*TransformJob)
+		b.transformJobs[r] = store.Register(
+			b.registry,
+			"transformJobs:"+r,
+			store.New(func(v *TransformJob) string { return v.TransformJobName }),
+		)
 	}
 
 	return b.transformJobs[r]
 }
-func (b *InMemoryBackend) edgePackagingJobsStore(r string) map[string]*EdgePackagingJob {
+func (b *InMemoryBackend) edgePackagingJobsStore(r string) *store.Table[EdgePackagingJob] {
 	if b.edgePackagingJobs[r] == nil {
-		b.edgePackagingJobs[r] = make(map[string]*EdgePackagingJob)
+		b.edgePackagingJobs[r] = store.Register(
+			b.registry,
+			"edgePackagingJobs:"+r,
+			store.New(func(v *EdgePackagingJob) string { return v.EdgePackagingJobName }),
+		)
 	}
 
 	return b.edgePackagingJobs[r]
 }
-func (b *InMemoryBackend) edgeDeploymentPlansStore(r string) map[string]*EdgeDeploymentPlan {
+func (b *InMemoryBackend) edgeDeploymentPlansStore(r string) *store.Table[EdgeDeploymentPlan] {
 	if b.edgeDeploymentPlans[r] == nil {
-		b.edgeDeploymentPlans[r] = make(map[string]*EdgeDeploymentPlan)
+		b.edgeDeploymentPlans[r] = store.Register(
+			b.registry,
+			"edgeDeploymentPlans:"+r,
+			store.New(func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanName }),
+		)
 	}
 
 	return b.edgeDeploymentPlans[r]
 }
-func (b *InMemoryBackend) inferenceRecommendationsJobsStore(r string) map[string]*InferenceRecommendationsJob {
+func (b *InMemoryBackend) inferenceRecommendationsJobsStore(r string) *store.Table[InferenceRecommendationsJob] {
 	if b.inferenceRecommendationsJobs[r] == nil {
-		b.inferenceRecommendationsJobs[r] = make(map[string]*InferenceRecommendationsJob)
+		b.inferenceRecommendationsJobs[r] = store.Register(
+			b.registry,
+			"inferenceRecommendationsJobs:"+r,
+			store.New(func(v *InferenceRecommendationsJob) string { return v.JobName }),
+		)
 	}
 
 	return b.inferenceRecommendationsJobs[r]
 }
-func (b *InMemoryBackend) deviceFleetsStore(r string) map[string]*DeviceFleet {
+func (b *InMemoryBackend) deviceFleetsStore(r string) *store.Table[DeviceFleet] {
 	if b.deviceFleets[r] == nil {
-		b.deviceFleets[r] = make(map[string]*DeviceFleet)
+		b.deviceFleets[r] = store.Register(
+			b.registry,
+			"deviceFleets:"+r,
+			store.New(func(v *DeviceFleet) string { return v.DeviceFleetName }),
+		)
 	}
 
 	return b.deviceFleets[r]
 }
-func (b *InMemoryBackend) devicesStore(r string) map[deviceKey]*Device {
+func (b *InMemoryBackend) devicesStore(r string) *store.Table[Device] {
 	if b.devices[r] == nil {
-		b.devices[r] = make(map[deviceKey]*Device)
+		b.devices[r] = store.Register(b.registry, "devices:"+r, store.New(func(v *Device) string {
+			return deviceKeyString(deviceKey{fleetName: v.DeviceFleetName, deviceName: v.DeviceName})
+		}))
 	}
 
 	return b.devices[r]
 }
-func (b *InMemoryBackend) inferenceComponentsStore(r string) map[string]*InferenceComponent {
+func (b *InMemoryBackend) inferenceComponentsStore(r string) *store.Table[InferenceComponent] {
 	if b.inferenceComponents[r] == nil {
-		b.inferenceComponents[r] = make(map[string]*InferenceComponent)
+		b.inferenceComponents[r] = store.Register(
+			b.registry,
+			"inferenceComponents:"+r,
+			store.New(func(v *InferenceComponent) string { return v.InferenceComponentName }),
+		)
 	}
 
 	return b.inferenceComponents[r]
 }
-func (b *InMemoryBackend) clusterSchedulerConfigsStore(r string) map[string]*ClusterSchedulerConfig {
+func (b *InMemoryBackend) clusterSchedulerConfigsStore(r string) *store.Table[ClusterSchedulerConfig] {
 	if b.clusterSchedulerConfigs[r] == nil {
-		b.clusterSchedulerConfigs[r] = make(map[string]*ClusterSchedulerConfig)
+		b.clusterSchedulerConfigs[r] = store.Register(
+			b.registry,
+			"clusterSchedulerConfigs:"+r,
+			store.New(func(v *ClusterSchedulerConfig) string { return v.ClusterSchedulerConfigName }),
+		)
 	}
 
 	return b.clusterSchedulerConfigs[r]
 }
-func (b *InMemoryBackend) computeQuotasStore(r string) map[string]*ComputeQuota {
+func (b *InMemoryBackend) computeQuotasStore(r string) *store.Table[ComputeQuota] {
 	if b.computeQuotas[r] == nil {
-		b.computeQuotas[r] = make(map[string]*ComputeQuota)
+		b.computeQuotas[r] = store.Register(
+			b.registry,
+			"computeQuotas:"+r,
+			store.New(func(v *ComputeQuota) string { return v.ComputeQuotaName }),
+		)
 	}
 
 	return b.computeQuotas[r]
@@ -1277,51 +1540,57 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.models = make(map[string]map[string]*Model)
-	b.endpointConfigs = make(map[string]map[string]*EndpointConfig)
-	b.endpoints = make(map[string]map[string]*Endpoint)
-	b.trainingJobs = make(map[string]map[string]*TrainingJob)
-	b.notebooks = make(map[string]map[string]*NotebookInstance)
-	b.hpTuningJobs = make(map[string]map[string]*HyperParameterTuningJob)
-	b.associations = make(map[string]map[string]*Association)
-	b.trialComponentAssociations = make(map[string]map[string]*TrialComponentAssociation)
-	b.actions = make(map[string]map[string]*Action)
-	b.artifacts = make(map[string]map[string]*Artifact)
-	b.contexts = make(map[string]map[string]*Context)
-	b.algorithms = make(map[string]map[string]*Algorithm)
-	b.clusters = make(map[string]map[string]*Cluster)
-	b.modelPackages = make(map[string]map[string]*ModelPackage)
-	b.modelPackageGroups = make(map[string]map[string]*ModelPackageGroup)
-	b.autoMLJobs = make(map[string]map[string]*AutoMLJob)
-	b.codeRepositories = make(map[string]map[string]*CodeRepository)
-	b.projects = make(map[string]map[string]*Project)
-	b.spaces = make(map[string]map[string]*Space)
-	b.smImages = make(map[string]map[string]*SMImage)
+	// Fresh registry: every xxxStore(r) helper below lazily re-registers a new
+	// per-region store.Table under the same "field:region" name on next use,
+	// which would panic against the old registry (duplicate name) since the
+	// old one is never otherwise cleared.
+	b.registry = store.NewRegistry()
+
+	b.models = make(map[string]*store.Table[Model])
+	b.endpointConfigs = make(map[string]*store.Table[EndpointConfig])
+	b.endpoints = make(map[string]*store.Table[Endpoint])
+	b.trainingJobs = make(map[string]*store.Table[TrainingJob])
+	b.notebooks = make(map[string]*store.Table[NotebookInstance])
+	b.hpTuningJobs = make(map[string]*store.Table[HyperParameterTuningJob])
+	b.associations = make(map[string]*store.Table[Association])
+	b.trialComponentAssociations = make(map[string]*store.Table[TrialComponentAssociation])
+	b.actions = make(map[string]*store.Table[Action])
+	b.artifacts = make(map[string]*store.Table[Artifact])
+	b.contexts = make(map[string]*store.Table[Context])
+	b.algorithms = make(map[string]*store.Table[Algorithm])
+	b.clusters = make(map[string]*store.Table[Cluster])
+	b.modelPackages = make(map[string]*store.Table[ModelPackage])
+	b.modelPackageGroups = make(map[string]*store.Table[ModelPackageGroup])
+	b.autoMLJobs = make(map[string]*store.Table[AutoMLJob])
+	b.codeRepositories = make(map[string]*store.Table[CodeRepository])
+	b.projects = make(map[string]*store.Table[Project])
+	b.spaces = make(map[string]*store.Table[Space])
+	b.smImages = make(map[string]*store.Table[SMImage])
 	b.imageVersions = make(map[string]map[string]map[int]*ImageVersion)
 	b.imageVersionCounts = make(map[string]map[string]int)
-	b.compilationJobs = make(map[string]map[string]*CompilationJob)
-	b.monitoringSchedules = make(map[string]map[string]*MonitoringSchedule)
-	b.workteams = make(map[string]map[string]*Workteam)
-	b.labelingJobs = make(map[string]map[string]*LabelingJob)
-	b.dataQualityJobDefs = make(map[string]map[string]*JobDefinition)
-	b.modelBiasJobDefs = make(map[string]map[string]*JobDefinition)
-	b.modelQualityJobDefs = make(map[string]map[string]*JobDefinition)
-	b.modelExplainJobDefs = make(map[string]map[string]*JobDefinition)
-	b.monitoringAlerts = make(map[string]map[string]map[string]*MonitoringAlert)
+	b.compilationJobs = make(map[string]*store.Table[CompilationJob])
+	b.monitoringSchedules = make(map[string]*store.Table[MonitoringSchedule])
+	b.workteams = make(map[string]*store.Table[Workteam])
+	b.labelingJobs = make(map[string]*store.Table[LabelingJob])
+	b.dataQualityJobDefs = make(map[string]*store.Table[JobDefinition])
+	b.modelBiasJobDefs = make(map[string]*store.Table[JobDefinition])
+	b.modelQualityJobDefs = make(map[string]*store.Table[JobDefinition])
+	b.modelExplainJobDefs = make(map[string]*store.Table[JobDefinition])
+	b.monitoringAlerts = make(map[string]*store.Table[MonitoringAlert])
 	b.monitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
-	b.monitoringExecutions = make(map[string]map[string]*MonitoringExecution)
-	b.humanTaskUis = make(map[string]map[string]*HumanTaskUI)
-	b.workforces = make(map[string]map[string]*Workforce)
-	b.flowDefinitions = make(map[string]map[string]*FlowDefinition)
-	b.appImageConfigs = make(map[string]map[string]*AppImageConfig)
-	b.inferenceExperiments = make(map[string]map[string]*InferenceExperiment)
-	b.mlflowTrackingServers = make(map[string]map[string]*MlflowTrackingServer)
-	b.mlflowApps = make(map[string]map[string]*MlflowApp)
-	b.modelCards = make(map[string]map[string]*ModelCard)
-	b.optimizationJobs = make(map[string]map[string]*OptimizationJob)
-	b.studioLifecycleConfigs = make(map[string]map[string]*StudioLifecycleConfig)
-	b.partnerApps = make(map[string]map[string]*PartnerApp)
-	b.trainingPlans = make(map[string]map[string]*TrainingPlan)
+	b.monitoringExecutions = make(map[string]*store.Table[MonitoringExecution])
+	b.humanTaskUis = make(map[string]*store.Table[HumanTaskUI])
+	b.workforces = make(map[string]*store.Table[Workforce])
+	b.flowDefinitions = make(map[string]*store.Table[FlowDefinition])
+	b.appImageConfigs = make(map[string]*store.Table[AppImageConfig])
+	b.inferenceExperiments = make(map[string]*store.Table[InferenceExperiment])
+	b.mlflowTrackingServers = make(map[string]*store.Table[MlflowTrackingServer])
+	b.mlflowApps = make(map[string]*store.Table[MlflowApp])
+	b.modelCards = make(map[string]*store.Table[ModelCard])
+	b.optimizationJobs = make(map[string]*store.Table[OptimizationJob])
+	b.studioLifecycleConfigs = make(map[string]*store.Table[StudioLifecycleConfig])
+	b.partnerApps = make(map[string]*store.Table[PartnerApp])
+	b.trainingPlans = make(map[string]*store.Table[TrainingPlan])
 	b.initTrainingPlanExtMaps()
 	b.modelARNIndex = make(map[string]map[string]string)
 	b.endpointConfigARNIndex = make(map[string]map[string]string)
@@ -1336,31 +1605,31 @@ func (b *InMemoryBackend) Reset() {
 	b.modelPackageARNIndex = make(map[string]map[string]string)
 	b.processingJobARNIndex = make(map[string]map[string]string)
 	b.transformJobARNIndex = make(map[string]map[string]string)
-	b.domains = make(map[string]map[string]*Domain)
-	b.userProfiles = make(map[string]map[userProfileKey]*UserProfile)
-	b.apps = make(map[string]map[appKey]*App)
-	b.featureGroups = make(map[string]map[string]*FeatureGroup)
-	b.featureRecords = make(map[string]map[string]*FeatureRecord)
-	b.featureMetadata = make(map[string]map[string]*FeatureMetadata)
-	b.pipelines = make(map[string]map[string]*Pipeline)
-	b.pipelineExecutions = make(map[string]map[string]*PipelineExecution)
-	b.pipelineExecSteps = make(map[string]map[string]*PipelineExecutionStep)
-	b.experiments = make(map[string]map[string]*Experiment)
-	b.trials = make(map[string]map[string]*Trial)
-	b.trialComponents = make(map[string]map[string]*TrialComponent)
-	b.notebookLifecycleConfigs = make(map[string]map[string]*NotebookInstanceLifecycleConfig)
-	b.processingJobs = make(map[string]map[string]*ProcessingJob)
-	b.transformJobs = make(map[string]map[string]*TransformJob)
-	b.edgePackagingJobs = make(map[string]map[string]*EdgePackagingJob)
-	b.edgeDeploymentPlans = make(map[string]map[string]*EdgeDeploymentPlan)
-	b.inferenceRecommendationsJobs = make(map[string]map[string]*InferenceRecommendationsJob)
-	b.deviceFleets = make(map[string]map[string]*DeviceFleet)
-	b.devices = make(map[string]map[deviceKey]*Device)
-	b.inferenceComponents = make(map[string]map[string]*InferenceComponent)
-	b.clusterSchedulerConfigs = make(map[string]map[string]*ClusterSchedulerConfig)
-	b.computeQuotas = make(map[string]map[string]*ComputeQuota)
-	b.hubs = make(map[string]map[string]*Hub)
-	b.hubContents = make(map[string]map[hubContentKey]*HubContent)
+	b.domains = make(map[string]*store.Table[Domain])
+	b.userProfiles = make(map[string]*store.Table[UserProfile])
+	b.apps = make(map[string]*store.Table[App])
+	b.featureGroups = make(map[string]*store.Table[FeatureGroup])
+	b.featureRecords = make(map[string]*store.Table[FeatureRecord])
+	b.featureMetadata = make(map[string]*store.Table[FeatureMetadata])
+	b.pipelines = make(map[string]*store.Table[Pipeline])
+	b.pipelineExecutions = make(map[string]*store.Table[PipelineExecution])
+	b.pipelineExecSteps = make(map[string]*store.Table[PipelineExecutionStep])
+	b.experiments = make(map[string]*store.Table[Experiment])
+	b.trials = make(map[string]*store.Table[Trial])
+	b.trialComponents = make(map[string]*store.Table[TrialComponent])
+	b.notebookLifecycleConfigs = make(map[string]*store.Table[NotebookInstanceLifecycleConfig])
+	b.processingJobs = make(map[string]*store.Table[ProcessingJob])
+	b.transformJobs = make(map[string]*store.Table[TransformJob])
+	b.edgePackagingJobs = make(map[string]*store.Table[EdgePackagingJob])
+	b.edgeDeploymentPlans = make(map[string]*store.Table[EdgeDeploymentPlan])
+	b.inferenceRecommendationsJobs = make(map[string]*store.Table[InferenceRecommendationsJob])
+	b.deviceFleets = make(map[string]*store.Table[DeviceFleet])
+	b.devices = make(map[string]*store.Table[Device])
+	b.inferenceComponents = make(map[string]*store.Table[InferenceComponent])
+	b.clusterSchedulerConfigs = make(map[string]*store.Table[ClusterSchedulerConfig])
+	b.computeQuotas = make(map[string]*store.Table[ComputeQuota])
+	b.hubs = make(map[string]*store.Table[Hub])
+	b.hubContents = make(map[string]*store.Table[HubContent])
 	// Cancel pending goroutines and start fresh lifecycle context.
 	b.resetLifecycleContext()
 }
@@ -1380,7 +1649,7 @@ func (b *InMemoryBackend) CreateModel(
 	region := getRegion(ctx, b.region)
 	models := b.modelsStore(region)
 
-	if _, ok := models[name]; ok {
+	if _, ok := models.Get(name); ok {
 		return nil, fmt.Errorf("%w: model %s already exists", ErrModelAlreadyExists, name)
 	}
 
@@ -1408,7 +1677,7 @@ func (b *InMemoryBackend) CreateModel(
 		CreationTime:     time.Now(),
 		Tags:             mergeTags(nil, tags),
 	}
-	models[name] = m
+	models.Put(m)
 	b.modelARNIndexStore(region)[modelARN] = name
 
 	return cloneModel(m), nil
@@ -1421,7 +1690,7 @@ func (b *InMemoryBackend) DescribeModel(ctx context.Context, name string) (*Mode
 
 	region := getRegion(ctx, b.region)
 
-	m, ok := b.modelsStore(region)[name]
+	m, ok := b.modelsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
 	}
@@ -1448,14 +1717,14 @@ func (b *InMemoryBackend) DeleteModel(ctx context.Context, name string) error {
 	region := getRegion(ctx, b.region)
 	models := b.modelsStore(region)
 
-	m, ok := models[name]
+	m, ok := models.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
 	}
 
 	arnIndex := b.modelARNIndexStore(region)
 	delete(arnIndex, m.ModelARN)
-	delete(models, name)
+	models.Delete(name)
 
 	return nil
 }
@@ -1474,7 +1743,7 @@ func (b *InMemoryBackend) SetModelExtras(
 
 	region := getRegion(ctx, b.region)
 
-	m, ok := b.modelsStore(region)[name]
+	m, ok := b.modelsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
 	}
@@ -1509,7 +1778,7 @@ func (b *InMemoryBackend) CreateEndpointConfig(
 	region := getRegion(ctx, b.region)
 	ecStore := b.endpointConfigsStore(region)
 
-	if _, ok := ecStore[name]; ok {
+	if _, ok := ecStore.Get(name); ok {
 		return nil, fmt.Errorf(
 			"%w: endpoint config %s already exists",
 			ErrEndpointConfigAlreadyExists,
@@ -1529,7 +1798,7 @@ func (b *InMemoryBackend) CreateEndpointConfig(
 		CreationTime:       time.Now(),
 		Tags:               mergeTags(nil, tags),
 	}
-	ecStore[name] = ec
+	ecStore.Put(ec)
 	b.endpointConfigARNIndexStore(region)[configARN] = name
 
 	return cloneEndpointConfig(ec), nil
@@ -1542,7 +1811,7 @@ func (b *InMemoryBackend) DescribeEndpointConfig(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	ec, ok := b.endpointConfigsStore(region)[name]
+	ec, ok := b.endpointConfigsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: could not find endpoint configuration %q",
@@ -1573,7 +1842,7 @@ func (b *InMemoryBackend) DeleteEndpointConfig(ctx context.Context, name string)
 	region := getRegion(ctx, b.region)
 	ecStore := b.endpointConfigsStore(region)
 
-	ec, ok := ecStore[name]
+	ec, ok := ecStore.Get(name)
 	if !ok {
 		return fmt.Errorf(
 			"%w: could not find endpoint configuration %q",
@@ -1584,7 +1853,7 @@ func (b *InMemoryBackend) DeleteEndpointConfig(ctx context.Context, name string)
 
 	arnIndex := b.endpointConfigARNIndexStore(region)
 	delete(arnIndex, ec.EndpointConfigARN)
-	delete(ecStore, name)
+	ecStore.Delete(name)
 
 	return nil
 }
@@ -1607,7 +1876,7 @@ func (b *InMemoryBackend) SetEndpointConfigExtras(
 
 	region := getRegion(ctx, b.region)
 
-	ec, ok := b.endpointConfigsStore(region)[name]
+	ec, ok := b.endpointConfigsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf(
 			"%w: could not find endpoint configuration %q",
@@ -1656,70 +1925,70 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, resourceARN string, tags 
 	region := getRegion(ctx, b.region)
 
 	if name, ok := b.modelARNIndexStore(region)[resourceARN]; ok {
-		m := b.modelsStore(region)[name]
+		m := tableGet(b.modelsStore(region), name)
 		m.Tags = mergeTags(m.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.endpointConfigARNIndexStore(region)[resourceARN]; ok {
-		ec := b.endpointConfigsStore(region)[name]
+		ec := tableGet(b.endpointConfigsStore(region), name)
 		ec.Tags = mergeTags(ec.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.actionARNIndexStore(region)[resourceARN]; ok {
-		a := b.actionsStore(region)[name]
+		a := tableGet(b.actionsStore(region), name)
 		a.Tags = mergeTags(a.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.algorithmARNIndexStore(region)[resourceARN]; ok {
-		al := b.algorithmsStore(region)[name]
+		al := tableGet(b.algorithmsStore(region), name)
 		al.Tags = mergeTags(al.Tags, tags)
 
 		return nil
 	}
 
 	if _, ok := b.modelPackageARNIndexStore(region)[resourceARN]; ok {
-		mp := b.modelPackagesStore(region)[resourceARN]
+		mp := tableGet(b.modelPackagesStore(region), resourceARN)
 		mp.Tags = mergeTags(mp.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.endpointARNIndexStore(region)[resourceARN]; ok {
-		ep := b.endpointsStore(region)[name]
+		ep := tableGet(b.endpointsStore(region), name)
 		ep.Tags = mergeTags(ep.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.trainingJobARNIndexStore(region)[resourceARN]; ok {
-		tj := b.trainingJobsStore(region)[name]
+		tj := tableGet(b.trainingJobsStore(region), name)
 		tj.Tags = mergeTags(tj.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.notebookARNIndexStore(region)[resourceARN]; ok {
-		nb := b.notebooksStore(region)[name]
+		nb := tableGet(b.notebooksStore(region), name)
 		nb.Tags = mergeTags(nb.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.hpTuningJobARNIndexStore(region)[resourceARN]; ok {
-		j := b.hpTuningJobsStore(region)[name]
+		j := tableGet(b.hpTuningJobsStore(region), name)
 		j.Tags = mergeTags(j.Tags, tags)
 
 		return nil
 	}
 
 	if name, ok := b.processingJobARNIndexStore(region)[resourceARN]; ok {
-		if pj, found := b.processingJobsStore(region)[name]; found {
+		if pj, found := b.processingJobsStore(region).Get(name); found {
 			pj.Tags = mergeTags(pj.Tags, tags)
 
 			return nil
@@ -1751,39 +2020,39 @@ func (b *InMemoryBackend) ListTags(ctx context.Context, resourceARN string) (map
 // Must be called with b.mu held. Returns nil if the resource is not found.
 func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *map[string]string {
 	if name, ok := b.modelARNIndexStore(region)[resourceARN]; ok {
-		return &b.modelsStore(region)[name].Tags
+		return &tableGet(b.modelsStore(region), name).Tags
 	}
 
 	if name, ok := b.endpointConfigARNIndexStore(region)[resourceARN]; ok {
-		return &b.endpointConfigsStore(region)[name].Tags
+		return &tableGet(b.endpointConfigsStore(region), name).Tags
 	}
 
 	if name, ok := b.actionARNIndexStore(region)[resourceARN]; ok {
-		return &b.actionsStore(region)[name].Tags
+		return &tableGet(b.actionsStore(region), name).Tags
 	}
 
 	if name, ok := b.algorithmARNIndexStore(region)[resourceARN]; ok {
-		return &b.algorithmsStore(region)[name].Tags
+		return &tableGet(b.algorithmsStore(region), name).Tags
 	}
 
 	if _, ok := b.modelPackageARNIndexStore(region)[resourceARN]; ok {
-		return &b.modelPackagesStore(region)[resourceARN].Tags
+		return &tableGet(b.modelPackagesStore(region), resourceARN).Tags
 	}
 
 	if name, ok := b.endpointARNIndexStore(region)[resourceARN]; ok {
-		return &b.endpointsStore(region)[name].Tags
+		return &tableGet(b.endpointsStore(region), name).Tags
 	}
 
 	if name, ok := b.trainingJobARNIndexStore(region)[resourceARN]; ok {
-		return &b.trainingJobsStore(region)[name].Tags
+		return &tableGet(b.trainingJobsStore(region), name).Tags
 	}
 
 	if name, ok := b.notebookARNIndexStore(region)[resourceARN]; ok {
-		return &b.notebooksStore(region)[name].Tags
+		return &tableGet(b.notebooksStore(region), name).Tags
 	}
 
 	if name, ok := b.hpTuningJobARNIndexStore(region)[resourceARN]; ok {
-		return &b.hpTuningJobsStore(region)[name].Tags
+		return &tableGet(b.hpTuningJobsStore(region), name).Tags
 	}
 
 	if tags := b.findTagMapIndexedExtraLocked(resourceARN, region); tags != nil {
@@ -1798,19 +2067,19 @@ func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *m
 // findTagMapLocked to keep it within cyclomatic-complexity limits.
 func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, region string) *map[string]string {
 	if name, ok := b.processingJobARNIndexStore(region)[resourceARN]; ok {
-		if pj, found := b.processingJobsStore(region)[name]; found {
+		if pj, found := b.processingJobsStore(region).Get(name); found {
 			return &pj.Tags
 		}
 	}
 
 	if name, ok := b.transformJobARNIndexStore(region)[resourceARN]; ok {
-		if tj, found := b.transformJobsStore(region)[name]; found {
+		if tj, found := b.transformJobsStore(region).Get(name); found {
 			return &tj.Tags
 		}
 	}
 
 	if name, ok := b.clusterARNIndexStore(region)[resourceARN]; ok {
-		if c, found := b.clustersStore(region)[name]; found {
+		if c, found := b.clustersStore(region).Get(name); found {
 			return &c.Tags
 		}
 	}
@@ -1822,32 +2091,32 @@ func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, regio
 // featureGroups, pipelines, experiments, trials, trialComponents). Separated
 // to keep findTagMapLocked within cognitive-complexity limits.
 func (b *InMemoryBackend) findTagMapStatefulLocked(resourceARN string, region string) *map[string]string {
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsStore(region).All() {
 		if d.DomainArn == resourceARN {
 			return &d.Tags
 		}
 	}
-	for _, fg := range b.featureGroupsStore(region) {
+	for _, fg := range b.featureGroupsStore(region).All() {
 		if fg.FeatureGroupArn == resourceARN {
 			return &fg.Tags
 		}
 	}
-	for _, p := range b.pipelinesStore(region) {
+	for _, p := range b.pipelinesStore(region).All() {
 		if p.PipelineArn == resourceARN {
 			return &p.Tags
 		}
 	}
-	for _, e := range b.experimentsStore(region) {
+	for _, e := range b.experimentsStore(region).All() {
 		if e.ExperimentArn == resourceARN {
 			return &e.Tags
 		}
 	}
-	for _, t := range b.trialsStore(region) {
+	for _, t := range b.trialsStore(region).All() {
 		if t.TrialArn == resourceARN {
 			return &t.Tags
 		}
 	}
-	for _, tc := range b.trialComponentsStore(region) {
+	for _, tc := range b.trialComponentsStore(region).All() {
 		if tc.TrialComponentArn == resourceARN {
 			return &tc.Tags
 		}
@@ -1929,7 +2198,7 @@ func (b *InMemoryBackend) AddAssociation(
 	assocStore := b.associationsStore(region)
 
 	key := associationKey(sourceArn, destinationArn)
-	if _, ok := assocStore[key]; ok {
+	if _, ok := assocStore.Get(key); ok {
 		return nil, fmt.Errorf(
 			"%w: association between %s and %s already exists",
 			ErrAssociationAlreadyExists,
@@ -1953,7 +2222,7 @@ func (b *InMemoryBackend) AddAssociation(
 		CreationTime:    time.Now(),
 		Tags:            mergeTags(nil, tags),
 	}
-	assocStore[key] = a
+	assocStore.Put(a)
 
 	return cloneAssociation(a), nil
 }
@@ -1978,7 +2247,7 @@ func (b *InMemoryBackend) AssociateTrialComponent(
 	tcaStore := b.trialComponentAssociationsStore(region)
 
 	key := trialComponentKey(trialName, trialComponentName)
-	if _, ok := tcaStore[key]; ok {
+	if _, ok := tcaStore.Get(key); ok {
 		return nil, fmt.Errorf("%w: trial component %s is already associated with trial %s",
 			ErrAssociationAlreadyExists, trialComponentName, trialName)
 	}
@@ -1998,7 +2267,7 @@ func (b *InMemoryBackend) AssociateTrialComponent(
 		TrialComponentArn:  componentArn,
 		CreationTime:       time.Now(),
 	}
-	tcaStore[key] = assoc
+	tcaStore.Put(assoc)
 
 	return cloneTrialComponentAssociation(assoc), nil
 }
@@ -2007,7 +2276,7 @@ func (b *InMemoryBackend) AssociateTrialComponent(
 func (b *InMemoryBackend) ensureClusterLocked(ctx context.Context, clusterName string) (*Cluster, error) {
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.clustersStore(region)[clusterName]
+	c, ok := b.clustersStore(region).Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: cluster %q not found", ErrClusterNotFound, clusterName)
 	}
@@ -2029,7 +2298,7 @@ func (b *InMemoryBackend) AddClusterInternal(ctx context.Context, clusterName st
 		Nodes:         make(map[string]*ClusterNode),
 		CreationTime:  time.Now(),
 	}
-	b.clustersStore(region)[clusterName] = c
+	b.clustersStore(region).Put(c)
 	b.clusterARNIndexStore(region)[clusterARN] = clusterName
 
 	return cloneCluster(c)
@@ -2051,7 +2320,7 @@ func (b *InMemoryBackend) AddActionInternal(ctx context.Context, name, actionTyp
 		LastModifiedTime: now,
 		Tags:             make(map[string]string),
 	}
-	b.actionsStore(region)[name] = a
+	b.actionsStore(region).Put(a)
 	b.actionARNIndexStore(region)[actionARN] = name
 
 	return cloneAction(a)
@@ -2071,7 +2340,7 @@ func (b *InMemoryBackend) AddAlgorithmInternal(ctx context.Context, name string)
 		CreationTime:    time.Now(),
 		Tags:            make(map[string]string),
 	}
-	b.algorithmsStore(region)[name] = al
+	b.algorithmsStore(region).Put(al)
 	b.algorithmARNIndexStore(region)[algorithmARN] = al.AlgorithmName
 
 	return cloneAlgorithm(al)
@@ -2201,7 +2470,7 @@ func (b *InMemoryBackend) BatchDescribeModelPackage(
 	results := make(map[string]ModelPackageBatchResult, len(modelPackageArns))
 
 	for _, arnStr := range modelPackageArns {
-		mp, ok := mpStore[arnStr]
+		mp, ok := mpStore.Get(arnStr)
 		if !ok {
 			results[arnStr] = ModelPackageBatchResult{
 				ErrorCode:    "ValidationException",
@@ -2306,7 +2575,7 @@ func (b *InMemoryBackend) CreateAction(
 	region := getRegion(ctx, b.region)
 	actionsStore := b.actionsStore(region)
 
-	if _, ok := actionsStore[name]; ok {
+	if _, ok := actionsStore.Get(name); ok {
 		return nil, fmt.Errorf("%w: action %q already exists", ErrActionAlreadyExists, name)
 	}
 
@@ -2325,7 +2594,7 @@ func (b *InMemoryBackend) CreateAction(
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
-	actionsStore[name] = a
+	actionsStore.Put(a)
 	b.actionARNIndexStore(region)[actionARN] = name
 
 	return cloneAction(a), nil
@@ -2354,7 +2623,7 @@ func (b *InMemoryBackend) CreateAlgorithm(ctx context.Context, opts CreateAlgori
 	region := getRegion(ctx, b.region)
 	algoStore := b.algorithmsStore(region)
 
-	if _, ok := algoStore[opts.AlgorithmName]; ok {
+	if _, ok := algoStore.Get(opts.AlgorithmName); ok {
 		return nil, fmt.Errorf("%w: algorithm %q already exists", ErrAlgorithmAlreadyExists, opts.AlgorithmName)
 	}
 
@@ -2378,7 +2647,7 @@ func (b *InMemoryBackend) CreateAlgorithm(ctx context.Context, opts CreateAlgori
 		Tags:                    mergeTags(nil, opts.Tags),
 		CreationTime:            time.Now(),
 	}
-	algoStore[opts.AlgorithmName] = al
+	algoStore.Put(al)
 	b.algorithmARNIndexStore(region)[algorithmARN] = opts.AlgorithmName
 
 	return cloneAlgorithm(al), nil
@@ -2391,7 +2660,7 @@ func (b *InMemoryBackend) DescribeAlgorithm(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeAlgorithm")
 	defer b.mu.RUnlock()
 
-	al, ok := b.algorithmsStore(region)[name]
+	al, ok := b.algorithmsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
 	}
@@ -2408,12 +2677,12 @@ func (b *InMemoryBackend) DeleteAlgorithm(ctx context.Context, name string) erro
 
 	store := b.algorithmsStore(region)
 
-	al, ok := store[name]
+	al, ok := store.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: algorithm %q not found", ErrAlgorithmNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 	delete(b.algorithmARNIndexStore(region), al.AlgorithmArn)
 
 	return nil
@@ -2426,7 +2695,12 @@ func (b *InMemoryBackend) ListAlgorithms(ctx context.Context, nextToken string) 
 	b.mu.RLock("ListAlgorithms")
 	defer b.mu.RUnlock()
 
-	return sagemakerListKeyPaged(b.algorithmsStore(region), nextToken, cloneAlgorithm)
+	return sagemakerListKeyPaged(
+		b.algorithmsStore(region),
+		nextToken,
+		cloneAlgorithm,
+		func(v *Algorithm) string { return v.AlgorithmName },
+	)
 }
 
 // AddModelPackageInternal adds a model package directly for testing.
@@ -2435,6 +2709,6 @@ func (b *InMemoryBackend) AddModelPackageInternal(ctx context.Context, mp *Model
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	b.modelPackagesStore(region)[mp.ModelPackageArn] = mp
+	b.modelPackagesStore(region).Put(mp)
 	b.modelPackageARNIndexStore(region)[mp.ModelPackageArn] = mp.ModelPackageArn
 }

@@ -164,19 +164,35 @@ func (h *Handler) copyTagsToReplica(sourceKeyID, replicaKeyID string, inputTags 
 	}
 }
 
+// validateTags checks every tag in inputTags against validateTag, returning the first
+// failure. Callers should invoke this BEFORE creating any backend resource so that a
+// malformed tag rejects the whole request instead of leaving an orphaned, untagged
+// resource behind (e.g. a KMS key with no reachable KeyId in the caller's response).
+func validateTags(inputTags []Tag) error {
+	for _, t := range inputTags {
+		if err := validateTag(t.TagKey, t.TagValue); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // applyInputTags converts a []Tag slice to a map and stores it for the given resource ID.
-// Returns an error if any tag key/value fails validation.
+// Returns an error if any tag key/value fails validation. Callers that create a new
+// resource in the same request should call validateTags first and only create the
+// resource after validation succeeds; see createKeyAction.
 func (h *Handler) applyInputTags(resourceID string, inputTags []Tag) error {
 	if len(inputTags) == 0 {
 		return nil
 	}
 
+	if err := validateTags(inputTags); err != nil {
+		return err
+	}
+
 	kv := make(map[string]string, len(inputTags))
 	for _, t := range inputTags {
-		if err := validateTag(t.TagKey, t.TagValue); err != nil {
-			return err
-		}
-
 		kv[t.TagKey] = t.TagValue
 	}
 
@@ -413,9 +429,17 @@ func unmarshalAction[T any](fn func(context.Context, *T) (any, error)) kmsAction
 }
 
 // createKeyAction handles CreateKey dispatch, including tag validation.
+// Tags are validated BEFORE the key is created: AWS validates the entire CreateKey
+// request atomically, and creating the key first would leak an orphaned, untagged
+// key (with no reachable KeyId, since the response is discarded on error) into the
+// backend whenever the caller supplied a malformed tag.
 func (h *Handler) createKeyAction(ctx context.Context, b []byte) (any, error) {
 	var input CreateKeyInput
 	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := validateTags(input.Tags); err != nil {
 		return nil, err
 	}
 
@@ -427,6 +451,37 @@ func (h *Handler) createKeyAction(ctx context.Context, b []byte) (any, error) {
 	if tagErr := h.applyInputTags(out.KeyMetadata.KeyID, input.Tags); tagErr != nil {
 		return nil, tagErr
 	}
+
+	return out, nil
+}
+
+// replicateKeyAction handles ReplicateKey dispatch, including tag validation and
+// copying the source key's tags (overlaid with any request-supplied tags) to the
+// new replica. Tags are validated BEFORE replicating for the same reason as
+// createKeyAction: a malformed tag must reject the whole request rather than
+// leaving a real, untagged replica key behind.
+func (h *Handler) replicateKeyAction(ctx context.Context, b []byte) (any, error) {
+	var input ReplicateKeyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := validateTags(input.Tags); err != nil {
+		return nil, err
+	}
+
+	// Capture source key ID for tag copying before we replicate.
+	var sourceKeyID string
+	if desc, descErr := h.Backend.DescribeKey(ctx, &DescribeKeyInput{KeyID: input.KeyID}); descErr == nil {
+		sourceKeyID = desc.KeyMetadata.KeyID
+	}
+
+	out, err := h.Backend.ReplicateKey(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	h.copyTagsToReplica(sourceKeyID, out.ReplicaKeyMetadata.KeyID, input.Tags)
 
 	return out, nil
 }
@@ -950,27 +1005,7 @@ func (h *Handler) buildReplicationAndMaintenanceActions() map[string]kmsActionFn
 
 			return h.Backend.ListKeyRotations(ctx, &input)
 		},
-		"ReplicateKey": func(ctx context.Context, b []byte) (any, error) {
-			var input ReplicateKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			// Capture source key ID for tag copying before we replicate.
-			var sourceKeyID string
-			if desc, descErr := h.Backend.DescribeKey(ctx, &DescribeKeyInput{KeyID: input.KeyID}); descErr == nil {
-				sourceKeyID = desc.KeyMetadata.KeyID
-			}
-
-			out, err := h.Backend.ReplicateKey(ctx, &input)
-			if err != nil {
-				return nil, err
-			}
-
-			h.copyTagsToReplica(sourceKeyID, out.ReplicaKeyMetadata.KeyID, input.Tags)
-
-			return out, nil
-		},
+		"ReplicateKey": h.replicateKeyAction,
 		"RotateKeyOnDemand": func(ctx context.Context, b []byte) (any, error) {
 			var input RotateKeyOnDemandInput
 			if err := json.Unmarshal(b, &input); err != nil {

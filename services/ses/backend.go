@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // Tag is an email metadata key-value pair.
@@ -24,6 +24,14 @@ type Tag struct {
 
 // IdentityRecord stores per-identity verification and attribute state.
 type IdentityRecord struct {
+	// Identity is the address or domain this record is keyed by in the
+	// identities Table (see store_setup.go). It is tagged json:"-" because
+	// the identities Table is a "dirty" table -- persistence.go instead
+	// round-trips it through a dedicated identitySnapshot DTO that carries
+	// the identity as a real JSON field, so it survives the round trip
+	// despite being excluded here. It must never change after the record is
+	// created (store.Table's keyFn purity requirement).
+	Identity           string   `json:"-"`
 	DeliveryTopic      string   `json:"deliveryTopic,omitempty"`
 	MailFromDomain     string   `json:"mailFromDomain,omitempty"`
 	MailFromStatus     string   `json:"mailFromStatus,omitempty"`
@@ -41,6 +49,10 @@ type IdentityRecord struct {
 
 // ConfigurationSet stores per-configuration-set state.
 type ConfigurationSet struct {
+	// Name is the configuration set name this value is keyed by in the
+	// configSets Table (see store_setup.go). Tagged json:"-" for the same
+	// reason as IdentityRecord.Identity -- see its doc comment.
+	Name              string `json:"-"`
 	TLSPolicy         string `json:"tlsPolicy,omitempty"`
 	SendingEnabled    bool   `json:"sendingEnabled"`
 	ReputationMetrics bool   `json:"reputationMetrics"`
@@ -113,6 +125,10 @@ var (
 	ErrCustomVerifTemplateNotFound = errors.New("CustomVerificationEmailTemplateDoesNotExist")
 	ErrCustomVerifTemplateExists   = errors.New("CustomVerificationEmailTemplateAlreadyExists")
 	ErrValidation                  = errors.New("ValidationError")
+	// ErrAccountSendingPaused is returned by send operations when account-level
+	// sending has been paused via UpdateAccountSendingEnabled(false), matching
+	// real AWS SES's AccountSendingPausedException.
+	ErrAccountSendingPaused = errors.New("AccountSendingPausedException")
 )
 
 // maxRetainedEmails is the maximum number of sent emails retained in memory.
@@ -229,6 +245,13 @@ type ReceiptFilter struct {
 
 // EventDestination represents a configuration set event destination.
 type EventDestination struct {
+	// ConfigSetName is the parent configuration set name. Combined with Name
+	// it forms the composite key ("<ConfigSetName>#<Name>", see
+	// eventDestinationKey in store_setup.go) the flattened eventDestinations
+	// Table is keyed by -- this Table replaces what was previously a nested
+	// map[string]map[string]*EventDestination. Tagged json:"-" for the same
+	// reason as IdentityRecord.Identity -- see its doc comment.
+	ConfigSetName      string   `json:"-"`
 	Name               string   `json:"name"`
 	SNSTopicARN        string   `json:"snsTopicARN,omitempty"`
 	MatchingEventTypes []string `json:"matchingEventTypes"`
@@ -237,6 +260,10 @@ type EventDestination struct {
 
 // TrackingOptions represents the tracking options for a configuration set.
 type TrackingOptions struct {
+	// ConfigSetName is the configuration set name this value is keyed by in
+	// the trackingOptions Table (see store_setup.go). Tagged json:"-" for
+	// the same reason as IdentityRecord.Identity -- see its doc comment.
+	ConfigSetName        string `json:"-"`
 	CustomRedirectDomain string `json:"customRedirectDomain"`
 }
 
@@ -253,38 +280,41 @@ type CustomVerificationEmailTemplate struct {
 // InMemoryBackend is an in-memory store for SES emails, verified identities,
 // email templates, and configuration sets.
 type InMemoryBackend struct {
-	identities            map[string]*IdentityRecord
-	emailsByID            map[string]Email
-	templates             map[string]EmailTemplate
-	configSets            map[string]*ConfigurationSet
-	receiptRuleSets       map[string]*ReceiptRuleSet
-	receiptFilters        map[string]*ReceiptFilter
-	eventDestinations     map[string]map[string]*EventDestination
-	trackingOptions       map[string]*TrackingOptions
-	customVerifTemplates  map[string]*CustomVerificationEmailTemplate
-	policies              map[string]map[string]string // identity → policyName → policyDocument
-	activeRuleSet         string
-	region                string
-	accountID             string
-	mu                    *lockmetrics.RWMutex
-	emails                []Email
-	emailTTL              time.Duration
-	configuredEmailTTL    time.Duration
-	accountSendingEnabled bool
+	// registry holds every "clean" store.Table (templates, receiptRuleSets,
+	// receiptFilters, customVerifTemplates) so their Reset/Snapshot/Restore
+	// collapse to one call each. "Dirty" tables (identities, configSets,
+	// trackingOptions, eventDestinations) and the emailsByID derived cache
+	// are NOT on this registry -- see store_setup.go's file doc comment.
+	registry          *store.Registry
+	identities        *store.Table[IdentityRecord]
+	emailsByID        *store.Table[Email]
+	templates         *store.Table[EmailTemplate]
+	configSets        *store.Table[ConfigurationSet]
+	receiptRuleSets   *store.Table[ReceiptRuleSet]
+	receiptFilters    *store.Table[ReceiptFilter]
+	eventDestinations *store.Table[EventDestination]
+	// eventDestinationsByConfigSet is a secondary index over
+	// eventDestinations grouping by ConfigSetName, answering the "all event
+	// destinations of configuration set X" lookups the previous nested
+	// map[string]map[string]*EventDestination answered directly.
+	eventDestinationsByConfigSet *store.Index[EventDestination]
+	trackingOptions              *store.Table[TrackingOptions]
+	customVerifTemplates         *store.Table[CustomVerificationEmailTemplate]
+	policies                     map[string]map[string]string // identity → policyName → policyDocument
+	activeRuleSet                string
+	region                       string
+	accountID                    string
+	mu                           *lockmetrics.RWMutex
+	emails                       []Email
+	emailTTL                     time.Duration
+	configuredEmailTTL           time.Duration
+	accountSendingEnabled        bool
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default email TTL.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		identities:            make(map[string]*IdentityRecord),
-		emailsByID:            make(map[string]Email),
-		templates:             make(map[string]EmailTemplate),
-		configSets:            make(map[string]*ConfigurationSet),
-		receiptRuleSets:       make(map[string]*ReceiptRuleSet),
-		receiptFilters:        make(map[string]*ReceiptFilter),
-		eventDestinations:     make(map[string]map[string]*EventDestination),
-		trackingOptions:       make(map[string]*TrackingOptions),
-		customVerifTemplates:  make(map[string]*CustomVerificationEmailTemplate),
+	b := &InMemoryBackend{
+		registry:              store.NewRegistry(),
 		policies:              make(map[string]map[string]string),
 		emailTTL:              defaultEmailTTL,
 		configuredEmailTTL:    defaultEmailTTL,
@@ -293,6 +323,9 @@ func NewInMemoryBackend() *InMemoryBackend {
 		accountID:             defaultAccountID,
 		mu:                    lockmetrics.New("ses"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // WithRegion sets the AWS region for this backend instance and returns it for chaining.
@@ -331,20 +364,26 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.identities = make(map[string]*IdentityRecord)
+	b.resetTablesLocked()
 	b.emails = nil
-	b.emailsByID = make(map[string]Email)
-	b.templates = make(map[string]EmailTemplate)
-	b.configSets = make(map[string]*ConfigurationSet)
-	b.receiptRuleSets = make(map[string]*ReceiptRuleSet)
-	b.receiptFilters = make(map[string]*ReceiptFilter)
-	b.eventDestinations = make(map[string]map[string]*EventDestination)
-	b.trackingOptions = make(map[string]*TrackingOptions)
-	b.customVerifTemplates = make(map[string]*CustomVerificationEmailTemplate)
 	b.policies = make(map[string]map[string]string)
 	b.activeRuleSet = ""
 	b.accountSendingEnabled = true
 	b.emailTTL = b.configuredEmailTTL
+}
+
+// resetTablesLocked resets every store.Table-backed resource field to empty:
+// the "clean" tables via one b.registry.ResetAll() call, plus the "dirty"
+// tables and the emailsByID derived cache individually since they are not
+// registered on b.registry (see store_setup.go). The caller MUST hold b.mu
+// for writing.
+func (b *InMemoryBackend) resetTablesLocked() {
+	b.registry.ResetAll()
+	b.identities.Reset()
+	b.configSets.Reset()
+	b.trackingOptions.Reset()
+	b.eventDestinations.Reset()
+	b.emailsByID.Reset()
 }
 
 // ttl returns the current email TTL under a read lock.
@@ -365,10 +404,10 @@ func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 	b.mu.Lock("VerifyEmailIdentity")
 	defer b.mu.Unlock()
 
-	if rec, ok := b.identities[identity]; ok {
+	if rec, ok := b.identities.Get(identity); ok {
 		rec.Verified = true
 	} else {
-		b.identities[identity] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+		b.identities.Put(&IdentityRecord{Identity: identity, Verified: true, ForwardingEnabled: true})
 	}
 
 	return nil
@@ -381,18 +420,18 @@ func (b *InMemoryBackend) DeleteIdentity(identity string) {
 	b.mu.Lock("DeleteIdentity")
 	defer b.mu.Unlock()
 
-	delete(b.identities, identity)
+	b.identities.Delete(identity)
 }
 
 // getOrCreateIdentityLocked returns the IdentityRecord for identity, creating one if absent.
 // The caller MUST hold b.mu for writing.
 func (b *InMemoryBackend) getOrCreateIdentityLocked(identity string) *IdentityRecord {
-	if rec, ok := b.identities[identity]; ok {
+	if rec, ok := b.identities.Get(identity); ok {
 		return rec
 	}
 
-	rec := &IdentityRecord{ForwardingEnabled: true}
-	b.identities[identity] = rec
+	rec := &IdentityRecord{Identity: identity, ForwardingEnabled: true}
+	b.identities.Put(rec)
 
 	return rec
 }
@@ -404,7 +443,12 @@ func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int) page.Pa
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
-	out := collections.SortedKeys(b.identities)
+	snap := b.identities.Snapshot()
+	out := make([]string, len(snap))
+
+	for i, rec := range snap {
+		out[i] = rec.Identity
+	}
 
 	return page.New(out, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -418,7 +462,7 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 	result := make(map[string]string, len(identities))
 
 	for _, id := range identities {
-		if rec, ok := b.identities[id]; ok && rec.Verified {
+		if rec, ok := b.identities.Get(id); ok && rec.Verified {
 			result[id] = identityStatusSuccess
 		} else {
 			result[id] = identityStatusNotStarted
@@ -435,19 +479,50 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 //
 // The caller MUST hold b.mu for reading or writing.
 func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
-	if rec, ok := b.identities[from]; ok && rec.Verified {
+	if rec, ok := b.identities.Get(from); ok && rec.Verified {
 		return true
 	}
 
 	// Domain-level check: strip the local-part and check the domain.
 	if at := strings.LastIndex(from, "@"); at >= 0 {
 		domain := from[at+1:]
-		rec, ok := b.identities[domain]
+		rec, ok := b.identities.Get(domain)
 
 		return ok && rec.Verified
 	}
 
 	return false
+}
+
+// checkSendingAllowedLocked validates the account-level, quota, and
+// configuration-set preconditions shared by every send operation (SendEmail,
+// SendRawEmail via SendEmail, SendTemplatedEmail, SendBulkTemplatedEmail):
+// sending must not be paused account-wide, matching real AWS SES's
+// AccountSendingPausedException; the simulated 24-hour send quota
+// (GetSendQuota's Max24HourSend) must not already be exhausted, matching
+// MessageRejected; and a non-empty ConfigurationSetName must reference an
+// existing configuration set, matching ConfigurationSetDoesNotExist.
+//
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string) error {
+	if !b.accountSendingEnabled {
+		return fmt.Errorf("%w: account-level sending is currently paused", ErrAccountSendingPaused)
+	}
+
+	if b.sentLast24HoursLocked() >= maxSendQuota24Hours {
+		return fmt.Errorf(
+			"%w: 24-hour sending quota of %d messages exceeded",
+			ErrMessageRejected, maxSendQuota24Hours,
+		)
+	}
+
+	if configurationSetName != "" {
+		if !b.configSets.Has(configurationSetName) {
+			return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+		}
+	}
+
+	return nil
 }
 
 // appendEmailLocked appends e to the slice and O(1) map, evicting the oldest
@@ -456,12 +531,13 @@ func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
 // The caller MUST hold b.mu for writing.
 func (b *InMemoryBackend) appendEmailLocked(e Email) {
 	b.emails = append(b.emails, e)
-	b.emailsByID[e.MessageID] = e
+	ec := e
+	b.emailsByID.Put(&ec)
 
 	if len(b.emails) > maxRetainedEmails {
 		evicted := b.emails[:len(b.emails)-maxRetainedEmails]
 		for _, ev := range evicted {
-			delete(b.emailsByID, ev.MessageID)
+			b.emailsByID.Delete(ev.MessageID)
 		}
 
 		b.emails = b.emails[len(b.emails)-maxRetainedEmails:]
@@ -498,6 +574,10 @@ func (b *InMemoryBackend) SendEmail(in SendEmailInput) (string, error) {
 
 	b.mu.Lock("SendEmail")
 	defer b.mu.Unlock()
+
+	if err := b.checkSendingAllowedLocked(in.ConfigurationSetName); err != nil {
+		return "", err
+	}
 
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
@@ -553,6 +633,10 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
 
+	if sendErr := b.checkSendingAllowedLocked(in.ConfigurationSetName); sendErr != nil {
+		return "", sendErr
+	}
+
 	if !b.isVerifiedLocked(in.From) {
 		return "", fmt.Errorf(
 			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
@@ -560,7 +644,7 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		)
 	}
 
-	tmpl, ok := b.templates[in.TemplateName]
+	tmpl, ok := b.templates.Get(in.TemplateName)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrTemplateNotFound, in.TemplateName)
 	}
@@ -603,8 +687,8 @@ func (b *InMemoryBackend) GetEmailByID(messageID string) (Email, error) {
 	b.mu.RLock("GetEmailByID")
 	defer b.mu.RUnlock()
 
-	if e, ok := b.emailsByID[messageID]; ok {
-		return e, nil
+	if e, ok := b.emailsByID.Get(messageID); ok {
+		return *e, nil
 	}
 
 	return Email{}, fmt.Errorf("%w: %s", ErrEmailNotFound, messageID)
@@ -619,7 +703,7 @@ func (b *InMemoryBackend) sweepExpiredEmails(cutoff time.Time) int {
 	first := 0
 
 	for first < len(b.emails) && b.emails[first].Timestamp.Before(cutoff) {
-		delete(b.emailsByID, b.emails[first].MessageID)
+		b.emailsByID.Delete(b.emails[first].MessageID)
 		first++
 	}
 
@@ -643,11 +727,11 @@ func (b *InMemoryBackend) CreateTemplate(tmpl EmailTemplate) error {
 	b.mu.Lock("CreateTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.templates[tmpl.TemplateName]; exists {
+	if b.templates.Has(tmpl.TemplateName) {
 		return fmt.Errorf("%w: template %s already exists", ErrTemplateExists, tmpl.TemplateName)
 	}
 
-	b.templates[tmpl.TemplateName] = tmpl
+	b.templates.Put(&tmpl)
 
 	return nil
 }
@@ -661,11 +745,11 @@ func (b *InMemoryBackend) UpdateTemplate(tmpl EmailTemplate) error {
 	b.mu.Lock("UpdateTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.templates[tmpl.TemplateName]; !exists {
+	if !b.templates.Has(tmpl.TemplateName) {
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, tmpl.TemplateName)
 	}
 
-	b.templates[tmpl.TemplateName] = tmpl
+	b.templates.Put(&tmpl)
 
 	return nil
 }
@@ -675,12 +759,12 @@ func (b *InMemoryBackend) GetTemplate(name string) (EmailTemplate, error) {
 	b.mu.RLock("GetTemplate")
 	defer b.mu.RUnlock()
 
-	tmpl, ok := b.templates[name]
+	tmpl, ok := b.templates.Get(name)
 	if !ok {
 		return EmailTemplate{}, fmt.Errorf("%w: %s", ErrTemplateNotFound, name)
 	}
 
-	return tmpl, nil
+	return *tmpl, nil
 }
 
 // DeleteTemplate removes the named template. Idempotent — missing template returns success.
@@ -688,7 +772,7 @@ func (b *InMemoryBackend) DeleteTemplate(name string) {
 	b.mu.Lock("DeleteTemplate")
 	defer b.mu.Unlock()
 
-	delete(b.templates, name)
+	b.templates.Delete(name)
 }
 
 // ListTemplates returns template names sorted alphabetically, with pagination.
@@ -696,7 +780,12 @@ func (b *InMemoryBackend) ListTemplates(nextToken string, maxItems int) page.Pag
 	b.mu.RLock("ListTemplates")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.templates)
+	snap := b.templates.Snapshot()
+	names := make([]string, len(snap))
+
+	for i, tmpl := range snap {
+		names[i] = tmpl.TemplateName
+	}
 
 	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -712,11 +801,11 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) error {
 	b.mu.Lock("CreateConfigurationSet")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[name]; exists {
+	if b.configSets.Has(name) {
 		return fmt.Errorf("%w: configuration set %s already exists", ErrConfigSetExists, name)
 	}
 
-	b.configSets[name] = &ConfigurationSet{SendingEnabled: true}
+	b.configSets.Put(&ConfigurationSet{Name: name, SendingEnabled: true})
 
 	return nil
 }
@@ -727,13 +816,21 @@ func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
 	b.mu.Lock("DeleteConfigurationSet")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[name]; !exists {
+	if !b.configSets.Has(name) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, name)
 	}
 
-	delete(b.configSets, name)
-	delete(b.eventDestinations, name)
-	delete(b.trackingOptions, name)
+	b.configSets.Delete(name)
+
+	// Cascade-delete every event destination of this configuration set.
+	// slices.Clone the index results first: deleting from b.eventDestinations
+	// mutates eventDestinationsByConfigSet's backing slice in place, which
+	// would otherwise corrupt this very loop.
+	for _, d := range slices.Clone(b.eventDestinationsByConfigSet.Get(name)) {
+		b.eventDestinations.Delete(eventDestinationKey(name, d.Name))
+	}
+
+	b.trackingOptions.Delete(name)
 
 	return nil
 }
@@ -743,7 +840,12 @@ func (b *InMemoryBackend) ListConfigurationSets(nextToken string, maxItems int) 
 	b.mu.RLock("ListConfigurationSets")
 	defer b.mu.RUnlock()
 
-	names := collections.SortedKeys(b.configSets)
+	snap := b.configSets.Snapshot()
+	names := make([]string, len(snap))
+
+	for i, cs := range snap {
+		names[i] = cs.Name
+	}
 
 	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
 }
@@ -757,12 +859,12 @@ type SendQuota struct {
 	SentLast24Hours float64
 }
 
-// GetSendQuota returns simulated quota values.
-// SentLast24Hours counts only emails sent within the past 24 hours.
-func (b *InMemoryBackend) GetSendQuota() SendQuota {
-	b.mu.RLock("GetSendQuota")
-	defer b.mu.RUnlock()
-
+// sentLast24HoursLocked returns the count of emails sent within the past 24
+// hours. b.emails is append-ordered by increasing Timestamp, so iterating
+// backward lets us stop at the first entry older than the cutoff.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) sentLast24HoursLocked() int {
 	cutoff := time.Now().UTC().Add(-24 * time.Hour)
 	sent := 0
 
@@ -774,10 +876,19 @@ func (b *InMemoryBackend) GetSendQuota() SendQuota {
 		sent++
 	}
 
+	return sent
+}
+
+// GetSendQuota returns simulated quota values.
+// SentLast24Hours counts only emails sent within the past 24 hours.
+func (b *InMemoryBackend) GetSendQuota() SendQuota {
+	b.mu.RLock("GetSendQuota")
+	defer b.mu.RUnlock()
+
 	return SendQuota{
 		Max24HourSend:   maxSendQuota24Hours,
 		MaxSendRate:     maxSendRate,
-		SentLast24Hours: float64(sent),
+		SentLast24Hours: float64(b.sentLast24HoursLocked()),
 	}
 }
 
@@ -874,15 +985,15 @@ func (b *InMemoryBackend) CreateReceiptRuleSet(name string) error {
 	b.mu.Lock("CreateReceiptRuleSet")
 	defer b.mu.Unlock()
 
-	if _, exists := b.receiptRuleSets[name]; exists {
+	if b.receiptRuleSets.Has(name) {
 		return fmt.Errorf("%w: receipt rule set %s already exists", ErrReceiptRuleSetExists, name)
 	}
 
-	b.receiptRuleSets[name] = &ReceiptRuleSet{
+	b.receiptRuleSets.Put(&ReceiptRuleSet{
 		Name:      name,
 		CreatedAt: time.Now().UTC(),
 		Rules:     []ReceiptRule{},
-	}
+	})
 
 	return nil
 }
@@ -900,12 +1011,12 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 	b.mu.Lock("CloneReceiptRuleSet")
 	defer b.mu.Unlock()
 
-	src, exists := b.receiptRuleSets[originalName]
+	src, exists := b.receiptRuleSets.Get(originalName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, originalName)
 	}
 
-	if _, ok := b.receiptRuleSets[newName]; ok {
+	if b.receiptRuleSets.Has(newName) {
 		return fmt.Errorf("%w: receipt rule set %s already exists", ErrReceiptRuleSetExists, newName)
 	}
 
@@ -926,11 +1037,11 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 		}
 	}
 
-	b.receiptRuleSets[newName] = &ReceiptRuleSet{
+	b.receiptRuleSets.Put(&ReceiptRuleSet{
 		Name:      newName,
 		CreatedAt: time.Now().UTC(),
 		Rules:     rules,
-	}
+	})
 
 	return nil
 }
@@ -952,7 +1063,7 @@ func (b *InMemoryBackend) CreateReceiptRule(ruleSetName string, rule ReceiptRule
 	b.mu.Lock("CreateReceiptRule")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -999,12 +1110,12 @@ func (b *InMemoryBackend) CreateReceiptFilter(filter ReceiptFilter) error {
 	b.mu.Lock("CreateReceiptFilter")
 	defer b.mu.Unlock()
 
-	if _, exists := b.receiptFilters[filter.Name]; exists {
+	if b.receiptFilters.Has(filter.Name) {
 		return fmt.Errorf("%w: receipt filter %s already exists", ErrReceiptFilterExists, filter.Name)
 	}
 
 	f := filter
-	b.receiptFilters[filter.Name] = &f
+	b.receiptFilters.Put(&f)
 
 	return nil
 }
@@ -1024,15 +1135,12 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(configSetName s
 	b.mu.Lock("CreateConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	if b.eventDestinations[configSetName] == nil {
-		b.eventDestinations[configSetName] = make(map[string]*EventDestination)
-	}
-
-	if _, exists := b.eventDestinations[configSetName][dest.Name]; exists {
+	key := eventDestinationKey(configSetName, dest.Name)
+	if b.eventDestinations.Has(key) {
 		return fmt.Errorf(
 			"%w: event destination %s already exists in configuration set %s",
 			ErrEventDestinationExists,
@@ -1042,7 +1150,8 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(configSetName s
 	}
 
 	d := dest
-	b.eventDestinations[configSetName][dest.Name] = &d
+	d.ConfigSetName = configSetName
+	b.eventDestinations.Put(&d)
 
 	return nil
 }
@@ -1056,20 +1165,16 @@ func (b *InMemoryBackend) DeleteConfigurationSetEventDestination(configSetName, 
 	b.mu.Lock("DeleteConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	dests := b.eventDestinations[configSetName]
-	if dests == nil {
+	key := eventDestinationKey(configSetName, destName)
+	if !b.eventDestinations.Has(key) {
 		return fmt.Errorf("%w: %s", ErrEventDestinationNotFound, destName)
 	}
 
-	if _, exists := dests[destName]; !exists {
-		return fmt.Errorf("%w: %s", ErrEventDestinationNotFound, destName)
-	}
-
-	delete(dests, destName)
+	b.eventDestinations.Delete(key)
 
 	return nil
 }
@@ -1085,11 +1190,11 @@ func (b *InMemoryBackend) CreateConfigurationSetTrackingOptions(configSetName, c
 	b.mu.Lock("CreateConfigurationSetTrackingOptions")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	if _, exists := b.trackingOptions[configSetName]; exists {
+	if b.trackingOptions.Has(configSetName) {
 		return fmt.Errorf(
 			"%w: tracking options already exist for configuration set %s",
 			ErrTrackingOptionsExists,
@@ -1097,7 +1202,7 @@ func (b *InMemoryBackend) CreateConfigurationSetTrackingOptions(configSetName, c
 		)
 	}
 
-	b.trackingOptions[configSetName] = &TrackingOptions{CustomRedirectDomain: customRedirectDomain}
+	b.trackingOptions.Put(&TrackingOptions{ConfigSetName: configSetName, CustomRedirectDomain: customRedirectDomain})
 
 	return nil
 }
@@ -1111,11 +1216,11 @@ func (b *InMemoryBackend) DeleteConfigurationSetTrackingOptions(configSetName st
 	b.mu.Lock("DeleteConfigurationSetTrackingOptions")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	if _, exists := b.trackingOptions[configSetName]; !exists {
+	if !b.trackingOptions.Has(configSetName) {
 		return fmt.Errorf(
 			"%w: tracking options do not exist for configuration set %s",
 			ErrTrackingOptionsNotFound,
@@ -1123,7 +1228,7 @@ func (b *InMemoryBackend) DeleteConfigurationSetTrackingOptions(configSetName st
 		)
 	}
 
-	delete(b.trackingOptions, configSetName)
+	b.trackingOptions.Delete(configSetName)
 
 	return nil
 }
@@ -1159,7 +1264,7 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerif
 	b.mu.Lock("CreateCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.customVerifTemplates[tmpl.TemplateName]; exists {
+	if b.customVerifTemplates.Has(tmpl.TemplateName) {
 		return fmt.Errorf(
 			"%w: custom verification email template %s already exists",
 			ErrCustomVerifTemplateExists,
@@ -1168,7 +1273,7 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerif
 	}
 
 	t := tmpl
-	b.customVerifTemplates[tmpl.TemplateName] = &t
+	b.customVerifTemplates.Put(&t)
 
 	return nil
 }
@@ -1182,11 +1287,11 @@ func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(templateName str
 	b.mu.Lock("DeleteCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.customVerifTemplates[templateName]; !exists {
+	if !b.customVerifTemplates.Has(templateName) {
 		return fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, templateName)
 	}
 
-	delete(b.customVerifTemplates, templateName)
+	b.customVerifTemplates.Delete(templateName)
 
 	return nil
 }
@@ -1196,8 +1301,8 @@ func (b *InMemoryBackend) ListReceiptFilters() []ReceiptFilter {
 	b.mu.RLock("ListReceiptFilters")
 	defer b.mu.RUnlock()
 
-	out := make([]ReceiptFilter, 0, len(b.receiptFilters))
-	for _, f := range b.receiptFilters {
+	out := make([]ReceiptFilter, 0, b.receiptFilters.Len())
+	for _, f := range b.receiptFilters.All() {
 		out = append(out, *f)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -1212,10 +1317,10 @@ func (b *InMemoryBackend) DeleteReceiptFilter(name string) error {
 	}
 	b.mu.Lock("DeleteReceiptFilter")
 	defer b.mu.Unlock()
-	if _, exists := b.receiptFilters[name]; !exists {
+	if !b.receiptFilters.Has(name) {
 		return fmt.Errorf("%w: %s", ErrReceiptFilterNotFound, name)
 	}
-	delete(b.receiptFilters, name)
+	b.receiptFilters.Delete(name)
 
 	return nil
 }
@@ -1225,8 +1330,8 @@ func (b *InMemoryBackend) ListReceiptRuleSets() []ReceiptRuleSet {
 	b.mu.RLock("ListReceiptRuleSets")
 	defer b.mu.RUnlock()
 
-	out := make([]ReceiptRuleSet, 0, len(b.receiptRuleSets))
-	for _, rs := range b.receiptRuleSets {
+	out := make([]ReceiptRuleSet, 0, b.receiptRuleSets.Len())
+	for _, rs := range b.receiptRuleSets.All() {
 		out = append(out, ReceiptRuleSet{Name: rs.Name, CreatedAt: rs.CreatedAt})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -1241,7 +1346,7 @@ func (b *InMemoryBackend) DescribeReceiptRuleSet(name string) (ReceiptRuleSet, e
 	}
 	b.mu.RLock("DescribeReceiptRuleSet")
 	defer b.mu.RUnlock()
-	rs, exists := b.receiptRuleSets[name]
+	rs, exists := b.receiptRuleSets.Get(name)
 	if !exists {
 		return ReceiptRuleSet{}, fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
 	}
@@ -1259,7 +1364,7 @@ func (b *InMemoryBackend) DeleteReceiptRule(ruleSetName, ruleName string) error 
 	}
 	b.mu.Lock("DeleteReceiptRule")
 	defer b.mu.Unlock()
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -1279,10 +1384,10 @@ func (b *InMemoryBackend) DeleteReceiptRuleSet(name string) error {
 	}
 	b.mu.Lock("DeleteReceiptRuleSet")
 	defer b.mu.Unlock()
-	if _, exists := b.receiptRuleSets[name]; !exists {
+	if !b.receiptRuleSets.Has(name) {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
 	}
-	delete(b.receiptRuleSets, name)
+	b.receiptRuleSets.Delete(name)
 	if b.activeRuleSet == name {
 		b.activeRuleSet = ""
 	}
@@ -1296,7 +1401,7 @@ func (b *InMemoryBackend) SetActiveReceiptRuleSet(name string) error {
 	b.mu.Lock("SetActiveReceiptRuleSet")
 	defer b.mu.Unlock()
 	if name != "" {
-		if _, exists := b.receiptRuleSets[name]; !exists {
+		if !b.receiptRuleSets.Has(name) {
 			return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, name)
 		}
 	}
@@ -1313,7 +1418,7 @@ func (b *InMemoryBackend) DescribeActiveReceiptRuleSet() (ReceiptRuleSet, bool, 
 	if b.activeRuleSet == "" {
 		return ReceiptRuleSet{}, false, nil
 	}
-	rs, exists := b.receiptRuleSets[b.activeRuleSet]
+	rs, exists := b.receiptRuleSets.Get(b.activeRuleSet)
 	if !exists {
 		return ReceiptRuleSet{}, false, nil
 	}
@@ -1330,7 +1435,7 @@ func (b *InMemoryBackend) GetCustomVerificationEmailTemplate(
 	}
 	b.mu.RLock("GetCustomVerificationEmailTemplate")
 	defer b.mu.RUnlock()
-	tmpl, exists := b.customVerifTemplates[templateName]
+	tmpl, exists := b.customVerifTemplates.Get(templateName)
 	if !exists {
 		return CustomVerificationEmailTemplate{}, fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, templateName)
 	}
@@ -1342,8 +1447,8 @@ func (b *InMemoryBackend) GetCustomVerificationEmailTemplate(
 func (b *InMemoryBackend) ListCustomVerificationEmailTemplates() []CustomVerificationEmailTemplate {
 	b.mu.RLock("ListCustomVerificationEmailTemplates")
 	defer b.mu.RUnlock()
-	out := make([]CustomVerificationEmailTemplate, 0, len(b.customVerifTemplates))
-	for _, t := range b.customVerifTemplates {
+	out := make([]CustomVerificationEmailTemplate, 0, b.customVerifTemplates.Len())
+	for _, t := range b.customVerifTemplates.All() {
 		out = append(out, *t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TemplateName < out[j].TemplateName })

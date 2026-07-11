@@ -294,7 +294,7 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 	var result []*InstanceStateChange
 
 	for _, id := range ids {
-		inst, ok := b.instances[id]
+		inst, ok := b.instances.Get(id)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
@@ -311,6 +311,10 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, 
 		prev := inst.State
 		// AWS state machine: stopped → pending → running (reconciler advances pending→running).
 		inst.State = StatePending
+		// AWS clears the state reason once the instance starts back up.
+		inst.StateReasonCode = ""
+		inst.StateReasonMessage = ""
+		inst.StateTransitionReason = ""
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -330,7 +334,7 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 	var result []*InstanceStateChange
 
 	for _, id := range ids {
-		inst, ok := b.instances[id]
+		inst, ok := b.instances.Get(id)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
@@ -345,9 +349,21 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, e
 			)
 		}
 
+		if inst.DisableAPIStop {
+			return nil, fmt.Errorf(
+				"%w: the instance %s may not be stopped. "+
+					"Modify its 'disableApiStop' instance attribute and try again",
+				ErrOperationNotPermitted, id)
+		}
+
 		prev := inst.State
 		// AWS state machine: running/pending → stopping → stopped (reconciler advances stopping→stopped).
 		inst.State = StateStopping
+		inst.StateReasonCode = "Client.UserInitiatedShutdown"
+		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+		inst.StateTransitionReason = fmt.Sprintf(
+			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
+		)
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -364,7 +380,7 @@ func (b *InMemoryBackend) RebootInstances(ids []string) error {
 	defer b.mu.RUnlock()
 
 	for _, id := range ids {
-		if _, ok := b.instances[id]; !ok {
+		if _, ok := b.instances.Get(id); !ok {
 			return fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 	}
@@ -380,7 +396,7 @@ func (b *InMemoryBackend) DescribeInstanceStatus(ids []string) []*Instance {
 	var out []*Instance
 	if len(ids) > 0 {
 		for _, id := range ids {
-			inst, ok := b.instances[id]
+			inst, ok := b.instances.Get(id)
 			if !ok {
 				continue
 			}
@@ -392,7 +408,7 @@ func (b *InMemoryBackend) DescribeInstanceStatus(ids []string) []*Instance {
 		return out
 	}
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		cp := *inst
 		out = append(out, &cp)
 	}
@@ -405,9 +421,9 @@ func (b *InMemoryBackend) DescribeImages() []AMIStub {
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
 
-	images := make([]AMIStub, 0, len(stubAMIs)+len(b.images))
+	images := make([]AMIStub, 0, len(stubAMIs)+b.images.Len())
 	images = append(images, stubAMIs...)
-	for _, img := range b.images {
+	for _, img := range b.images.All() {
 		cp := *img
 		images = append(images, cp)
 	}
@@ -438,7 +454,7 @@ func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
 	b.mu.Lock("CreateKeyPair")
 	defer b.mu.Unlock()
 
-	if _, exists := b.keyPairs[name]; exists {
+	if _, exists := b.keyPairs.Get(name); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
 	}
 
@@ -469,7 +485,7 @@ func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
 		Material:    string(privPEM),
 		PublicKey:   authorized,
 	}
-	b.keyPairs[name] = kp
+	b.keyPairs.Put(kp)
 
 	return kp, nil
 }
@@ -486,7 +502,7 @@ func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPai
 	b.mu.Lock("ImportKeyPair")
 	defer b.mu.Unlock()
 
-	if _, exists := b.keyPairs[name]; exists {
+	if _, exists := b.keyPairs.Get(name); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
 	}
 
@@ -495,7 +511,7 @@ func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPai
 		Fingerprint: "aa:bb:cc:dd:" + uuid.New().String()[:stubFingerprintUUIDLen],
 		PublicKey:   strings.TrimSpace(publicKeyMaterial),
 	}
-	b.keyPairs[name] = kp
+	b.keyPairs.Put(kp)
 
 	return kp, nil
 }
@@ -511,7 +527,7 @@ func (b *InMemoryBackend) DescribeKeyPairs(names []string) []*KeyPair {
 		out := make([]*KeyPair, 0, len(names))
 
 		for _, n := range names {
-			kp, ok := b.keyPairs[n]
+			kp, ok := b.keyPairs.Get(n)
 			if !ok {
 				continue
 			}
@@ -524,9 +540,9 @@ func (b *InMemoryBackend) DescribeKeyPairs(names []string) []*KeyPair {
 		return out
 	}
 
-	out := make([]*KeyPair, 0, len(b.keyPairs))
+	out := make([]*KeyPair, 0, b.keyPairs.Len())
 
-	for _, kp := range b.keyPairs {
+	for _, kp := range b.keyPairs.All() {
 		cp := *kp
 		cp.Material = "" // don't return private key material on describe
 		out = append(out, &cp)
@@ -540,11 +556,10 @@ func (b *InMemoryBackend) DeleteKeyPair(name string) error {
 	b.mu.Lock("DeleteKeyPair")
 	defer b.mu.Unlock()
 
-	if _, ok := b.keyPairs[name]; !ok {
+	if _, ok := b.keyPairs.Get(name); !ok {
 		return fmt.Errorf("%w: %s", ErrKeyPairNotFound, name)
 	}
-
-	delete(b.keyPairs, name)
+	b.keyPairs.Delete(name)
 	delete(b.tags, name)
 
 	return nil
@@ -576,7 +591,7 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 		State:      stateAvailable,
 		CreateTime: time.Now(),
 	}
-	b.volumes[id] = vol
+	b.volumes.Put(vol)
 
 	return vol, nil
 }
@@ -592,7 +607,7 @@ func (b *InMemoryBackend) DescribeVolumes(ids []string) []*Volume {
 		out := make([]*Volume, 0, len(ids))
 
 		for _, id := range ids {
-			vol, ok := b.volumes[id]
+			vol, ok := b.volumes.Get(id)
 			if !ok {
 				continue
 			}
@@ -604,9 +619,9 @@ func (b *InMemoryBackend) DescribeVolumes(ids []string) []*Volume {
 		return out
 	}
 
-	out := make([]*Volume, 0, len(b.volumes))
+	out := make([]*Volume, 0, b.volumes.Len())
 
-	for _, vol := range b.volumes {
+	for _, vol := range b.volumes.All() {
 		cp := *vol
 		out = append(out, &cp)
 	}
@@ -619,7 +634,7 @@ func (b *InMemoryBackend) DeleteVolume(id string) error {
 	b.mu.Lock("DeleteVolume")
 	defer b.mu.Unlock()
 
-	vol, ok := b.volumes[id]
+	vol, ok := b.volumes.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVolumeNotFound, id)
 	}
@@ -632,8 +647,7 @@ func (b *InMemoryBackend) DeleteVolume(id string) error {
 			vol.Attachment.InstanceID,
 		)
 	}
-
-	delete(b.volumes, id)
+	b.volumes.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -646,7 +660,7 @@ func (b *InMemoryBackend) AttachVolume(
 	b.mu.Lock("AttachVolume")
 	defer b.mu.Unlock()
 
-	vol, ok := b.volumes[volumeID]
+	vol, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
@@ -655,7 +669,7 @@ func (b *InMemoryBackend) AttachVolume(
 		return nil, fmt.Errorf("%w: volume %s is already attached", ErrVolumeInUse, volumeID)
 	}
 
-	if _, instOK := b.instances[instanceID]; !instOK {
+	if _, instOK := b.instances.Get(instanceID); !instOK {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -677,7 +691,7 @@ func (b *InMemoryBackend) DetachVolume(volumeID string, _ bool) (*VolumeAttachme
 	b.mu.Lock("DetachVolume")
 	defer b.mu.Unlock()
 
-	vol, ok := b.volumes[volumeID]
+	vol, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
@@ -704,7 +718,7 @@ func (b *InMemoryBackend) AllocateAddress() (*Address, error) {
 		AllocationID: id,
 		PublicIP:     b.allocElasticIP(),
 	}
-	b.addresses[id] = addr
+	b.addresses.Put(addr)
 
 	return addr, nil
 }
@@ -714,12 +728,12 @@ func (b *InMemoryBackend) AssociateAddress(allocationID, instanceID string) (str
 	b.mu.Lock("AssociateAddress")
 	defer b.mu.Unlock()
 
-	addr, ok := b.addresses[allocationID]
+	addr, ok := b.addresses.Get(allocationID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
 	}
 
-	if _, instOK := b.instances[instanceID]; !instOK {
+	if _, instOK := b.instances.Get(instanceID); !instOK {
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -735,7 +749,7 @@ func (b *InMemoryBackend) DisassociateAddress(associationID string) error {
 	b.mu.Lock("DisassociateAddress")
 	defer b.mu.Unlock()
 
-	for _, addr := range b.addresses {
+	for _, addr := range b.addresses.All() {
 		if addr.AssociationID == associationID {
 			addr.AssociationID = ""
 			addr.InstanceID = ""
@@ -752,11 +766,10 @@ func (b *InMemoryBackend) ReleaseAddress(allocationID string) error {
 	b.mu.Lock("ReleaseAddress")
 	defer b.mu.Unlock()
 
-	if _, ok := b.addresses[allocationID]; !ok {
+	if _, ok := b.addresses.Get(allocationID); !ok {
 		return fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
 	}
-
-	delete(b.addresses, allocationID)
+	b.addresses.Delete(allocationID)
 	delete(b.tags, allocationID)
 
 	return nil
@@ -773,7 +786,7 @@ func (b *InMemoryBackend) DescribeAddresses(allocationIDs []string) []*Address {
 		out := make([]*Address, 0, len(allocationIDs))
 
 		for _, id := range allocationIDs {
-			addr, ok := b.addresses[id]
+			addr, ok := b.addresses.Get(id)
 			if !ok {
 				continue
 			}
@@ -785,9 +798,9 @@ func (b *InMemoryBackend) DescribeAddresses(allocationIDs []string) []*Address {
 		return out
 	}
 
-	out := make([]*Address, 0, len(b.addresses))
+	out := make([]*Address, 0, b.addresses.Len())
 
-	for _, addr := range b.addresses {
+	for _, addr := range b.addresses.All() {
 		cp := *addr
 		out = append(out, &cp)
 	}
@@ -805,7 +818,7 @@ func (b *InMemoryBackend) CreateInternetGateway() (*InternetGateway, error) {
 		ID:          id,
 		Attachments: []IGWAttachment{},
 	}
-	b.internetGateways[id] = igw
+	b.internetGateways.Put(igw)
 
 	return igw, nil
 }
@@ -815,11 +828,10 @@ func (b *InMemoryBackend) DeleteInternetGateway(id string) error {
 	b.mu.Lock("DeleteInternetGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.internetGateways[id]; !ok {
+	if _, ok := b.internetGateways.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrInternetGatewayNotFound, id)
 	}
-
-	delete(b.internetGateways, id)
+	b.internetGateways.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -836,7 +848,7 @@ func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGate
 		out := make([]*InternetGateway, 0, len(ids))
 
 		for _, id := range ids {
-			igw, ok := b.internetGateways[id]
+			igw, ok := b.internetGateways.Get(id)
 			if !ok {
 				continue
 			}
@@ -848,9 +860,9 @@ func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGate
 		return out
 	}
 
-	out := make([]*InternetGateway, 0, len(b.internetGateways))
+	out := make([]*InternetGateway, 0, b.internetGateways.Len())
 
-	for _, igw := range b.internetGateways {
+	for _, igw := range b.internetGateways.All() {
 		cp := *igw
 		out = append(out, &cp)
 	}
@@ -863,12 +875,12 @@ func (b *InMemoryBackend) AttachInternetGateway(igwID, vpcID string) error {
 	b.mu.Lock("AttachInternetGateway")
 	defer b.mu.Unlock()
 
-	igw, ok := b.internetGateways[igwID]
+	igw, ok := b.internetGateways.Get(igwID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInternetGatewayNotFound, igwID)
 	}
 
-	if _, vpcOK := b.vpcs[vpcID]; !vpcOK {
+	if _, vpcOK := b.vpcs.Get(vpcID); !vpcOK {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -882,7 +894,7 @@ func (b *InMemoryBackend) DetachInternetGateway(igwID, vpcID string) error {
 	b.mu.Lock("DetachInternetGateway")
 	defer b.mu.Unlock()
 
-	igw, ok := b.internetGateways[igwID]
+	igw, ok := b.internetGateways.Get(igwID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInternetGatewayNotFound, igwID)
 	}
@@ -903,7 +915,7 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 	b.mu.Lock("CreateRouteTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -914,7 +926,7 @@ func (b *InMemoryBackend) CreateRouteTable(vpcID string) (*RouteTable, error) {
 		Routes:       []Route{},
 		Associations: []RouteAssociation{},
 	}
-	b.routeTables[id] = rt
+	b.routeTables.Put(rt)
 	b.indexRouteTableLocked(id, vpcID)
 
 	return rt, nil
@@ -925,13 +937,13 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 	b.mu.Lock("DeleteRouteTable")
 	defer b.mu.Unlock()
 
-	rt, ok := b.routeTables[id]
+	rt, ok := b.routeTables.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, id)
 	}
 
 	b.deindexRouteTableLocked(id, rt.VPCID)
-	delete(b.routeTables, id)
+	b.routeTables.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -948,7 +960,7 @@ func (b *InMemoryBackend) DescribeRouteTables(ids []string) []*RouteTable {
 		out := make([]*RouteTable, 0, len(ids))
 
 		for _, id := range ids {
-			rt, ok := b.routeTables[id]
+			rt, ok := b.routeTables.Get(id)
 			if !ok {
 				continue
 			}
@@ -960,9 +972,9 @@ func (b *InMemoryBackend) DescribeRouteTables(ids []string) []*RouteTable {
 		return out
 	}
 
-	out := make([]*RouteTable, 0, len(b.routeTables))
+	out := make([]*RouteTable, 0, b.routeTables.Len())
 
-	for _, rt := range b.routeTables {
+	for _, rt := range b.routeTables.All() {
 		cp := *rt
 		out = append(out, &cp)
 	}
@@ -975,7 +987,7 @@ func (b *InMemoryBackend) CreateRoute(rtID, destCIDR, gatewayID, natGatewayID st
 	b.mu.Lock("CreateRoute")
 	defer b.mu.Unlock()
 
-	rt, ok := b.routeTables[rtID]
+	rt, ok := b.routeTables.Get(rtID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, rtID)
 	}
@@ -995,7 +1007,7 @@ func (b *InMemoryBackend) DeleteRoute(rtID, destCIDR string) error {
 	b.mu.Lock("DeleteRoute")
 	defer b.mu.Unlock()
 
-	rt, ok := b.routeTables[rtID]
+	rt, ok := b.routeTables.Get(rtID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRouteTableNotFound, rtID)
 	}
@@ -1016,12 +1028,12 @@ func (b *InMemoryBackend) AssociateRouteTable(rtID, subnetID string) (string, er
 	b.mu.Lock("AssociateRouteTable")
 	defer b.mu.Unlock()
 
-	rt, ok := b.routeTables[rtID]
+	rt, ok := b.routeTables.Get(rtID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrRouteTableNotFound, rtID)
 	}
 
-	if _, subnetOK := b.subnets[subnetID]; !subnetOK {
+	if _, subnetOK := b.subnets.Get(subnetID); !subnetOK {
 		return "", fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
@@ -1040,7 +1052,7 @@ func (b *InMemoryBackend) DisassociateRouteTable(assocID string) error {
 	b.mu.Lock("DisassociateRouteTable")
 	defer b.mu.Unlock()
 
-	for _, rt := range b.routeTables {
+	for _, rt := range b.routeTables.All() {
 		for i, assoc := range rt.Associations {
 			if assoc.ID == assocID {
 				rt.Associations = append(rt.Associations[:i], rt.Associations[i+1:]...)
@@ -1058,12 +1070,12 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	b.mu.Lock("CreateNatGateway")
 	defer b.mu.Unlock()
 
-	subnet, ok := b.subnets[subnetID]
+	subnet, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
-	addr, ok := b.addresses[allocationID]
+	addr, ok := b.addresses.Get(allocationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrAddressNotFound, allocationID)
 	}
@@ -1079,7 +1091,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		State:        stateAvailable,
 		CreateTime:   time.Now(),
 	}
-	b.natGateways[id] = ngw
+	b.natGateways.Put(ngw)
 	b.indexNatGatewayLocked(ngw)
 
 	return ngw, nil
@@ -1090,14 +1102,14 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	b.mu.Lock("DeleteNatGateway")
 	defer b.mu.Unlock()
 
-	ngw, ok := b.natGateways[id]
+	ngw, ok := b.natGateways.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNatGatewayNotFound, id)
 	}
 
 	b.recycleIPLocked(ngw.PrivateIP)
 	b.deindexNatGatewayLocked(ngw)
-	delete(b.natGateways, id)
+	b.natGateways.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -1114,7 +1126,7 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 		out := make([]*NatGateway, 0, len(ids))
 
 		for _, id := range ids {
-			ngw, ok := b.natGateways[id]
+			ngw, ok := b.natGateways.Get(id)
 			if !ok {
 				continue
 			}
@@ -1126,9 +1138,9 @@ func (b *InMemoryBackend) DescribeNatGateways(ids []string) []*NatGateway {
 		return out
 	}
 
-	out := make([]*NatGateway, 0, len(b.natGateways))
+	out := make([]*NatGateway, 0, b.natGateways.Len())
 
-	for _, ngw := range b.natGateways {
+	for _, ngw := range b.natGateways.All() {
 		cp := *ngw
 		out = append(out, &cp)
 	}
@@ -1147,7 +1159,7 @@ func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInte
 		out := make([]*NetworkInterface, 0, len(ids))
 
 		for _, id := range ids {
-			eni, ok := b.networkInterfaces[id]
+			eni, ok := b.networkInterfaces.Get(id)
 			if !ok {
 				continue
 			}
@@ -1159,9 +1171,9 @@ func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInte
 		return out
 	}
 
-	out := make([]*NetworkInterface, 0, len(b.networkInterfaces))
+	out := make([]*NetworkInterface, 0, b.networkInterfaces.Len())
 
-	for _, eni := range b.networkInterfaces {
+	for _, eni := range b.networkInterfaces.All() {
 		cp := *eni
 		out = append(out, &cp)
 	}
@@ -1177,7 +1189,7 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupIngress(
 	b.mu.Lock("AuthorizeSecurityGroupIngress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -1199,7 +1211,7 @@ func (b *InMemoryBackend) AuthorizeSecurityGroupEgress(
 	b.mu.Lock("AuthorizeSecurityGroupEgress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -1221,7 +1233,7 @@ func (b *InMemoryBackend) RevokeSecurityGroupIngress(
 	b.mu.Lock("RevokeSecurityGroupIngress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -1242,7 +1254,7 @@ func (b *InMemoryBackend) RevokeSecurityGroupEgress(
 	b.mu.Lock("RevokeSecurityGroupEgress")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -1293,7 +1305,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 	b.mu.Lock("CreateNetworkInterface")
 	defer b.mu.Unlock()
 
-	sub, ok := b.subnets[subnetID]
+	sub, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
@@ -1308,7 +1320,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		Status:          stateAvailable,
 		SourceDestCheck: true,
 	}
-	b.networkInterfaces[id] = eni
+	b.networkInterfaces.Put(eni)
 	b.indexENILocked(id, eni)
 	b.indexENIByVPCLocked(id, eni)
 
@@ -1321,7 +1333,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 	b.mu.Lock("DeleteNetworkInterface")
 	defer b.mu.Unlock()
 
-	eni, ok := b.networkInterfaces[id]
+	eni, ok := b.networkInterfaces.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, id)
 	}
@@ -1338,7 +1350,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 	b.recycleENIIPsLocked(eni)
 	b.deindexENILocked(id, eni)
 	b.deindexENIByVPCLocked(id, eni)
-	delete(b.networkInterfaces, id)
+	b.networkInterfaces.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -1352,7 +1364,7 @@ func (b *InMemoryBackend) AttachNetworkInterface(
 	b.mu.Lock("AttachNetworkInterface")
 	defer b.mu.Unlock()
 
-	eni, ok := b.networkInterfaces[eniID]
+	eni, ok := b.networkInterfaces.Get(eniID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
 	}
@@ -1361,7 +1373,7 @@ func (b *InMemoryBackend) AttachNetworkInterface(
 		return "", fmt.Errorf("%w: %s is already attached", ErrNetworkInterfaceInUse, eniID)
 	}
 
-	if _, ok = b.instances[instanceID]; !ok {
+	if _, ok = b.instances.Get(instanceID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -1386,7 +1398,7 @@ func (b *InMemoryBackend) DetachNetworkInterface(attachmentID string, _ bool) er
 		return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
 	}
 
-	eni, ok := b.networkInterfaces[eniID]
+	eni, ok := b.networkInterfaces.Get(eniID)
 	if !ok {
 		delete(b.eniIDByAttachment, attachmentID)
 
@@ -1408,7 +1420,7 @@ func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips 
 	b.mu.Lock("AssignPrivateIPAddresses")
 	defer b.mu.Unlock()
 
-	eni, ok := b.networkInterfaces[eniID]
+	eni, ok := b.networkInterfaces.Get(eniID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
 	}
@@ -1433,7 +1445,7 @@ func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string)
 	b.mu.Lock("UnassignPrivateIPAddresses")
 	defer b.mu.Unlock()
 
-	eni, ok := b.networkInterfaces[eniID]
+	eni, ok := b.networkInterfaces.Get(eniID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
 	}
@@ -1465,7 +1477,7 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	b.mu.Lock("ModifyNetworkInterfaceAttribute")
 	defer b.mu.Unlock()
 
-	eni, ok := b.networkInterfaces[eniID]
+	eni, ok := b.networkInterfaces.Get(eniID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
 	}
@@ -1480,6 +1492,21 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	}
 
 	return nil
+}
+
+// PrimaryNetworkInterfaceSourceDestCheck returns the sourceDestCheck flag of
+// instanceID's primary network interface. AWS defaults this to true for VPC
+// instances; unknown instances/interfaces also report true to match that
+// default rather than a zero-value false.
+func (b *InMemoryBackend) PrimaryNetworkInterfaceSourceDestCheck(instanceID string) bool {
+	b.mu.RLock("PrimaryNetworkInterfaceSourceDestCheck")
+	defer b.mu.RUnlock()
+
+	if eni := b.primaryNetworkInterfaceLocked(instanceID); eni != nil {
+		return eni.SourceDestCheck
+	}
+
+	return true
 }
 
 // ---- spot instances ----
@@ -1497,13 +1524,13 @@ func (b *InMemoryBackend) RequestSpotInstances(
 
 	if subnetID == "" {
 		subnetID = b.findDefaultSubnetID()
-	} else if _, ok := b.subnets[subnetID]; !ok {
+	} else if _, ok := b.subnets.Get(subnetID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
 	// Allocate a backing instance immediately (mock fulfils spot requests instantly).
 	vpcID := ""
-	if sub, ok := b.subnets[subnetID]; ok {
+	if sub, ok := b.subnets.Get(subnetID); ok {
 		vpcID = sub.VPCID
 	}
 
@@ -1518,7 +1545,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		LaunchTime:   time.Now(),
 		PrivateIP:    b.allocPrivateIP(),
 	}
-	b.instances[instanceID] = inst
+	b.instances.Put(inst)
 
 	reqID := "sir-" + uuid.New().String()[:8]
 	req := &SpotInstanceRequest{
@@ -1534,7 +1561,7 @@ func (b *InMemoryBackend) RequestSpotInstances(
 			SubnetID:     subnetID,
 		},
 	}
-	b.spotRequests[reqID] = req
+	b.spotRequests.Put(req)
 
 	return req, nil
 }
@@ -1550,7 +1577,7 @@ func (b *InMemoryBackend) DescribeSpotInstanceRequests(ids []string) []*SpotInst
 		out := make([]*SpotInstanceRequest, 0, len(ids))
 
 		for _, id := range ids {
-			req, ok := b.spotRequests[id]
+			req, ok := b.spotRequests.Get(id)
 			if !ok {
 				continue
 			}
@@ -1562,9 +1589,9 @@ func (b *InMemoryBackend) DescribeSpotInstanceRequests(ids []string) []*SpotInst
 		return out
 	}
 
-	out := make([]*SpotInstanceRequest, 0, len(b.spotRequests))
+	out := make([]*SpotInstanceRequest, 0, b.spotRequests.Len())
 
-	for _, req := range b.spotRequests {
+	for _, req := range b.spotRequests.All() {
 		cp := *req
 		out = append(out, &cp)
 	}
@@ -1578,7 +1605,7 @@ func (b *InMemoryBackend) CancelSpotInstanceRequests(ids []string) error {
 	defer b.mu.Unlock()
 
 	for _, id := range ids {
-		req, ok := b.spotRequests[id]
+		req, ok := b.spotRequests.Get(id)
 		if !ok {
 			return fmt.Errorf("%w: %s", ErrSpotRequestNotFound, id)
 		}
@@ -1601,7 +1628,7 @@ func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*Placemen
 	b.mu.Lock("CreatePlacementGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.placementGroups[name]; exists {
+	if _, exists := b.placementGroups.Get(name); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDuplicatePlacementGroupName, name)
 	}
 
@@ -1614,7 +1641,7 @@ func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*Placemen
 		Strategy: strategy,
 		State:    stateAvailable,
 	}
-	b.placementGroups[name] = pg
+	b.placementGroups.Put(pg)
 
 	return pg, nil
 }
@@ -1630,7 +1657,7 @@ func (b *InMemoryBackend) DescribePlacementGroups(names []string) []*PlacementGr
 		out := make([]*PlacementGroup, 0, len(names))
 
 		for _, n := range names {
-			pg, ok := b.placementGroups[n]
+			pg, ok := b.placementGroups.Get(n)
 			if !ok {
 				continue
 			}
@@ -1642,9 +1669,9 @@ func (b *InMemoryBackend) DescribePlacementGroups(names []string) []*PlacementGr
 		return out
 	}
 
-	out := make([]*PlacementGroup, 0, len(b.placementGroups))
+	out := make([]*PlacementGroup, 0, b.placementGroups.Len())
 
-	for _, pg := range b.placementGroups {
+	for _, pg := range b.placementGroups.All() {
 		cp := *pg
 		out = append(out, &cp)
 	}
@@ -1657,11 +1684,10 @@ func (b *InMemoryBackend) DeletePlacementGroup(name string) error {
 	b.mu.Lock("DeletePlacementGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.placementGroups[name]; !ok {
+	if _, ok := b.placementGroups.Get(name); !ok {
 		return fmt.Errorf("%w: %s", ErrPlacementGroupNotFound, name)
 	}
-
-	delete(b.placementGroups, name)
+	b.placementGroups.Delete(name)
 	delete(b.tags, name)
 
 	return nil

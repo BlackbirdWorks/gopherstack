@@ -157,7 +157,7 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 		coll.StatusUntil = b.clock().Add(b.processingDelay)
 	}
 
-	b.slCollections[serverlessCollectionKey(name)] = coll
+	b.slCollections.Put(coll)
 
 	cp := *coll
 	resolveCollectionStatus(&cp, b.clock())
@@ -184,9 +184,9 @@ func collectionDeleteElapsed(c *ServerlessCollection, now time.Time) bool {
 // The caller must hold the write lock.
 func (b *InMemoryBackend) purgeExpiredCollectionsLocked() {
 	now := b.clock()
-	for key, c := range b.slCollections {
+	for _, c := range b.slCollections.All() {
 		if collectionDeleteElapsed(c, now) {
-			delete(b.slCollections, key)
+			b.slCollections.Delete(serverlessCollectionKey(c.Name))
 		}
 	}
 }
@@ -210,7 +210,7 @@ func (b *InMemoryBackend) BatchGetServerlessCollections(ids, names []string) []*
 
 	var out []*ServerlessCollection
 
-	for _, c := range b.slCollections {
+	for _, c := range b.slCollections.All() {
 		if collectionDeleteElapsed(c, now) {
 			continue
 		}
@@ -244,7 +244,7 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 
 	now := b.clock()
 
-	for key, c := range b.slCollections {
+	for _, c := range b.slCollections.All() {
 		if c.ID != id || collectionDeleteElapsed(c, now) {
 			continue
 		}
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 		if b.processingDelay == 0 {
 			cp := *c
 			cp.Status = statusDeleted
-			delete(b.slCollections, key)
+			b.slCollections.Delete(serverlessCollectionKey(c.Name))
 
 			return &cp, nil
 		}
@@ -279,7 +279,7 @@ func (b *InMemoryBackend) CreateServerlessAccessPolicy(
 	defer b.mu.Unlock()
 
 	key := serverlessAccessPolicyKey(policyType, name)
-	if _, exists := b.slAccessPolicies[key]; exists {
+	if b.slAccessPolicies.Has(key) {
 		return nil, fmt.Errorf("%w: access policy %s already exists", ErrApplicationAlreadyExists, name)
 	}
 
@@ -294,7 +294,7 @@ func (b *InMemoryBackend) CreateServerlessAccessPolicy(
 		LastModifiedDate: now,
 	}
 
-	b.slAccessPolicies[key] = ap
+	b.slAccessPolicies.Put(ap)
 
 	cp := *ap
 
@@ -306,7 +306,7 @@ func (b *InMemoryBackend) GetServerlessAccessPolicy(policyType, name string) (*S
 	b.mu.RLock("GetServerlessAccessPolicy")
 	defer b.mu.RUnlock()
 
-	ap, ok := b.slAccessPolicies[serverlessAccessPolicyKey(policyType, name)]
+	ap, ok := b.slAccessPolicies.Get(serverlessAccessPolicyKey(policyType, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: access policy %s not found", ErrApplicationNotFound, name)
 	}
@@ -323,7 +323,7 @@ func (b *InMemoryBackend) ListServerlessAccessPolicies(policyType string) []*Ser
 
 	var out []*ServerlessAccessPolicy
 
-	for _, ap := range b.slAccessPolicies {
+	for _, ap := range b.slAccessPolicies.All() {
 		if policyType == "" || ap.Type == policyType {
 			cp := *ap
 			out = append(out, &cp)
@@ -340,8 +340,7 @@ func (b *InMemoryBackend) UpdateServerlessAccessPolicy(
 	b.mu.Lock("UpdateServerlessAccessPolicy")
 	defer b.mu.Unlock()
 
-	key := serverlessAccessPolicyKey(policyType, name)
-	ap, ok := b.slAccessPolicies[key]
+	ap, ok := b.slAccessPolicies.Get(serverlessAccessPolicyKey(policyType, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: access policy %s not found", ErrApplicationNotFound, name)
 	}
@@ -369,11 +368,11 @@ func (b *InMemoryBackend) DeleteServerlessAccessPolicy(policyType, name string) 
 	defer b.mu.Unlock()
 
 	key := serverlessAccessPolicyKey(policyType, name)
-	if _, ok := b.slAccessPolicies[key]; !ok {
+	if !b.slAccessPolicies.Has(key) {
 		return fmt.Errorf("%w: access policy %s not found", ErrApplicationNotFound, name)
 	}
 
-	delete(b.slAccessPolicies, key)
+	b.slAccessPolicies.Delete(key)
 
 	return nil
 }
@@ -400,7 +399,7 @@ func (b *InMemoryBackend) CreateServerlessSecurityConfig(
 		LastModifiedDate: now,
 	}
 
-	b.slSecurityConfigs[serverlessSecurityConfigKey(id)] = sc
+	b.slSecurityConfigs.Put(sc)
 
 	cp := *sc
 
@@ -412,7 +411,7 @@ func (b *InMemoryBackend) GetServerlessSecurityConfig(id string) (*ServerlessSec
 	b.mu.RLock("GetServerlessSecurityConfig")
 	defer b.mu.RUnlock()
 
-	sc, ok := b.slSecurityConfigs[serverlessSecurityConfigKey(id)]
+	sc, ok := b.slSecurityConfigs.Get(serverlessSecurityConfigKey(id))
 	if !ok {
 		return nil, fmt.Errorf("%w: security config %s not found", ErrApplicationNotFound, id)
 	}
@@ -429,7 +428,7 @@ func (b *InMemoryBackend) ListServerlessSecurityConfigs(configType string) []*Se
 
 	var out []*ServerlessSecurityConfig
 
-	for _, sc := range b.slSecurityConfigs {
+	for _, sc := range b.slSecurityConfigs.All() {
 		if configType == "" || sc.Type == configType {
 			cp := *sc
 			out = append(out, &cp)
@@ -447,7 +446,7 @@ func (b *InMemoryBackend) UpdateServerlessSecurityConfig(
 	b.mu.Lock("UpdateServerlessSecurityConfig")
 	defer b.mu.Unlock()
 
-	sc, ok := b.slSecurityConfigs[serverlessSecurityConfigKey(id)]
+	sc, ok := b.slSecurityConfigs.Get(serverlessSecurityConfigKey(id))
 	if !ok {
 		return nil, fmt.Errorf("%w: security config %s not found", ErrApplicationNotFound, id)
 	}
@@ -475,11 +474,11 @@ func (b *InMemoryBackend) DeleteServerlessSecurityConfig(id string) error {
 	defer b.mu.Unlock()
 
 	key := serverlessSecurityConfigKey(id)
-	if _, ok := b.slSecurityConfigs[key]; !ok {
+	if !b.slSecurityConfigs.Has(key) {
 		return fmt.Errorf("%w: security config %s not found", ErrApplicationNotFound, id)
 	}
 
-	delete(b.slSecurityConfigs, key)
+	b.slSecurityConfigs.Delete(key)
 
 	return nil
 }
@@ -496,7 +495,7 @@ func (b *InMemoryBackend) CreateServerlessEncryptionPolicy(
 	defer b.mu.Unlock()
 
 	key := serverlessEncryptionPolicyKey(policyType, name)
-	if _, exists := b.slEncryptionPolicies[key]; exists {
+	if b.slEncryptionPolicies.Has(key) {
 		return nil, fmt.Errorf("%w: encryption policy %s already exists", ErrApplicationAlreadyExists, name)
 	}
 
@@ -511,7 +510,7 @@ func (b *InMemoryBackend) CreateServerlessEncryptionPolicy(
 		LastModifiedDate: now,
 	}
 
-	b.slEncryptionPolicies[key] = ep
+	b.slEncryptionPolicies.Put(ep)
 
 	cp := *ep
 
@@ -523,7 +522,7 @@ func (b *InMemoryBackend) GetServerlessEncryptionPolicy(policyType, name string)
 	b.mu.RLock("GetServerlessEncryptionPolicy")
 	defer b.mu.RUnlock()
 
-	ep, ok := b.slEncryptionPolicies[serverlessEncryptionPolicyKey(policyType, name)]
+	ep, ok := b.slEncryptionPolicies.Get(serverlessEncryptionPolicyKey(policyType, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: encryption policy %s not found", ErrApplicationNotFound, name)
 	}
@@ -540,7 +539,7 @@ func (b *InMemoryBackend) ListServerlessEncryptionPolicies(policyType string) []
 
 	var out []*ServerlessEncryptionPolicy
 
-	for _, ep := range b.slEncryptionPolicies {
+	for _, ep := range b.slEncryptionPolicies.All() {
 		if policyType == "" || ep.Type == policyType {
 			cp := *ep
 			out = append(out, &cp)
@@ -557,8 +556,7 @@ func (b *InMemoryBackend) UpdateServerlessEncryptionPolicy(
 	b.mu.Lock("UpdateServerlessEncryptionPolicy")
 	defer b.mu.Unlock()
 
-	key := serverlessEncryptionPolicyKey(policyType, name)
-	ep, ok := b.slEncryptionPolicies[key]
+	ep, ok := b.slEncryptionPolicies.Get(serverlessEncryptionPolicyKey(policyType, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: encryption policy %s not found", ErrApplicationNotFound, name)
 	}
@@ -586,11 +584,11 @@ func (b *InMemoryBackend) DeleteServerlessEncryptionPolicy(policyType, name stri
 	defer b.mu.Unlock()
 
 	key := serverlessEncryptionPolicyKey(policyType, name)
-	if _, ok := b.slEncryptionPolicies[key]; !ok {
+	if !b.slEncryptionPolicies.Has(key) {
 		return fmt.Errorf("%w: encryption policy %s not found", ErrApplicationNotFound, name)
 	}
 
-	delete(b.slEncryptionPolicies, key)
+	b.slEncryptionPolicies.Delete(key)
 
 	return nil
 }
@@ -607,7 +605,7 @@ func (b *InMemoryBackend) CreateServerlessNetworkPolicy(
 	defer b.mu.Unlock()
 
 	key := serverlessNetworkPolicyKey(policyType, name)
-	if _, exists := b.slNetworkPolicies[key]; exists {
+	if b.slNetworkPolicies.Has(key) {
 		return nil, fmt.Errorf("%w: network policy %s already exists", ErrApplicationAlreadyExists, name)
 	}
 
@@ -622,7 +620,7 @@ func (b *InMemoryBackend) CreateServerlessNetworkPolicy(
 		LastModifiedDate: now,
 	}
 
-	b.slNetworkPolicies[key] = np
+	b.slNetworkPolicies.Put(np)
 
 	cp := *np
 
@@ -636,7 +634,7 @@ func (b *InMemoryBackend) ListServerlessNetworkPolicies(policyType string) []*Se
 
 	var out []*ServerlessNetworkPolicy
 
-	for _, np := range b.slNetworkPolicies {
+	for _, np := range b.slNetworkPolicies.All() {
 		if policyType == "" || np.Type == policyType {
 			cp := *np
 			out = append(out, &cp)
@@ -652,11 +650,11 @@ func (b *InMemoryBackend) DeleteServerlessNetworkPolicy(policyType, name string)
 	defer b.mu.Unlock()
 
 	key := serverlessNetworkPolicyKey(policyType, name)
-	if _, ok := b.slNetworkPolicies[key]; !ok {
+	if !b.slNetworkPolicies.Has(key) {
 		return fmt.Errorf("%w: network policy %s not found", ErrApplicationNotFound, name)
 	}
 
-	delete(b.slNetworkPolicies, key)
+	b.slNetworkPolicies.Delete(key)
 
 	return nil
 }

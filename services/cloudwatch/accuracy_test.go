@@ -75,7 +75,7 @@ func TestParseSignedPageToken_MissingSeparator(t *testing.T) {
 func TestValidateMetricDatum_ValueOnly(t *testing.T) {
 	t.Parallel()
 
-	d := cloudwatch.MetricDatum{MetricName: "M", Value: 1.0}
+	d := cloudwatch.MetricDatum{MetricName: "M", Value: 1.0, HasValue: true}
 	assert.NoError(t, cloudwatch.ValidateMetricDatumForTest(d))
 }
 
@@ -96,6 +96,7 @@ func TestValidateMetricDatum_BothValueAndStatisticSet(t *testing.T) {
 	d := cloudwatch.MetricDatum{
 		MetricName:      "M",
 		Value:           1.0,
+		HasValue:        true,
 		HasStatisticSet: true,
 		Count:           5, Sum: 100, Min: 10, Max: 30,
 	}
@@ -438,7 +439,7 @@ func TestBackend_PutMetricData_StatisticSet_Valid(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC()
 
-	unprocessed, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{
 			MetricName:      "Reqs",
 			HasStatisticSet: true,
@@ -447,28 +448,35 @@ func TestBackend_PutMetricData_StatisticSet_Valid(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, unprocessed, "valid StatisticSet should not produce unprocessed entries")
 }
 
+// TestBackend_PutMetricData_ValueAndStatisticSet_Rejected verifies AWS's
+// all-or-nothing PutMetricData contract: PutMetricDataOutput carries no
+// per-datum result (confirmed against aws-sdk-go-v2 cloudwatch types), so a
+// request containing an invalid datum must fail the entire call rather than
+// silently dropping the bad entry into a fabricated "unprocessed" list.
 func TestBackend_PutMetricData_ValueAndStatisticSet_Rejected(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC()
 
-	unprocessed, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{
 			MetricName:      "BadEntry",
 			Value:           1.0,
+			HasValue:        true,
 			HasStatisticSet: true,
 			Count:           5, Sum: 100, Min: 10, Max: 30,
 			Timestamp: ts,
 		},
 	})
-	require.NoError(t, err)
-	require.Len(t, unprocessed, 1, "value+statisticset should produce 1 unprocessed entry")
-	assert.Equal(t, "BadEntry", unprocessed[0].MetricName)
-	assert.Equal(t, "InvalidParameterCombination", unprocessed[0].ErrorCode)
+	require.ErrorIs(t, err, cloudwatch.ErrValueAndStatisticSet)
+
+	// The whole request must be rejected: nothing gets stored.
+	p, lerr := b.ListMetrics("NS", "", nil, "", "", 0)
+	require.NoError(t, lerr)
+	assert.Empty(t, p.Data)
 }
 
 func TestBackend_PutMetricData_InvalidStorageResolution_Rejected(t *testing.T) {
@@ -477,46 +485,42 @@ func TestBackend_PutMetricData_InvalidStorageResolution_Rejected(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC()
 
-	unprocessed, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{
 			MetricName: "BadRes",
 			Value:      1.0,
+			HasValue:   true,
 			Count:      1, Sum: 1, Min: 1, Max: 1,
 			Timestamp:         ts,
 			StorageResolution: 30,
 		},
 	})
-	require.NoError(t, err)
-	require.Len(t, unprocessed, 1)
-	assert.Equal(t, "BadRes", unprocessed[0].MetricName)
-	assert.Equal(t, "InvalidParameterValue", unprocessed[0].ErrorCode)
+	require.ErrorIs(t, err, cloudwatch.ErrValidation)
 }
 
+// TestBackend_PutMetricData_MixedValidAndInvalid verifies that when one datum
+// in a batch is invalid, none of the batch is stored (no partial commit),
+// matching AWS's atomic PutMetricData contract.
 func TestBackend_PutMetricData_MixedValidAndInvalid(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC()
 
-	unprocessed, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
-		{MetricName: "Good", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts},
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		{MetricName: "Good", Value: 1, HasValue: true, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts},
 		{
-			MetricName: "Bad", Value: 1, HasStatisticSet: true,
+			MetricName: "Bad", Value: 1, HasValue: true, HasStatisticSet: true,
 			Count: 2, Sum: 50, Min: 10, Max: 40, Timestamp: ts,
 		},
-		{MetricName: "AlsoGood", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: ts},
+		{MetricName: "AlsoGood", Value: 2, HasValue: true, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: ts},
 	})
-	require.NoError(t, err)
-	require.Len(t, unprocessed, 1, "only Bad should be unprocessed")
-	assert.Equal(t, "Bad", unprocessed[0].MetricName)
+	require.ErrorIs(t, err, cloudwatch.ErrValueAndStatisticSet)
 
-	// Good and AlsoGood should be stored.
-	p, err := b.ListMetrics("NS", "", nil, "", 0)
-	require.NoError(t, err)
-	names := metricNames(p.Data)
-	assert.Contains(t, names, "Good")
-	assert.Contains(t, names, "AlsoGood")
-	assert.NotContains(t, names, "Bad")
+	// Nothing from the batch should be stored, including the otherwise-valid entries.
+	p, lerr := b.ListMetrics("NS", "", nil, "", "", 0)
+	require.NoError(t, lerr)
+	assert.Empty(t, p.Data)
 }
 
 // ---------------------------------------------------------------------------
@@ -530,7 +534,7 @@ func TestBackend_GetMetricStatistics_AnomalyBand(t *testing.T) {
 	now := time.Now().UTC()
 
 	// Store metric data.
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{MetricName: "Latency", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: now.Add(-2 * time.Minute)},
 		{MetricName: "Latency", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20, Timestamp: now.Add(-time.Minute)},
 		{MetricName: "Latency", Value: 30, Count: 1, Sum: 30, Min: 30, Max: 30, Timestamp: now.Add(-30 * time.Second)},
@@ -569,7 +573,7 @@ func TestBackend_GetMetricStatistics_NoAnomalyDetector_NoBand(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	now := time.Now().UTC()
 
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{MetricName: "CPU", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: now.Add(-time.Minute)},
 	})
 	require.NoError(t, err)
@@ -598,7 +602,7 @@ func TestBackend_GetMetricData_ForwardReferenceExpression(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Base", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -638,7 +642,7 @@ func TestBackend_GetMetricData_AnomalyDetectionBandExpression(t *testing.T) {
 
 	for i := range 5 {
 		ts := now.Add(-time.Duration(5-i) * time.Minute)
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{
 				MetricName: "M", Value: float64(10 + i*5), Count: 1,
 				Sum: float64(10 + i*5), Min: float64(10 + i*5), Max: float64(10 + i*5),
@@ -679,7 +683,7 @@ func TestBackend_GetMetricStatistics_WithDimensions(t *testing.T) {
 	dimProd := []cloudwatch.Dimension{{Name: "Env", Value: "prod"}}
 	dimStaging := []cloudwatch.Dimension{{Name: "Env", Value: "staging"}}
 
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{MetricName: "RPM", Value: 100, Count: 1, Sum: 100, Min: 100, Max: 100, Timestamp: ts, Dimensions: dimProd},
 		{MetricName: "RPM", Value: 200, Count: 1, Sum: 200, Min: 200, Max: 200, Timestamp: ts, Dimensions: dimStaging},
 	})
@@ -717,7 +721,7 @@ func TestBackend_GetMetricData_DimensionFiltering(t *testing.T) {
 	dimA := []cloudwatch.Dimension{{Name: "Host", Value: "a"}}
 	dimB := []cloudwatch.Dimension{{Name: "Host", Value: "b"}}
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "CPU", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: ts, Dimensions: dimA},
 		{MetricName: "CPU", Value: 90, Count: 1, Sum: 90, Min: 90, Max: 90, Timestamp: ts, Dimensions: dimB},
 	})
@@ -759,7 +763,12 @@ func TestHandler_PutMetricData_StatisticSet_FormParsed(t *testing.T) {
 	assert.Equal(t, 200, rec.Code, "valid StatisticSet should return 200; body: %s", rec.Body.String())
 }
 
-func TestHandler_PutMetricData_ValueAndStatisticSet_Returns200WithUnprocessed(t *testing.T) {
+// TestHandler_PutMetricData_ValueAndStatisticSet_Returns400 verifies real AWS
+// behaviour: PutMetricDataOutput has no members besides the request ID (no
+// per-datum "unprocessed" result exists for this operation), so an invalid
+// datum fails the entire request with a 400 InvalidParameterCombination
+// instead of a fabricated 200-with-partial-failure response.
+func TestHandler_PutMetricData_ValueAndStatisticSet_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
@@ -775,12 +784,11 @@ func TestHandler_PutMetricData_ValueAndStatisticSet_Returns200WithUnprocessed(t 
 			"&MetricData.member.1.StatisticValues.Maximum=60"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
-	// AWS returns 200 but includes UnprocessedMetricData in body.
-	assert.Equal(t, 200, rec.Code)
-	assert.Contains(t, rec.Body.String(), "UnprocessedMetricData")
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterCombination")
 }
 
-func TestHandler_PutMetricData_InvalidStorageResolution_Returns200WithUnprocessed(t *testing.T) {
+func TestHandler_PutMetricData_InvalidStorageResolution_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := newCWHandler()
@@ -793,8 +801,8 @@ func TestHandler_PutMetricData_InvalidStorageResolution_Returns200WithUnprocesse
 			"&MetricData.member.1.StorageResolution=30"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
-	assert.Equal(t, 200, rec.Code)
-	assert.Contains(t, rec.Body.String(), "UnprocessedMetricData")
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
 }
 
 // ---------------------------------------------------------------------------
@@ -1166,7 +1174,7 @@ func TestBackend_AnomalyDetector_DimensionMatch(t *testing.T) {
 	dimProd := []cloudwatch.Dimension{{Name: "Env", Value: "prod"}}
 	dimStaging := []cloudwatch.Dimension{{Name: "Env", Value: "staging"}}
 
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "CPU", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80,
 			Timestamp: now.Add(-time.Minute), Dimensions: dimProd,
@@ -1212,7 +1220,7 @@ func TestBackend_AnomalyDetector_CustomBandWidth(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	now := time.Now().UTC()
 
-	_, err := b.PutMetricData("Srv", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("Srv", []cloudwatch.MetricDatum{
 		{MetricName: "Req", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: now.Add(-2 * time.Minute)},
 		{MetricName: "Req", Value: 30, Count: 1, Sum: 30, Min: 30, Max: 30, Timestamp: now.Add(-time.Minute)},
 		{MetricName: "Req", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20, Timestamp: now.Add(-30 * time.Second)},

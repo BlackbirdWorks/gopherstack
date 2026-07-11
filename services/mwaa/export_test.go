@@ -6,12 +6,7 @@ func EnvironmentCount(b *InMemoryBackend) int {
 	b.mu.RLock("EnvironmentCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionEnvs := range b.environments {
-		total += len(regionEnvs)
-	}
-
-	return total
+	return b.environments.Len()
 }
 
 // EnvironmentCountRegion returns the number of environments in the given region.
@@ -19,7 +14,7 @@ func EnvironmentCountRegion(b *InMemoryBackend, region string) int {
 	b.mu.RLock("EnvironmentCountRegion")
 	defer b.mu.RUnlock()
 
-	return len(b.environments[region])
+	return len(b.environmentsByRegion.Get(region))
 }
 
 // MetricsCount returns the number of metric data points for an environment in the
@@ -43,16 +38,14 @@ func MetricsCapacity(b *InMemoryBackend, envName string) int {
 }
 
 // ARNIndexSize returns the total number of entries in the ARN index across all regions.
+// The ARN index is now a derived secondary index over the environments table (see
+// store_setup.go); since every environment has exactly one ARN, this is equivalent
+// to the total environment count.
 func ARNIndexSize(b *InMemoryBackend) int {
 	b.mu.RLock("ARNIndexSize")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionIndex := range b.arnIndex {
-		total += len(regionIndex)
-	}
-
-	return total
+	return b.environments.Len()
 }
 
 // HandlerOpsLen returns the number of operations returned by GetSupportedOperations.

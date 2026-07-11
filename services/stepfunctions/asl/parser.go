@@ -47,43 +47,60 @@ type ReaderConfig struct {
 
 // State represents a single state in the state machine.
 type State struct {
-	Iterator         *StateMachine   `json:"Iterator,omitempty"`
-	ItemProcessor    *StateMachine   `json:"ItemProcessor,omitempty"`
-	ItemBatcher      *ItemBatcher    `json:"ItemBatcher,omitempty"`
-	ItemReader       *ItemReader     `json:"ItemReader,omitempty"`
-	ItemSelector     json.RawMessage `json:"ItemSelector,omitempty"`
-	SecondsPath      string          `json:"SecondsPath,omitempty"`
-	TimestampPath    string          `json:"TimestampPath,omitempty"`
-	ItemsPath        string          `json:"ItemsPath,omitempty"`
-	InputPath        string          `json:"InputPath,omitempty"`
-	OutputPath       string          `json:"OutputPath,omitempty"`
-	ResultPath       string          `json:"ResultPath,omitempty"`
-	Type             string          `json:"Type"`
-	Error            string          `json:"Error,omitempty"`
-	Cause            string          `json:"Cause,omitempty"`
-	Comment          string          `json:"Comment,omitempty"`
-	Next             string          `json:"Next,omitempty"`
-	Default          string          `json:"Default,omitempty"`
-	Timestamp        string          `json:"Timestamp,omitempty"`
-	Resource         string          `json:"Resource,omitempty"`
-	Retry            []Retrier       `json:"Retry,omitempty"`
-	Catch            []Catcher       `json:"Catch,omitempty"`
-	Choices          []ChoiceRule    `json:"Choices,omitempty"`
-	Result           json.RawMessage `json:"Result,omitempty"`
-	Branches         []Branch        `json:"Branches,omitempty"`
-	Parameters       json.RawMessage `json:"Parameters,omitempty"`
-	ResultSelector   json.RawMessage `json:"ResultSelector,omitempty"`
-	TimeoutSeconds   int             `json:"TimeoutSeconds,omitempty"`
-	HeartbeatSeconds int             `json:"HeartbeatSeconds,omitempty"`
-	Seconds          int             `json:"Seconds,omitempty"`
-	MaxConcurrency   int             `json:"MaxConcurrency,omitempty"`
-	End              bool            `json:"End,omitempty"`
+	Iterator      *StateMachine   `json:"Iterator,omitempty"`
+	ItemProcessor *StateMachine   `json:"ItemProcessor,omitempty"`
+	ItemBatcher   *ItemBatcher    `json:"ItemBatcher,omitempty"`
+	ItemReader    *ItemReader     `json:"ItemReader,omitempty"`
+	ItemSelector  json.RawMessage `json:"ItemSelector,omitempty"`
+	SecondsPath   string          `json:"SecondsPath,omitempty"`
+	TimestampPath string          `json:"TimestampPath,omitempty"`
+	ItemsPath     string          `json:"ItemsPath,omitempty"`
+	// ToleratedFailureCount/Percentage (and their *Path variants) bound how many
+	// Map iterations may fail before the Map state itself fails with
+	// States.ExceedToleratedFailureThreshold. AWS supports these only for
+	// Distributed Map, but the emulator applies them uniformly since Map
+	// processing mode is not otherwise distinguished. When both a count and a
+	// percentage are set, the Map fails when EITHER threshold is crossed.
+	ToleratedFailureCountPath      string          `json:"ToleratedFailureCountPath,omitempty"`
+	ToleratedFailurePercentagePath string          `json:"ToleratedFailurePercentagePath,omitempty"`
+	ToleratedFailureCount          *int            `json:"ToleratedFailureCount,omitempty"`
+	ToleratedFailurePercentage     *float64        `json:"ToleratedFailurePercentage,omitempty"`
+	InputPath                      string          `json:"InputPath,omitempty"`
+	OutputPath                     string          `json:"OutputPath,omitempty"`
+	ResultPath                     string          `json:"ResultPath,omitempty"`
+	Type                           string          `json:"Type"`
+	Error                          string          `json:"Error,omitempty"`
+	Cause                          string          `json:"Cause,omitempty"`
+	Comment                        string          `json:"Comment,omitempty"`
+	Next                           string          `json:"Next,omitempty"`
+	Default                        string          `json:"Default,omitempty"`
+	Timestamp                      string          `json:"Timestamp,omitempty"`
+	Resource                       string          `json:"Resource,omitempty"`
+	Retry                          []Retrier       `json:"Retry,omitempty"`
+	Catch                          []Catcher       `json:"Catch,omitempty"`
+	Choices                        []ChoiceRule    `json:"Choices,omitempty"`
+	Result                         json.RawMessage `json:"Result,omitempty"`
+	Branches                       []Branch        `json:"Branches,omitempty"`
+	Parameters                     json.RawMessage `json:"Parameters,omitempty"`
+	ResultSelector                 json.RawMessage `json:"ResultSelector,omitempty"`
+	TimeoutSeconds                 int             `json:"TimeoutSeconds,omitempty"`
+	HeartbeatSeconds               int             `json:"HeartbeatSeconds,omitempty"`
+	Seconds                        int             `json:"Seconds,omitempty"`
+	MaxConcurrency                 int             `json:"MaxConcurrency,omitempty"`
+	End                            bool            `json:"End,omitempty"`
 }
 
 // Retrier defines retry behavior for a Task state on error.
+//
+// JitterStrategy controls whether the computed backoff delay is randomized:
+// "FULL" randomizes the delay uniformly between 0 and the computed value;
+// "NONE" (the AWS default when omitted) uses the computed delay as-is.
+// MaxDelaySeconds, when set, caps the delay between retry attempts.
 type Retrier struct {
 	IntervalSeconds *int     `json:"IntervalSeconds,omitempty"`
 	MaxAttempts     *int     `json:"MaxAttempts,omitempty"`
+	MaxDelaySeconds *int     `json:"MaxDelaySeconds,omitempty"`
+	JitterStrategy  string   `json:"JitterStrategy,omitempty"`
 	ErrorEquals     []string `json:"ErrorEquals"`
 	BackoffRate     float64  `json:"BackoffRate,omitempty"`
 }

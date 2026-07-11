@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // Sentinel errors for IoT Wireless backend operations.
@@ -200,59 +201,45 @@ type StorageBackend interface {
 // Compile-time assertion that InMemoryBackend satisfies StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
-// resourceKey uniquely identifies a resource within an account and region.
-type resourceKey struct {
-	AccountID string
-	Region    string
-	ID        string
-}
-
 // InMemoryBackend is the in-memory backend for IoT Wireless.
 type InMemoryBackend struct {
-	devices                    map[resourceKey]*WirelessDevice
-	gateways                   map[resourceKey]*WirelessGateway
-	serviceProfiles            map[resourceKey]*ServiceProfile
-	destinations               map[resourceKey]*Destination
-	deviceProfiles             map[resourceKey]*DeviceProfile
-	fuotaTasks                 map[resourceKey]*FuotaTask
-	multicastGroups            map[resourceKey]*MulticastGroup
-	networkAnalyzerConfigs     map[resourceKey]*NetworkAnalyzerConfig
+	wirelessGatewayCerts       map[string]string
+	wirelessGatewayThings      map[string]string
+	serviceProfiles            *store.Table[ServiceProfile]
+	destinations               *store.Table[Destination]
+	deviceProfiles             *store.Table[DeviceProfile]
+	fuotaTasks                 *store.Table[FuotaTask]
+	multicastGroups            *store.Table[MulticastGroup]
+	networkAnalyzerConfigs     *store.Table[NetworkAnalyzerConfig]
+	devices                    *store.Table[WirelessDevice]
+	partnerAccounts            map[string]string
+	fuotaTaskMulticast         map[string]string
+	fuotaTaskDevices           map[string]string
+	multicastGroupDevices      map[string]string
+	multicastGroupSessions     map[string]bool
+	gateways                   *store.Table[WirelessGateway]
+	multicastGroupSessionStart map[string]time.Time
 	resourceTags               map[string]map[string]string
-	partnerAccounts            map[string]string                          // partnerAccountID -> arn
-	fuotaTaskMulticast         map[string]string                          // fuotaTaskID -> multicastGroupID
-	fuotaTaskDevices           map[string]string                          // fuotaTaskID -> wirelessDeviceID
-	multicastGroupDevices      map[string]string                          // multicastGroupID -> wirelessDeviceID
-	multicastGroupSessions     map[string]bool                            // multicastGroupIDs with active sessions
-	multicastGroupSessionStart map[string]time.Time                       // multicastGroupID -> session start time
-	wirelessDeviceThings       map[string]string                          // wirelessDeviceID -> thingArn
-	wirelessGatewayCerts       map[string]string                          // gatewayID -> iotCertificateID
-	wirelessGatewayThings      map[string]string                          // gatewayID -> thingArn
-	logLevels                  map[string]string                          // "default" -> logLevel
-	resourceLogLevels          map[string]string                          // resourceID -> logLevel
-	gatewayTasks               map[string]*GatewayTask                    // gatewayID -> task
-	gatewayTaskDefs            map[string]*GatewayTaskDefinition          // taskDefID -> definition
-	positions                  map[string]map[string]any                  // resourceID -> position data
-	queuedMessages             map[string][]QueuedMessage                 // wirelessDeviceID -> messages
-	importTasks                map[string]*WirelessDeviceImportTask       // id -> task
-	singleImportTasks          map[string]*SingleWirelessDeviceImportTask // arn -> task
-	positionConfigs            map[string]*PositionConfigEntry            // resourceID -> position config
-	resourceEventConfigs       map[string]*ResourceEventConfigEntry       // identifier -> event config
-	eventConfigDefault         *EventConfigDoc                            // account-wide default event config
-	metricConfigStatus         string                                     // "" (unset), "Enabled", or "Disabled"
+	wirelessDeviceThings       map[string]string
+	logLevels                  map[string]string
+	resourceLogLevels          map[string]string
+	gatewayTasks               *store.Table[GatewayTask]
+	gatewayTaskDefs            *store.Table[GatewayTaskDefinition]
+	positions                  map[string]map[string]any
+	queuedMessages             map[string][]QueuedMessage
+	importTasks                *store.Table[WirelessDeviceImportTask]
+	singleImportTasks          *store.Table[SingleWirelessDeviceImportTask]
+	positionConfigs            *store.Table[PositionConfigEntry]
+	resourceEventConfigs       *store.Table[ResourceEventConfigEntry]
+	eventConfigDefault         *EventConfigDoc
+	registry                   *store.Registry
+	metricConfigStatus         string
 	mu                         sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Wireless backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		devices:                    make(map[resourceKey]*WirelessDevice),
-		gateways:                   make(map[resourceKey]*WirelessGateway),
-		serviceProfiles:            make(map[resourceKey]*ServiceProfile),
-		destinations:               make(map[resourceKey]*Destination),
-		deviceProfiles:             make(map[resourceKey]*DeviceProfile),
-		fuotaTasks:                 make(map[resourceKey]*FuotaTask),
-		multicastGroups:            make(map[resourceKey]*MulticastGroup),
-		networkAnalyzerConfigs:     make(map[resourceKey]*NetworkAnalyzerConfig),
+	b := &InMemoryBackend{
 		resourceTags:               make(map[string]map[string]string),
 		partnerAccounts:            make(map[string]string),
 		fuotaTaskMulticast:         make(map[string]string),
@@ -265,15 +252,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 		wirelessGatewayThings:      make(map[string]string),
 		logLevels:                  make(map[string]string),
 		resourceLogLevels:          make(map[string]string),
-		gatewayTasks:               make(map[string]*GatewayTask),
-		gatewayTaskDefs:            make(map[string]*GatewayTaskDefinition),
 		positions:                  make(map[string]map[string]any),
 		queuedMessages:             make(map[string][]QueuedMessage),
-		importTasks:                make(map[string]*WirelessDeviceImportTask),
-		singleImportTasks:          make(map[string]*SingleWirelessDeviceImportTask),
-		positionConfigs:            make(map[string]*PositionConfigEntry),
-		resourceEventConfigs:       make(map[string]*ResourceEventConfigEntry),
+		registry:                   store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 func wirelessDeviceARN(region, accountID, id string) string {
@@ -313,14 +299,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.devices = make(map[resourceKey]*WirelessDevice)
-	b.gateways = make(map[resourceKey]*WirelessGateway)
-	b.serviceProfiles = make(map[resourceKey]*ServiceProfile)
-	b.destinations = make(map[resourceKey]*Destination)
-	b.deviceProfiles = make(map[resourceKey]*DeviceProfile)
-	b.fuotaTasks = make(map[resourceKey]*FuotaTask)
-	b.multicastGroups = make(map[resourceKey]*MulticastGroup)
-	b.networkAnalyzerConfigs = make(map[resourceKey]*NetworkAnalyzerConfig)
+	b.resetTablesLocked()
+
 	b.resourceTags = make(map[string]map[string]string)
 	b.partnerAccounts = make(map[string]string)
 	b.fuotaTaskMulticast = make(map[string]string)
@@ -333,14 +313,8 @@ func (b *InMemoryBackend) Reset() {
 	b.wirelessGatewayThings = make(map[string]string)
 	b.logLevels = make(map[string]string)
 	b.resourceLogLevels = make(map[string]string)
-	b.gatewayTasks = make(map[string]*GatewayTask)
-	b.gatewayTaskDefs = make(map[string]*GatewayTaskDefinition)
 	b.positions = make(map[string]map[string]any)
 	b.queuedMessages = make(map[string][]QueuedMessage)
-	b.importTasks = make(map[string]*WirelessDeviceImportTask)
-	b.singleImportTasks = make(map[string]*SingleWirelessDeviceImportTask)
-	b.positionConfigs = make(map[string]*PositionConfigEntry)
-	b.resourceEventConfigs = make(map[string]*ResourceEventConfigEntry)
 	b.eventConfigDefault = nil
 	b.metricConfigStatus = ""
 }
@@ -434,10 +408,11 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 		Description:     description,
 		Tags:            newTagsCopy(tags),
 		CreatedAt:       time.Now(),
+		AccountID:       accountID,
+		Region:          region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-	b.devices[key] = d
+	b.devices.Put(d)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyWirelessDevice(d), nil
@@ -448,9 +423,7 @@ func (b *InMemoryBackend) GetWirelessDevice(accountID, region, id string) (*Wire
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	d, ok := b.devices[key]
+	d, ok := b.devices.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return nil, ErrDeviceNotFound
 	}
@@ -464,10 +437,11 @@ func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*Wirel
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*WirelessDevice, 0, len(b.devices))
+	all := b.devices.All()
+	result := make([]*WirelessDevice, 0, len(all))
 
-	for k, d := range b.devices {
-		if k.AccountID == accountID && k.Region == region {
+	for _, d := range all {
+		if d.AccountID == accountID && d.Region == region {
 			result = append(result, copyWirelessDevice(d))
 		}
 	}
@@ -484,15 +458,15 @@ func (b *InMemoryBackend) DeleteWirelessDevice(accountID, region, id string) err
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	key := compositeKey(accountID, region, id)
 
-	d, ok := b.devices[key]
+	d, ok := b.devices.Get(key)
 	if !ok {
 		return ErrDeviceNotFound
 	}
 
 	delete(b.resourceTags, d.ARN)
-	delete(b.devices, key)
+	b.devices.Delete(key)
 
 	return nil
 }
@@ -519,10 +493,11 @@ func (b *InMemoryBackend) CreateWirelessGateway(
 		FirmwareVersion:  defaultGatewayFirmwareVersion,
 		FirmwareModel:    defaultGatewayFirmwareModel,
 		FirmwareStation:  defaultGatewayFirmwareStation,
+		AccountID:        accountID,
+		Region:           region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-	b.gateways[key] = gw
+	b.gateways.Put(gw)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyWirelessGateway(gw), nil
@@ -533,9 +508,7 @@ func (b *InMemoryBackend) GetWirelessGateway(accountID, region, id string) (*Wir
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	gw, ok := b.gateways[key]
+	gw, ok := b.gateways.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return nil, ErrGatewayNotFound
 	}
@@ -549,10 +522,11 @@ func (b *InMemoryBackend) ListWirelessGateways(accountID, region string) []*Wire
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*WirelessGateway, 0, len(b.gateways))
+	all := b.gateways.All()
+	result := make([]*WirelessGateway, 0, len(all))
 
-	for k, gw := range b.gateways {
-		if k.AccountID == accountID && k.Region == region {
+	for _, gw := range all {
+		if gw.AccountID == accountID && gw.Region == region {
 			result = append(result, copyWirelessGateway(gw))
 		}
 	}
@@ -569,15 +543,15 @@ func (b *InMemoryBackend) DeleteWirelessGateway(accountID, region, id string) er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	key := compositeKey(accountID, region, id)
 
-	gw, ok := b.gateways[key]
+	gw, ok := b.gateways.Get(key)
 	if !ok {
 		return ErrGatewayNotFound
 	}
 
 	delete(b.resourceTags, gw.ARN)
-	delete(b.gateways, key)
+	b.gateways.Delete(key)
 
 	return nil
 }
@@ -599,10 +573,11 @@ func (b *InMemoryBackend) CreateServiceProfile(
 		Name:      name,
 		Tags:      newTagsCopy(tags),
 		CreatedAt: time.Now(),
+		AccountID: accountID,
+		Region:    region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-	b.serviceProfiles[key] = sp
+	b.serviceProfiles.Put(sp)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyServiceProfile(sp), nil
@@ -613,9 +588,7 @@ func (b *InMemoryBackend) GetServiceProfile(accountID, region, id string) (*Serv
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	sp, ok := b.serviceProfiles[key]
+	sp, ok := b.serviceProfiles.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return nil, ErrServiceProfileNotFound
 	}
@@ -629,10 +602,11 @@ func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*Servi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*ServiceProfile, 0, len(b.serviceProfiles))
+	all := b.serviceProfiles.All()
+	result := make([]*ServiceProfile, 0, len(all))
 
-	for k, sp := range b.serviceProfiles {
-		if k.AccountID == accountID && k.Region == region {
+	for _, sp := range all {
+		if sp.AccountID == accountID && sp.Region == region {
 			result = append(result, copyServiceProfile(sp))
 		}
 	}
@@ -649,15 +623,15 @@ func (b *InMemoryBackend) DeleteServiceProfile(accountID, region, id string) err
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	key := compositeKey(accountID, region, id)
 
-	sp, ok := b.serviceProfiles[key]
+	sp, ok := b.serviceProfiles.Get(key)
 	if !ok {
 		return ErrServiceProfileNotFound
 	}
 
 	delete(b.resourceTags, sp.ARN)
-	delete(b.serviceProfiles, key)
+	b.serviceProfiles.Delete(key)
 
 	return nil
 }
@@ -681,10 +655,11 @@ func (b *InMemoryBackend) CreateDestination(
 		Description:    description,
 		Tags:           newTagsCopy(tags),
 		CreatedAt:      time.Now(),
+		AccountID:      accountID,
+		Region:         region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
-	b.destinations[key] = dest
+	b.destinations.Put(dest)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyDestination(dest), nil
@@ -695,9 +670,7 @@ func (b *InMemoryBackend) GetDestination(accountID, region, name string) (*Desti
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
-
-	dest, ok := b.destinations[key]
+	dest, ok := b.destinations.Get(compositeKey(accountID, region, name))
 	if !ok {
 		return nil, ErrDestinationNotFound
 	}
@@ -712,10 +685,11 @@ func (b *InMemoryBackend) ListDestinations(accountID, region string) []*Destinat
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*Destination, 0, len(b.destinations))
+	all := b.destinations.All()
+	result := make([]*Destination, 0, len(all))
 
-	for k, dest := range b.destinations {
-		if k.AccountID == accountID && k.Region == region {
+	for _, dest := range all {
+		if dest.AccountID == accountID && dest.Region == region {
 			result = append(result, copyDestination(dest))
 		}
 	}
@@ -732,15 +706,15 @@ func (b *InMemoryBackend) DeleteDestination(accountID, region, name string) erro
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+	key := compositeKey(accountID, region, name)
 
-	dest, ok := b.destinations[key]
+	dest, ok := b.destinations.Get(key)
 	if !ok {
 		return ErrDestinationNotFound
 	}
 
 	delete(b.resourceTags, dest.ARN)
-	delete(b.destinations, key)
+	b.destinations.Delete(key)
 
 	return nil
 }
@@ -813,10 +787,11 @@ func (b *InMemoryBackend) CreateDeviceProfile(
 		Name:      name,
 		Tags:      newTagsCopy(tags),
 		CreatedAt: time.Now(),
+		AccountID: accountID,
+		Region:    region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-	b.deviceProfiles[key] = dp
+	b.deviceProfiles.Put(dp)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyDeviceProfile(dp), nil
@@ -827,9 +802,7 @@ func (b *InMemoryBackend) GetDeviceProfile(accountID, region, id string) (*Devic
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	dp, ok := b.deviceProfiles[key]
+	dp, ok := b.deviceProfiles.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return nil, ErrDeviceProfileNotFound
 	}
@@ -843,10 +816,11 @@ func (b *InMemoryBackend) ListDeviceProfiles(accountID, region string) []*Device
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*DeviceProfile, 0, len(b.deviceProfiles))
+	all := b.deviceProfiles.All()
+	result := make([]*DeviceProfile, 0, len(all))
 
-	for k, dp := range b.deviceProfiles {
-		if k.AccountID == accountID && k.Region == region {
+	for _, dp := range all {
+		if dp.AccountID == accountID && dp.Region == region {
 			result = append(result, copyDeviceProfile(dp))
 		}
 	}
@@ -863,15 +837,15 @@ func (b *InMemoryBackend) DeleteDeviceProfile(accountID, region, id string) erro
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	key := compositeKey(accountID, region, id)
 
-	dp, ok := b.deviceProfiles[key]
+	dp, ok := b.deviceProfiles.Get(key)
 	if !ok {
 		return ErrDeviceProfileNotFound
 	}
 
 	delete(b.resourceTags, dp.ARN)
-	delete(b.deviceProfiles, key)
+	b.deviceProfiles.Delete(key)
 
 	return nil
 }
@@ -896,10 +870,11 @@ func (b *InMemoryBackend) CreateFuotaTask(
 		FirmwareUpdateRole:  firmwareUpdateRole,
 		Tags:                newTagsCopy(tags),
 		CreatedAt:           time.Now(),
+		AccountID:           accountID,
+		Region:              region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-	b.fuotaTasks[key] = ft
+	b.fuotaTasks.Put(ft)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyFuotaTask(ft), nil
@@ -910,9 +885,7 @@ func (b *InMemoryBackend) GetFuotaTask(accountID, region, id string) (*FuotaTask
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	ft, ok := b.fuotaTasks[key]
+	ft, ok := b.fuotaTasks.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return nil, ErrFuotaTaskNotFound
 	}
@@ -926,10 +899,11 @@ func (b *InMemoryBackend) ListFuotaTasks(accountID, region string) []*FuotaTask 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*FuotaTask, 0, len(b.fuotaTasks))
+	all := b.fuotaTasks.All()
+	result := make([]*FuotaTask, 0, len(all))
 
-	for k, ft := range b.fuotaTasks {
-		if k.AccountID == accountID && k.Region == region {
+	for _, ft := range all {
+		if ft.AccountID == accountID && ft.Region == region {
 			result = append(result, copyFuotaTask(ft))
 		}
 	}
@@ -946,15 +920,15 @@ func (b *InMemoryBackend) DeleteFuotaTask(accountID, region, id string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	key := compositeKey(accountID, region, id)
 
-	ft, ok := b.fuotaTasks[key]
+	ft, ok := b.fuotaTasks.Get(key)
 	if !ok {
 		return ErrFuotaTaskNotFound
 	}
 
 	delete(b.resourceTags, ft.ARN)
-	delete(b.fuotaTasks, key)
+	b.fuotaTasks.Delete(key)
 
 	return nil
 }
@@ -964,9 +938,7 @@ func (b *InMemoryBackend) UpdateFuotaTask(accountID, region, id, name, descripti
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	ft, ok := b.fuotaTasks[key]
+	ft, ok := b.fuotaTasks.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return ErrFuotaTaskNotFound
 	}
@@ -985,9 +957,7 @@ func (b *InMemoryBackend) UpdateWirelessGateway(accountID, region, id, name, des
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	gw, ok := b.gateways[key]
+	gw, ok := b.gateways.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return ErrGatewayNotFound
 	}
@@ -1008,9 +978,7 @@ func (b *InMemoryBackend) UpdateDestination(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
-
-	dest, ok := b.destinations[key]
+	dest, ok := b.destinations.Get(compositeKey(accountID, region, name))
 	if !ok {
 		return ErrDestinationNotFound
 	}
@@ -1085,10 +1053,11 @@ func (b *InMemoryBackend) CreateMulticastGroup(
 		Status:      "Pending",
 		Tags:        newTagsCopy(tags),
 		CreatedAt:   time.Now(),
+		AccountID:   accountID,
+		Region:      region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-	b.multicastGroups[key] = mg
+	b.multicastGroups.Put(mg)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyMulticastGroup(mg), nil
@@ -1099,9 +1068,7 @@ func (b *InMemoryBackend) GetMulticastGroup(accountID, region, id string) (*Mult
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	mg, ok := b.multicastGroups[key]
+	mg, ok := b.multicastGroups.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return nil, ErrMulticastGroupNotFound
 	}
@@ -1115,10 +1082,11 @@ func (b *InMemoryBackend) ListMulticastGroups(accountID, region string) []*Multi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*MulticastGroup, 0, len(b.multicastGroups))
+	all := b.multicastGroups.All()
+	result := make([]*MulticastGroup, 0, len(all))
 
-	for k, mg := range b.multicastGroups {
-		if k.AccountID == accountID && k.Region == region {
+	for _, mg := range all {
+		if mg.AccountID == accountID && mg.Region == region {
 			result = append(result, copyMulticastGroup(mg))
 		}
 	}
@@ -1135,15 +1103,15 @@ func (b *InMemoryBackend) DeleteMulticastGroup(accountID, region, id string) err
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
+	key := compositeKey(accountID, region, id)
 
-	mg, ok := b.multicastGroups[key]
+	mg, ok := b.multicastGroups.Get(key)
 	if !ok {
 		return ErrMulticastGroupNotFound
 	}
 
 	delete(b.resourceTags, mg.ARN)
-	delete(b.multicastGroups, key)
+	b.multicastGroups.Delete(key)
 
 	return nil
 }
@@ -1153,9 +1121,7 @@ func (b *InMemoryBackend) UpdateMulticastGroup(accountID, region, id, name, desc
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: id}
-
-	mg, ok := b.multicastGroups[key]
+	mg, ok := b.multicastGroups.Get(compositeKey(accountID, region, id))
 	if !ok {
 		return ErrMulticastGroupNotFound
 	}
@@ -1187,10 +1153,11 @@ func (b *InMemoryBackend) CreateNetworkAnalyzerConfig(
 		WirelessDevices:  append([]string(nil), wirelessDevices...),
 		WirelessGateways: append([]string(nil), wirelessGateways...),
 		Tags:             newTagsCopy(tags),
+		AccountID:        accountID,
+		Region:           region,
 	}
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
-	b.networkAnalyzerConfigs[key] = nc
+	b.networkAnalyzerConfigs.Put(nc)
 	b.storeResourceTagsLocked(arn, tags)
 
 	return copyNetworkAnalyzerConfig(nc), nil
@@ -1201,9 +1168,7 @@ func (b *InMemoryBackend) GetNetworkAnalyzerConfig(accountID, region, name strin
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
-
-	nc, ok := b.networkAnalyzerConfigs[key]
+	nc, ok := b.networkAnalyzerConfigs.Get(compositeKey(accountID, region, name))
 	if !ok {
 		return nil, ErrNetworkAnalyzerConfigNotFound
 	}
@@ -1217,10 +1182,11 @@ func (b *InMemoryBackend) ListNetworkAnalyzerConfigs(accountID, region string) [
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	result := make([]*NetworkAnalyzerConfig, 0, len(b.networkAnalyzerConfigs))
+	all := b.networkAnalyzerConfigs.All()
+	result := make([]*NetworkAnalyzerConfig, 0, len(all))
 
-	for k, nc := range b.networkAnalyzerConfigs {
-		if k.AccountID == accountID && k.Region == region {
+	for _, nc := range all {
+		if nc.AccountID == accountID && nc.Region == region {
 			result = append(result, copyNetworkAnalyzerConfig(nc))
 		}
 	}
@@ -1237,15 +1203,15 @@ func (b *InMemoryBackend) DeleteNetworkAnalyzerConfig(accountID, region, name st
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
+	key := compositeKey(accountID, region, name)
 
-	nc, ok := b.networkAnalyzerConfigs[key]
+	nc, ok := b.networkAnalyzerConfigs.Get(key)
 	if !ok {
 		return ErrNetworkAnalyzerConfigNotFound
 	}
 
 	delete(b.resourceTags, nc.ARN)
-	delete(b.networkAnalyzerConfigs, key)
+	b.networkAnalyzerConfigs.Delete(key)
 
 	return nil
 }
@@ -1258,9 +1224,7 @@ func (b *InMemoryBackend) UpdateNetworkAnalyzerConfig(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: name}
-
-	nc, ok := b.networkAnalyzerConfigs[key]
+	nc, ok := b.networkAnalyzerConfigs.Get(compositeKey(accountID, region, name))
 	if !ok {
 		return ErrNetworkAnalyzerConfigNotFound
 	}
@@ -1331,8 +1295,7 @@ func (b *InMemoryBackend) AssociateWirelessDeviceWithThing(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: wirelessDeviceID}
-	if _, ok := b.devices[key]; !ok {
+	if !b.devices.Has(compositeKey(accountID, region, wirelessDeviceID)) {
 		return ErrDeviceNotFound
 	}
 
@@ -1349,8 +1312,7 @@ func (b *InMemoryBackend) AssociateWirelessGatewayWithCertificate(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
-	if _, ok := b.gateways[key]; !ok {
+	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
 		return "", ErrGatewayNotFound
 	}
 
@@ -1368,8 +1330,7 @@ func (b *InMemoryBackend) AssociateWirelessGatewayWithThing(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	key := resourceKey{AccountID: accountID, Region: region, ID: gatewayID}
-	if _, ok := b.gateways[key]; !ok {
+	if !b.gateways.Has(compositeKey(accountID, region, gatewayID)) {
 		return ErrGatewayNotFound
 	}
 
@@ -1399,8 +1360,9 @@ func (b *InMemoryBackend) AddWirelessDeviceInternal(accountID, region string, d 
 	defer b.mu.Unlock()
 
 	cp := copyWirelessDevice(d)
-	key := resourceKey{AccountID: accountID, Region: region, ID: d.ID}
-	b.devices[key] = cp
+	cp.AccountID = accountID
+	cp.Region = region
+	b.devices.Put(cp)
 	b.storeResourceTagsLocked(d.ARN, d.Tags)
 }
 
@@ -1411,8 +1373,9 @@ func (b *InMemoryBackend) AddWirelessGatewayInternal(accountID, region string, g
 	defer b.mu.Unlock()
 
 	cp := copyWirelessGateway(gw)
-	key := resourceKey{AccountID: accountID, Region: region, ID: gw.ID}
-	b.gateways[key] = cp
+	cp.AccountID = accountID
+	cp.Region = region
+	b.gateways.Put(cp)
 	b.storeResourceTagsLocked(gw.ARN, gw.Tags)
 }
 
@@ -1423,8 +1386,9 @@ func (b *InMemoryBackend) AddServiceProfileInternal(accountID, region string, sp
 	defer b.mu.Unlock()
 
 	cp := copyServiceProfile(sp)
-	key := resourceKey{AccountID: accountID, Region: region, ID: sp.ID}
-	b.serviceProfiles[key] = cp
+	cp.AccountID = accountID
+	cp.Region = region
+	b.serviceProfiles.Put(cp)
 	b.storeResourceTagsLocked(sp.ARN, sp.Tags)
 }
 
@@ -1435,8 +1399,9 @@ func (b *InMemoryBackend) AddDestinationInternal(accountID, region string, dest 
 	defer b.mu.Unlock()
 
 	cp := copyDestination(dest)
-	key := resourceKey{AccountID: accountID, Region: region, ID: dest.Name}
-	b.destinations[key] = cp
+	cp.AccountID = accountID
+	cp.Region = region
+	b.destinations.Put(cp)
 	b.storeResourceTagsLocked(dest.ARN, dest.Tags)
 }
 
@@ -1447,8 +1412,9 @@ func (b *InMemoryBackend) AddDeviceProfileInternal(accountID, region string, dp 
 	defer b.mu.Unlock()
 
 	cp := copyDeviceProfile(dp)
-	key := resourceKey{AccountID: accountID, Region: region, ID: dp.ID}
-	b.deviceProfiles[key] = cp
+	cp.AccountID = accountID
+	cp.Region = region
+	b.deviceProfiles.Put(cp)
 	b.storeResourceTagsLocked(dp.ARN, dp.Tags)
 }
 
@@ -1459,7 +1425,8 @@ func (b *InMemoryBackend) AddFuotaTaskInternal(accountID, region string, ft *Fuo
 	defer b.mu.Unlock()
 
 	cp := copyFuotaTask(ft)
-	key := resourceKey{AccountID: accountID, Region: region, ID: ft.ID}
-	b.fuotaTasks[key] = cp
+	cp.AccountID = accountID
+	cp.Region = region
+	b.fuotaTasks.Put(cp)
 	b.storeResourceTagsLocked(ft.ARN, ft.Tags)
 }

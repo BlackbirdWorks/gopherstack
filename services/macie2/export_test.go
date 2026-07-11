@@ -5,7 +5,7 @@ func AllowListCount(b *InMemoryBackend) int {
 	b.mu.RLock("AllowListCount")
 	defer b.mu.RUnlock()
 
-	return len(b.allowLists)
+	return b.allowLists.Len()
 }
 
 // CustomDataIDCount returns the number of stored custom data identifiers.
@@ -13,7 +13,7 @@ func CustomDataIDCount(b *InMemoryBackend) int {
 	b.mu.RLock("CustomDataIDCount")
 	defer b.mu.RUnlock()
 
-	return len(b.customDataIDs)
+	return b.customDataIDs.Len()
 }
 
 // FindingsFilterCount returns the number of stored findings filters.
@@ -21,7 +21,7 @@ func FindingsFilterCount(b *InMemoryBackend) int {
 	b.mu.RLock("FindingsFilterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.findingsFilters)
+	return b.findingsFilters.Len()
 }
 
 // FindingCount returns the number of stored findings.
@@ -29,7 +29,7 @@ func FindingCount(b *InMemoryBackend) int {
 	b.mu.RLock("FindingCount")
 	defer b.mu.RUnlock()
 
-	return len(b.findings)
+	return b.findings.Len()
 }
 
 // S3BucketCount returns the number of seeded S3 buckets.
@@ -37,7 +37,7 @@ func S3BucketCount(b *InMemoryBackend) int {
 	b.mu.RLock("S3BucketCount")
 	defer b.mu.RUnlock()
 
-	return len(b.s3Buckets)
+	return b.s3Buckets.Len()
 }
 
 // SeedS3Bucket adds an S3 bucket metadata entry to the backend for testing.

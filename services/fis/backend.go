@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -220,20 +221,22 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	templates            map[string]*ExperimentTemplate
-	experiments          map[string]*Experiment
-	templateARNIndex     map[string]string                                 // ARN → template ID
-	experimentARNIndex   map[string]string                                 // ARN → experiment ID
-	targetAccountConfigs map[string]map[string]*TargetAccountConfiguration // templateID → accountID → config
-	tplClientTokens      map[string]string                                 // clientToken → templateID
-	expClientTokens      map[string]string                                 // clientToken → experimentID
-	faultStore           *chaos.FaultStore
-	safetyLever          *SafetyLever
-	mu                   *lockmetrics.RWMutex
-	svcCtx               context.Context
-	accountID            string
-	region               string
-	actionProviders      []service.FISActionProvider
+	registry                       *store.Registry
+	templates                      *store.Table[ExperimentTemplate]
+	templatesByArn                 *store.Index[ExperimentTemplate]
+	experiments                    *store.Table[Experiment]
+	experimentsByArn               *store.Index[Experiment]
+	targetAccountConfigs           *store.Table[TargetAccountConfiguration]
+	targetAccountConfigsByTemplate *store.Index[TargetAccountConfiguration]
+	tplClientTokens                map[string]string // clientToken → templateID
+	expClientTokens                map[string]string // clientToken → experimentID
+	faultStore                     *chaos.FaultStore
+	safetyLever                    *SafetyLever
+	mu                             *lockmetrics.RWMutex
+	svcCtx                         context.Context
+	accountID                      string
+	region                         string
+	actionProviders                []service.FISActionProvider
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background service context.
@@ -251,18 +254,14 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 
 	safetyLeverARN := arn.Build("fis", region, accountID, "safety-lever/"+accountID)
 
-	return &InMemoryBackend{
-		templates:            make(map[string]*ExperimentTemplate),
-		experiments:          make(map[string]*Experiment),
-		templateARNIndex:     make(map[string]string),
-		experimentARNIndex:   make(map[string]string),
-		targetAccountConfigs: make(map[string]map[string]*TargetAccountConfiguration),
-		tplClientTokens:      make(map[string]string),
-		expClientTokens:      make(map[string]string),
-		accountID:            accountID,
-		region:               region,
-		mu:                   lockmetrics.New("fis"),
-		svcCtx:               svcCtx,
+	b := &InMemoryBackend{
+		registry:        store.NewRegistry(),
+		tplClientTokens: make(map[string]string),
+		expClientTokens: make(map[string]string),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("fis"),
+		svcCtx:          svcCtx,
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
@@ -270,6 +269,10 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 			State: SafetyLeverState{Status: statusDisengaged},
 		},
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all in-memory state, cancelling any running experiments.
@@ -278,7 +281,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, exp := range b.experiments {
+	for _, exp := range b.experiments.All() {
 		if exp.cancel != nil {
 			exp.cancel()
 		}
@@ -286,11 +289,7 @@ func (b *InMemoryBackend) Reset() {
 
 	safetyLeverARN := arn.Build("fis", b.region, b.accountID, "safety-lever/"+b.accountID)
 
-	b.templates = make(map[string]*ExperimentTemplate)
-	b.experiments = make(map[string]*Experiment)
-	b.templateARNIndex = make(map[string]string)
-	b.experimentARNIndex = make(map[string]string)
-	b.targetAccountConfigs = make(map[string]map[string]*TargetAccountConfiguration)
+	b.registry.ResetAll()
 	b.tplClientTokens = make(map[string]string)
 	b.expClientTokens = make(map[string]string)
 	b.safetyLever = &SafetyLever{
@@ -691,8 +690,7 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 	b.mu.Lock("CreateExperimentTemplate")
 	defer b.mu.Unlock()
 
-	b.templates[id] = tpl
-	b.templateARNIndex[arnStr] = id
+	b.templates.Put(tpl)
 
 	if input.ClientToken != "" {
 		b.tplClientTokens[input.ClientToken] = id
@@ -706,7 +704,7 @@ func (b *InMemoryBackend) GetExperimentTemplate(id string) (*ExperimentTemplate,
 	b.mu.RLock("GetExperimentTemplate")
 	defer b.mu.RUnlock()
 
-	tpl, ok := b.templates[id]
+	tpl, ok := b.templates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
 	}
@@ -728,7 +726,7 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 	b.mu.Lock("UpdateExperimentTemplate")
 	defer b.mu.Unlock()
 
-	tpl, ok := b.templates[id]
+	tpl, ok := b.templates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
 	}
@@ -774,13 +772,19 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 	b.mu.Lock("DeleteExperimentTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.templates[id]; !ok {
+	if !b.templates.Has(id) {
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
 	}
 
-	delete(b.templateARNIndex, b.templates[id].Arn)
-	delete(b.templates, id)
-	delete(b.targetAccountConfigs, id)
+	b.templates.Delete(id)
+
+	// Clone the index group before deleting in the loop: Delete mutates the
+	// index's backing slice for this group, which would otherwise invalidate
+	// iteration over the very slice being ranged.
+	cfgs := slices.Clone(b.targetAccountConfigsByTemplate.Get(id))
+	for _, cfg := range cfgs {
+		b.targetAccountConfigs.Delete(targetAccountConfigKey(cfg.ExperimentTemplateID, cfg.AccountID))
+	}
 
 	// Drop idempotency-token entries pointing at this template so the map
 	// cannot grow unbounded across long-lived backends.
@@ -798,8 +802,10 @@ func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, erro
 	b.mu.RLock("ListExperimentTemplates")
 	defer b.mu.RUnlock()
 
-	result := make([]*ExperimentTemplate, 0, len(b.templates))
-	for _, tpl := range b.templates {
+	all := b.templates.All()
+	result := make([]*ExperimentTemplate, 0, len(all))
+
+	for _, tpl := range all {
 		result = append(result, cloneTemplate(tpl))
 	}
 
@@ -830,10 +836,10 @@ func (b *InMemoryBackend) StartExperiment(
 	}
 
 	b.mu.RLock("StartExperiment")
-	tpl, ok := b.templates[input.ExperimentTemplateID]
+	tpl, ok := b.templates.Get(input.ExperimentTemplateID)
 	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
-	experimentCount := len(b.experiments)
-	tplAccountCount := len(b.targetAccountConfigs[input.ExperimentTemplateID])
+	experimentCount := b.experiments.Len()
+	tplAccountCount := len(b.targetAccountConfigsByTemplate.Get(input.ExperimentTemplateID))
 	b.mu.RUnlock()
 
 	if leverEngaged {
@@ -865,8 +871,7 @@ func (b *InMemoryBackend) StartExperiment(
 	tplForRun := cloneTemplate(tpl)
 
 	b.mu.Lock("StartExperiment")
-	b.experiments[id] = exp
-	b.experimentARNIndex[arnStr] = id
+	b.experiments.Put(exp)
 
 	if input.ClientToken != "" {
 		b.expClientTokens[input.ClientToken] = id
@@ -977,7 +982,7 @@ func (b *InMemoryBackend) GetExperiment(id string) (*Experiment, error) {
 	b.mu.RLock("GetExperiment")
 	defer b.mu.RUnlock()
 
-	exp, ok := b.experiments[id]
+	exp, ok := b.experiments.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
 	}
@@ -989,7 +994,7 @@ func (b *InMemoryBackend) GetExperiment(id string) (*Experiment, error) {
 func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 	b.mu.Lock("StopExperiment")
 
-	exp, ok := b.experiments[id]
+	exp, ok := b.experiments.Get(id)
 	if !ok {
 		b.mu.Unlock()
 
@@ -1022,8 +1027,10 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 	b.mu.RLock("ListExperiments")
 	defer b.mu.RUnlock()
 
-	result := make([]*Experiment, 0, len(b.experiments))
-	for _, exp := range b.experiments {
+	all := b.experiments.All()
+	result := make([]*Experiment, 0, len(all))
+
+	for _, exp := range all {
 		result = append(result, cloneExperiment(exp))
 	}
 
@@ -1038,7 +1045,7 @@ func (b *InMemoryBackend) StopAllExperiments() {
 	b.mu.Lock("StopAllExperiments")
 	defer b.mu.Unlock()
 
-	for _, exp := range b.experiments {
+	for _, exp := range b.experiments.All() {
 		if exp.cancel != nil {
 			exp.cancel()
 		}
@@ -1055,7 +1062,7 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 	b.mu.RLock("ListExperimentResolvedTargets")
 	defer b.mu.RUnlock()
 
-	exp, ok := b.experiments[id]
+	exp, ok := b.experiments.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
 	}
@@ -1262,16 +1269,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		return copyStringMap(b.safetyLever.Tags), nil
 	}
 
-	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
-		if tpl := b.templates[tplID]; tpl != nil {
-			return copyStringMap(tpl.Tags), nil
-		}
+	if tpl, ok := b.templateByArn(resourceARN); ok {
+		return copyStringMap(tpl.Tags), nil
 	}
 
-	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
-		if exp := b.experiments[expID]; exp != nil {
-			return copyStringMap(exp.Tags), nil
-		}
+	if exp, ok := b.experimentByArn(resourceARN); ok {
+		return copyStringMap(exp.Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
@@ -1343,16 +1346,12 @@ func (b *InMemoryBackend) applyTagsLocked(resourceARN string, tags map[string]st
 		return applyTags(&b.safetyLever.Tags, tags, resourceARN)
 	}
 
-	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
-		if tpl := b.templates[tplID]; tpl != nil {
-			return applyTags(&tpl.Tags, tags, resourceARN)
-		}
+	if tpl, ok := b.templateByArn(resourceARN); ok {
+		return applyTags(&tpl.Tags, tags, resourceARN)
 	}
 
-	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
-		if exp := b.experiments[expID]; exp != nil {
-			return applyTags(&exp.Tags, tags, resourceARN)
-		}
+	if exp, ok := b.experimentByArn(resourceARN); ok {
+		return applyTags(&exp.Tags, tags, resourceARN)
 	}
 
 	return fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
@@ -1371,24 +1370,20 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 		return nil
 	}
 
-	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
-		if tpl := b.templates[tplID]; tpl != nil {
-			for _, k := range keys {
-				delete(tpl.Tags, k)
-			}
-
-			return nil
+	if tpl, ok := b.templateByArn(resourceARN); ok {
+		for _, k := range keys {
+			delete(tpl.Tags, k)
 		}
+
+		return nil
 	}
 
-	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
-		if exp := b.experiments[expID]; exp != nil {
-			for _, k := range keys {
-				delete(exp.Tags, k)
-			}
-
-			return nil
+	if exp, ok := b.experimentByArn(resourceARN); ok {
+		for _, k := range keys {
+			delete(exp.Tags, k)
 		}
+
+		return nil
 	}
 
 	return fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
@@ -1412,12 +1407,8 @@ func (b *InMemoryBackend) CreateTargetAccountConfiguration(
 	b.mu.Lock("CreateTargetAccountConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.templates[templateID]; !ok {
+	if !b.templates.Has(templateID) {
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, templateID)
-	}
-
-	if b.targetAccountConfigs[templateID] == nil {
-		b.targetAccountConfigs[templateID] = make(map[string]*TargetAccountConfiguration)
 	}
 
 	cfg := &TargetAccountConfiguration{
@@ -1427,7 +1418,7 @@ func (b *InMemoryBackend) CreateTargetAccountConfiguration(
 		Description:          description,
 	}
 
-	b.targetAccountConfigs[templateID][accountID] = cfg
+	b.targetAccountConfigs.Put(cfg)
 
 	cp := *cfg
 
@@ -1441,23 +1432,16 @@ func (b *InMemoryBackend) DeleteTargetAccountConfiguration(
 	b.mu.Lock("DeleteTargetAccountConfiguration")
 	defer b.mu.Unlock()
 
-	cfgs, ok := b.targetAccountConfigs[templateID]
-	if !ok {
-		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
-	}
+	key := targetAccountConfigKey(templateID, accountID)
 
-	cfg, ok := cfgs[accountID]
+	cfg, ok := b.targetAccountConfigs.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
 	}
 
 	cp := *cfg
 
-	delete(cfgs, accountID)
-
-	if len(cfgs) == 0 {
-		delete(b.targetAccountConfigs, templateID)
-	}
+	b.targetAccountConfigs.Delete(key)
 
 	return &cp, nil
 }
@@ -1469,12 +1453,7 @@ func (b *InMemoryBackend) GetTargetAccountConfiguration(
 	b.mu.RLock("GetTargetAccountConfiguration")
 	defer b.mu.RUnlock()
 
-	cfgs, ok := b.targetAccountConfigs[templateID]
-	if !ok {
-		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
-	}
-
-	cfg, ok := cfgs[accountID]
+	cfg, ok := b.targetAccountConfigs.Get(targetAccountConfigKey(templateID, accountID))
 	if !ok {
 		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
 	}
@@ -1493,12 +1472,7 @@ func (b *InMemoryBackend) UpdateTargetAccountConfiguration(
 	b.mu.Lock("UpdateTargetAccountConfiguration")
 	defer b.mu.Unlock()
 
-	cfgs, ok := b.targetAccountConfigs[templateID]
-	if !ok {
-		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
-	}
-
-	cfg, ok := cfgs[accountID]
+	cfg, ok := b.targetAccountConfigs.Get(targetAccountConfigKey(templateID, accountID))
 	if !ok {
 		return nil, fmt.Errorf("%w: template=%s account=%s", ErrTargetAccountConfigNotFound, templateID, accountID)
 	}
@@ -1521,11 +1495,11 @@ func (b *InMemoryBackend) ListTargetAccountConfigurations(templateID string) ([]
 	b.mu.RLock("ListTargetAccountConfigurations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.templates[templateID]; !ok {
+	if !b.templates.Has(templateID) {
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, templateID)
 	}
 
-	cfgs := b.targetAccountConfigs[templateID]
+	cfgs := b.targetAccountConfigsByTemplate.Get(templateID)
 	result := make([]*TargetAccountConfiguration, 0, len(cfgs))
 
 	for _, cfg := range cfgs {
@@ -1549,17 +1523,12 @@ func (b *InMemoryBackend) GetExperimentTargetAccountConfiguration(
 	b.mu.RLock("GetExperimentTargetAccountConfiguration")
 	defer b.mu.RUnlock()
 
-	exp, ok := b.experiments[experimentID]
+	exp, ok := b.experiments.Get(experimentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, experimentID)
 	}
 
-	cfgs, ok := b.targetAccountConfigs[exp.ExperimentTemplateID]
-	if !ok {
-		return nil, fmt.Errorf("%w: experiment=%s account=%s", ErrTargetAccountConfigNotFound, experimentID, accountID)
-	}
-
-	cfg, ok := cfgs[accountID]
+	cfg, ok := b.targetAccountConfigs.Get(targetAccountConfigKey(exp.ExperimentTemplateID, accountID))
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment=%s account=%s", ErrTargetAccountConfigNotFound, experimentID, accountID)
 	}
@@ -1580,12 +1549,12 @@ func (b *InMemoryBackend) ListExperimentTargetAccountConfigurations(
 	b.mu.RLock("ListExperimentTargetAccountConfigurations")
 	defer b.mu.RUnlock()
 
-	exp, ok := b.experiments[experimentID]
+	exp, ok := b.experiments.Get(experimentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, experimentID)
 	}
 
-	cfgs := b.targetAccountConfigs[exp.ExperimentTemplateID]
+	cfgs := b.targetAccountConfigsByTemplate.Get(exp.ExperimentTemplateID)
 	result := make([]*ExperimentTargetAccountConfiguration, 0, len(cfgs))
 
 	for _, cfg := range cfgs {
@@ -1823,7 +1792,7 @@ func (b *InMemoryBackend) setActionStatus(expID, actionName, status string) {
 	b.mu.Lock("setActionStatus")
 	defer b.mu.Unlock()
 
-	if exp, ok := b.experiments[expID]; ok {
+	if exp, ok := b.experiments.Get(expID); ok {
 		if action, ok2 := exp.Actions[actionName]; ok2 {
 			action.Status = ExperimentActionStatus{Status: status}
 			exp.Actions[actionName] = action
@@ -1886,7 +1855,7 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 	now := time.Now()
 	b.mu.Lock("cleanupActions")
 
-	if exp, ok := b.experiments[expID]; ok {
+	if exp, ok := b.experiments.Get(expID); ok {
 		exp.Status = ExperimentStatus{Status: expStatus}
 		exp.EndTime = &now
 
@@ -1911,7 +1880,7 @@ func (b *InMemoryBackend) setExperimentStatus(id, status string) {
 	b.mu.Lock("setExperimentStatus")
 	defer b.mu.Unlock()
 
-	if exp, ok := b.experiments[id]; ok {
+	if exp, ok := b.experiments.Get(id); ok {
 		exp.Status = ExperimentStatus{Status: status}
 	}
 }
@@ -1921,7 +1890,7 @@ func (b *InMemoryBackend) setAllActionStatuses(expID, status string) {
 	b.mu.Lock("setAllActionStatuses")
 	defer b.mu.Unlock()
 
-	if exp, ok := b.experiments[expID]; ok {
+	if exp, ok := b.experiments.Get(expID); ok {
 		now := time.Now()
 
 		for name, action := range exp.Actions {
@@ -1945,7 +1914,7 @@ func (b *InMemoryBackend) markExperimentFailed(expID, reason string) {
 	b.mu.Lock("markExperimentFailed")
 	defer b.mu.Unlock()
 
-	exp, ok := b.experiments[expID]
+	exp, ok := b.experiments.Get(expID)
 	if !ok {
 		return
 	}

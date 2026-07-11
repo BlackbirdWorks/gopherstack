@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -146,10 +147,17 @@ type DescribeVoicesFilter struct {
 }
 
 // InMemoryBackend stores Polly resources safely for concurrent requests.
+//
+// lexicons and tasks are *store.Table[T]-backed (see store_setup.go and
+// pkgs/store's package doc); tags remains a plain map since its values are
+// map[string]string, not *T, so there is nothing for store.Table to key on.
+// voices is the static built-in voice catalogue, not a mutable resource
+// collection.
 type InMemoryBackend struct {
-	lexicons  map[string]*Lexicon
-	tasks     map[string]*SpeechSynthesisTask
+	lexicons  *store.Table[Lexicon]
+	tasks     *store.Table[SpeechSynthesisTask]
 	tags      map[string]map[string]string
+	registry  *store.Registry
 	accountID string
 	region    string
 	voices    []Voice
@@ -163,14 +171,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a Polly backend configured for account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		lexicons:  make(map[string]*Lexicon),
-		tasks:     make(map[string]*SpeechSynthesisTask),
+	b := &InMemoryBackend{
+		registry:  store.NewRegistry(),
 		tags:      make(map[string]map[string]string),
 		voices:    builtInVoices(),
 		accountID: accountID,
 		region:    region,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns configured AWS region.
@@ -181,8 +191,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.lexicons = make(map[string]*Lexicon)
-	b.tasks = make(map[string]*SpeechSynthesisTask)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 }
 
@@ -195,7 +204,7 @@ func (b *InMemoryBackend) PutLexicon(name, content string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.lexicons[name] = &Lexicon{
+	b.lexicons.Put(&Lexicon{
 		Name:         name,
 		ARN:          arn.Build("polly", b.region, b.accountID, "lexicon/"+name),
 		Content:      content,
@@ -204,7 +213,7 @@ func (b *InMemoryBackend) PutLexicon(name, content string) error {
 		LexemesCount: strings.Count(content, "<lexeme>"),
 		Size:         len(content),
 		LastModified: time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -214,7 +223,7 @@ func (b *InMemoryBackend) GetLexicon(name string) (*Lexicon, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	lexicon, ok := b.lexicons[name]
+	lexicon, ok := b.lexicons.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: lexicon %q", ErrLexiconNotFound, name)
 	}
@@ -227,11 +236,9 @@ func (b *InMemoryBackend) DeleteLexicon(name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.lexicons[name]; !ok {
+	if !b.lexicons.Delete(name) {
 		return fmt.Errorf("%w: lexicon %q", ErrLexiconNotFound, name)
 	}
-
-	delete(b.lexicons, name)
 
 	return nil
 }
@@ -239,8 +246,9 @@ func (b *InMemoryBackend) DeleteLexicon(name string) error {
 // ListLexicons lists lexicons ordered by name.
 func (b *InMemoryBackend) ListLexicons() []*Lexicon {
 	b.mu.RLock()
-	out := make([]*Lexicon, 0, len(b.lexicons))
-	for _, lexicon := range b.lexicons {
+	all := b.lexicons.All()
+	out := make([]*Lexicon, 0, len(all))
+	for _, lexicon := range all {
 		out = append(out, cloneLexicon(lexicon))
 	}
 	b.mu.RUnlock()
@@ -339,7 +347,7 @@ func (b *InMemoryBackend) StartSpeechSynthesisTask(
 	}
 
 	b.mu.Lock()
-	b.tasks[id] = task
+	b.tasks.Put(task)
 	b.tags[b.taskARN(id)] = make(map[string]string)
 	b.mu.Unlock()
 
@@ -351,7 +359,7 @@ func (b *InMemoryBackend) GetSpeechSynthesisTask(taskID string) (*SpeechSynthesi
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	task, ok := b.tasks[taskID]
+	task, ok := b.tasks.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("%w: task %q", ErrTaskNotFound, taskID)
 	}
@@ -373,9 +381,11 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	keys := collections.SortedKeys(b.tasks)
+	// Table.Snapshot returns tasks ordered by TaskID ascending, matching the
+	// previous collections.SortedKeys(b.tasks) traversal order exactly.
+	tasks := b.tasks.Snapshot()
 
-	offset, err := parseToken(token, len(keys))
+	offset, err := parseToken(token, len(tasks))
 	if err != nil {
 		return nil, "", err
 	}
@@ -383,9 +393,8 @@ func (b *InMemoryBackend) ListSpeechSynthesisTasks(
 		maxResults = maxTaskPageSize
 	}
 
-	out := make([]*SpeechSynthesisTask, 0, len(keys))
-	for _, key := range keys[offset:] {
-		task := b.tasks[key]
+	out := make([]*SpeechSynthesisTask, 0, len(tasks))
+	for _, task := range tasks[offset:] {
 		advanceTask(task)
 		if status == "" || task.TaskStatus == status {
 			out = append(out, cloneTask(task))
@@ -497,7 +506,7 @@ func (b *InMemoryBackend) validateOptions(options SynthesisOptions) (SynthesisOp
 		)
 	}
 	for _, name := range options.LexiconNames {
-		if _, ok := b.lexicons[name]; !ok {
+		if !b.lexicons.Has(name) {
 			return options, fmt.Errorf("%w: lexicon %q", ErrLexiconNotFound, name)
 		}
 	}

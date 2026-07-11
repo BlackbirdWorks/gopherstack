@@ -325,10 +325,15 @@ func TestIssue5_ReceiveRequestAttemptIDDifferentIds(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Different attempt IDs are independent.
+	// Different attempt IDs are independent. VisibilityTimeout must be the
+	// "unspecified" sentinel (not the Go int zero value) so the first receive
+	// keeps its message in flight for the queue's default visibility window
+	// instead of an explicit 0-second timeout that makes it immediately
+	// redeliverable — see sqs.NoVisibilityTimeout's doc comment.
 	r1, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueURL:                qURL,
 		MaxNumberOfMessages:     1,
+		VisibilityTimeout:       sqs.NoVisibilityTimeout,
 		ReceiveRequestAttemptID: "attempt-1",
 	})
 	require.NoError(t, err)
@@ -336,6 +341,7 @@ func TestIssue5_ReceiveRequestAttemptIDDifferentIds(t *testing.T) {
 	r2, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueURL:                qURL,
 		MaxNumberOfMessages:     1,
+		VisibilityTimeout:       sqs.NoVisibilityTimeout,
 		ReceiveRequestAttemptID: "attempt-2",
 	})
 	require.NoError(t, err)

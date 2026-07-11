@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -149,4 +150,208 @@ func TestRedshiftHandler_Routing(t *testing.T) {
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	c2 := e.NewContext(req2, httptest.NewRecorder())
 	assert.Equal(t, "my-cluster", h.ExtractResource(c2))
+}
+
+// TestInMemoryBackend_FullStateRoundTrip is the Phase 3.3 store.Table
+// conversion's persistence-safety proof: it seeds one entry in every
+// resource collection the backend owns -- every store.Table registered in
+// store_setup.go, plus the three resource maps deliberately left raw
+// (activeResizes, snapshotCopyConfigs, loggingStatuses) -- snapshots, restores
+// into a fresh backend, and asserts every entry survived. Nothing here should
+// be dropped; if it is, this test fails.
+//
+// events is intentionally NOT seeded: no public API populates it (see
+// store_setup.go / DescribeEvents), matching pre-conversion behaviour.
+func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateCluster("rt-cluster", "ra3.xlplus", "rtdb", "admin")
+	require.NoError(t, err)
+
+	b.AddReservedNodeInternal(&redshift.ReservedNode{ReservedNodeID: "rn-1"})
+
+	_, err = b.AddPartner("000000000000", "rt-cluster", "rtdb", "partner-1")
+	require.NoError(t, err)
+
+	b.AddDataShareInternal(&redshift.DataShare{DataShareArn: "arn:aws:redshift:us-east-1:000000000000:datashare:ds-1"})
+
+	_, err = b.CreateClusterSecurityGroup("rt-secgroup", "desc")
+	require.NoError(t, err)
+
+	_, err = b.CreateClusterSnapshot("rt-snapshot", "rt-cluster")
+	require.NoError(t, err)
+
+	_, err = b.AuthorizeEndpointAccess("rt-cluster", "111111111111", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateClusterParameterGroup("rt-paramgroup", "redshift-1.0", "desc")
+	require.NoError(t, err)
+
+	_, err = b.CreateClusterSubnetGroup("rt-subnetgroup", "desc", "vpc-1", []string{"subnet-1"})
+	require.NoError(t, err)
+
+	_, err = b.CreateEventSubscription(
+		"rt-eventsub", "arn:aws:sns:us-east-1:000000000000:topic", "cluster", "INFO", nil, nil, true,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateSnapshotCopyGrant("rt-copygrant", "kms-key-1", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateSnapshotSchedule("rt-copyschedule", "desc", []string{"rate(12 hours)"}, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateUsageLimit("rt-cluster", "spectrum", "data-scanned", "log", 1000, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateAuthenticationProfile("rt-authprofile", `{"AllowDBUserOverride":"1"}`)
+	require.NoError(t, err)
+
+	_, err = b.PutResourcePolicy(
+		"arn:aws:redshift:us-east-1:000000000000:cluster:rt-cluster", `{"Version":"2012-10-17"}`,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateTableRestoreStatus("rt-cluster", "rt-snapshot", "srcdb", "srctbl", "dstdb", "dsttbl")
+	require.NoError(t, err)
+
+	_, err = b.CreateHsmClientCertificate("rt-hsmcert", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateHsmConfiguration("rt-hsmconfig", "desc", "10.0.0.1", "partition-1", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateScheduledAction(
+		"rt-scheduledaction", "at(2030-01-01T00:00:00)", "arn:aws:iam::000000000000:role/r", "desc", "",
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateCustomDomainAssociation(
+		"rt-cluster", "db.example.com", "arn:aws:acm:us-east-1:000000000000:certificate/1",
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateEndpointAccess("rt-cluster", "rt-endpointaccess", "vpc-1")
+	require.NoError(t, err)
+
+	_, err = b.CreateIntegration(
+		"rt-integration",
+		"arn:aws:redshift:us-east-1:000000000000:cluster:rt-cluster",
+		"arn:aws:redshift:us-east-1:000000000000:namespace/1",
+		"", "desc",
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateIdcApplication(
+		"rt-idcapp", "arn:aws:sso::000000000000:instance/1", "display", "arn:aws:iam::000000000000:role/r",
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateNamespace("rt-namespace", "admin", "rtdb", "", nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateWorkgroup("rt-workgroup", "rt-namespace", 32, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace")
+	require.NoError(t, err)
+
+	_, err = b.CreateServerlessUsageLimit(
+		"arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/rt-workgroup",
+		"ComputeCapacity", "daily", "log", 100,
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateServerlessScheduledAction(
+		"rt-slscheduledaction", "rt-namespace", "at(2030-01-01T00:00:00)", "",
+		time.Now(), time.Now().Add(time.Hour),
+	)
+	require.NoError(t, err)
+
+	// The three raw (unconverted) maps.
+	b.AddActiveResizeInternal("rt-cluster", &redshift.ResizeProgress{Status: "IN_PROGRESS", AllowCancelResize: true})
+
+	_, err = b.EnableSnapshotCopy("rt-cluster", "us-west-2", "rt-copygrant", 7)
+	require.NoError(t, err)
+
+	_, err = b.EnableLogging("rt-cluster", "rt-bucket", "prefix/")
+	require.NoError(t, err)
+
+	// Snapshot and restore into a fresh backend.
+	data := b.Snapshot(t.Context())
+	require.NotNil(t, data)
+
+	fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), data))
+
+	// Verify every seeded resource survived the round trip.
+	assert.Equal(t, 1, redshift.ClusterCount(fresh))
+	assert.Equal(t, 1, redshift.ReservedNodeCount(fresh))
+	assert.Equal(t, 1, redshift.PartnerCount(fresh))
+	assert.Equal(t, 1, redshift.DataShareCount(fresh))
+	assert.Equal(t, 1, redshift.SecurityGroupCount(fresh))
+	assert.Equal(t, 1, redshift.SnapshotCount(fresh))
+	assert.Equal(t, 1, redshift.EndpointAuthCount(fresh))
+	assert.Equal(t, 1, redshift.ParameterGroupCount(fresh))
+	assert.Equal(t, 1, redshift.SubnetGroupCount(fresh))
+	assert.Equal(t, 1, redshift.EventSubscriptionCount(fresh))
+	assert.Equal(t, 1, redshift.HsmClientCertCount(fresh))
+	assert.Equal(t, 1, redshift.HsmConfigCount(fresh))
+	assert.Equal(t, 1, redshift.ScheduledActionCount(fresh))
+	assert.Equal(t, 1, redshift.CustomDomainCount(fresh))
+	assert.Equal(t, 1, redshift.EndpointAccessCount(fresh))
+	assert.Equal(t, 1, redshift.IntegrationCount(fresh))
+	assert.Equal(t, 1, redshift.IdcApplicationCount(fresh))
+
+	// The three deliberately-raw maps (see store_setup.go).
+	assert.Equal(t, 1, redshift.ActiveResizeCount(fresh))
+	assert.Equal(t, 1, redshift.SnapshotCopyConfigCount(fresh))
+	assert.Equal(t, 1, redshift.LoggingStatusCount(fresh))
+
+	// Resources without an exported Count helper: verify via the public
+	// Describe/Get surface instead.
+	grants, err := fresh.DescribeSnapshotCopyGrants("")
+	require.NoError(t, err)
+	assert.Len(t, grants, 1)
+
+	schedules, err := fresh.DescribeSnapshotSchedules("")
+	require.NoError(t, err)
+	assert.Len(t, schedules, 1)
+
+	limits, err := fresh.DescribeUsageLimits("", "")
+	require.NoError(t, err)
+	assert.Len(t, limits, 1)
+
+	profiles, err := fresh.DescribeAuthenticationProfiles("")
+	require.NoError(t, err)
+	assert.Len(t, profiles, 1)
+
+	_, err = fresh.GetResourcePolicy("arn:aws:redshift:us-east-1:000000000000:cluster:rt-cluster")
+	require.NoError(t, err)
+
+	restores, err := fresh.DescribeTableRestoreStatus("")
+	require.NoError(t, err)
+	assert.Len(t, restores, 1)
+
+	_, err = fresh.GetNamespace("rt-namespace")
+	require.NoError(t, err)
+
+	_, err = fresh.GetWorkgroup("rt-workgroup")
+	require.NoError(t, err)
+
+	_, err = fresh.GetServerlessSnapshot("rt-slsnapshot")
+	require.NoError(t, err)
+
+	slLimits, _ := fresh.ListServerlessUsageLimits("", 0, "")
+	assert.Len(t, slLimits, 1)
+
+	_, err = fresh.GetServerlessScheduledAction("rt-slscheduledaction")
+	require.NoError(t, err)
+
+	// Disabling snapshot copy only succeeds if snapshotCopyConfigs (raw map)
+	// survived the round trip with the rt-cluster entry intact.
+	_, err = fresh.DisableSnapshotCopy("rt-cluster")
+	require.NoError(t, err)
 }

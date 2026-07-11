@@ -83,6 +83,10 @@ func (h *Handler) handleCreateTrustStore(c *echo.Context) error {
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
 	var req createTrustStoreRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -164,6 +168,10 @@ func (h *Handler) handleUpdateTrustStore(c *echo.Context, id string) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 	var req trustStoreConfigXML
 	if len(body) > 0 {
@@ -281,6 +289,10 @@ func (h *Handler) handleCreateStreamingDistribution(c *echo.Context) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var cfg streamingDistributionConfigXML
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid StreamingDistributionConfig XML"))
@@ -301,6 +313,10 @@ func (h *Handler) handleCreateStreamingDistributionWithTags(c *echo.Context) err
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 
 	var req streamingDistributionConfigWithTagsXML
@@ -444,6 +460,10 @@ func (h *Handler) handleUpdateStreamingDistribution(c *echo.Context, id string) 
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
 
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
+
 	var cfg streamingDistributionConfigXML
 	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid StreamingDistributionConfig XML"))
@@ -512,6 +532,10 @@ func monitoringSubscriptionXML(ns string, ms *MonitoringSubscription) string {
 func (h *Handler) handleCreateMonitoringSubscription(c *echo.Context, distributionID string) error {
 	// Check if enabled from body.
 	body, _ := readBody(c)
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
 	enabled := true
 	if len(body) > 0 {
 		var req struct {
@@ -568,6 +592,10 @@ func (h *Handler) handlePutResourcePolicy(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 	var req struct {
 		XMLName     xml.Name `xml:"ResourcePolicy"`
@@ -690,6 +718,10 @@ func (h *Handler) handleUpdateConnectionGroup(c *echo.Context, id string) error 
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 	var req updateConnectionGroupRequestXML
 	if len(body) > 0 {
@@ -835,6 +867,10 @@ func (h *Handler) handleUpdateConnectionFunction(c *echo.Context, id string) err
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
 	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
 	var req updateConnectionFunctionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
@@ -914,6 +950,10 @@ func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error
 	body, err := readBody(c)
 	if err != nil {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
 	}
 	var req testConnectionFunctionRequestXML
 	if len(body) > 0 {
@@ -1022,6 +1062,10 @@ func (h *Handler) handleUpdateAnycastIPList(c *echo.Context, id string) error {
 		IPCount int32    `xml:"IpCount"`
 	}
 	body, _ := readBody(c)
+
+	if qErr := validateQuantities(body); qErr != nil {
+		return h.handleError(c, qErr)
+	}
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}

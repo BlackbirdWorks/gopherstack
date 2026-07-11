@@ -108,9 +108,18 @@ func (b *InMemoryBackend) rebuildDistributionSearchIndex() {
 	b.distSearchTokens = make(map[string]map[string]struct{})
 	b.distSearchInverted = make(map[string]map[string]struct{})
 
-	for id, d := range b.distributions {
-		b.indexDistributionConfig(id, d.RawConfig)
+	for _, d := range b.distributions.All() {
+		b.indexDistributionConfig(d.ID, d.RawConfig)
 	}
+}
+
+// tokenReferencedByAnyDistribution reports whether searchStr appears as a whole
+// token in any indexed distribution's raw config. Used by Delete* methods to
+// enforce AWS's "cannot delete a resource still in use" rule (e.g.
+// CachePolicyInUse, FunctionInUse) without an O(n) scan over every distribution.
+// Must be called with the backend's lock already held (read or write).
+func (b *InMemoryBackend) tokenReferencedByAnyDistribution(searchStr string) bool {
+	return len(b.distSearchInverted[searchStr]) > 0
 }
 
 // distributionsByConfigSearch returns copies of the distributions whose raw
@@ -124,7 +133,7 @@ func (b *InMemoryBackend) distributionsByConfigSearch(searchStr string) []*Distr
 
 	out := make([]*Distribution, 0, len(ids))
 	for id := range ids {
-		if d, ok := b.distributions[id]; ok {
+		if d, ok := b.distributions.Get(id); ok {
 			out = append(out, b.copyDistribution(d))
 		}
 	}

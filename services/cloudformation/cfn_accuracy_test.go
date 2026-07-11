@@ -651,8 +651,9 @@ func TestStackLifecycle_RollbackOnCreateFailure(t *testing.T) {
 	assert.Equal(t, "ROLLBACK_COMPLETE", stack.StackStatus)
 
 	// Events contain ROLLBACK_IN_PROGRESS.
-	events, err := b.DescribeStackEvents("fail-stack")
+	evtPage, err := b.DescribeStackEvents("fail-stack", "")
 	require.NoError(t, err)
+	events := evtPage.Data
 	statuses := make([]string, len(events))
 	for i, e := range events {
 		statuses[i] = e.ResourceStatus
@@ -961,8 +962,9 @@ func TestDescribeStackEvents_ReverseChrono(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	events, err := b.DescribeStackEvents("events-stack")
+	evtPage, err := b.DescribeStackEvents("events-stack", "")
 	require.NoError(t, err)
+	events := evtPage.Data
 	assert.NotEmpty(t, events)
 
 	// Most recent first.

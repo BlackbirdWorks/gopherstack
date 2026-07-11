@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
@@ -144,7 +146,7 @@ func (b *InMemoryBackend) GetIdentityDkimAttributes(identities []string) map[str
 	out := make(map[string]DkimAttributes, len(identities))
 
 	for _, id := range identities {
-		rec, ok := b.identities[id]
+		rec, ok := b.identities.Get(id)
 		if !ok {
 			out[id] = DkimAttributes{DkimVerificationStatus: identityStatusNotStarted}
 
@@ -184,7 +186,7 @@ func (b *InMemoryBackend) GetIdentityMailFromDomainAttributes(identities []strin
 	out := make(map[string]MailFromDomainAttributes, len(identities))
 
 	for _, id := range identities {
-		rec, ok := b.identities[id]
+		rec, ok := b.identities.Get(id)
 		if !ok {
 			out[id] = MailFromDomainAttributes{}
 
@@ -225,7 +227,7 @@ func (b *InMemoryBackend) GetIdentityNotificationAttributes(identities []string)
 	out := make(map[string]NotificationAttributes, len(identities))
 
 	for _, id := range identities {
-		rec, ok := b.identities[id]
+		rec, ok := b.identities.Get(id)
 		if !ok {
 			out[id] = NotificationAttributes{ForwardingEnabled: true}
 
@@ -304,11 +306,33 @@ func (b *InMemoryBackend) SetIdentityHeadersInNotificationsEnabled(
 	return nil
 }
 
+// behaviorOnMXFailureUseDefault and behaviorOnMXFailureReject are the two legal
+// values of the SetIdentityMailFromDomain BehaviorOnMXFailure parameter,
+// matching the AWS SES BehaviorOnMXFailure enum. UseDefaultValue is the
+// real-AWS default when the parameter is omitted.
+const (
+	behaviorOnMXFailureUseDefault = "UseDefaultValue"
+	behaviorOnMXFailureReject     = "RejectMessage"
+)
+
 // SetIdentityMailFromDomain persists the custom MAIL FROM domain for an identity.
-// An empty mailFromDomain clears the setting.
-func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain string) error {
+// An empty mailFromDomain clears the setting (and its BehaviorOnMXFailure).
+// behaviorOnMXFailure must be "UseDefaultValue" or "RejectMessage"; an empty
+// value defaults to "UseDefaultValue", matching real AWS SES.
+func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain, behaviorOnMXFailure string) error {
 	if strings.TrimSpace(identity) == "" {
 		return fmt.Errorf("%w: Identity is required", ErrInvalidParameter)
+	}
+
+	if behaviorOnMXFailure == "" {
+		behaviorOnMXFailure = behaviorOnMXFailureUseDefault
+	}
+
+	if behaviorOnMXFailure != behaviorOnMXFailureUseDefault && behaviorOnMXFailure != behaviorOnMXFailureReject {
+		return fmt.Errorf(
+			"%w: BehaviorOnMXFailure must be %s or %s",
+			ErrInvalidParameter, behaviorOnMXFailureUseDefault, behaviorOnMXFailureReject,
+		)
 	}
 
 	b.mu.Lock("SetIdentityMailFromDomain")
@@ -319,8 +343,10 @@ func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain str
 
 	if mailFromDomain == "" {
 		rec.MailFromStatus = ""
+		rec.BehaviorOnMXFail = ""
 	} else {
 		rec.MailFromStatus = identityStatusSuccess
+		rec.BehaviorOnMXFail = behaviorOnMXFailure
 	}
 
 	return nil
@@ -365,10 +391,10 @@ func (b *InMemoryBackend) VerifyDomainIdentity(domain string) (string, error) {
 	b.mu.Lock("VerifyDomainIdentity")
 	defer b.mu.Unlock()
 
-	if rec, ok := b.identities[domain]; ok {
+	if rec, ok := b.identities.Get(domain); ok {
 		rec.Verified = true
 	} else {
-		b.identities[domain] = &IdentityRecord{Verified: true, ForwardingEnabled: true}
+		b.identities.Put(&IdentityRecord{Identity: domain, Verified: true, ForwardingEnabled: true})
 	}
 
 	h := sha256.Sum256([]byte("domain-token:" + domain))
@@ -387,11 +413,13 @@ func (b *InMemoryBackend) VerifyDomainDkim(domain string) ([]string, error) {
 
 	tokens := dkimTokensForIdentity(domain)
 
-	if rec, ok := b.identities[domain]; ok {
+	if rec, ok := b.identities.Get(domain); ok {
 		rec.Verified = true
 		rec.DkimTokens = tokens
 	} else {
-		b.identities[domain] = &IdentityRecord{Verified: true, ForwardingEnabled: true, DkimTokens: tokens}
+		b.identities.Put(&IdentityRecord{
+			Identity: domain, Verified: true, ForwardingEnabled: true, DkimTokens: tokens,
+		})
 	}
 
 	return tokens, nil
@@ -414,9 +442,9 @@ func (b *InMemoryBackend) ListVerifiedEmailAddresses() []string {
 
 	var out []string
 
-	for id, rec := range b.identities {
-		if rec.Verified && strings.Contains(id, "@") {
-			out = append(out, id)
+	for _, rec := range b.identities.All() {
+		if rec.Verified && strings.Contains(rec.Identity, "@") {
+			out = append(out, rec.Identity)
 		}
 	}
 
@@ -443,24 +471,50 @@ func (b *InMemoryBackend) GetAccountSendingEnabled() bool {
 	return b.accountSendingEnabled
 }
 
-// ---- send operations (stubs) ----
+// ---- send operations ----
 
-// SendBounce is a no-op stub that returns a synthetic bounce message ID.
-func (b *InMemoryBackend) SendBounce(originalMsgID string) (string, error) {
+// SendBounce generates and sends a bounce message for a previously received
+// email. Real AWS SES models BounceSender and BouncedRecipientInfoList as
+// required input members (SendBounceInput), so both must be supplied here;
+// BounceSender must additionally be a verified identity (or a verified
+// domain), matching the same sender-verification rule enforced by SendEmail.
+func (b *InMemoryBackend) SendBounce(originalMsgID, bounceSender string, recipients []string) (string, error) {
 	if strings.TrimSpace(originalMsgID) == "" {
 		return "", fmt.Errorf("%w: OriginalMessageId is required", ErrInvalidParameter)
 	}
 
-	return "bounce-" + originalMsgID, nil
+	if strings.TrimSpace(bounceSender) == "" {
+		return "", fmt.Errorf("%w: BounceSender is required", ErrInvalidParameter)
+	}
+
+	if len(recipients) == 0 {
+		return "", fmt.Errorf("%w: BouncedRecipientInfoList must contain at least one entry", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("SendBounce")
+	defer b.mu.Unlock()
+
+	if !b.isVerifiedLocked(bounceSender) {
+		return "", fmt.Errorf(
+			"%w: Email address is not verified. The following identities failed the check in region %s: %s",
+			ErrMessageRejected, strings.ToUpper(b.region), bounceSender,
+		)
+	}
+
+	return "ses-bounce-" + uuid.New().String(), nil
 }
 
 // SendBulkTemplatedEmail sends one email per destination and returns a message
 // ID for each. Each destination is rendered with the request-level
 // defaultTemplateData merged with that destination's ReplacementTemplateData,
 // matching AWS SES SendBulkTemplatedEmail semantics where replacement values
-// override defaults on a per-recipient basis.
+// override defaults on a per-recipient basis. configurationSetName, replyTo,
+// returnPath and sourceArn mirror the corresponding SendBulkTemplatedEmailInput
+// members and are threaded through to every generated Email record exactly as
+// SendEmail/SendTemplatedEmail do for a single-destination send.
 func (b *InMemoryBackend) SendBulkTemplatedEmail(
-	source, templateName, defaultTemplateData string,
+	source, templateName, defaultTemplateData, configurationSetName, returnPath, sourceArn string,
+	replyTo []string,
 	destinations []BulkEmailDestination,
 ) ([]string, error) {
 	if strings.TrimSpace(source) == "" {
@@ -476,6 +530,19 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 	// matching real SES which validates the template at request time.
 	if _, err := b.GetTemplate(templateName); err != nil {
 		return nil, err
+	}
+
+	// Validate the configuration set (when supplied) exists up front, matching
+	// the same ConfigurationSetDoesNotExist precondition enforced by SendEmail
+	// and SendTemplatedEmail.
+	if configurationSetName != "" {
+		b.mu.RLock("SendBulkTemplatedEmail")
+		exists := b.configSets.Has(configurationSetName)
+		b.mu.RUnlock()
+
+		if !exists {
+			return nil, fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+		}
 	}
 
 	msgIDs := make([]string, 0, len(destinations))
@@ -495,12 +562,16 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 		}
 
 		msgID, err := b.SendTemplatedEmail(SendTemplatedEmailInput{
-			From:         source,
-			To:           d.To,
-			Cc:           d.Cc,
-			Bcc:          d.Bcc,
-			TemplateName: templateName,
-			TemplateData: string(mergedJSON),
+			From:                 source,
+			To:                   d.To,
+			Cc:                   d.Cc,
+			Bcc:                  d.Bcc,
+			ReplyTo:              replyTo,
+			TemplateName:         templateName,
+			TemplateData:         string(mergedJSON),
+			ConfigurationSetName: configurationSetName,
+			ReturnPath:           returnPath,
+			SourceArn:            sourceArn,
 		})
 		if err != nil {
 			return nil, err
@@ -512,8 +583,17 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(
 	return msgIDs, nil
 }
 
-// SendCustomVerificationEmail is a no-op stub.
-func (b *InMemoryBackend) SendCustomVerificationEmail(email, templateName string) (string, error) {
+// SendCustomVerificationEmail adds email to the account's identity list and
+// attempts to verify it (matching this backend's instant-verification
+// convention shared by VerifyEmailIdentity/VerifyEmailAddress) and sends a
+// verification email using the named custom template. templateName must
+// reference an existing custom verification email template
+// (CreateCustomVerificationEmailTemplate), and configurationSetName, if
+// supplied, must reference an existing configuration set — both required
+// preconditions on the real AWS SES SendCustomVerificationEmailInput.
+func (b *InMemoryBackend) SendCustomVerificationEmail(
+	email, templateName, configurationSetName string,
+) (string, error) {
 	if strings.TrimSpace(email) == "" {
 		return "", fmt.Errorf("%w: EmailAddress is required", ErrInvalidParameter)
 	}
@@ -522,7 +602,29 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(email, templateName string
 		return "", fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
 	}
 
-	return "custom-verif-" + email, nil
+	if _, err := b.GetCustomVerificationEmailTemplate(templateName); err != nil {
+		return "", err
+	}
+
+	if configurationSetName != "" {
+		b.mu.RLock("SendCustomVerificationEmail")
+		exists := b.configSets.Has(configurationSetName)
+		b.mu.RUnlock()
+
+		if !exists {
+			return "", fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
+		}
+	}
+
+	b.mu.Lock("SendCustomVerificationEmail")
+	if rec, ok := b.identities.Get(email); ok {
+		rec.Verified = true
+	} else {
+		b.identities.Put(&IdentityRecord{Identity: email, Verified: true, ForwardingEnabled: true})
+	}
+	b.mu.Unlock()
+
+	return "ses-verif-" + uuid.New().String(), nil
 }
 
 // parseTemplateData parses the JSON template-data document into a flat
@@ -609,12 +711,12 @@ func (b *InMemoryBackend) UpdateCustomVerificationEmailTemplate(tmpl CustomVerif
 	b.mu.Lock("UpdateCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, exists := b.customVerifTemplates[tmpl.TemplateName]; !exists {
+	if !b.customVerifTemplates.Has(tmpl.TemplateName) {
 		return fmt.Errorf("%w: %s", ErrCustomVerifTemplateNotFound, tmpl.TemplateName)
 	}
 
 	t := tmpl
-	b.customVerifTemplates[tmpl.TemplateName] = &t
+	b.customVerifTemplates.Put(&t)
 
 	return nil
 }
@@ -634,7 +736,7 @@ func (b *InMemoryBackend) DescribeReceiptRule(ruleSetName, ruleName string) (Rec
 	b.mu.RLock("DescribeReceiptRule")
 	defer b.mu.RUnlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return ReceiptRule{}, fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -669,7 +771,7 @@ func (b *InMemoryBackend) UpdateReceiptRule(ruleSetName string, rule ReceiptRule
 	b.mu.Lock("UpdateReceiptRule")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -693,7 +795,7 @@ func (b *InMemoryBackend) ReorderReceiptRuleSet(ruleSetName string, ruleNames []
 	b.mu.Lock("ReorderReceiptRuleSet")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -741,7 +843,7 @@ func (b *InMemoryBackend) SetReceiptRulePosition(ruleSetName, ruleName string, p
 	b.mu.Lock("SetReceiptRulePosition")
 	defer b.mu.Unlock()
 
-	rs, exists := b.receiptRuleSets[ruleSetName]
+	rs, exists := b.receiptRuleSets.Get(ruleSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleSetNotFound, ruleSetName)
 	}
@@ -796,7 +898,7 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 	b.mu.RLock("DescribeConfigurationSet")
 	defer b.mu.RUnlock()
 
-	cs, exists := b.configSets[name]
+	cs, exists := b.configSets.Get(name)
 	if !exists {
 		return ConfigurationSetDescription{}, fmt.Errorf("%w: %s", ErrConfigSetNotFound, name)
 	}
@@ -811,7 +913,7 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 		desc.DeliveryOptions = &DeliveryOptions{TLSPolicy: cs.TLSPolicy}
 	}
 
-	if dests := b.eventDestinations[name]; dests != nil {
+	if dests := b.eventDestinationsByConfigSet.Get(name); len(dests) > 0 {
 		for _, d := range dests {
 			dc := *d
 			desc.EventDestinations = append(desc.EventDestinations, dc)
@@ -822,7 +924,7 @@ func (b *InMemoryBackend) DescribeConfigurationSet(name string) (ConfigurationSe
 		})
 	}
 
-	if to := b.trackingOptions[name]; to != nil {
+	if to, ok := b.trackingOptions.Get(name); ok {
 		tc := *to
 		desc.TrackingOptions = &tc
 	}
@@ -839,7 +941,7 @@ func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(configSetName, tlsP
 	b.mu.Lock("PutConfigurationSetDeliveryOptions")
 	defer b.mu.Unlock()
 
-	cs, exists := b.configSets[configSetName]
+	cs, exists := b.configSets.Get(configSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
@@ -862,21 +964,18 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(configSetName s
 	b.mu.Lock("UpdateConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	dests := b.eventDestinations[configSetName]
-	if dests == nil {
-		return fmt.Errorf("%w: %s", ErrEventDestinationNotFound, dest.Name)
-	}
-
-	if _, exists := dests[dest.Name]; !exists {
+	key := eventDestinationKey(configSetName, dest.Name)
+	if !b.eventDestinations.Has(key) {
 		return fmt.Errorf("%w: %s", ErrEventDestinationNotFound, dest.Name)
 	}
 
 	d := dest
-	dests[dest.Name] = &d
+	d.ConfigSetName = configSetName
+	b.eventDestinations.Put(&d)
 
 	return nil
 }
@@ -890,7 +989,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetReputationMetricsEnabled(configS
 	b.mu.Lock("UpdateConfigurationSetReputationMetricsEnabled")
 	defer b.mu.Unlock()
 
-	cs, exists := b.configSets[configSetName]
+	cs, exists := b.configSets.Get(configSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
@@ -909,7 +1008,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetSendingEnabled(configSetName str
 	b.mu.Lock("UpdateConfigurationSetSendingEnabled")
 	defer b.mu.Unlock()
 
-	cs, exists := b.configSets[configSetName]
+	cs, exists := b.configSets.Get(configSetName)
 	if !exists {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
@@ -928,11 +1027,11 @@ func (b *InMemoryBackend) UpdateConfigurationSetTrackingOptions(configSetName, c
 	b.mu.Lock("UpdateConfigurationSetTrackingOptions")
 	defer b.mu.Unlock()
 
-	if _, exists := b.configSets[configSetName]; !exists {
+	if !b.configSets.Has(configSetName) {
 		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configSetName)
 	}
 
-	if _, exists := b.trackingOptions[configSetName]; !exists {
+	if !b.trackingOptions.Has(configSetName) {
 		return fmt.Errorf(
 			"%w: tracking options do not exist for configuration set %s",
 			ErrTrackingOptionsNotFound,
@@ -940,7 +1039,7 @@ func (b *InMemoryBackend) UpdateConfigurationSetTrackingOptions(configSetName, c
 		)
 	}
 
-	b.trackingOptions[configSetName] = &TrackingOptions{CustomRedirectDomain: customRedirectDomain}
+	b.trackingOptions.Put(&TrackingOptions{ConfigSetName: configSetName, CustomRedirectDomain: customRedirectDomain})
 
 	return nil
 }

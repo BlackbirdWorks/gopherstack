@@ -163,11 +163,11 @@ func (b *InMemoryBackend) SetUserPoolMfaConfigFull(userPoolID string, cfg UserPo
 	b.mu.Lock("SetUserPoolMfaConfigFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	pool, ok := b.pools.Get(userPoolID)
+	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	pool := b.pools[userPoolID]
 	if cfg.MfaConfiguration != "" {
 		pool.MfaConfiguration = cfg.MfaConfiguration
 	}
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) GetUserPoolMfaConfigFull(userPoolID string) (*UserPool
 	b.mu.RLock("GetUserPoolMfaConfigFull")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -343,12 +343,11 @@ func (b *InMemoryBackend) SetTypedRiskConfiguration(cfg *TypedRiskConfiguration)
 	b.mu.Lock("SetTypedRiskConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[cfg.UserPoolID]; !ok {
+	if _, ok := b.pools.Get(cfg.UserPoolID); !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, cfg.UserPoolID)
 	}
 
-	key := cfg.UserPoolID + ":" + cfg.ClientID
-	b.typedRiskConfigurations[key] = cfg
+	b.typedRiskConfigurations.Put(cfg)
 
 	return nil
 }
@@ -358,13 +357,11 @@ func (b *InMemoryBackend) GetTypedRiskConfiguration(poolID, clientID string) (*T
 	b.mu.RLock("GetTypedRiskConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[poolID]; !ok {
+	if _, ok := b.pools.Get(poolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, poolID)
 	}
 
-	key := poolID + ":" + clientID
-
-	cfg, ok := b.typedRiskConfigurations[key]
+	cfg, ok := b.typedRiskConfigurations.Get(poolID + ":" + clientID)
 	if !ok {
 		return &TypedRiskConfiguration{UserPoolID: poolID, ClientID: clientID}, nil
 	}
@@ -383,26 +380,25 @@ func (b *InMemoryBackend) SetUICustomizationFull(poolID, clientID, css, imageURL
 	b.mu.Lock("SetUICustomizationFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[poolID]; !ok {
+	if _, ok := b.pools.Get(poolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, poolID)
 	}
 
-	key := poolID + ":" + clientID
 	now := time.Now()
 
-	existing, ok := b.uiCustomizations[key]
+	existing, ok := b.uiCustomizations.Get(uiKey(poolID, clientID))
 	if !ok {
 		existing = &UICustomization{
 			UserPoolID: poolID,
 			ClientID:   clientID,
 			CreatedAt:  now,
 		}
-		b.uiCustomizations[key] = existing
 	}
 
 	existing.CSS = css
 	existing.ImageURL = imageURL
 	existing.LastModifiedAt = now
+	b.uiCustomizations.Put(existing)
 
 	cp := *existing
 
@@ -414,13 +410,11 @@ func (b *InMemoryBackend) GetUICustomizationFull(poolID, clientID string) (*UICu
 	b.mu.RLock("GetUICustomizationFull")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[poolID]; !ok {
+	if _, ok := b.pools.Get(poolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, poolID)
 	}
 
-	key := poolID + ":" + clientID
-
-	existing, ok := b.uiCustomizations[key]
+	existing, ok := b.uiCustomizations.Get(uiKey(poolID, clientID))
 	if !ok {
 		return &UICustomization{UserPoolID: poolID, ClientID: clientID}, nil
 	}
@@ -444,15 +438,11 @@ func (b *InMemoryBackend) CreateIdentityProviderFull(
 	b.mu.Lock("CreateIdentityProviderFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if b.identityProviders[userPoolID] == nil {
-		b.identityProviders[userPoolID] = make(map[string]*IdentityProvider)
-	}
-
-	if _, exists := b.identityProviders[userPoolID][providerName]; exists {
+	if _, exists := b.identityProviders.Get(identityProviderKey(userPoolID, providerName)); exists {
 		return nil, fmt.Errorf("%w: identity provider %q already exists in pool %q",
 			ErrDuplicateProvider, providerName, userPoolID)
 	}
@@ -479,7 +469,7 @@ func (b *InMemoryBackend) CreateIdentityProviderFull(
 		LastModifiedAt:   now,
 	}
 
-	b.identityProviders[userPoolID][providerName] = idp
+	b.identityProviders.Put(idp)
 
 	cp := *idp
 
@@ -496,11 +486,11 @@ func (b *InMemoryBackend) UpdateIdentityProviderFull(
 	b.mu.Lock("UpdateIdentityProviderFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	idp, ok := b.identityProviders[userPoolID][providerName]
+	idp, ok := b.identityProviders.Get(identityProviderKey(userPoolID, providerName))
 	if !ok {
 		return nil, fmt.Errorf("%w: identity provider %q not found in pool %q",
 			ErrUserPoolNotFound, providerName, userPoolID)
@@ -536,11 +526,11 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(userPoolID, domain, certifica
 	b.mu.Lock("CreateUserPoolDomainFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, exists := b.domains[domain]; exists {
+	if _, exists := b.domains.Get(domain); exists {
 		return nil, fmt.Errorf("%w: domain %q already exists", ErrAlreadyExists, domain)
 	}
 
@@ -557,7 +547,7 @@ func (b *InMemoryBackend) CreateUserPoolDomainFull(userPoolID, domain, certifica
 		CertificateArn:         certificateArn,
 		Status:                 "ACTIVE",
 	}
-	b.domains[domain] = d
+	b.domains.Put(d)
 
 	cp := *d
 
@@ -569,11 +559,11 @@ func (b *InMemoryBackend) UpdateUserPoolDomainFull(userPoolID, domain, certifica
 	b.mu.Lock("UpdateUserPoolDomainFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	d, ok := b.domains[domain]
+	d, ok := b.domains.Get(domain)
 	if !ok {
 		return "", fmt.Errorf("%w: domain %q not found", ErrUserPoolNotFound, domain)
 	}
@@ -598,15 +588,11 @@ func (b *InMemoryBackend) CreateGroupFull(
 	b.mu.Lock("CreateGroupFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if b.groups[userPoolID] == nil {
-		b.groups[userPoolID] = make(map[string]*Group)
-	}
-
-	if _, exists := b.groups[userPoolID][groupName]; exists {
+	if _, exists := b.groups.Get(groupKey(userPoolID, groupName)); exists {
 		return nil, fmt.Errorf("%w: group %q already exists in pool %q", ErrAlreadyExists, groupName, userPoolID)
 	}
 
@@ -621,7 +607,7 @@ func (b *InMemoryBackend) CreateGroupFull(
 		LastModifiedAt: now,
 	}
 
-	b.groups[userPoolID][groupName] = g
+	b.groups.Put(g)
 
 	if b.groupMembers[userPoolID] == nil {
 		b.groupMembers[userPoolID] = make(map[string]map[string]struct{})
@@ -642,11 +628,11 @@ func (b *InMemoryBackend) UpdateGroupFull(
 	b.mu.Lock("UpdateGroupFull")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	g, ok := b.groups[userPoolID][groupName]
+	g, ok := b.groups.Get(groupKey(userPoolID, groupName))
 	if !ok {
 		return nil, fmt.Errorf("%w: group %q not found in pool %q", ErrGroupNotFound, groupName, userPoolID)
 	}
@@ -682,17 +668,12 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	b.mu.Lock("AdminCreateUserFull")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolUsers, ok := b.users[userPoolID]
-	if !ok {
-		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
-	}
-
-	if existing, exists := poolUsers[username]; exists {
+	if existing, exists := b.users.Get(userKey(userPoolID, username)); exists {
 		if messageAction == "RESEND" {
 			// Re-send temp password to existing FORCE_CHANGE_PASSWORD user.
 			if existing.Status != UserStatusForceChangePassword {
@@ -754,8 +735,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		Enabled:      true,
 	}
 
-	poolUsers[username] = user
-	b.usersBySub[userPoolID+":"+user.Sub] = username
+	b.users.Put(user)
 
 	cp := *user
 
@@ -772,7 +752,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 	b.mu.Lock("AdminSetUserPasswordFull")
 	defer b.mu.Unlock()
 
-	pool, ok := b.pools[userPoolID]
+	pool, ok := b.pools.Get(userPoolID)
 	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
@@ -781,7 +761,7 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 		return err
 	}
 
-	user, ok := b.users[userPoolID][username]
+	user, ok := b.users.Get(userKey(userPoolID, username))
 	if !ok {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
@@ -813,11 +793,11 @@ func (b *InMemoryBackend) ListGroupsPage(userPoolID string, limit int, nextToken
 	b.mu.RLock("ListGroupsPage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	poolGroups := b.groups[userPoolID]
+	poolGroups := b.groupsByPool.Get(userPoolID)
 	all := make([]*Group, 0, len(poolGroups))
 
 	for _, g := range poolGroups {
@@ -865,11 +845,11 @@ func (b *InMemoryBackend) ListUsersInGroupPage(
 	b.mu.RLock("ListUsersInGroupPage")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.pools[userPoolID]; !ok {
+	if _, ok := b.pools.Get(userPoolID); !ok {
 		return nil, "", fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
-	if _, ok := b.groups[userPoolID][groupName]; !ok {
+	if _, ok := b.groups.Get(groupKey(userPoolID, groupName)); !ok {
 		return nil, "", fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -877,7 +857,7 @@ func (b *InMemoryBackend) ListUsersInGroupPage(
 	all := make([]*User, 0, len(members))
 
 	for username := range members {
-		if u, ok := b.users[userPoolID][username]; ok {
+		if u, ok := b.users.Get(userKey(userPoolID, username)); ok {
 			cp := *u
 			all = append(all, &cp)
 		}

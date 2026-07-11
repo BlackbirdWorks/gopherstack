@@ -255,10 +255,10 @@ func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput) *SearchInde
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	matched := make([]*SearchIndexThingResult, 0, len(b.things))
+	matched := make([]*SearchIndexThingResult, 0, b.things.Len())
 
-	for _, k := range sortedKeys(b.things) {
-		t := b.things[k]
+	for _, v := range b.things.Snapshot() {
+		t := v
 		groups := append([]string(nil), b.thingThingGroups[t.ThingName]...)
 
 		if !matchesThingQuery(t, groups, input.QueryString) {
@@ -283,10 +283,10 @@ func (b *InMemoryBackend) searchThingGroupsIndex(input *SearchIndexInput) *Searc
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	matched := make([]*SearchIndexThingGroupResult, 0, len(b.thingGroups))
+	matched := make([]*SearchIndexThingGroupResult, 0, b.thingGroups.Len())
 
-	for _, k := range sortedKeys(b.thingGroups) {
-		g := b.thingGroups[k]
+	for _, v := range b.thingGroups.Snapshot() {
+		g := v
 		if !matchesThingGroupQuery(g, input.QueryString) {
 			continue
 		}
@@ -463,10 +463,10 @@ func containsFold(list []string, v string) bool {
 // matchedThings returns the Things (and their resolved group names) that
 // satisfy queryString. Callers must hold at least a read lock.
 func (b *InMemoryBackend) matchedThings(queryString string) []*Thing {
-	out := make([]*Thing, 0, len(b.things))
+	out := make([]*Thing, 0, b.things.Len())
 
-	for _, k := range sortedKeys(b.things) {
-		t := b.things[k]
+	for _, v := range b.things.Snapshot() {
+		t := v
 		if matchesThingQuery(t, b.thingThingGroups[t.ThingName], queryString) {
 			out = append(out, t)
 		}

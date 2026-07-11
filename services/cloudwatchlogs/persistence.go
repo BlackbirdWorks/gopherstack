@@ -2,71 +2,161 @@ package cloudwatchlogs
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// cwlSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to any DTO or backendSnapshot itself would make an
+// older snapshot unsafe to decode as the current shape. Restore compares this
+// against the persisted value and discards (rather than attempts to partially
+// decode) any mismatch -- see Restore below.
+const cwlSnapshotVersion = 1
+
+// logGroupSnapshot, logStreamSnapshot, subscriptionFilterSnapshot, and
+// metricFilterSnapshot are the on-disk DTOs for the four region-qualified
+// "dirty" tables (see store_setup.go / models.go): each embeds the live value
+// type by value to reuse its exported-field JSON shape, then adds back the
+// unexported identity metadata (region, and for streams also logGroupName and
+// inline events) as ordinary exported fields so a round trip through
+// json.Marshal/Unmarshal does not lose them. This is the same DTO-registry
+// pattern services/sqs's persistence.go (commit 0f09d77c) uses for Queue.
+
+type logGroupSnapshot struct {
+	Region string `json:"region"`
+	LogGroup
+}
+
+func logGroupSnapshotKey(s *logGroupSnapshot) string {
+	return groupTableKey(s.Region, s.LogGroupName)
+}
+
+type logStreamSnapshot struct {
+	Region       string            `json:"region"`
+	LogGroupName string            `json:"logGroupName"`
+	Events       []*OutputLogEvent `json:"events"`
+	LogStream
+}
+
+func logStreamSnapshotKey(s *logStreamSnapshot) string {
+	return streamTableKey(s.Region, s.LogGroupName, s.LogStreamName)
+}
+
+type subscriptionFilterSnapshot struct {
+	Region string `json:"region"`
+	SubscriptionFilter
+}
+
+func subscriptionFilterSnapshotKey(s *subscriptionFilterSnapshot) string {
+	return subFilterTableKey(s.Region, s.LogGroupName, s.FilterName)
+}
+
+type metricFilterSnapshot struct {
+	Region string `json:"region"`
+	MetricFilter
+}
+
+func metricFilterSnapshotKey(s *metricFilterSnapshot) string {
+	return metricFilterTableKey(s.Region, s.LogGroupName, s.FilterName)
+}
+
+// newRegionDTORegistry builds the ephemeral registry used to encode/decode the
+// four region-qualified tables. It is rebuilt fresh on every Snapshot/Restore
+// call (never stored on the backend) purely to reuse store's deterministic,
+// type-erased JSON encoding instead of hand-rolling the marshal step.
+func newRegionDTORegistry() (
+	*store.Registry,
+	*store.Table[logGroupSnapshot],
+	*store.Table[logStreamSnapshot],
+	*store.Table[subscriptionFilterSnapshot],
+	*store.Table[metricFilterSnapshot],
+) {
+	reg := store.NewRegistry()
+	groups := store.Register(reg, "groups", store.New(logGroupSnapshotKey))
+	streams := store.Register(reg, "streams", store.New(logStreamSnapshotKey))
+	subFilters := store.Register(reg, "subscriptionFilters", store.New(subscriptionFilterSnapshotKey))
+	metricFilters := store.Register(reg, "metricFilters", store.New(metricFilterSnapshotKey))
+
+	return reg, groups, streams, subFilters, metricFilters
+}
+
+// backendSnapshot is the top-level on-disk shape for the cloudwatchlogs backend.
+//
+// Tables holds one JSON-encoded array per registered table, produced by
+// [store.Registry.SnapshotAll] for every "clean" table on b.registry plus the
+// four region-qualified DTO tables above. Version guards against decoding a
+// snapshot from an incompatible (older or newer) build of this backend as
+// though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Groups                 map[string]map[string]*LogGroup                    `json:"groups"`
-	Streams                map[string]map[string]map[string]*LogStream        `json:"streams"`
-	Events                 map[string]map[string]map[string][]*OutputLogEvent `json:"events"`
-	SubscriptionFilters    map[string]map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
-	ExportTasks            map[string]*ExportTask                             `json:"exportTasks,omitempty"`
-	ImportTasks            map[string]*ImportTask                             `json:"importTasks,omitempty"`
-	Deliveries             map[string]*Delivery                               `json:"deliveries,omitempty"`
-	LogAnomalyDetectors    map[string]*LogAnomalyDetector                     `json:"logAnomalyDetectors,omitempty"`
-	ScheduledQueries       map[string]*ScheduledQuery                         `json:"scheduledQueries,omitempty"`
-	AccountPolicies        map[string]*AccountPolicy                          `json:"accountPolicies,omitempty"`
-	KmsKeys                map[string]string                                  `json:"kmsKeys,omitempty"`
-	S3TableIntegrations    map[string]string                                  `json:"s3TableIntegrations,omitempty"`
-	MetricFilters          map[string]map[string]map[string]*MetricFilter     `json:"metricFilters,omitempty"`
-	QueryDefinitions       map[string]*QueryDefinition                        `json:"queryDefinitions,omitempty"`
-	DataProtectionPolicies map[string]string                                  `json:"dataProtectionPolicies,omitempty"`
-	ResourcePolicies       map[string]ResourcePolicy                          `json:"resourcePolicies,omitempty"`
-	DeliveryDestinations   map[string]DeliveryDestination                     `json:"deliveryDestinations,omitempty"`
-	DeliverySources        map[string]DeliverySource                          `json:"deliverySources,omitempty"`
-	Destinations           map[string]CWLDestination                          `json:"destinations,omitempty"`
-	IndexPolicies          map[string]IndexPolicy                             `json:"indexPolicies,omitempty"`
-	Transformers           map[string]Transformer                             `json:"transformers,omitempty"`
-	Integrations           map[string]CWLIntegration                          `json:"integrations,omitempty"`
-	DeletionProtected      map[string]bool                                    `json:"deletionProtected,omitempty"`
-	AccountID              string                                             `json:"accountID"`
-	Region                 string                                             `json:"region"`
+	Tables    map[string]json.RawMessage `json:"tables"`
+	AccountID string                     `json:"accountID"`
+	Region    string                     `json:"region"`
+	Version   int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
+//
+// Ephemeral, never-persisted state is deliberately excluded, matching this
+// backend's behavior before Phase 3.3: Insights query results/cache
+// (b.queries, b.parsedQueries, b.ephemeralRegistry) and the compiled filter
+// pattern cache (b.compiledPatterns) are not part of backendSnapshot.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx,
+			"cloudwatchlogs: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
+	dtoReg, groupDTOs, streamDTOs, subFilterDTOs, metricFilterDTOs := newRegionDTORegistry()
+
+	for _, g := range b.groups.Snapshot() {
+		groupDTOs.Put(&logGroupSnapshot{LogGroup: *g, Region: g.region})
+	}
+
+	for _, s := range b.streams.Snapshot() {
+		streamDTOs.Put(&logStreamSnapshot{
+			LogStream:    *s,
+			Region:       s.region,
+			LogGroupName: s.logGroupName,
+			Events:       s.events,
+		})
+	}
+
+	for _, f := range b.subscriptionFilters.Snapshot() {
+		subFilterDTOs.Put(&subscriptionFilterSnapshot{SubscriptionFilter: *f, Region: f.region})
+	}
+
+	for _, f := range b.metricFilters.Snapshot() {
+		metricFilterDTOs.Put(&metricFilterSnapshot{MetricFilter: *f, Region: f.region})
+	}
+
+	dtoTables, err := dtoReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx,
+			"cloudwatchlogs: snapshot region-table marshal failed", "error", err)
+
+		return nil
+	}
+
+	maps.Copy(tables, dtoTables)
+
 	snap := backendSnapshot{
-		Groups:                 b.groups,
-		Streams:                b.streams,
-		Events:                 b.events,
-		SubscriptionFilters:    b.subscriptionFilters,
-		ExportTasks:            b.exportTasks,
-		ImportTasks:            b.importTasks,
-		Deliveries:             b.deliveries,
-		LogAnomalyDetectors:    b.logAnomalyDetectors,
-		ScheduledQueries:       b.scheduledQueries,
-		AccountPolicies:        b.accountPolicies,
-		KmsKeys:                b.kmsKeys,
-		S3TableIntegrations:    b.s3TableIntegrations,
-		MetricFilters:          b.metricFilters,
-		QueryDefinitions:       b.queryDefinitions,
-		DataProtectionPolicies: b.dataProtectionPolicies,
-		ResourcePolicies:       b.resourcePolicies,
-		DeliveryDestinations:   b.deliveryDestinations,
-		DeliverySources:        b.deliverySources,
-		Destinations:           b.destinations,
-		IndexPolicies:          b.indexPolicies,
-		Transformers:           b.transformers,
-		Integrations:           b.integrations,
-		DeletionProtected:      b.deletionProtected,
-		AccountID:              b.accountID,
-		Region:                 b.region,
+		Version:   cwlSnapshotVersion,
+		Tables:    tables,
+		AccountID: b.accountID,
+		Region:    b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "cloudwatchlogs", snap)
@@ -81,120 +171,85 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	initSnapshotNilMaps(&snap)
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.groups = snap.Groups
-	b.streams = snap.Streams
-	b.events = snap.Events
-	b.subscriptionFilters = snap.SubscriptionFilters
-	b.exportTasks = snap.ExportTasks
-	b.importTasks = snap.ImportTasks
-	b.deliveries = snap.Deliveries
-	b.logAnomalyDetectors = snap.LogAnomalyDetectors
-	b.scheduledQueries = snap.ScheduledQueries
-	b.accountPolicies = snap.AccountPolicies
-	b.kmsKeys = snap.KmsKeys
-	b.s3TableIntegrations = snap.S3TableIntegrations
-	b.metricFilters = snap.MetricFilters
-	b.queryDefinitions = snap.QueryDefinitions
-	b.dataProtectionPolicies = snap.DataProtectionPolicies
-	b.resourcePolicies = snap.ResourcePolicies
-	b.deliveryDestinations = snap.DeliveryDestinations
-	b.deliverySources = snap.DeliverySources
-	b.destinations = snap.Destinations
-	b.indexPolicies = snap.IndexPolicies
-	b.transformers = snap.Transformers
-	b.integrations = snap.Integrations
-	b.deletionProtected = snap.DeletionProtected
+	if snap.Version != cwlSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"cloudwatchlogs: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", cwlSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.groups.Reset()
+		b.streams.Reset()
+		b.subscriptionFilters.Reset()
+		b.metricFilters.Reset()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("cloudwatchlogs: restore snapshot tables: %w", err)
+	}
+
+	dtoReg, groupDTOs, streamDTOs, subFilterDTOs, metricFilterDTOs := newRegionDTORegistry()
+
+	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("cloudwatchlogs: restore region-qualified snapshot tables: %w", err)
+	}
+
+	liveGroups := make([]*LogGroup, 0, groupDTOs.Len())
+
+	for _, dto := range groupDTOs.All() {
+		g := dto.LogGroup
+		g.region = dto.Region
+		liveGroups = append(liveGroups, &g)
+	}
+
+	b.groups.Restore(liveGroups)
+
+	liveStreams := make([]*LogStream, 0, streamDTOs.Len())
+
+	for _, dto := range streamDTOs.All() {
+		s := dto.LogStream
+		s.region = dto.Region
+		s.logGroupName = dto.LogGroupName
+		s.events = dto.Events
+		liveStreams = append(liveStreams, &s)
+	}
+
+	b.streams.Restore(liveStreams)
+
+	liveSubFilters := make([]*SubscriptionFilter, 0, subFilterDTOs.Len())
+
+	for _, dto := range subFilterDTOs.All() {
+		f := dto.SubscriptionFilter
+		f.region = dto.Region
+		liveSubFilters = append(liveSubFilters, &f)
+	}
+
+	b.subscriptionFilters.Restore(liveSubFilters)
+
+	liveMetricFilters := make([]*MetricFilter, 0, metricFilterDTOs.Len())
+
+	for _, dto := range metricFilterDTOs.All() {
+		f := dto.MetricFilter
+		f.region = dto.Region
+		liveMetricFilters = append(liveMetricFilters, &f)
+	}
+
+	b.metricFilters.Restore(liveMetricFilters)
+
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
 	return nil
-}
-
-// initSnapshotNilMaps replaces any nil map in snap with an empty map so the
-// restored backend never contains a nil map reference.
-func initSnapshotNilMaps(snap *backendSnapshot) {
-	initCoreNilMaps(snap)
-	initCompletenessNilMaps(snap)
-}
-
-func initCoreNilMaps(snap *backendSnapshot) {
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]map[string]*LogGroup)
-	}
-	if snap.Streams == nil {
-		snap.Streams = make(map[string]map[string]map[string]*LogStream)
-	}
-	if snap.Events == nil {
-		snap.Events = make(map[string]map[string]map[string][]*OutputLogEvent)
-	}
-	if snap.SubscriptionFilters == nil {
-		snap.SubscriptionFilters = make(map[string]map[string][]*SubscriptionFilter)
-	}
-	if snap.ExportTasks == nil {
-		snap.ExportTasks = make(map[string]*ExportTask)
-	}
-	if snap.ImportTasks == nil {
-		snap.ImportTasks = make(map[string]*ImportTask)
-	}
-	if snap.Deliveries == nil {
-		snap.Deliveries = make(map[string]*Delivery)
-	}
-	if snap.LogAnomalyDetectors == nil {
-		snap.LogAnomalyDetectors = make(map[string]*LogAnomalyDetector)
-	}
-	if snap.ScheduledQueries == nil {
-		snap.ScheduledQueries = make(map[string]*ScheduledQuery)
-	}
-	if snap.AccountPolicies == nil {
-		snap.AccountPolicies = make(map[string]*AccountPolicy)
-	}
-	if snap.KmsKeys == nil {
-		snap.KmsKeys = make(map[string]string)
-	}
-	if snap.S3TableIntegrations == nil {
-		snap.S3TableIntegrations = make(map[string]string)
-	}
-}
-
-func initCompletenessNilMaps(snap *backendSnapshot) {
-	if snap.MetricFilters == nil {
-		snap.MetricFilters = make(map[string]map[string]map[string]*MetricFilter)
-	}
-	if snap.QueryDefinitions == nil {
-		snap.QueryDefinitions = make(map[string]*QueryDefinition)
-	}
-	if snap.DataProtectionPolicies == nil {
-		snap.DataProtectionPolicies = make(map[string]string)
-	}
-	if snap.ResourcePolicies == nil {
-		snap.ResourcePolicies = make(map[string]ResourcePolicy)
-	}
-	if snap.DeliveryDestinations == nil {
-		snap.DeliveryDestinations = make(map[string]DeliveryDestination)
-	}
-	if snap.DeliverySources == nil {
-		snap.DeliverySources = make(map[string]DeliverySource)
-	}
-	if snap.Destinations == nil {
-		snap.Destinations = make(map[string]CWLDestination)
-	}
-	if snap.IndexPolicies == nil {
-		snap.IndexPolicies = make(map[string]IndexPolicy)
-	}
-	if snap.Transformers == nil {
-		snap.Transformers = make(map[string]Transformer)
-	}
-	if snap.Integrations == nil {
-		snap.Integrations = make(map[string]CWLIntegration)
-	}
-	if snap.DeletionProtected == nil {
-		snap.DeletionProtected = make(map[string]bool)
-	}
 }
 
 // handlerSnapshot is the full persisted state for a Handler, combining both

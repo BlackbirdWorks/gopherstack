@@ -69,6 +69,35 @@ func decodeMetricDataToken(token string) metricDataCursor {
 	return c
 }
 
+// aggregateValuesCounts reduces a PutMetricData Values/Counts array pair (each
+// Values[i] occurred Counts[i] times during the period) into the same
+// Sum/SampleCount/Min/Max summary that a StatisticSet carries, so downstream
+// bucket aggregation (populateBuckets) can treat every MetricDatum shape
+// uniformly. Assumes len(values) == len(counts) and len(values) > 0; callers
+// must validate the datum (via validateMetricDatum) before calling this.
+func aggregateValuesCounts(values, counts []float64) (float64, float64, float64, float64) {
+	var sum, count float64
+
+	minV := math.MaxFloat64
+	maxV := -math.MaxFloat64
+
+	for i, v := range values {
+		c := counts[i]
+		sum += v * c
+		count += c
+
+		if v < minV {
+			minV = v
+		}
+
+		if v > maxV {
+			maxV = v
+		}
+	}
+
+	return sum, count, minV, maxV
+}
+
 // annotateArithmeticMessages inspects a resolved metric-math result for NaN/Inf
 // values. Any non-finite point demotes the result to PartialData and records a
 // single ArithmeticError message, matching AWS behaviour for expressions that hit

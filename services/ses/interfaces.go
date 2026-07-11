@@ -70,7 +70,7 @@ type StorageBackend interface {
 	SetIdentityDkimEnabled(identity string, enabled bool) error
 	SetIdentityFeedbackForwardingEnabled(identity string, enabled bool) error
 	SetIdentityHeadersInNotificationsEnabled(identity, notificationType string, enabled bool) error
-	SetIdentityMailFromDomain(identity, mailFromDomain string) error
+	SetIdentityMailFromDomain(identity, mailFromDomain, behaviorOnMXFailure string) error
 	SetIdentityNotificationTopic(identity, notificationType, snsTopic string) error
 	// Domain verification
 	VerifyDomainIdentity(domain string) (string, error)
@@ -82,12 +82,13 @@ type StorageBackend interface {
 	UpdateAccountSendingEnabled(enabled bool)
 	GetAccountSendingEnabled() bool
 	// Send ops
-	SendBounce(originalMsgID string) (string, error)
+	SendBounce(originalMsgID, bounceSender string, recipients []string) (string, error)
 	SendBulkTemplatedEmail(
-		source, templateName, defaultTemplateData string,
+		source, templateName, defaultTemplateData, configurationSetName, returnPath, sourceArn string,
+		replyTo []string,
 		destinations []BulkEmailDestination,
 	) ([]string, error)
-	SendCustomVerificationEmail(email, templateName string) (string, error)
+	SendCustomVerificationEmail(email, templateName, configurationSetName string) (string, error)
 	TestRenderTemplate(templateName, templateData string) (string, error)
 	Region() string
 	AccountID() string

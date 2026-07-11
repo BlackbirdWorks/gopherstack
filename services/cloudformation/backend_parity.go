@@ -37,14 +37,14 @@ func (b *InMemoryBackend) DescribeType(typeName, arn, versionID string) (*TypeDe
 	var reg *RegisteredType
 	switch {
 	case arn != "":
-		r, ok := b.typeRegistry[arn]
+		r, ok := b.typeRegistry.Get(arn)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrTypeNotFound, arn)
 		}
 		reg = r
 	case typeName != "":
 		key := "arn:aws:cloudformation:::type/resource/" + typeName
-		r, ok := b.typeRegistry[key]
+		r, ok := b.typeRegistry.Get(key)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrTypeNotFound, typeName)
 		}
@@ -113,14 +113,14 @@ func (b *InMemoryBackend) SimulateDrift(stackName string) error {
 
 	// Create a drift detection record that reflects drifted resources.
 	detectionID := uuid.New().String()
-	b.driftDetections[detectionID] = &DriftDetectionStatus{
+	b.driftDetections.Put(&DriftDetectionStatus{
 		StackID:                   stack.StackID,
 		StackDriftDetectionID:     detectionID,
 		StackDriftStatus:          driftStatusDrifted,
 		DetectionStatus:           "DETECTION_COMPLETE",
 		DriftedStackResourceCount: len(resMap),
 		Timestamp:                 time.Now(),
-	}
+	})
 
 	return nil
 }
@@ -144,7 +144,7 @@ func (b *InMemoryBackend) DescribeStackResourceDrifts(nameOrID string) ([]StackR
 	// no per-resource data exists, mark all as DRIFTED.
 	legacyDrifted := false
 	if len(perResourceStatuses) == 0 {
-		for _, det := range b.driftDetections {
+		for _, det := range b.driftDetections.All() {
 			if det.StackID == stack.StackID && det.StackDriftStatus == driftStatusDrifted {
 				legacyDrifted = true
 
@@ -212,8 +212,11 @@ func requireIAMCapability(templateBody string, capabilities []string) error {
 	if !hasIAM {
 		return nil
 	}
+	// Note: CAPABILITY_AUTO_EXPAND only authorizes macro/transform expansion
+	// (e.g. SAM); it does not grant permission to create IAM resources
+	// declared directly in the template, so it must NOT satisfy this check.
 	for _, c := range capabilities {
-		if c == "CAPABILITY_IAM" || c == "CAPABILITY_NAMED_IAM" || c == "CAPABILITY_AUTO_EXPAND" {
+		if c == "CAPABILITY_IAM" || c == "CAPABILITY_NAMED_IAM" {
 			return nil
 		}
 	}

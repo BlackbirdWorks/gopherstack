@@ -3,7 +3,6 @@ package quicksight
 import (
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -80,7 +79,7 @@ func (b *InMemoryBackend) CreateBrand(accountID, brandID string, definition map[
 	defer b.mu.Unlock()
 
 	key := brandKey(accountID, brandID)
-	if _, exists := b.brands[key]; exists {
+	if b.brands.Has(key) {
 		return nil, ErrBrandAlreadyExists
 	}
 
@@ -101,7 +100,7 @@ func (b *InMemoryBackend) CreateBrand(accountID, brandID string, definition map[
 			},
 		},
 	}
-	b.brands[key] = brand
+	b.brands.Put(brand)
 
 	return brand.toBrand(), nil
 }
@@ -110,7 +109,7 @@ func (b *InMemoryBackend) DescribeBrand(accountID, brandID, versionID string) (*
 	b.mu.RLock("DescribeBrand")
 	defer b.mu.RUnlock()
 
-	brand, ok := b.brands[brandKey(accountID, brandID)]
+	brand, ok := b.brands.Get(brandKey(accountID, brandID))
 	if !ok {
 		return nil, ErrBrandNotFound
 	}
@@ -126,7 +125,7 @@ func (b *InMemoryBackend) UpdateBrand(accountID, brandID string, definition map[
 	b.mu.Lock("UpdateBrand")
 	defer b.mu.Unlock()
 
-	brand, ok := b.brands[brandKey(accountID, brandID)]
+	brand, ok := b.brands.Get(brandKey(accountID, brandID))
 	if !ok {
 		return nil, ErrBrandNotFound
 	}
@@ -150,7 +149,7 @@ func (b *InMemoryBackend) DeleteBrand(accountID, brandID string) error {
 	defer b.mu.Unlock()
 
 	key := brandKey(accountID, brandID)
-	brand, ok := b.brands[key]
+	brand, ok := b.brands.Get(key)
 	if !ok {
 		return ErrBrandNotFound
 	}
@@ -159,26 +158,21 @@ func (b *InMemoryBackend) DeleteBrand(accountID, brandID string) error {
 		return ErrBrandInUse
 	}
 
-	delete(b.brands, key)
+	b.brands.Delete(key)
 
 	return nil
 }
 
+//nolint:dupl // list functions share structure but operate on different stored types
 func (b *InMemoryBackend) ListBrands(
-	accountID string,
+	_ string,
 	maxResults int32,
 	nextToken string,
 ) ([]*Brand, string, error) {
 	b.mu.RLock("ListBrands")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	all := make([]*storedBrand, 0, len(b.brands))
-	for k, brand := range b.brands {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, brand)
-		}
-	}
+	all := b.brands.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].BrandID < all[j].BrandID })
 
 	if maxResults <= 0 || maxResults > defaultMaxResults {
@@ -212,7 +206,7 @@ func (b *InMemoryBackend) DescribeBrandPublishedVersion(accountID, brandID strin
 	b.mu.RLock("DescribeBrandPublishedVersion")
 	defer b.mu.RUnlock()
 
-	brand, ok := b.brands[brandKey(accountID, brandID)]
+	brand, ok := b.brands.Get(brandKey(accountID, brandID))
 	if !ok {
 		return nil, ErrBrandNotFound
 	}
@@ -228,7 +222,7 @@ func (b *InMemoryBackend) UpdateBrandPublishedVersion(accountID, brandID, versio
 	b.mu.Lock("UpdateBrandPublishedVersion")
 	defer b.mu.Unlock()
 
-	brand, ok := b.brands[brandKey(accountID, brandID)]
+	brand, ok := b.brands.Get(brandKey(accountID, brandID))
 	if !ok {
 		return ErrBrandNotFound
 	}
@@ -261,7 +255,7 @@ func (b *InMemoryBackend) UpdateBrandAssignment(accountID, brandArn string) (str
 	defer b.mu.Unlock()
 
 	found := false
-	for _, brand := range b.brands {
+	for _, brand := range b.brands.All() {
 		if brand.Arn == brandArn {
 			found = true
 

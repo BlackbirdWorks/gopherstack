@@ -1229,6 +1229,13 @@ func TestECR_CompleteLayerUpload(t *testing.T) { //nolint:paralleltest // existi
 		t.Run(tt.name, func(t *testing.T) {
 			h := newTestHandler(t)
 
+			// The repository must exist: real ECR returns RepositoryNotFoundException
+			// for CompleteLayerUpload against an unknown repository.
+			createRec := doECRRequest(
+				t, h, "CreateRepository", map[string]any{"repositoryName": tt.repositoryName},
+			)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
 			rec := doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
 				"repositoryName": tt.repositoryName,
 				"uploadId":       tt.uploadID,
@@ -1697,12 +1704,14 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	rec = doECRRequest(t, h, "CompleteLayerUpload", map[string]any{
 		"repositoryName": "persist-repo",
 		"uploadId":       "upload-xyz",
-		"layerDigests":   []string{"sha256:persist123"},
+		"layerDigests": []string{
+			"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "PutImage", map[string]any{
 		"repositoryName": "persist-repo",
-		"imageDigest":    "sha256:persist123",
+		"imageDigest":    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
 		"imageManifest":  "{}",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -1731,7 +1740,9 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "StartImageScan", map[string]any{
 		"repositoryName": "persist-repo",
-		"imageId":        map[string]any{"imageDigest": "sha256:persist123"},
+		"imageId": map[string]any{
+			"imageDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h, "PutRegistryScanningConfiguration", map[string]any{
@@ -1780,7 +1791,9 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	// Verify layer availability is restored
 	rec = doECRRequest(t, h2, "BatchCheckLayerAvailability", map[string]any{
 		"repositoryName": "persist-repo",
-		"layerDigests":   []string{"sha256:persist123"},
+		"layerDigests": []string{
+			"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1814,7 +1827,9 @@ func TestECR_NewOps_PersistenceRoundTrip(t *testing.T) { //nolint:paralleltest /
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h2, "DescribeImageScanFindings", map[string]any{
 		"repositoryName": "persist-repo",
-		"imageId":        map[string]any{"imageDigest": "sha256:persist123"},
+		"imageId": map[string]any{
+			"imageDigest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doECRRequest(t, h2, "GetRegistryScanningConfiguration", map[string]any{})

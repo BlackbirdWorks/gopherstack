@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -203,8 +204,11 @@ type Task struct {
 
 // CreateClusterInput holds input for CreateCluster.
 type CreateClusterInput struct {
-	ClusterName string
-	Settings    []ClusterSetting
+	ClusterName                     string
+	Settings                        []ClusterSetting
+	CapacityProviders               []string
+	DefaultCapacityProviderStrategy []CapacityProviderStrategyItem
+	Tags                            []Tag
 }
 
 // RegisterTaskDefinitionInput holds input for RegisterTaskDefinition.
@@ -300,29 +304,40 @@ type svcRef struct {
 // Field ordering is optimised for pointer-byte alignment (govet fieldalignment);
 // keep new fields grouped with their kind rather than by logical concern.
 type InMemoryBackend struct {
-	runner                 TaskRunner
-	serviceDeployments     map[string]*ServiceDeployment
-	taskSets               map[string]map[string]*TaskSet
-	taskDefByArn           map[string]*TaskDefinition
-	services               map[string]map[string]*Service
-	tasks                  map[string]map[string]*Task
-	containerInstances     map[string]map[string]*ContainerInstance
-	clusters               map[string]*Cluster
-	taskProtections        map[string]*TaskProtection
-	capacityProviders      map[string]*CapacityProvider
-	accountSettings        map[string]*AccountSetting
-	taskDefinitions        map[string][]*TaskDefinition
-	attributes             map[string]map[string]*Attribute
-	mu                     *lockmetrics.RWMutex
-	resourceTags           map[string][]Tag
-	tasksByInstance        map[string]map[string]map[string]bool
-	serviceIndex           map[svcRef]bool
-	expressGatewayServices map[string]*ExpressGatewayService
-	daemonRevisions        map[string]*DaemonRevision
-	daemonDeployments      map[string]*DaemonDeployment
-	daemons                map[string]map[string]*Daemon // clusterName → daemonName → Daemon
-	daemonTaskDefinitions  map[string][]*DaemonTaskDefinition
-	daemonTaskDefByArn     map[string]*DaemonTaskDefinition
+	runner TaskRunner
+	// registry is the Phase 3.3 datalayer lifecycle registry: every *store.Table
+	// below (except taskDefByArn/daemonTaskDefByArn, which are derived caches --
+	// see store_setup.go) is registered on it exactly once at construction, so
+	// Reset/Snapshot/Restore collapse to one registry call each instead of one
+	// hand-written block per map. See pkgs/store's package doc.
+	registry                    *store.Registry
+	serviceDeployments          *store.Table[ServiceDeployment]
+	taskSets                    *store.Table[TaskSet]
+	taskSetsByService           *store.Index[TaskSet]
+	taskDefByArn                *store.Table[TaskDefinition]
+	services                    *store.Table[Service]
+	servicesByCluster           *store.Index[Service]
+	tasks                       *store.Table[Task]
+	tasksByCluster              *store.Index[Task]
+	containerInstances          *store.Table[ContainerInstance]
+	containerInstancesByCluster *store.Index[ContainerInstance]
+	clusters                    *store.Table[Cluster]
+	taskProtections             *store.Table[TaskProtection]
+	capacityProviders           *store.Table[CapacityProvider]
+	accountSettings             *store.Table[AccountSetting]
+	taskDefinitions             map[string][]*TaskDefinition
+	attributes                  map[string]map[string]*Attribute
+	mu                          *lockmetrics.RWMutex
+	resourceTags                map[string][]Tag
+	tasksByInstance             map[string]map[string]map[string]bool
+	serviceIndex                map[svcRef]bool
+	expressGatewayServices      *store.Table[ExpressGatewayService]
+	daemonRevisions             *store.Table[DaemonRevision]
+	daemonDeployments           *store.Table[DaemonDeployment]
+	daemons                     *store.Table[Daemon] // composite "clusterName/daemonName" key; see daemonsByCluster
+	daemonsByCluster            *store.Index[Daemon]
+	daemonTaskDefinitions       map[string][]*DaemonTaskDefinition
+	daemonTaskDefByArn          *store.Table[DaemonTaskDefinition]
 	// daemonTaskDefs exists only for structural compatibility with purge.go's
 	// per-cluster daemon cleanup (purgeDaemonsLocked). Real daemon task
 	// definitions are registered independently by family, like ordinary task
@@ -369,37 +384,27 @@ type TaskRunner interface {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBackend {
-	return &InMemoryBackend{
-		clusters:               make(map[string]*Cluster),
-		taskDefinitions:        make(map[string][]*TaskDefinition),
-		taskDefByArn:           make(map[string]*TaskDefinition),
-		services:               make(map[string]map[string]*Service),
-		tasks:                  make(map[string]map[string]*Task),
-		containerInstances:     make(map[string]map[string]*ContainerInstance),
-		taskSets:               make(map[string]map[string]*TaskSet),
-		taskProtections:        make(map[string]*TaskProtection),
-		capacityProviders:      make(map[string]*CapacityProvider),
-		accountSettings:        make(map[string]*AccountSetting),
-		attributes:             make(map[string]map[string]*Attribute),
-		serviceDeployments:     make(map[string]*ServiceDeployment),
-		expressGatewayServices: make(map[string]*ExpressGatewayService),
-		resourceTags:           make(map[string][]Tag),
-		tasksByInstance:        make(map[string]map[string]map[string]bool),
-		serviceIndex:           make(map[svcRef]bool),
-		lifecycle:              make(map[string]*taskLifecycle),
-		mu:                     lockmetrics.New("ecs"),
-		accountID:              accountID,
-		region:                 region,
-		runner:                 runner,
-		daemons:                make(map[string]map[string]*Daemon),
-		daemonTaskDefinitions:  make(map[string][]*DaemonTaskDefinition),
-		daemonTaskDefByArn:     make(map[string]*DaemonTaskDefinition),
-		daemonDeployments:      make(map[string]*DaemonDeployment),
-		daemonRevisions:        make(map[string]*DaemonRevision),
-		daemonTaskDefs:         make(map[string][]*DaemonTaskDefinition),
-		serviceRevisions:       make(map[string][]*ServiceRevision),
-		serviceRevisionsByArn:  make(map[string]*ServiceRevision),
+	b := &InMemoryBackend{
+		taskDefinitions:       make(map[string][]*TaskDefinition),
+		attributes:            make(map[string]map[string]*Attribute),
+		resourceTags:          make(map[string][]Tag),
+		tasksByInstance:       make(map[string]map[string]map[string]bool),
+		serviceIndex:          make(map[svcRef]bool),
+		lifecycle:             make(map[string]*taskLifecycle),
+		mu:                    lockmetrics.New("ecs"),
+		accountID:             accountID,
+		region:                region,
+		runner:                runner,
+		daemonTaskDefinitions: make(map[string][]*DaemonTaskDefinition),
+		daemonTaskDefs:        make(map[string][]*DaemonTaskDefinition),
+		serviceRevisions:      make(map[string][]*ServiceRevision),
+		serviceRevisionsByArn: make(map[string]*ServiceRevision),
+		registry:              store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset zeroes all backend state for test isolation.
@@ -407,27 +412,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.clusters = make(map[string]*Cluster)
+	b.registry.ResetAll()
+	b.taskDefByArn.Reset()
+	b.daemonTaskDefByArn.Reset()
+
 	b.taskDefinitions = make(map[string][]*TaskDefinition)
-	b.taskDefByArn = make(map[string]*TaskDefinition)
-	b.services = make(map[string]map[string]*Service)
-	b.tasks = make(map[string]map[string]*Task)
-	b.containerInstances = make(map[string]map[string]*ContainerInstance)
-	b.taskSets = make(map[string]map[string]*TaskSet)
-	b.taskProtections = make(map[string]*TaskProtection)
-	b.capacityProviders = make(map[string]*CapacityProvider)
-	b.accountSettings = make(map[string]*AccountSetting)
 	b.attributes = make(map[string]map[string]*Attribute)
-	b.serviceDeployments = make(map[string]*ServiceDeployment)
-	b.expressGatewayServices = make(map[string]*ExpressGatewayService)
 	b.resourceTags = make(map[string][]Tag)
 	b.tasksByInstance = make(map[string]map[string]map[string]bool)
 	b.serviceIndex = make(map[svcRef]bool)
-	b.daemons = make(map[string]map[string]*Daemon)
 	b.daemonTaskDefinitions = make(map[string][]*DaemonTaskDefinition)
-	b.daemonTaskDefByArn = make(map[string]*DaemonTaskDefinition)
-	b.daemonDeployments = make(map[string]*DaemonDeployment)
-	b.daemonRevisions = make(map[string]*DaemonRevision)
 	b.daemonTaskDefs = make(map[string][]*DaemonTaskDefinition)
 	b.serviceRevisions = make(map[string][]*ServiceRevision)
 	b.serviceRevisionsByArn = make(map[string]*ServiceRevision)
@@ -508,21 +502,24 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clusters[name]; ok {
+	if b.clusters.Has(name) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, name)
 	}
 
 	cluster := &Cluster{
-		CreatedAt:   time.Now(),
-		ClusterArn:  arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", name)),
-		ClusterName: name,
-		Status:      statusActive,
-		Settings:    input.Settings,
+		CreatedAt:                       time.Now(),
+		ClusterArn:                      arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("cluster/%s", name)),
+		ClusterName:                     name,
+		Status:                          statusActive,
+		Settings:                        input.Settings,
+		CapacityProviders:               input.CapacityProviders,
+		DefaultCapacityProviderStrategy: input.DefaultCapacityProviderStrategy,
 	}
-	b.clusters[name] = cluster
-	b.services[name] = make(map[string]*Service)
-	b.tasks[name] = make(map[string]*Task)
-	b.containerInstances[name] = make(map[string]*ContainerInstance)
+	b.clusters.Put(cluster)
+
+	if len(input.Tags) > 0 {
+		b.setResourceTagsLocked(cluster.ClusterArn, input.Tags)
+	}
 
 	cp := *cluster
 
@@ -543,8 +540,9 @@ func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []
 	defer b.mu.RUnlock()
 
 	if len(clusterNames) == 0 {
-		out := make([]Cluster, 0, len(b.clusters))
-		for _, c := range b.clusters {
+		all := b.clusters.All()
+		out := make([]Cluster, 0, len(all))
+		for _, c := range all {
 			out = append(out, b.enrichCluster(c))
 		}
 
@@ -557,7 +555,7 @@ func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []
 	for _, name := range clusterNames {
 		key := clusterKey(name)
 
-		c, ok := b.clusters[key]
+		c, ok := b.clusters.Get(key)
 		if !ok {
 			failures = append(failures, Failure{
 				Arn:    name,
@@ -581,8 +579,8 @@ func (b *InMemoryBackend) DescribeClusters(clusterNames []string) ([]Cluster, []
 func (b *InMemoryBackend) enrichCluster(c *Cluster) Cluster {
 	cp := *c
 
-	cp.ActiveServicesCount = len(b.services[c.ClusterName])
-	cp.RegisteredContainerInstancesCount = len(b.containerInstances[c.ClusterName])
+	cp.ActiveServicesCount = len(b.servicesByCluster.Get(c.ClusterName))
+	cp.RegisteredContainerInstancesCount = len(b.containerInstancesByCluster.Get(c.ClusterName))
 
 	// RunningTasksCount and PendingTasksCount are maintained as cached counters
 	// on the Cluster struct. No task iteration needed here.
@@ -596,7 +594,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 
 	b.mu.Lock("DeleteCluster")
 
-	c, ok := b.clusters[key]
+	c, ok := b.clusters.Get(key)
 	if !ok {
 		b.mu.Unlock()
 
@@ -606,34 +604,31 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	// Snapshot task pointers while still holding the lock so we can stop their
 	// Docker containers after releasing it.  Performing Docker API calls under
 	// the backend lock would unnecessarily serialize all other operations.
-	tasksToStop := make([]*Task, 0, len(b.tasks[key]))
+	clusterTasks := b.tasksInClusterLocked(key)
+	tasksToStop := make([]*Task, 0, len(clusterTasks))
 
 	if b.runner != nil {
-		for _, task := range b.tasks[key] {
-			tasksToStop = append(tasksToStop, task)
-		}
+		tasksToStop = append(tasksToStop, clusterTasks...)
 	}
 
 	// Delete task sets and service deployments for all services in this cluster
 	// before removing the services map, preventing stale entries on cluster recreation.
-	if svcs, exists := b.services[key]; exists {
-		for svcName, svc := range svcs {
-			delete(b.taskSets, svc.ServiceArn)
-			delete(b.serviceDeployments, svc.ServiceArn)
-			delete(b.serviceIndex, svcRef{cluster: key, name: svcName})
-		}
+	for _, svc := range b.servicesInClusterLocked(key) {
+		b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
+		b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
+		delete(b.serviceIndex, svcRef{cluster: key, name: svc.ServiceName})
 	}
 
 	// Clean up per-task state for all tasks in this cluster to avoid memory leaks.
-	for taskArn := range b.tasks[key] {
-		delete(b.taskProtections, taskArn)
-		delete(b.lifecycle, taskArn)
+	for _, task := range clusterTasks {
+		b.taskProtections.Delete(task.TaskArn)
+		delete(b.lifecycle, task.TaskArn)
 	}
 
-	delete(b.clusters, key)
-	delete(b.services, key)
-	delete(b.tasks, key)
-	delete(b.containerInstances, key)
+	b.clusters.Delete(key)
+	b.deleteServicesForClusterLocked(key)
+	b.deleteTasksForClusterLocked(key)
+	b.deleteContainerInstancesForClusterLocked(key)
 	delete(b.attributes, key)
 	delete(b.tasksByInstance, key)
 
@@ -728,14 +723,14 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 		excess := len(revisions) - maxTaskDefinitionRevisions
 
 		for _, evicted := range revisions[:excess] {
-			delete(b.taskDefByArn, evicted.TaskDefinitionArn)
+			b.taskDefByArn.Delete(evicted.TaskDefinitionArn)
 		}
 
 		revisions = revisions[excess:]
 	}
 
 	b.taskDefinitions[input.Family] = revisions
-	b.taskDefByArn[td.TaskDefinitionArn] = td
+	b.taskDefByArn.Put(td)
 
 	// Persist registration tags via the same resourceTags map used by
 	// TagResource so that DescribeTaskDefinition can surface them when
@@ -799,7 +794,7 @@ func (b *InMemoryBackend) findTaskDefinitionLocked(familyOrArn string) (*TaskDef
 	}
 
 	// Fast path: ARN cache lookup.
-	if td, ok := b.taskDefByArn[familyOrArn]; ok {
+	if td, ok := b.taskDefByArn.Get(familyOrArn); ok {
 		cp := *td
 
 		return &cp, nil
@@ -898,8 +893,8 @@ func (b *InMemoryBackend) ListTaskDefinitionsFiltered(
 // ensureClusterLocked returns the cluster maps, auto-creating the default cluster if needed.
 // Must be called with write lock held.
 func (b *InMemoryBackend) ensureClusterLocked(clusterName string) {
-	if _, ok := b.clusters[clusterName]; !ok && clusterName == defaultCluster {
-		b.clusters[clusterName] = &Cluster{
+	if !b.clusters.Has(clusterName) && clusterName == defaultCluster {
+		b.clusters.Put(&Cluster{
 			CreatedAt: time.Now(),
 			ClusterArn: arn.Build(
 				"ecs",
@@ -909,10 +904,7 @@ func (b *InMemoryBackend) ensureClusterLocked(clusterName string) {
 			),
 			ClusterName: clusterName,
 			Status:      statusActive,
-		}
-		b.services[clusterName] = make(map[string]*Service)
-		b.tasks[clusterName] = make(map[string]*Task)
-		b.containerInstances[clusterName] = make(map[string]*ContainerInstance)
+		})
 	}
 }
 
@@ -937,7 +929,7 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 
 	b.ensureClusterLocked(clusterName)
 
-	if _, ok := b.services[clusterName][input.ServiceName]; ok {
+	if b.services.Has(scopedKey(clusterName, input.ServiceName)) {
 		return nil, fmt.Errorf("%w: %s", ErrServiceAlreadyExists, input.ServiceName)
 	}
 
@@ -998,10 +990,11 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 
 	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
 
-	b.services[clusterName][input.ServiceName] = svc
+	b.services.Put(svc)
 	b.serviceIndex[svcRef{cluster: clusterName, name: input.ServiceName}] = true
 
 	b.addServiceRevisionLocked(svc)
+	b.syncServiceDeploymentsLocked(svc)
 
 	cp := *svc
 
@@ -1019,12 +1012,12 @@ func (b *InMemoryBackend) DescribeServices(
 	b.mu.RLock("DescribeServices")
 	defer b.mu.RUnlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(serviceNames) == 0 {
+		svcs := b.servicesByCluster.Get(clusterName)
 		out := make([]Service, 0, len(svcs))
 		for _, s := range svcs {
 			out = append(out, b.enrichService(s, clusterName))
@@ -1040,7 +1033,7 @@ func (b *InMemoryBackend) DescribeServices(
 		// Support ARN lookup by extracting the service name.
 		key := serviceKey(name)
 
-		s, found := svcs[key]
+		s, found := b.services.Get(scopedKey(clusterName, key))
 		if !found {
 			failures = append(failures, Failure{
 				Arn:    name,
@@ -1066,15 +1059,13 @@ func (b *InMemoryBackend) DescribeServiceRevisions(arns []string) ([]ServiceRevi
 
 	byArn := make(map[string]ServiceRevision)
 
-	for _, svcs := range b.services {
-		for _, svc := range svcs {
-			for _, d := range svc.Deployments {
-				if d.ServiceRevisionArn == "" {
-					continue
-				}
-
-				byArn[d.ServiceRevisionArn] = buildServiceRevision(svc, d)
+	for _, svc := range b.services.All() {
+		for _, d := range svc.Deployments {
+			if d.ServiceRevisionArn == "" {
+				continue
 			}
+
+			byArn[d.ServiceRevisionArn] = buildServiceRevision(svc, d)
 		}
 	}
 
@@ -1137,7 +1128,7 @@ func (b *InMemoryBackend) enrichService(s *Service, clusterName string) Service 
 	deplRunning := make(map[string]int, len(s.Deployments))
 	deplPending := make(map[string]int, len(s.Deployments))
 
-	for _, t := range b.tasks[clusterName] {
+	for _, t := range b.tasksByCluster.Get(clusterName) {
 		if t.Group == "service:"+s.ServiceName {
 			switch t.LastStatus {
 			case statusRunning:
@@ -1226,12 +1217,11 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
 
-	svc, ok := svcs[serviceKey]
+	svc, ok := b.services.Get(scopedKey(clusterName, serviceKey))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, input.Service)
 	}
@@ -1258,6 +1248,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	applyServiceConfigUpdates(svc, input)
 
 	b.addServiceRevisionLocked(svc)
+	b.syncServiceDeploymentsLocked(svc)
 
 	cp := *svc
 
@@ -1290,19 +1281,19 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
-	svc, ok := svcs[key]
+	svc, ok := b.services.Get(scopedKey(clusterName, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, serviceName)
 	}
 
-	delete(svcs, key)
-	delete(b.taskSets, svc.ServiceArn)
+	b.services.Delete(scopedKey(clusterName, key))
+	b.deleteTaskSetsForServiceLocked(svc.ServiceArn)
 	delete(b.serviceIndex, svcRef{cluster: clusterName, name: key})
+	b.deleteServiceDeploymentsForServiceLocked(svc.ServiceArn)
 
 	cp := *svc
 
@@ -1463,7 +1454,7 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 	task.LastStatus = statusRunning
 	syncContainerStatuses(task, nil)
 
-	if c := b.clusters[clusterName]; c != nil {
+	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.PendingTasksCount--
 		c.RunningTasksCount++
 	}
@@ -1486,7 +1477,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 		task.LastStatus = statusRunning
 		syncContainerStatuses(task, nil)
 
-		if c := b.clusters[clusterName]; c != nil {
+		if c, _ := b.clusters.Get(clusterName); c != nil {
 			c.PendingTasksCount--
 			c.RunningTasksCount++
 		}
@@ -1504,7 +1495,7 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	exitCode := 1
 	syncContainerStatuses(task, &exitCode)
 
-	if c := b.clusters[clusterName]; c != nil {
+	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.PendingTasksCount--
 	}
 
@@ -1568,8 +1559,8 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			// Merge task-definition constraints with any run-time override constraints.
 			constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
 			if instanceArn := selectContainerInstance(
-				b.containerInstances[clusterName],
-				b.tasks[clusterName],
+				b.containerInstancesByCluster.Get(clusterName),
+				b.tasksByCluster.Get(clusterName),
 				constraints,
 				input.PlacementStrategy,
 				input.serviceNameForTags,
@@ -1581,11 +1572,11 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 		task.Containers = buildContainersForTask(task, td)
 
-		b.tasks[clusterName][taskArn] = task
+		b.tasks.Put(task)
 		work = append(work, taskWork{task: task, td: td})
 
 		// Increment the cached pending counter on the cluster.
-		if c := b.clusters[clusterName]; c != nil {
+		if c, _ := b.clusters.Get(clusterName); c != nil {
 			c.PendingTasksCount++
 		}
 	}
@@ -1604,12 +1595,12 @@ func (b *InMemoryBackend) DescribeTasks(
 	b.mu.RLock("DescribeTasks")
 	defer b.mu.RUnlock()
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	if len(taskArns) == 0 {
+		clusterTasks := b.tasksByCluster.Get(clusterName)
 		out := make([]Task, 0, len(clusterTasks))
 		for _, t := range clusterTasks {
 			out = append(out, *t)
@@ -1622,8 +1613,8 @@ func (b *InMemoryBackend) DescribeTasks(
 	failures := make([]Failure, 0, len(taskArns))
 
 	for _, arn := range taskArns {
-		t, found := clusterTasks[arn]
-		if !found {
+		t, found := b.tasks.Get(arn)
+		if !found || clusterKey(t.ClusterArn) != clusterName {
 			failures = append(failures, Failure{
 				Arn:    arn,
 				Reason: statusMissing,
@@ -1645,15 +1636,14 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 
 	b.mu.Lock("StopTask")
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
-	task, ok := clusterTasks[taskArn]
-	if !ok {
+	task, ok := b.tasks.Get(taskArn)
+	if !ok || clusterKey(task.ClusterArn) != clusterName {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
@@ -1667,7 +1657,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	// Decrement the cached cluster counters once, as the task leaves its active
 	// state. This is done up front for both the fast and delayed paths so the
 	// counters stay correct regardless of when the task finally reaches STOPPED.
-	if c := b.clusters[clusterName]; c != nil {
+	if c, _ := b.clusters.Get(clusterName); c != nil {
 		switch prevStatus {
 		case statusRunning:
 			c.RunningTasksCount--
@@ -1714,7 +1704,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 
 	// Clean up task protection entry and reverse index to avoid stale entries.
 	b.mu.Lock("StopTask-cleanup")
-	delete(b.taskProtections, taskArn)
+	b.taskProtections.Delete(taskArn)
 	b.unindexTaskFromInstance(clusterName, instanceArn, taskArn)
 	b.mu.Unlock()
 
@@ -1754,13 +1744,13 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 	b.mu.RLock("ListTasksFiltered")
 	defer b.mu.RUnlock()
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
 	}
 
+	clusterTasks := b.tasksByCluster.Get(clusterName)
 	arns := make([]string, 0, len(clusterTasks))
-	for arn, task := range clusterTasks {
+	for _, task := range clusterTasks {
 		if input.ContainerInstance != "" && task.ContainerInstanceArn != input.ContainerInstance {
 			continue
 		}
@@ -1780,7 +1770,7 @@ func (b *InMemoryBackend) ListTasksFiltered(input ListTasksInput) ([]string, err
 		if input.ServiceName != "" && task.Group != "service:"+input.ServiceName {
 			continue
 		}
-		arns = append(arns, arn)
+		arns = append(arns, task.TaskArn)
 	}
 
 	return arns, nil
@@ -1796,7 +1786,7 @@ func (b *InMemoryBackend) getServicesForReconciler() []serviceSnapshot {
 	out := make([]serviceSnapshot, 0, len(b.serviceIndex))
 
 	for ref := range b.serviceIndex {
-		svc := b.services[ref.cluster][ref.name]
+		svc, _ := b.services.Get(scopedKey(ref.cluster, ref.name))
 		out = append(out, serviceSnapshot{
 			clusterName: ref.cluster,
 			service:     *svc,
@@ -1820,7 +1810,7 @@ func (b *InMemoryBackend) CountRunningTasksForService(clusterName, serviceName s
 	count := 0
 	group := "service:" + serviceName
 
-	for _, t := range b.tasks[clusterName] {
+	for _, t := range b.tasksByCluster.Get(clusterName) {
 		if t.Group == group && t.LastStatus == statusRunning {
 			count++
 		}
@@ -1846,15 +1836,13 @@ func (b *InMemoryBackend) StartTaskForService(
 	var svcPlacementConstraints []PlacementConstraint
 	var svcPlacementStrategy []PlacementStrategy
 
-	if svcs, ok := b.services[clusterName]; ok {
-		if svc, found := svcs[serviceName]; found {
-			svcPropagateTags = svc.PropagateTags
-			svcTags = copyTags(svc.Tags)
-			svcEnableExec = svc.EnableExecuteCommand
-			svcLaunchType = svc.LaunchType
-			svcPlacementConstraints = svc.PlacementConstraints
-			svcPlacementStrategy = svc.PlacementStrategy
-		}
+	if svc, found := b.services.Get(scopedKey(clusterName, serviceName)); found {
+		svcPropagateTags = svc.PropagateTags
+		svcTags = copyTags(svc.Tags)
+		svcEnableExec = svc.EnableExecuteCommand
+		svcLaunchType = svc.LaunchType
+		svcPlacementConstraints = svc.PlacementConstraints
+		svcPlacementStrategy = svc.PlacementStrategy
 	}
 
 	b.mu.RUnlock()
@@ -1884,7 +1872,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 
 	var oldest *Task
 
-	for _, t := range b.tasks[clusterName] {
+	for _, t := range b.tasksByCluster.Get(clusterName) {
 		if t.Group == group && t.LastStatus == statusRunning {
 			if oldest == nil ||
 				(t.StartedAt != nil && oldest.StartedAt != nil && t.StartedAt.Before(*oldest.StartedAt)) {
@@ -1907,7 +1895,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 	syncContainerStatuses(oldest, nil)
 
 	// Decrement the cached running counter (scale-in always stops a running task).
-	if c := b.clusters[clusterName]; c != nil {
+	if c, _ := b.clusters.Get(clusterName); c != nil {
 		c.RunningTasksCount--
 	}
 

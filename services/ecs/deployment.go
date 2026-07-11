@@ -86,12 +86,7 @@ func (b *InMemoryBackend) recordServiceTaskFailureLocked(clusterName string, tas
 		return
 	}
 
-	svcs, ok := b.services[clusterName]
-	if !ok {
-		return
-	}
-
-	svc, ok := svcs[serviceName]
+	svc, ok := b.services.Get(scopedKey(clusterName, serviceName))
 	if !ok {
 		return
 	}
@@ -145,6 +140,8 @@ func (b *InMemoryBackend) evaluateCircuitBreakerLocked(svc *Service) {
 	if circuitBreakerRollback(svc) {
 		b.rollbackServiceLocked(svc)
 	}
+
+	b.syncServiceDeploymentsLocked(svc)
 }
 
 // lastStableTaskDefinition returns the task definition of the most recent

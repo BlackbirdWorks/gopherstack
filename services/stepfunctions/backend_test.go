@@ -353,12 +353,14 @@ func TestStartExecution(t *testing.T) {
 			wantErr:       stepfunctions.ErrExecutionAlreadyExists,
 		},
 		{
-			name:     "ExpressRequiresStartSyncExecution",
-			createSM: true,
-			smType:   "EXPRESS",
-			execName: "exec1",
-			input:    `{"key":"value"}`,
-			wantErr:  stepfunctions.ErrInvalidExecutionType,
+			// AWS allows asynchronous StartExecution on EXPRESS state
+			// machines too (only StartSyncExecution is EXPRESS-only).
+			name:            "ExpressAllowsAsyncStartExecution",
+			createSM:        true,
+			smType:          "EXPRESS",
+			execName:        "exec1",
+			input:           `{"key":"value"}`,
+			wantArnContains: "exec1",
 		},
 	}
 
@@ -602,6 +604,118 @@ func TestGetExecutionHistory(t *testing.T) {
 			assert.Equal(t, tt.wantSecond, events[1].Type)
 		})
 	}
+}
+
+const taskLambdaDefinition = `{
+"StartAt": "T",
+"States": {
+"T": {"Type": "Task", "Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn", "End": true}
+}
+}`
+
+// TestGetExecutionHistory_TaskEventDetails verifies that Task lifecycle
+// history events (TaskScheduled/TaskSucceeded/TaskFailed) and state
+// entered/exited events carry their AWS-documented detail payloads
+// (resource, input, output, error, cause) rather than an empty details
+// object.
+func TestGetExecutionHistory_TaskEventDetails(t *testing.T) {
+	t.Parallel()
+
+	t.Run("succeeded_task_populates_resource_and_output", func(t *testing.T) {
+		t.Parallel()
+
+		b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+		b.SetLambdaInvoker(&mockLambdaForBackend{})
+
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"hist-task-sm",
+			taskLambdaDefinition,
+			"arn:role",
+			"STANDARD",
+		)
+		require.NoError(t, err)
+
+		exec, err := b.StartExecution(sm.StateMachineArn, "exec-task-ok", `{"in": 1}`)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+
+			return descErr == nil && desc.Status != "RUNNING"
+		}, 5*time.Second, 50*time.Millisecond)
+
+		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+		require.NoError(t, err)
+
+		var sawScheduled, sawSucceeded, sawStateEntered bool
+
+		for _, ev := range events {
+			switch ev.Type {
+			case "TaskScheduled":
+				require.NotNil(t, ev.TaskScheduledEventDetails)
+				assert.Equal(
+					t,
+					"arn:aws:lambda:us-east-1:000000000000:function:fn",
+					ev.TaskScheduledEventDetails.Resource,
+				)
+				sawScheduled = true
+			case "TaskSucceeded":
+				require.NotNil(t, ev.TaskSucceededEventDetails)
+				assert.Contains(t, ev.TaskSucceededEventDetails.Output, "ok")
+				sawSucceeded = true
+			case "TaskStateEntered":
+				require.NotNil(t, ev.StateEnteredEventDetails)
+				assert.Contains(t, ev.StateEnteredEventDetails.Input, `"in":1`)
+				sawStateEntered = true
+			}
+		}
+
+		assert.True(t, sawScheduled, "expected a TaskScheduled event")
+		assert.True(t, sawSucceeded, "expected a TaskSucceeded event")
+		assert.True(t, sawStateEntered, "expected a TaskStateEntered event with populated input")
+	})
+
+	t.Run("failed_task_populates_error_and_cause", func(t *testing.T) {
+		t.Parallel()
+
+		b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+		b.SetLambdaInvoker(&mockLambdaForBackend{returnErr: assert.AnError})
+
+		sm, err := b.CreateStateMachine(
+			context.Background(),
+			"hist-task-fail-sm",
+			taskLambdaDefinition,
+			"arn:role",
+			"STANDARD",
+		)
+		require.NoError(t, err)
+
+		exec, err := b.StartExecution(sm.StateMachineArn, "exec-task-fail", `{}`)
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+
+			return descErr == nil && desc.Status != "RUNNING"
+		}, 5*time.Second, 50*time.Millisecond)
+
+		events, _, err := b.GetExecutionHistory(exec.ExecutionArn, "", 0, false)
+		require.NoError(t, err)
+
+		var sawFailed bool
+
+		for _, ev := range events {
+			if ev.Type == "TaskFailed" {
+				require.NotNil(t, ev.TaskFailedEventDetails)
+				assert.NotEmpty(t, ev.TaskFailedEventDetails.Error)
+				assert.NotEmpty(t, ev.TaskFailedEventDetails.Cause)
+				sawFailed = true
+			}
+		}
+
+		assert.True(t, sawFailed, "expected a TaskFailed event")
+	})
 }
 
 func TestStopExecution(t *testing.T) {

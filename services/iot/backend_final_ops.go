@@ -224,7 +224,7 @@ func (b *InMemoryBackend) effectiveTestPolicies(input *TestAuthorizationInput) (
 			continue
 		}
 
-		if p, ok := b.policies[policyName]; ok {
+		if p, ok := b.policies.Get(policyName); ok {
 			cp := *p
 			policies = append(policies, &cp)
 			seen[policyName] = true
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) effectiveTestPolicies(input *TestAuthorizationInput) (
 			continue
 		}
 
-		p, ok := b.policies[name]
+		p, ok := b.policies.Get(name)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, name)
 		}
@@ -465,7 +465,7 @@ func (b *InMemoryBackend) TestInvokeAuthorizer(
 	input *TestInvokeAuthorizerInput,
 ) (*TestInvokeAuthorizerOutput, error) {
 	b.mu.RLock()
-	a, ok := b.authorizers[authorizerName]
+	a, ok := b.authorizers.Get(authorizerName)
 	b.mu.RUnlock()
 
 	if !ok {
@@ -525,7 +525,7 @@ func (b *InMemoryBackend) DetachPrincipalPolicy(policyName, principal string) er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.policies[policyName]; !ok {
+	if !b.policies.Has(policyName) {
 		return fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
 	}
 
@@ -558,7 +558,7 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, dest := range b.topicRuleDestinations {
+	for _, dest := range b.topicRuleDestinations.All() {
 		if dest.ConfirmationToken != "" && dest.ConfirmationToken == token {
 			dest.Status = statusEnabled
 			dest.ConfirmationToken = ""
@@ -641,7 +641,7 @@ func (b *InMemoryBackend) GetBehaviorModelTrainingSummaries(
 	var all []*BehaviorModelTrainingSummary
 
 	if securityProfileName != "" {
-		if _, ok := b.securityProfiles[securityProfileName]; !ok {
+		if !b.securityProfiles.Has(securityProfileName) {
 			return nil, "", fmt.Errorf(
 				"security profile %q not found: %w", securityProfileName, ErrResourceNotFound,
 			)
@@ -702,8 +702,8 @@ func (b *InMemoryBackend) ListOutgoingCertificates() []*OutgoingCertificate {
 
 	out := make([]*OutgoingCertificate, 0)
 
-	for _, id := range sortedKeys(b.certificates) {
-		cert := b.certificates[id]
+	for _, v := range b.certificates.Snapshot() {
+		cert := v
 		if cert.Status != certStatusPendingTransfer {
 			continue
 		}
@@ -843,7 +843,7 @@ func (b *InMemoryBackend) ListMetricValues(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, "", fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -898,7 +898,7 @@ func (b *InMemoryBackend) GetThingConnectivityData(thingName string) (*ThingConn
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 
@@ -934,7 +934,7 @@ func (b *InMemoryBackend) DescribeProvisioningTemplateVersion(
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.provTemplates[name]; !ok {
+	if !b.provTemplates.Has(name) {
 		return nil, fmt.Errorf("provisioning template %q not found: %w", name, ErrResourceNotFound)
 	}
 

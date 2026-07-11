@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -278,6 +279,101 @@ func TestQuery_BlankSKValidation(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+// TestQuery_SelectCount_OmitsItems verifies AWS's documented Select=COUNT
+// behaviour: "Returns the number of matching items, rather than the matching
+// items themselves." Count/ScannedCount must still reflect the real totals,
+// but Items must come back empty.
+func TestQuery_SelectCount_OmitsItems(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	tableName := "QuerySelectCountTable"
+	createTableHelper(t, db, tableName, "pk", "sk")
+
+	for i := range 3 {
+		putInput := models.PutItemInput{
+			TableName: tableName,
+			Item: map[string]any{
+				"pk": map[string]any{"S": "key"},
+				"sk": map[string]any{"N": strconv.Itoa(i)},
+			},
+		}
+		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+		_, _ = db.PutItem(t.Context(), sdkPut)
+	}
+
+	queryInput := mustUnmarshal[models.QueryInput](t, `{
+		"TableName": "`+tableName+`",
+		"KeyConditionExpression": "pk = :pk",
+		"ExpressionAttributeValues": {":pk": {"S": "key"}}
+	}`)
+	sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
+	sdkQuery.Select = types.SelectCount
+
+	out, err := db.Query(t.Context(), sdkQuery)
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), out.Count)
+	assert.Equal(t, int32(3), out.ScannedCount)
+	assert.Empty(t, out.Items, "Select=COUNT must not return Items")
+}
+
+// TestQuery_SelectConstraints_Rejected covers the documented restrictions on
+// the Select parameter's interaction with ProjectionExpression/AttributesToGet:
+// "If you use the ProjectionExpression parameter, then the value for Select
+// can only be SPECIFIC_ATTRIBUTES. Any other value for Select will return an
+// error." (see API_Query.html "Select" parameter docs).
+func TestQuery_SelectConstraints_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(*awsdynamodb.QueryInput)
+		name   string
+	}{
+		{
+			name: "COUNT with ProjectionExpression",
+			mutate: func(in *awsdynamodb.QueryInput) {
+				in.Select = types.SelectCount
+				in.ProjectionExpression = aws.String("pk")
+			},
+		},
+		{
+			name: "ALL_ATTRIBUTES with ProjectionExpression",
+			mutate: func(in *awsdynamodb.QueryInput) {
+				in.Select = types.SelectAllAttributes
+				in.ProjectionExpression = aws.String("pk")
+			},
+		},
+		{
+			name: "SPECIFIC_ATTRIBUTES without a projection",
+			mutate: func(in *awsdynamodb.QueryInput) {
+				in.Select = types.SelectSpecificAttributes
+			},
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			tableName := "QuerySelectRejectTable" + strconv.Itoa(i)
+			createTableHelper(t, db, tableName, "pk", "sk")
+
+			queryInput := mustUnmarshal[models.QueryInput](t, `{
+				"TableName": "`+tableName+`",
+				"KeyConditionExpression": "pk = :pk",
+				"ExpressionAttributeValues": {":pk": {"S": "key"}}
+			}`)
+			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
+			tc.mutate(sdkQuery)
+
+			_, err := db.Query(t.Context(), sdkQuery)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ValidationException")
 		})
 	}
 }

@@ -16,7 +16,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	}
 	b.mu.Lock("CreateEventSubscription")
 	defer b.mu.Unlock()
-	if _, exists := b.eventSubscriptions[name]; exists {
+	if _, exists := b.eventSubscriptions.Get(name); exists {
 		return nil, fmt.Errorf("%w: subscription %s already exists", ErrEventSubscriptionAlreadyExists, name)
 	}
 	ids := make([]string, len(sourceIDs))
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		EventCategories:  cats,
 		Enabled:          true,
 	}
-	b.eventSubscriptions[name] = sub
+	b.eventSubscriptions.Put(sub)
 	cp := *sub
 
 	return &cp, nil
@@ -42,12 +42,12 @@ func (b *InMemoryBackend) CreateEventSubscription(
 func (b *InMemoryBackend) DeleteEventSubscription(name string) (*EventSubscription, error) {
 	b.mu.Lock("DeleteEventSubscription")
 	defer b.mu.Unlock()
-	sub, exists := b.eventSubscriptions[name]
+	sub, exists := b.eventSubscriptions.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
 	}
 	cp := *sub
-	delete(b.eventSubscriptions, name)
+	b.eventSubscriptions.Delete(name)
 
 	return &cp, nil
 }
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(name string) ([]EventSubscr
 	b.mu.RLock("DescribeEventSubscriptions")
 	defer b.mu.RUnlock()
 	if name != "" {
-		sub, exists := b.eventSubscriptions[name]
+		sub, exists := b.eventSubscriptions.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
 		}
@@ -65,8 +65,8 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(name string) ([]EventSubscr
 
 		return []EventSubscription{cp}, nil
 	}
-	result := make([]EventSubscription, 0, len(b.eventSubscriptions))
-	for _, sub := range b.eventSubscriptions {
+	result := make([]EventSubscription, 0, b.eventSubscriptions.Len())
+	for _, sub := range b.eventSubscriptions.All() {
 		result = append(result, *sub)
 	}
 
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 ) (*EventSubscription, error) {
 	b.mu.Lock("ModifyEventSubscription")
 	defer b.mu.Unlock()
-	sub, exists := b.eventSubscriptions[name]
+	sub, exists := b.eventSubscriptions.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
 	}
@@ -167,7 +167,7 @@ func (b *InMemoryBackend) DescribeBlueGreenDeployments(id string) ([]BlueGreenDe
 	b.mu.RLock("DescribeBlueGreenDeployments")
 	defer b.mu.RUnlock()
 	if id != "" {
-		d, exists := b.blueGreenDeployments[id]
+		d, exists := b.blueGreenDeployments.Get(id)
 		if !exists {
 			return nil, fmt.Errorf("%w: blue/green deployment %s not found", ErrBlueGreenDeploymentNotFound, id)
 		}
@@ -175,8 +175,8 @@ func (b *InMemoryBackend) DescribeBlueGreenDeployments(id string) ([]BlueGreenDe
 
 		return []BlueGreenDeployment{cp}, nil
 	}
-	result := make([]BlueGreenDeployment, 0, len(b.blueGreenDeployments))
-	for _, d := range b.blueGreenDeployments {
+	result := make([]BlueGreenDeployment, 0, b.blueGreenDeployments.Len())
+	for _, d := range b.blueGreenDeployments.All() {
 		result = append(result, *d)
 	}
 
@@ -187,12 +187,12 @@ func (b *InMemoryBackend) DescribeBlueGreenDeployments(id string) ([]BlueGreenDe
 func (b *InMemoryBackend) DeleteBlueGreenDeployment(id string) (*BlueGreenDeployment, error) {
 	b.mu.Lock("DeleteBlueGreenDeployment")
 	defer b.mu.Unlock()
-	d, exists := b.blueGreenDeployments[id]
+	d, exists := b.blueGreenDeployments.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: blue/green deployment %s not found", ErrBlueGreenDeploymentNotFound, id)
 	}
 	cp := *d
-	delete(b.blueGreenDeployments, id)
+	b.blueGreenDeployments.Delete(id)
 
 	return &cp, nil
 }
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) DeleteBlueGreenDeployment(id string) (*BlueGreenDeploy
 func (b *InMemoryBackend) SwitchoverBlueGreenDeployment(id string) (*BlueGreenDeployment, error) {
 	b.mu.Lock("SwitchoverBlueGreenDeployment")
 	defer b.mu.Unlock()
-	d, exists := b.blueGreenDeployments[id]
+	d, exists := b.blueGreenDeployments.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: blue/green deployment %s not found", ErrBlueGreenDeploymentNotFound, id)
 	}
@@ -216,7 +216,7 @@ func (b *InMemoryBackend) DescribeDBSecurityGroups(name string) ([]DBSecurityGro
 	b.mu.RLock("DescribeDBSecurityGroups")
 	defer b.mu.RUnlock()
 	if name != "" {
-		sg, exists := b.dbSecurityGroups[name]
+		sg, exists := b.dbSecurityGroups.Get(name)
 		if !exists {
 			return nil, fmt.Errorf("%w: security group %s not found", ErrDBSecurityGroupNotFound, name)
 		}
@@ -224,8 +224,8 @@ func (b *InMemoryBackend) DescribeDBSecurityGroups(name string) ([]DBSecurityGro
 
 		return []DBSecurityGroup{cp}, nil
 	}
-	result := make([]DBSecurityGroup, 0, len(b.dbSecurityGroups))
-	for _, sg := range b.dbSecurityGroups {
+	result := make([]DBSecurityGroup, 0, b.dbSecurityGroups.Len())
+	for _, sg := range b.dbSecurityGroups.All() {
 		result = append(result, *sg)
 	}
 
@@ -239,10 +239,10 @@ func (b *InMemoryBackend) DeleteDBSecurityGroup(name string) error {
 	}
 	b.mu.Lock("DeleteDBSecurityGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.dbSecurityGroups[name]; !exists {
+	if _, exists := b.dbSecurityGroups.Get(name); !exists {
 		return fmt.Errorf("%w: security group %s not found", ErrDBSecurityGroupNotFound, name)
 	}
-	delete(b.dbSecurityGroups, name)
+	b.dbSecurityGroups.Delete(name)
 
 	return nil
 }
@@ -254,7 +254,7 @@ func (b *InMemoryBackend) RevokeDBSecurityGroupIngress(groupName, cidrIP string)
 	}
 	b.mu.Lock("RevokeDBSecurityGroupIngress")
 	defer b.mu.Unlock()
-	sg, exists := b.dbSecurityGroups[groupName]
+	sg, exists := b.dbSecurityGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: security group %s not found", ErrDBSecurityGroupNotFound, groupName)
 	}
@@ -279,7 +279,7 @@ func (b *InMemoryBackend) RevokeDBSecurityGroupIngress(groupName, cidrIP string)
 func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, error) {
 	b.mu.Lock("FailoverDBCluster")
 	defer b.mu.Unlock()
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
@@ -298,7 +298,7 @@ func (b *InMemoryBackend) FailoverDBCluster(clusterID, _ string) (*DBCluster, er
 // The cluster transitions to "rebooting" status and reverts to "available" after a brief delay.
 func (b *InMemoryBackend) RebootDBCluster(clusterID string) (*DBCluster, error) {
 	b.mu.Lock("RebootDBCluster")
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		b.mu.Unlock()
 
@@ -325,10 +325,10 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 	}
 	b.mu.Lock("DeleteDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.clusterParameterGroups[name]; !exists {
+	if _, exists := b.clusterParameterGroups.Get(name); !exists {
 		return fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
-	delete(b.clusterParameterGroups, name)
+	b.clusterParameterGroups.Delete(name)
 	arn := "arn:aws:rds:" + b.region + ":" + b.accountID + ":cluster-pg:" + name
 	delete(b.tags, arn)
 
@@ -339,7 +339,7 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string, params []DBParameter) (string, error) {
 	b.mu.Lock("ModifyDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.clusterParameterGroups[name]
+	pg, exists := b.clusterParameterGroups.Get(name)
 	if !exists {
 		return "", fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
@@ -357,7 +357,7 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string, params []DB
 func (b *InMemoryBackend) DescribeDBClusterParameters(groupName string) ([]DBParameter, error) {
 	b.mu.RLock("DescribeDBClusterParameters")
 	defer b.mu.RUnlock()
-	pg, exists := b.clusterParameterGroups[groupName]
+	pg, exists := b.clusterParameterGroups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}
@@ -387,7 +387,7 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 ) (string, error) {
 	b.mu.Lock("ResetDBClusterParameterGroup")
 	defer b.mu.Unlock()
-	pg, exists := b.clusterParameterGroups[groupName]
+	pg, exists := b.clusterParameterGroups.Get(groupName)
 	if !exists {
 		return "", fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, groupName)
 	}
@@ -406,7 +406,7 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 func (b *InMemoryBackend) ModifyDBSubnetGroup(name, description string, subnetIDs []string) (*DBSubnetGroup, error) {
 	b.mu.Lock("ModifyDBSubnetGroup")
 	defer b.mu.Unlock()
-	sg, exists := b.subnetGroups[name]
+	sg, exists := b.subnetGroups.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
@@ -427,7 +427,7 @@ func (b *InMemoryBackend) ModifyDBSubnetGroup(name, description string, subnetID
 func (b *InMemoryBackend) ModifyDBClusterEndpoint(endpointID, endpointType string) (*DBClusterEndpoint, error) {
 	b.mu.Lock("ModifyDBClusterEndpoint")
 	defer b.mu.Unlock()
-	ep, exists := b.clusterEndpoints[endpointID]
+	ep, exists := b.clusterEndpoints.Get(endpointID)
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
 	}

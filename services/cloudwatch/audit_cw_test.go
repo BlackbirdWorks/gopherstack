@@ -21,7 +21,7 @@ func putMetric(t *testing.T, b *cloudwatch.InMemoryBackend, datum cloudwatch.Met
 		datum.Min = datum.Value
 		datum.Max = datum.Value
 	}
-	_, err := b.PutMetricData(datum.Namespace, []cloudwatch.MetricDatum{datum})
+	err := b.PutMetricData(datum.Namespace, []cloudwatch.MetricDatum{datum})
 	require.NoError(t, err)
 }
 
@@ -304,7 +304,7 @@ func TestAuditCW_ListMetrics_NameOnlyDimensionFilter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			page, err := b.ListMetrics("SvcNS", "Req", tc.dimFilter, "", 0)
+			page, err := b.ListMetrics("SvcNS", "Req", tc.dimFilter, "", "", 0)
 			require.NoError(t, err)
 			assert.Len(t, page.Data, tc.wantLen, "filter=%v", tc.dimFilter)
 		})

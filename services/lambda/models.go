@@ -521,23 +521,30 @@ type ListProvisionedConcurrencyConfigsOutput struct {
 }
 
 // FunctionPermission is a single statement in a function resource-based policy.
+// Qualifier records the version/alias this statement is scoped to (empty for the
+// unqualified function-wide policy), matching real AWS per-qualifier policies.
 type FunctionPermission struct {
-	Action        string `json:"Action"`
-	Effect        string `json:"Effect"`
-	FunctionName  string `json:"-"`
-	Principal     string `json:"Principal"`
-	SourceAccount string `json:"SourceAccount,omitempty"`
-	SourceArn     string `json:"SourceArn,omitempty"`
-	StatementID   string `json:"Sid"`
+	Action           string `json:"Action"`
+	Effect           string `json:"Effect"`
+	FunctionName     string `json:"-"`
+	Qualifier        string `json:"-"`
+	Principal        string `json:"Principal"`
+	SourceAccount    string `json:"SourceAccount,omitempty"`
+	SourceArn        string `json:"SourceArn,omitempty"`
+	EventSourceToken string `json:"EventSourceToken,omitempty"`
+	PrincipalOrgID   string `json:"PrincipalOrgID,omitempty"`
+	StatementID      string `json:"Sid"`
 }
 
 // AddPermissionInput is the request body for AddPermission.
 type AddPermissionInput struct {
-	Action        string `json:"Action"`
-	Principal     string `json:"Principal"`
-	StatementID   string `json:"StatementId"`
-	SourceAccount string `json:"SourceAccount,omitempty"`
-	SourceArn     string `json:"SourceArn,omitempty"`
+	Action           string `json:"Action"`
+	Principal        string `json:"Principal"`
+	StatementID      string `json:"StatementId"`
+	SourceAccount    string `json:"SourceAccount,omitempty"`
+	SourceArn        string `json:"SourceArn,omitempty"`
+	EventSourceToken string `json:"EventSourceToken,omitempty"`
+	PrincipalOrgID   string `json:"PrincipalOrgID,omitempty"`
 }
 
 // AddPermissionOutput is the response for AddPermission.

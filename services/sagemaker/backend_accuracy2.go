@@ -123,7 +123,7 @@ func (b *InMemoryBackend) CreateTransformJob(ctx context.Context, opts Transform
 	b.mu.Lock("CreateTransformJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transformJobsStore(region)[opts.TransformJobName]; ok {
+	if _, ok := b.transformJobsStore(region).Get(opts.TransformJobName); ok {
 		return nil, fmt.Errorf(
 			"%w: transform job %s already exists",
 			ErrTransformJobAlreadyExists,
@@ -156,7 +156,7 @@ func (b *InMemoryBackend) CreateTransformJob(ctx context.Context, opts Transform
 		CreationTime:            now,
 		LastModifiedTime:        now,
 	}
-	b.transformJobsStore(region)[opts.TransformJobName] = tj
+	b.transformJobsStore(region).Put(tj)
 	b.transformJobARNIndexStore(region)[jobARN] = opts.TransformJobName
 
 	b.runDelayed(b.lifecycleCtx, transformJobCompletionDelay, func() {
@@ -172,7 +172,7 @@ func (b *InMemoryBackend) applyTransformJobCompletion(ctx context.Context, name 
 	b.mu.Lock("applyTransformJobCompletion")
 	defer b.mu.Unlock()
 
-	tj, ok := b.transformJobsStore(region)[name]
+	tj, ok := b.transformJobsStore(region).Get(name)
 	if !ok || tj.TransformJobStatus != trainingJobStatusInProgress {
 		return
 	}
@@ -190,7 +190,7 @@ func (b *InMemoryBackend) DescribeTransformJob(ctx context.Context, name string)
 	b.mu.RLock("DescribeTransformJob")
 	defer b.mu.RUnlock()
 
-	tj, ok := b.transformJobsStore(region)[name]
+	tj, ok := b.transformJobsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
 	}
@@ -205,7 +205,7 @@ func (b *InMemoryBackend) StopTransformJob(ctx context.Context, name string) err
 	b.mu.Lock("StopTransformJob")
 	defer b.mu.Unlock()
 
-	tj, ok := b.transformJobsStore(region)[name]
+	tj, ok := b.transformJobsStore(region).Get(name)
 	if !ok {
 		return fmt.Errorf("%w: transform job %q not found", ErrTransformJobNotFound, name)
 	}
@@ -224,7 +224,9 @@ func (b *InMemoryBackend) StopTransformJob(ctx context.Context, name string) err
 	b.runDelayed(b.lifecycleCtx, transformJobStoppingDelay, func() {
 		b.mu.Lock("StopTransformJob.goroutine")
 		defer b.mu.Unlock()
-		if tj2, found := b.transformJobsStore(region)[name]; found && tj2.TransformJobStatus == pipelineStatusStopping {
+		if tj2, found := b.transformJobsStore(region).
+			Get(name); found &&
+			tj2.TransformJobStatus == pipelineStatusStopping {
 			tj2.TransformJobStatus = "Stopped"
 			tj2.LastModifiedTime = time.Now()
 		}
@@ -250,9 +252,9 @@ func (b *InMemoryBackend) ListTransformJobs(
 	b.mu.RLock("ListTransformJobs")
 	defer b.mu.RUnlock()
 
-	list := make([]*TransformJob, 0, len(b.transformJobsStore(region)))
+	list := make([]*TransformJob, 0, b.transformJobsStore(region).Len())
 
-	for _, tj := range b.transformJobsStore(region) {
+	for _, tj := range b.transformJobsStore(region).All() {
 		if filter.StatusEquals != "" && tj.TransformJobStatus != filter.StatusEquals {
 			continue
 		}

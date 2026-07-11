@@ -2,6 +2,8 @@ package cloudwatch_test
 
 import (
 	"fmt"
+	"math"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -24,7 +26,7 @@ func TestListMetrics_PartialDimensionFilter(t *testing.T) {
 	ts := time.Now().UTC().Add(-time.Minute)
 
 	// Store a metric with 2 dimensions.
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "CPU",
 			Value:      80, Count: 1, Sum: 80, Min: 80, Max: 80,
@@ -35,7 +37,7 @@ func TestListMetrics_PartialDimensionFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Filter by only one dimension – should still match (partial filter).
-	p, err := b.ListMetrics("App", "CPU", []cloudwatch.Dimension{{Name: "Env", Value: "prod"}}, "", 0)
+	p, err := b.ListMetrics("App", "CPU", []cloudwatch.Dimension{{Name: "Env", Value: "prod"}}, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 1, "partial dimension filter should match metric with superset of dims")
 }
@@ -46,7 +48,7 @@ func TestListMetrics_PartialDimensionFilter_NoMatch(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-time.Minute)
 
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "CPU", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80,
 			Timestamp:  ts,
@@ -56,7 +58,7 @@ func TestListMetrics_PartialDimensionFilter_NoMatch(t *testing.T) {
 	require.NoError(t, err)
 
 	// Filter by a dimension that doesn't exist on the metric.
-	p, err := b.ListMetrics("App", "CPU", []cloudwatch.Dimension{{Name: "Env", Value: "staging"}}, "", 0)
+	p, err := b.ListMetrics("App", "CPU", []cloudwatch.Dimension{{Name: "Env", Value: "staging"}}, "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, p.Data, "non-matching filter should return no metrics")
 }
@@ -67,7 +69,7 @@ func TestListMetrics_MultiDimFilter_AllMustMatch(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-time.Minute)
 
-	_, err := b.PutMetricData("Svc", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("Svc", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Req", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
 			Timestamp:  ts,
@@ -84,7 +86,7 @@ func TestListMetrics_MultiDimFilter_AllMustMatch(t *testing.T) {
 	p, err := b.ListMetrics(
 		"Svc", "Req",
 		[]cloudwatch.Dimension{{Name: "A", Value: "1"}, {Name: "B", Value: "2"}},
-		"", 0,
+		"", "", 0,
 	)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 1, "all filter dims must match")
@@ -150,7 +152,7 @@ func TestBackend_GetMetricStatistics_ExtendedStats_Computed(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Lat", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: base.Add(10 * time.Second)},
 		{MetricName: "Lat", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: base.Add(20 * time.Second)},
 		{MetricName: "Lat", Value: 90, Count: 1, Sum: 90, Min: 90, Max: 90, Timestamp: base.Add(30 * time.Second)},
@@ -175,7 +177,7 @@ func TestBackend_GetMetricStatistics_p99_HigherThanMedian(t *testing.T) {
 
 	vals := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 100}
 	for i, v := range vals {
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{
 				MetricName: "M",
 				Value:      v,
@@ -210,7 +212,7 @@ func TestBackend_GetMetricData_ConstantMultiply(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -237,7 +239,7 @@ func TestBackend_GetMetricData_ConstantAdd(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -264,7 +266,7 @@ func TestBackend_GetMetricData_ConstantDivide(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 100, Count: 1, Sum: 100, Min: 100, Max: 100, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -290,7 +292,7 @@ func TestBackend_GetMetricData_ConstantSubtract(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -316,7 +318,7 @@ func TestBackend_GetMetricData_ConstantLeftSide(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 5, Count: 1, Sum: 5, Min: 5, Max: 5, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -342,7 +344,7 @@ func TestBackend_GetMetricData_ConstantLeftMultiply(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 3, Count: 1, Sum: 3, Min: 3, Max: 3, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -374,7 +376,7 @@ func TestBackend_GetMetricData_AvgMetrics(t *testing.T) {
 
 	for _, v := range []float64{10, 30} {
 		mn := fmt.Sprintf("M%.0f", v)
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{MetricName: mn, Value: v, Count: 1, Sum: v, Min: v, Max: v, Timestamp: ts},
 		})
 		require.NoError(t, err)
@@ -407,7 +409,7 @@ func TestBackend_GetMetricData_MinMetrics(t *testing.T) {
 
 	for _, v := range []float64{5, 15, 25} {
 		mn := fmt.Sprintf("M%.0f", v)
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{MetricName: mn, Value: v, Count: 1, Sum: v, Min: v, Max: v, Timestamp: ts},
 		})
 		require.NoError(t, err)
@@ -448,7 +450,7 @@ func TestBackend_GetMetricData_MaxMetrics(t *testing.T) {
 
 	for _, v := range []float64{5, 15, 99} {
 		mn := fmt.Sprintf("M%.0f", v)
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{MetricName: mn, Value: v, Count: 1, Sum: v, Min: v, Max: v, Timestamp: ts},
 		})
 		require.NoError(t, err)
@@ -489,7 +491,7 @@ func TestBackend_GetMetricData_StddevMetrics(t *testing.T) {
 
 	for _, v := range []float64{10, 20, 30} {
 		mn := fmt.Sprintf("M%.0f", v)
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{MetricName: mn, Value: v, Count: 1, Sum: v, Min: v, Max: v, Timestamp: ts},
 		})
 		require.NoError(t, err)
@@ -533,7 +535,7 @@ func TestBackend_GetMetricData_RateFunction(t *testing.T) {
 	base := time.Date(2024, 1, 1, 0, 1, 0, 0, time.UTC) // align to minute boundary
 
 	// Two data points 60 seconds apart, value increases by 120.
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Counter", Value: 0, Count: 1, Sum: 0, Min: 0, Max: 0, Timestamp: base},
 		{MetricName: "Counter", Value: 120, Count: 1, Sum: 120, Min: 120, Max: 120, Timestamp: base.Add(time.Minute)},
 	})
@@ -635,10 +637,14 @@ func TestHandler_PutMetricData_StatisticSetOnly_Accepted(t *testing.T) {
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
 	assert.Equal(t, 200, rec.Code)
-	// Unprocessed entries have <ErrorCode>; absence means all data was accepted.
+	// PutMetricDataOutput has no members: a 200 response body carries only ResponseMetadata.
 	assert.NotContains(t, rec.Body.String(), "<ErrorCode>")
 }
 
+// TestHandler_PutMetricData_StatisticSetAndValue_Rejected verifies that an
+// invalid datum fails the whole request with a real AWS error response, not a
+// 200 with a fabricated UnprocessedMetricData list (PutMetricDataOutput has no
+// such field — confirmed against aws-sdk-go-v2 cloudwatch types).
 func TestHandler_PutMetricData_StatisticSetAndValue_Rejected(t *testing.T) {
 	t.Parallel()
 
@@ -654,8 +660,8 @@ func TestHandler_PutMetricData_StatisticSetAndValue_Rejected(t *testing.T) {
 			"&MetricData.member.1.StatisticValues.Maximum=60"+
 			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
 	)
-	assert.Equal(t, 200, rec.Code)
-	assert.Contains(t, rec.Body.String(), "UnprocessedMetricData")
+	assert.Equal(t, 400, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterCombination")
 }
 
 func TestHandler_PutMetricData_StatisticSet_StoredCorrectly(t *testing.T) {
@@ -664,7 +670,7 @@ func TestHandler_PutMetricData_StatisticSet_StoredCorrectly(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Reqs", HasStatisticSet: true,
 			Count: 10, Sum: 500, Min: 20, Max: 80,
@@ -684,6 +690,222 @@ func TestHandler_PutMetricData_StatisticSet_StoredCorrectly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PutMetricData: Values/Counts array input
+//
+// Real CloudWatch lets a caller publish up to 150 unique values per datum via
+// parallel Values/Counts arrays instead of a single Value or a StatisticSet
+// (see aws-sdk-go-v2 cloudwatch/types.MetricDatum.Values doc comment). Prior to
+// this test the form and rpc-v2-cbor parsers silently dropped this field
+// entirely, so any client using it lost data with no error.
+// ---------------------------------------------------------------------------
+
+func TestHandler_PutMetricData_ValuesCountsArray_StoredCorrectly(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
+	rec := postForm(
+		t, h,
+		"Action=PutMetricData&Namespace=App"+
+			"&MetricData.member.1.MetricName=Latency"+
+			"&MetricData.member.1.Values.member.1=10"+
+			"&MetricData.member.1.Values.member.2=20"+
+			"&MetricData.member.1.Values.member.3=30"+
+			"&MetricData.member.1.Counts.member.1=2"+
+			"&MetricData.member.1.Counts.member.2=3"+
+			"&MetricData.member.1.Counts.member.3=5"+
+			"&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+	)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	b := h.Backend.(*cloudwatch.InMemoryBackend)
+	ts := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	dps, err := b.GetMetricStatistics("App", "Latency", nil,
+		ts.Add(-time.Minute), ts.Add(time.Minute), 60,
+		[]string{"Sum", "SampleCount", "Minimum", "Maximum"}, nil)
+	require.NoError(t, err)
+	require.Len(t, dps, 1)
+
+	// count = 2+3+5 = 10; sum = 10*2 + 20*3 + 30*5 = 230; min = 10; max = 30.
+	require.NotNil(t, dps[0].SampleCount)
+	assert.InDelta(t, 10.0, *dps[0].SampleCount, 1e-9)
+	require.NotNil(t, dps[0].Sum)
+	assert.InDelta(t, 230.0, *dps[0].Sum, 1e-9)
+	require.NotNil(t, dps[0].Minimum)
+	assert.InDelta(t, 10.0, *dps[0].Minimum, 1e-9)
+	require.NotNil(t, dps[0].Maximum)
+	assert.InDelta(t, 30.0, *dps[0].Maximum, 1e-9)
+}
+
+func Test_PutMetricData_ValuesCountsArray(t *testing.T) {
+	t.Parallel()
+
+	ts := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		wantErr    error
+		name       string
+		datum      cloudwatch.MetricDatum
+		wantSum    float64
+		wantCount  float64
+		wantMin    float64
+		wantMax    float64
+		wantStored bool
+	}{
+		{
+			name: "counts default to 1 when omitted",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", Timestamp: ts,
+				HasValuesArray: true,
+				Values:         []float64{4, 8},
+				Counts:         []float64{1, 1},
+			},
+			wantStored: true, wantSum: 12, wantCount: 2, wantMin: 4, wantMax: 8,
+		},
+		{
+			name: "weighted counts aggregate correctly",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", Timestamp: ts,
+				HasValuesArray: true,
+				Values:         []float64{1, 2, 3},
+				Counts:         []float64{10, 20, 30},
+			},
+			// sum = 1*10 + 2*20 + 3*30 = 140; count = 60.
+			wantStored: true, wantSum: 140, wantCount: 60, wantMin: 1, wantMax: 3,
+		},
+		{
+			name: "mismatched Values/Counts lengths rejected",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", Timestamp: ts,
+				HasValuesArray: true,
+				Values:         []float64{1, 2, 3},
+				Counts:         []float64{1, 1},
+			},
+			wantErr: cloudwatch.ErrValuesCountsLengthMismatch,
+		},
+		{
+			name: "more than 150 values rejected",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", Timestamp: ts,
+				HasValuesArray: true,
+				Values:         make([]float64, 151),
+				Counts:         make([]float64, 151),
+			},
+			wantErr: cloudwatch.ErrTooManyValues,
+		},
+		{
+			name: "NaN entry rejected",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", Timestamp: ts,
+				HasValuesArray: true,
+				Values:         []float64{1, math.NaN()},
+				Counts:         []float64{1, 1},
+			},
+			wantErr: cloudwatch.ErrInvalidMetricValue,
+		},
+		{
+			name: "Values array combined with a plain Value is rejected",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", Timestamp: ts,
+				HasValuesArray: true,
+				Values:         []float64{1},
+				Counts:         []float64{1},
+				HasValue:       true,
+				Value:          5,
+			},
+			wantErr: cloudwatch.ErrValueAndStatisticSet,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			err := b.PutMetricData("NS", []cloudwatch.MetricDatum{tc.datum})
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			if !tc.wantStored {
+				return
+			}
+
+			dps, gerr := b.GetMetricStatistics("NS", "M", nil,
+				ts.Add(-time.Minute), ts.Add(time.Minute), 60,
+				[]string{"Sum", "SampleCount", "Minimum", "Maximum"}, nil)
+			require.NoError(t, gerr)
+			require.Len(t, dps, 1)
+			require.NotNil(t, dps[0].Sum)
+			assert.InDelta(t, tc.wantSum, *dps[0].Sum, 1e-9, "Sum")
+			require.NotNil(t, dps[0].SampleCount)
+			assert.InDelta(t, tc.wantCount, *dps[0].SampleCount, 1e-9, "SampleCount")
+			require.NotNil(t, dps[0].Minimum)
+			assert.InDelta(t, tc.wantMin, *dps[0].Minimum, 1e-9, "Minimum")
+			require.NotNil(t, dps[0].Maximum)
+			assert.InDelta(t, tc.wantMax, *dps[0].Maximum, 1e-9, "Maximum")
+		})
+	}
+}
+
+func Test_ValidateMetricDatum_ValueRange(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		wantErr error
+		name    string
+		datum   cloudwatch.MetricDatum
+	}{
+		{
+			name:  "finite value in range accepted",
+			datum: cloudwatch.MetricDatum{MetricName: "M", HasValue: true, Value: 42.5},
+		},
+		{
+			name:    "NaN value rejected",
+			datum:   cloudwatch.MetricDatum{MetricName: "M", HasValue: true, Value: math.NaN()},
+			wantErr: cloudwatch.ErrInvalidMetricValue,
+		},
+		{
+			name:    "+Inf value rejected",
+			datum:   cloudwatch.MetricDatum{MetricName: "M", HasValue: true, Value: math.Inf(1)},
+			wantErr: cloudwatch.ErrInvalidMetricValue,
+		},
+		{
+			name:    "-Inf value rejected",
+			datum:   cloudwatch.MetricDatum{MetricName: "M", HasValue: true, Value: math.Inf(-1)},
+			wantErr: cloudwatch.ErrInvalidMetricValue,
+		},
+		{
+			name: "StatisticSet with NaN Sum rejected",
+			datum: cloudwatch.MetricDatum{
+				MetricName: "M", HasStatisticSet: true,
+				Count: 1, Sum: math.NaN(), Min: 1, Max: 1,
+			},
+			wantErr: cloudwatch.ErrInvalidMetricValue,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := cloudwatch.ValidateMetricDatumForTest(tc.datum)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // PutMetricData: unit round-trip
 // ---------------------------------------------------------------------------
 
@@ -693,7 +915,7 @@ func TestBackend_PutMetricData_UnitStored(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Unit: "Milliseconds", Value: 5, Count: 1, Sum: 5, Min: 5, Max: 5, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -1481,7 +1703,7 @@ func TestBackend_ListMetrics_Pagination(t *testing.T) {
 	ts := time.Now().UTC().Add(-time.Minute)
 
 	for i := range 10 {
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{
 				MetricName: fmt.Sprintf("M%02d", i), Value: float64(i), Count: 1,
 				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts,
@@ -1491,13 +1713,13 @@ func TestBackend_ListMetrics_Pagination(t *testing.T) {
 	}
 
 	// First page of 4.
-	p1, err := b.ListMetrics("NS", "", nil, "", 4)
+	p1, err := b.ListMetrics("NS", "", nil, "", "", 4)
 	require.NoError(t, err)
 	assert.Len(t, p1.Data, 4)
 	assert.NotEmpty(t, p1.Next)
 
 	// Second page.
-	p2, err := b.ListMetrics("NS", "", nil, p1.Next, 4)
+	p2, err := b.ListMetrics("NS", "", nil, "", p1.Next, 4)
 	require.NoError(t, err)
 	assert.Len(t, p2.Data, 4)
 
@@ -1522,13 +1744,13 @@ func TestBackend_SweepExpiredMetrics_RemovesOldPoints(t *testing.T) {
 
 	// Put a point 20 days ago (beyond retention).
 	old := time.Now().UTC().AddDate(0, 0, -(cloudwatch.CwMetricRetentionDays + 1))
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Old", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: old},
 	})
 	require.NoError(t, err)
 
 	// Put a recent point.
-	_, err = b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err = b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Recent", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: time.Now().UTC()},
 	})
 	require.NoError(t, err)
@@ -1536,12 +1758,12 @@ func TestBackend_SweepExpiredMetrics_RemovesOldPoints(t *testing.T) {
 	b.SweepExpiredMetrics()
 
 	// Old metric should be gone.
-	p, err := b.ListMetrics("NS", "Old", nil, "", 0)
+	p, err := b.ListMetrics("NS", "Old", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, p.Data, "expired metric should be swept")
 
 	// Recent metric should remain.
-	p, err = b.ListMetrics("NS", "Recent", nil, "", 0)
+	p, err = b.ListMetrics("NS", "Recent", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, p.Data, 1, "recent metric should survive sweep")
 }
@@ -1652,7 +1874,7 @@ func TestBackend_PutMetricData_ExceedsPerRequestLimit(t *testing.T) {
 		}
 	}
 
-	_, err := b.PutMetricData("NS", data1001)
+	err := b.PutMetricData("NS", data1001)
 	assert.Error(t, err, "PutMetricData should reject > 1000 entries per request")
 }
 
@@ -1666,7 +1888,7 @@ func TestBackend_GetMetricData_MultipleStatQueries(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "CPU", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: ts},
 		{MetricName: "Mem", Value: 80, Count: 1, Sum: 80, Min: 80, Max: 80, Timestamp: ts},
 	})
@@ -1728,7 +1950,7 @@ func TestBackend_GetMetricData_ReturnDataFalse_SuppressesResult(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -1762,7 +1984,7 @@ func TestBackend_GetMetricStatistics_PeriodBuckets(t *testing.T) {
 
 	// Three points in different 60-second buckets.
 	for i, v := range []float64{10, 20, 30} {
-		_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{
 				MetricName: "M",
 				Value:      v, Count: 1, Sum: v, Min: v, Max: v,
@@ -1785,7 +2007,7 @@ func TestBackend_GetMetricStatistics_AggregatesWithinPeriod(t *testing.T) {
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// Two points within the same 60-second bucket.
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: base.Add(5 * time.Second)},
 		{MetricName: "M", Value: 30, Count: 1, Sum: 30, Min: 30, Max: 30, Timestamp: base.Add(10 * time.Second)},
 	})

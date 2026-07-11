@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // describePaged handles the common lookup-or-paginate pattern for Describe* operations.
@@ -11,7 +12,7 @@ import (
 // Otherwise all items are collected, optionally filtered, sorted by key(), and paginated.
 // A nil filter includes every item.
 func describePaged[T any](
-	store map[string]*T,
+	t *store.Table[T],
 	id string,
 	notFoundErr error,
 	filter func(T) bool,
@@ -20,7 +21,7 @@ func describePaged[T any](
 	maxRecords int,
 ) (page.Page[T], error) {
 	if id != "" {
-		item, exists := store[id]
+		item, exists := t.Get(id)
 		if !exists {
 			return page.Page[T]{}, notFoundErr
 		}
@@ -28,8 +29,9 @@ func describePaged[T any](
 		return page.Page[T]{Data: []T{*item}}, nil
 	}
 
-	out := make([]T, 0, len(store))
-	for _, item := range store {
+	all := t.All()
+	out := make([]T, 0, len(all))
+	for _, item := range all {
 		if filter == nil || filter(*item) {
 			out = append(out, *item)
 		}

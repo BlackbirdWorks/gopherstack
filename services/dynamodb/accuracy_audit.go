@@ -316,6 +316,10 @@ func validateTransactWriteItems(
 	totalBytes := 0
 
 	for i, ti := range items {
+		if err := validateTransactUpdateKeys(ti, tables); err != nil {
+			return err
+		}
+
 		tableName, keyItem, itemForSize := extractTransactWriteKeyAndItem(ti)
 		if tableName == "" {
 			continue
@@ -367,6 +371,30 @@ func validateTransactWriteItems(
 	}
 
 	return nil
+}
+
+// validateTransactUpdateKeys rejects a TransactWriteItem Update action whose
+// UpdateExpression touches a key attribute — the same restriction plain
+// UpdateItem enforces. Without this check a transactional update can rewrite
+// an item's key in place while leaving the OLD key's index entry dangling
+// (updateIndexes only ever adds/overwrites the new key's index slot, it never
+// removes a stale one), corrupting pkIndex/pkskIndex lookups. Non-Update
+// actions are always allowed through (nil).
+func validateTransactUpdateKeys(ti types.TransactWriteItem, tables map[string]*Table) error {
+	if ti.Update == nil {
+		return nil
+	}
+
+	table, ok := tables[aws.ToString(ti.Update.TableName)]
+	if !ok {
+		return nil
+	}
+
+	return validateUpdateDoesNotModifyKeys(
+		aws.ToString(ti.Update.UpdateExpression),
+		ti.Update.ExpressionAttributeNames,
+		table.KeySchema,
+	)
 }
 
 // extractTransactWriteKeyAndItem returns the table name, key map, and item map

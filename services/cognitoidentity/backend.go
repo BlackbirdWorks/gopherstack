@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -41,6 +42,11 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 
 	return defaultRegion
 }
+
+// regionKey builds the composite store.Table primary (or index) key "region|id" shared
+// by every resource collection below, which was previously nested by region (outer key =
+// region, e.g. map[string]map[string]*IdentityPool). See store_setup.go.
+func regionKey(region, id string) string { return region + "|" + id }
 
 const (
 	// deleteIdentitiesMaxBatch is the AWS-imposed limit on identities per DeleteIdentities call.
@@ -111,15 +117,18 @@ type PoolExtendedConfig struct {
 
 // IdentityPool represents an Amazon Cognito Identity Pool.
 type IdentityPool struct {
-	CreatedAt                      time.Time          `json:"createdAt"`
-	SupportedLoginProviders        map[string]string  `json:"supportedLoginProviders,omitempty"`
-	Tags                           map[string]string  `json:"tags,omitempty"`
-	OpenIDConnectProviderARNs      []string           `json:"openIdConnectProviderARNs,omitempty"`
-	SamlProviderARNs               []string           `json:"samlProviderARNs,omitempty"`
-	IdentityPoolID                 string             `json:"identityPoolID"`
-	IdentityPoolName               string             `json:"identityPoolName"`
-	ARN                            string             `json:"arn"`
-	DeveloperProviderName          string             `json:"developerProviderName,omitempty"`
+	CreatedAt                 time.Time         `json:"createdAt"`
+	SupportedLoginProviders   map[string]string `json:"supportedLoginProviders,omitempty"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	OpenIDConnectProviderARNs []string          `json:"openIdConnectProviderARNs,omitempty"`
+	SamlProviderARNs          []string          `json:"samlProviderARNs,omitempty"`
+	IdentityPoolID            string            `json:"identityPoolID"`
+	IdentityPoolName          string            `json:"identityPoolName"`
+	ARN                       string            `json:"arn"`
+	DeveloperProviderName     string            `json:"developerProviderName,omitempty"`
+	// region is the store.Table composite-key qualifier (see regionKey); it is never
+	// serialised on IdentityPool itself, only carried through persistence.go's DTO.
+	region                         string
 	IdentityProviders              []IdentityProvider `json:"identityProviders,omitempty"`
 	AllowUnauthenticatedIdentities bool               `json:"allowUnauthenticatedIdentities"`
 	AllowClassicFlow               bool               `json:"allowClassicFlow"`
@@ -130,6 +139,10 @@ type IdentityRoles struct {
 	RoleMappings           map[string]RoleMapping `json:"roleMappings,omitempty"`
 	AuthenticatedRoleARN   string                 `json:"authenticatedRoleARN"`
 	UnauthenticatedRoleARN string                 `json:"unauthenticatedRoleARN"`
+	// region and poolID are the store.Table composite-key components (see regionKey);
+	// neither is serialised on IdentityRoles itself, only via persistence.go's DTO.
+	region string
+	poolID string
 }
 
 // Identity represents a federated identity.
@@ -139,13 +152,22 @@ type Identity struct {
 	Logins           map[string]string `json:"logins,omitempty"`
 	IdentityID       string            `json:"identityID"`
 	IdentityPoolID   string            `json:"identityPoolID"`
-	Enabled          bool              `json:"enabled"`
+	// region is the store.Table composite-key qualifier (see regionKey); it is never
+	// serialised on Identity itself, only carried through persistence.go's DTO.
+	region  string
+	Enabled bool `json:"enabled"`
 }
 
 // PrincipalTagMapping stores the principal tag attribute map for a pool and provider.
 type PrincipalTagMapping struct {
 	PrincipalTags map[string]string `json:"principalTags,omitempty"`
-	UseDefaults   bool              `json:"useDefaults"`
+	// region, poolID and providerName are the store.Table composite-key components (see
+	// regionKey and principalTagKey); none is serialised on PrincipalTagMapping itself,
+	// only via persistence.go's DTO.
+	region       string
+	poolID       string
+	providerName string
+	UseDefaults  bool `json:"useDefaults"`
 }
 
 // UnprocessedIdentityID represents a Cognito identity that could not be deleted.
@@ -156,96 +178,122 @@ type UnprocessedIdentityID struct {
 
 // InMemoryBackend is the in-memory store for Cognito Identity Pool resources.
 //
-// All resource maps are nested by region (outer key = region) so that
-// same-named resources are isolated across regions. The per-region inner maps
-// are created lazily via the *Store helpers. Callers must hold b.mu while
-// accessing the inner maps.
+// The four resource collections below were previously nested by region (outer key =
+// region, e.g. map[string]map[string]*IdentityPool) so that same-named resources are
+// isolated across regions. Each is now a flat *store.Table keyed by the composite
+// "region|id" string (see regionKey), with companion *store.Index values replacing the
+// old reverse-lookup maps (poolsByName, poolsByARN, identitiesByPool) and the
+// prefix-scan used to purge a pool's principal-tag mappings. Callers must hold b.mu
+// while accessing any table or index, exactly as they held it for the old maps --
+// store.Table and store.Index perform no locking of their own.
 type InMemoryBackend struct {
-	mu               *lockmetrics.RWMutex
-	pools            map[string]map[string]*IdentityPool        // region → poolID → pool
-	poolsByName      map[string]map[string]*IdentityPool        // region → name → pool
-	poolsByARN       map[string]map[string]*IdentityPool        // region → arn → pool
-	identities       map[string]map[string]*Identity            // region → identityID → identity
-	identitiesByPool map[string]map[string][]*Identity          // region → poolID → identities
-	roles            map[string]map[string]*IdentityRoles       // region → poolID → roles
-	principalTags    map[string]map[string]*PrincipalTagMapping // region → key → mapping
-	accountID        string
-	region           string
+	pools               *store.Table[IdentityPool]
+	poolsByRegion       *store.Index[IdentityPool]
+	poolsByName         *store.Index[IdentityPool]
+	poolsByARN          *store.Index[IdentityPool]
+	identities          *store.Table[Identity]
+	identitiesByPool    *store.Index[Identity]
+	roles               *store.Table[IdentityRoles]
+	principalTags       *store.Table[PrincipalTagMapping]
+	principalTagsByPool *store.Index[PrincipalTagMapping]
+	registry            *store.Registry
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:               lockmetrics.New("cognitoidentity"),
-		pools:            make(map[string]map[string]*IdentityPool),
-		poolsByName:      make(map[string]map[string]*IdentityPool),
-		poolsByARN:       make(map[string]map[string]*IdentityPool),
-		identities:       make(map[string]map[string]*Identity),
-		identitiesByPool: make(map[string]map[string][]*Identity),
-		roles:            make(map[string]map[string]*IdentityRoles),
-		principalTags:    make(map[string]map[string]*PrincipalTagMapping),
-		accountID:        accountID,
-		region:           region,
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("cognitoidentity"),
+		registry:  store.NewRegistry(),
+		accountID: accountID,
+		region:    region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
-// The *Store helpers return the per-region inner map, lazily creating it.
-// Callers must hold b.mu.
+// The following Get/Put/Delete/In* helpers replace the old lazy per-region map
+// accessors (poolsStore(region) etc.) with store.Table / store.Index operations.
+// Callers must still hold b.mu, exactly as before.
 
-func (b *InMemoryBackend) poolsStore(region string) map[string]*IdentityPool {
-	if b.pools[region] == nil {
-		b.pools[region] = make(map[string]*IdentityPool)
-	}
-
-	return b.pools[region]
+func (b *InMemoryBackend) poolGet(region, poolID string) (*IdentityPool, bool) {
+	return b.pools.Get(regionKey(region, poolID))
 }
 
-func (b *InMemoryBackend) poolsByNameStore(region string) map[string]*IdentityPool {
-	if b.poolsByName[region] == nil {
-		b.poolsByName[region] = make(map[string]*IdentityPool)
-	}
+func (b *InMemoryBackend) poolPut(v *IdentityPool) { b.pools.Put(v) }
 
-	return b.poolsByName[region]
+func (b *InMemoryBackend) poolDelete(region, poolID string) {
+	b.pools.Delete(regionKey(region, poolID))
 }
 
-func (b *InMemoryBackend) poolsByARNStore(region string) map[string]*IdentityPool {
-	if b.poolsByARN[region] == nil {
-		b.poolsByARN[region] = make(map[string]*IdentityPool)
-	}
-
-	return b.poolsByARN[region]
+func (b *InMemoryBackend) poolsInRegion(region string) []*IdentityPool {
+	return b.poolsByRegion.Get(region)
 }
 
-func (b *InMemoryBackend) identitiesStore(region string) map[string]*Identity {
-	if b.identities[region] == nil {
-		b.identities[region] = make(map[string]*Identity)
-	}
-
-	return b.identities[region]
+// poolNameTaken reports whether an identity pool named name already exists in region.
+// AWS enforces pool-name uniqueness per region+account, so the index group holds at
+// most one entry.
+func (b *InMemoryBackend) poolNameTaken(region, name string) bool {
+	return len(b.poolsByName.Get(regionKey(region, name))) > 0
 }
 
-func (b *InMemoryBackend) identitiesByPoolStore(region string) map[string][]*Identity {
-	if b.identitiesByPool[region] == nil {
-		b.identitiesByPool[region] = make(map[string][]*Identity)
+// poolByARN returns the identity pool with the given ARN in region, if any. An ARN is
+// unique per pool, so the index group holds at most one entry.
+func (b *InMemoryBackend) poolByARN(region, arn string) (*IdentityPool, bool) {
+	matches := b.poolsByARN.Get(regionKey(region, arn))
+	if len(matches) == 0 {
+		return nil, false
 	}
 
-	return b.identitiesByPool[region]
+	return matches[0], true
 }
 
-func (b *InMemoryBackend) rolesStore(region string) map[string]*IdentityRoles {
-	if b.roles[region] == nil {
-		b.roles[region] = make(map[string]*IdentityRoles)
-	}
-
-	return b.roles[region]
+func (b *InMemoryBackend) identityGet(region, identityID string) (*Identity, bool) {
+	return b.identities.Get(regionKey(region, identityID))
 }
 
-func (b *InMemoryBackend) principalTagsStore(region string) map[string]*PrincipalTagMapping {
-	if b.principalTags[region] == nil {
-		b.principalTags[region] = make(map[string]*PrincipalTagMapping)
-	}
+func (b *InMemoryBackend) identityPut(v *Identity) { b.identities.Put(v) }
 
-	return b.principalTags[region]
+func (b *InMemoryBackend) identityDelete(region, identityID string) {
+	b.identities.Delete(regionKey(region, identityID))
+}
+
+func (b *InMemoryBackend) identitiesInPool(region, poolID string) []*Identity {
+	return b.identitiesByPool.Get(regionKey(region, poolID))
+}
+
+func (b *InMemoryBackend) rolesGet(region, poolID string) (*IdentityRoles, bool) {
+	return b.roles.Get(regionKey(region, poolID))
+}
+
+func (b *InMemoryBackend) rolesPut(v *IdentityRoles) { b.roles.Put(v) }
+
+func (b *InMemoryBackend) rolesDelete(region, poolID string) bool {
+	return b.roles.Delete(regionKey(region, poolID))
+}
+
+// principalTagKey returns the composite map key for a pool+provider combination.
+// Format: "<poolID>:<providerName>".
+func principalTagKey(poolID, providerName string) string {
+	return poolID + ":" + providerName
+}
+
+func (b *InMemoryBackend) principalTagGet(region, poolID, providerName string) (*PrincipalTagMapping, bool) {
+	return b.principalTags.Get(regionKey(region, principalTagKey(poolID, providerName)))
+}
+
+func (b *InMemoryBackend) principalTagPut(v *PrincipalTagMapping) { b.principalTags.Put(v) }
+
+func (b *InMemoryBackend) principalTagDelete(region, poolID, providerName string) bool {
+	return b.principalTags.Delete(regionKey(region, principalTagKey(poolID, providerName)))
+}
+
+func (b *InMemoryBackend) principalTagsInPool(region, poolID string) []*PrincipalTagMapping {
+	return b.principalTagsByPool.Get(regionKey(region, poolID))
 }
 
 // Region returns the region this backend is configured for.
@@ -272,7 +320,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 		return nil, fmt.Errorf("%w: IdentityPoolName is required", ErrInvalidParameter)
 	}
 
-	if _, ok := b.poolsByNameStore(region)[name]; ok {
+	if b.poolNameTaken(region, name) {
 		return nil, fmt.Errorf(
 			"%w: identity pool %q already exists",
 			ErrIdentityPoolAlreadyExists,
@@ -306,11 +354,10 @@ func (b *InMemoryBackend) CreateIdentityPool(
 		OpenIDConnectProviderARNs:      cloneStringSlice(cfg.OpenIDConnectProviderARNs),
 		SamlProviderARNs:               cloneStringSlice(cfg.SamlProviderARNs),
 		CreatedAt:                      time.Now(),
+		region:                         region,
 	}
 
-	b.poolsStore(region)[poolID] = pool
-	b.poolsByNameStore(region)[name] = pool
-	b.poolsByARNStore(region)[arn] = pool
+	b.poolPut(pool)
 
 	return clonePool(pool), nil
 }
@@ -327,32 +374,23 @@ func (b *InMemoryBackend) DeleteIdentityPool(ctx context.Context, poolID string)
 	b.mu.Lock("DeleteIdentityPool")
 	defer b.mu.Unlock()
 
-	pools := b.poolsStore(region)
-
-	pool, ok := pools[poolID]
-	if !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	delete(b.poolsByNameStore(region), pool.IdentityPoolName)
-	delete(b.poolsByARNStore(region), pool.ARN)
-	delete(pools, poolID)
-	delete(b.rolesStore(region), poolID)
+	b.poolDelete(region, poolID)
+	b.rolesDelete(region, poolID)
 
-	for _, identity := range b.identitiesByPoolStore(region)[poolID] {
-		delete(b.identitiesStore(region), identity.IdentityID)
+	// Delete every identity in the pool. The index slice is owned by
+	// identitiesByPool and mutates as entries are deleted from it, so clone it first.
+	for _, identity := range slices.Clone(b.identitiesInPool(region, poolID)) {
+		b.identityDelete(region, identity.IdentityID)
 	}
 
-	delete(b.identitiesByPoolStore(region), poolID)
-
-	// Purge all principal-tag mappings that belong to this pool.
-	prefix := poolID + ":"
-	pt := b.principalTagsStore(region)
-
-	for key := range pt {
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
-			delete(pt, key)
-		}
+	// Purge all principal-tag mappings that belong to this pool. Same cloning
+	// requirement as above.
+	for _, tag := range slices.Clone(b.principalTagsInPool(region, poolID)) {
+		b.principalTagDelete(region, tag.poolID, tag.providerName)
 	}
 
 	return nil
@@ -372,7 +410,7 @@ func (b *InMemoryBackend) DescribeIdentityPool(
 	b.mu.RLock("DescribeIdentityPool")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.poolsStore(region)[poolID]
+	pool, ok := b.poolGet(region, poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
@@ -392,25 +430,21 @@ func (b *InMemoryBackend) ListIdentityPools(
 	b.mu.RLock("ListIdentityPools")
 	defer b.mu.RUnlock()
 
-	regionPools := b.poolsStore(region)
+	// poolsByRegion's slice is owned by the index; clone it before sorting in place.
+	pools := slices.Clone(b.poolsInRegion(region))
 
-	keys := make([]string, 0, len(regionPools))
-	for id := range regionPools {
-		keys = append(keys, id)
-	}
-
-	sort.Slice(keys, func(i, j int) bool {
-		return regionPools[keys[i]].IdentityPoolName < regionPools[keys[j]].IdentityPoolName
+	sort.Slice(pools, func(i, j int) bool {
+		return pools[i].IdentityPoolName < pools[j].IdentityPoolName
 	})
 
 	// Apply cursor: skip all pools up to and including the one named by nextToken.
-	// Default to len(keys) so an unrecognised / past-end token returns an empty page.
+	// Default to len(pools) so an unrecognised / past-end token returns an empty page.
 	startIdx := 0
 	if nextToken != "" {
-		startIdx = len(keys)
+		startIdx = len(pools)
 
-		for i, id := range keys {
-			if regionPools[id].IdentityPoolName == nextToken {
+		for i, p := range pools {
+			if p.IdentityPoolName == nextToken {
 				startIdx = i + 1
 
 				break
@@ -418,22 +452,22 @@ func (b *InMemoryBackend) ListIdentityPools(
 		}
 	}
 
-	keys = keys[startIdx:]
+	pools = pools[startIdx:]
 
-	limit := len(keys)
+	limit := len(pools)
 	if maxResults > 0 && maxResults < limit {
 		limit = maxResults
 	}
 
 	out := make([]*IdentityPool, 0, limit)
 
-	for i, id := range keys {
-		out = append(out, clonePool(regionPools[id]))
+	for i, p := range pools {
+		out = append(out, clonePool(p))
 
 		if maxResults > 0 && len(out) >= maxResults {
 			// Return the name of the last item as the cursor for the next page.
-			if i+1 < len(keys) {
-				return out, regionPools[id].IdentityPoolName
+			if i+1 < len(pools) {
+				return out, p.IdentityPoolName
 			}
 
 			break
@@ -465,25 +499,13 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	b.mu.Lock("UpdateIdentityPool")
 	defer b.mu.Unlock()
 
-	pools := b.poolsStore(region)
-
-	pool, ok := pools[poolID]
+	pool, ok := b.poolGet(region, poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	if name != "" && name != pool.IdentityPoolName {
-		if _, exists := b.poolsByNameStore(region)[name]; exists {
-			return nil, fmt.Errorf(
-				"%w: identity pool %q already exists",
-				ErrIdentityPoolAlreadyExists,
-				name,
-			)
-		}
-
-		delete(b.poolsByNameStore(region), pool.IdentityPoolName)
-		pool.IdentityPoolName = name
-		b.poolsByNameStore(region)[name] = pool
+	if err := b.renamePoolIfNeeded(region, pool, name); err != nil {
+		return nil, err
 	}
 
 	pool.AllowUnauthenticatedIdentities = allowUnauthenticated
@@ -505,6 +527,33 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	return clonePool(pool), nil
 }
 
+// renamePoolIfNeeded renames pool to name when name is non-empty and different from
+// the pool's current name, after checking the new name is not already taken in region.
+// Renaming an indexed field (IdentityPoolName, which the byName index keys on) in place
+// would leave that index stale (see store.Table.AddIndex's doc comment), so the pool is
+// first deleted -- which evicts it from every index using its pre-rename state -- then
+// mutated, then re-inserted so every index picks up the new state. Must be called with
+// b.mu held.
+func (b *InMemoryBackend) renamePoolIfNeeded(region string, pool *IdentityPool, name string) error {
+	if name == "" || name == pool.IdentityPoolName {
+		return nil
+	}
+
+	if b.poolNameTaken(region, name) {
+		return fmt.Errorf(
+			"%w: identity pool %q already exists",
+			ErrIdentityPoolAlreadyExists,
+			name,
+		)
+	}
+
+	b.poolDelete(region, pool.IdentityPoolID)
+	pool.IdentityPoolName = name
+	b.poolPut(pool)
+
+	return nil
+}
+
 // GetID returns an existing identity or creates a new one for the given pool and logins.
 func (b *InMemoryBackend) GetID(
 	ctx context.Context,
@@ -521,7 +570,7 @@ func (b *InMemoryBackend) GetID(
 		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
 	}
 
-	pool, ok := b.poolsStore(region)[poolID]
+	pool, ok := b.poolGet(region, poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
@@ -550,13 +599,10 @@ func (b *InMemoryBackend) GetID(
 		CreatedAt:        now,
 		LastModifiedDate: now,
 		Enabled:          true,
+		region:           region,
 	}
 
-	b.identitiesStore(region)[identityID] = identity
-	b.identitiesByPoolStore(region)[poolID] = append(
-		b.identitiesByPoolStore(region)[poolID],
-		identity,
-	)
+	b.identityPut(identity)
 
 	return cloneIdentity(identity), nil
 }
@@ -568,7 +614,7 @@ func (b *InMemoryBackend) mergeExistingIdentity(
 	region, poolID string,
 	logins map[string]string,
 ) *Identity {
-	for _, identity := range b.identitiesByPoolStore(region)[poolID] {
+	for _, identity := range b.identitiesInPool(region, poolID) {
 		if !anyLoginMatches(identity.Logins, logins) {
 			continue
 		}
@@ -611,7 +657,7 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(
 	b.mu.RLock("GetCredentialsForIdentity")
 	defer b.mu.RUnlock()
 
-	identity, ok := b.identitiesStore(region)[identityID]
+	identity, ok := b.identityGet(region, identityID)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
@@ -679,7 +725,7 @@ func (b *InMemoryBackend) GetOpenIDToken(
 	b.mu.RLock("GetOpenIDToken")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.identitiesStore(region)[identityID]; !ok {
+	if _, ok := b.identityGet(region, identityID); !ok {
 		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
 
@@ -710,16 +756,14 @@ func (b *InMemoryBackend) SetIdentityPoolRoles(
 	b.mu.Lock("SetIdentityPoolRoles")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	rs := b.rolesStore(region)
-	existing, ok := rs[poolID]
-
+	existing, ok := b.rolesGet(region, poolID)
 	if !ok {
-		existing = &IdentityRoles{}
-		rs[poolID] = existing
+		existing = &IdentityRoles{region: region, poolID: poolID}
+		b.rolesPut(existing)
 	}
 
 	// Only update the roles that the caller provided (non-empty value = explicitly set).
@@ -752,11 +796,11 @@ func (b *InMemoryBackend) GetIdentityPoolRoles(
 	b.mu.RLock("GetIdentityPoolRoles")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	roles, ok := b.rolesStore(region)[poolID]
+	roles, ok := b.rolesGet(region, poolID)
 	if !ok {
 		return &IdentityRoles{}, nil
 	}
@@ -802,30 +846,11 @@ func (b *InMemoryBackend) DeleteIdentities(
 
 	var unprocessed []UnprocessedIdentityID
 
-	ids := b.identitiesStore(region)
-	idsByPool := b.identitiesByPoolStore(region)
-
 	for _, id := range identityIDs {
-		identity, ok := ids[id]
-		if !ok {
-			continue
-		}
-
-		poolID := identity.IdentityPoolID
-
-		delete(ids, id)
-
-		// Remove from identitiesByPool slice.
-		existing := idsByPool[poolID]
-		updated := make([]*Identity, 0, len(existing))
-
-		for _, i := range existing {
-			if i.IdentityID != id {
-				updated = append(updated, i)
-			}
-		}
-
-		idsByPool[poolID] = updated
+		// Table.Delete is a documented no-op (reports false) when id is absent, matching
+		// the original silent-skip behaviour; it also keeps the identitiesByPool index
+		// consistent automatically, replacing the old by-hand slice rebuild.
+		b.identityDelete(region, id)
 	}
 
 	return unprocessed, nil
@@ -845,7 +870,7 @@ func (b *InMemoryBackend) DescribeIdentity(
 	b.mu.RLock("DescribeIdentity")
 	defer b.mu.RUnlock()
 
-	identity, ok := b.identitiesStore(region)[identityID]
+	identity, ok := b.identityGet(region, identityID)
 	if !ok {
 		return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
@@ -878,7 +903,7 @@ func (b *InMemoryBackend) lookupOrCreateDeveloperIdentity(
 	region, poolID string,
 	logins map[string]string,
 ) string {
-	for _, identity := range b.identitiesByPoolStore(region)[poolID] {
+	for _, identity := range b.identitiesInPool(region, poolID) {
 		if anyLoginMatches(identity.Logins, logins) {
 			if identity.Logins == nil {
 				identity.Logins = make(map[string]string)
@@ -901,13 +926,10 @@ func (b *InMemoryBackend) lookupOrCreateDeveloperIdentity(
 		CreatedAt:        now,
 		LastModifiedDate: now,
 		Enabled:          true,
+		region:           region,
 	}
 
-	b.identitiesStore(region)[newID] = identity
-	b.identitiesByPoolStore(region)[poolID] = append(
-		b.identitiesByPoolStore(region)[poolID],
-		identity,
-	)
+	b.identityPut(identity)
 
 	return newID
 }
@@ -935,12 +957,12 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 	b.mu.Lock("GetOpenIDTokenForDeveloperIdentity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
 	if identityID != "" {
-		if _, ok := b.identitiesStore(region)[identityID]; !ok {
+		if _, ok := b.identityGet(region, identityID); !ok {
 			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 		}
 	}
@@ -962,12 +984,6 @@ func (b *InMemoryBackend) GetOpenIDTokenForDeveloperIdentity(
 	}, nil
 }
 
-// principalTagKey returns the composite map key for a pool+provider combination.
-// Format: "<poolID>:<providerName>".
-func principalTagKey(poolID, providerName string) string {
-	return poolID + ":" + providerName
-}
-
 // GetPrincipalTagAttributeMap returns the principal tag attribute map for a pool and provider.
 func (b *InMemoryBackend) GetPrincipalTagAttributeMap(
 	ctx context.Context,
@@ -982,13 +998,11 @@ func (b *InMemoryBackend) GetPrincipalTagAttributeMap(
 	b.mu.RLock("GetPrincipalTagAttributeMap")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	key := principalTagKey(poolID, providerName)
-
-	if m, ok := b.principalTagsStore(region)[key]; ok {
+	if m, ok := b.principalTagGet(region, poolID, providerName); ok {
 		return clonePrincipalTagMapping(m), nil
 	}
 
@@ -1020,13 +1034,14 @@ func (b *InMemoryBackend) ListIdentities(
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	poolIdentities := b.identitiesByPoolStore(region)[poolID]
+	poolIdentities := b.identitiesInPool(region, poolID)
 
-	// Filter disabled identities (when requested) and sort by IdentityId.
+	// Filter disabled identities (when requested) and sort by IdentityId. Builds a fresh
+	// slice, so it never mutates the identitiesByPool index's own backing slice.
 	sorted := filterAndSortIdentities(poolIdentities, hideDisabled)
 
 	// Apply cursor: skip items up to and including the one with the cursor ID.
@@ -1091,7 +1106,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.poolsByARNStore(region)[resourceARN]
+	pool, ok := b.poolByARN(region, resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %q not found", ErrIdentityPoolNotFound, resourceARN)
 	}
@@ -1123,12 +1138,12 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 	b.mu.RLock("LookupDeveloperIdentity")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
 	if identityID != "" {
-		identity, ok := b.identitiesStore(region)[identityID]
+		identity, ok := b.identityGet(region, identityID)
 		if !ok {
 			return nil, fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 		}
@@ -1142,7 +1157,7 @@ func (b *InMemoryBackend) LookupDeveloperIdentity(
 	}
 
 	if developerUserIdentifier != "" {
-		for _, identity := range b.identitiesByPoolStore(region)[poolID] {
+		for _, identity := range b.identitiesInPool(region, poolID) {
 			if v, ok := identity.Logins[developerProviderName]; ok && v == developerUserIdentifier {
 				devIDs := developerLoginsFrom(identity.Logins, developerProviderName)
 
@@ -1218,13 +1233,13 @@ func (b *InMemoryBackend) MergeDeveloperIdentities(
 	b.mu.Lock("MergeDeveloperIdentities")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
 	var sourceIdentity, destIdentity *Identity
 
-	for _, identity := range b.identitiesByPoolStore(region)[poolID] {
+	for _, identity := range b.identitiesInPool(region, poolID) {
 		if v, ok := identity.Logins[developerProviderName]; ok {
 			switch v {
 			case sourceUserID:
@@ -1255,20 +1270,8 @@ func (b *InMemoryBackend) MergeDeveloperIdentities(
 	maps.Copy(destIdentity.Logins, sourceIdentity.Logins)
 	destIdentity.LastModifiedDate = time.Now()
 
-	// Remove source identity.
-	ids := b.identitiesStore(region)
-	delete(ids, sourceIdentity.IdentityID)
-
-	idsByPool := b.identitiesByPoolStore(region)
-	updated := make([]*Identity, 0, len(idsByPool[poolID])-1)
-
-	for _, i := range idsByPool[poolID] {
-		if i.IdentityID != sourceIdentity.IdentityID {
-			updated = append(updated, i)
-		}
-	}
-
-	idsByPool[poolID] = updated
+	// Remove source identity. Table.Delete keeps identitiesByPool consistent automatically.
+	b.identityDelete(region, sourceIdentity.IdentityID)
 
 	return cloneIdentity(destIdentity), nil
 }
@@ -1294,7 +1297,7 @@ func (b *InMemoryBackend) UnlinkIdentity(
 	b.mu.Lock("UnlinkIdentity")
 	defer b.mu.Unlock()
 
-	identity, ok := b.identitiesStore(region)[identityID]
+	identity, ok := b.identityGet(region, identityID)
 	if !ok {
 		return fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
@@ -1363,11 +1366,11 @@ func (b *InMemoryBackend) UnlinkDeveloperIdentity(
 	b.mu.Lock("UnlinkDeveloperIdentity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	identity, ok := b.identitiesStore(region)[identityID]
+	identity, ok := b.identityGet(region, identityID)
 	if !ok {
 		return fmt.Errorf("%w: identity %q not found", ErrIdentityPoolNotFound, identityID)
 	}
@@ -1422,16 +1425,19 @@ func (b *InMemoryBackend) SetPrincipalTagAttributeMap(
 	b.mu.Lock("SetPrincipalTagAttributeMap")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolsStore(region)[poolID]; !ok {
+	if _, ok := b.poolGet(region, poolID); !ok {
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
 	mapping := &PrincipalTagMapping{
 		UseDefaults:   useDefaults,
 		PrincipalTags: cloneStringMap(principalTags),
+		region:        region,
+		poolID:        poolID,
+		providerName:  providerName,
 	}
 
-	b.principalTagsStore(region)[principalTagKey(poolID, providerName)] = mapping
+	b.principalTagPut(mapping)
 
 	return clonePrincipalTagMapping(mapping), nil
 }
@@ -1451,7 +1457,7 @@ func (b *InMemoryBackend) TagResource(
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	pool, ok := b.poolsByARNStore(region)[resourceARN]
+	pool, ok := b.poolByARN(region, resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %q not found", ErrIdentityPoolNotFound, resourceARN)
 	}
@@ -1484,7 +1490,7 @@ func (b *InMemoryBackend) UntagResource(
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	pool, ok := b.poolsByARNStore(region)[resourceARN]
+	pool, ok := b.poolByARN(region, resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %q not found", ErrIdentityPoolNotFound, resourceARN)
 	}
@@ -1501,6 +1507,9 @@ func clonePrincipalTagMapping(m *PrincipalTagMapping) *PrincipalTagMapping {
 	return &PrincipalTagMapping{
 		UseDefaults:   m.UseDefaults,
 		PrincipalTags: cloneStringMap(m.PrincipalTags),
+		region:        m.region,
+		poolID:        m.poolID,
+		providerName:  m.providerName,
 	}
 }
 
@@ -1678,13 +1687,7 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.pools = make(map[string]map[string]*IdentityPool)
-	b.poolsByName = make(map[string]map[string]*IdentityPool)
-	b.poolsByARN = make(map[string]map[string]*IdentityPool)
-	b.identities = make(map[string]map[string]*Identity)
-	b.identitiesByPool = make(map[string]map[string][]*Identity)
-	b.roles = make(map[string]map[string]*IdentityRoles)
-	b.principalTags = make(map[string]map[string]*PrincipalTagMapping)
+	b.registry.ResetAll()
 }
 
 // AddPoolInternal seeds an identity pool directly into the backend for testing purposes.
@@ -1695,9 +1698,8 @@ func (b *InMemoryBackend) AddPoolInternal(pool *IdentityPool) {
 
 	region := regionFromARN(pool.ARN, b.region)
 	cp := clonePool(pool)
-	b.poolsStore(region)[cp.IdentityPoolID] = cp
-	b.poolsByNameStore(region)[cp.IdentityPoolName] = cp
-	b.poolsByARNStore(region)[cp.ARN] = cp
+	cp.region = region
+	b.poolPut(cp)
 }
 
 // AddIdentityInternal seeds an identity directly into the backend for testing purposes.
@@ -1712,9 +1714,6 @@ func (b *InMemoryBackend) AddIdentityInternal(identity *Identity) {
 	}
 
 	cp := cloneIdentity(identity)
-	b.identitiesStore(region)[cp.IdentityID] = cp
-	b.identitiesByPoolStore(region)[cp.IdentityPoolID] = append(
-		b.identitiesByPoolStore(region)[cp.IdentityPoolID],
-		cp,
-	)
+	cp.region = region
+	b.identityPut(cp)
 }

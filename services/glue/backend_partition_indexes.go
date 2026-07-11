@@ -29,7 +29,7 @@ func (b *InMemoryBackend) CreatePartitionIndex(dbName, tableName string, input P
 	b.mu.Lock("CreatePartitionIndex")
 	defer b.mu.Unlock()
 
-	table, ok := b.tables[tableKey(dbName, tableName)]
+	table, ok := b.tables.Get(tableKey(dbName, tableName))
 	if !ok {
 		return fmt.Errorf("table %s.%s not found: %w", dbName, tableName, ErrNotFound)
 	}
@@ -92,7 +92,7 @@ func (b *InMemoryBackend) GetPartitionIndexes(dbName, tableName string) ([]*Part
 	b.mu.RLock("GetPartitionIndexes")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tables[tableKey(dbName, tableName)]; !ok {
+	if !b.tables.Has(tableKey(dbName, tableName)) {
 		return nil, fmt.Errorf("table %s.%s not found: %w", dbName, tableName, ErrNotFound)
 	}
 

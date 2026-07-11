@@ -240,7 +240,10 @@ func TestParityIAM_ErrorSentinelWrapping(t *testing.T) {
 
 // TestParityIAM_HandlerNoSuchEntityCode verifies that all "not found" errors
 // translate to the "NoSuchEntity" XML error code in HTTP responses, matching AWS.
-// IAM uses HTTP 400 for NoSuchEntity (not 404 — IAM is not REST-style).
+// Real AWS IAM returns HTTP 404 for NoSuchEntity even though the body is XML
+// (query protocol): every per-operation error reference page (e.g. GetRole,
+// CreateUser, DeleteUser) documents "NoSuchEntity ... HTTP Status Code: 404".
+// See https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetRole.html#API_GetRole_Errors.
 func TestParityIAM_HandlerNoSuchEntityCode(t *testing.T) {
 	t.Parallel()
 
@@ -292,8 +295,8 @@ func TestParityIAM_HandlerNoSuchEntityCode(t *testing.T) {
 
 			err := h.Handler()(c)
 			require.NoError(t, err)
-			assert.Equal(t, http.StatusBadRequest, rec.Code,
-				"action %s must return 400 for NoSuchEntity", tt.action)
+			assert.Equal(t, http.StatusNotFound, rec.Code,
+				"action %s must return 404 for NoSuchEntity", tt.action)
 
 			var errResp iam.ErrorResponse
 			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))

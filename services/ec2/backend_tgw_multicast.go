@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMulticastDomain(
 	b.mu.Lock("CreateTransitGatewayMulticastDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways[tgwID]; !ok {
+	if _, ok := b.transitGateways.Get(tgwID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, tgwID)
 	}
 
@@ -134,7 +134,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMulticastDomain(
 		Igmpv2Support:                igmpv2Support,
 		StaticSourcesSupport:         staticSourcesSupport,
 	}
-	b.tgwMulticastDomains[domain.ID] = domain
+	b.tgwMulticastDomains.Put(domain)
 
 	cp := *domain
 
@@ -154,9 +154,9 @@ func (b *InMemoryBackend) DescribeTransitGatewayMulticastDomains(
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGatewayMulticastDomain, 0, len(b.tgwMulticastDomains))
+	out := make([]*TransitGatewayMulticastDomain, 0, b.tgwMulticastDomains.Len())
 
-	for _, d := range b.tgwMulticastDomains {
+	for _, d := range b.tgwMulticastDomains.All() {
 		if len(idSet) > 0 && !idSet[d.ID] {
 			continue
 		}
@@ -182,21 +182,22 @@ func (b *InMemoryBackend) DeleteTransitGatewayMulticastDomain(id string) error {
 	b.mu.Lock("DeleteTransitGatewayMulticastDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwMulticastDomains[id]; !ok {
+	if _, ok := b.tgwMulticastDomains.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWMulticastDomainNotFound, id)
 	}
+	b.tgwMulticastDomains.Delete(id)
 
-	delete(b.tgwMulticastDomains, id)
-
-	for key, assoc := range b.tgwMulticastDomainAssociations {
+	for _, assoc := range b.tgwMulticastDomainAssociations.All() {
+		key := tgwMulticastDomainAssociationsKeyFn(assoc)
 		if assoc.TransitGatewayMulticastDomainID == id {
-			delete(b.tgwMulticastDomainAssociations, key)
+			b.tgwMulticastDomainAssociations.Delete(key)
 		}
 	}
 
-	for key, entry := range b.tgwMulticastGroupEntries {
+	for _, entry := range b.tgwMulticastGroupEntries.All() {
+		key := tgwMulticastGroupEntriesKeyFn(entry)
 		if entry.TransitGatewayMulticastDomainID == id {
-			delete(b.tgwMulticastGroupEntries, key)
+			b.tgwMulticastGroupEntries.Delete(key)
 		}
 	}
 
@@ -229,21 +230,20 @@ func (b *InMemoryBackend) AssociateTransitGatewayMulticastDomain(
 	b.mu.Lock("AssociateTransitGatewayMulticastDomain")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwMulticastDomains[domainID]; !ok {
+	if _, ok := b.tgwMulticastDomains.Get(domainID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWMulticastDomainNotFound, domainID)
 	}
 
 	assocs := make([]*TransitGatewayMulticastDomainAssociation, 0, len(subnetIDs))
 
 	for _, subnetID := range subnetIDs {
-		key := domainID + ":" + subnetID
 		assoc := &TransitGatewayMulticastDomainAssociation{
 			TransitGatewayMulticastDomainID: domainID,
 			TransitGatewayAttachmentID:      attachmentID,
 			SubnetID:                        subnetID,
 			State:                           tgwMcastAssocStateAssociated,
 		}
-		b.tgwMulticastDomainAssociations[key] = assoc
+		b.tgwMulticastDomainAssociations.Put(assoc)
 
 		cp := *assoc
 		assocs = append(assocs, &cp)
@@ -277,9 +277,9 @@ func (b *InMemoryBackend) DisassociateTransitGatewayMulticastDomain(
 	for _, subnetID := range subnetIDs {
 		key := domainID + ":" + subnetID
 
-		existing, ok := b.tgwMulticastDomainAssociations[key]
+		existing, ok := b.tgwMulticastDomainAssociations.Get(key)
 		if ok {
-			delete(b.tgwMulticastDomainAssociations, key)
+			b.tgwMulticastDomainAssociations.Delete(key)
 		} else {
 			existing = &TransitGatewayMulticastDomainAssociation{
 				TransitGatewayMulticastDomainID: domainID,
@@ -306,7 +306,7 @@ func (b *InMemoryBackend) GetTransitGatewayMulticastDomainAssociations(
 
 	out := make([]*TransitGatewayMulticastDomainAssociation, 0)
 
-	for _, assoc := range b.tgwMulticastDomainAssociations {
+	for _, assoc := range b.tgwMulticastDomainAssociations.All() {
 		if domainID != "" && assoc.TransitGatewayMulticastDomainID != domainID {
 			continue
 		}
@@ -347,7 +347,7 @@ func (b *InMemoryBackend) registerMulticastGroupResource(
 	b.mu.Lock("registerMulticastGroupResource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwMulticastDomains[domainID]; !ok {
+	if _, ok := b.tgwMulticastDomains.Get(domainID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWMulticastDomainNotFound, domainID)
 	}
 
@@ -356,7 +356,7 @@ func (b *InMemoryBackend) registerMulticastGroupResource(
 	for _, eniID := range eniIDs {
 		key := domainID + ":" + groupIP + ":" + eniID
 
-		entry, ok := b.tgwMulticastGroupEntries[key]
+		entry, ok := b.tgwMulticastGroupEntries.Get(key)
 		if !ok {
 			entry = &TransitGatewayMulticastGroupEntry{
 				TransitGatewayMulticastDomainID: domainID,
@@ -365,7 +365,7 @@ func (b *InMemoryBackend) registerMulticastGroupResource(
 				ResourceID:                      eniID,
 				ResourceType:                    tgwResourceTypeVPC,
 			}
-			b.tgwMulticastGroupEntries[key] = entry
+			b.tgwMulticastGroupEntries.Put(entry)
 		}
 
 		if asMember {
@@ -407,7 +407,7 @@ func (b *InMemoryBackend) deregisterMulticastGroupResource(
 	for _, eniID := range eniIDs {
 		key := domainID + ":" + groupIP + ":" + eniID
 
-		entry, ok := b.tgwMulticastGroupEntries[key]
+		entry, ok := b.tgwMulticastGroupEntries.Get(key)
 		if !ok {
 			deregistered = append(deregistered, eniID)
 
@@ -421,7 +421,7 @@ func (b *InMemoryBackend) deregisterMulticastGroupResource(
 		}
 
 		if !entry.IsMember && !entry.IsSource {
-			delete(b.tgwMulticastGroupEntries, key)
+			b.tgwMulticastGroupEntries.Delete(key)
 		}
 
 		deregistered = append(deregistered, eniID)
@@ -480,7 +480,7 @@ func (b *InMemoryBackend) SearchTransitGatewayMulticastGroups(
 
 	out := make([]*TransitGatewayMulticastGroupEntry, 0)
 
-	for _, entry := range b.tgwMulticastGroupEntries {
+	for _, entry := range b.tgwMulticastGroupEntries.All() {
 		if domainID != "" && entry.TransitGatewayMulticastDomainID != domainID {
 			continue
 		}
@@ -515,7 +515,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicy(
 	b.mu.Lock("CreateTransitGatewayMeteringPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transitGateways[tgwID]; !ok {
+	if _, ok := b.transitGateways.Get(tgwID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, tgwID)
 	}
 
@@ -529,7 +529,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicy(
 		MiddleboxAttachmentIDs: ids,
 		UpdateEffectiveAt:      time.Now().UTC(),
 	}
-	b.tgwMeteringPolicies[policy.ID] = policy
+	b.tgwMeteringPolicies.Put(policy)
 
 	return copyTGWMeteringPolicy(policy), nil
 }
@@ -557,9 +557,9 @@ func (b *InMemoryBackend) DescribeTransitGatewayMeteringPolicies(
 		idSet[id] = true
 	}
 
-	out := make([]*TransitGatewayMeteringPolicy, 0, len(b.tgwMeteringPolicies))
+	out := make([]*TransitGatewayMeteringPolicy, 0, b.tgwMeteringPolicies.Len())
 
-	for _, p := range b.tgwMeteringPolicies {
+	for _, p := range b.tgwMeteringPolicies.All() {
 		if len(idSet) > 0 && !idSet[p.ID] {
 			continue
 		}
@@ -584,15 +584,15 @@ func (b *InMemoryBackend) DeleteTransitGatewayMeteringPolicy(id string) error {
 	b.mu.Lock("DeleteTransitGatewayMeteringPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwMeteringPolicies[id]; !ok {
+	if _, ok := b.tgwMeteringPolicies.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrTGWMeteringPolicyNotFound, id)
 	}
+	b.tgwMeteringPolicies.Delete(id)
 
-	delete(b.tgwMeteringPolicies, id)
-
-	for key, entry := range b.tgwMeteringPolicyEntries {
+	for _, entry := range b.tgwMeteringPolicyEntries.All() {
+		key := tgwMeteringPolicyEntriesKeyFn(entry)
 		if entry.TransitGatewayMeteringPolicyID == id {
-			delete(b.tgwMeteringPolicyEntries, key)
+			b.tgwMeteringPolicyEntries.Delete(key)
 		}
 	}
 
@@ -620,7 +620,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicyEntry(
 	b.mu.Lock("CreateTransitGatewayMeteringPolicyEntry")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwMeteringPolicies[policyID]; !ok {
+	if _, ok := b.tgwMeteringPolicies.Get(policyID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTGWMeteringPolicyNotFound, policyID)
 	}
 
@@ -631,8 +631,7 @@ func (b *InMemoryBackend) CreateTransitGatewayMeteringPolicyEntry(
 	stored.UpdateEffectiveAt = now
 	stored.UpdatedAt = now
 
-	key := policyID + ":" + strconv.Itoa(stored.PolicyRuleNumber)
-	b.tgwMeteringPolicyEntries[key] = &stored
+	b.tgwMeteringPolicyEntries.Put(&stored)
 
 	cp := stored
 
@@ -654,7 +653,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayMeteringPolicyEntry(
 
 	key := policyID + ":" + strconv.Itoa(ruleNumber)
 
-	entry, ok := b.tgwMeteringPolicyEntries[key]
+	entry, ok := b.tgwMeteringPolicyEntries.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: metering policy entry %d in %s not found",
@@ -663,8 +662,7 @@ func (b *InMemoryBackend) DeleteTransitGatewayMeteringPolicyEntry(
 			policyID,
 		)
 	}
-
-	delete(b.tgwMeteringPolicyEntries, key)
+	b.tgwMeteringPolicyEntries.Delete(key)
 
 	cp := *entry
 	cp.State = tgwRouteStateDeleted

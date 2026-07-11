@@ -5,7 +5,7 @@ func FindingCount(b *InMemoryBackend, analyzerName string) int {
 	b.mu.RLock("FindingCount")
 	defer b.mu.RUnlock()
 
-	return len(b.findings[analyzerName])
+	return len(b.findingsByAnalyzer.Get(analyzerName))
 }
 
 // SeedFinding adds a finding directly to the backend for testing.

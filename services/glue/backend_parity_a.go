@@ -127,7 +127,7 @@ func (b *InMemoryBackend) GetSchemaByDefinition(
 	b.mu.RLock("GetSchemaByDefinition")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
 	}
@@ -158,7 +158,7 @@ func (b *InMemoryBackend) GetSchemaVersionsDiff(
 	b.mu.RLock("GetSchemaVersionsDiff")
 	defer b.mu.RUnlock()
 
-	s, ok := b.schemas[schemaKey(registryName, schemaName)]
+	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return "", fmt.Errorf("schema %q/%q not found: %w", registryName, schemaName, ErrNotFound)
 	}

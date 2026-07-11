@@ -17,7 +17,10 @@ func (b *InMemoryBackend) SFNPutEvents(ctx context.Context, entries []map[string
 		evtEntries = append(evtEntries, entry)
 	}
 
-	results := b.PutEvents(ctx, evtEntries)
+	results, err := b.PutEvents(ctx, evtEntries)
+	if err != nil {
+		return 0, err
+	}
 
 	failedCount := 0
 	for _, r := range results {

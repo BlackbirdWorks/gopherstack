@@ -2,7 +2,6 @@ package quicksight
 
 import (
 	"sort"
-	"strings"
 )
 
 // storedIdentityPropagationConfig is the persisted representation of one
@@ -33,7 +32,7 @@ func isValidServiceType(service string) bool {
 
 // ---- Identity propagation configuration ----
 
-func (b *InMemoryBackend) UpdateIdentityPropagationConfig(accountID, service string, authorizedTargets []string) error {
+func (b *InMemoryBackend) UpdateIdentityPropagationConfig(_, service string, authorizedTargets []string) error {
 	if !isValidServiceType(service) {
 		return ErrValidation
 	}
@@ -41,10 +40,10 @@ func (b *InMemoryBackend) UpdateIdentityPropagationConfig(accountID, service str
 	b.mu.Lock("UpdateIdentityPropagationConfig")
 	defer b.mu.Unlock()
 
-	b.identityPropagationConfigs[identityPropagationKey(accountID, service)] = &storedIdentityPropagationConfig{
+	b.identityPropagationConfigs.Put(&storedIdentityPropagationConfig{
 		Service:           service,
 		AuthorizedTargets: authorizedTargets,
-	}
+	})
 
 	return nil
 }
@@ -54,25 +53,18 @@ func (b *InMemoryBackend) DeleteIdentityPropagationConfig(accountID, service str
 	defer b.mu.Unlock()
 
 	key := identityPropagationKey(accountID, service)
-	if _, ok := b.identityPropagationConfigs[key]; !ok {
+	if !b.identityPropagationConfigs.Delete(key) {
 		return ErrIdentityPropagationConfigNotFound
 	}
-	delete(b.identityPropagationConfigs, key)
 
 	return nil
 }
 
-func (b *InMemoryBackend) ListIdentityPropagationConfigs(accountID string) ([]*IdentityPropagationConfig, error) {
+func (b *InMemoryBackend) ListIdentityPropagationConfigs(_ string) ([]*IdentityPropagationConfig, error) {
 	b.mu.RLock("ListIdentityPropagationConfigs")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
-	all := make([]*storedIdentityPropagationConfig, 0, len(b.identityPropagationConfigs))
-	for k, cfg := range b.identityPropagationConfigs {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, cfg)
-		}
-	}
+	all := b.identityPropagationConfigs.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].Service < all[j].Service })
 
 	result := make([]*IdentityPropagationConfig, 0, len(all))

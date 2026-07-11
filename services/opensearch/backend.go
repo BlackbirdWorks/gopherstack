@@ -10,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -114,6 +115,11 @@ type DataSource struct {
 	Name           string `json:"name"`
 	Description    string `json:"description"`
 	DataSourceType string `json:"dataSourceType"`
+	// DomainName identifies the owning domain and is used only to key the
+	// pkgs/store composite table (domainName#name); it is never serialized on
+	// the wire, matching how the domain name was already implied by the
+	// outer map key before the pkgs/store conversion.
+	DomainName string `json:"-"`
 }
 
 // DirectQueryDataSource represents a direct-query data source.
@@ -273,6 +279,11 @@ type DomainIndex struct {
 	Documents   map[string]map[string]any `json:"Documents,omitempty"`
 	IndexName   string                    `json:"IndexName"`
 	IndexStatus string                    `json:"IndexStatus"`
+	// DomainName identifies the owning domain and is used only to key the
+	// pkgs/store composite table (domainName#indexName); it is never
+	// serialized on the wire, matching how the domain name was already
+	// implied by the outer map key before the pkgs/store conversion.
+	DomainName string `json:"-"`
 	// DocumentCount is the number of documents currently stored in the index.
 	DocumentCount int `json:"DocumentCount"`
 }
@@ -507,87 +518,81 @@ type DryRunStatus struct {
 	DryRunStatus       string           `json:"DryRunStatus"`
 	CreationDate       string           `json:"CreationDate"`
 	UpdateDate         string           `json:"UpdateDate"`
+	DomainName         string           `json:"-"`
 	ValidationFailures []map[string]any `json:"ValidationFailures"`
 }
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
+//
+// Most resource collections are *store.Table[T] registered on b.registry --
+// see store_setup.go's registerAllTables doc for the full clean/dirty split
+// and the reasoning behind the handful of fields left as plain maps.
 type InMemoryBackend struct {
-	dnsRegistrar           DNSRegistrar
-	dryRuns                map[string]*DryRunStatus
-	reservedInstances      map[string]*ReservedInstance
-	arnIndex               map[string]string
-	inboundConnections     map[string]*InboundConnection
-	outboundConnections    map[string]*OutboundConnection
-	domainDataSources      map[string]map[string]*DataSource
-	directQueryDataSources map[string]*DirectQueryDataSource
-	domains                map[string]*Domain
-	vpcAuthorizations      map[string][]AuthorizedPrincipal
-	vpcEndpoints           map[string]*VpcEndpoint
-	applications           map[string]*Application
-	applicationNames       map[string]string
-	packages               map[string]*Package
-	scheduledActions       map[string][]*ScheduledAction
-	packageAssociations    map[string]map[string]bool
-	domainMaintenances     map[string][]*DomainMaintenance
-	domainIndexes          map[string]map[string]*DomainIndex
-	upgradeHistory         map[string][]*UpgradeHistory
-	domainPackages         map[string]map[string]bool
-	autoTunes              map[string]*AutoTuneConfig
-	slNetworkPolicies      map[string]*ServerlessNetworkPolicy
-	slCollections          map[string]*ServerlessCollection
-	slAccessPolicies       map[string]*ServerlessAccessPolicy
-	slSecurityConfigs      map[string]*ServerlessSecurityConfig
-	slEncryptionPolicies   map[string]*ServerlessEncryptionPolicy
-	defaultAppSettings     map[string][]AppSetting
-	mu                     *lockmetrics.RWMutex
-	now                    func() time.Time
-	accountID              string
-	region                 string
-	processingDelay        time.Duration
-	appIDCounter           int
-	connCounter            int
-	vpcEndpointCounter     int
-	packageCounter         int
-	maintenanceCounter     int
-	reservedCounter        int
-	slCollCounter          int
-	slSecConfigCounter     int
-	docCounter             int
+	dnsRegistrar              DNSRegistrar
+	dryRuns                   *store.Table[DryRunStatus]
+	reservedInstances         *store.Table[ReservedInstance]
+	inboundConnections        *store.Table[InboundConnection]
+	outboundConnections       *store.Table[OutboundConnection]
+	domainDataSources         *store.Table[DataSource]
+	domainDataSourcesByDomain *store.Index[DataSource]
+	directQueryDataSources    *store.Table[DirectQueryDataSource]
+	domains                   *store.Table[Domain]
+	domainsByARN              *store.Index[Domain]
+	vpcAuthorizations         map[string][]AuthorizedPrincipal
+	vpcEndpoints              *store.Table[VpcEndpoint]
+	applications              *store.Table[Application]
+	applicationsByName        *store.Index[Application]
+	packages                  *store.Table[Package]
+	scheduledActions          map[string][]*ScheduledAction
+	packageAssociations       map[string]map[string]bool
+	domainMaintenances        map[string][]*DomainMaintenance
+	domainIndexes             *store.Table[DomainIndex]
+	domainIndexesByDomain     *store.Index[DomainIndex]
+	upgradeHistory            map[string][]*UpgradeHistory
+	domainPackages            map[string]map[string]bool
+	autoTunes                 *store.Table[AutoTuneConfig]
+	slNetworkPolicies         *store.Table[ServerlessNetworkPolicy]
+	slCollections             *store.Table[ServerlessCollection]
+	slAccessPolicies          *store.Table[ServerlessAccessPolicy]
+	slSecurityConfigs         *store.Table[ServerlessSecurityConfig]
+	slEncryptionPolicies      *store.Table[ServerlessEncryptionPolicy]
+	defaultAppSettings        map[string][]AppSetting
+	registry                  *store.Registry
+	mu                        *lockmetrics.RWMutex
+	now                       func() time.Time
+	accountID                 string
+	region                    string
+	processingDelay           time.Duration
+	appIDCounter              int
+	connCounter               int
+	vpcEndpointCounter        int
+	packageCounter            int
+	maintenanceCounter        int
+	reservedCounter           int
+	slCollCounter             int
+	slSecConfigCounter        int
+	docCounter                int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		domains:                make(map[string]*Domain),
-		arnIndex:               make(map[string]string),
-		inboundConnections:     make(map[string]*InboundConnection),
-		outboundConnections:    make(map[string]*OutboundConnection),
-		domainDataSources:      make(map[string]map[string]*DataSource),
-		directQueryDataSources: make(map[string]*DirectQueryDataSource),
-		packageAssociations:    make(map[string]map[string]bool),
-		domainPackages:         make(map[string]map[string]bool),
-		vpcAuthorizations:      make(map[string][]AuthorizedPrincipal),
-		vpcEndpoints:           make(map[string]*VpcEndpoint),
-		applications:           make(map[string]*Application),
-		applicationNames:       make(map[string]string),
-		packages:               make(map[string]*Package),
-		scheduledActions:       make(map[string][]*ScheduledAction),
-		reservedInstances:      make(map[string]*ReservedInstance),
-		domainMaintenances:     make(map[string][]*DomainMaintenance),
-		domainIndexes:          make(map[string]map[string]*DomainIndex),
-		upgradeHistory:         make(map[string][]*UpgradeHistory),
-		autoTunes:              make(map[string]*AutoTuneConfig),
-		dryRuns:                make(map[string]*DryRunStatus),
-		defaultAppSettings:     make(map[string][]AppSetting),
-		slCollections:          make(map[string]*ServerlessCollection),
-		slAccessPolicies:       make(map[string]*ServerlessAccessPolicy),
-		slSecurityConfigs:      make(map[string]*ServerlessSecurityConfig),
-		slEncryptionPolicies:   make(map[string]*ServerlessEncryptionPolicy),
-		slNetworkPolicies:      make(map[string]*ServerlessNetworkPolicy),
-		accountID:              accountID,
-		region:                 region,
-		mu:                     lockmetrics.New("opensearch"),
+	b := &InMemoryBackend{
+		packageAssociations: make(map[string]map[string]bool),
+		domainPackages:      make(map[string]map[string]bool),
+		vpcAuthorizations:   make(map[string][]AuthorizedPrincipal),
+		scheduledActions:    make(map[string][]*ScheduledAction),
+		domainMaintenances:  make(map[string][]*DomainMaintenance),
+		upgradeHistory:      make(map[string][]*UpgradeHistory),
+		defaultAppSettings:  make(map[string][]AppSetting),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("opensearch"),
+		registry:            store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // SetDNSRegistrar wires a DNS server so OpenSearch domain hostnames are auto-registered.
@@ -609,7 +614,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 	// Finalise any domains whose deleting window has elapsed so the name frees up.
 	b.purgeExpiredDomainsLocked()
 
-	if _, exists := b.domains[input.Name]; exists {
+	if b.domains.Has(input.Name) {
 		return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, input.Name)
 	}
 
@@ -658,8 +663,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 	d.Created = true
 	b.beginProcessing(d, dpsCreating)
 
-	b.domains[input.Name] = d
-	b.arnIndex[domainARN] = input.Name
+	b.domains.Put(d)
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
@@ -683,7 +687,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 
 	b.purgeExpiredDomainsLocked()
 
-	d, exists := b.domains[name]
+	d, exists := b.domains.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
@@ -705,7 +709,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domains[name]
+	d, exists := b.domains.Get(name)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
@@ -721,14 +725,14 @@ func (b *InMemoryBackend) ListDomainNames() []string {
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	names := make([]string, 0, len(b.domains))
+	names := make([]string, 0, b.domains.Len())
 
-	for name, d := range b.domains {
+	for _, d := range b.domains.All() {
 		if deleteWindowElapsed(d, now) {
 			continue
 		}
 
-		names = append(names, name)
+		names = append(names, d.Name)
 	}
 
 	slices.Sort(names)
@@ -739,12 +743,12 @@ func (b *InMemoryBackend) ListDomainNames() []string {
 // findDomainByARN returns the domain matching the given ARN, or nil if not found.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findDomainByARN(domainARN string) *Domain {
-	name, ok := b.arnIndex[domainARN]
-	if !ok {
+	matches := b.domainsByARN.Get(domainARN)
+	if len(matches) == 0 {
 		return nil
 	}
 
-	return b.domains[name]
+	return matches[0]
 }
 
 // ListTags returns tags for the domain identified by ARN.
@@ -799,7 +803,7 @@ func (b *InMemoryBackend) AcceptInboundConnection(connectionID string) (*Inbound
 	b.mu.Lock("AcceptInboundConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.inboundConnections[connectionID]
+	conn, exists := b.inboundConnections.Get(connectionID)
 	if !exists {
 		return nil, fmt.Errorf("%w: connection %s not found", ErrConnectionNotFound, connectionID)
 	}
@@ -826,15 +830,11 @@ func (b *InMemoryBackend) AddDataSource(
 	b.mu.Lock("AddDataSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return "", fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	if b.domainDataSources[domainName] == nil {
-		b.domainDataSources[domainName] = make(map[string]*DataSource)
-	}
-
-	if _, exists := b.domainDataSources[domainName][name]; exists {
+	if b.domainDataSources.Has(dataSourceKey(domainName, name)) {
 		return "", fmt.Errorf(
 			"%w: data source %s already exists on domain %s",
 			ErrDataSourceAlreadyExists,
@@ -843,11 +843,12 @@ func (b *InMemoryBackend) AddDataSource(
 		)
 	}
 
-	b.domainDataSources[domainName][name] = &DataSource{
+	b.domainDataSources.Put(&DataSource{
 		Name:           name,
 		Description:    description,
 		DataSourceType: dataSourceType,
-	}
+		DomainName:     domainName,
+	})
 
 	return "Data source created successfully", nil
 }
@@ -864,7 +865,7 @@ func (b *InMemoryBackend) AddDirectQueryDataSource(
 	b.mu.Lock("AddDirectQueryDataSource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.directQueryDataSources[name]; exists {
+	if b.directQueryDataSources.Has(name) {
 		return "", fmt.Errorf(
 			"%w: direct query data source %s already exists",
 			ErrDataSourceAlreadyExists,
@@ -873,13 +874,13 @@ func (b *InMemoryBackend) AddDirectQueryDataSource(
 	}
 
 	dsARN := arn.Build("opensearch", b.region, b.accountID, "directQueryDataSource/"+name)
-	b.directQueryDataSources[name] = &DirectQueryDataSource{
+	b.directQueryDataSources.Put(&DirectQueryDataSource{
 		Name:           name,
 		Description:    description,
 		DataSourceType: dataSourceType,
 		OpenSearchArns: openSearchArns,
 		DataSourceArn:  dsARN,
-	}
+	})
 
 	return dsARN, nil
 }
@@ -899,11 +900,11 @@ func (b *InMemoryBackend) AssociatePackage(
 	b.mu.Lock("AssociatePackage")
 	defer b.mu.Unlock()
 
-	if _, exists := b.packages[packageID]; !exists {
+	if !b.packages.Has(packageID) {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -965,14 +966,14 @@ func (b *InMemoryBackend) AssociatePackages(
 	b.mu.Lock("AssociatePackages")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
 	results := make([]DomainPackageDetails, 0, len(packageIDs))
 
 	for _, pkgID := range packageIDs {
-		if _, exists := b.packages[pkgID]; !exists {
+		if !b.packages.Has(pkgID) {
 			return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, pkgID)
 		}
 
@@ -998,7 +999,7 @@ func (b *InMemoryBackend) AuthorizeVpcEndpointAccess(
 	b.mu.Lock("AuthorizeVpcEndpointAccess")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -1031,7 +1032,7 @@ func (b *InMemoryBackend) CancelDomainConfigChange(
 	b.mu.Lock("CancelDomainConfigChange")
 	defer b.mu.Unlock()
 
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	if !exists {
 		return nil, false, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -1062,7 +1063,7 @@ func (b *InMemoryBackend) CancelServiceSoftwareUpdate(
 	b.mu.Lock("CancelServiceSoftwareUpdate")
 	defer b.mu.Unlock()
 
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -1107,7 +1108,7 @@ func (b *InMemoryBackend) CreateApplication(
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
-	if _, exists := b.applicationNames[name]; exists {
+	if len(b.applicationsByName.Get(name)) > 0 {
 		return nil, fmt.Errorf(
 			"%w: application %s already exists",
 			ErrApplicationAlreadyExists,
@@ -1134,8 +1135,7 @@ func (b *InMemoryBackend) CreateApplication(
 		AppConfigs:  appConfigs,
 		DataSources: dataSources,
 	}
-	b.applications[id] = app
-	b.applicationNames[name] = id
+	b.applications.Put(app)
 
 	cp := *app
 	cp.AppConfigs = make([]AppConfig, len(app.AppConfigs))
@@ -1151,36 +1151,28 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, d := range b.domains {
+	for _, d := range b.domains.All() {
 		d.Tags.Close()
 	}
 
-	b.domains = make(map[string]*Domain)
-	b.arnIndex = make(map[string]string)
-	b.inboundConnections = make(map[string]*InboundConnection)
-	b.outboundConnections = make(map[string]*OutboundConnection)
-	b.domainDataSources = make(map[string]map[string]*DataSource)
-	b.directQueryDataSources = make(map[string]*DirectQueryDataSource)
+	// "Clean" tables registered on b.registry (see store_setup.go).
+	b.registry.ResetAll()
+
+	// "Dirty" tables, not registered on b.registry (see store_setup.go).
+	b.dryRuns.Reset()
+	b.autoTunes.Reset()
+	b.domainDataSources.Reset()
+	b.domainIndexes.Reset()
+
+	// Plain maps left unconverted (see store_setup.go's registerAllTables doc).
 	b.packageAssociations = make(map[string]map[string]bool)
 	b.domainPackages = make(map[string]map[string]bool)
 	b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
-	b.vpcEndpoints = make(map[string]*VpcEndpoint)
-	b.applications = make(map[string]*Application)
-	b.applicationNames = make(map[string]string)
-	b.packages = make(map[string]*Package)
 	b.scheduledActions = make(map[string][]*ScheduledAction)
-	b.reservedInstances = make(map[string]*ReservedInstance)
 	b.domainMaintenances = make(map[string][]*DomainMaintenance)
-	b.domainIndexes = make(map[string]map[string]*DomainIndex)
 	b.upgradeHistory = make(map[string][]*UpgradeHistory)
-	b.autoTunes = make(map[string]*AutoTuneConfig)
-	b.dryRuns = make(map[string]*DryRunStatus)
 	b.defaultAppSettings = make(map[string][]AppSetting)
-	b.slCollections = make(map[string]*ServerlessCollection)
-	b.slAccessPolicies = make(map[string]*ServerlessAccessPolicy)
-	b.slSecurityConfigs = make(map[string]*ServerlessSecurityConfig)
-	b.slEncryptionPolicies = make(map[string]*ServerlessEncryptionPolicy)
-	b.slNetworkPolicies = make(map[string]*ServerlessNetworkPolicy)
+
 	b.appIDCounter = 0
 	b.connCounter = 0
 	b.vpcEndpointCounter = 0
@@ -1226,7 +1218,7 @@ func (b *InMemoryBackend) CreateOutboundConnection(
 		RemoteDomainInfo: remoteDomainInfo,
 		Status:           connectionStatusActive,
 	}
-	b.outboundConnections[id] = conn
+	b.outboundConnections.Put(conn)
 
 	cp := *conn
 
@@ -1240,9 +1232,9 @@ func (b *InMemoryBackend) DescribeOutboundConnections() []*OutboundConnection {
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]*OutboundConnection, 0, len(b.outboundConnections))
+	out := make([]*OutboundConnection, 0, b.outboundConnections.Len())
 
-	for _, c := range b.outboundConnections {
+	for _, c := range b.outboundConnections.All() {
 		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
 			continue
 		}
@@ -1265,7 +1257,7 @@ func (b *InMemoryBackend) DeleteOutboundConnection(
 
 	b.purgeExpiredOutboundLocked()
 
-	conn, exists := b.outboundConnections[connectionID]
+	conn, exists := b.outboundConnections.Get(connectionID)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: outbound connection %s not found",
@@ -1277,7 +1269,7 @@ func (b *InMemoryBackend) DeleteOutboundConnection(
 	if b.processingDelay == 0 {
 		cp := *conn
 		cp.Status = statusDeleting
-		delete(b.outboundConnections, connectionID)
+		b.outboundConnections.Delete(connectionID)
 
 		return &cp, nil
 	}
@@ -1293,9 +1285,11 @@ func (b *InMemoryBackend) DeleteOutboundConnection(
 // window. The caller must hold the write lock.
 func (b *InMemoryBackend) purgeExpiredOutboundLocked() {
 	now := b.clock()
-	for id, c := range b.outboundConnections {
+	// Table.All returns a fresh slice, so deleting from the table while
+	// ranging over it here is safe.
+	for _, c := range b.outboundConnections.All() {
 		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
-			delete(b.outboundConnections, id)
+			b.outboundConnections.Delete(c.ConnectionID)
 		}
 	}
 }
@@ -1305,7 +1299,7 @@ func (b *InMemoryBackend) RejectInboundConnection(connectionID string) (*Inbound
 	b.mu.Lock("RejectInboundConnection")
 	defer b.mu.Unlock()
 
-	conn, exists := b.inboundConnections[connectionID]
+	conn, exists := b.inboundConnections.Get(connectionID)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: inbound connection %s not found",
@@ -1328,7 +1322,7 @@ func (b *InMemoryBackend) DeleteInboundConnection(connectionID string) (*Inbound
 
 	b.purgeExpiredInboundLocked()
 
-	conn, exists := b.inboundConnections[connectionID]
+	conn, exists := b.inboundConnections.Get(connectionID)
 	if !exists {
 		return &InboundConnection{ConnectionID: connectionID, Status: statusDeleting}, nil
 	}
@@ -1336,7 +1330,7 @@ func (b *InMemoryBackend) DeleteInboundConnection(connectionID string) (*Inbound
 	if b.processingDelay == 0 {
 		cp := *conn
 		cp.Status = statusDeleting
-		delete(b.inboundConnections, connectionID)
+		b.inboundConnections.Delete(connectionID)
 
 		return &cp, nil
 	}
@@ -1352,9 +1346,9 @@ func (b *InMemoryBackend) DeleteInboundConnection(connectionID string) (*Inbound
 // window. The caller must hold the write lock.
 func (b *InMemoryBackend) purgeExpiredInboundLocked() {
 	now := b.clock()
-	for id, c := range b.inboundConnections {
+	for _, c := range b.inboundConnections.All() {
 		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
-			delete(b.inboundConnections, id)
+			b.inboundConnections.Delete(c.ConnectionID)
 		}
 	}
 }
@@ -1366,9 +1360,9 @@ func (b *InMemoryBackend) DescribeInboundConnections() []*InboundConnection {
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]*InboundConnection, 0, len(b.inboundConnections))
+	out := make([]*InboundConnection, 0, b.inboundConnections.Len())
 
-	for _, c := range b.inboundConnections {
+	for _, c := range b.inboundConnections.All() {
 		if statusWindowElapsed(c.Status, c.StatusUntil, now) {
 			continue
 		}
@@ -1399,7 +1393,7 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 		Endpoint:         fmt.Sprintf("%s.vpc.es.amazonaws.com", id),
 		VpcOptions:       vpcOptions,
 	}
-	b.vpcEndpoints[id] = ep
+	b.vpcEndpoints.Put(ep)
 
 	cp := *ep
 
@@ -1417,7 +1411,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) ([]*VpcEndpoint, []
 	var errs []map[string]any
 
 	for _, id := range ids {
-		ep, exists := b.vpcEndpoints[id]
+		ep, exists := b.vpcEndpoints.Get(id)
 		if !exists || statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
 			errs = append(errs, map[string]any{
 				"VpcEndpointId": id,
@@ -1451,7 +1445,7 @@ func (b *InMemoryBackend) UpdateVpcEndpoint(
 	b.mu.Lock("UpdateVpcEndpoint")
 	defer b.mu.Unlock()
 
-	ep, exists := b.vpcEndpoints[id]
+	ep, exists := b.vpcEndpoints.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrConnectionNotFound, id)
 	}
@@ -1471,7 +1465,7 @@ func (b *InMemoryBackend) DeleteVpcEndpoint(id string) (*VpcEndpoint, error) {
 
 	b.purgeExpiredVpcEndpointsLocked()
 
-	ep, exists := b.vpcEndpoints[id]
+	ep, exists := b.vpcEndpoints.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: VPC endpoint %s not found", ErrConnectionNotFound, id)
 	}
@@ -1479,7 +1473,7 @@ func (b *InMemoryBackend) DeleteVpcEndpoint(id string) (*VpcEndpoint, error) {
 	if b.processingDelay == 0 {
 		cp := *ep
 		cp.Status = statusDeleting
-		delete(b.vpcEndpoints, id)
+		b.vpcEndpoints.Delete(id)
 
 		return &cp, nil
 	}
@@ -1495,9 +1489,9 @@ func (b *InMemoryBackend) DeleteVpcEndpoint(id string) (*VpcEndpoint, error) {
 // window. The caller must hold the write lock.
 func (b *InMemoryBackend) purgeExpiredVpcEndpointsLocked() {
 	now := b.clock()
-	for id, ep := range b.vpcEndpoints {
+	for _, ep := range b.vpcEndpoints.All() {
 		if statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
-			delete(b.vpcEndpoints, id)
+			b.vpcEndpoints.Delete(ep.VpcEndpointID)
 		}
 	}
 }
@@ -1509,9 +1503,9 @@ func (b *InMemoryBackend) ListVpcEndpoints() []*VpcEndpoint {
 	defer b.mu.RUnlock()
 
 	now := b.clock()
-	out := make([]*VpcEndpoint, 0, len(b.vpcEndpoints))
+	out := make([]*VpcEndpoint, 0, b.vpcEndpoints.Len())
 
-	for _, ep := range b.vpcEndpoints {
+	for _, ep := range b.vpcEndpoints.All() {
 		if statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
 			continue
 		}
@@ -1533,7 +1527,7 @@ func (b *InMemoryBackend) ListVpcEndpointsForDomain(domainArn string) []*VpcEndp
 
 	var out []*VpcEndpoint
 
-	for _, ep := range b.vpcEndpoints {
+	for _, ep := range b.vpcEndpoints.All() {
 		if ep.DomainArn == domainArn && !statusWindowElapsed(ep.Status, ep.StatusUntil, now) {
 			cp := *ep
 			out = append(out, &cp)
@@ -1613,7 +1607,7 @@ func (b *InMemoryBackend) CreatePackage(
 			},
 		},
 	}
-	b.packages[id] = pkg
+	b.packages.Put(pkg)
 
 	cp := *pkg
 
@@ -1625,13 +1619,13 @@ func (b *InMemoryBackend) DeletePackage(packageID string) (*Package, error) {
 	b.mu.Lock("DeletePackage")
 	defer b.mu.Unlock()
 
-	pkg, exists := b.packages[packageID]
+	pkg, exists := b.packages.Get(packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
 
 	cp := *pkg
-	delete(b.packages, packageID)
+	b.packages.Delete(packageID)
 
 	return &cp, nil
 }
@@ -1642,8 +1636,8 @@ func (b *InMemoryBackend) DescribePackages(ids []string) ([]*Package, error) {
 	defer b.mu.RUnlock()
 
 	if len(ids) == 0 {
-		out := make([]*Package, 0, len(b.packages))
-		for _, pkg := range b.packages {
+		out := make([]*Package, 0, b.packages.Len())
+		for _, pkg := range b.packages.All() {
 			cp := *pkg
 			out = append(out, &cp)
 		}
@@ -1654,7 +1648,7 @@ func (b *InMemoryBackend) DescribePackages(ids []string) ([]*Package, error) {
 	out := make([]*Package, 0, len(ids))
 
 	for _, id := range ids {
-		pkg, exists := b.packages[id]
+		pkg, exists := b.packages.Get(id)
 		if !exists {
 			return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, id)
 		}
@@ -1673,7 +1667,7 @@ func (b *InMemoryBackend) GetPackageVersionHistory(
 	b.mu.RLock("GetPackageVersionHistory")
 	defer b.mu.RUnlock()
 
-	pkg, exists := b.packages[packageID]
+	pkg, exists := b.packages.Get(packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
@@ -1692,7 +1686,7 @@ func (b *InMemoryBackend) UpdatePackage(packageID, description string) (*Package
 	b.mu.Lock("UpdatePackage")
 	defer b.mu.Unlock()
 
-	pkg, exists := b.packages[packageID]
+	pkg, exists := b.packages.Get(packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
@@ -1714,7 +1708,7 @@ func (b *InMemoryBackend) UpdatePackageScope(packageID, _ string, _ []string) (*
 	b.mu.RLock("UpdatePackageScope")
 	defer b.mu.RUnlock()
 
-	pkg, exists := b.packages[packageID]
+	pkg, exists := b.packages.Get(packageID)
 	if !exists {
 		return nil, fmt.Errorf("%w: package %s not found", ErrPackageNotFound, packageID)
 	}
@@ -1732,7 +1726,7 @@ func (b *InMemoryBackend) ListPackagesForDomain(domainName string) []*Package {
 	var out []*Package
 
 	for pkgID := range b.domainPackages[domainName] {
-		pkg, exists := b.packages[pkgID]
+		pkg, exists := b.packages.Get(pkgID)
 		if exists {
 			cp := *pkg
 			out = append(out, &cp)
@@ -1768,17 +1762,7 @@ func (b *InMemoryBackend) GetDataSource(domainName, name string) (*DataSource, e
 	b.mu.RLock("GetDataSource")
 	defer b.mu.RUnlock()
 
-	dsMap, exists := b.domainDataSources[domainName]
-	if !exists {
-		return nil, fmt.Errorf(
-			"%w: data source %s not found on domain %s",
-			ErrDataSourceNotFound,
-			name,
-			domainName,
-		)
-	}
-
-	ds, exists := dsMap[name]
+	ds, exists := b.domainDataSources.Get(dataSourceKey(domainName, name))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: data source %s not found on domain %s",
@@ -1798,10 +1782,10 @@ func (b *InMemoryBackend) ListDataSources(domainName string) ([]*DataSource, err
 	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
 
-	dsMap := b.domainDataSources[domainName]
-	out := make([]*DataSource, 0, len(dsMap))
+	group := b.domainDataSourcesByDomain.Get(domainName)
+	out := make([]*DataSource, 0, len(group))
 
-	for _, ds := range dsMap {
+	for _, ds := range group {
 		cp := *ds
 		out = append(out, &cp)
 	}
@@ -1814,17 +1798,7 @@ func (b *InMemoryBackend) UpdateDataSource(domainName, name, description string)
 	b.mu.Lock("UpdateDataSource")
 	defer b.mu.Unlock()
 
-	dsMap, exists := b.domainDataSources[domainName]
-	if !exists {
-		return fmt.Errorf(
-			"%w: data source %s not found on domain %s",
-			ErrDataSourceNotFound,
-			name,
-			domainName,
-		)
-	}
-
-	ds, exists := dsMap[name]
+	ds, exists := b.domainDataSources.Get(dataSourceKey(domainName, name))
 	if !exists {
 		return fmt.Errorf(
 			"%w: data source %s not found on domain %s",
@@ -1844,12 +1818,7 @@ func (b *InMemoryBackend) DeleteDataSource(domainName, name string) error {
 	b.mu.Lock("DeleteDataSource")
 	defer b.mu.Unlock()
 
-	dsMap, exists := b.domainDataSources[domainName]
-	if !exists {
-		return nil
-	}
-
-	delete(dsMap, name)
+	b.domainDataSources.Delete(dataSourceKey(domainName, name))
 
 	return nil
 }
@@ -1859,8 +1828,8 @@ func (b *InMemoryBackend) ListDirectQueryDataSources() []*DirectQueryDataSource 
 	b.mu.RLock("ListDirectQueryDataSources")
 	defer b.mu.RUnlock()
 
-	out := make([]*DirectQueryDataSource, 0, len(b.directQueryDataSources))
-	for _, ds := range b.directQueryDataSources {
+	out := make([]*DirectQueryDataSource, 0, b.directQueryDataSources.Len())
+	for _, ds := range b.directQueryDataSources.All() {
 		cp := *ds
 		out = append(out, &cp)
 	}
@@ -1873,7 +1842,7 @@ func (b *InMemoryBackend) GetDirectQueryDataSource(name string) (*DirectQueryDat
 	b.mu.RLock("GetDirectQueryDataSource")
 	defer b.mu.RUnlock()
 
-	ds, exists := b.directQueryDataSources[name]
+	ds, exists := b.directQueryDataSources.Get(name)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: direct query data source %s not found",
@@ -1895,7 +1864,7 @@ func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 	b.mu.Lock("UpdateDirectQueryDataSource")
 	defer b.mu.Unlock()
 
-	ds, exists := b.directQueryDataSources[name]
+	ds, exists := b.directQueryDataSources.Get(name)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: direct query data source %s not found",
@@ -1916,7 +1885,7 @@ func (b *InMemoryBackend) DeleteDirectQueryDataSource(name string) error {
 	b.mu.Lock("DeleteDirectQueryDataSource")
 	defer b.mu.Unlock()
 
-	delete(b.directQueryDataSources, name)
+	b.directQueryDataSources.Delete(name)
 
 	return nil
 }
@@ -2006,8 +1975,8 @@ func (b *InMemoryBackend) DescribeReservedInstances() []*ReservedInstance {
 	b.mu.RLock("DescribeReservedInstances")
 	defer b.mu.RUnlock()
 
-	out := make([]*ReservedInstance, 0, len(b.reservedInstances))
-	for _, ri := range b.reservedInstances {
+	out := make([]*ReservedInstance, 0, b.reservedInstances.Len())
+	for _, ri := range b.reservedInstances.All() {
 		cp := *ri
 		out = append(out, &cp)
 	}
@@ -2058,7 +2027,7 @@ func (b *InMemoryBackend) PurchaseReservedInstanceOffering(
 		State:                      pkgStateActive,
 		StartTime:                  float64(time.Now().Unix()),
 	}
-	b.reservedInstances[id] = ri
+	b.reservedInstances.Put(ri)
 
 	cp := *ri
 
@@ -2072,7 +2041,7 @@ func (b *InMemoryBackend) StartDomainMaintenance(
 	b.mu.Lock("StartDomainMaintenance")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -2148,12 +2117,8 @@ func (b *InMemoryBackend) CreateIndex(
 	b.mu.Lock("CreateIndex")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
-	}
-
-	if b.domainIndexes[domainName] == nil {
-		b.domainIndexes[domainName] = make(map[string]*DomainIndex)
 	}
 
 	idx := &DomainIndex{
@@ -2163,9 +2128,10 @@ func (b *InMemoryBackend) CreateIndex(
 		Settings:      settings,
 		Aliases:       aliases,
 		Documents:     make(map[string]map[string]any),
+		DomainName:    domainName,
 		DocumentCount: 0,
 	}
-	b.domainIndexes[domainName][indexName] = idx
+	b.domainIndexes.Put(idx)
 
 	cp := *idx
 
@@ -2177,17 +2143,7 @@ func (b *InMemoryBackend) DeleteIndex(domainName, indexName string) (*DomainInde
 	b.mu.Lock("DeleteIndex")
 	defer b.mu.Unlock()
 
-	idxMap := b.domainIndexes[domainName]
-	if idxMap == nil {
-		return nil, fmt.Errorf(
-			"%w: index %s not found on domain %s",
-			ErrConnectionNotFound,
-			indexName,
-			domainName,
-		)
-	}
-
-	idx, exists := idxMap[indexName]
+	idx, exists := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -2198,7 +2154,7 @@ func (b *InMemoryBackend) DeleteIndex(domainName, indexName string) (*DomainInde
 	}
 
 	cp := *idx
-	delete(idxMap, indexName)
+	b.domainIndexes.Delete(domainIndexKey(domainName, indexName))
 
 	return &cp, nil
 }
@@ -2208,17 +2164,7 @@ func (b *InMemoryBackend) GetIndex(domainName, indexName string) (*DomainIndex, 
 	b.mu.RLock("GetIndex")
 	defer b.mu.RUnlock()
 
-	idxMap := b.domainIndexes[domainName]
-	if idxMap == nil {
-		return nil, fmt.Errorf(
-			"%w: index %s not found on domain %s",
-			ErrConnectionNotFound,
-			indexName,
-			domainName,
-		)
-	}
-
-	idx, exists := idxMap[indexName]
+	idx, exists := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -2241,17 +2187,7 @@ func (b *InMemoryBackend) UpdateIndex(
 	b.mu.Lock("UpdateIndex")
 	defer b.mu.Unlock()
 
-	idxMap := b.domainIndexes[domainName]
-	if idxMap == nil {
-		return nil, fmt.Errorf(
-			"%w: index %s not found on domain %s",
-			ErrConnectionNotFound,
-			indexName,
-			domainName,
-		)
-	}
-
-	idx, exists := idxMap[indexName]
+	idx, exists := b.domainIndexes.Get(domainIndexKey(domainName, indexName))
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: index %s not found on domain %s",
@@ -2273,7 +2209,7 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 	b.mu.RLock("GetApplication")
 	defer b.mu.RUnlock()
 
-	app, exists := b.applications[id]
+	app, exists := b.applications.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, id)
 	}
@@ -2292,8 +2228,8 @@ func (b *InMemoryBackend) ListApplications() []*Application {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
-	out := make([]*Application, 0, len(b.applications))
-	for _, app := range b.applications {
+	out := make([]*Application, 0, b.applications.Len())
+	for _, app := range b.applications.All() {
 		cp := *app
 		cp.AppConfigs = make([]AppConfig, len(app.AppConfigs))
 		copy(cp.AppConfigs, app.AppConfigs)
@@ -2314,7 +2250,7 @@ func (b *InMemoryBackend) UpdateApplication(
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
-	app, exists := b.applications[id]
+	app, exists := b.applications.Get(id)
 	if !exists {
 		return nil, fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, id)
 	}
@@ -2341,13 +2277,11 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	app, exists := b.applications[id]
-	if !exists {
+	if !b.applications.Has(id) {
 		return fmt.Errorf("%w: application %s not found", ErrApplicationNotFound, id)
 	}
 
-	delete(b.applicationNames, app.Name)
-	delete(b.applications, id)
+	b.applications.Delete(id)
 
 	return nil
 }
@@ -2361,7 +2295,7 @@ func (b *InMemoryBackend) StartServiceSoftwareUpdate(
 	b.mu.Lock("StartServiceSoftwareUpdate")
 	defer b.mu.Unlock()
 
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -2402,8 +2336,8 @@ func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {
 	now := b.clock()
 
 	if len(names) == 0 {
-		out := make([]*Domain, 0, len(b.domains))
-		for _, d := range b.domains {
+		out := make([]*Domain, 0, b.domains.Len())
+		for _, d := range b.domains.All() {
 			if deleteWindowElapsed(d, now) {
 				continue
 			}
@@ -2418,7 +2352,7 @@ func (b *InMemoryBackend) DescribeDomains(names []string) ([]*Domain, error) {
 	out := make([]*Domain, 0, len(names))
 
 	for _, name := range names {
-		d, exists := b.domains[name]
+		d, exists := b.domains.Get(name)
 		if !exists || deleteWindowElapsed(d, now) {
 			continue
 		}
@@ -2508,7 +2442,7 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 	b.mu.Lock("UpdateDomainConfig")
 	defer b.mu.Unlock()
 
-	d, exists := b.domains[name]
+	d, exists := b.domains.Get(name)
 	if !exists || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
@@ -2562,7 +2496,7 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 	b.mu.RLock("GetDomainHealth")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -2582,7 +2516,7 @@ func (b *InMemoryBackend) GetDomainHealth(domainName string) (map[string]any, er
 	dedicatedMaster := d.ClusterConfig.DedicatedMasterEnabled
 
 	docCount := 0
-	for _, idx := range b.domainIndexes[domainName] {
+	for _, idx := range b.domainIndexesByDomain.Get(domainName) {
 		docCount += idx.DocumentCount
 	}
 
@@ -2604,7 +2538,7 @@ func (b *InMemoryBackend) GetDomainNodes(domainName string) ([]map[string]any, e
 	b.mu.RLock("GetDomainNodes")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -2640,11 +2574,11 @@ func (b *InMemoryBackend) GetDryRunProgress(domainName string) (*DryRunStatus, e
 	b.mu.Lock("GetDryRunProgress")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
-	dr, exists := b.dryRuns[domainName]
+	dr, exists := b.dryRuns.Get(domainName)
 	if !exists {
 		now := time.Now().UTC().Format(time.RFC3339)
 		dr = &DryRunStatus{
@@ -2653,8 +2587,9 @@ func (b *InMemoryBackend) GetDryRunProgress(domainName string) (*DryRunStatus, e
 			CreationDate:       now,
 			UpdateDate:         now,
 			ValidationFailures: []map[string]any{},
+			DomainName:         domainName,
 		}
-		b.dryRuns[domainName] = dr
+		b.dryRuns.Put(dr)
 	}
 
 	if dr.ValidationFailures == nil {
@@ -2671,7 +2606,7 @@ func (b *InMemoryBackend) GetChangeProgress(domainName string) (map[string]any, 
 	b.mu.RLock("GetChangeProgress")
 	defer b.mu.RUnlock()
 
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	if !exists {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
@@ -2776,7 +2711,7 @@ func (b *InMemoryBackend) GetCompatibleVersions(domainName string) []map[string]
 	}
 
 	b.mu.RLock("GetCompatibleVersions")
-	d, exists := b.domains[domainName]
+	d, exists := b.domains.Get(domainName)
 	b.mu.RUnlock()
 
 	if !exists {
@@ -2809,7 +2744,7 @@ func (b *InMemoryBackend) DissociatePackage(
 	b.mu.Lock("DissociatePackage")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -2834,7 +2769,7 @@ func (b *InMemoryBackend) DissociatePackages(
 	b.mu.Lock("DissociatePackages")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domains[domainName]; !exists {
+	if !b.domains.Has(domainName) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, domainName)
 	}
 
@@ -2864,7 +2799,7 @@ func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
 	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, b.region)
-	b.domains[name] = &Domain{
+	b.domains.Put(&Domain{
 		Name:          name,
 		ARN:           domainARN,
 		EngineVersion: engineVersion,
@@ -2872,8 +2807,7 @@ func (b *InMemoryBackend) AddDomainInternal(name, engineVersion string) {
 		Status:        domainStatusActive,
 		ClusterConfig: ClusterConfig{InstanceType: instanceTypeT3Small, InstanceCount: 1},
 		Tags:          tags.New("opensearch." + name + ".tags"),
-	}
-	b.arnIndex[domainARN] = name
+	})
 }
 
 // AddPackageInternal seeds a package directly for use in tests.
@@ -2882,7 +2816,7 @@ func (b *InMemoryBackend) AddPackageInternal(packageID, packageName, packageType
 	defer b.mu.Unlock()
 
 	now := float64(time.Now().Unix())
-	b.packages[packageID] = &Package{
+	b.packages.Put(&Package{
 		PackageID:     packageID,
 		PackageName:   packageName,
 		PackageType:   packageType,
@@ -2895,5 +2829,5 @@ func (b *InMemoryBackend) AddPackageInternal(packageID, packageName, packageType
 				CreatedAt:      now,
 			},
 		},
-	}
+	})
 }

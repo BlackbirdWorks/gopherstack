@@ -772,6 +772,127 @@ func TestExecutor_ParallelState(t *testing.T) {
 	}
 }
 
+// TestExecutor_ParallelState_RetryAndCatch verifies that Retry and Catch
+// clauses defined directly on a Parallel state (not just inside its
+// branches) are honored: AWS supports Retry/Catch on Parallel exactly as it
+// does on Task, retrying the whole set of branches from scratch.
+func TestExecutor_ParallelState_RetryAndCatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retry_reruns_all_branches_until_success", func(t *testing.T) {
+		t.Parallel()
+
+		var calls atomic.Int64
+
+		lambda := &mockLambdaFn{fn: func() ([]byte, int, error) {
+			if calls.Add(1) == 1 {
+				return nil, 500, errMyError
+			}
+
+			return []byte(`{}`), 200, nil
+		}}
+
+		def := `{
+			"StartAt": "P",
+			"States": {
+				"P": {
+					"Type": "Parallel",
+					"End": true,
+					"Retry": [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2, "IntervalSeconds": 0}],
+					"Branches": [
+						{
+							"StartAt": "T",
+							"States": {
+								"T": {
+									"Type": "Task",
+									"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+									"End": true
+								}
+							}
+						}
+					]
+				}
+			}
+		}`
+
+		sm, err := asl.Parse(def)
+		require.NoError(t, err)
+		exec := asl.NewExecutor(sm, lambda, nil)
+		result, execErr := exec.Execute(t.Context(), "test", `{}`)
+		require.NoError(t, execErr)
+		assert.Empty(t, result.Error)
+		assert.EqualValues(t, 2, calls.Load())
+
+		arr, ok := result.Output.([]any)
+		require.True(t, ok)
+		assert.Len(t, arr, 1)
+	})
+
+	t.Run("catch_routes_to_fallback_on_branch_failure", func(t *testing.T) {
+		t.Parallel()
+
+		def := `{
+			"StartAt": "P",
+			"States": {
+				"P": {
+					"Type": "Parallel",
+					"End": true,
+					"Catch": [{"ErrorEquals": ["States.ALL"], "Next": "Fallback"}],
+					"Branches": [
+						{
+							"StartAt": "Boom",
+							"States": {"Boom": {"Type": "Fail", "Error": "BranchFailed"}}
+						}
+					]
+				},
+				"Fallback": {"Type": "Pass", "End": true, "Result": "fallback-used"}
+			}
+		}`
+
+		result := execute(t, def, `{}`)
+		assert.Empty(t, result.Error)
+		assert.Equal(t, "fallback-used", result.Output)
+	})
+}
+
+// TestExecutor_Catch_ErrorOutputShape verifies that a Catch's injected error
+// object has separate "Error" (error code) and "Cause" (human-readable
+// description) fields, matching AWS's documented error-output shape, rather
+// than a single field holding the two concatenated together.
+func TestExecutor_Catch_ErrorOutputShape(t *testing.T) {
+	t.Parallel()
+
+	def := `{
+		"StartAt": "P",
+		"States": {
+			"P": {
+				"Type": "Parallel",
+				"End": true,
+				"Catch": [{"ErrorEquals": ["States.ALL"], "Next": "Fallback", "ResultPath": "$.error"}],
+				"Branches": [
+					{
+						"StartAt": "Boom",
+						"States": {"Boom": {"Type": "Fail", "Error": "MyErr", "Cause": "my cause"}}
+					}
+				]
+			},
+			"Fallback": {"Type": "Pass", "End": true}
+		}
+	}`
+
+	result := execute(t, def, `{"a": 1}`)
+	assert.Empty(t, result.Error)
+
+	out, ok := result.Output.(map[string]any)
+	require.True(t, ok)
+	assert.InEpsilon(t, 1.0, out["a"], 0)
+
+	errObj, ok := out["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "MyErr", errObj["Error"])
+	assert.Equal(t, "my cause", errObj["Cause"])
+}
+
 func TestExecutor_MapState(t *testing.T) {
 	t.Parallel()
 
@@ -923,6 +1044,198 @@ func TestExecutor_MapState(t *testing.T) {
 			assert.Len(t, arr, tt.wantOutputLen)
 		})
 	}
+}
+
+// mapToleratedFailureDef builds a Map-state definition whose iterator fails
+// exactly the items with `"fail": true` (Fail state, Error="Boom"), and
+// injects the given ToleratedFailure* clause (raw ASL fragment, may be empty)
+// into the Map state.
+func mapToleratedFailureDef(toleratedFailureClause string) string {
+	return `{
+		"StartAt": "Map",
+		"States": {
+			"Map": {
+				"Type": "Map",
+				"End": true,
+				"ItemsPath": "$.items",` + toleratedFailureClause + `
+				"Iterator": {
+					"StartAt": "Check",
+					"States": {
+						"Check": {
+							"Type": "Choice",
+							"Choices": [
+								{"Variable": "$.fail", "BooleanEquals": true, "Next": "Boom"}
+							],
+							"Default": "OK"
+						},
+						"Boom": {"Type": "Fail", "Error": "Boom", "Cause": "boom"},
+						"OK": {"Type": "Pass", "End": true}
+					}
+				}
+			}
+		}
+	}`
+}
+
+func TestExecutor_MapState_ToleratedFailure(t *testing.T) {
+	t.Parallel()
+
+	const fourItemsOneFails = `{"items": [
+		{"fail": false}, {"fail": true}, {"fail": false}, {"fail": false}
+	], "tolerate": 1}`
+	const fourItemsTwoFail = `{"items": [
+		{"fail": true}, {"fail": true}, {"fail": false}, {"fail": false}
+	], "tolerate": 1}`
+
+	tests := []struct {
+		name          string
+		clause        string
+		input         string
+		wantErrCode   string
+		wantOutputLen int
+	}{
+		{
+			name:        "no_tolerance_configured_propagates_original_error",
+			clause:      "",
+			input:       fourItemsOneFails,
+			wantErrCode: "Boom",
+		},
+		{
+			name:          "percentage_within_tolerance_succeeds",
+			clause:        `"ToleratedFailurePercentage": 50,`,
+			input:         fourItemsOneFails,
+			wantOutputLen: 4,
+		},
+		{
+			name:        "percentage_exceeds_tolerance_fails",
+			clause:      `"ToleratedFailurePercentage": 10,`,
+			input:       fourItemsOneFails,
+			wantErrCode: "States.ExceedToleratedFailureThreshold",
+		},
+		{
+			name:          "count_within_tolerance_succeeds",
+			clause:        `"ToleratedFailureCount": 1,`,
+			input:         fourItemsOneFails,
+			wantOutputLen: 4,
+		},
+		{
+			name:        "count_exceeds_tolerance_fails",
+			clause:      `"ToleratedFailureCount": 1,`,
+			input:       fourItemsTwoFail,
+			wantErrCode: "States.ExceedToleratedFailureThreshold",
+		},
+		{
+			name:          "count_path_resolved_from_input_succeeds",
+			clause:        `"ToleratedFailureCountPath": "$.tolerate",`,
+			input:         fourItemsOneFails,
+			wantOutputLen: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, err := asl.Parse(mapToleratedFailureDef(tt.clause))
+			require.NoError(t, err)
+
+			exec := asl.NewExecutor(sm, nil, nil)
+			result, execErr := exec.Execute(t.Context(), "test", tt.input)
+			require.NoError(t, execErr)
+
+			if tt.wantErrCode != "" {
+				assert.Equal(t, tt.wantErrCode, result.Error)
+
+				return
+			}
+
+			assert.Empty(t, result.Error)
+			arr, ok := result.Output.([]any)
+			require.True(t, ok)
+			assert.Len(t, arr, tt.wantOutputLen)
+		})
+	}
+}
+
+// TestExecutor_MapState_RetryAndCatch verifies that Retry and Catch clauses
+// on the Map state itself (as opposed to inside its Iterator) are honored,
+// matching AWS's support for Retry/Catch directly on Map/Distributed Map.
+func TestExecutor_MapState_RetryAndCatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retry_reruns_all_items_until_success", func(t *testing.T) {
+		t.Parallel()
+
+		var calls atomic.Int64
+
+		lambda := &mockLambdaFn{fn: func() ([]byte, int, error) {
+			if calls.Add(1) == 1 {
+				return nil, 500, errMyError
+			}
+
+			return []byte(`{}`), 200, nil
+		}}
+
+		def := `{
+			"StartAt": "M",
+			"States": {
+				"M": {
+					"Type": "Map",
+					"End": true,
+					"MaxConcurrency": 1,
+					"Retry": [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2, "IntervalSeconds": 0}],
+					"Iterator": {
+						"StartAt": "T",
+						"States": {
+							"T": {
+								"Type": "Task",
+								"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+								"End": true
+							}
+						}
+					}
+				}
+			}
+		}`
+
+		sm, err := asl.Parse(def)
+		require.NoError(t, err)
+		exec := asl.NewExecutor(sm, lambda, nil)
+		result, execErr := exec.Execute(t.Context(), "test", `[1]`)
+		require.NoError(t, execErr)
+		assert.Empty(t, result.Error)
+		// The single item fails on the Map's first attempt (1 lambda call),
+		// then the whole Map is retried and the item succeeds (2nd call).
+		assert.EqualValues(t, 2, calls.Load())
+
+		arr, ok := result.Output.([]any)
+		require.True(t, ok)
+		assert.Len(t, arr, 1)
+	})
+
+	t.Run("catch_routes_to_fallback_on_map_failure", func(t *testing.T) {
+		t.Parallel()
+
+		def := `{
+			"StartAt": "M",
+			"States": {
+				"M": {
+					"Type": "Map",
+					"End": true,
+					"Catch": [{"ErrorEquals": ["States.ALL"], "Next": "Fallback"}],
+					"Iterator": {
+						"StartAt": "Boom",
+						"States": {"Boom": {"Type": "Fail", "Error": "ItemFailed"}}
+					}
+				},
+				"Fallback": {"Type": "Pass", "End": true, "Result": "fallback-used"}
+			}
+		}`
+
+		result := execute(t, def, `[1, 2, 3]`)
+		assert.Empty(t, result.Error)
+		assert.Equal(t, "fallback-used", result.Output)
+	})
 }
 
 func TestExecutor_PathTransforms(t *testing.T) {

@@ -3,6 +3,7 @@ package ecs
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -99,6 +100,84 @@ type ServiceDeployment struct {
 	StatusReason         string     `json:"statusReason,omitempty"`
 }
 
+// serviceDeploymentArnFor derives the ARN of the service deployment record for
+// a Deployment, following the
+// arn:aws:ecs:region:account:service-deployment/cluster/service/deployment-id
+// scheme (mirroring serviceRevisionArnFor in backend_parity2.go). deploymentID
+// already carries its "ecs-svc/" prefix (see newPrimaryDeployment/
+// newActiveDeployment), matching the shape of real ECS deployment IDs.
+func serviceDeploymentArnFor(svc *Service, deploymentID string) string {
+	return strings.Replace(svc.ServiceArn, ":service/", ":service-deployment/", 1) + "/" + deploymentID
+}
+
+// serviceDeploymentStatusFor maps a Deployment's RolloutState to the
+// corresponding ServiceDeploymentStatus value. IN_PROGRESS is the default for
+// any rollout state this backend doesn't model as a distinct terminal state.
+func serviceDeploymentStatusFor(rolloutState string) string {
+	switch rolloutState {
+	case deploymentRolloutStateCompleted:
+		return "SUCCESSFUL"
+	case deploymentRolloutStateFailed:
+		return statusStopped
+	default:
+		return "IN_PROGRESS"
+	}
+}
+
+// recordServiceDeploymentLocked upserts the ServiceDeployment record tracking
+// a single Deployment. Must be called with the write lock held.
+func (b *InMemoryBackend) recordServiceDeploymentLocked(svc *Service, dep *Deployment) {
+	depArn := serviceDeploymentArnFor(svc, dep.ID)
+
+	createdAt := time.Now()
+	if dep.CreatedAt != nil {
+		createdAt = time.Unix(int64(*dep.CreatedAt), 0)
+	}
+
+	updatedAt := createdAt
+	if dep.UpdatedAt != nil {
+		updatedAt = time.Unix(int64(*dep.UpdatedAt), 0)
+	}
+
+	b.serviceDeployments.Put(&ServiceDeployment{
+		ServiceDeploymentArn: depArn,
+		ClusterArn:           svc.ClusterArn,
+		ServiceArn:           svc.ServiceArn,
+		Status:               serviceDeploymentStatusFor(dep.RolloutState),
+		StatusReason:         dep.RolloutStateReason,
+		CreatedAt:            &createdAt,
+		UpdatedAt:            &updatedAt,
+	})
+}
+
+// deleteServiceDeploymentsForServiceLocked removes every ServiceDeployment
+// record belonging to a service (keyed by ServiceDeploymentArn, which embeds
+// the deployment ID — not by ServiceArn), so a deleted/purged service doesn't
+// leave stale entries behind. Must be called with the write lock held.
+func (b *InMemoryBackend) deleteServiceDeploymentsForServiceLocked(serviceArn string) {
+	for _, sd := range b.serviceDeployments.All() {
+		if sd.ServiceArn == serviceArn {
+			b.serviceDeployments.Delete(sd.ServiceDeploymentArn)
+		}
+	}
+}
+
+// syncServiceDeploymentsLocked upserts a ServiceDeployment record for every
+// entry currently on svc.Deployments. CreateService, UpdateService, and the
+// deployment-circuit-breaker rollback path (deployment.go) all mutate
+// svc.Deployments directly and must call this afterward so
+// DescribeServiceDeployments/ListServiceDeployments/StopServiceDeployment stay
+// in sync — without it, those three routed ops only ever see data seeded by
+// the AddServiceDeploymentInternal test helper, never anything a real
+// deployment created (see parity-principles.md rule 4: a "real-looking" op
+// filtering a never-populated map is a disguised stub). Must be called with
+// the write lock held.
+func (b *InMemoryBackend) syncServiceDeploymentsLocked(svc *Service) {
+	for i := range svc.Deployments {
+		b.recordServiceDeploymentLocked(svc, &svc.Deployments[i])
+	}
+}
+
 // ExpressGatewayService represents an ECS express gateway service.
 type ExpressGatewayService struct {
 	CreatedAt             time.Time `json:"createdAt"`
@@ -146,12 +225,16 @@ func copyTags(tags []Tag) []Tag {
 	return out
 }
 
-// AddAccountSettingInternal adds an account setting directly (seed helper for tests).
-func (b *InMemoryBackend) AddAccountSettingInternal(key string, setting *AccountSetting) {
+// AddAccountSettingInternal adds an account setting directly (seed helper for
+// tests). key is unused now that the store.Table derives its own key from
+// setting's fields (accountSettingsKeyFn); retained in the signature so
+// existing call sites (which always pass a key consistent with
+// accountSettingKey(setting.Name, setting.PrincipalArn)) do not need updating.
+func (b *InMemoryBackend) AddAccountSettingInternal(_ string, setting *AccountSetting) {
 	b.mu.Lock("AddAccountSettingInternal")
 	defer b.mu.Unlock()
 
-	b.accountSettings[key] = setting
+	b.accountSettings.Put(setting)
 }
 
 // AddAttributeInternal adds an attribute directly (seed helper for tests).
@@ -173,7 +256,7 @@ func (b *InMemoryBackend) AddServiceDeploymentInternal(sd *ServiceDeployment) {
 	defer b.mu.Unlock()
 
 	c := *sd
-	b.serviceDeployments[sd.ServiceDeploymentArn] = &c
+	b.serviceDeployments.Put(&c)
 }
 
 // AddCapacityProviderInternal adds a capacity provider directly (seed helper for tests).
@@ -183,7 +266,7 @@ func (b *InMemoryBackend) AddCapacityProviderInternal(cp *CapacityProvider) {
 
 	c := *cp
 	c.Tags = copyTags(cp.Tags)
-	b.capacityProviders[cp.Name] = &c
+	b.capacityProviders.Put(&c)
 }
 
 // accountSettingKey builds the map key for an account setting.
@@ -209,7 +292,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 	b.mu.Lock("CreateCapacityProvider")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityProviders[input.Name]; ok {
+	if b.capacityProviders.Has(input.Name) {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityProviderAlreadyExists, input.Name)
 	}
 
@@ -224,7 +307,7 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 		Tags:                     copyTags(input.Tags),
 	}
 
-	b.capacityProviders[input.Name] = cp
+	b.capacityProviders.Put(cp)
 
 	out := *cp
 	out.Tags = copyTags(cp.Tags)
@@ -242,7 +325,7 @@ func (b *InMemoryBackend) DeleteCapacityProvider(nameOrArn string) (*CapacityPro
 		return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, nameOrArn)
 	}
 
-	delete(b.capacityProviders, key)
+	b.capacityProviders.Delete(key)
 
 	out := *cp
 
@@ -257,8 +340,9 @@ func (b *InMemoryBackend) DescribeCapacityProviders(
 	defer b.mu.RUnlock()
 
 	if len(nameOrArns) == 0 {
-		out := make([]CapacityProvider, 0, len(b.capacityProviders))
-		for _, cp := range b.capacityProviders {
+		all := b.capacityProviders.All()
+		out := make([]CapacityProvider, 0, len(all))
+		for _, cp := range all {
 			c := *cp
 			c.Tags = copyTags(cp.Tags)
 			out = append(out, c)
@@ -294,13 +378,13 @@ func (b *InMemoryBackend) DescribeCapacityProviders(
 // findCapacityProviderLocked returns the map key and pointer for a capacity provider by name or ARN.
 // Must be called with at least an RLock held.
 func (b *InMemoryBackend) findCapacityProviderLocked(nameOrArn string) (string, *CapacityProvider) {
-	if cp, ok := b.capacityProviders[nameOrArn]; ok {
+	if cp, ok := b.capacityProviders.Get(nameOrArn); ok {
 		return nameOrArn, cp
 	}
 
-	for key, cp := range b.capacityProviders {
+	for _, cp := range b.capacityProviders.All() {
 		if cp.CapacityProviderArn == nameOrArn {
-			return key, cp
+			return cp.Name, cp
 		}
 	}
 
@@ -320,12 +404,12 @@ func (b *InMemoryBackend) DeleteAccountSetting(name, principalArn string) (*Acco
 	b.mu.Lock("DeleteAccountSetting")
 	defer b.mu.Unlock()
 
-	setting, ok := b.accountSettings[key]
+	setting, ok := b.accountSettings.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrAccountSettingNotFound, name)
 	}
 
-	delete(b.accountSettings, key)
+	b.accountSettings.Delete(key)
 
 	out := *setting
 
@@ -405,7 +489,7 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(
 		for i, r := range revs {
 			if r.TaskDefinitionArn == td.TaskDefinitionArn {
 				b.taskDefinitions[td.Family] = append(revs[:i], revs[i+1:]...)
-				delete(b.taskDefByArn, td.TaskDefinitionArn)
+				b.taskDefByArn.Delete(td.TaskDefinitionArn)
 
 				break
 			}
@@ -430,7 +514,7 @@ func (b *InMemoryBackend) DescribeServiceDeployments(
 	failures := make([]Failure, 0, len(serviceDeploymentArns))
 
 	for _, arn := range serviceDeploymentArns {
-		sd, ok := b.serviceDeployments[arn]
+		sd, ok := b.serviceDeployments.Get(arn)
 		if !ok {
 			failures = append(failures, Failure{
 				Arn:    arn,
@@ -475,7 +559,7 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 		"arn:aws:ecs:%s:%s:service/%s/%s", b.region, b.accountID, clusterName, serviceName,
 	)
 
-	if _, ok := b.expressGatewayServices[serviceArn]; ok {
+	if b.expressGatewayServices.Has(serviceArn) {
 		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceAlreadyExists, serviceName)
 	}
 
@@ -490,7 +574,7 @@ func (b *InMemoryBackend) CreateExpressGatewayService(
 		Tags:                  copyTags(input.Tags),
 	}
 
-	b.expressGatewayServices[serviceArn] = svc
+	b.expressGatewayServices.Put(svc)
 
 	out := *svc
 	out.Tags = copyTags(svc.Tags)
@@ -509,12 +593,12 @@ func (b *InMemoryBackend) DeleteExpressGatewayService(
 	b.mu.Lock("DeleteExpressGatewayService")
 	defer b.mu.Unlock()
 
-	svc, ok := b.expressGatewayServices[serviceArn]
+	svc, ok := b.expressGatewayServices.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceNotFound, serviceArn)
 	}
 
-	delete(b.expressGatewayServices, serviceArn)
+	b.expressGatewayServices.Delete(serviceArn)
 
 	out := *svc
 
@@ -532,7 +616,7 @@ func (b *InMemoryBackend) DescribeExpressGatewayService(
 	b.mu.RLock("DescribeExpressGatewayService")
 	defer b.mu.RUnlock()
 
-	svc, ok := b.expressGatewayServices[serviceArn]
+	svc, ok := b.expressGatewayServices.Get(serviceArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrExpressGatewayServiceNotFound, serviceArn)
 	}

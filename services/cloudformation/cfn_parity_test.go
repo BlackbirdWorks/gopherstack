@@ -366,10 +366,15 @@ func TestCreateStack_IAMCapabilityRequired(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:         "IAM template with CAPABILITY_AUTO_EXPAND succeeds",
+			// CAPABILITY_AUTO_EXPAND only authorizes macro/transform expansion
+			// (e.g. SAM); it does not grant permission to create IAM resources
+			// declared directly in the template, so it must NOT substitute for
+			// CAPABILITY_IAM / CAPABILITY_NAMED_IAM.
+			name:         "IAM template with only CAPABILITY_AUTO_EXPAND still fails",
 			template:     iamTemplate,
 			capabilities: []string{"CAPABILITY_AUTO_EXPAND"},
-			wantErr:      false,
+			wantErr:      true,
+			errIs:        cloudformation.ErrInsufficientCapabilities,
 		},
 		{
 			name:         "non-IAM template without capabilities succeeds",

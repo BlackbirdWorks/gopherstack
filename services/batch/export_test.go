@@ -20,7 +20,7 @@ func (b *InMemoryBackend) JobDefinitionCount() int {
 	b.mu.RLock("JobDefinitionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.jobDefinitionsStore(b.region))
+	return len(b.jobDefinitionsByRegion.Get(b.region))
 }
 
 // RevisionFor returns the current revision counter for the given job definition name.
@@ -50,14 +50,13 @@ func (b *InMemoryBackend) SetJobDefinitionDeregisteredAt(arnOrNameRev string, ti
 	b.mu.Lock("SetJobDefinitionDeregisteredAt")
 	defer b.mu.Unlock()
 
-	defs := b.jobDefinitionsStore(b.region)
-	if jd, ok := defs[arnOrNameRev]; ok {
+	if jd, ok := b.jobDefinitions.Get(regionKey(b.region, arnOrNameRev)); ok {
 		jd.DeregisteredAt = &timestamp
 
 		return
 	}
 
-	for _, jd := range defs {
+	for _, jd := range b.jobDefinitionsByRegion.Get(b.region) {
 		nameRev := fmt.Sprintf("%s:%d", jd.JobDefinitionName, jd.Revision)
 		if nameRev == arnOrNameRev {
 			jd.DeregisteredAt = &timestamp
@@ -113,7 +112,7 @@ func (b *InMemoryBackend) SetJobStoppedAtForTest(jobID, status string, stoppedAt
 	b.mu.Lock("SetJobStoppedAtForTest")
 	defer b.mu.Unlock()
 
-	j, ok := b.jobsStore(b.region)[jobID]
+	j, ok := b.jobs.Get(regionKey(b.region, jobID))
 	if !ok {
 		return
 	}
@@ -128,7 +127,7 @@ func (b *InMemoryBackend) SetJobStoppedAtForTest(jobID, status string, stoppedAt
 func (b *InMemoryBackend) ForceJobStatus(jobID, status string) {
 	b.mu.Lock("ForceJobStatus")
 	defer b.mu.Unlock()
-	if j, ok := b.jobsStore(b.region)[jobID]; ok {
+	if j, ok := b.jobs.Get(regionKey(b.region, jobID)); ok {
 		j.Status = status
 	}
 }

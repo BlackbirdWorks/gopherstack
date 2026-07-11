@@ -6,12 +6,7 @@ func (b *InMemoryBackend) PoolCount() int {
 	b.mu.RLock("PoolCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionPools := range b.pools {
-		total += len(regionPools)
-	}
-
-	return total
+	return b.pools.Len()
 }
 
 // IdentityCount returns the total number of identities across all regions.
@@ -20,12 +15,7 @@ func (b *InMemoryBackend) IdentityCount() int {
 	b.mu.RLock("IdentityCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionIdentities := range b.identities {
-		total += len(regionIdentities)
-	}
-
-	return total
+	return b.identities.Len()
 }
 
 // PrincipalTagCount returns the total number of principal-tag mappings across all regions.
@@ -34,12 +24,7 @@ func (b *InMemoryBackend) PrincipalTagCount() int {
 	b.mu.RLock("PrincipalTagCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionTags := range b.principalTags {
-		total += len(regionTags)
-	}
-
-	return total
+	return b.principalTags.Len()
 }
 
 // ExportedRandomAlphanumeric exposes randomAlphanumeric for test coverage.
@@ -53,11 +38,13 @@ func (b *InMemoryBackend) SetIdentityEnabled(identityID string, enabled bool) {
 	b.mu.Lock("SetIdentityEnabled")
 	defer b.mu.Unlock()
 
-	for _, regionIdentities := range b.identities {
-		if id, ok := regionIdentities[identityID]; ok {
-			id.Enabled = enabled
-
-			return
+	b.identities.Range(func(identity *Identity) bool {
+		if identity.IdentityID != identityID {
+			return true
 		}
-	}
+
+		identity.Enabled = enabled
+
+		return false
+	})
 }

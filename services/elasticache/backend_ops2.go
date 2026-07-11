@@ -215,20 +215,20 @@ func (b *InMemoryBackend) DeleteUser(ctx context.Context, userID string) (*User,
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.usersStore(region)
-	u, ok := store[userID]
+	tbl := b.usersStore(region)
+	u, ok := tbl.Get(userID)
 	if !ok {
 		return nil, ErrUserNotFound
 	}
 
-	for _, ug := range b.userGroupsStore(region) {
+	for _, ug := range b.userGroupsStore(region).All() {
 		if slices.Contains(ug.UserIDs, userID) {
 			return nil, fmt.Errorf("user %q belongs to group %q: %w", userID, ug.UserGroupID, ErrUserNotInGroup)
 		}
 	}
 
 	result := *u
-	delete(store, userID)
+	tbl.Delete(userID)
 	b.appendEventLocked(userID, "user", "user deleted")
 
 	return &result, nil
@@ -259,7 +259,7 @@ func (b *InMemoryBackend) ModifyUser(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	u, ok := b.usersStore(region)[userID]
+	u, ok := b.usersStore(region).Get(userID)
 	if !ok {
 		return nil, ErrUserNotFound
 	}
@@ -284,8 +284,8 @@ func (b *InMemoryBackend) CreateUserGroup(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.userGroupsStore(region)
-	if _, exists := store[groupID]; exists {
+	tbl := b.userGroupsStore(region)
+	if _, exists := tbl.Get(groupID); exists {
 		return nil, ErrUserGroupAlreadyExists
 	}
 
@@ -303,7 +303,7 @@ func (b *InMemoryBackend) CreateUserGroup(
 		CreatedAt:   time.Now(),
 		Tags:        tags.New("elasticache.usergroup." + groupID + ".tags"),
 	}
-	store[groupID] = ug
+	tbl.Put(ug)
 	b.appendEventLocked(groupID, "user-group", "user group created")
 
 	return ug, nil
@@ -315,14 +315,14 @@ func (b *InMemoryBackend) DeleteUserGroup(ctx context.Context, groupID string) (
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.userGroupsStore(region)
-	ug, ok := store[groupID]
+	tbl := b.userGroupsStore(region)
+	ug, ok := tbl.Get(groupID)
 	if !ok {
 		return nil, ErrUserGroupNotFound
 	}
 
 	result := *ug
-	delete(store, groupID)
+	tbl.Delete(groupID)
 	b.appendEventLocked(groupID, "user-group", "user group deleted")
 
 	return &result, nil
@@ -353,7 +353,7 @@ func (b *InMemoryBackend) ModifyUserGroup(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	ug, ok := b.userGroupsStore(region)[groupID]
+	ug, ok := b.userGroupsStore(region).Get(groupID)
 	if !ok {
 		return nil, ErrUserGroupNotFound
 	}
@@ -674,8 +674,8 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 	}
 
 	region := getRegion(ctx, b.region)
-	store := b.reservedCacheNodesStore(region)
-	if _, exists := store[reservedCacheNodeID]; exists {
+	tbl := b.reservedCacheNodesStore(region)
+	if _, exists := tbl.Get(reservedCacheNodeID); exists {
 		return nil, fmt.Errorf("reserved cache node %q: %w", reservedCacheNodeID, ErrReservedCacheNodeAlreadyExists)
 	}
 
@@ -693,7 +693,7 @@ func (b *InMemoryBackend) PurchaseReservedCacheNodesOffering(
 		CacheNodeCount:      cacheNodeCount,
 		StartTime:           time.Now(),
 	}
-	store[reservedCacheNodeID] = rcn
+	tbl.Put(rcn)
 	b.appendEventLocked(reservedCacheNodeID, "reserved-cache-node", "reserved cache node purchased")
 
 	return rcn, nil
@@ -706,8 +706,8 @@ func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string
 
 	region := getRegion(ctx, b.region)
 	b.pruneRegionLocked(region)
-	store := b.serverlessCachesStore(region)
-	sc, ok := store[name]
+	tbl := b.serverlessCachesStore(region)
+	sc, ok := tbl.Get(name)
 	if !ok || isReaped(b.now(), sc.PendingStatus, sc.AvailableAt) {
 		return nil, ErrServerlessCacheNotFound
 	}
@@ -722,7 +722,7 @@ func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string
 
 	result := *sc
 	sc.Tags.Close()
-	delete(store, name)
+	tbl.Delete(name)
 	b.appendEventLocked(name, "serverless-cache", "serverless cache deleted")
 
 	return &result, nil
@@ -737,14 +737,14 @@ func (b *InMemoryBackend) DeleteServerlessCacheSnapshot(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.serverlessCacheSnapshotsStore(region)
-	snap, ok := store[name]
+	tbl := b.serverlessCacheSnapshotsStore(region)
+	snap, ok := tbl.Get(name)
 	if !ok {
 		return nil, ErrServerlessCacheSnapshotNotFound
 	}
 
 	result := *snap
-	delete(store, name)
+	tbl.Delete(name)
 	b.appendEventLocked(name, "serverless-cache-snapshot", "serverless cache snapshot deleted")
 
 	return &result, nil
@@ -777,10 +777,10 @@ func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.serverlessCacheSnapshotsStore(region)
+	tbl := b.serverlessCacheSnapshotsStore(region)
 
 	if snapshotName != "" {
-		snap, ok := store[snapshotName]
+		snap, ok := tbl.Get(snapshotName)
 		if !ok {
 			return page.Page[ServerlessCacheSnapshot]{}, ErrServerlessCacheSnapshotNotFound
 		}
@@ -788,8 +788,9 @@ func (b *InMemoryBackend) DescribeServerlessCacheSnapshots(
 		return page.Page[ServerlessCacheSnapshot]{Data: []ServerlessCacheSnapshot{*snap}}, nil
 	}
 
-	out := make([]ServerlessCacheSnapshot, 0, len(store))
-	for _, snap := range store {
+	all := tbl.All()
+	out := make([]ServerlessCacheSnapshot, 0, len(all))
+	for _, snap := range all {
 		if serverlessCacheName != "" && snap.ServerlessCacheName != serverlessCacheName {
 			continue
 		}
@@ -811,7 +812,7 @@ func (b *InMemoryBackend) ExportServerlessCacheSnapshot(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	snap, ok := b.serverlessCacheSnapshotsStore(region)[snapshotName]
+	snap, ok := b.serverlessCacheSnapshotsStore(region).Get(snapshotName)
 	if !ok {
 		return nil, ErrServerlessCacheSnapshotNotFound
 	}
@@ -830,7 +831,7 @@ func (b *InMemoryBackend) ModifyServerlessCache(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	sc, ok := b.serverlessCachesStore(region)[name]
+	sc, ok := b.serverlessCachesStore(region).Get(name)
 	if !ok {
 		return nil, ErrServerlessCacheNotFound
 	}
@@ -850,7 +851,7 @@ func (b *InMemoryBackend) StartMigration(ctx context.Context, replicationGroupID
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
+	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -867,7 +868,7 @@ func (b *InMemoryBackend) TestMigration(ctx context.Context, replicationGroupID 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
+	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -887,7 +888,7 @@ func (b *InMemoryBackend) IncreaseReplicaCount(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
+	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -913,7 +914,7 @@ func (b *InMemoryBackend) DecreaseReplicaCount(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
+	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -940,7 +941,7 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
+	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
@@ -1001,7 +1002,7 @@ func (b *InMemoryBackend) RebootCacheCluster(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	c, ok := b.clustersStore(region)[clusterID]
+	c, ok := b.clustersStore(region).Get(clusterID)
 	if !ok {
 		return nil, ErrClusterNotFound
 	}
@@ -1027,11 +1028,11 @@ func (b *InMemoryBackend) DeleteCacheSecurityGroup(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 	sgStore := b.cacheSecurityGroupsStore(region)
-	if _, ok := sgStore[name]; !ok {
+	if _, ok := sgStore.Get(name); !ok {
 		return ErrCacheSecurityGroupNotFound
 	}
 
-	delete(sgStore, name)
+	sgStore.Delete(name)
 	delete(b.cacheSecurityGroupIngressStore(region), name)
 
 	return nil
@@ -1061,7 +1062,7 @@ func (b *InMemoryBackend) RevokeCacheSecurityGroupIngress(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	sg, ok := b.cacheSecurityGroupsStore(region)[name]
+	sg, ok := b.cacheSecurityGroupsStore(region).Get(name)
 	if !ok {
 		return nil, ErrCacheSecurityGroupNotFound
 	}
@@ -1354,5 +1355,5 @@ func (b *InMemoryBackend) ListAllowedNodeTypeModifications(_ context.Context, _,
 func (b *InMemoryBackend) AddUserGroupInternal(ug *UserGroup) {
 	b.mu.Lock("AddUserGroupInternal")
 	defer b.mu.Unlock()
-	b.userGroupsStore(b.region)[ug.UserGroupID] = ug
+	b.userGroupsStore(b.region).Put(ug)
 }

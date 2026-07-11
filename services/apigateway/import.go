@@ -198,23 +198,13 @@ func (b *InMemoryBackend) ImportRestAPI(input ImportRestAPIInput) (*RestAPI, err
 		ResourceMethods: make(map[string]*Method),
 	}
 
-	data := &apiData{
-		api:                   api,
-		resources:             map[string]*Resource{rootID: root},
-		deployments:           make(map[string]*Deployment),
-		stages:                make(map[string]*Stage),
-		authorizers:           make(map[string]*Authorizer),
-		requestValidators:     make(map[string]*RequestValidator),
-		documentationParts:    make(map[string]*DocumentationPart),
-		documentationVersions: make(map[string]*DocumentationVersion),
-		models:                make(map[string]*Model),
-	}
-	b.apis[id] = data
+	b.restApis.Put(&api)
+	b.resources.Put(root)
 
-	importModels(data, doc)
-	importPaths(data, doc)
+	importModels(b, &api, doc)
+	importPaths(b, &api, doc)
 
-	cp := data.api
+	cp := api
 
 	return &cp, nil
 }
@@ -239,70 +229,83 @@ func (b *InMemoryBackend) PutRestAPI(input PutRestAPIInput) (*RestAPI, error) {
 	b.mu.Lock("PutRestAPI")
 	defer b.mu.Unlock()
 
-	data, ok := b.apis[input.RestAPIID]
+	api, ok := b.restApis.Get(input.RestAPIID)
 	if !ok {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
 	if mode == importModeOverwrite {
-		rootID := data.api.RootResourceID
+		for _, r := range append([]*Resource{}, b.resourcesByAPI.Get(api.ID)...) {
+			b.resources.Delete(resourceKeyFn(r))
+		}
 		root := &Resource{
-			ID:              rootID,
+			ID:              api.RootResourceID,
 			Path:            "/",
-			RestAPIID:       data.api.ID,
+			RestAPIID:       api.ID,
 			ResourceMethods: make(map[string]*Method),
 		}
-		data.resources = map[string]*Resource{rootID: root}
-		data.models = make(map[string]*Model)
+		b.resources.Put(root)
+		for _, m := range append([]*Model{}, b.modelsByAPI.Get(api.ID)...) {
+			b.models.Delete(modelKeyFn(m))
+		}
 	}
 	// The API's name/description are updated from the document's info object
 	// regardless of mode — "merge" vs "overwrite" governs how the resource/method
 	// tree is applied, not whether the top-level RestApi metadata is refreshed.
 	if doc.Info.Title != "" {
-		data.api.Name = doc.Info.Title
+		api.Name = doc.Info.Title
 	}
 	if doc.Info.Description != "" {
-		data.api.Description = doc.Info.Description
+		api.Description = doc.Info.Description
 	}
 	if doc.APIKeySourceExt != "" {
-		data.api.APIKeySource = doc.APIKeySourceExt
+		api.APIKeySource = doc.APIKeySourceExt
 	}
 	if len(doc.BinaryMediaTypes) > 0 {
-		data.api.BinaryMediaTypes = doc.BinaryMediaTypes
+		api.BinaryMediaTypes = doc.BinaryMediaTypes
 	}
 
-	importModels(data, doc)
-	importPaths(data, doc)
+	importModels(b, api, doc)
+	importPaths(b, api, doc)
 
-	cp := data.api
+	cp := *api
 
 	return &cp, nil
 }
 
 // importModels registers the document's named schemas as API Gateway models.
-func importModels(data *apiData, doc *openAPIDoc) {
+//
+// NOTE: the exists check below preserves a pre-existing quirk carried over
+// mechanically from the map[string]*apiData days: models are keyed by model
+// ID (see modelKeyFn), but name here is the schema's *Name*, not an ID -- so
+// this only skips re-creating a model when name happens to equal an existing
+// model's ID. This was already the case before the store.Table conversion
+// (data.models was ID-keyed but was indexed by name here) and is preserved
+// byte-for-byte rather than "fixed" as part of a storage-layer swap -- see the
+// identical note on buildModelRef in backend.go.
+func importModels(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 	for name, raw := range doc.schemaDefinitions() {
-		if _, exists := data.models[name]; exists {
+		if b.models.Has(modelKey(api.ID, name)) {
 			continue
 		}
 		schema := string(raw)
-		data.models[name] = &Model{
+		b.models.Put(&Model{
 			ID:          randomID(resourceIDLength),
-			RestAPIID:   data.api.ID,
+			RestAPIID:   api.ID,
 			Name:        name,
 			ContentType: contentTypeJSON,
 			Schema:      schema,
-		}
+		})
 	}
 }
 
 // importPaths walks the document paths, creating the resource tree and methods.
-func importPaths(data *apiData, doc *openAPIDoc) {
+func importPaths(b *InMemoryBackend, api *RestAPI, doc *openAPIDoc) {
 	// Sort paths for deterministic resource creation order.
 	pathKeys := collections.SortedKeys(doc.Paths)
 
 	for _, path := range pathKeys {
-		res := ensureResourcePath(data, path)
+		res := ensureResourcePath(b, api, path)
 		if res == nil {
 			continue
 		}
@@ -333,8 +336,8 @@ func isHTTPVerb(verb string) bool {
 
 // ensureResourcePath walks/creates the resource tree for an OpenAPI path,
 // returning the leaf resource. Existing resources are reused (merge semantics).
-func ensureResourcePath(data *apiData, path string) *Resource {
-	root := data.resources[data.api.RootResourceID]
+func ensureResourcePath(b *InMemoryBackend, api *RestAPI, path string) *Resource {
+	root, _ := b.resources.Get(resourceKey(api.ID, api.RootResourceID))
 	if path == "/" || path == "" {
 		return root
 	}
@@ -344,18 +347,18 @@ func ensureResourcePath(data *apiData, path string) *Resource {
 		if seg == "" {
 			continue
 		}
-		child := findChildResource(data, current.ID, seg)
+		child := findChildResource(b, api.ID, current.ID, seg)
 		if child == nil {
 			child = &Resource{
 				ID:              randomID(resourceIDLength),
 				ParentID:        current.ID,
 				PathPart:        seg,
 				Path:            computePath(current.Path, seg),
-				RestAPIID:       data.api.ID,
+				RestAPIID:       api.ID,
 				ResourceMethods: make(map[string]*Method),
 			}
-			data.resources[child.ID] = child
-			data.resourceVersion++
+			b.resources.Put(child)
+			b.resourceVersions[api.ID]++
 		}
 		current = child
 	}
@@ -365,8 +368,8 @@ func ensureResourcePath(data *apiData, path string) *Resource {
 
 // findChildResource returns the existing child of parent with the given path
 // part, or nil.
-func findChildResource(data *apiData, parentID, pathPart string) *Resource {
-	for _, r := range data.resources {
+func findChildResource(b *InMemoryBackend, restAPIID, parentID, pathPart string) *Resource {
+	for _, r := range b.resourcesByAPI.Get(restAPIID) {
 		if r.ParentID == parentID && r.PathPart == pathPart {
 			return r
 		}

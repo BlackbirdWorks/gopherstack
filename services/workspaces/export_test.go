@@ -5,7 +5,7 @@ func WorkspaceCount(b *InMemoryBackend) int {
 	b.mu.RLock("WorkspaceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.workspaces)
+	return b.workspaces.Len()
 }
 
 // HandlerOpsLen returns the count of GetSupportedOperations.
@@ -18,7 +18,7 @@ func WorkspaceState(b *InMemoryBackend, id string) string {
 	b.mu.RLock("WorkspaceState")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workspaces[id]
+	w, ok := b.workspaces.Get(id)
 	if !ok {
 		return ""
 	}
@@ -31,7 +31,7 @@ func WorkspaceProps(b *InMemoryBackend, id string) *WorkspaceProperties {
 	b.mu.RLock("WorkspaceProps")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workspaces[id]
+	w, ok := b.workspaces.Get(id)
 	if !ok || w.Properties == nil {
 		return nil
 	}

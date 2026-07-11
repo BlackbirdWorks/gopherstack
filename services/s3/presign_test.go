@@ -296,6 +296,21 @@ func TestHandler_PresignedStructuralValidation(t *testing.T) {
 			wantCode:    http.StatusBadRequest,
 			wantContain: "AuthorizationQueryParametersError",
 		},
+		{
+			// AWS caps presigned-URL lifetimes at 604800 s (7 days); larger
+			// values are rejected with 400 AuthorizationQueryParametersError.
+			name: "X-Amz-Expires over 7 days rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"+
+						"&X-Amz-Credential=test%%2F20240101%%2Fus-east-1%%2Fs3%%2Faws4_request"+
+						"&X-Amz-Date=%s&X-Amz-Expires=604801&X-Amz-SignedHeaders=host&X-Amz-Signature=fakesig",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
 	}
 
 	for _, tt := range tests {

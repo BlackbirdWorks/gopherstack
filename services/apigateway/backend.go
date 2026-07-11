@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -216,6 +217,7 @@ type StorageBackend interface {
 	GetGatewayResponse(restAPIID, responseType string) (*GatewayResponse, error)
 	GetGatewayResponses(restAPIID string) ([]GatewayResponse, error)
 	PutGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error)
+	UpdateGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error)
 	DeleteGatewayResponse(restAPIID, responseType string) error
 
 	// Client certificate operations.
@@ -401,44 +403,79 @@ func initTagsFromInput(name string, inputTags *tags.Tags) *tags.Tags {
 	return tags.FromMap(name, inputTags.Clone())
 }
 
-// apiData holds per-REST-API state.
-type apiData struct {
-	resources             map[string]*Resource
-	deployments           map[string]*Deployment
-	stages                map[string]*Stage
-	authorizers           map[string]*Authorizer
-	requestValidators     map[string]*RequestValidator
-	documentationParts    map[string]*DocumentationPart
-	documentationVersions map[string]*DocumentationVersion
-	models                map[string]*Model
-	api                   RestAPI
-	// resourceVersion is bumped whenever the resource set is mutated. The data-plane
-	// proxy uses it to invalidate its cached routing trie.
-	resourceVersion uint64
-}
-
-// InMemoryBackend implements StorageBackend using in-memory maps.
+// InMemoryBackend implements StorageBackend using in-memory maps, with every
+// resource collection registered as a *store.Table on registry (see
+// store_setup.go). Resource families that AWS scopes to a REST API
+// (resources, deployments, stages, authorizers, requestValidators,
+// documentationParts, documentationVersions, models) are flat tables keyed by
+// a composite "<restAPIID>#<childID>" string (see resourceKey et al in
+// store_setup.go), with a secondary "byAPI" [store.Index] answering "all
+// children of REST API X" -- replacing the old map[string]*apiData nesting.
 type InMemoryBackend struct {
-	account                      *Account
-	apis                         map[string]*apiData
-	apiKeys                      map[string]*APIKey
-	apiKeysByValue               map[string]string           // key value → key ID, O(1) data-plane lookup
-	usage                        *usageTracker               // usage-plan quota + throttle state
-	basePathMappings             map[string]*BasePathMapping // key: domainName + "#" + basePath
-	domainNames                  map[string]*DomainName
-	domainNameAccessAssociations map[string]*DomainNameAccessAssociation
-	usagePlans                   map[string]*UsagePlan
-	usagePlanKeys                map[string]map[string]*UsagePlanKey // usagePlanID → keyID → key
-	gatewayResponses             map[string]*GatewayResponse         // key: restAPIID + "#" + responseType
-	clientCertificates           map[string]*ClientCertificate       // key: clientCertificateID
-	vpcLinks                     map[string]*VpcLink
-	usageOverrides               map[string]map[string]int64 // usagePlanID → keyID → remaining quota, set via UpdateUsage
-	mu                           *lockmetrics.RWMutex
+	account *Account
+
+	restApis *store.Table[RestAPI]
+
+	resources      *store.Table[Resource]
+	resourcesByAPI *store.Index[Resource]
+
+	deployments      *store.Table[Deployment]
+	deploymentsByAPI *store.Index[Deployment]
+
+	stages      *store.Table[Stage]
+	stagesByAPI *store.Index[Stage]
+
+	authorizers      *store.Table[Authorizer]
+	authorizersByAPI *store.Index[Authorizer]
+
+	requestValidators      *store.Table[RequestValidator]
+	requestValidatorsByAPI *store.Index[RequestValidator]
+
+	documentationParts      *store.Table[DocumentationPart]
+	documentationPartsByAPI *store.Index[DocumentationPart]
+
+	documentationVersions      *store.Table[DocumentationVersion]
+	documentationVersionsByAPI *store.Index[DocumentationVersion]
+
+	models      *store.Table[Model]
+	modelsByAPI *store.Index[Model]
+
+	// resourceVersions (restAPIID → counter) is bumped whenever a REST API's
+	// resource set is mutated. The data-plane proxy uses it to invalidate its
+	// cached routing trie. Left as a plain map: not a resource collection, so
+	// it doesn't fit store.Table's shape (see store_setup.go's
+	// registerAllTables doc).
+	resourceVersions map[string]uint64
+
+	apiKeys        *store.Table[APIKey]
+	apiKeysByValue map[string]string // key value → key ID, O(1) data-plane lookup
+
+	usage *usageTracker // usage-plan quota + throttle state
+
+	basePathMappings             *store.Table[BasePathMapping] // key: domainName + "#" + basePath
+	domainNames                  *store.Table[DomainName]
+	domainNameAccessAssociations *store.Table[DomainNameAccessAssociation]
+
+	usagePlans          *store.Table[UsagePlan]
+	usagePlanKeys       *store.Table[UsagePlanKey] // key: usagePlanID + "#" + keyID
+	usagePlanKeysByPlan *store.Index[UsagePlanKey]
+
+	gatewayResponses   *store.Table[GatewayResponse]   // key: restAPIID + "#" + responseType
+	clientCertificates *store.Table[ClientCertificate] // key: clientCertificateID
+	vpcLinks           *store.Table[VpcLink]
+
+	// usageOverrides (usagePlanID → keyID → remaining quota) is set via
+	// UpdateUsage. Left as a plain map: the value (int64) carries no identity
+	// field of its own to key a store.Table by.
+	usageOverrides map[string]map[string]int64
+
+	registry *store.Registry
+	mu       *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		account: &Account{
 			ThrottleSettings: &ThrottleSettings{
 				BurstLimit: defaultBurstLimit,
@@ -447,21 +484,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 			Features:      []string{"UsagePlans"},
 			APIKeyVersion: "1",
 		},
-		apis:                         make(map[string]*apiData),
-		apiKeys:                      make(map[string]*APIKey),
-		apiKeysByValue:               make(map[string]string),
-		usage:                        newUsageTracker(),
-		basePathMappings:             make(map[string]*BasePathMapping),
-		domainNames:                  make(map[string]*DomainName),
-		domainNameAccessAssociations: make(map[string]*DomainNameAccessAssociation),
-		usagePlans:                   make(map[string]*UsagePlan),
-		usagePlanKeys:                make(map[string]map[string]*UsagePlanKey),
-		gatewayResponses:             make(map[string]*GatewayResponse),
-		clientCertificates:           make(map[string]*ClientCertificate),
-		vpcLinks:                     make(map[string]*VpcLink),
-		usageOverrides:               make(map[string]map[string]int64),
-		mu:                           lockmetrics.New("apigateway"),
+		registry:         store.NewRegistry(),
+		resourceVersions: make(map[string]uint64),
+		apiKeysByValue:   make(map[string]string),
+		usage:            newUsageTracker(),
+		usageOverrides:   make(map[string]map[string]int64),
+		mu:               lockmetrics.New("apigateway"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // CreateRestAPI creates a new REST API and its root resource.
@@ -477,7 +509,7 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 	backendTags := initTagsFromInput("apigw.api."+id+".tags", input.Tags)
 	rootID := randomID(resourceIDLength)
 
-	api := RestAPI{
+	api := &RestAPI{
 		ID:                     id,
 		Name:                   input.Name,
 		Description:            input.Description,
@@ -500,19 +532,12 @@ func (b *InMemoryBackend) CreateRestAPI(input CreateRestAPIInput) (*RestAPI, err
 		ResourceMethods: make(map[string]*Method),
 	}
 
-	b.apis[id] = &apiData{
-		api:                   api,
-		resources:             map[string]*Resource{rootID: root},
-		deployments:           make(map[string]*Deployment),
-		stages:                make(map[string]*Stage),
-		authorizers:           make(map[string]*Authorizer),
-		requestValidators:     make(map[string]*RequestValidator),
-		documentationParts:    make(map[string]*DocumentationPart),
-		documentationVersions: make(map[string]*DocumentationVersion),
-		models:                make(map[string]*Model),
-	}
+	b.restApis.Put(api)
+	b.resources.Put(root)
 
-	return &api, nil
+	cp := *api
+
+	return &cp, nil
 }
 
 // DeleteRestAPI removes a REST API and all its resources.
@@ -520,14 +545,47 @@ func (b *InMemoryBackend) DeleteRestAPI(restAPIID string) error {
 	b.mu.Lock("DeleteRestAPI")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
+	api, ok := b.restApis.Get(restAPIID)
 	if !ok {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	d.api.Tags.Close()
-	delete(b.apis, restAPIID)
+	api.Tags.Close()
+	b.restApis.Delete(restAPIID)
+	b.deleteAPIChildrenLocked(restAPIID)
 
 	return nil
+}
+
+// deleteAPIChildrenLocked removes every resource-family entry scoped to
+// restAPIID (resources, deployments, stages, authorizers, requestValidators,
+// documentationParts, documentationVersions, models) via each table's "byAPI"
+// index. Callers must hold b.mu.
+func (b *InMemoryBackend) deleteAPIChildrenLocked(restAPIID string) {
+	for _, r := range append([]*Resource{}, b.resourcesByAPI.Get(restAPIID)...) {
+		b.resources.Delete(resourceKeyFn(r))
+	}
+	for _, d := range append([]*Deployment{}, b.deploymentsByAPI.Get(restAPIID)...) {
+		b.deployments.Delete(deploymentKeyFn(d))
+	}
+	for _, s := range append([]*Stage{}, b.stagesByAPI.Get(restAPIID)...) {
+		b.stages.Delete(stageKeyFn(s))
+	}
+	for _, a := range append([]*Authorizer{}, b.authorizersByAPI.Get(restAPIID)...) {
+		b.authorizers.Delete(authorizerKeyFn(a))
+	}
+	for _, v := range append([]*RequestValidator{}, b.requestValidatorsByAPI.Get(restAPIID)...) {
+		b.requestValidators.Delete(requestValidatorKeyFn(v))
+	}
+	for _, p := range append([]*DocumentationPart{}, b.documentationPartsByAPI.Get(restAPIID)...) {
+		b.documentationParts.Delete(documentationPartKeyFn(p))
+	}
+	for _, v := range append([]*DocumentationVersion{}, b.documentationVersionsByAPI.Get(restAPIID)...) {
+		b.documentationVersions.Delete(documentationVersionKeyFn(v))
+	}
+	for _, m := range append([]*Model{}, b.modelsByAPI.Get(restAPIID)...) {
+		b.models.Delete(modelKeyFn(m))
+	}
+	delete(b.resourceVersions, restAPIID)
 }
 
 // GetRestAPI returns a single REST API.
@@ -535,11 +593,11 @@ func (b *InMemoryBackend) GetRestAPI(restAPIID string) (*RestAPI, error) {
 	b.mu.RLock("GetRestAPI")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
+	api, ok := b.restApis.Get(restAPIID)
 	if !ok {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	cp := d.api
+	cp := *api
 
 	return &cp, nil
 }
@@ -549,9 +607,9 @@ func (b *InMemoryBackend) GetRestAPIs(limit int, position string) ([]RestAPI, st
 	b.mu.RLock("GetRestAPIs")
 	defer b.mu.RUnlock()
 
-	all := make([]RestAPI, 0, len(b.apis))
-	for _, d := range b.apis {
-		all = append(all, d.api)
+	all := make([]RestAPI, 0, b.restApis.Len())
+	for _, api := range b.restApis.All() {
+		all = append(all, *api)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
@@ -565,13 +623,13 @@ func (b *InMemoryBackend) GetResources(restAPIID, position string, limit int) ([
 	b.mu.RLock("GetResources")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, "", fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	all := make([]Resource, 0, len(d.resources))
-	for _, r := range d.resources {
+	group := b.resourcesByAPI.Get(restAPIID)
+	all := make([]Resource, 0, len(group))
+	for _, r := range group {
 		all = append(all, *r)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -589,17 +647,17 @@ func (b *InMemoryBackend) ResourcesForRouting(restAPIID string) ([]Resource, uin
 	b.mu.RLock("ResourcesForRouting")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, 0, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	all := make([]Resource, 0, len(d.resources))
-	for _, r := range d.resources {
+	group := b.resourcesByAPI.Get(restAPIID)
+	all := make([]Resource, 0, len(group))
+	for _, r := range group {
 		all = append(all, *r)
 	}
 
-	return all, d.resourceVersion, nil
+	return all, b.resourceVersions[restAPIID], nil
 }
 
 // GetResource returns a single resource.
@@ -607,11 +665,10 @@ func (b *InMemoryBackend) GetResource(restAPIID, resourceID string) (*Resource, 
 	b.mu.RLock("GetResource")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -629,12 +686,11 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	parent, ok := d.resources[parentID]
+	parent, ok := b.resources.Get(resourceKey(restAPIID, parentID))
 	if !ok {
 		return nil, fmt.Errorf("%w: parent resource %s not found", ErrResourceNotFound, parentID)
 	}
@@ -650,8 +706,8 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 		RestAPIID:       restAPIID,
 		ResourceMethods: make(map[string]*Method),
 	}
-	d.resources[id] = res
-	d.resourceVersion++
+	b.resources.Put(res)
+	b.resourceVersions[restAPIID]++
 
 	cp := *res
 
@@ -663,15 +719,13 @@ func (b *InMemoryBackend) DeleteResource(restAPIID, resourceID string) error {
 	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	if _, exists := d.resources[resourceID]; !exists {
+	if !b.resources.Delete(resourceKey(restAPIID, resourceID)) {
 		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
-	delete(d.resources, resourceID)
-	d.resourceVersion++
+	b.resourceVersions[restAPIID]++
 
 	return nil
 }
@@ -681,11 +735,10 @@ func (b *InMemoryBackend) PutMethod(input PutMethodInput) (*Method, error) {
 	b.mu.Lock("PutMethod")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
-	r, ok := d.resources[input.ResourceID]
+	r, ok := b.resources.Get(resourceKey(input.RestAPIID, input.ResourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
 	}
@@ -718,11 +771,10 @@ func (b *InMemoryBackend) GetMethod(restAPIID, resourceID, httpMethod string) (*
 	b.mu.RLock("GetMethod")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -740,11 +792,10 @@ func (b *InMemoryBackend) DeleteMethod(restAPIID, resourceID, httpMethod string)
 	b.mu.Lock("DeleteMethod")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -764,11 +815,10 @@ func (b *InMemoryBackend) PutIntegration(
 	b.mu.Lock("PutIntegration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -810,11 +860,10 @@ func (b *InMemoryBackend) GetIntegration(restAPIID, resourceID, httpMethod strin
 	b.mu.RLock("GetIntegration")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -835,11 +884,10 @@ func (b *InMemoryBackend) DeleteIntegration(restAPIID, resourceID, httpMethod st
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -863,11 +911,10 @@ func (b *InMemoryBackend) PutMethodResponse(
 	b.mu.Lock("PutMethodResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -898,11 +945,10 @@ func (b *InMemoryBackend) GetMethodResponse(
 	b.mu.RLock("GetMethodResponse")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -924,11 +970,10 @@ func (b *InMemoryBackend) DeleteMethodResponse(restAPIID, resourceID, httpMethod
 	b.mu.Lock("DeleteMethodResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -952,11 +997,10 @@ func (b *InMemoryBackend) PutIntegrationResponse(
 	b.mu.Lock("PutIntegrationResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -992,11 +1036,10 @@ func (b *InMemoryBackend) GetIntegrationResponse(
 	b.mu.RLock("GetIntegrationResponse")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -1021,11 +1064,10 @@ func (b *InMemoryBackend) DeleteIntegrationResponse(restAPIID, resourceID, httpM
 	b.mu.Lock("DeleteIntegrationResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	r, ok := d.resources[resourceID]
+	r, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -1049,8 +1091,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
@@ -1062,7 +1103,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 		Description: description,
 		CreatedDate: now,
 	}
-	d.deployments[deplID] = depl
+	b.deployments.Put(depl)
 
 	if stageName != "" {
 		// AWS: stage description comes from stageDescription (a separate field),
@@ -1075,7 +1116,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 			LastUpdatedDate: now,
 			Variables:       make(map[string]string),
 		}
-		d.stages[stageName] = stage
+		b.stages.Put(stage)
 	}
 
 	cp := *depl
@@ -1088,13 +1129,13 @@ func (b *InMemoryBackend) GetDeployments(restAPIID string) ([]Deployment, error)
 	b.mu.RLock("GetDeployments")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	all := make([]Deployment, 0, len(d.deployments))
-	for _, dep := range d.deployments {
+	group := b.deploymentsByAPI.Get(restAPIID)
+	all := make([]Deployment, 0, len(group))
+	for _, dep := range group {
 		all = append(all, *dep)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -1107,12 +1148,11 @@ func (b *InMemoryBackend) GetDeployment(restAPIID, deploymentID string) (*Deploy
 	b.mu.RLock("GetDeployment")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	dep, ok := d.deployments[deploymentID]
+	dep, ok := b.deployments.Get(deploymentKey(restAPIID, deploymentID))
 	if !ok {
 		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
@@ -1127,17 +1167,15 @@ func (b *InMemoryBackend) DeleteDeployment(restAPIID, deploymentID string) error
 	b.mu.Lock("DeleteDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	_, exists := d.deployments[deploymentID]
-	if !exists {
+	if !b.deployments.Has(deploymentKey(restAPIID, deploymentID)) {
 		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
-	for _, s := range d.stages {
+	for _, s := range b.stagesByAPI.Get(restAPIID) {
 		if s.DeploymentID == deploymentID {
 			return fmt.Errorf(
 				"%w: deployment %s is referenced by stage %s and cannot be deleted",
@@ -1146,7 +1184,7 @@ func (b *InMemoryBackend) DeleteDeployment(restAPIID, deploymentID string) error
 		}
 	}
 
-	delete(d.deployments, deploymentID)
+	b.deployments.Delete(deploymentKey(restAPIID, deploymentID))
 
 	return nil
 }
@@ -1156,13 +1194,13 @@ func (b *InMemoryBackend) GetStages(restAPIID string) ([]Stage, error) {
 	b.mu.RLock("GetStages")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	all := make([]Stage, 0, len(d.stages))
-	for _, s := range d.stages {
+	group := b.stagesByAPI.Get(restAPIID)
+	all := make([]Stage, 0, len(group))
+	for _, s := range group {
 		cp := *s
 		cp.InvokeURL = stageInvokeURL(restAPIID, s.StageName)
 		all = append(all, cp)
@@ -1177,11 +1215,10 @@ func (b *InMemoryBackend) GetStage(restAPIID, stageName string) (*Stage, error) 
 	b.mu.RLock("GetStage")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	s, stageOK := d.stages[stageName]
+	s, stageOK := b.stages.Get(stageKey(restAPIID, stageName))
 	if !stageOK {
 		return nil, fmt.Errorf("%w: stage %s not found", ErrResourceNotFound, stageName)
 	}
@@ -1196,14 +1233,12 @@ func (b *InMemoryBackend) DeleteStage(restAPIID, stageName string) error {
 	b.mu.Lock("DeleteStage")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	if _, stageOK := d.stages[stageName]; !stageOK {
+	if !b.stages.Delete(stageKey(restAPIID, stageName)) {
 		return fmt.Errorf("%w: stage %s not found", ErrResourceNotFound, stageName)
 	}
-	delete(d.stages, stageName)
 
 	return nil
 }
@@ -1227,14 +1262,14 @@ func (b *InMemoryBackend) CreateAuthorizer(restAPIID string, input CreateAuthori
 	b.mu.Lock("CreateAuthorizer")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
 	id := randomID(resourceIDLength)
 	auth := &Authorizer{
 		ID:                           id,
+		RestAPIID:                    restAPIID,
 		Name:                         input.Name,
 		Type:                         input.Type,
 		AuthorizerURI:                input.AuthorizerURI,
@@ -1244,7 +1279,7 @@ func (b *InMemoryBackend) CreateAuthorizer(restAPIID string, input CreateAuthori
 		AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
 		ProviderARNs:                 input.ProviderARNs,
 	}
-	d.authorizers[id] = auth
+	b.authorizers.Put(auth)
 
 	cp := *auth
 
@@ -1256,11 +1291,10 @@ func (b *InMemoryBackend) GetAuthorizer(restAPIID, authorizerID string) (*Author
 	b.mu.RLock("GetAuthorizer")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	auth, ok := d.authorizers[authorizerID]
+	auth, ok := b.authorizers.Get(authorizerKey(restAPIID, authorizerID))
 	if !ok {
 		return nil, fmt.Errorf("%w: authorizer %s not found", ErrAuthorizerNotFound, authorizerID)
 	}
@@ -1274,13 +1308,13 @@ func (b *InMemoryBackend) GetAuthorizers(restAPIID string) ([]Authorizer, error)
 	b.mu.RLock("GetAuthorizers")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	all := make([]Authorizer, 0, len(d.authorizers))
-	for _, auth := range d.authorizers {
+	group := b.authorizersByAPI.Get(restAPIID)
+	all := make([]Authorizer, 0, len(group))
+	for _, auth := range group {
 		all = append(all, *auth)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -1296,11 +1330,10 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 	b.mu.Lock("UpdateAuthorizer")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	auth, ok := d.authorizers[authorizerID]
+	auth, ok := b.authorizers.Get(authorizerKey(restAPIID, authorizerID))
 	if !ok {
 		return nil, fmt.Errorf("%w: authorizer %s not found", ErrAuthorizerNotFound, authorizerID)
 	}
@@ -1345,14 +1378,12 @@ func (b *InMemoryBackend) DeleteAuthorizer(restAPIID, authorizerID string) error
 	b.mu.Lock("DeleteAuthorizer")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	if _, exists := d.authorizers[authorizerID]; !exists {
+	if !b.authorizers.Delete(authorizerKey(restAPIID, authorizerID)) {
 		return fmt.Errorf("%w: authorizer %s not found", ErrAuthorizerNotFound, authorizerID)
 	}
-	delete(d.authorizers, authorizerID)
 
 	return nil
 }
@@ -1369,19 +1400,19 @@ func (b *InMemoryBackend) CreateRequestValidator(
 	b.mu.Lock("CreateRequestValidator")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
 	id := randomID(resourceIDLength)
 	rv := &RequestValidator{
 		ID:                        id,
+		RestAPIID:                 restAPIID,
 		Name:                      input.Name,
 		ValidateRequestBody:       input.ValidateRequestBody,
 		ValidateRequestParameters: input.ValidateRequestParameters,
 	}
-	d.requestValidators[id] = rv
+	b.requestValidators.Put(rv)
 
 	cp := *rv
 
@@ -1393,11 +1424,10 @@ func (b *InMemoryBackend) GetRequestValidator(restAPIID, validatorID string) (*R
 	b.mu.RLock("GetRequestValidator")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	rv, ok := d.requestValidators[validatorID]
+	rv, ok := b.requestValidators.Get(requestValidatorKey(restAPIID, validatorID))
 	if !ok {
 		return nil, fmt.Errorf("%w: request validator %s not found", ErrValidatorNotFound, validatorID)
 	}
@@ -1411,13 +1441,13 @@ func (b *InMemoryBackend) GetRequestValidators(restAPIID string) ([]RequestValid
 	b.mu.RLock("GetRequestValidators")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	all := make([]RequestValidator, 0, len(d.requestValidators))
-	for _, rv := range d.requestValidators {
+	group := b.requestValidatorsByAPI.Get(restAPIID)
+	all := make([]RequestValidator, 0, len(group))
+	for _, rv := range group {
 		all = append(all, *rv)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -1433,11 +1463,10 @@ func (b *InMemoryBackend) UpdateRequestValidator(
 	b.mu.Lock("UpdateRequestValidator")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	rv, ok := d.requestValidators[validatorID]
+	rv, ok := b.requestValidators.Get(requestValidatorKey(restAPIID, validatorID))
 	if !ok {
 		return nil, fmt.Errorf("%w: request validator %s not found", ErrValidatorNotFound, validatorID)
 	}
@@ -1462,14 +1491,12 @@ func (b *InMemoryBackend) DeleteRequestValidator(restAPIID, validatorID string) 
 	b.mu.Lock("DeleteRequestValidator")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
-	if _, exists := d.requestValidators[validatorID]; !exists {
+	if !b.requestValidators.Delete(requestValidatorKey(restAPIID, validatorID)) {
 		return fmt.Errorf("%w: request validator %s not found", ErrValidatorNotFound, validatorID)
 	}
-	delete(d.requestValidators, validatorID)
 
 	return nil
 }
@@ -1489,42 +1516,45 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	// Close all REST API tag stores to prevent resource leaks.
-	for _, d := range b.apis {
-		if d.api.Tags != nil {
-			d.api.Tags.Close()
+	for _, api := range b.restApis.All() {
+		if api.Tags != nil {
+			api.Tags.Close()
 		}
 	}
 
-	for _, k := range b.apiKeys {
+	for _, k := range b.apiKeys.All() {
 		if k.Tags != nil {
 			k.Tags.Close()
 		}
 	}
 
-	for _, dn := range b.domainNames {
+	for _, dn := range b.domainNames.All() {
 		if dn.Tags != nil {
 			dn.Tags.Close()
 		}
 	}
 
-	for _, p := range b.usagePlans {
+	for _, p := range b.usagePlans.All() {
 		if p.Tags != nil {
 			p.Tags.Close()
 		}
 	}
 
-	b.apis = make(map[string]*apiData)
-	b.apiKeys = make(map[string]*APIKey)
+	b.registry.ResetAll()
+	// The "dirty" tables (see store_setup.go's registerAllTables doc) are
+	// deliberately NOT on b.registry, so each needs its own Reset() call here.
+	b.resources.Reset()
+	b.deployments.Reset()
+	b.stages.Reset()
+	b.authorizers.Reset()
+	b.requestValidators.Reset()
+	b.documentationParts.Reset()
+	b.documentationVersions.Reset()
+	b.models.Reset()
+	b.usagePlanKeys.Reset()
+	b.resourceVersions = make(map[string]uint64)
 	b.apiKeysByValue = make(map[string]string)
 	b.usage = newUsageTracker()
-	b.basePathMappings = make(map[string]*BasePathMapping)
-	b.domainNames = make(map[string]*DomainName)
-	b.domainNameAccessAssociations = make(map[string]*DomainNameAccessAssociation)
-	b.usagePlans = make(map[string]*UsagePlan)
-	b.usagePlanKeys = make(map[string]map[string]*UsagePlanKey)
-	b.vpcLinks = make(map[string]*VpcLink)
-	b.clientCertificates = make(map[string]*ClientCertificate)
-	b.gatewayResponses = make(map[string]*GatewayResponse)
 	b.usageOverrides = make(map[string]map[string]int64)
 }
 
@@ -1537,7 +1567,7 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 	b.mu.Lock("CreateAPIKey")
 	defer b.mu.Unlock()
 
-	for _, k := range b.apiKeys {
+	for _, k := range b.apiKeys.All() {
 		if k.Name == input.Name {
 			return nil, fmt.Errorf("%w: API key with name %q already exists", ErrAlreadyExists, input.Name)
 		}
@@ -1564,7 +1594,7 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 		CreatedDate:     now,
 		LastUpdatedDate: now,
 	}
-	b.apiKeys[id] = key
+	b.apiKeys.Put(key)
 	b.apiKeysByValue[value] = id
 
 	cp := *key
@@ -1585,8 +1615,8 @@ func (b *InMemoryBackend) CreateBasePathMapping(input CreateBasePathMappingInput
 	b.mu.Lock("CreateBasePathMapping")
 	defer b.mu.Unlock()
 
-	mapKey := input.DomainName + "#" + input.BasePath
-	if _, exists := b.basePathMappings[mapKey]; exists {
+	mapKey := basePathMappingKey(input.DomainName, input.BasePath)
+	if b.basePathMappings.Has(mapKey) {
 		return nil, fmt.Errorf("%w: base path mapping already exists for domain %q path %q",
 			ErrAlreadyExists, input.DomainName, input.BasePath)
 	}
@@ -1597,7 +1627,7 @@ func (b *InMemoryBackend) CreateBasePathMapping(input CreateBasePathMappingInput
 		RestAPIID:  input.RestAPIID,
 		Stage:      input.Stage,
 	}
-	b.basePathMappings[mapKey] = bpm
+	b.basePathMappings.Put(bpm)
 
 	cp := *bpm
 
@@ -1617,8 +1647,7 @@ func (b *InMemoryBackend) CreateDocumentationPart(input CreateDocumentationPartI
 	b.mu.Lock("CreateDocumentationPart")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
@@ -1629,7 +1658,7 @@ func (b *InMemoryBackend) CreateDocumentationPart(input CreateDocumentationPartI
 		Location:   input.Location,
 		Properties: input.Properties,
 	}
-	d.documentationParts[id] = part
+	b.documentationParts.Put(part)
 
 	cp := *part
 
@@ -1651,12 +1680,11 @@ func (b *InMemoryBackend) CreateDocumentationVersion(
 	b.mu.Lock("CreateDocumentationVersion")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	if _, exists := d.documentationVersions[input.Version]; exists {
+	if b.documentationVersions.Has(documentationVersionKey(input.RestAPIID, input.Version)) {
 		return nil, fmt.Errorf("%w: documentation version %q already exists", ErrAlreadyExists, input.Version)
 	}
 
@@ -1666,7 +1694,7 @@ func (b *InMemoryBackend) CreateDocumentationVersion(
 		Description: input.Description,
 		CreatedDate: unixEpochTime{time.Now()},
 	}
-	d.documentationVersions[input.Version] = ver
+	b.documentationVersions.Put(ver)
 
 	cp := *ver
 
@@ -1682,7 +1710,7 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 	b.mu.Lock("CreateDomainName")
 	defer b.mu.Unlock()
 
-	if _, exists := b.domainNames[input.DomainName]; exists {
+	if b.domainNames.Has(input.DomainName) {
 		return nil, fmt.Errorf("%w: domain name %q already exists", ErrAlreadyExists, input.DomainName)
 	}
 
@@ -1723,7 +1751,7 @@ func (b *InMemoryBackend) CreateDomainName(input CreateDomainNameInput) (*Domain
 		Tags:                     backendTags,
 		CreatedDate:              &now,
 	}
-	b.domainNames[input.DomainName] = dn
+	b.domainNames.Put(dn)
 
 	cp := *dn
 
@@ -1756,7 +1784,7 @@ func (b *InMemoryBackend) CreateDomainNameAccessAssociation(
 		AccessAssociationSource:        input.AccessAssociationSource,
 		AccessAssociationSourceType:    input.AccessAssociationSourceType,
 	}
-	b.domainNameAccessAssociations[assocARN] = assoc
+	b.domainNameAccessAssociations.Put(assoc)
 
 	cp := *assoc
 
@@ -1782,8 +1810,9 @@ func (b *InMemoryBackend) GetDomainNameAccessAssociations(resourceOwner string) 
 		return []DomainNameAccessAssociation{}, nil
 	}
 
-	result := make([]DomainNameAccessAssociation, 0, len(b.domainNameAccessAssociations))
-	for _, assoc := range b.domainNameAccessAssociations {
+	all := b.domainNameAccessAssociations.All()
+	result := make([]DomainNameAccessAssociation, 0, len(all))
+	for _, assoc := range all {
 		result = append(result, *assoc)
 	}
 
@@ -1799,11 +1828,9 @@ func (b *InMemoryBackend) DeleteDomainNameAccessAssociation(arn string) error {
 	b.mu.Lock("DeleteDomainNameAccessAssociation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainNameAccessAssociations[arn]; !ok {
+	if !b.domainNameAccessAssociations.Delete(arn) {
 		return fmt.Errorf("%w: domain name access association %s not found", ErrNotFound, arn)
 	}
-
-	delete(b.domainNameAccessAssociations, arn)
 
 	return nil
 }
@@ -1814,7 +1841,7 @@ func (b *InMemoryBackend) RejectDomainNameAccessAssociation(arn, domainNameARN s
 	b.mu.Lock("RejectDomainNameAccessAssociation")
 	defer b.mu.Unlock()
 
-	assoc, ok := b.domainNameAccessAssociations[arn]
+	assoc, ok := b.domainNameAccessAssociations.Get(arn)
 	if !ok {
 		return fmt.Errorf("%w: domain name access association %s not found", ErrNotFound, arn)
 	}
@@ -1823,7 +1850,7 @@ func (b *InMemoryBackend) RejectDomainNameAccessAssociation(arn, domainNameARN s
 		return fmt.Errorf("%w: domainNameArn does not match association %s", ErrInvalidParameter, arn)
 	}
 
-	delete(b.domainNameAccessAssociations, arn)
+	b.domainNameAccessAssociations.Delete(arn)
 
 	return nil
 }
@@ -1845,12 +1872,11 @@ func (b *InMemoryBackend) CreateModel(input CreateModelInput) (*Model, error) {
 	b.mu.Lock("CreateModel")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	for _, m := range d.models {
+	for _, m := range b.modelsByAPI.Get(input.RestAPIID) {
 		if m.Name == input.Name {
 			return nil, fmt.Errorf(
 				"%w: model %q already exists in REST API %s",
@@ -1870,7 +1896,7 @@ func (b *InMemoryBackend) CreateModel(input CreateModelInput) (*Model, error) {
 		ContentType: input.ContentType,
 		Schema:      input.Schema,
 	}
-	d.models[id] = model
+	b.models.Put(model)
 
 	cp := *model
 
@@ -1894,16 +1920,15 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 	b.mu.Lock("CreateStage")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	if _, exists := d.deployments[input.DeploymentID]; !exists {
+	if !b.deployments.Has(deploymentKey(input.RestAPIID, input.DeploymentID)) {
 		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, input.DeploymentID)
 	}
 
-	if _, exists := d.stages[input.StageName]; exists {
+	if b.stages.Has(stageKey(input.RestAPIID, input.StageName)) {
 		return nil, fmt.Errorf("%w: stage %q already exists", ErrAlreadyExists, input.StageName)
 	}
 
@@ -1926,8 +1951,11 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 		MethodSettings:      input.MethodSettings,
 		TracingEnabled:      input.TracingEnabled,
 		ClientCertificateID: input.ClientCertificateID,
+		CacheClusterEnabled: input.CacheClusterEnabled,
+		CacheClusterSize:    input.CacheClusterSize,
+		CacheClusterStatus:  cacheClusterStatusFor(input.CacheClusterEnabled),
 	}
-	d.stages[input.StageName] = stage
+	b.stages.Put(stage)
 
 	cp := *stage
 
@@ -1955,8 +1983,7 @@ func (b *InMemoryBackend) CreateUsagePlan(input CreateUsagePlanInput) (*UsagePla
 		APIStages:   input.APIStages,
 		Tags:        backendTags,
 	}
-	b.usagePlans[id] = plan
-	b.usagePlanKeys[id] = make(map[string]*UsagePlanKey)
+	b.usagePlans.Put(plan)
 
 	cp := *plan
 
@@ -1984,27 +2011,27 @@ func (b *InMemoryBackend) CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*Us
 	b.mu.Lock("CreateUsagePlanKey")
 	defer b.mu.Unlock()
 
-	if _, exists := b.usagePlans[input.UsagePlanID]; !exists {
+	if !b.usagePlans.Has(input.UsagePlanID) {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
 	}
 
-	apiKey, exists := b.apiKeys[input.KeyID]
+	apiKey, exists := b.apiKeys.Get(input.KeyID)
 	if !exists {
 		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, input.KeyID)
 	}
 
-	keys := b.usagePlanKeys[input.UsagePlanID]
-	if _, alreadyAssoc := keys[input.KeyID]; alreadyAssoc {
+	if b.usagePlanKeys.Has(usagePlanKeyKey(input.UsagePlanID, input.KeyID)) {
 		return nil, fmt.Errorf("%w: key %s already associated with usage plan", ErrAlreadyExists, input.KeyID)
 	}
 
 	upk := &UsagePlanKey{
-		ID:    apiKey.ID,
-		Type:  input.KeyType,
-		Value: apiKey.Value,
-		Name:  apiKey.Name,
+		ID:          apiKey.ID,
+		Type:        input.KeyType,
+		Value:       apiKey.Value,
+		Name:        apiKey.Name,
+		UsagePlanID: input.UsagePlanID,
 	}
-	keys[input.KeyID] = upk
+	b.usagePlanKeys.Put(upk)
 
 	cp := *upk
 
@@ -2015,7 +2042,7 @@ func (b *InMemoryBackend) CreateUsagePlanKey(input CreateUsagePlanKeyInput) (*Us
 func (b *InMemoryBackend) GetAPIKey(id string) (*APIKey, error) {
 	b.mu.RLock("GetAPIKey")
 	defer b.mu.RUnlock()
-	key, ok := b.apiKeys[id]
+	key, ok := b.apiKeys.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
 	}
@@ -2035,7 +2062,7 @@ func (b *InMemoryBackend) GetAPIKeyByValue(value string) (*APIKey, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
 	}
-	k, ok := b.apiKeys[id]
+	k, ok := b.apiKeys.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: API key with value not found", ErrAPIKeyNotFound)
 	}
@@ -2048,8 +2075,8 @@ func (b *InMemoryBackend) GetAPIKeyByValue(value string) (*APIKey, error) {
 func (b *InMemoryBackend) GetAPIKeys() ([]APIKey, error) {
 	b.mu.RLock("GetAPIKeys")
 	defer b.mu.RUnlock()
-	all := make([]APIKey, 0, len(b.apiKeys))
-	for _, k := range b.apiKeys {
+	all := make([]APIKey, 0, b.apiKeys.Len())
+	for _, k := range b.apiKeys.All() {
 		all = append(all, *k)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -2061,12 +2088,12 @@ func (b *InMemoryBackend) GetAPIKeys() ([]APIKey, error) {
 func (b *InMemoryBackend) DeleteAPIKey(id string) error {
 	b.mu.Lock("DeleteAPIKey")
 	defer b.mu.Unlock()
-	key, ok := b.apiKeys[id]
+	key, ok := b.apiKeys.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
 	}
 	delete(b.apiKeysByValue, key.Value)
-	delete(b.apiKeys, id)
+	b.apiKeys.Delete(id)
 
 	return nil
 }
@@ -2075,7 +2102,7 @@ func (b *InMemoryBackend) DeleteAPIKey(id string) error {
 func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*APIKey, error) {
 	b.mu.Lock("UpdateAPIKey")
 	defer b.mu.Unlock()
-	key, ok := b.apiKeys[id]
+	key, ok := b.apiKeys.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: API key %s not found", ErrAPIKeyNotFound, id)
 	}
@@ -2098,7 +2125,7 @@ func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*API
 func (b *InMemoryBackend) GetDomainName(name string) (*DomainName, error) {
 	b.mu.RLock("GetDomainName")
 	defer b.mu.RUnlock()
-	dn, ok := b.domainNames[name]
+	dn, ok := b.domainNames.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
 	}
@@ -2111,8 +2138,8 @@ func (b *InMemoryBackend) GetDomainName(name string) (*DomainName, error) {
 func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
 	b.mu.RLock("GetDomainNames")
 	defer b.mu.RUnlock()
-	all := make([]DomainName, 0, len(b.domainNames))
-	for _, dn := range b.domainNames {
+	all := make([]DomainName, 0, b.domainNames.Len())
+	for _, dn := range b.domainNames.All() {
 		all = append(all, *dn)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
@@ -2124,10 +2151,9 @@ func (b *InMemoryBackend) GetDomainNames() ([]DomainName, error) {
 func (b *InMemoryBackend) DeleteDomainName(name string) error {
 	b.mu.Lock("DeleteDomainName")
 	defer b.mu.Unlock()
-	if _, ok := b.domainNames[name]; !ok {
+	if !b.domainNames.Delete(name) {
 		return fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, name)
 	}
-	delete(b.domainNames, name)
 
 	return nil
 }
@@ -2136,8 +2162,7 @@ func (b *InMemoryBackend) DeleteDomainName(name string) error {
 func (b *InMemoryBackend) GetBasePathMapping(domainName, basePath string) (*BasePathMapping, error) {
 	b.mu.RLock("GetBasePathMapping")
 	defer b.mu.RUnlock()
-	mapKey := domainName + "#" + basePath
-	bpm, ok := b.basePathMappings[mapKey]
+	bpm, ok := b.basePathMappings.Get(basePathMappingKey(domainName, basePath))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: base path mapping not found for domain %q path %q",
@@ -2157,8 +2182,8 @@ func (b *InMemoryBackend) GetBasePathMappings(domainName string) ([]BasePathMapp
 	defer b.mu.RUnlock()
 	var all []BasePathMapping
 	prefix := domainName + "#"
-	for k, bpm := range b.basePathMappings {
-		if strings.HasPrefix(k, prefix) {
+	for _, bpm := range b.basePathMappings.All() {
+		if strings.HasPrefix(basePathMappingKeyFn(bpm), prefix) {
 			all = append(all, *bpm)
 		}
 	}
@@ -2171,8 +2196,7 @@ func (b *InMemoryBackend) GetBasePathMappings(domainName string) ([]BasePathMapp
 func (b *InMemoryBackend) DeleteBasePathMapping(domainName, basePath string) error {
 	b.mu.Lock("DeleteBasePathMapping")
 	defer b.mu.Unlock()
-	mapKey := domainName + "#" + basePath
-	if _, ok := b.basePathMappings[mapKey]; !ok {
+	if !b.basePathMappings.Delete(basePathMappingKey(domainName, basePath)) {
 		return fmt.Errorf(
 			"%w: base path mapping not found for domain %q path %q",
 			ErrBasePathMappingNotFound,
@@ -2180,7 +2204,6 @@ func (b *InMemoryBackend) DeleteBasePathMapping(domainName, basePath string) err
 			basePath,
 		)
 	}
-	delete(b.basePathMappings, mapKey)
 
 	return nil
 }
@@ -2189,11 +2212,10 @@ func (b *InMemoryBackend) DeleteBasePathMapping(domainName, basePath string) err
 func (b *InMemoryBackend) GetModel(restAPIID, modelName string) (*Model, error) {
 	b.mu.RLock("GetModel")
 	defer b.mu.RUnlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	for _, m := range d.models {
+	for _, m := range b.modelsByAPI.Get(restAPIID) {
 		if m.Name == modelName {
 			cp := *m
 
@@ -2208,12 +2230,12 @@ func (b *InMemoryBackend) GetModel(restAPIID, modelName string) (*Model, error) 
 func (b *InMemoryBackend) GetModels(restAPIID string) ([]Model, error) {
 	b.mu.RLock("GetModels")
 	defer b.mu.RUnlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	all := make([]Model, 0, len(d.models))
-	for _, m := range d.models {
+	group := b.modelsByAPI.Get(restAPIID)
+	all := make([]Model, 0, len(group))
+	for _, m := range group {
 		all = append(all, *m)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
@@ -2225,13 +2247,12 @@ func (b *InMemoryBackend) GetModels(restAPIID string) ([]Model, error) {
 func (b *InMemoryBackend) DeleteModel(restAPIID, modelName string) error {
 	b.mu.Lock("DeleteModel")
 	defer b.mu.Unlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	for id, m := range d.models {
+	for _, m := range b.modelsByAPI.Get(restAPIID) {
 		if m.Name == modelName {
-			delete(d.models, id)
+			b.models.Delete(modelKeyFn(m))
 
 			return nil
 		}
@@ -2244,11 +2265,10 @@ func (b *InMemoryBackend) DeleteModel(restAPIID, modelName string) error {
 func (b *InMemoryBackend) UpdateModel(restAPIID, modelName string, input UpdateModelInput) (*Model, error) {
 	b.mu.Lock("UpdateModel")
 	defer b.mu.Unlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	for _, m := range d.models {
+	for _, m := range b.modelsByAPI.Get(restAPIID) {
 		if m.Name == modelName {
 			if input.Description != "" {
 				m.Description = input.Description
@@ -2269,11 +2289,10 @@ func (b *InMemoryBackend) UpdateModel(restAPIID, modelName string, input UpdateM
 func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateStageInput) (*Stage, error) {
 	b.mu.Lock("UpdateStage")
 	defer b.mu.Unlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	stage, ok := d.stages[stageName]
+	stage, ok := b.stages.Get(stageKey(restAPIID, stageName))
 	if !ok {
 		return nil, fmt.Errorf("%w: stage %q not found", ErrStageNotFound, stageName)
 	}
@@ -2301,17 +2320,34 @@ func (b *InMemoryBackend) UpdateStage(restAPIID, stageName string, input UpdateS
 	if input.ClientCertificateID != "" {
 		stage.ClientCertificateID = input.ClientCertificateID
 	}
+	if input.CacheClusterEnabled != nil {
+		stage.CacheClusterEnabled = *input.CacheClusterEnabled
+		stage.CacheClusterStatus = cacheClusterStatusFor(stage.CacheClusterEnabled)
+	}
+	if input.CacheClusterSize != "" {
+		stage.CacheClusterSize = input.CacheClusterSize
+	}
 	stage.LastUpdatedDate = unixEpochTime{time.Now()}
 	cp := *stage
 
 	return &cp, nil
 }
 
+// cacheClusterStatusFor derives the AWS CacheClusterStatus enum value
+// ("AVAILABLE"/"NOT_AVAILABLE") from whether the stage's cache cluster is enabled.
+func cacheClusterStatusFor(enabled bool) string {
+	if enabled {
+		return "AVAILABLE"
+	}
+
+	return "NOT_AVAILABLE"
+}
+
 // GetUsagePlan retrieves a usage plan by ID.
 func (b *InMemoryBackend) GetUsagePlan(id string) (*UsagePlan, error) {
 	b.mu.RLock("GetUsagePlan")
 	defer b.mu.RUnlock()
-	p, ok := b.usagePlans[id]
+	p, ok := b.usagePlans.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
 	}
@@ -2324,8 +2360,8 @@ func (b *InMemoryBackend) GetUsagePlan(id string) (*UsagePlan, error) {
 func (b *InMemoryBackend) GetUsagePlans() ([]UsagePlan, error) {
 	b.mu.RLock("GetUsagePlans")
 	defer b.mu.RUnlock()
-	all := make([]UsagePlan, 0, len(b.usagePlans))
-	for _, p := range b.usagePlans {
+	all := make([]UsagePlan, 0, b.usagePlans.Len())
+	for _, p := range b.usagePlans.All() {
 		all = append(all, *p)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -2337,11 +2373,12 @@ func (b *InMemoryBackend) GetUsagePlans() ([]UsagePlan, error) {
 func (b *InMemoryBackend) DeleteUsagePlan(id string) error {
 	b.mu.Lock("DeleteUsagePlan")
 	defer b.mu.Unlock()
-	if _, ok := b.usagePlans[id]; !ok {
+	if !b.usagePlans.Delete(id) {
 		return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, id)
 	}
-	delete(b.usagePlans, id)
-	delete(b.usagePlanKeys, id)
+	for _, k := range append([]*UsagePlanKey{}, b.usagePlanKeysByPlan.Get(id)...) {
+		b.usagePlanKeys.Delete(usagePlanKeyKeyFn(k))
+	}
 
 	return nil
 }
@@ -2350,11 +2387,10 @@ func (b *InMemoryBackend) DeleteUsagePlan(id string) error {
 func (b *InMemoryBackend) GetUsagePlanKey(usagePlanID, keyID string) (*UsagePlanKey, error) {
 	b.mu.RLock("GetUsagePlanKey")
 	defer b.mu.RUnlock()
-	keys, ok := b.usagePlanKeys[usagePlanID]
-	if !ok {
+	if !b.usagePlans.Has(usagePlanID) {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
 	}
-	k, ok := keys[keyID]
+	k, ok := b.usagePlanKeys.Get(usagePlanKeyKey(usagePlanID, keyID))
 	if !ok {
 		return nil, fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
 	}
@@ -2367,12 +2403,12 @@ func (b *InMemoryBackend) GetUsagePlanKey(usagePlanID, keyID string) (*UsagePlan
 func (b *InMemoryBackend) GetUsagePlanKeys(usagePlanID string) ([]UsagePlanKey, error) {
 	b.mu.RLock("GetUsagePlanKeys")
 	defer b.mu.RUnlock()
-	keys, ok := b.usagePlanKeys[usagePlanID]
-	if !ok {
+	if !b.usagePlans.Has(usagePlanID) {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
 	}
-	all := make([]UsagePlanKey, 0, len(keys))
-	for _, k := range keys {
+	group := b.usagePlanKeysByPlan.Get(usagePlanID)
+	all := make([]UsagePlanKey, 0, len(group))
+	for _, k := range group {
 		all = append(all, *k)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -2384,14 +2420,12 @@ func (b *InMemoryBackend) GetUsagePlanKeys(usagePlanID string) ([]UsagePlanKey, 
 func (b *InMemoryBackend) DeleteUsagePlanKey(usagePlanID, keyID string) error {
 	b.mu.Lock("DeleteUsagePlanKey")
 	defer b.mu.Unlock()
-	keys, ok := b.usagePlanKeys[usagePlanID]
-	if !ok {
+	if !b.usagePlans.Has(usagePlanID) {
 		return fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, usagePlanID)
 	}
-	if _, exists := keys[keyID]; !exists {
+	if !b.usagePlanKeys.Delete(usagePlanKeyKey(usagePlanID, keyID)) {
 		return fmt.Errorf("%w: usage plan key %s not found", ErrUsagePlanKeyNotFound, keyID)
 	}
-	delete(keys, keyID)
 
 	return nil
 }
@@ -2400,11 +2434,10 @@ func (b *InMemoryBackend) DeleteUsagePlanKey(usagePlanID, keyID string) error {
 func (b *InMemoryBackend) GetDocumentationPart(restAPIID, docPartID string) (*DocumentationPart, error) {
 	b.mu.RLock("GetDocumentationPart")
 	defer b.mu.RUnlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	p, ok := d.documentationParts[docPartID]
+	p, ok := b.documentationParts.Get(documentationPartKey(restAPIID, docPartID))
 	if !ok {
 		return nil, fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
 	}
@@ -2417,12 +2450,12 @@ func (b *InMemoryBackend) GetDocumentationPart(restAPIID, docPartID string) (*Do
 func (b *InMemoryBackend) GetDocumentationParts(restAPIID string) ([]DocumentationPart, error) {
 	b.mu.RLock("GetDocumentationParts")
 	defer b.mu.RUnlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	all := make([]DocumentationPart, 0, len(d.documentationParts))
-	for _, p := range d.documentationParts {
+	group := b.documentationPartsByAPI.Get(restAPIID)
+	all := make([]DocumentationPart, 0, len(group))
+	for _, p := range group {
 		all = append(all, *p)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -2434,14 +2467,12 @@ func (b *InMemoryBackend) GetDocumentationParts(restAPIID string) ([]Documentati
 func (b *InMemoryBackend) DeleteDocumentationPart(restAPIID, docPartID string) error {
 	b.mu.Lock("DeleteDocumentationPart")
 	defer b.mu.Unlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	if _, exists := d.documentationParts[docPartID]; !exists {
+	if !b.documentationParts.Delete(documentationPartKey(restAPIID, docPartID)) {
 		return fmt.Errorf("%w: documentation part %s not found", ErrDocumentationPartNotFound, docPartID)
 	}
-	delete(d.documentationParts, docPartID)
 
 	return nil
 }
@@ -2450,11 +2481,10 @@ func (b *InMemoryBackend) DeleteDocumentationPart(restAPIID, docPartID string) e
 func (b *InMemoryBackend) GetDocumentationVersion(restAPIID, version string) (*DocumentationVersion, error) {
 	b.mu.RLock("GetDocumentationVersion")
 	defer b.mu.RUnlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	v, ok := d.documentationVersions[version]
+	v, ok := b.documentationVersions.Get(documentationVersionKey(restAPIID, version))
 	if !ok {
 		return nil, fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
 	}
@@ -2467,12 +2497,12 @@ func (b *InMemoryBackend) GetDocumentationVersion(restAPIID, version string) (*D
 func (b *InMemoryBackend) GetDocumentationVersions(restAPIID string) ([]DocumentationVersion, error) {
 	b.mu.RLock("GetDocumentationVersions")
 	defer b.mu.RUnlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	all := make([]DocumentationVersion, 0, len(d.documentationVersions))
-	for _, v := range d.documentationVersions {
+	group := b.documentationVersionsByAPI.Get(restAPIID)
+	all := make([]DocumentationVersion, 0, len(group))
+	for _, v := range group {
 		all = append(all, *v)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Version < all[j].Version })
@@ -2484,14 +2514,12 @@ func (b *InMemoryBackend) GetDocumentationVersions(restAPIID string) ([]Document
 func (b *InMemoryBackend) DeleteDocumentationVersion(restAPIID, version string) error {
 	b.mu.Lock("DeleteDocumentationVersion")
 	defer b.mu.Unlock()
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: %s", ErrRestAPINotFound, restAPIID)
 	}
-	if _, exists := d.documentationVersions[version]; !exists {
+	if !b.documentationVersions.Delete(documentationVersionKey(restAPIID, version)) {
 		return fmt.Errorf("%w: documentation version %q not found", ErrDocumentationVersionNotFound, version)
 	}
-	delete(d.documentationVersions, version)
 
 	return nil
 }
@@ -2501,40 +2529,40 @@ func (b *InMemoryBackend) UpdateRestAPI(restAPIID string, input UpdateRestAPIInp
 	b.mu.Lock("UpdateRestAPI")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
+	api, ok := b.restApis.Get(restAPIID)
 	if !ok {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
 	if input.Name != "" {
-		d.api.Name = input.Name
+		api.Name = input.Name
 	}
 
 	if input.Description != "" {
-		d.api.Description = input.Description
+		api.Description = input.Description
 	}
 
 	if input.Policy != "" {
-		d.api.Policy = input.Policy
+		api.Policy = input.Policy
 	}
 
 	if input.APIKeySource != "" {
-		d.api.APIKeySource = input.APIKeySource
+		api.APIKeySource = input.APIKeySource
 	}
 
 	if input.BinaryMediaTypes != nil {
-		d.api.BinaryMediaTypes = input.BinaryMediaTypes
+		api.BinaryMediaTypes = input.BinaryMediaTypes
 	}
 
 	if input.EndpointConfiguration != nil {
-		d.api.EndpointConfiguration = input.EndpointConfiguration
+		api.EndpointConfiguration = input.EndpointConfiguration
 	}
 
 	if input.MinimumCompressionSize != nil {
-		d.api.MinimumCompressionSize = *input.MinimumCompressionSize
+		api.MinimumCompressionSize = *input.MinimumCompressionSize
 	}
 
-	cp := d.api
+	cp := *api
 
 	return &cp, nil
 }
@@ -2544,12 +2572,11 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	res, ok := d.resources[resourceID]
+	res, ok := b.resources.Get(resourceKey(restAPIID, resourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
@@ -2557,14 +2584,14 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 	if input.PathPart != "" {
 		var parentPath string
 		if res.ParentID != "" {
-			if parent, exists := d.resources[res.ParentID]; exists {
+			if parent, exists := b.resources.Get(resourceKey(restAPIID, res.ParentID)); exists {
 				parentPath = parent.Path
 			}
 		}
 
 		res.PathPart = input.PathPart
 		res.Path = computePath(parentPath, input.PathPart)
-		d.resourceVersion++
+		b.resourceVersions[restAPIID]++
 	}
 
 	if input.CorsConfiguration != nil {
@@ -2584,12 +2611,11 @@ func (b *InMemoryBackend) UpdateDeployment(
 	b.mu.Lock("UpdateDeployment")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	depl, ok := d.deployments[deploymentID]
+	depl, ok := b.deployments.Get(deploymentKey(restAPIID, deploymentID))
 	if !ok {
 		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
@@ -2626,12 +2652,12 @@ func (b *InMemoryBackend) GetResourceTags(resourceARN string) (map[string]string
 
 	apiID := strings.Split(parts[1], "/")[0]
 
-	d, ok := b.apis[apiID]
+	api, ok := b.restApis.Get(apiID)
 	if !ok {
 		return map[string]string{}, nil
 	}
 
-	return d.api.Tags.Clone(), nil
+	return api.Tags.Clone(), nil
 }
 
 // TagResource adds or updates tags on a resource identified by its ARN.
@@ -2646,13 +2672,13 @@ func (b *InMemoryBackend) TagResource(resourceARN string, newTags map[string]str
 
 	apiID := strings.Split(parts[1], "/")[0]
 
-	d, ok := b.apis[apiID]
+	api, ok := b.restApis.Get(apiID)
 	if !ok {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, apiID)
 	}
 
 	for k, v := range newTags {
-		d.api.Tags.Set(k, v)
+		api.Tags.Set(k, v)
 	}
 
 	return nil
@@ -2670,13 +2696,13 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	apiID := strings.Split(parts[1], "/")[0]
 
-	d, ok := b.apis[apiID]
+	api, ok := b.restApis.Get(apiID)
 	if !ok {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, apiID)
 	}
 
 	for _, k := range tagKeys {
-		d.api.Tags.Delete(k)
+		api.Tags.Delete(k)
 	}
 
 	return nil
@@ -2687,12 +2713,11 @@ func (b *InMemoryBackend) TestInvokeMethod(input TestInvokeMethodInput) (*TestIn
 	b.mu.RLock("TestInvokeMethod")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	r, ok := d.resources[input.ResourceID]
+	r, ok := b.resources.Get(resourceKey(input.RestAPIID, input.ResourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
 	}
@@ -2726,8 +2751,8 @@ func (b *InMemoryBackend) GetAPIKeysPage(limit int, position string) ([]APIKey, 
 	b.mu.RLock("GetAPIKeysPage")
 	defer b.mu.RUnlock()
 
-	all := make([]APIKey, 0, len(b.apiKeys))
-	for _, k := range b.apiKeys {
+	all := make([]APIKey, 0, b.apiKeys.Len())
+	for _, k := range b.apiKeys.All() {
 		all = append(all, *k)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -2741,8 +2766,8 @@ func (b *InMemoryBackend) GetDomainNamesPage(limit int, position string) ([]Doma
 	b.mu.RLock("GetDomainNamesPage")
 	defer b.mu.RUnlock()
 
-	all := make([]DomainName, 0, len(b.domainNames))
-	for _, d := range b.domainNames {
+	all := make([]DomainName, 0, b.domainNames.Len())
+	for _, d := range b.domainNames.All() {
 		all = append(all, *d)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].DomainNameValue < all[j].DomainNameValue })
@@ -2756,8 +2781,8 @@ func (b *InMemoryBackend) GetUsagePlansPage(limit int, position string) ([]Usage
 	b.mu.RLock("GetUsagePlansPage")
 	defer b.mu.RUnlock()
 
-	all := make([]UsagePlan, 0, len(b.usagePlans))
-	for _, p := range b.usagePlans {
+	all := make([]UsagePlan, 0, b.usagePlans.Len())
+	for _, p := range b.usagePlans.All() {
 		all = append(all, *p)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
@@ -2771,7 +2796,7 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 	b.mu.Lock("UpdateUsagePlan")
 	defer b.mu.Unlock()
 
-	p, ok := b.usagePlans[input.UsagePlanID]
+	p, ok := b.usagePlans.Get(input.UsagePlanID)
 	if !ok {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
 	}
@@ -2792,7 +2817,7 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.Quota = input.Quota
 	}
 
-	if len(input.APIStages) > 0 {
+	if input.APIStages != nil {
 		p.APIStages = input.APIStages
 	}
 
@@ -2804,7 +2829,7 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 	b.mu.Lock("UpdateDomainName")
 	defer b.mu.Unlock()
 
-	d, ok := b.domainNames[input.DomainName]
+	d, ok := b.domainNames.Get(input.DomainName)
 	if !ok {
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, input.DomainName)
 	}
@@ -2833,8 +2858,8 @@ func (b *InMemoryBackend) UpdateBasePathMapping(input UpdateBasePathMappingInput
 	b.mu.Lock("UpdateBasePathMapping")
 	defer b.mu.Unlock()
 
-	key := input.DomainName + "#" + input.BasePath
-	m, ok := b.basePathMappings[key]
+	key := basePathMappingKey(input.DomainName, input.BasePath)
+	m, ok := b.basePathMappings.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: base path mapping %s/%s not found", ErrNotFound, input.DomainName, input.BasePath)
 	}
@@ -2855,12 +2880,11 @@ func (b *InMemoryBackend) UpdateDocumentationPart(input UpdateDocumentationPartI
 	b.mu.Lock("UpdateDocumentationPart")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	part, ok := d.documentationParts[input.DocPartID]
+	part, ok := b.documentationParts.Get(documentationPartKey(input.RestAPIID, input.DocPartID))
 	if !ok {
 		return nil, fmt.Errorf("%w: documentation part %s not found", ErrNotFound, input.DocPartID)
 	}
@@ -2879,12 +2903,11 @@ func (b *InMemoryBackend) UpdateDocumentationVersion(
 	b.mu.Lock("UpdateDocumentationVersion")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	ver, ok := d.documentationVersions[input.DocumentationVersion]
+	ver, ok := b.documentationVersions.Get(documentationVersionKey(input.RestAPIID, input.DocumentationVersion))
 	if !ok {
 		return nil, fmt.Errorf("%w: documentation version %s not found", ErrNotFound, input.DocumentationVersion)
 	}
@@ -2901,12 +2924,11 @@ func (b *InMemoryBackend) UpdateMethod(input UpdateMethodInput) (*Method, error)
 	b.mu.Lock("UpdateMethod")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	r, ok := d.resources[input.ResourceID]
+	r, ok := b.resources.Get(resourceKey(input.RestAPIID, input.ResourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
 	}
@@ -2944,12 +2966,11 @@ func (b *InMemoryBackend) UpdateIntegration(input UpdateIntegrationInput) (*Inte
 	b.mu.Lock("UpdateIntegration")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	r, ok := d.resources[input.ResourceID]
+	r, ok := b.resources.Get(resourceKey(input.RestAPIID, input.ResourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
 	}
@@ -3017,12 +3038,11 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 	b.mu.Lock("UpdateIntegrationResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	r, ok := d.resources[input.ResourceID]
+	r, ok := b.resources.Get(resourceKey(input.RestAPIID, input.ResourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
 	}
@@ -3067,12 +3087,11 @@ func (b *InMemoryBackend) UpdateMethodResponse(input UpdateMethodResponseInput) 
 	b.mu.Lock("UpdateMethodResponse")
 	defer b.mu.Unlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	r, ok := d.resources[input.ResourceID]
+	r, ok := b.resources.Get(resourceKey(input.RestAPIID, input.ResourceID))
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, input.ResourceID)
 	}
@@ -3108,6 +3127,9 @@ func (b *InMemoryBackend) UpdateAccount(input UpdateAccountInput) (*Account, err
 	if input.ThrottleSettings != nil {
 		b.account.ThrottleSettings = input.ThrottleSettings
 	}
+	if input.CloudwatchRoleARN != "" {
+		b.account.CloudwatchRoleARN = input.CloudwatchRoleARN
+	}
 
 	return b.account, nil
 }
@@ -3117,12 +3139,11 @@ func (b *InMemoryBackend) TestInvokeAuthorizer(input TestInvokeAuthorizerInput) 
 	b.mu.RLock("TestInvokeAuthorizer")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[input.RestAPIID]
-	if !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
 
-	if _, authOK := d.authorizers[input.AuthorizerID]; !authOK {
+	if !b.authorizers.Has(authorizerKey(input.RestAPIID, input.AuthorizerID)) {
 		return nil, fmt.Errorf("%w: authorizer %s not found", ErrNotFound, input.AuthorizerID)
 	}
 
@@ -3141,13 +3162,12 @@ func (b *InMemoryBackend) GetModelTemplate(restAPIID, modelName string) (string,
 	b.mu.RLock("GetModelTemplate")
 	defer b.mu.RUnlock()
 
-	d, ok := b.apis[restAPIID]
-	if !ok {
+	if !b.restApis.Has(restAPIID) {
 		return "", fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
 	var model *Model
-	for _, m := range d.models {
+	for _, m := range b.modelsByAPI.Get(restAPIID) {
 		if m.Name == modelName {
 			model = m
 
@@ -3177,7 +3197,7 @@ func (b *InMemoryBackend) GetGatewayResponse(restAPIID, responseType string) (*G
 	defer b.mu.RUnlock()
 
 	key := gatewayResponseKey(restAPIID, responseType)
-	gr, ok := b.gatewayResponses[key]
+	gr, ok := b.gatewayResponses.Get(key)
 	if !ok {
 		// Return default response (AWS returns default responses even when not explicitly set).
 		return &GatewayResponse{
@@ -3220,7 +3240,7 @@ func (b *InMemoryBackend) GetGatewayResponses(restAPIID string) ([]GatewayRespon
 	b.mu.RLock("GetGatewayResponses")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.apis[restAPIID]; !ok {
+	if !b.restApis.Has(restAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
@@ -3236,7 +3256,7 @@ func (b *InMemoryBackend) GetGatewayResponses(restAPIID string) ([]GatewayRespon
 
 	for _, rt := range defaultTypes {
 		key := gatewayResponseKey(restAPIID, rt)
-		if gr, ok := b.gatewayResponses[key]; ok {
+		if gr, ok := b.gatewayResponses.Get(key); ok {
 			result = append(result, *gr)
 		} else {
 			result = append(result, GatewayResponse{
@@ -3256,11 +3276,9 @@ func (b *InMemoryBackend) PutGatewayResponse(input PutGatewayResponseInput) (*Ga
 	b.mu.Lock("PutGatewayResponse")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[input.RestAPIID]; !ok {
+	if !b.restApis.Has(input.RestAPIID) {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
 	}
-
-	key := gatewayResponseKey(input.RestAPIID, input.ResponseType)
 
 	gr := &GatewayResponse{
 		RestAPIID:          input.RestAPIID,
@@ -3275,9 +3293,52 @@ func (b *InMemoryBackend) PutGatewayResponse(input PutGatewayResponseInput) (*Ga
 		gr.StatusCode = gatewayResponseDefaultStatus(input.ResponseType)
 	}
 
-	b.gatewayResponses[key] = gr
+	b.gatewayResponses.Put(gr)
 
 	return gr, nil
+}
+
+// UpdateGatewayResponse applies a partial (PATCH) update to a gateway response,
+// merging only the fields present in input with the existing response (or with
+// AWS's implicit default response for responseType, if none has been customized
+// yet). Unlike PutGatewayResponse — which is a full wholesale replace used by the
+// real PUT operation — UpdateGatewayResponse must not clobber
+// ResponseParameters/ResponseTemplates/StatusCode that weren't part of this PATCH
+// document, matching AWS's PATCH-operation semantics for this resource.
+func (b *InMemoryBackend) UpdateGatewayResponse(input PutGatewayResponseInput) (*GatewayResponse, error) {
+	b.mu.Lock("UpdateGatewayResponse")
+	defer b.mu.Unlock()
+
+	if !b.restApis.Has(input.RestAPIID) {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, input.RestAPIID)
+	}
+
+	key := gatewayResponseKey(input.RestAPIID, input.ResponseType)
+
+	existing, ok := b.gatewayResponses.Get(key)
+	if !ok {
+		existing = &GatewayResponse{
+			RestAPIID:       input.RestAPIID,
+			ResponseType:    input.ResponseType,
+			StatusCode:      gatewayResponseDefaultStatus(input.ResponseType),
+			DefaultResponse: true,
+		}
+	}
+
+	cp := *existing
+	if input.StatusCode != "" {
+		cp.StatusCode = input.StatusCode
+	}
+	if input.ResponseParameters != nil {
+		cp.ResponseParameters = input.ResponseParameters
+	}
+	if input.ResponseTemplates != nil {
+		cp.ResponseTemplates = input.ResponseTemplates
+	}
+	cp.DefaultResponse = false
+	b.gatewayResponses.Put(&cp)
+
+	return &cp, nil
 }
 
 // DeleteGatewayResponse removes a custom gateway response, reverting to default.
@@ -3285,12 +3346,12 @@ func (b *InMemoryBackend) DeleteGatewayResponse(restAPIID, responseType string) 
 	b.mu.Lock("DeleteGatewayResponse")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[restAPIID]; !ok {
+	if !b.restApis.Has(restAPIID) {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
 	key := gatewayResponseKey(restAPIID, responseType)
-	delete(b.gatewayResponses, key)
+	b.gatewayResponses.Delete(key)
 
 	return nil
 }
@@ -3310,7 +3371,7 @@ func (b *InMemoryBackend) GenerateClientCertificate(input GenerateClientCertific
 		ExpirationDate:        unixEpochTime{now.AddDate(0, 0, clientCertValidityDays)},
 	}
 
-	b.clientCertificates[id] = cert
+	b.clientCertificates.Put(cert)
 
 	return cert, nil
 }
@@ -3320,7 +3381,7 @@ func (b *InMemoryBackend) GetClientCertificate(id string) (*ClientCertificate, e
 	b.mu.RLock("GetClientCertificate")
 	defer b.mu.RUnlock()
 
-	cert, ok := b.clientCertificates[id]
+	cert, ok := b.clientCertificates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
 	}
@@ -3333,8 +3394,9 @@ func (b *InMemoryBackend) GetClientCertificates() ([]ClientCertificate, error) {
 	b.mu.RLock("GetClientCertificates")
 	defer b.mu.RUnlock()
 
-	result := make([]ClientCertificate, 0, len(b.clientCertificates))
-	for _, c := range b.clientCertificates {
+	all := b.clientCertificates.All()
+	result := make([]ClientCertificate, 0, len(all))
+	for _, c := range all {
 		result = append(result, *c)
 	}
 
@@ -3350,11 +3412,9 @@ func (b *InMemoryBackend) DeleteClientCertificate(id string) error {
 	b.mu.Lock("DeleteClientCertificate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.clientCertificates[id]; !ok {
+	if !b.clientCertificates.Delete(id) {
 		return fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
 	}
-
-	delete(b.clientCertificates, id)
 
 	return nil
 }
@@ -3369,14 +3429,15 @@ func (b *InMemoryBackend) GetUsage(input GetUsageInput) (*UsageData, error) {
 	b.mu.RLock("GetUsage")
 	defer b.mu.RUnlock()
 
-	plan, ok := b.usagePlans[input.UsagePlanID]
+	plan, ok := b.usagePlans.Get(input.UsagePlanID)
 	if !ok {
 		return nil, fmt.Errorf("%w: usage plan %s not found", ErrUsagePlanNotFound, input.UsagePlanID)
 	}
 
 	items := make(map[string][]any)
 
-	for keyID := range b.usagePlanKeys[input.UsagePlanID] {
+	for _, upk := range b.usagePlanKeysByPlan.Get(input.UsagePlanID) {
+		keyID := upk.ID
 		used, remaining := b.usage.usageForKey(plan, keyID)
 		if override, hasOverride := b.usageOverrides[input.UsagePlanID][keyID]; hasOverride {
 			remaining = int(override)
@@ -3413,15 +3474,16 @@ func (b *InMemoryBackend) EnforceUsagePlan(apiID, stageName, keyID string) error
 // associated with the given api:stage, or nil. Callers must hold b.mu.
 func (b *InMemoryBackend) usagePlanForKeyLocked(keyID, apiID, stageName string) *UsagePlan {
 	// Deterministic iteration by plan ID so a key in multiple plans resolves stably.
-	ids := make([]string, 0, len(b.usagePlans))
-	for id := range b.usagePlans {
-		ids = append(ids, id)
+	all := b.usagePlans.All()
+	ids := make([]string, 0, len(all))
+	for _, p := range all {
+		ids = append(ids, p.ID)
 	}
 	sort.Strings(ids)
 
 	for _, id := range ids {
-		plan := b.usagePlans[id]
-		if _, associated := b.usagePlanKeys[id][keyID]; !associated {
+		plan, _ := b.usagePlans.Get(id)
+		if !b.usagePlanKeys.Has(usagePlanKeyKey(id, keyID)) {
 			continue
 		}
 		for i := range plan.APIStages {
@@ -3440,7 +3502,7 @@ func (b *InMemoryBackend) UpdateClientCertificate(input UpdateClientCertificateI
 	b.mu.Lock("UpdateClientCertificate")
 	defer b.mu.Unlock()
 
-	cert, ok := b.clientCertificates[input.ClientCertificateID]
+	cert, ok := b.clientCertificates.Get(input.ClientCertificateID)
 	if !ok {
 		return nil, fmt.Errorf("%w: client certificate %s not found", ErrNotFound, input.ClientCertificateID)
 	}
@@ -3470,7 +3532,7 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 	b.mu.Lock("CreateVpcLink")
 	defer b.mu.Unlock()
 
-	b.vpcLinks[id] = link
+	b.vpcLinks.Put(link)
 
 	return link, nil
 }
@@ -3480,7 +3542,7 @@ func (b *InMemoryBackend) GetVpcLink(id string) (*VpcLink, error) {
 	b.mu.RLock("GetVpcLink")
 	defer b.mu.RUnlock()
 
-	link, ok := b.vpcLinks[id]
+	link, ok := b.vpcLinks.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: VPC link %s not found", ErrNotFound, id)
 	}
@@ -3493,8 +3555,9 @@ func (b *InMemoryBackend) GetVpcLinks() ([]VpcLink, error) {
 	b.mu.RLock("GetVpcLinks")
 	defer b.mu.RUnlock()
 
-	result := make([]VpcLink, 0, len(b.vpcLinks))
-	for _, link := range b.vpcLinks {
+	all := b.vpcLinks.All()
+	result := make([]VpcLink, 0, len(all))
+	for _, link := range all {
 		result = append(result, *link)
 	}
 
@@ -3510,11 +3573,9 @@ func (b *InMemoryBackend) DeleteVpcLink(id string) error {
 	b.mu.Lock("DeleteVpcLink")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcLinks[id]; !ok {
+	if !b.vpcLinks.Delete(id) {
 		return fmt.Errorf("%w: VPC link %s not found", ErrNotFound, id)
 	}
-
-	delete(b.vpcLinks, id)
 
 	return nil
 }
@@ -3524,7 +3585,7 @@ func (b *InMemoryBackend) UpdateVpcLink(input UpdateVpcLinkInput) (*VpcLink, err
 	b.mu.Lock("UpdateVpcLink")
 	defer b.mu.Unlock()
 
-	link, ok := b.vpcLinks[input.VpcLinkID]
+	link, ok := b.vpcLinks.Get(input.VpcLinkID)
 	if !ok {
 		return nil, fmt.Errorf("%w: VPC link %s not found", ErrNotFound, input.VpcLinkID)
 	}
@@ -3546,21 +3607,34 @@ func (b *InMemoryBackend) GetExport(restAPIID, stageName, exportType string) (ma
 	b.mu.RLock("GetExport")
 	defer b.mu.RUnlock()
 
-	data, ok := b.apis[restAPIID]
+	api, ok := b.restApis.Get(restAPIID)
 	if !ok {
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
+	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name}
 
 	if exportType == "oas30" {
-		return buildOAS30Export(data, stageName), nil
+		return buildOAS30Export(ctx, stageName), nil
 	}
 
-	return buildSwagger20Export(data, stageName), nil
+	return buildSwagger20Export(ctx, stageName), nil
+}
+
+// exportContext carries the read-only context buildSwagger20Export/buildOAS30Export
+// and their helpers need to look up a REST API's resources/models from the
+// backend's flat store.Table collections. It replaces the old *apiData
+// parameter that these free functions took before the pkgs/store conversion
+// flattened per-API nested maps into backend-level tables keyed by
+// "<restAPIID>#<childID>".
+type exportContext struct {
+	b         *InMemoryBackend
+	restAPIID string
+	apiName   string
 }
 
 // buildSwagger20Export constructs a Swagger 2.0 export document.
-func buildSwagger20Export(data *apiData, stageName string) map[string]any {
-	paths := buildExportPaths(data, false)
+func buildSwagger20Export(ctx exportContext, stageName string) map[string]any {
+	paths := buildExportPaths(ctx, false)
 
 	secDefs := map[string]any{
 		exportKeyAPIKey: map[string]any{
@@ -3572,7 +3646,7 @@ func buildSwagger20Export(data *apiData, stageName string) map[string]any {
 
 	return map[string]any{
 		"swagger":             "2.0",
-		"info":                map[string]any{"title": data.api.Name, "version": "1.0"},
+		"info":                map[string]any{"title": ctx.apiName, "version": "1.0"},
 		"basePath":            "/" + stageName,
 		"paths":               paths,
 		"securityDefinitions": secDefs,
@@ -3580,8 +3654,8 @@ func buildSwagger20Export(data *apiData, stageName string) map[string]any {
 }
 
 // buildOAS30Export constructs an OpenAPI 3.0.1 export document.
-func buildOAS30Export(data *apiData, stageName string) map[string]any {
-	paths := buildExportPaths(data, true)
+func buildOAS30Export(ctx exportContext, stageName string) map[string]any {
+	paths := buildExportPaths(ctx, true)
 
 	components := map[string]any{
 		"securitySchemes": map[string]any{
@@ -3594,10 +3668,11 @@ func buildOAS30Export(data *apiData, stageName string) map[string]any {
 	}
 
 	// Include model schemas in components.
-	if len(data.models) > 0 {
-		schemas := make(map[string]any, len(data.models))
-		for name, m := range data.models {
-			schemas[name] = map[string]any{
+	models := ctx.b.modelsByAPI.Get(ctx.restAPIID)
+	if len(models) > 0 {
+		schemas := make(map[string]any, len(models))
+		for _, m := range models {
+			schemas[m.Name] = map[string]any{
 				exportKeyDescription: m.Description,
 				exportKeyType:        exportKeyObject,
 			}
@@ -3607,7 +3682,7 @@ func buildOAS30Export(data *apiData, stageName string) map[string]any {
 
 	return map[string]any{
 		"openapi":    "3.0.1",
-		"info":       map[string]any{"title": data.api.Name, "version": "1.0"},
+		"info":       map[string]any{"title": ctx.apiName, "version": "1.0"},
 		"servers":    []map[string]any{{"url": "/" + stageName}},
 		"paths":      paths,
 		"components": components,
@@ -3616,10 +3691,10 @@ func buildOAS30Export(data *apiData, stageName string) map[string]any {
 
 // buildExportPaths constructs the paths object for an OpenAPI export.
 // oas30=true emits OAS 3.0 operation objects; false emits Swagger 2.0.
-func buildExportPaths(data *apiData, oas30 bool) map[string]any {
+func buildExportPaths(ctx exportContext, oas30 bool) map[string]any {
 	paths := make(map[string]any)
 
-	for _, res := range data.resources {
+	for _, res := range ctx.b.resourcesByAPI.Get(ctx.restAPIID) {
 		if res.Path == "/" || len(res.ResourceMethods) == 0 {
 			continue
 		}
@@ -3631,7 +3706,7 @@ func buildExportPaths(data *apiData, oas30 bool) map[string]any {
 				continue
 			}
 
-			op := buildExportOperation(data, method, oas30)
+			op := buildExportOperation(ctx, method, oas30)
 			pathItem[strings.ToLower(httpMethod)] = op
 		}
 
@@ -3644,10 +3719,10 @@ func buildExportPaths(data *apiData, oas30 bool) map[string]any {
 }
 
 // buildExportOperation constructs a single OAS operation object for a method.
-func buildExportOperation(data *apiData, method *Method, oas30 bool) map[string]any {
+func buildExportOperation(ctx exportContext, method *Method, oas30 bool) map[string]any {
 	op := make(map[string]any)
-	op["responses"] = buildExportResponses(data, method, oas30)
-	buildExportRequestBody(op, data, method, oas30)
+	op["responses"] = buildExportResponses(ctx, method, oas30)
+	buildExportRequestBody(op, ctx, method, oas30)
 	buildExportSecurity(op, method)
 
 	if method.OperationName != "" {
@@ -3666,7 +3741,7 @@ func buildExportOperation(data *apiData, method *Method, oas30 bool) map[string]
 }
 
 // buildExportResponses constructs the responses map for an OAS operation.
-func buildExportResponses(data *apiData, method *Method, oas30 bool) map[string]any {
+func buildExportResponses(ctx exportContext, method *Method, oas30 bool) map[string]any {
 	responses := make(map[string]any)
 
 	for statusCode, mr := range method.MethodResponses {
@@ -3676,12 +3751,12 @@ func buildExportResponses(data *apiData, method *Method, oas30 bool) map[string]
 			if oas30 {
 				content := make(map[string]any)
 				for ct, modelName := range mr.ResponseModels {
-					content[ct] = map[string]any{exportKeySchema: buildModelRef(data, modelName, oas30)}
+					content[ct] = map[string]any{exportKeySchema: buildModelRef(ctx, modelName, oas30)}
 				}
 				rsp["content"] = content
 			} else {
 				for _, modelName := range mr.ResponseModels {
-					rsp[exportKeySchema] = buildModelRef(data, modelName, oas30)
+					rsp[exportKeySchema] = buildModelRef(ctx, modelName, oas30)
 
 					break
 				}
@@ -3699,7 +3774,7 @@ func buildExportResponses(data *apiData, method *Method, oas30 bool) map[string]
 }
 
 // buildExportRequestBody adds request body / request model entries to an operation map.
-func buildExportRequestBody(op map[string]any, data *apiData, method *Method, oas30 bool) {
+func buildExportRequestBody(op map[string]any, ctx exportContext, method *Method, oas30 bool) {
 	if len(method.RequestModels) == 0 {
 		return
 	}
@@ -3707,7 +3782,7 @@ func buildExportRequestBody(op map[string]any, data *apiData, method *Method, oa
 	if oas30 {
 		content := make(map[string]any)
 		for ct, modelName := range method.RequestModels {
-			content[ct] = map[string]any{exportKeySchema: buildModelRef(data, modelName, oas30)}
+			content[ct] = map[string]any{exportKeySchema: buildModelRef(ctx, modelName, oas30)}
 		}
 		op["requestBody"] = map[string]any{"content": content}
 	} else {
@@ -3717,7 +3792,7 @@ func buildExportRequestBody(op map[string]any, data *apiData, method *Method, oa
 				{
 					"in":            exportKeyBody,
 					"name":          exportKeyBody,
-					exportKeySchema: buildModelRef(data, modelName, oas30),
+					exportKeySchema: buildModelRef(ctx, modelName, oas30),
 				},
 			}
 
@@ -3782,8 +3857,16 @@ func buildExportIntegration(integ *Integration) map[string]any {
 }
 
 // buildModelRef returns a schema reference or inline schema for a model name.
-func buildModelRef(data *apiData, modelName string, oas30 bool) map[string]any {
-	m, ok := data.models[modelName]
+//
+// NOTE: this preserves a pre-existing quirk carried over mechanically from the
+// map[string]*apiData days: the backend's models table is keyed by model ID
+// (see modelKeyFn), but modelName here is the model's *Name*, not its ID -- so
+// this lookup only succeeds when a model's Name happens to equal its ID. This
+// was already the case before the store.Table conversion (the old
+// data.models[modelName] indexed an ID-keyed map by name) and is preserved
+// byte-for-byte rather than "fixed" as part of a storage-layer swap.
+func buildModelRef(ctx exportContext, modelName string, oas30 bool) map[string]any {
+	m, ok := ctx.b.models.Get(modelKey(ctx.restAPIID, modelName))
 	if !ok {
 		return map[string]any{exportKeyType: exportKeyObject}
 	}

@@ -3,26 +3,29 @@ package eks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// eksSnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set/shape of resources registered on b.registry -- see
+// registerAllTables in store_setup.go). It must be bumped whenever a change
+// there would make an older snapshot unsafe to decode as the current shape.
+// Restore compares this against the persisted value and discards (rather than
+// attempts to partially decode) any mismatch -- see Restore below. This
+// mirrors the services/ec2 and services/ses Phase 3.3 conversions.
+const eksSnapshotVersion = 1
+
 type backendSnapshot struct {
-	Clusters                map[string]*Cluster                              `json:"clusters"`
-	Nodegroups              map[string]map[string]*Nodegroup                 `json:"nodegroups"`
-	AccessEntries           map[string]map[string]*AccessEntry               `json:"accessEntries,omitempty"`
-	AccessPolicies          map[string]map[string][]*AccessPolicyAssociation `json:"accessPolicies,omitempty"`
-	EncryptionConfigs       map[string][]EncryptionConfig                    `json:"encryptionConfigs,omitempty"`
-	IdentityProviderConfigs map[string]map[string]*IdentityProviderConfig    `json:"identityProviderConfigs,omitempty"`
-	Addons                  map[string]map[string]*Addon                     `json:"addons,omitempty"`
-	FargateProfiles         map[string]map[string]*FargateProfile            `json:"fargateProfiles,omitempty"`
-	PodIdentityAssociations map[string]map[string]*PodIdentityAssociation    `json:"podIdentityAssociations,omitempty"`
-	Capabilities            map[string]*Capability                           `json:"capabilities,omitempty"`
-	Subscriptions           map[string]*AnywhereSubscription                 `json:"subscriptions,omitempty"`
-	AccountID               string                                           `json:"accountId"`
-	Region                  string                                           `json:"region"`
+	Tables            map[string]json.RawMessage                       `json:"tables"`
+	AccessPolicies    map[string]map[string][]*AccessPolicyAssociation `json:"accessPolicies,omitempty"`
+	EncryptionConfigs map[string][]EncryptionConfig                    `json:"encryptionConfigs,omitempty"`
+	AccountID         string                                           `json:"accountId"`
+	Region            string                                           `json:"region"`
+	Version           int                                              `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -30,20 +33,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "eks: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Clusters:                b.clusters,
-		Nodegroups:              b.nodegroups,
-		AccessEntries:           b.accessEntries,
-		AccessPolicies:          b.accessPolicies,
-		EncryptionConfigs:       b.encryptionConfigs,
-		IdentityProviderConfigs: b.identityProviderConfigs,
-		Addons:                  b.addons,
-		FargateProfiles:         b.fargateProfiles,
-		PodIdentityAssociations: b.podIdentityAssociations,
-		Capabilities:            b.capabilities,
-		Subscriptions:           b.subscriptions,
-		AccountID:               b.accountID,
-		Region:                  b.region,
+		Version:           eksSnapshotVersion,
+		Tables:            tables,
+		AccessPolicies:    b.accessPolicies,
+		EncryptionConfigs: b.encryptionConfigs,
+		AccountID:         b.accountID,
+		Region:            b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -56,155 +59,74 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return data
 }
 
-// ensureNonNilSnap initialises any nil map fields in the snapshot to empty maps
-// so that subsequent range iterations are safe.
-func (snap *backendSnapshot) ensureNonNilSnap() {
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]*Cluster)
-	}
-
-	if snap.Nodegroups == nil {
-		snap.Nodegroups = make(map[string]map[string]*Nodegroup)
-	}
-
-	if snap.AccessEntries == nil {
-		snap.AccessEntries = make(map[string]map[string]*AccessEntry)
-	}
-
-	if snap.AccessPolicies == nil {
-		snap.AccessPolicies = make(map[string]map[string][]*AccessPolicyAssociation)
-	}
-
-	if snap.EncryptionConfigs == nil {
-		snap.EncryptionConfigs = make(map[string][]EncryptionConfig)
-	}
-
-	if snap.IdentityProviderConfigs == nil {
-		snap.IdentityProviderConfigs = make(map[string]map[string]*IdentityProviderConfig)
-	}
-
-	if snap.Addons == nil {
-		snap.Addons = make(map[string]map[string]*Addon)
-	}
-
-	if snap.FargateProfiles == nil {
-		snap.FargateProfiles = make(map[string]map[string]*FargateProfile)
-	}
-
-	if snap.PodIdentityAssociations == nil {
-		snap.PodIdentityAssociations = make(map[string]map[string]*PodIdentityAssociation)
-	}
-
-	if snap.Capabilities == nil {
-		snap.Capabilities = make(map[string]*Capability)
-	}
-
-	if snap.Subscriptions == nil {
-		snap.Subscriptions = make(map[string]*AnywhereSubscription)
-	}
-}
-
-// restorePrimaryTagsLocked rebuilds Prometheus-named tag instances for clusters,
-// nodegroups, access entries, and addons.
-func restorePrimaryTagsLocked(snap *backendSnapshot) {
-	for name, c := range snap.Clusters {
+// restoreClusterAndNodegroupTagsLocked rebuilds Prometheus-named tag
+// instances for clusters and nodegroups after a JSON round-trip, which
+// deserializes every tags.Tags with the generic "json.tags" name.
+// The caller MUST hold b.mu for writing.
+func restoreClusterAndNodegroupTagsLocked(b *InMemoryBackend) {
+	for _, c := range b.clusters.All() {
 		rawTags := c.Tags.Clone()
 		c.Tags.Close()
-		c.Tags = tags.FromMap("eks.cluster."+name+".tags", rawTags)
+		c.Tags = tags.FromMap("eks.cluster."+c.Name+".tags", rawTags)
 	}
 
-	for clusterName, ngs := range snap.Nodegroups {
-		if ngs == nil {
-			snap.Nodegroups[clusterName] = make(map[string]*Nodegroup)
-
-			continue
-		}
-
-		for ngName, ng := range ngs {
-			rawTags := ng.Tags.Clone()
-			ng.Tags.Close()
-			ng.Tags = tags.FromMap("eks.nodegroup."+clusterName+"."+ngName+".tags", rawTags)
-		}
-	}
-
-	for clusterName, entries := range snap.AccessEntries {
-		if entries == nil {
-			snap.AccessEntries[clusterName] = make(map[string]*AccessEntry)
-
-			continue
-		}
-
-		for _, e := range entries {
-			rawTags := e.Tags.Clone()
-			e.Tags.Close()
-			e.Tags = tags.FromMap("eks.access-entry."+clusterName+"."+stableID(e.PrincipalARN)+".tags", rawTags)
-		}
-	}
-
-	for clusterName, clusterAddons := range snap.Addons {
-		if clusterAddons == nil {
-			snap.Addons[clusterName] = make(map[string]*Addon)
-
-			continue
-		}
-
-		for addonName, a := range clusterAddons {
-			rawTags := a.Tags.Clone()
-			a.Tags.Close()
-			a.Tags = tags.FromMap("eks.addon."+clusterName+"."+addonName+".tags", rawTags)
-		}
+	for _, ng := range b.nodegroups.All() {
+		rawTags := ng.Tags.Clone()
+		ng.Tags.Close()
+		ng.Tags = tags.FromMap("eks.nodegroup."+ng.ClusterName+"."+ng.NodegroupName+".tags", rawTags)
 	}
 }
 
-// restoreNewOpsTagsLocked rebuilds Prometheus-named tag instances for fargate
-// profiles, pod identity associations, identity provider configs, and subscriptions.
-func restoreNewOpsTagsLocked(snap *backendSnapshot) {
-	for clusterName, profiles := range snap.FargateProfiles {
-		if profiles == nil {
-			snap.FargateProfiles[clusterName] = make(map[string]*FargateProfile)
-
-			continue
-		}
-
-		for profileName, p := range profiles {
-			rawTags := p.Tags.Clone()
-			p.Tags.Close()
-			p.Tags = tags.FromMap("eks.fargate."+clusterName+"."+profileName+".tags", rawTags)
-		}
+// restoreAccessEntryAndAddonTagsLocked rebuilds Prometheus-named tag
+// instances for access entries and addons. The caller MUST hold b.mu for
+// writing.
+func restoreAccessEntryAndAddonTagsLocked(b *InMemoryBackend) {
+	for _, e := range b.accessEntries.All() {
+		rawTags := e.Tags.Clone()
+		e.Tags.Close()
+		e.Tags = tags.FromMap("eks.access-entry."+e.ClusterName+"."+stableID(e.PrincipalARN)+".tags", rawTags)
 	}
 
-	for clusterName, assocs := range snap.PodIdentityAssociations {
-		if assocs == nil {
-			snap.PodIdentityAssociations[clusterName] = make(map[string]*PodIdentityAssociation)
+	for _, a := range b.addons.All() {
+		rawTags := a.Tags.Clone()
+		a.Tags.Close()
+		a.Tags = tags.FromMap("eks.addon."+a.ClusterName+"."+a.AddonName+".tags", rawTags)
+	}
+}
 
-			continue
-		}
-
-		for assocID, a := range assocs {
-			rawTags := a.Tags.Clone()
-			a.Tags.Close()
-			a.Tags = tags.FromMap("eks.podidentity."+clusterName+"."+assocID+".tags", rawTags)
-		}
+// restoreProfileAndAssocTagsLocked rebuilds Prometheus-named tag instances
+// for fargate profiles, pod identity associations, identity provider
+// configs, and subscriptions. The caller MUST hold b.mu for writing.
+func restoreProfileAndAssocTagsLocked(b *InMemoryBackend) {
+	for _, p := range b.fargateProfiles.All() {
+		rawTags := p.Tags.Clone()
+		p.Tags.Close()
+		p.Tags = tags.FromMap("eks.fargate."+p.ClusterName+"."+p.FargateProfileName+".tags", rawTags)
 	}
 
-	for clusterName, idpCfgs := range snap.IdentityProviderConfigs {
-		if idpCfgs == nil {
-			snap.IdentityProviderConfigs[clusterName] = make(map[string]*IdentityProviderConfig)
-
-			continue
-		}
-
-		for name, cfg := range idpCfgs {
-			rawTags := cfg.Tags.Clone()
-			cfg.Tags.Close()
-			cfg.Tags = tags.FromMap("eks.idp."+clusterName+"."+name+".tags", rawTags)
-		}
+	for _, a := range b.podIdentityAssociations.All() {
+		rawTags := a.Tags.Clone()
+		a.Tags.Close()
+		a.Tags = tags.FromMap("eks.podidentity."+a.ClusterName+"."+a.AssociationID+".tags", rawTags)
 	}
 
-	for id, sub := range snap.Subscriptions {
+	b.restoreIDPAndSubscriptionTagsLocked()
+}
+
+// restoreIDPAndSubscriptionTagsLocked rebuilds Prometheus-named tag
+// instances for identity provider configs and subscriptions. The caller MUST
+// hold b.mu for writing.
+func (b *InMemoryBackend) restoreIDPAndSubscriptionTagsLocked() {
+	for _, cfg := range b.identityProviderConfigs.All() {
+		rawTags := cfg.Tags.Clone()
+		cfg.Tags.Close()
+		cfg.Tags = tags.FromMap("eks.idp."+cfg.ClusterName+"."+cfg.Name+".tags", rawTags)
+	}
+
+	for _, sub := range b.subscriptions.All() {
 		rawTags := sub.Tags.Clone()
 		sub.Tags.Close()
-		sub.Tags = tags.FromMap("eks.subscription."+id+".tags", rawTags)
+		sub.Tags = tags.FromMap("eks.subscription."+sub.ID+".tags", rawTags)
 	}
 }
 
@@ -219,24 +141,46 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	snap.ensureNonNilSnap()
+	if snap.Version != eksSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"eks: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", eksSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.accessPolicies = make(map[string]map[string][]*AccessPolicyAssociation)
+		b.encryptionConfigs = make(map[string][]EncryptionConfig)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("eks: restore snapshot tables: %w", err)
+	}
 
 	// Rebuild tags with proper Prometheus lock names. Tags deserialized from
 	// JSON use the generic "json.tags" name; we reassign to named instances.
-	restorePrimaryTagsLocked(&snap)
-	restoreNewOpsTagsLocked(&snap)
+	restoreClusterAndNodegroupTagsLocked(b)
+	restoreAccessEntryAndAddonTagsLocked(b)
+	restoreProfileAndAssocTagsLocked(b)
 
-	b.clusters = snap.Clusters
-	b.nodegroups = snap.Nodegroups
-	b.accessEntries = snap.AccessEntries
-	b.accessPolicies = snap.AccessPolicies
-	b.encryptionConfigs = snap.EncryptionConfigs
-	b.identityProviderConfigs = snap.IdentityProviderConfigs
-	b.addons = snap.Addons
-	b.fargateProfiles = snap.FargateProfiles
-	b.podIdentityAssociations = snap.PodIdentityAssociations
-	b.capabilities = snap.Capabilities
-	b.subscriptions = snap.Subscriptions
+	if snap.AccessPolicies != nil {
+		b.accessPolicies = snap.AccessPolicies
+	} else {
+		b.accessPolicies = make(map[string]map[string][]*AccessPolicyAssociation)
+	}
+
+	if snap.EncryptionConfigs != nil {
+		b.encryptionConfigs = snap.EncryptionConfigs
+	} else {
+		b.encryptionConfigs = make(map[string][]EncryptionConfig)
+	}
+
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

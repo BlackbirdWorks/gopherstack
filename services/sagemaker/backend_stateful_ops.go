@@ -85,6 +85,12 @@ type userProfileKey struct {
 	UserProfileName string
 }
 
+// userProfileKeyString flattens a userProfileKey to the single delimited
+// string used as the store.Table primary key for b.userProfiles.
+func userProfileKeyString(k userProfileKey) string {
+	return k.DomainID + "|" + k.UserProfileName
+}
+
 // UserProfile represents a SageMaker Studio user profile.
 type UserProfile struct {
 	CreationTime     time.Time         `json:"CreationTime"`
@@ -109,6 +115,12 @@ type appKey struct {
 	UserProfileName string
 	AppType         string
 	AppName         string
+}
+
+// appKeyString flattens an appKey to the single delimited string used as the
+// store.Table primary key for b.apps.
+func appKeyString(k appKey) string {
+	return k.DomainID + "|" + k.UserProfileName + "|" + k.AppType + "|" + k.AppName
 }
 
 // App represents a SageMaker Studio app.
@@ -321,7 +333,7 @@ func (b *InMemoryBackend) CreateDomain(
 
 	region := getRegion(ctx, b.region)
 
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsStore(region).All() {
 		if d.DomainName == name {
 			return nil, fmt.Errorf("%w: domain %s already exists", ErrDomainAlreadyExists, name)
 		}
@@ -342,7 +354,7 @@ func (b *InMemoryBackend) CreateDomain(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.domainsStore(region)[id] = d
+	b.domainsStore(region).Put(d)
 
 	return cloneDomain(d), nil
 }
@@ -354,11 +366,11 @@ func (b *InMemoryBackend) DescribeDomain(ctx context.Context, idOrName string) (
 
 	region := getRegion(ctx, b.region)
 
-	if d, ok := b.domainsStore(region)[idOrName]; ok {
+	if d, ok := b.domainsStore(region).Get(idOrName); ok {
 		return cloneDomain(d), nil
 	}
 
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsStore(region).All() {
 		if d.DomainName == idOrName {
 			return cloneDomain(d), nil
 		}
@@ -386,9 +398,9 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, idOrName string) err
 	region := getRegion(ctx, b.region)
 	store := b.domainsStore(region)
 
-	for id, d := range store {
-		if id == idOrName || d.DomainName == idOrName {
-			delete(store, id)
+	for _, d := range store.All() {
+		if d.DomainID == idOrName || d.DomainName == idOrName {
+			store.Delete(d.DomainID)
 
 			return nil
 		}
@@ -404,7 +416,7 @@ func (b *InMemoryBackend) UpdateDomain(ctx context.Context, idOrName string) (*D
 
 	region := getRegion(ctx, b.region)
 
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsStore(region).All() {
 		if d.DomainID == idOrName || d.DomainName == idOrName {
 			d.LastModifiedTime = time.Now()
 
@@ -430,8 +442,8 @@ func (b *InMemoryBackend) CreateUserProfile(
 
 	region := getRegion(ctx, b.region)
 
-	key := userProfileKey{DomainID: domainID, UserProfileName: name}
-	if _, ok := b.userProfilesStore(region)[key]; ok {
+	key := userProfileKeyString(userProfileKey{DomainID: domainID, UserProfileName: name})
+	if _, ok := b.userProfilesStore(region).Get(key); ok {
 		return nil, fmt.Errorf(
 			"%w: user profile %s in domain %s already exists",
 			ErrUserProfileAlreadyExists,
@@ -457,7 +469,7 @@ func (b *InMemoryBackend) CreateUserProfile(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.userProfilesStore(region)[key] = up
+	b.userProfilesStore(region).Put(up)
 
 	return cloneUserProfile(up), nil
 }
@@ -469,9 +481,9 @@ func (b *InMemoryBackend) DescribeUserProfile(ctx context.Context, domainID, nam
 
 	region := getRegion(ctx, b.region)
 
-	key := userProfileKey{DomainID: domainID, UserProfileName: name}
+	key := userProfileKeyString(userProfileKey{DomainID: domainID, UserProfileName: name})
 
-	up, ok := b.userProfilesStore(region)[key]
+	up, ok := b.userProfilesStore(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user profile %q in domain %q not found",
@@ -493,9 +505,9 @@ func (b *InMemoryBackend) ListUserProfiles(ctx context.Context, domainID, nextTo
 
 	region := getRegion(ctx, b.region)
 	store := b.userProfilesStore(region)
-	list := make([]*UserProfile, 0, len(store))
+	list := make([]*UserProfile, 0, store.Len())
 
-	for _, up := range store {
+	for _, up := range store.All() {
 		if domainID == "" || up.DomainID == domainID {
 			list = append(list, cloneUserProfile(up))
 		}
@@ -531,8 +543,8 @@ func (b *InMemoryBackend) DeleteUserProfile(ctx context.Context, domainID, name 
 	region := getRegion(ctx, b.region)
 	store := b.userProfilesStore(region)
 
-	key := userProfileKey{DomainID: domainID, UserProfileName: name}
-	if _, ok := store[key]; !ok {
+	key := userProfileKeyString(userProfileKey{DomainID: domainID, UserProfileName: name})
+	if _, ok := store.Get(key); !ok {
 		return fmt.Errorf(
 			"%w: user profile %q in domain %q not found",
 			ErrUserProfileNotFound,
@@ -541,7 +553,7 @@ func (b *InMemoryBackend) DeleteUserProfile(ctx context.Context, domainID, name 
 		)
 	}
 
-	delete(store, key)
+	store.Delete(key)
 
 	return nil
 }
@@ -561,13 +573,13 @@ func (b *InMemoryBackend) CreateApp(
 
 	region := getRegion(ctx, b.region)
 
-	key := appKey{
+	key := appKeyString(appKey{
 		DomainID:        domainID,
 		UserProfileName: userProfile,
 		AppType:         appType,
 		AppName:         appName,
-	}
-	if _, ok := b.appsStore(region)[key]; ok {
+	})
+	if _, ok := b.appsStore(region).Get(key); ok {
 		return nil, fmt.Errorf("%w: app %s already exists", ErrAppAlreadyExists, appName)
 	}
 
@@ -585,7 +597,7 @@ func (b *InMemoryBackend) CreateApp(
 		CreationTime:    now,
 		Tags:            mergeTags(nil, tags),
 	}
-	b.appsStore(region)[key] = a
+	b.appsStore(region).Put(a)
 
 	return cloneApp(a), nil
 }
@@ -600,14 +612,14 @@ func (b *InMemoryBackend) DescribeApp(
 
 	region := getRegion(ctx, b.region)
 
-	key := appKey{
+	key := appKeyString(appKey{
 		DomainID:        domainID,
 		UserProfileName: userProfile,
 		AppType:         appType,
 		AppName:         appName,
-	}
+	})
 
-	a, ok := b.appsStore(region)[key]
+	a, ok := b.appsStore(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
 	}
@@ -624,9 +636,9 @@ func (b *InMemoryBackend) ListApps(ctx context.Context, domainID, nextToken stri
 
 	region := getRegion(ctx, b.region)
 	store := b.appsStore(region)
-	list := make([]*App, 0, len(store))
+	list := make([]*App, 0, store.Len())
 
-	for _, a := range store {
+	for _, a := range store.All() {
 		if domainID == "" || a.DomainID == domainID {
 			list = append(list, cloneApp(a))
 		}
@@ -659,17 +671,17 @@ func (b *InMemoryBackend) DeleteApp(ctx context.Context, domainID, userProfile, 
 	region := getRegion(ctx, b.region)
 	store := b.appsStore(region)
 
-	key := appKey{
+	key := appKeyString(appKey{
 		DomainID:        domainID,
 		UserProfileName: userProfile,
 		AppType:         appType,
 		AppName:         appName,
-	}
-	if _, ok := store[key]; !ok {
+	})
+	if _, ok := store.Get(key); !ok {
 		return fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
 	}
 
-	delete(store, key)
+	store.Delete(key)
 
 	return nil
 }
@@ -690,7 +702,7 @@ func (b *InMemoryBackend) CreateFeatureGroup(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region)[name]; ok {
+	if _, ok := b.featureGroupsStore(region).Get(name); ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %s already exists",
 			ErrFeatureGroupAlreadyExists,
@@ -712,7 +724,7 @@ func (b *InMemoryBackend) CreateFeatureGroup(
 		CreationTime:                time.Now(),
 		Tags:                        mergeTags(nil, tags),
 	}
-	b.featureGroupsStore(region)[name] = fg
+	b.featureGroupsStore(region).Put(fg)
 
 	return cloneFeatureGroup(fg), nil
 }
@@ -724,7 +736,7 @@ func (b *InMemoryBackend) DescribeFeatureGroup(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.region)
 
-	fg, ok := b.featureGroupsStore(region)[name]
+	fg, ok := b.featureGroupsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
@@ -751,11 +763,11 @@ func (b *InMemoryBackend) DeleteFeatureGroup(ctx context.Context, name string) e
 	region := getRegion(ctx, b.region)
 	store := b.featureGroupsStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -775,7 +787,7 @@ func (b *InMemoryBackend) CreatePipeline(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[name]; ok {
+	if _, ok := b.pipelinesStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: pipeline %s already exists", ErrPipelineAlreadyExists, name)
 	}
 
@@ -792,7 +804,7 @@ func (b *InMemoryBackend) CreatePipeline(
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
 	}
-	b.pipelinesStore(region)[name] = p
+	b.pipelinesStore(region).Put(p)
 
 	return clonePipeline(p), nil
 }
@@ -804,7 +816,7 @@ func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*P
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[name]
+	p, ok := b.pipelinesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -830,7 +842,7 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, name, definition s
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[name]
+	p, ok := b.pipelinesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -852,13 +864,13 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) (*Pip
 	region := getRegion(ctx, b.region)
 	store := b.pipelinesStore(region)
 
-	p, ok := store[name]
+	p, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
 
 	cp := clonePipeline(p)
-	delete(store, name)
+	store.Delete(name)
 	delete(b.pipelineVersionsStore(region), name)
 
 	return cp, nil
@@ -871,7 +883,7 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[pipelineName]
+	p, ok := b.pipelinesStore(region).Get(pipelineName)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, pipelineName)
 	}
@@ -885,7 +897,7 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 		PipelineExecutionStatus: pipelineStatusSucceeded,
 		StartTime:               time.Now(),
 	}
-	b.pipelineExecutionsStore(region)[execArn] = pe
+	b.pipelineExecutionsStore(region).Put(pe)
 
 	return clonePipelineExecution(pe), nil
 }
@@ -897,7 +909,7 @@ func (b *InMemoryBackend) DescribePipelineExecution(ctx context.Context, execArn
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region)[execArn]
+	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline execution %q not found",
@@ -919,12 +931,12 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[pipelineName]
+	p, ok := b.pipelinesStore(region).Get(pipelineName)
 	execStore := b.pipelineExecutionsStore(region)
-	list := make([]*PipelineExecution, 0, len(execStore))
+	list := make([]*PipelineExecution, 0, execStore.Len())
 
 	if ok {
-		for _, pe := range execStore {
+		for _, pe := range execStore.All() {
 			if pe.PipelineArn == p.PipelineArn {
 				list = append(list, clonePipelineExecution(pe))
 			}
@@ -967,7 +979,7 @@ func (b *InMemoryBackend) CreateExperiment(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.experimentsStore(region)[name]; ok {
+	if _, ok := b.experimentsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: experiment %s already exists", ErrExperimentAlreadyExists, name)
 	}
 
@@ -981,7 +993,7 @@ func (b *InMemoryBackend) CreateExperiment(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.experimentsStore(region)[name] = e
+	b.experimentsStore(region).Put(e)
 
 	return cloneExperiment(e), nil
 }
@@ -993,7 +1005,7 @@ func (b *InMemoryBackend) DescribeExperiment(ctx context.Context, name string) (
 
 	region := getRegion(ctx, b.region)
 
-	e, ok := b.experimentsStore(region)[name]
+	e, ok := b.experimentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
@@ -1020,13 +1032,13 @@ func (b *InMemoryBackend) DeleteExperiment(ctx context.Context, name string) (*E
 	region := getRegion(ctx, b.region)
 	store := b.experimentsStore(region)
 
-	e, ok := store[name]
+	e, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
 
 	cp := cloneExperiment(e)
-	delete(store, name)
+	store.Delete(name)
 
 	return cp, nil
 }
@@ -1046,7 +1058,7 @@ func (b *InMemoryBackend) CreateTrial(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.trialsStore(region)[name]; ok {
+	if _, ok := b.trialsStore(region).Get(name); ok {
 		return nil, fmt.Errorf("%w: trial %s already exists", ErrTrialAlreadyExists, name)
 	}
 
@@ -1061,7 +1073,7 @@ func (b *InMemoryBackend) CreateTrial(
 		LastModifiedTime: now,
 		Tags:             mergeTags(nil, tags),
 	}
-	b.trialsStore(region)[name] = t
+	b.trialsStore(region).Put(t)
 
 	return cloneTrial(t), nil
 }
@@ -1073,7 +1085,7 @@ func (b *InMemoryBackend) DescribeTrial(ctx context.Context, name string) (*Tria
 
 	region := getRegion(ctx, b.region)
 
-	t, ok := b.trialsStore(region)[name]
+	t, ok := b.trialsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
@@ -1100,13 +1112,13 @@ func (b *InMemoryBackend) DeleteTrial(ctx context.Context, name string) (*Trial,
 	region := getRegion(ctx, b.region)
 	store := b.trialsStore(region)
 
-	t, ok := store[name]
+	t, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
 
 	cp := cloneTrial(t)
-	delete(store, name)
+	store.Delete(name)
 
 	return cp, nil
 }
@@ -1126,7 +1138,7 @@ func (b *InMemoryBackend) CreateTrialComponent(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.trialComponentsStore(region)[name]; ok {
+	if _, ok := b.trialComponentsStore(region).Get(name); ok {
 		return nil, fmt.Errorf(
 			"%w: trial component %s already exists",
 			ErrTrialComponentAlreadyExists,
@@ -1144,7 +1156,7 @@ func (b *InMemoryBackend) CreateTrialComponent(
 		LastModifiedTime:   now,
 		Tags:               mergeTags(nil, tags),
 	}
-	b.trialComponentsStore(region)[name] = tc
+	b.trialComponentsStore(region).Put(tc)
 
 	return cloneTrialComponent(tc), nil
 }
@@ -1156,7 +1168,7 @@ func (b *InMemoryBackend) DescribeTrialComponent(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	tc, ok := b.trialComponentsStore(region)[name]
+	tc, ok := b.trialComponentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}
@@ -1172,13 +1184,13 @@ func (b *InMemoryBackend) DeleteTrialComponent(ctx context.Context, name string)
 	region := getRegion(ctx, b.region)
 	store := b.trialComponentsStore(region)
 
-	tc, ok := store[name]
+	tc, ok := store.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}
 
 	cp := cloneTrialComponent(tc)
-	delete(store, name)
+	store.Delete(name)
 
 	return cp, nil
 }
@@ -1198,7 +1210,7 @@ func (b *InMemoryBackend) UpdateFeatureGroup(
 
 	region := getRegion(ctx, b.region)
 
-	fg, ok := b.featureGroupsStore(region)[name]
+	fg, ok := b.featureGroupsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
@@ -1220,7 +1232,7 @@ func (b *InMemoryBackend) UpdateExperiment(
 
 	region := getRegion(ctx, b.region)
 
-	e, ok := b.experimentsStore(region)[name]
+	e, ok := b.experimentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
@@ -1243,7 +1255,7 @@ func (b *InMemoryBackend) UpdateTrial(ctx context.Context, name, displayName str
 
 	region := getRegion(ctx, b.region)
 
-	t, ok := b.trialsStore(region)[name]
+	t, ok := b.trialsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
@@ -1276,7 +1288,7 @@ func (b *InMemoryBackend) UpdateTrialComponent(
 
 	region := getRegion(ctx, b.region)
 
-	tc, ok := b.trialComponentsStore(region)[name]
+	tc, ok := b.trialComponentsStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}
@@ -1328,7 +1340,7 @@ func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePip
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelinesStore(region)[opts.PipelineName]; ok {
+	if _, ok := b.pipelinesStore(region).Get(opts.PipelineName); ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline %s already exists",
 			ErrPipelineAlreadyExists,
@@ -1352,7 +1364,7 @@ func (b *InMemoryBackend) CreatePipelineFull(ctx context.Context, opts CreatePip
 		LastModifiedTime:         now,
 		Tags:                     mergeTags(nil, opts.Tags),
 	}
-	b.pipelinesStore(region)[opts.PipelineName] = p
+	b.pipelinesStore(region).Put(p)
 	b.recordPipelineVersionLocked(region, p)
 
 	return clonePipeline(p), nil
@@ -1369,7 +1381,7 @@ func (b *InMemoryBackend) UpdatePipelineFull(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[name]
+	p, ok := b.pipelinesStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -1414,7 +1426,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region)[opts.PipelineName]
+	p, ok := b.pipelinesStore(region).Get(opts.PipelineName)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, opts.PipelineName)
 	}
@@ -1436,7 +1448,7 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		ParallelismConfiguration:     opts.ParallelismConfiguration,
 		StartTime:                    time.Now(),
 	}
-	b.pipelineExecutionsStore(region)[execArn] = pe
+	b.pipelineExecutionsStore(region).Put(pe)
 	b.recordPipelineExecutionOnLatestVersionLocked(region, opts.PipelineName, execArn)
 
 	return clonePipelineExecution(pe), nil

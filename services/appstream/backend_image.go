@@ -48,8 +48,17 @@ func (i *storedImage) toImage() *Image {
 	}
 }
 
+// storedImagePermissions previously had no identity field of its own -- it
+// was always looked up by an external imageName key on the plain map it
+// lived in. Converting that map to a *store.Table[storedImagePermissions]
+// (see store_setup.go) requires a keyFn, so it gained a real ImageName field
+// for that purpose. This type is purely internal storage (DescribeImagePermissions
+// builds its own SharedImagePermissions response type rather than marshaling
+// this one), so a plain visible json tag is fine -- unlike a wire-shape type,
+// there is no AWS response shape this could leak into.
 type storedImagePermissions struct {
 	SharedAccounts map[string]*ImagePermissions `json:"sharedAccounts"`
+	ImageName      string                       `json:"imageName"`
 }
 
 type storedImageBuilder struct {
@@ -116,12 +125,12 @@ func (b *InMemoryBackend) CopyImage(
 	b.mu.Lock("CopyImage")
 	defer b.mu.Unlock()
 
-	src, ok := b.images[sourceName]
+	src, ok := b.images.Get(sourceName)
 	if !ok {
 		return nil, ErrNotFound
 	}
 
-	if _, ok := b.images[destName]; ok { //nolint:govet // existing issue.
+	if b.images.Has(destName) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -142,7 +151,7 @@ func (b *InMemoryBackend) CopyImage(
 		State:        imageStateAvailable,
 		BaseImageArn: src.Arn,
 	}
-	b.images[destName] = img
+	b.images.Put(img)
 	b.tags[arn] = make(map[string]string)
 
 	return img.toImage(), nil
@@ -153,7 +162,7 @@ func (b *InMemoryBackend) CreateImportedImage(name, description string, tags map
 	b.mu.Lock("CreateImportedImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[name]; ok {
+	if b.images.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -171,7 +180,7 @@ func (b *InMemoryBackend) CreateImportedImage(name, description string, tags map
 		Visibility:  "PRIVATE",
 		State:       imageStateAvailable,
 	}
-	b.images[name] = img
+	b.images.Put(img)
 	b.tags[arn] = storedTags
 
 	return img.toImage(), nil
@@ -182,12 +191,12 @@ func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, descriptio
 	b.mu.Lock("CreateUpdatedImage")
 	defer b.mu.Unlock()
 
-	src, ok := b.images[imageName]
+	src, ok := b.images.Get(imageName)
 	if !ok {
 		return nil, ErrNotFound
 	}
 
-	if _, ok := b.images[newImageName]; ok { //nolint:govet // existing issue.
+	if b.images.Has(newImageName) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -208,7 +217,7 @@ func (b *InMemoryBackend) CreateUpdatedImage(imageName, newImageName, descriptio
 		State:        imageStateAvailable,
 		BaseImageArn: src.Arn,
 	}
-	b.images[newImageName] = img
+	b.images.Put(img)
 	b.tags[arn] = make(map[string]string)
 
 	return img.toImage(), nil
@@ -219,14 +228,14 @@ func (b *InMemoryBackend) DeleteImage(name string) error {
 	b.mu.Lock("DeleteImage")
 	defer b.mu.Unlock()
 
-	img, ok := b.images[name]
+	img, ok := b.images.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
 
 	delete(b.tags, img.Arn)
-	delete(b.images, name)
-	delete(b.imagePermissions, name)
+	b.images.Delete(name)
+	b.imagePermissions.Delete(name)
 
 	return nil
 }
@@ -240,7 +249,7 @@ func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
 		var result []*Image
 
 		for _, name := range names {
-			img, ok := b.images[name]
+			img, ok := b.images.Get(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -251,8 +260,8 @@ func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
 		return result, nil
 	}
 
-	result := make([]*Image, 0, len(b.images))
-	for _, img := range b.images {
+	result := make([]*Image, 0, b.images.Len())
+	for _, img := range b.images.All() {
 		result = append(result, img.toImage())
 	}
 
@@ -267,17 +276,20 @@ func (b *InMemoryBackend) UpdateImagePermissions(
 	b.mu.Lock("UpdateImagePermissions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageName]; !ok {
+	if !b.images.Has(imageName) {
 		return ErrNotFound
 	}
 
-	if b.imagePermissions[imageName] == nil {
-		b.imagePermissions[imageName] = &storedImagePermissions{
+	perms, ok := b.imagePermissions.Get(imageName)
+	if !ok {
+		perms = &storedImagePermissions{
+			ImageName:      imageName,
 			SharedAccounts: make(map[string]*ImagePermissions),
 		}
+		b.imagePermissions.Put(perms)
 	}
 
-	b.imagePermissions[imageName].SharedAccounts[accountID] = &ImagePermissions{
+	perms.SharedAccounts[accountID] = &ImagePermissions{
 		AllowFleet:        allowFleet,
 		AllowImageBuilder: allowImageBuilder,
 	}
@@ -290,12 +302,12 @@ func (b *InMemoryBackend) DeleteImagePermissions(imageName, accountID string) er
 	b.mu.Lock("DeleteImagePermissions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageName]; !ok {
+	if !b.images.Has(imageName) {
 		return ErrNotFound
 	}
 
-	if b.imagePermissions[imageName] != nil {
-		delete(b.imagePermissions[imageName].SharedAccounts, accountID)
+	if perms, ok := b.imagePermissions.Get(imageName); ok {
+		delete(perms.SharedAccounts, accountID)
 	}
 
 	return nil
@@ -306,12 +318,12 @@ func (b *InMemoryBackend) DescribeImagePermissions(imageName string) ([]*SharedI
 	b.mu.RLock("DescribeImagePermissions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.images[imageName]; !ok {
+	if !b.images.Has(imageName) {
 		return nil, ErrNotFound
 	}
 
-	perms := b.imagePermissions[imageName]
-	if perms == nil {
+	perms, ok := b.imagePermissions.Get(imageName)
+	if !ok {
 		return []*SharedImagePermissions{}, nil
 	}
 
@@ -339,7 +351,7 @@ func (b *InMemoryBackend) CreateImageBuilder(
 	b.mu.Lock("CreateImageBuilder")
 	defer b.mu.Unlock()
 
-	if _, ok := b.imageBuilders[name]; ok {
+	if b.imageBuilders.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -362,7 +374,7 @@ func (b *InMemoryBackend) CreateImageBuilder(
 		InstanceType: instanceType,
 		State:        imageBuilderStateStopped,
 	}
-	b.imageBuilders[name] = ib
+	b.imageBuilders.Put(ib)
 	b.tags[arn] = storedTags
 
 	return ib.toImageBuilder(), nil
@@ -373,14 +385,14 @@ func (b *InMemoryBackend) DeleteImageBuilder(name string) (string, error) {
 	b.mu.Lock("DeleteImageBuilder")
 	defer b.mu.Unlock()
 
-	ib, ok := b.imageBuilders[name]
+	ib, ok := b.imageBuilders.Get(name)
 	if !ok {
 		return "", ErrNotFound
 	}
 
 	imageName := ib.ImageName
 	delete(b.tags, ib.Arn)
-	delete(b.imageBuilders, name)
+	b.imageBuilders.Delete(name)
 	delete(b.softwareAssoc, name)
 
 	return imageName, nil
@@ -395,7 +407,7 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 		var result []*ImageBuilder
 
 		for _, name := range names {
-			ib, ok := b.imageBuilders[name]
+			ib, ok := b.imageBuilders.Get(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -406,8 +418,8 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 		return result, nil
 	}
 
-	result := make([]*ImageBuilder, 0, len(b.imageBuilders))
-	for _, ib := range b.imageBuilders {
+	result := make([]*ImageBuilder, 0, b.imageBuilders.Len())
+	for _, ib := range b.imageBuilders.All() {
 		result = append(result, ib.toImageBuilder())
 	}
 
@@ -421,7 +433,7 @@ func (b *InMemoryBackend) StartImageBuilder(
 	b.mu.Lock("StartImageBuilder")
 	defer b.mu.Unlock()
 
-	ib, ok := b.imageBuilders[name]
+	ib, ok := b.imageBuilders.Get(name)
 	if !ok {
 		return "", ErrNotFound
 	}
@@ -444,7 +456,7 @@ func (b *InMemoryBackend) StopImageBuilder(name string) (*ImageBuilder, error) {
 	b.mu.Lock("StopImageBuilder")
 	defer b.mu.Unlock()
 
-	ib, ok := b.imageBuilders[name]
+	ib, ok := b.imageBuilders.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -463,7 +475,7 @@ func (b *InMemoryBackend) CreateImageBuilderStreamingURL(name string) (string, e
 	b.mu.RLock("CreateImageBuilderStreamingURL")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.imageBuilders[name]; !ok {
+	if !b.imageBuilders.Has(name) {
 		return "", ErrNotFound
 	}
 
@@ -477,7 +489,7 @@ func (b *InMemoryBackend) AssociateSoftwareToImageBuilder(imageBuilderName strin
 	b.mu.Lock("AssociateSoftwareToImageBuilder")
 	defer b.mu.Unlock()
 
-	if _, ok := b.imageBuilders[imageBuilderName]; !ok {
+	if !b.imageBuilders.Has(imageBuilderName) {
 		return ErrNotFound
 	}
 
@@ -497,7 +509,7 @@ func (b *InMemoryBackend) DisassociateSoftwareFromImageBuilder(imageBuilderName 
 	b.mu.Lock("DisassociateSoftwareFromImageBuilder")
 	defer b.mu.Unlock()
 
-	if _, ok := b.imageBuilders[imageBuilderName]; !ok {
+	if !b.imageBuilders.Has(imageBuilderName) {
 		return ErrNotFound
 	}
 
@@ -515,7 +527,7 @@ func (b *InMemoryBackend) DescribeSoftwareAssociations(imageBuilderName string) 
 	b.mu.RLock("DescribeSoftwareAssociations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.imageBuilders[imageBuilderName]; !ok {
+	if !b.imageBuilders.Has(imageBuilderName) {
 		return nil, ErrNotFound
 	}
 
@@ -537,7 +549,7 @@ func (b *InMemoryBackend) StartSoftwareDeploymentToImageBuilder(imageBuilderName
 	b.mu.RLock("StartSoftwareDeploymentToImageBuilder")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.imageBuilders[imageBuilderName]; !ok {
+	if !b.imageBuilders.Has(imageBuilderName) {
 		return ErrNotFound
 	}
 
@@ -555,7 +567,7 @@ func (b *InMemoryBackend) CreateExportImageTask(imageName, s3Bucket, s3Prefix st
 	b.mu.Lock("CreateExportImageTask")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageName]; !ok {
+	if !b.images.Has(imageName) {
 		return nil, ErrNotFound
 	}
 
@@ -568,7 +580,7 @@ func (b *InMemoryBackend) CreateExportImageTask(imageName, s3Bucket, s3Prefix st
 		S3Key:     s3Prefix + imageName + ".json",
 		Status:    exportStatusComplete,
 	}
-	b.exportTasks[taskID] = task
+	b.exportTasks.Put(task)
 
 	return task.toExportImageTask(), nil
 }
@@ -578,7 +590,7 @@ func (b *InMemoryBackend) GetExportImageTask(taskID string) (*ExportImageTask, e
 	b.mu.RLock("GetExportImageTask")
 	defer b.mu.RUnlock()
 
-	task, ok := b.exportTasks[taskID]
+	task, ok := b.exportTasks.Get(taskID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -598,7 +610,7 @@ func (b *InMemoryBackend) ListExportImageTasks(imageNames []string) ([]*ExportIm
 
 	var result []*ExportImageTask
 
-	for _, task := range b.exportTasks {
+	for _, task := range b.exportTasks.All() {
 		if len(nameSet) > 0 && !nameSet[task.ImageName] {
 			continue
 		}

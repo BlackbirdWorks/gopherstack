@@ -155,25 +155,17 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	// Reset every store.Table-backed resource map in one call instead of the
+	// per-map make() calls this used to be (Phase 3.3 pkgs/store conversion).
+	// See registerAllTables in store_setup.go for the full list of tables this
+	// covers, and the comment there for the handful of fields that are NOT
+	// covered because they remain plain maps.
+	b.registry.ResetAll()
+
 	// Reset original resource maps.
-	b.instances = make(map[string]*Instance)
-	b.securityGroups = make(map[string]*SecurityGroup)
-	b.vpcs = make(map[string]*VPC)
-	b.subnets = make(map[string]*Subnet)
-	b.keyPairs = make(map[string]*KeyPair)
-	b.volumes = make(map[string]*Volume)
-	b.addresses = make(map[string]*Address)
-	b.internetGateways = make(map[string]*InternetGateway)
-	b.routeTables = make(map[string]*RouteTable)
-	b.natGateways = make(map[string]*NatGateway)
-	b.networkInterfaces = make(map[string]*NetworkInterface)
-	b.spotRequests = make(map[string]*SpotInstanceRequest)
-	b.placementGroups = make(map[string]*PlacementGroup)
-	b.images = make(map[string]*AMIStub)
-	b.imageUsageReports = make(map[string]*ImageUsageReport)
-	b.launchTemplates = make(map[string]*LaunchTemplate)
-	b.vpcEndpoints = make(map[string]*VpcEndpoint)
 	b.tags = make(map[string]map[string]string)
+	b.addressTransfers = make(map[string]*AddressTransfer)
+	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	initSecondaryIndexMaps(b)
 	b.freePrivateIPs = nil
 	b.nextPrivateIPIndex = 0
@@ -183,25 +175,25 @@ func (b *InMemoryBackend) Reset() {
 
 	// Re-populate defaults (must be called without the lock held since it acquires its own).
 	// Since we already hold the lock, populate inline.
-	b.vpcs[vpcDefaultName] = &VPC{
+	b.vpcs.Put(&VPC{
 		ID:        vpcDefaultName,
 		CIDRBlock: "172.31.0.0/16",
 		IsDefault: true,
-	}
-	b.subnets["subnet-default"] = &Subnet{
+	})
+	b.subnets.Put(&Subnet{
 		ID:               "subnet-default",
 		VPCID:            vpcDefaultName,
 		CIDRBlock:        "172.31.0.0/20",
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
-	}
+	})
 	b.indexSubnetLocked("subnet-default", vpcDefaultName)
-	b.securityGroups["sg-default"] = &SecurityGroup{
+	b.securityGroups.Put(&SecurityGroup{
 		ID:          "sg-default",
 		Name:        "default",
 		Description: "default VPC security group",
 		VPCID:       vpcDefaultName,
-	}
+	})
 	b.indexSGLocked("sg-default", vpcDefaultName)
 }
 
@@ -209,38 +201,14 @@ func (b *InMemoryBackend) Reset() {
 // after the original core set. Must be called with b.mu held.
 func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.addressTransfers = make(map[string]*AddressTransfer)
-	b.capacityReservations = make(map[string]*CapacityReservation)
-	b.reservedInstancesExchanges = make(map[string]*ReservedInstancesExchange)
-	b.tgwMulticastDomainAssociations = make(map[string]*TransitGatewayMulticastDomainAssociation)
-	b.tgwPeeringAttachments = make(map[string]*TransitGatewayPeeringAttachment)
-	b.tgwVpcAttachments = make(map[string]*TransitGatewayVpcAttachment)
-	b.vpcEndpointConnections = make(map[string]*VpcEndpointConnection)
-	b.vpcPeeringConnections = make(map[string]*VpcPeeringConnection)
-	b.byoipCidrs = make(map[string]*ByoipCidr)
-	b.dedicatedHosts = make(map[string]*Host)
-	b.snapshots = make(map[string]*Snapshot)
-	b.networkACLs = make(map[string]*StoredNetworkACL)
-	b.transitGateways = make(map[string]*TransitGateway)
-	b.flowLogs = make(map[string]*FlowLog)
-	b.dhcpOptionSets = make(map[string]*DhcpOptions)
-	b.egressOnlyIGWs = make(map[string]*EgressOnlyInternetGateway)
-	b.iamAssociations = make(map[string]*IamInstanceProfileAssociation)
-	b.tgwRouteTables = make(map[string]*TransitGatewayRouteTable)
-	b.tgwRoutes = make(map[string]*TransitGatewayRoute)
-	b.tgwRTAssociations = make(map[string]*TransitGatewayRouteTableAssociation)
-	b.tgwPolicyTables = make(map[string]*TransitGatewayPolicyTable)
-	b.tgwPolicyTableAssociations = make(map[string]*TransitGatewayPolicyTableAssociation)
-	b.tgwRouteTableAnnouncements = make(map[string]*TransitGatewayRouteTableAnnouncement)
 	b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
 	b.resetAdvancedNetworkingMapsLocked()
 	b.resetIpamDiscoveryMapsLocked()
 	b.resetIpamPolicyMapsLocked()
 	b.resetBatch4MapsLocked()
-	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)
 	initCapacityFamilyMaps(b)
 	initVerifiedAccessExtMaps(b)
-	initFpgaImageMaps(b)
 	b.resetScheduledInstanceMapsLocked()
 	b.resetIPPoolMapsLocked()
 	b.resetAllowedImagesSettingsLocked()
@@ -253,22 +221,12 @@ func (b *InMemoryBackend) resetNewOpsMapsLocked() {
 	b.resetSecondaryNetworkMapsLocked()
 	b.resetInstanceAttrMapsLocked()
 	b.resetSQLHaMapsLocked()
-	initParitySweep2Maps(b)
 	initParityFinalMaps(b)
 }
 
 // resetBatch4MapsLocked re-initialises all batch4 resource maps.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) resetBatch4MapsLocked() {
-	b.managedPrefixLists = make(map[string]*ManagedPrefixList)
-	b.clientVpnEndpoints = make(map[string]*ClientVpnEndpoint)
-	b.tgwConnects = make(map[string]*TransitGatewayConnect)
-	b.tgwConnectPeers = make(map[string]*TransitGatewayConnectPeer)
-	b.tgwPrefixListRefs = make(map[string]*TransitGatewayPrefixListReference)
-	b.verifiedAccessEndpoints = make(map[string]*VerifiedAccessEndpoint)
-	b.verifiedAccessGroups = make(map[string]*VerifiedAccessGroup)
-	b.verifiedAccessInstances = make(map[string]*VerifiedAccessInstance)
-	b.verifiedAccessTrustProviders = make(map[string]*VerifiedAccessTrustProvider)
 }
 
 // ---- AcceptAddressTransfer ----
@@ -319,7 +277,7 @@ func (b *InMemoryBackend) AcceptCapacityReservationBillingOwnership(
 	b.mu.Lock("AcceptCapacityReservationBillingOwnership")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[capacityReservationID]
+	cr, ok := b.capacityReservations.Get(capacityReservationID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, capacityReservationID)
 	}
@@ -345,8 +303,7 @@ func (b *InMemoryBackend) AddCapacityReservationInternal(cr *CapacityReservation
 	if cp.CreateTime.IsZero() {
 		cp.CreateTime = time.Now()
 	}
-
-	b.capacityReservations[cp.CapacityReservationID] = &cp
+	b.capacityReservations.Put(&cp)
 }
 
 // DescribeCapacityReservations returns capacity reservations sorted by ID.
@@ -362,7 +319,7 @@ func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*Capacity
 
 	var result []*CapacityReservation
 
-	for _, cr := range b.capacityReservations {
+	for _, cr := range b.capacityReservations.All() {
 		if len(idSet) > 0 && !idSet[cr.CapacityReservationID] {
 			continue
 		}
@@ -407,8 +364,7 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 		TargetReservedInstances: []string{targetID},
 		Status:                  "successful",
 	}
-
-	b.reservedInstancesExchanges[exchangeID] = exchange
+	b.reservedInstancesExchanges.Put(exchange)
 
 	cp := *exchange
 	cp.ReservedInstanceIDs = make([]string, len(exchange.ReservedInstanceIDs))
@@ -446,15 +402,13 @@ func (b *InMemoryBackend) AcceptTransitGatewayMulticastDomainAssociations(
 	assocs := make([]*TransitGatewayMulticastDomainAssociation, 0, len(subnetIDs))
 
 	for _, subnetID := range subnetIDs {
-		key := transitGatewayMulticastDomainID + ":" + subnetID
 		assoc := &TransitGatewayMulticastDomainAssociation{
 			TransitGatewayMulticastDomainID: transitGatewayMulticastDomainID,
 			TransitGatewayAttachmentID:      transitGatewayAttachmentID,
 			SubnetID:                        subnetID,
 			State:                           "associated",
 		}
-
-		b.tgwMulticastDomainAssociations[key] = assoc
+		b.tgwMulticastDomainAssociations.Put(assoc)
 
 		cp := *assoc
 		assocs = append(assocs, &cp)
@@ -472,8 +426,7 @@ func (b *InMemoryBackend) AddTGWMulticastDomainAssociationInternal(
 	defer b.mu.Unlock()
 
 	cp := *assoc
-	key := cp.TransitGatewayMulticastDomainID + ":" + cp.SubnetID
-	b.tgwMulticastDomainAssociations[key] = &cp
+	b.tgwMulticastDomainAssociations.Put(&cp)
 }
 
 // ---- AcceptTransitGatewayPeeringAttachment ----
@@ -490,7 +443,7 @@ func (b *InMemoryBackend) AcceptTransitGatewayPeeringAttachment(
 	b.mu.Lock("AcceptTransitGatewayPeeringAttachment")
 	defer b.mu.Unlock()
 
-	att, ok := b.tgwPeeringAttachments[transitGatewayAttachmentID]
+	att, ok := b.tgwPeeringAttachments.Get(transitGatewayAttachmentID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: %s",
@@ -515,8 +468,7 @@ func (b *InMemoryBackend) AddTGWPeeringAttachmentInternal(att *TransitGatewayPee
 	if cp.CreationTime.IsZero() {
 		cp.CreationTime = time.Now()
 	}
-
-	b.tgwPeeringAttachments[cp.TransitGatewayAttachmentID] = &cp
+	b.tgwPeeringAttachments.Put(&cp)
 }
 
 // ---- AcceptTransitGatewayVpcAttachment ----
@@ -533,7 +485,7 @@ func (b *InMemoryBackend) AcceptTransitGatewayVpcAttachment(
 	b.mu.Lock("AcceptTransitGatewayVpcAttachment")
 	defer b.mu.Unlock()
 
-	att, ok := b.tgwVpcAttachments[transitGatewayAttachmentID]
+	att, ok := b.tgwVpcAttachments.Get(transitGatewayAttachmentID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: %s",
@@ -558,8 +510,7 @@ func (b *InMemoryBackend) AddTGWVpcAttachmentInternal(att *TransitGatewayVpcAtta
 	if cp.CreationTime.IsZero() {
 		cp.CreationTime = time.Now()
 	}
-
-	b.tgwVpcAttachments[cp.TransitGatewayAttachmentID] = &cp
+	b.tgwVpcAttachments.Put(&cp)
 }
 
 // ---- AcceptVpcEndpointConnections ----
@@ -587,7 +538,7 @@ func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 
 	for _, epID := range vpcEndpointIDs {
 		key := serviceID + ":" + epID
-		conn, ok := b.vpcEndpointConnections[key]
+		conn, ok := b.vpcEndpointConnections.Get(key)
 
 		if !ok {
 			conn = &VpcEndpointConnection{
@@ -595,7 +546,7 @@ func (b *InMemoryBackend) AcceptVpcEndpointConnections(
 				VpcEndpointID: epID,
 				CreationTime:  time.Now(),
 			}
-			b.vpcEndpointConnections[key] = conn
+			b.vpcEndpointConnections.Put(conn)
 		}
 
 		conn.State = stateAvailable
@@ -617,8 +568,7 @@ func (b *InMemoryBackend) AddVpcEndpointConnectionInternal(conn *VpcEndpointConn
 		cp.CreationTime = time.Now()
 	}
 
-	key := cp.ServiceID + ":" + cp.VpcEndpointID
-	b.vpcEndpointConnections[key] = &cp
+	b.vpcEndpointConnections.Put(&cp)
 }
 
 // ---- AcceptVpcPeeringConnection ----
@@ -635,7 +585,7 @@ func (b *InMemoryBackend) AcceptVpcPeeringConnection(
 	b.mu.Lock("AcceptVpcPeeringConnection")
 	defer b.mu.Unlock()
 
-	pc, ok := b.vpcPeeringConnections[vpcPeeringConnectionID]
+	pc, ok := b.vpcPeeringConnections.Get(vpcPeeringConnectionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpcPeeringConnectionNotFound, vpcPeeringConnectionID)
 	}
@@ -656,8 +606,7 @@ func (b *InMemoryBackend) AddVpcPeeringConnectionInternal(pc *VpcPeeringConnecti
 	if cp.ExpirationTime.IsZero() {
 		cp.ExpirationTime = time.Now().Add(7 * 24 * time.Hour)
 	}
-
-	b.vpcPeeringConnections[cp.VpcPeeringConnectionID] = &cp
+	b.vpcPeeringConnections.Put(&cp)
 }
 
 // DescribeVpcPeeringConnections returns VPC peering connections sorted by ID.
@@ -673,7 +622,7 @@ func (b *InMemoryBackend) DescribeVpcPeeringConnections(ids []string) []*VpcPeer
 
 	var result []*VpcPeeringConnection
 
-	for _, pc := range b.vpcPeeringConnections {
+	for _, pc := range b.vpcPeeringConnections.All() {
 		if len(idSet) > 0 && !idSet[pc.VpcPeeringConnectionID] {
 			continue
 		}
@@ -701,13 +650,13 @@ func (b *InMemoryBackend) AdvertiseByoipCidr(cidr string) (*ByoipCidr, error) {
 	b.mu.Lock("AdvertiseByoipCidr")
 	defer b.mu.Unlock()
 
-	entry, ok := b.byoipCidrs[cidr]
+	entry, ok := b.byoipCidrs.Get(cidr)
 	if !ok {
 		entry = &ByoipCidr{
 			Cidr:  cidr,
 			State: stateByoipAdvertised,
 		}
-		b.byoipCidrs[cidr] = entry
+		b.byoipCidrs.Put(entry)
 	} else {
 		entry.State = stateByoipAdvertised
 	}
@@ -724,7 +673,7 @@ func (b *InMemoryBackend) AddByoipCidrInternal(cidr *ByoipCidr) {
 	defer b.mu.Unlock()
 
 	cp := *cidr
-	b.byoipCidrs[cp.Cidr] = &cp
+	b.byoipCidrs.Put(&cp)
 }
 
 // DescribeByoipCidrs returns BYOIP CIDRs sorted by CIDR string.
@@ -735,7 +684,7 @@ func (b *InMemoryBackend) DescribeByoipCidrs(state string) []*ByoipCidr {
 
 	var result []*ByoipCidr
 
-	for _, c := range b.byoipCidrs {
+	for _, c := range b.byoipCidrs.All() {
 		if state != "" && c.State != state {
 			continue
 		}
@@ -788,8 +737,7 @@ func (b *InMemoryBackend) AllocateHosts(
 			HostRecovery:     hostSettingOff,
 			HostMaintenance:  hostSettingOn,
 		}
-
-		b.dedicatedHosts[host.HostID] = host
+		b.dedicatedHosts.Put(host)
 
 		cp := *host
 		hosts = append(hosts, &cp)
@@ -811,7 +759,7 @@ func (b *InMemoryBackend) DescribeHosts(ids []string) []*Host {
 
 	var result []*Host
 
-	for _, h := range b.dedicatedHosts {
+	for _, h := range b.dedicatedHosts.All() {
 		if len(idSet) > 0 && !idSet[h.HostID] {
 			continue
 		}

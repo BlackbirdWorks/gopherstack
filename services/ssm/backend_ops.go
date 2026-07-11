@@ -51,10 +51,12 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	defer b.mu.Unlock()
 
 	docs := b.documentsStore(region)
-	doc, exists := docs[input.Name]
+	docPtr, exists := docs.Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
+
+	doc := *docPtr
 
 	// Verify the requested version exists in documentVersions.
 	found := false
@@ -74,7 +76,7 @@ func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	}
 
 	doc.DefaultVersion = input.DocumentVersion
-	docs[input.Name] = doc
+	docs.Put(&doc)
 
 	// Also mark the version entry.
 	versions := docVersions[input.Name]
@@ -108,7 +110,7 @@ func (b *InMemoryBackend) UpdateDocumentMetadata(
 	b.mu.RLock("UpdateDocumentMetadata")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.documentsStore(region)[input.Name]; !exists {
+	if !b.documentsStore(region).Has(input.Name) {
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
 
@@ -134,7 +136,7 @@ func (b *InMemoryBackend) ListDocumentMetadataHistory(
 	b.mu.RLock("ListDocumentMetadataHistory")
 	defer b.mu.RUnlock()
 
-	doc, exists := b.documentsStore(region)[input.Name]
+	doc, exists := b.documentsStore(region).Get(input.Name)
 	if !exists {
 		return nil, fmt.Errorf("%w: document %q not found", ErrDocumentNotFound, input.Name)
 	}
@@ -769,7 +771,9 @@ func (b *InMemoryBackend) GetDefaultPatchBaseline(
 	if id, ok := b.patchGroupToBaselineStore(region)[key]; ok {
 		os := input.OperatingSystem
 		if os == "" {
-			os = b.patchBaselinesStore(region)[id].OperatingSystem
+			if blPtr, foundBl := b.patchBaselinesStore(region).Get(id); foundBl {
+				os = blPtr.OperatingSystem
+			}
 		}
 
 		return &GetDefaultPatchBaselineOutput{
@@ -836,7 +840,7 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 	b.mu.Lock("RegisterDefaultPatchBaseline")
 	defer b.mu.Unlock()
 
-	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
+	if !b.patchBaselinesStore(region).Has(input.BaselineID) {
 		return nil, fmt.Errorf(
 			"%w: baseline %q not found",
 			ErrPatchBaselineNotFound,
@@ -851,7 +855,7 @@ func (b *InMemoryBackend) RegisterDefaultPatchBaseline(
 	store["default"] = input.BaselineID
 
 	// Also store per-OS key when the baseline has a known OperatingSystem.
-	if bl, ok := b.patchBaselinesStore(region)[input.BaselineID]; ok && bl.OperatingSystem != "" {
+	if bl, ok := b.patchBaselinesStore(region).Get(input.BaselineID); ok && bl.OperatingSystem != "" {
 		store["default-"+bl.OperatingSystem] = input.BaselineID
 	}
 
@@ -867,14 +871,12 @@ func (b *InMemoryBackend) DeletePatchBaseline(
 	b.mu.Lock("DeletePatchBaseline")
 	defer b.mu.Unlock()
 
-	store := b.patchBaselinesStore(region)
-	if _, exists := store[input.BaselineID]; !exists {
+	patchBaselines := b.patchBaselinesStore(region)
+	if !patchBaselines.Has(input.BaselineID) {
 		return nil, ErrPatchBaselineNotFound
 	}
 
-	delete(store, input.BaselineID)
-
-	cleanupEmptyInnerMap(b.patchBaselines, region)
+	patchBaselines.Delete(input.BaselineID)
 
 	return &DeletePatchBaselineOutput{BaselineID: input.BaselineID}, nil
 }
@@ -889,7 +891,7 @@ func (b *InMemoryBackend) DescribePatchGroupState(
 	defer b.mu.RUnlock()
 
 	out := &DescribePatchGroupStateOutput{}
-	for _, s := range b.instancePatchStates[region] {
+	for _, s := range b.instancePatchStatesStore(region).All() {
 		if s.PatchGroup != input.PatchGroup {
 			continue
 		}
@@ -923,7 +925,7 @@ func (b *InMemoryBackend) DescribePatchGroups(
 	patchBaselines := b.patchBaselinesStore(region)
 	for group, baselineID := range store {
 		identity := PatchBaselineIdentity{BaselineID: baselineID}
-		if bl, ok := patchBaselines[baselineID]; ok {
+		if bl, ok := patchBaselines.Get(baselineID); ok {
 			identity.BaselineName = bl.Name
 			identity.OperatingSystem = bl.OperatingSystem
 			identity.Description = bl.Description
@@ -985,7 +987,7 @@ func (b *InMemoryBackend) DescribePatchProperties(
 
 	seen := map[string]bool{}
 	props := make([]map[string]string, 0)
-	for _, bl := range b.patchBaselines[region] {
+	for _, bl := range b.patchBaselinesStore(region).All() {
 		if input.OperatingSystem != "" && bl.OperatingSystem != input.OperatingSystem {
 			continue
 		}
@@ -1023,7 +1025,7 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 	b.mu.RLock("DescribeEffectivePatchesForPatchBaseline")
 	defer b.mu.RUnlock()
 
-	baseline, exists := b.patchBaselinesStore(region)[input.BaselineID]
+	baselinePtr, exists := b.patchBaselinesStore(region).Get(input.BaselineID)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: baseline %q not found",
@@ -1032,7 +1034,7 @@ func (b *InMemoryBackend) DescribeEffectivePatchesForPatchBaseline(
 		)
 	}
 
-	effective := b.effectivePatchesForBaseline(region, baseline)
+	effective := b.effectivePatchesForBaseline(region, *baselinePtr)
 
 	return paginateEffectivePatches(effective, input.NextToken, input.MaxResults), nil
 }
@@ -1159,12 +1161,12 @@ func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
 	product := patchProductAmazonLinux2
 	baselineID := defaultBaselineID("AMAZON_LINUX_2")
 
-	if st, ok := b.instancePatchStatesStore(region)[input.InstanceID]; ok && st != nil {
+	if st, ok := b.instancePatchStatesStore(region).Get(input.InstanceID); ok && st != nil {
 		if st.BaselineID != "" {
 			baselineID = st.BaselineID
 		}
 
-		if bl, found := b.patchBaselinesStore(region)[st.BaselineID]; found &&
+		if bl, found := b.patchBaselinesStore(region).Get(st.BaselineID); found &&
 			bl.OperatingSystem != "" {
 			product = bl.OperatingSystem
 		}
@@ -1192,14 +1194,12 @@ func (b *InMemoryBackend) DeleteMaintenanceWindow(
 	b.mu.Lock("DeleteMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	store := b.maintenanceWindowsStore(region)
-	if _, exists := store[input.WindowID]; !exists {
+	mwTable := b.maintenanceWindowsStore(region)
+	if !mwTable.Has(input.WindowID) {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	delete(store, input.WindowID)
-
-	cleanupEmptyInnerMap(b.maintenanceWindows, region)
+	mwTable.Delete(input.WindowID)
 
 	return &DeleteMaintenanceWindowOutput{WindowID: input.WindowID}, nil
 }
@@ -1218,12 +1218,12 @@ func (b *InMemoryBackend) GetMaintenanceWindowTask(
 	b.mu.RLock("GetMaintenanceWindowTask")
 	defer b.mu.RUnlock()
 
-	task, exists := b.maintenanceWindowTasksStore(region)[input.WindowTaskID]
+	task, exists := b.maintenanceWindowTasksStore(region).Get(input.WindowTaskID)
 	if !exists || task.WindowID != input.WindowID {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	return &GetMaintenanceWindowTaskOutput{MaintenanceWindowTask: task}, nil
+	return &GetMaintenanceWindowTaskOutput{MaintenanceWindowTask: *task}, nil
 }
 
 // DescribeMaintenanceWindowsForTarget returns windows that have registered targets
@@ -1238,7 +1238,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 
 	matchedWindowIDs := make(map[string]struct{})
 
-	for _, windowTarget := range b.maintenanceWindowTargetsStore(region) {
+	for _, windowTarget := range b.maintenanceWindowTargetsStore(region).All() {
 		if input.ResourceType != "" && windowTarget.ResourceType != input.ResourceType {
 			continue
 		}
@@ -1252,7 +1252,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowsForTarget(
 	maintenanceWindows := b.maintenanceWindowsStore(region)
 	identities := make([]MaintenanceWindowIdentity, 0, len(matchedWindowIDs))
 	for windowID := range matchedWindowIDs {
-		if mw, ok := maintenanceWindows[windowID]; ok {
+		if mw, ok := maintenanceWindows.Get(windowID); ok {
 			identities = append(identities, MaintenanceWindowIdentity{
 				WindowID:    mw.WindowID,
 				Name:        mw.Name,
@@ -1340,8 +1340,8 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 	defer b.mu.Unlock()
 
 	store := b.maintenanceWindowTargetsStore(region)
-	target, exists := store[input.WindowTargetID]
-	if !exists || target.WindowID != input.WindowID {
+	targetPtr, exists := store.Get(input.WindowTargetID)
+	if !exists || targetPtr.WindowID != input.WindowID {
 		// Return a no-op success rather than error to preserve stub compat for
 		// callers that send non-existent IDs (e.g. the simple stub coverage test).
 		return &UpdateMaintenanceWindowTargetOutput{
@@ -1349,6 +1349,8 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 			WindowTargetID: input.WindowTargetID,
 		}, nil
 	}
+
+	target := *targetPtr
 
 	if input.OwnerInfo != "" {
 		target.OwnerInfo = input.OwnerInfo
@@ -1366,7 +1368,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 		target.Targets = input.Targets
 	}
 
-	store[input.WindowTargetID] = target
+	store.Put(&target)
 
 	return &UpdateMaintenanceWindowTargetOutput{
 		WindowID:       target.WindowID,
@@ -1389,13 +1391,15 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 	defer b.mu.Unlock()
 
 	store := b.maintenanceWindowTasksStore(region)
-	task, exists := store[input.WindowTaskID]
-	if !exists || task.WindowID != input.WindowID {
+	taskPtr, exists := store.Get(input.WindowTaskID)
+	if !exists || taskPtr.WindowID != input.WindowID {
 		return &UpdateMaintenanceWindowTaskOutput{
 			WindowID:     input.WindowID,
 			WindowTaskID: input.WindowTaskID,
 		}, nil
 	}
+
+	task := *taskPtr
 
 	if input.TaskArn != "" {
 		task.TaskArn = input.TaskArn
@@ -1425,7 +1429,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		task.MaxErrors = input.MaxErrors
 	}
 
-	store[input.WindowTaskID] = task
+	store.Put(&task)
 
 	return &UpdateMaintenanceWindowTaskOutput{
 		WindowID:       task.WindowID,
@@ -1454,14 +1458,13 @@ func (b *InMemoryBackend) DeleteOpsItem(
 	defer b.mu.Unlock()
 
 	opsItems := b.opsItemsStore(region)
-	if _, exists := opsItems[input.OpsItemID]; !exists {
+	if !opsItems.Has(input.OpsItemID) {
 		return nil, ErrOpsItemNotFound
 	}
 
-	delete(opsItems, input.OpsItemID)
+	opsItems.Delete(input.OpsItemID)
 	delete(b.opsItemRelatedItemsStore(region), input.OpsItemID)
 
-	cleanupEmptyInnerMap(b.opsItems, region)
 	cleanupEmptyInnerMap(b.opsItemRelatedItems, region)
 
 	return &DeleteOpsItemOutput{}, nil
@@ -1630,15 +1633,14 @@ func (b *InMemoryBackend) DeleteOpsMetadata(
 	defer b.mu.Unlock()
 
 	opsMetadata := b.opsMetadataStore(region)
-	meta, exists := opsMetadata[input.OpsMetadataArn]
+	meta, exists := opsMetadata.Get(input.OpsMetadataArn)
 	if !exists {
 		return nil, ErrOpsMetadataNotFound
 	}
 
 	delete(b.resourceIDToOpsMetadataArnStore(region), meta.ResourceID)
-	delete(opsMetadata, input.OpsMetadataArn)
+	opsMetadata.Delete(input.OpsMetadataArn)
 
-	cleanupEmptyInnerMap(b.opsMetadata, region)
 	cleanupEmptyInnerMap(b.resourceIDToOpsMetadataArn, region)
 
 	return &DeleteOpsMetadataOutput{}, nil

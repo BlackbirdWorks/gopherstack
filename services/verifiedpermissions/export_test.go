@@ -5,7 +5,7 @@ func PolicyStoreCount(b *InMemoryBackend) int {
 	b.mu.RLock("PolicyStoreCount")
 	defer b.mu.RUnlock()
 
-	return len(b.policyStores)
+	return b.policyStores.Len()
 }
 
 // PolicyCount returns the total number of policies across all policy stores (for test use only).
@@ -13,13 +13,7 @@ func PolicyCount(b *InMemoryBackend) int {
 	b.mu.RLock("PolicyCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, policies := range b.policies {
-		total += len(policies)
-	}
-
-	return total
+	return b.policies.Len()
 }
 
 // PolicyTemplateCount returns the total number of policy templates across all policy stores (for test use only).
@@ -27,13 +21,7 @@ func PolicyTemplateCount(b *InMemoryBackend) int {
 	b.mu.RLock("PolicyTemplateCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, templates := range b.policyTemplates {
-		total += len(templates)
-	}
-
-	return total
+	return b.policyTemplates.Len()
 }
 
 // IdentitySourceCount returns the total number of identity sources across all policy stores (for test use only).
@@ -41,13 +29,7 @@ func IdentitySourceCount(b *InMemoryBackend) int {
 	b.mu.RLock("IdentitySourceCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-
-	for _, sources := range b.identitySources {
-		total += len(sources)
-	}
-
-	return total
+	return b.identitySources.Len()
 }
 
 // SchemaCount returns the number of schemas stored in b (for test use only).
@@ -55,7 +37,7 @@ func SchemaCount(b *InMemoryBackend) int {
 	b.mu.RLock("SchemaCount")
 	defer b.mu.RUnlock()
 
-	return len(b.schemas)
+	return b.schemas.Len()
 }
 
 // ARNIndexSize returns the number of entries in the ARN index (for test use only).

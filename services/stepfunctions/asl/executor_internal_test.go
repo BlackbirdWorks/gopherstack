@@ -93,6 +93,83 @@ func TestComputeRetryDelay(t *testing.T) {
 	}
 }
 
+func TestApplyRetryDelayCapAndJitter(t *testing.T) {
+	t.Parallel()
+
+	intPtr := func(v int) *int { return &v }
+
+	tests := []struct {
+		retrier *Retrier
+		name    string
+		delay   time.Duration
+		want    time.Duration
+		wantMax time.Duration
+		jitter  bool
+	}{
+		{
+			name:    "no_max_delay_no_jitter_passthrough",
+			delay:   10 * time.Second,
+			retrier: &Retrier{},
+			want:    10 * time.Second,
+		},
+		{
+			name:    "max_delay_caps_longer_delay",
+			delay:   1000 * time.Second,
+			retrier: &Retrier{MaxDelaySeconds: intPtr(2)},
+			want:    2 * time.Second,
+		},
+		{
+			name:    "max_delay_does_not_extend_shorter_delay",
+			delay:   1 * time.Second,
+			retrier: &Retrier{MaxDelaySeconds: intPtr(2)},
+			want:    1 * time.Second,
+		},
+		{
+			name:    "zero_max_delay_seconds_ignored",
+			delay:   5 * time.Second,
+			retrier: &Retrier{MaxDelaySeconds: intPtr(0)},
+			want:    5 * time.Second,
+		},
+		{
+			name:    "jitter_strategy_none_is_default_passthrough",
+			delay:   5 * time.Second,
+			retrier: &Retrier{JitterStrategy: "NONE"},
+			want:    5 * time.Second,
+		},
+		{
+			name:    "jitter_strategy_full_randomizes_within_bound",
+			delay:   10 * time.Second,
+			retrier: &Retrier{JitterStrategy: jitterStrategyFull},
+			jitter:  true,
+			wantMax: 10 * time.Second,
+		},
+		{
+			name:    "max_delay_and_jitter_combined",
+			delay:   1000 * time.Second,
+			retrier: &Retrier{MaxDelaySeconds: intPtr(3), JitterStrategy: jitterStrategyFull},
+			jitter:  true,
+			wantMax: 3 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := applyRetryDelayCapAndJitter(tt.delay, tt.retrier)
+
+			if tt.jitter {
+				assert.GreaterOrEqual(t, got, time.Duration(0))
+				assert.LessOrEqual(t, got, tt.wantMax)
+
+				return
+			}
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestJSONPathCacheBounded(t *testing.T) {
 	t.Parallel()
 

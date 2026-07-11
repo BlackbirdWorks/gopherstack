@@ -356,14 +356,14 @@ func TestSweepExpiredMetrics_TwoPhase(t *testing.T) {
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			ts := time.Now().UTC().Add(-tc.putAge)
-			_, err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{
+			err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{
 				{MetricName: "M", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts},
 			})
 			require.NoError(t, err)
 
 			b.SweepExpiredMetrics()
 
-			metrics, err := b.ListMetrics("NS/Sweep", "M", nil, "", 0)
+			metrics, err := b.ListMetrics("NS/Sweep", "M", nil, "", "", 0)
 			require.NoError(t, err)
 			if tc.wantAlive {
 				assert.Len(t, metrics.Data, 1, "live metric must survive sweep")

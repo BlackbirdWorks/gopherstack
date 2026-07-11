@@ -1,6 +1,7 @@
 package cloudwatch_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -386,4 +387,170 @@ func TestHandler_SnapshotRestore_IncludesTags(t *testing.T) {
 	rec = postForm(t, h2, "Action=ListTagsForResource&ResourceARN="+alarmARN)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "staging")
+}
+
+// TestInMemoryBackend_SnapshotRestore_FullState is a Phase 3.3 (pkgs/store
+// conversion) regression test: it populates every top-level resource
+// collection on the backend -- both the store.Table-backed ones (alarms,
+// compositeAlarms, dashboards, anomalyDetectors, insightRules, metricStreams,
+// alarmMuteRules, metricFilters) and the deliberately-raw ones (metrics via
+// PutMetricData, alarmHistory via SetAlarmState) -- in a single backend, then
+// verifies a Snapshot->Restore round trip into a fresh backend reproduces
+// every one of them. metricFilters in particular had no prior snapshot/restore
+// coverage.
+func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
+	t.Parallel()
+
+	original := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	// metrics (raw, hot-path map).
+	require.NoError(t, original.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
+		{
+			MetricName: "CPUUtilization",
+			Value:      42,
+			Count:      1,
+			Sum:        42,
+			Min:        42,
+			Max:        42,
+			Timestamp:  time.Now().UTC(),
+		},
+	}))
+
+	// alarms + alarmHistory (alarmHistory raw, populated as a side effect of PutMetricAlarm).
+	require.NoError(t, original.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:  "full-state-alarm",
+		MetricName: "CPUUtilization",
+		Namespace:  "AWS/EC2",
+		Statistic:  "Average",
+	}))
+
+	// compositeAlarms.
+	require.NoError(t, original.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "full-state-composite",
+		AlarmRule: `ALARM("full-state-alarm")`,
+	}))
+
+	// dashboards.
+	require.NoError(t, original.PutDashboard("full-state-dash", `{"widgets":[]}`))
+
+	// anomalyDetectors.
+	original.PutAnomalyDetectorInternal(&cloudwatch.AnomalyDetector{
+		Namespace:  "AWS/EC2",
+		MetricName: "CPUUtilization",
+		Stat:       "Average",
+	})
+
+	// insightRules.
+	original.PutInsightRuleInternal(&cloudwatch.InsightRule{Name: "full-state-rule", State: "ENABLED"})
+
+	// metricStreams.
+	original.PutMetricStreamInternal(&cloudwatch.MetricStream{
+		Name:        "full-state-stream",
+		FirehoseArn: "arn:aws:firehose:us-east-1:000000000000:deliverystream/full-state",
+	})
+
+	// alarmMuteRules.
+	original.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "full-state-mute"})
+
+	// metricFilters -- previously had no snapshot/restore test coverage at all.
+	require.NoError(t, original.PutMetricFilter(&cloudwatch.MetricFilter{
+		FilterName:    "full-state-filter",
+		LogGroupName:  "/aws/lambda/full-state",
+		FilterPattern: "ERROR",
+	}))
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	// metrics.
+	stats, err := fresh.GetMetricStatistics(
+		"AWS/EC2", "CPUUtilization", nil,
+		time.Now().Add(-time.Hour), time.Now().Add(time.Hour),
+		60, []string{"Average"}, nil,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, stats)
+
+	// alarms + alarmHistory.
+	alarms, composites, err := fresh.DescribeAlarms(nil, nil, "", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, alarms.Data, 1)
+	assert.Equal(t, "full-state-alarm", alarms.Data[0].AlarmName)
+
+	hist, err := fresh.DescribeAlarmHistory("full-state-alarm", "", "", "", time.Time{}, time.Time{}, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, hist.Data)
+
+	// compositeAlarms.
+	require.Len(t, composites.Data, 1)
+	assert.Equal(t, "full-state-composite", composites.Data[0].AlarmName)
+
+	// dashboards.
+	entry, body, err := fresh.GetDashboard("full-state-dash")
+	require.NoError(t, err)
+	assert.Equal(t, "full-state-dash", entry.DashboardName)
+	assert.JSONEq(t, `{"widgets":[]}`, body)
+
+	// anomalyDetectors.
+	detectors, err := fresh.DescribeAnomalyDetectors("AWS/EC2", "CPUUtilization", "", 0)
+	require.NoError(t, err)
+	require.Len(t, detectors.Data, 1)
+
+	// insightRules.
+	rules, err := fresh.DescribeInsightRules("", 0)
+	require.NoError(t, err)
+	require.Len(t, rules.Data, 1)
+	assert.Equal(t, "full-state-rule", rules.Data[0].Name)
+
+	// metricStreams.
+	stream, err := fresh.GetMetricStream("full-state-stream")
+	require.NoError(t, err)
+	assert.Equal(t, "full-state-stream", stream.Name)
+
+	// alarmMuteRules.
+	_, err = fresh.GetAlarmMuteRule("full-state-mute")
+	require.NoError(t, err)
+
+	// metricFilters.
+	filters, err := fresh.DescribeMetricFilters("", "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, filters.Data, 1)
+	assert.Equal(t, "full-state-filter", filters.Data[0].FilterName)
+	assert.Equal(t, "ERROR", filters.Data[0].FilterPattern)
+}
+
+// TestInMemoryBackend_Restore_VersionGuard exercises the Phase 3.3 snapshot
+// version guard: a snapshot whose "version" field does not match the
+// backend's current snapshot version must be discarded cleanly (reset to
+// empty, no error) rather than partially decoded, since the Tables blob shape
+// is not guaranteed compatible across versions.
+func TestInMemoryBackend_Restore_VersionGuard(t *testing.T) {
+	t.Parallel()
+
+	original := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, original.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "version-guard-alarm"}))
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Corrupt the version field to simulate an incompatible (older/newer) snapshot.
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(snap, &raw))
+	raw["version"] = 999999
+	corrupted, err := json.Marshal(raw)
+	require.NoError(t, err)
+
+	// Restore into a backend that already has unrelated state, to confirm the
+	// version mismatch path resets it rather than merging/erroring.
+	target := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, target.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "pre-existing-alarm"}))
+
+	require.NoError(t, target.Restore(t.Context(), corrupted))
+
+	alarms, _, err := target.DescribeAlarms(nil, nil, "", "", "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, alarms.Data, "version-mismatched snapshot should reset the backend to empty, not merge or error")
 }

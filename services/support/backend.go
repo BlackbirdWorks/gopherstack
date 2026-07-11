@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -118,6 +119,14 @@ type Attachment struct {
 
 // AttachmentSet holds staged attachments until a case communication consumes them.
 type AttachmentSet struct {
+	// ID is the attachment set ID this value is keyed by in the
+	// attachmentSets Table (see store_setup.go). It is tagged json:"-"
+	// because attachmentSets is a "dirty" table -- persistence.go instead
+	// round-trips it through a dedicated attachmentSetSnapshot DTO that
+	// carries the ID as a real JSON field, so it survives the round trip
+	// despite being excluded here. It must never change after the set is
+	// created (store.Table's keyFn purity requirement).
+	ID            string    `json:"-"`
 	Expiry        time.Time `json:"expiry"`
 	AttachmentIDs []string  `json:"attachmentIds"`
 }
@@ -315,26 +324,33 @@ func trustedAdvisorChecks() []TrustedAdvisorCheck {
 
 // InMemoryBackend is the in-memory store for Support cases.
 type InMemoryBackend struct {
-	cases                map[string]*Case
-	communications       map[string][]Communication                   // caseID -> communications
-	attachmentSets       map[string]*AttachmentSet                    // attachmentSetID -> staged attachments
-	attachments          map[string]*Attachment                       // attachmentID -> Attachment
-	checkRefreshStatuses map[string]*TrustedAdvisorCheckRefreshStatus // checkID -> status
-	checkResults         map[string]*TrustedAdvisorCheckResult        // checkID -> result
-	nextDisplayID        uint64
-	mu                   sync.RWMutex
+	// registry holds every "clean" store.Table (cases, attachments,
+	// checkRefreshStatuses, checkResults) so their Reset/Snapshot/Restore
+	// collapse to one call each. attachmentSets is a "dirty" table (see
+	// store_setup.go) and is NOT on this registry.
+	registry             *store.Registry
+	cases                *store.Table[Case]
+	attachmentSets       *store.Table[AttachmentSet]
+	attachments          *store.Table[Attachment]
+	checkRefreshStatuses *store.Table[TrustedAdvisorCheckRefreshStatus]
+	checkResults         *store.Table[TrustedAdvisorCheckResult]
+	// communications (caseID -> communications) is deliberately left a plain
+	// map: case communications are ORDER-SENSITIVE (chronological) and
+	// store.Table makes no iteration-order guarantee -- see store_setup.go.
+	communications map[string][]Communication
+	nextDisplayID  uint64
+	mu             sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		cases:                make(map[string]*Case),
-		communications:       make(map[string][]Communication),
-		attachmentSets:       make(map[string]*AttachmentSet),
-		attachments:          make(map[string]*Attachment),
-		checkRefreshStatuses: make(map[string]*TrustedAdvisorCheckRefreshStatus),
-		checkResults:         make(map[string]*TrustedAdvisorCheckResult),
+	b := &InMemoryBackend{
+		registry:       store.NewRegistry(),
+		communications: make(map[string][]Communication),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state.
@@ -342,13 +358,18 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.cases = make(map[string]*Case)
+	b.resetTablesLocked()
 	b.communications = make(map[string][]Communication)
-	b.attachmentSets = make(map[string]*AttachmentSet)
-	b.attachments = make(map[string]*Attachment)
-	b.checkRefreshStatuses = make(map[string]*TrustedAdvisorCheckRefreshStatus)
-	b.checkResults = make(map[string]*TrustedAdvisorCheckResult)
 	b.nextDisplayID = 0
+}
+
+// resetTablesLocked resets every store.Table-backed resource field to empty:
+// the "clean" tables via one b.registry.ResetAll() call, plus the "dirty"
+// attachmentSets table individually since it is not registered on b.registry
+// (see store_setup.go). The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) resetTablesLocked() {
+	b.registry.ResetAll()
+	b.attachmentSets.Reset()
 }
 
 // CreateCase creates a new support case.
@@ -367,7 +388,7 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 		Body:         body,
 		CreatedTime:  time.Now(),
 	}
-	b.cases[caseID] = c
+	b.cases.Put(c)
 
 	cp := *c
 
@@ -387,7 +408,7 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 		out := make([]Case, 0, len(caseIDs))
 
 		for _, id := range caseIDs {
-			c, ok := b.cases[id]
+			c, ok := b.cases.Get(id)
 			if !ok {
 				continue
 			}
@@ -402,9 +423,10 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string, includeResolvedCases b
 		return out
 	}
 
-	out := make([]Case, 0, len(b.cases))
+	all := b.cases.All()
+	out := make([]Case, 0, len(all))
 
-	for _, c := range b.cases {
+	for _, c := range all {
 		if !includeResolvedCases && c.Status == caseStatusResolved {
 			continue
 		}
@@ -420,7 +442,7 @@ func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	c, ok := b.cases[caseID]
+	c, ok := b.cases.Get(caseID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
@@ -447,7 +469,7 @@ func (b *InMemoryBackend) AddCommunicationToCase(caseID, body, attachmentSetID s
 		return fmt.Errorf("%w: communicationBody is required", ErrValidation)
 	}
 
-	if _, ok := b.cases[caseID]; !ok {
+	if !b.cases.Has(caseID) {
 		return fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
 
@@ -469,7 +491,7 @@ func (b *InMemoryBackend) DescribeCommunications(caseID string) ([]Communication
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.cases[caseID]; !ok {
+	if !b.cases.Has(caseID) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
 
@@ -495,7 +517,7 @@ func (b *InMemoryBackend) AddAttachmentsToSet(attachmentSetID string) (string, t
 	}
 
 	expiry := time.Now().Add(time.Hour)
-	b.attachmentSets[attachmentSetID] = &AttachmentSet{Expiry: expiry}
+	b.attachmentSets.Put(&AttachmentSet{ID: attachmentSetID, Expiry: expiry})
 
 	return attachmentSetID, expiry, nil
 }
@@ -505,7 +527,7 @@ func (b *InMemoryBackend) DescribeAttachment(attachmentID string) (*Attachment, 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	a, ok := b.attachments[attachmentID]
+	a, ok := b.attachments.Get(attachmentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
 	}
@@ -526,7 +548,7 @@ func (b *InMemoryBackend) AddAttachmentInternal(a *Attachment) {
 		copy(cp.Data, a.Data)
 	}
 
-	b.attachments[a.AttachmentID] = &cp
+	b.attachments.Put(&cp)
 }
 
 // AddCaseInternal seeds a case directly into the backend (for testing).
@@ -535,7 +557,7 @@ func (b *InMemoryBackend) AddCaseInternal(c *Case) {
 	defer b.mu.Unlock()
 
 	cp := *c
-	b.cases[c.CaseID] = &cp
+	b.cases.Put(&cp)
 }
 
 // DescribeCreateCaseOptions returns available case creation options.
@@ -638,7 +660,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 	needsWrite := false
 
 	for _, id := range checkIDs {
-		if s, ok := b.checkRefreshStatuses[id]; ok && s.Status != checkRefreshStatusSuccess {
+		if s, ok := b.checkRefreshStatuses.Get(id); ok && s.Status != checkRefreshStatusSuccess {
 			needsWrite = true
 
 			break
@@ -648,7 +670,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 	if !needsWrite {
 		out := make([]TrustedAdvisorCheckRefreshStatus, 0, len(checkIDs))
 		for _, id := range checkIDs {
-			if s, ok := b.checkRefreshStatuses[id]; ok {
+			if s, ok := b.checkRefreshStatuses.Get(id); ok {
 				out = append(out, *s)
 			} else {
 				out = append(out, TrustedAdvisorCheckRefreshStatus{
@@ -669,7 +691,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 
 	out := make([]TrustedAdvisorCheckRefreshStatus, 0, len(checkIDs))
 	for _, id := range checkIDs {
-		if s, ok := b.checkRefreshStatuses[id]; ok {
+		if s, ok := b.checkRefreshStatuses.Get(id); ok {
 			switch s.PollCount {
 			case 0:
 				s.PollCount++
@@ -697,7 +719,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckRefreshStatuses(
 // Stored results (written by RefreshTrustedAdvisorCheck) take precedence over the static default.
 func (b *InMemoryBackend) DescribeTrustedAdvisorCheckResult(checkID, _ string) *TrustedAdvisorCheckResult {
 	b.mu.RLock()
-	if stored, ok := b.checkResults[checkID]; ok {
+	if stored, ok := b.checkResults.Get(checkID); ok {
 		cp := *stored
 		b.mu.RUnlock()
 
@@ -741,7 +763,7 @@ func (b *InMemoryBackend) DescribeTrustedAdvisorCheckSummaries(checkIDs []string
 	out := make([]TrustedAdvisorCheckSummary, 0, len(checkIDs))
 
 	for _, id := range checkIDs {
-		if stored, ok := b.checkResults[id]; ok {
+		if stored, ok := b.checkResults.Get(id); ok {
 			out = append(out, TrustedAdvisorCheckSummary{
 				CheckID:                 id,
 				Status:                  stored.Status,
@@ -776,17 +798,23 @@ func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAd
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if existing, ok := b.checkRefreshStatuses[checkID]; ok && time.Since(existing.RefreshTime) < time.Hour {
+	if existing, ok := b.checkRefreshStatuses.Get(checkID); ok && time.Since(existing.RefreshTime) < time.Hour {
 		cp := *existing
 
 		return &cp, nil
 	}
 
-	if len(b.checkRefreshStatuses) >= maxCheckRefreshStatuses {
-		for k := range b.checkRefreshStatuses {
-			delete(b.checkRefreshStatuses, k)
+	if b.checkRefreshStatuses.Len() >= maxCheckRefreshStatuses {
+		var evictID string
 
-			break
+		b.checkRefreshStatuses.Range(func(s *TrustedAdvisorCheckRefreshStatus) bool {
+			evictID = s.CheckID
+
+			return false
+		})
+
+		if evictID != "" {
+			b.checkRefreshStatuses.Delete(evictID)
 		}
 	}
 
@@ -796,7 +824,7 @@ func (b *InMemoryBackend) RefreshTrustedAdvisorCheck(checkID string) (*TrustedAd
 		MillisUntilNextRefreshable: refreshMillisDefault,
 		RefreshTime:                time.Now(),
 	}
-	b.checkRefreshStatuses[checkID] = status
+	b.checkRefreshStatuses.Put(status)
 
 	cp := *status
 

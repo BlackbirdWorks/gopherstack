@@ -84,7 +84,7 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
-	vol, ok := b.volumes[volumeID]
+	vol, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
@@ -100,7 +100,7 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 		Encrypted:   vol.Encrypted,
 		KmsKeyID:    vol.KmsKeyID,
 	}
-	b.snapshots[snap.SnapshotID] = snap
+	b.snapshots.Put(snap)
 
 	cp := *snap
 
@@ -117,8 +117,8 @@ func (b *InMemoryBackend) DescribeSnapshots(ids []string) []*Snapshot {
 		idSet[id] = true
 	}
 
-	out := make([]*Snapshot, 0, len(b.snapshots))
-	for _, snap := range b.snapshots {
+	out := make([]*Snapshot, 0, b.snapshots.Len())
+	for _, snap := range b.snapshots.All() {
 		if len(idSet) > 0 && !idSet[snap.SnapshotID] {
 			continue
 		}
@@ -143,11 +143,10 @@ func (b *InMemoryBackend) DeleteSnapshot(id string) error {
 	b.mu.Lock("DeleteSnapshot")
 	defer b.mu.Unlock()
 
-	if _, ok := b.snapshots[id]; !ok {
+	if _, ok := b.snapshots.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrSnapshotNotFound, id)
 	}
-
-	delete(b.snapshots, id)
+	b.snapshots.Delete(id)
 
 	return nil
 }
@@ -185,12 +184,12 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 		RootDeviceName: src.RootDeviceName,
 		SourceImageID:  src.ImageID,
 	}
-	b.images[newImage.ImageID] = newImage
-	b.imageUsageReports[newImage.ImageID] = &ImageUsageReport{
+	b.images.Put(newImage)
+	b.imageUsageReports.Put(&ImageUsageReport{
 		ImageID:        newImage.ImageID,
 		State:          stateAvailable,
 		GenerationDate: time.Now().UTC().Format(time.RFC3339),
-	}
+	})
 
 	cp := *newImage
 
@@ -206,12 +205,11 @@ func (b *InMemoryBackend) DeregisterImage(imageID string) error {
 	b.mu.Lock("DeregisterImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageID]; !ok {
+	if _, ok := b.images.Get(imageID); !ok {
 		return fmt.Errorf("%w: image %s not found", ErrInvalidParameter, imageID)
 	}
-
-	delete(b.images, imageID)
-	delete(b.imageUsageReports, imageID)
+	b.images.Delete(imageID)
+	b.imageUsageReports.Delete(imageID)
 
 	return nil
 }
@@ -227,7 +225,7 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 	b.mu.Lock("ModifyVpcAttribute")
 	defer b.mu.Unlock()
 
-	vpc, ok := b.vpcs[vpcID]
+	vpc, ok := b.vpcs.Get(vpcID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
@@ -254,7 +252,7 @@ func (b *InMemoryBackend) ModifySubnetAttribute(subnetID, attribute string, valu
 	b.mu.Lock("ModifySubnetAttribute")
 	defer b.mu.Unlock()
 
-	subnet, ok := b.subnets[subnetID]
+	subnet, ok := b.subnets.Get(subnetID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
@@ -282,7 +280,7 @@ func (b *InMemoryBackend) CreateNetworkACL(vpcID string) (*StoredNetworkACL, err
 	b.mu.Lock("CreateNetworkACL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -303,7 +301,7 @@ func (b *InMemoryBackend) CreateNetworkACL(vpcID string) (*StoredNetworkACL, err
 			},
 		},
 	}
-	b.networkACLs[acl.ID] = acl
+	b.networkACLs.Put(acl)
 
 	cp := *acl
 	cp.Entries = append([]NACLEntry(nil), acl.Entries...)
@@ -320,7 +318,7 @@ func (b *InMemoryBackend) DeleteNetworkACL(id string) error {
 	b.mu.Lock("DeleteNetworkACL")
 	defer b.mu.Unlock()
 
-	acl, ok := b.networkACLs[id]
+	acl, ok := b.networkACLs.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkACLNotFound, id)
 	}
@@ -328,8 +326,7 @@ func (b *InMemoryBackend) DeleteNetworkACL(id string) error {
 	if acl.IsDefault {
 		return fmt.Errorf("%w: cannot delete default network ACL", ErrInvalidParameter)
 	}
-
-	delete(b.networkACLs, id)
+	b.networkACLs.Delete(id)
 
 	return nil
 }
@@ -346,7 +343,7 @@ func (b *InMemoryBackend) CreateNetworkACLEntry(
 	b.mu.Lock("CreateNetworkACLEntry")
 	defer b.mu.Unlock()
 
-	acl, ok := b.networkACLs[aclID]
+	acl, ok := b.networkACLs.Get(aclID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
 	}
@@ -383,7 +380,7 @@ func (b *InMemoryBackend) DeleteNetworkACLEntry(aclID string, ruleNumber int, eg
 	b.mu.Lock("DeleteNetworkACLEntry")
 	defer b.mu.Unlock()
 
-	acl, ok := b.networkACLs[aclID]
+	acl, ok := b.networkACLs.Get(aclID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNetworkACLNotFound, aclID)
 	}
@@ -425,8 +422,8 @@ func (b *InMemoryBackend) DescribeStoredNetworkAcls(ids []string) []*StoredNetwo
 		idSet[id] = true
 	}
 
-	out := make([]*StoredNetworkACL, 0, len(b.networkACLs))
-	for _, acl := range b.networkACLs {
+	out := make([]*StoredNetworkACL, 0, b.networkACLs.Len())
+	for _, acl := range b.networkACLs.All() {
 		if len(idSet) > 0 && !idSet[acl.ID] {
 			continue
 		}
@@ -457,7 +454,7 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 	b.mu.RLock("DescribeSecurityGroupRules")
 	defer b.mu.RUnlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -507,7 +504,7 @@ func (b *InMemoryBackend) ModifySecurityGroupRules(
 	b.mu.Lock("ModifySecurityGroupRules")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[groupID]
+	sg, ok := b.securityGroups.Get(groupID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
@@ -532,11 +529,10 @@ func (b *InMemoryBackend) DeleteLaunchTemplate(id string) error {
 	b.mu.Lock("DeleteLaunchTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.launchTemplates[id]; !ok {
+	if _, ok := b.launchTemplates.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
-
-	delete(b.launchTemplates, id)
+	b.launchTemplates.Delete(id)
 
 	return nil
 }
@@ -551,7 +547,7 @@ func (b *InMemoryBackend) DescribeLaunchTemplateVersions(id string) ([]*LaunchTe
 	b.mu.RLock("DescribeLaunchTemplateVersions")
 	defer b.mu.RUnlock()
 
-	lt, ok := b.launchTemplates[id]
+	lt, ok := b.launchTemplates.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
@@ -575,13 +571,12 @@ func (b *InMemoryBackend) DeleteVpcEndpoints(ids []string) ([]string, error) {
 	var unsuccessful []string
 
 	for _, id := range ids {
-		if _, ok := b.vpcEndpoints[id]; !ok {
+		if _, ok := b.vpcEndpoints.Get(id); !ok {
 			unsuccessful = append(unsuccessful, id)
 
 			continue
 		}
-
-		delete(b.vpcEndpoints, id)
+		b.vpcEndpoints.Delete(id)
 	}
 
 	if len(unsuccessful) > 0 {
@@ -614,7 +609,7 @@ func (b *InMemoryBackend) DescribeVpcEndpointsByVPC(vpcID string) []*VpcEndpoint
 
 	var out []*VpcEndpoint
 
-	for _, ep := range b.vpcEndpoints {
+	for _, ep := range b.vpcEndpoints.All() {
 		if ep.VPCID != vpcID {
 			continue
 		}
@@ -646,7 +641,7 @@ func (b *InMemoryBackend) DescribeNetworkAclsFiltered(vpcIDs []string) []*Networ
 		allowed[id] = true
 	}
 
-	for _, acl := range b.networkACLs {
+	for _, acl := range b.networkACLs.All() {
 		if len(allowed) > 0 && !allowed[acl.VPCID] {
 			continue
 		}
@@ -679,7 +674,7 @@ func (b *InMemoryBackend) DescribeSubnetsByVPC(vpcID string) []*Subnet {
 
 	var out []*Subnet
 
-	for _, s := range b.subnets {
+	for _, s := range b.subnets.All() {
 		if s.VPCID != vpcID {
 			continue
 		}
@@ -708,7 +703,7 @@ func (b *InMemoryBackend) DescribeInstancesByVPC(vpcID string) []*Instance {
 	out := make([]*Instance, 0, len(ids))
 
 	for id := range ids {
-		if inst, exists := b.instances[id]; exists {
+		if inst, exists := b.instances.Get(id); exists {
 			cp := *inst
 			out = append(out, &cp)
 		}

@@ -2,104 +2,100 @@ package codepipeline
 
 import (
 	"context"
-	"maps"
+	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// customActionTypeEntry is the JSON-serialisable representation of a custom action type entry.
-type customActionTypeEntry struct {
-	Value    *CustomActionType `json:"value"`
-	Region   string            `json:"region"`
-	Category string            `json:"category"`
-	Provider string            `json:"provider"`
-	Version  string            `json:"version"`
+// codepipelineSnapshotVersion identifies the shape of [backendSnapshot]. It
+// must be bumped whenever a change to regionalDTO/backendSnapshot itself
+// would make an older snapshot unsafe to decode as the current shape (e.g. a
+// field's meaning or type changes). Restore compares this against the
+// persisted value and discards (rather than attempts to partially decode) any
+// mismatch -- see Restore below. This is the first version: earlier
+// (pre-Phase-3.3) snapshots carried no version field at all, so they also
+// fail this check and are discarded rather than misread, which is the safe
+// behaviour across any snapshot-format change.
+const codepipelineSnapshotVersion = 1
+
+// regionalDTO wraps a region-nested resource value for JSON round-tripping
+// through store.Registry. Table[V].Snapshot's plain json.Marshal(V) cannot
+// see the unexported `region` field each resource type carries (used only for
+// the live table's composite key -- see store_setup.go), so it is carried
+// alongside Value here instead. ID mirrors the resource's own identity (which
+// may itself be a composite of several fields, e.g. customActionTypeKey or
+// stageTransitionKey stringified) so the DTO table has a stable composite key
+// ("region|id") independent of the concrete resource type.
+type regionalDTO[V any] struct {
+	Value  *V     `json:"value"`
+	Region string `json:"region"`
+	ID     string `json:"id"`
 }
 
-// stageTransitionEntry is the JSON-serialisable representation of a stage transition entry.
-type stageTransitionEntry struct {
-	Value          *StageTransitionState `json:"value"`
-	Region         string                `json:"region"`
-	PipelineName   string                `json:"pipelineName"`
-	StageName      string                `json:"stageName"`
-	TransitionType string                `json:"transitionType"`
-}
+// regionalDTOKeyFn is the [store.Table] key function shared by every DTO
+// table below; it mirrors the "region|id" composite key each live table uses.
+func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Region, d.ID) }
 
 // executionEntry is the JSON-serialisable list of executions per pipeline.
+// executions is a plain region-nested map (not a store.Table -- see
+// store_setup.go), so it is flattened into region-tagged entries here rather
+// than going through the DTO registry.
 type executionEntry struct {
 	Region       string               `json:"region"`
 	PipelineName string               `json:"pipelineName"`
 	Executions   []*PipelineExecution `json:"executions"`
 }
 
-// backendSnapshot is the JSON-serialisable snapshot of InMemoryBackend state.
+// backendSnapshot is the top-level on-disk shape for the CodePipeline
+// backend.
 //
-// Region-scoped resource maps are nested by region (outer key = region) so that
-// same-named resources in different regions round-trip without collision.
+// Tables holds one JSON-encoded array per registered DTO table, produced by
+// [store.Registry.SnapshotAll] -- pipelines, customActionTypes, jobs,
+// webhooks, and stageTransitions, each wrapped in a regionalDTO to carry its
+// region field through. Executions is still a region-nested plain map (see
+// store_setup.go for why it was not converted to store.Table) and is
+// persisted directly via the executionEntry flattening above.
+// actionExecutions is derived state (rebuilt on StartPipelineExecution) and
+// is deliberately not persisted, matching pre-Phase-3.3 behaviour. Version
+// guards against decoding a snapshot from an incompatible (older or newer)
+// build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Pipelines         map[string]map[string]*Pipeline `json:"pipelines"`
-	PipelineARNIndex  map[string]map[string]string    `json:"pipelineARNIndex"`
-	Jobs              map[string]map[string]*Job      `json:"jobs"`
-	Webhooks          map[string]map[string]*Webhook  `json:"webhooks"`
-	WebhookARNIndex   map[string]map[string]string    `json:"webhookARNIndex"`
-	AccountID         string                          `json:"accountID"`
-	Region            string                          `json:"region"`
-	CustomActionTypes []customActionTypeEntry         `json:"customActionTypes"`
-	StageTransitions  []stageTransitionEntry          `json:"stageTransitions"`
-	Executions        []executionEntry                `json:"executions"`
+	Tables     map[string]json.RawMessage `json:"tables"`
+	AccountID  string                     `json:"accountID"`
+	Region     string                     `json:"region"`
+	Executions []executionEntry           `json:"executions"`
+	Version    int                        `json:"version"`
 }
 
-// ensureNonNil initialises any nil maps so callers do not need to guard after Restore.
-func (s *backendSnapshot) ensureNonNil() {
-	if s.Pipelines == nil {
-		s.Pipelines = make(map[string]map[string]*Pipeline)
-	}
-
-	if s.PipelineARNIndex == nil {
-		s.PipelineARNIndex = make(map[string]map[string]string)
-	}
-
-	if s.Jobs == nil {
-		s.Jobs = make(map[string]map[string]*Job)
-	}
-
-	if s.Webhooks == nil {
-		s.Webhooks = make(map[string]map[string]*Webhook)
-	}
-
-	if s.WebhookARNIndex == nil {
-		s.WebhookARNIndex = make(map[string]map[string]string)
-	}
-}
-
-// copyNestedPtr deep-copies the outer region map of a region-nested pointer map,
-// cloning each inner map so the snapshot owns its data independently of the backend.
-func copyNestedPtr[T any](src map[string]map[string]*T) map[string]map[string]*T {
-	out := make(map[string]map[string]*T, len(src))
-	for region, inner := range src {
-		cp := make(map[string]*T, len(inner))
-		maps.Copy(cp, inner)
-		out[region] = cp
-	}
-
-	return out
-}
-
-// copyNestedStr deep-copies the outer region map of a region-nested string map.
-func copyNestedStr(src map[string]map[string]string) map[string]map[string]string {
-	out := make(map[string]map[string]string, len(src))
-	for region, inner := range src {
-		cp := make(map[string]string, len(inner))
-		maps.Copy(cp, inner)
-		out[region] = cp
-	}
-
-	return out
-}
-
-// customActionTypeKey.String returns a unique string for use in sorted output.
+// customActionTypeKey.String returns a unique string for use as the DTO id
+// and as half of the customActionTypes table's composite key.
 func (k customActionTypeKey) String() string {
 	return k.Category + "/" + k.Provider + "/" + k.Version
+}
+
+// buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
+// both Snapshot and Restore. It is built fresh on every call (rather than
+// reusing b.registry) because each DTO value type (regionalDTO[V]) differs
+// from its corresponding live table's value type (V).
+func buildPersistenceDTORegistry() (
+	*store.Registry,
+	*store.Table[regionalDTO[Pipeline]],
+	*store.Table[regionalDTO[CustomActionType]],
+	*store.Table[regionalDTO[Job]],
+	*store.Table[regionalDTO[Webhook]],
+	*store.Table[regionalDTO[StageTransitionState]],
+) {
+	dtoReg := store.NewRegistry()
+	pipelineDTOs := store.Register(dtoReg, "pipelines", store.New(regionalDTOKeyFn[Pipeline]))
+	catDTOs := store.Register(dtoReg, "customActionTypes", store.New(regionalDTOKeyFn[CustomActionType]))
+	jobDTOs := store.Register(dtoReg, "jobs", store.New(regionalDTOKeyFn[Job]))
+	webhookDTOs := store.Register(dtoReg, "webhooks", store.New(regionalDTOKeyFn[Webhook]))
+	transitionDTOs := store.Register(dtoReg, "stageTransitions", store.New(regionalDTOKeyFn[StageTransitionState]))
+
+	return dtoReg, pipelineDTOs, catDTOs, jobDTOs, webhookDTOs, transitionDTOs
 }
 
 // Snapshot serialises the backend state to JSON. Returns nil on marshal failure.
@@ -107,30 +103,46 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	// Flatten struct-keyed maps into region-tagged slices for JSON serialization.
-	cats := make([]customActionTypeEntry, 0)
-	for region, inner := range b.customActionTypes {
-		for k, v := range inner {
-			cats = append(cats, customActionTypeEntry{
-				Region: region, Category: k.Category, Provider: k.Provider, Version: k.Version, Value: v,
-			})
-		}
+	dtoReg, pipelineDTOs, catDTOs, jobDTOs, webhookDTOs, transitionDTOs := buildPersistenceDTORegistry()
+
+	for _, v := range b.pipelines.Snapshot() {
+		pipelineDTOs.Put(&regionalDTO[Pipeline]{Region: v.region, ID: v.Declaration.Name, Value: v})
 	}
 
-	transitions := make([]stageTransitionEntry, 0)
-	for region, inner := range b.stageTransitions {
-		for k, v := range inner {
-			transitions = append(transitions, stageTransitionEntry{
-				Region:         region,
-				PipelineName:   k.PipelineName,
-				StageName:      k.StageName,
-				TransitionType: k.TransitionType,
-				Value:          v,
-			})
+	for _, v := range b.customActionTypes.Snapshot() {
+		key := customActionTypeKey{Category: v.Category, Provider: v.Provider, Version: v.Version}
+		catDTOs.Put(&regionalDTO[CustomActionType]{Region: v.region, ID: key.String(), Value: v})
+	}
+
+	for _, v := range b.jobs.Snapshot() {
+		jobDTOs.Put(&regionalDTO[Job]{Region: v.region, ID: v.ID, Value: v})
+	}
+
+	for _, v := range b.webhooks.Snapshot() {
+		webhookDTOs.Put(&regionalDTO[Webhook]{Region: v.region, ID: v.Name, Value: v})
+	}
+
+	for _, v := range b.stageTransitions.Snapshot() {
+		key := stageTransitionKey{
+			PipelineName: v.PipelineName, StageName: v.StageName, TransitionType: v.TransitionType,
 		}
+		transitionDTOs.Put(&regionalDTO[StageTransitionState]{Region: v.region, ID: key.String(), Value: v})
+	}
+
+	tables, err := dtoReg.SnapshotAll()
+	if err != nil {
+		// The DTOs above are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx,
+			"codepipeline: snapshot table marshal failed", "error", err)
+
+		return nil
 	}
 
 	execs := make([]executionEntry, 0)
+
 	for region, inner := range b.executions {
 		for pName, list := range inner {
 			if len(list) == 0 {
@@ -141,18 +153,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		}
 	}
 
-	// Defensive copies for snapshot: the snapshot owns the data, not the backend.
 	snap := backendSnapshot{
-		Pipelines:         copyNestedPtr(b.pipelines),
-		PipelineARNIndex:  copyNestedStr(b.pipelineARNIndex),
-		CustomActionTypes: cats,
-		StageTransitions:  transitions,
-		Jobs:              copyNestedPtr(b.jobs),
-		Webhooks:          copyNestedPtr(b.webhooks),
-		WebhookARNIndex:   copyNestedStr(b.webhookARNIndex),
-		Executions:        execs,
-		AccountID:         b.accountID,
-		Region:            b.region,
+		Version:    codepipelineSnapshotVersion,
+		Tables:     tables,
+		Executions: execs,
+		AccountID:  b.accountID,
+		Region:     b.region,
 	}
 
 	// Marshal can only fail for unsupported types (e.g. channels/functions) which are not present here.
@@ -160,7 +166,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 }
 
 // Restore loads backend state from a JSON snapshot produced by Snapshot.
-// It calls Reset first to clear any in-flight goroutines and prior state.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
@@ -168,34 +173,35 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	snap.ensureNonNil()
+	b.mu.Lock("Restore")
+	defer b.mu.Unlock()
 
-	// Rebuild region-nested struct-keyed maps from region-tagged slices.
-	cats := make(map[string]map[customActionTypeKey]*CustomActionType)
-	for _, entry := range snap.CustomActionTypes {
-		if cats[entry.Region] == nil {
-			cats[entry.Region] = make(map[customActionTypeKey]*CustomActionType)
-		}
+	if snap.Version != codepipelineSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"codepipeline: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", codepipelineSnapshotVersion)
 
-		key := customActionTypeKey{Category: entry.Category, Provider: entry.Provider, Version: entry.Version}
-		cats[entry.Region][key] = entry.Value
+		b.registry.ResetAll()
+		b.executions = make(map[string]map[string][]*PipelineExecution)
+		b.actionExecutions = make(map[string]map[string][]*ActionExecution)
+		b.accountID = snap.AccountID
+		b.region = snap.Region
+
+		return nil
 	}
 
-	transitions := make(map[string]map[stageTransitionKey]*StageTransitionState)
-	for _, entry := range snap.StageTransitions {
-		if transitions[entry.Region] == nil {
-			transitions[entry.Region] = make(map[stageTransitionKey]*StageTransitionState)
-		}
-
-		key := stageTransitionKey{
-			PipelineName:   entry.PipelineName,
-			StageName:      entry.StageName,
-			TransitionType: entry.TransitionType,
-		}
-		transitions[entry.Region][key] = entry.Value
+	if err := b.restoreResourceTables(snap.Tables); err != nil {
+		return err
 	}
 
 	executions := make(map[string]map[string][]*PipelineExecution)
+
 	for _, entry := range snap.Executions {
 		if executions[entry.Region] == nil {
 			executions[entry.Region] = make(map[string][]*PipelineExecution)
@@ -204,30 +210,104 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		executions[entry.Region][entry.PipelineName] = entry.Executions
 	}
 
-	// Defensive copies: the backend owns these maps independently of the snapshot.
-	pipelinesCopy := copyNestedPtr(snap.Pipelines)
-	arnIndexCopy := copyNestedStr(snap.PipelineARNIndex)
-	webhooksCopy := copyNestedPtr(snap.Webhooks)
-	webhookARNCopy := copyNestedStr(snap.WebhookARNIndex)
-	jobsCopy := copyNestedPtr(snap.Jobs)
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.pipelines = pipelinesCopy
-	b.pipelineARNIndex = arnIndexCopy
-	b.customActionTypes = cats
-	b.stageTransitions = transitions
-	b.jobs = jobsCopy
-	b.webhooks = webhooksCopy
-	b.webhookARNIndex = webhookARNCopy
 	b.executions = executions
-	b.accountID = snap.AccountID
-	b.region = snap.Region
 
 	// actionExecutions are derived state (rebuilt on StartPipelineExecution) and
 	// are not persisted; ensure the map is initialised after a restore.
 	b.actionExecutions = make(map[string]map[string][]*ActionExecution)
 
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
 	return nil
+}
+
+// restoreResourceTables rebuilds the five resource store.Table values from
+// snap's per-table JSON, factored out of Restore to keep Restore's own
+// cognitive complexity low. Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+	dtoReg, pipelineDTOs, catDTOs, jobDTOs, webhookDTOs, transitionDTOs := buildPersistenceDTORegistry()
+
+	if err := dtoReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("codepipeline: restore snapshot tables: %w", err)
+	}
+
+	pipelines := make([]*Pipeline, 0, pipelineDTOs.Len())
+
+	for _, d := range pipelineDTOs.All() {
+		if d.Value == nil {
+			// Not producible by Snapshot, but a defensive guard against a
+			// hand-edited or corrupted snapshot.
+			continue
+		}
+
+		d.Value.region = d.Region
+		pipelines = append(pipelines, d.Value)
+	}
+
+	b.pipelines.Restore(pipelines)
+
+	cats := make([]*CustomActionType, 0, catDTOs.Len())
+
+	for _, d := range catDTOs.All() {
+		if d.Value == nil {
+			continue
+		}
+
+		d.Value.region = d.Region
+		cats = append(cats, d.Value)
+	}
+
+	b.customActionTypes.Restore(cats)
+
+	jobs := make([]*Job, 0, jobDTOs.Len())
+
+	for _, d := range jobDTOs.All() {
+		if d.Value == nil {
+			continue
+		}
+
+		d.Value.region = d.Region
+		jobs = append(jobs, d.Value)
+	}
+
+	b.jobs.Restore(jobs)
+
+	webhooks := make([]*Webhook, 0, webhookDTOs.Len())
+
+	for _, d := range webhookDTOs.All() {
+		if d.Value == nil {
+			continue
+		}
+
+		d.Value.region = d.Region
+		webhooks = append(webhooks, d.Value)
+	}
+
+	b.webhooks.Restore(webhooks)
+
+	transitions := make([]*StageTransitionState, 0, transitionDTOs.Len())
+
+	for _, d := range transitionDTOs.All() {
+		if d.Value == nil {
+			continue
+		}
+
+		d.Value.region = d.Region
+		transitions = append(transitions, d.Value)
+	}
+
+	b.stageTransitions.Restore(transitions)
+
+	return nil
+}
+
+// Snapshot implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
 }

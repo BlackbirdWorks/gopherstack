@@ -22,12 +22,12 @@ func (b *InMemoryBackend) CreateCustomDomainAssociation(
 	b.mu.Lock("CreateCustomDomainAssociation")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	key := clusterID + ":" + customDomainName
-	if _, exists := b.customDomains[key]; exists {
+	if _, exists := b.customDomains.Get(key); exists {
 		return nil, fmt.Errorf("%w: custom domain %s already associated with cluster %s",
 			ErrCustomDomainAlreadyExists, customDomainName, clusterID)
 	}
@@ -37,7 +37,7 @@ func (b *InMemoryBackend) CreateCustomDomainAssociation(
 		CustomDomainName:           customDomainName,
 		CustomDomainCertificateArn: customDomainCertificateArn,
 	}
-	b.customDomains[key] = assoc
+	b.customDomains.Put(assoc)
 
 	cp := *assoc
 
@@ -58,12 +58,12 @@ func (b *InMemoryBackend) DeleteCustomDomainAssociation(clusterID, customDomainN
 	defer b.mu.Unlock()
 
 	key := clusterID + ":" + customDomainName
-	if _, exists := b.customDomains[key]; !exists {
+	if _, exists := b.customDomains.Get(key); !exists {
 		return fmt.Errorf("%w: custom domain %s not associated with cluster %s",
 			ErrCustomDomainNotFound, customDomainName, clusterID)
 	}
 
-	delete(b.customDomains, key)
+	b.customDomains.Delete(key)
 
 	return nil
 }
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) DescribeCustomDomainAssociations(
 
 	if clusterID != "" && customDomainName != "" {
 		key := clusterID + ":" + customDomainName
-		a, exists := b.customDomains[key]
+		a, exists := b.customDomains.Get(key)
 		if !exists {
 			return nil, fmt.Errorf("%w: custom domain %s not associated with cluster %s",
 				ErrCustomDomainNotFound, customDomainName, clusterID)
@@ -88,9 +88,9 @@ func (b *InMemoryBackend) DescribeCustomDomainAssociations(
 		return []CustomDomainAssociation{cp}, nil
 	}
 
-	result := make([]CustomDomainAssociation, 0, len(b.customDomains))
+	result := make([]CustomDomainAssociation, 0, b.customDomains.Len())
 
-	for _, a := range b.customDomains {
+	for _, a := range b.customDomains.All() {
 		if clusterID != "" && a.ClusterIdentifier != clusterID {
 			continue
 		}
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) ModifyCustomDomainAssociation(
 	defer b.mu.Unlock()
 
 	key := clusterID + ":" + customDomainName
-	a, exists := b.customDomains[key]
+	a, exists := b.customDomains.Get(key)
 	if !exists {
 		return nil, fmt.Errorf("%w: custom domain %s not associated with cluster %s",
 			ErrCustomDomainNotFound, customDomainName, clusterID)
@@ -146,11 +146,11 @@ func (b *InMemoryBackend) CreateEndpointAccess(
 	b.mu.Lock("CreateEndpointAccess")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	if _, exists := b.endpointAccesses[endpointName]; exists {
+	if _, exists := b.endpointAccesses.Get(endpointName); exists {
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrEndpointAccessAlreadyExists, endpointName)
 	}
 
@@ -162,7 +162,7 @@ func (b *InMemoryBackend) CreateEndpointAccess(
 		Port:               redshiftDefaultPort,
 		VpcID:              vpcID,
 	}
-	b.endpointAccesses[endpointName] = ep
+	b.endpointAccesses.Put(ep)
 
 	cp := *ep
 
@@ -178,12 +178,12 @@ func (b *InMemoryBackend) DeleteEndpointAccess(endpointName string) (*EndpointAc
 	b.mu.Lock("DeleteEndpointAccess")
 	defer b.mu.Unlock()
 
-	ep, exists := b.endpointAccesses[endpointName]
+	ep, exists := b.endpointAccesses.Get(endpointName)
 	if !exists {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrEndpointAccessNotFound, endpointName)
 	}
 
-	delete(b.endpointAccesses, endpointName)
+	b.endpointAccesses.Delete(endpointName)
 
 	cp := *ep
 	cp.EndpointStatus = "deleting"
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) DescribeEndpointAccess(
 	defer b.mu.RUnlock()
 
 	if endpointName != "" {
-		ep, exists := b.endpointAccesses[endpointName]
+		ep, exists := b.endpointAccesses.Get(endpointName)
 		if !exists {
 			return nil, fmt.Errorf("%w: endpoint %s not found", ErrEndpointAccessNotFound, endpointName)
 		}
@@ -209,9 +209,9 @@ func (b *InMemoryBackend) DescribeEndpointAccess(
 		return []EndpointAccess{cp}, nil
 	}
 
-	result := make([]EndpointAccess, 0, len(b.endpointAccesses))
+	result := make([]EndpointAccess, 0, b.endpointAccesses.Len())
 
-	for _, ep := range b.endpointAccesses {
+	for _, ep := range b.endpointAccesses.All() {
 		if clusterID != "" && ep.ClusterIdentifier != clusterID {
 			continue
 		}
@@ -231,7 +231,7 @@ func (b *InMemoryBackend) ModifyEndpointAccess(endpointName, vpcID string) (*End
 	b.mu.Lock("ModifyEndpointAccess")
 	defer b.mu.Unlock()
 
-	ep, exists := b.endpointAccesses[endpointName]
+	ep, exists := b.endpointAccesses.Get(endpointName)
 	if !exists {
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrEndpointAccessNotFound, endpointName)
 	}
@@ -266,7 +266,7 @@ func (b *InMemoryBackend) CreateIntegration(
 	b.mu.Lock("CreateIntegration")
 	defer b.mu.Unlock()
 
-	if _, exists := b.integrations[integrationName]; exists {
+	if _, exists := b.integrations.Get(integrationName); exists {
 		return nil, fmt.Errorf("%w: integration %s already exists", ErrIntegrationAlreadyExists, integrationName)
 	}
 
@@ -280,7 +280,7 @@ func (b *InMemoryBackend) CreateIntegration(
 		Description:     description,
 		Status:          endpointStatusActive,
 	}
-	b.integrations[integrationName] = ig
+	b.integrations.Put(ig)
 
 	cp := *ig
 
@@ -296,10 +296,10 @@ func (b *InMemoryBackend) DeleteIntegration(integrationArn string) (*Integration
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	for name, ig := range b.integrations {
-		if ig.IntegrationArn == integrationArn || name == integrationArn {
+	for _, ig := range b.integrations.All() {
+		if ig.IntegrationArn == integrationArn || ig.IntegrationName == integrationArn {
 			cp := *ig
-			delete(b.integrations, name)
+			b.integrations.Delete(ig.IntegrationName)
 
 			return &cp, nil
 		}
@@ -314,7 +314,7 @@ func (b *InMemoryBackend) DescribeIntegrations(integrationArn string) ([]Integra
 	defer b.mu.RUnlock()
 
 	if integrationArn != "" {
-		for _, ig := range b.integrations {
+		for _, ig := range b.integrations.All() {
 			if ig.IntegrationArn == integrationArn {
 				cp := *ig
 
@@ -325,9 +325,9 @@ func (b *InMemoryBackend) DescribeIntegrations(integrationArn string) ([]Integra
 		return nil, fmt.Errorf("%w: integration %s not found", ErrIntegrationNotFound, integrationArn)
 	}
 
-	result := make([]Integration, 0, len(b.integrations))
+	result := make([]Integration, 0, b.integrations.Len())
 
-	for _, ig := range b.integrations {
+	for _, ig := range b.integrations.All() {
 		result = append(result, *ig)
 	}
 
@@ -343,7 +343,7 @@ func (b *InMemoryBackend) ModifyIntegration(integrationArn, description string) 
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
-	for _, ig := range b.integrations {
+	for _, ig := range b.integrations.All() {
 		if ig.IntegrationArn == integrationArn {
 			ig.Description = description
 			cp := *ig
@@ -368,7 +368,7 @@ func (b *InMemoryBackend) CreateIdcApplication(
 	b.mu.Lock("CreateIdcApplication")
 	defer b.mu.Unlock()
 
-	if _, exists := b.idcApplications[appName]; exists {
+	if _, exists := b.idcApplications.Get(appName); exists {
 		return nil, fmt.Errorf("%w: application %s already exists", ErrIdcApplicationAlreadyExists, appName)
 	}
 
@@ -380,7 +380,7 @@ func (b *InMemoryBackend) CreateIdcApplication(
 		IdcDisplayName:     idcDisplayName,
 		IamRoleArn:         iamRoleArn,
 	}
-	b.idcApplications[appName] = app
+	b.idcApplications.Put(app)
 
 	cp := *app
 
@@ -396,9 +396,9 @@ func (b *InMemoryBackend) DeleteIdcApplication(appArn string) error {
 	b.mu.Lock("DeleteIdcApplication")
 	defer b.mu.Unlock()
 
-	for name, app := range b.idcApplications {
-		if app.IdcApplicationArn == appArn || name == appArn {
-			delete(b.idcApplications, name)
+	for _, app := range b.idcApplications.All() {
+		if app.IdcApplicationArn == appArn || app.IdcApplicationName == appArn {
+			b.idcApplications.Delete(app.IdcApplicationName)
 
 			return nil
 		}
@@ -413,7 +413,7 @@ func (b *InMemoryBackend) DescribeIdcApplications(appArn string) ([]IdcApplicati
 	defer b.mu.RUnlock()
 
 	if appArn != "" {
-		for _, app := range b.idcApplications {
+		for _, app := range b.idcApplications.All() {
 			if app.IdcApplicationArn == appArn {
 				cp := *app
 
@@ -424,9 +424,9 @@ func (b *InMemoryBackend) DescribeIdcApplications(appArn string) ([]IdcApplicati
 		return nil, fmt.Errorf("%w: application %s not found", ErrIdcApplicationNotFound, appArn)
 	}
 
-	result := make([]IdcApplication, 0, len(b.idcApplications))
+	result := make([]IdcApplication, 0, b.idcApplications.Len())
 
-	for _, app := range b.idcApplications {
+	for _, app := range b.idcApplications.All() {
 		result = append(result, *app)
 	}
 
@@ -444,7 +444,7 @@ func (b *InMemoryBackend) ModifyIdcApplication(
 	b.mu.Lock("ModifyIdcApplication")
 	defer b.mu.Unlock()
 
-	for _, app := range b.idcApplications {
+	for _, app := range b.idcApplications.All() {
 		if app.IdcApplicationArn == appArn {
 			if idcDisplayName != "" {
 				app.IdcDisplayName = idcDisplayName

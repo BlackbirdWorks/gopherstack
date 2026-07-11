@@ -145,12 +145,12 @@ func (b *InMemoryBackend) CreateEdgeDeploymentPlan(
 		return nil, fmt.Errorf("%w: DeviceFleetName is required", ErrValidation)
 	}
 
-	if _, ok := b.deviceFleetsStore(region)[opts.DeviceFleetName]; !ok {
+	if _, ok := b.deviceFleetsStore(region).Get(opts.DeviceFleetName); !ok {
 		return nil, fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, opts.DeviceFleetName)
 	}
 
 	store := b.edgeDeploymentPlansStore(region)
-	if _, ok := store[opts.EdgeDeploymentPlanName]; ok {
+	if _, ok := store.Get(opts.EdgeDeploymentPlanName); ok {
 		return nil, fmt.Errorf(
 			"%w: edge deployment plan %q already exists",
 			ErrEdgeDeploymentPlanAlreadyExists,
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) CreateEdgeDeploymentPlan(
 		CreationTime:           now,
 		LastModifiedTime:       now,
 	}
-	store[opts.EdgeDeploymentPlanName] = p
+	store.Put(p)
 
 	return cloneEdgeDeploymentPlan(p), nil
 }
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) DescribeEdgeDeploymentPlan(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region)[name]
+	p, ok := b.edgeDeploymentPlansStore(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, name)
 	}
@@ -199,11 +199,11 @@ func (b *InMemoryBackend) DeleteEdgeDeploymentPlan(ctx context.Context, name str
 	region := getRegion(ctx, b.region)
 	store := b.edgeDeploymentPlansStore(region)
 
-	if _, ok := store[name]; !ok {
+	if _, ok := store.Get(name); !ok {
 		return fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, name)
 	}
 
-	delete(store, name)
+	store.Delete(name)
 
 	return nil
 }
@@ -218,7 +218,12 @@ func (b *InMemoryBackend) ListEdgeDeploymentPlans(
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListKeyPaged(b.edgeDeploymentPlansStore(region), nextToken, cloneEdgeDeploymentPlan)
+	return sagemakerListKeyPaged(
+		b.edgeDeploymentPlansStore(region),
+		nextToken,
+		cloneEdgeDeploymentPlan,
+		func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanName },
+	)
 }
 
 // CreateEdgeDeploymentStage appends new stages to an existing edge deployment plan.
@@ -232,7 +237,7 @@ func (b *InMemoryBackend) CreateEdgeDeploymentStage(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region)[planName]
+	p, ok := b.edgeDeploymentPlansStore(region).Get(planName)
 	if !ok {
 		return fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, planName)
 	}
@@ -250,7 +255,7 @@ func (b *InMemoryBackend) DeleteEdgeDeploymentStage(ctx context.Context, planNam
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region)[planName]
+	p, ok := b.edgeDeploymentPlansStore(region).Get(planName)
 	if !ok {
 		return fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, planName)
 	}
@@ -283,7 +288,7 @@ func (b *InMemoryBackend) setEdgeDeploymentStageStatus(ctx context.Context, plan
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region)[planName]
+	p, ok := b.edgeDeploymentPlansStore(region).Get(planName)
 	if !ok {
 		return fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, planName)
 	}
@@ -317,15 +322,15 @@ func (b *InMemoryBackend) GetDeviceFleetReport(ctx context.Context, fleetName st
 
 	region := getRegion(ctx, b.region)
 
-	f, ok := b.deviceFleetsStore(region)[fleetName]
+	f, ok := b.deviceFleetsStore(region).Get(fleetName)
 	if !ok {
 		return nil, 0, fmt.Errorf("%w: device fleet %q", ErrDeviceFleetNotFound, fleetName)
 	}
 
 	registered := 0
 
-	for k := range b.devicesStore(region) {
-		if k.fleetName == fleetName {
+	for _, d := range b.devicesStore(region).All() {
+		if d.DeviceFleetName == fleetName {
 			registered++
 		}
 	}
@@ -344,7 +349,7 @@ func (b *InMemoryBackend) ListStageDevices(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.edgeDeploymentPlansStore(region)[planName]
+	p, ok := b.edgeDeploymentPlansStore(region).Get(planName)
 	if !ok {
 		return nil, nil, "", "", fmt.Errorf("%w: edge deployment plan %q", ErrEdgeDeploymentPlanNotFound, planName)
 	}

@@ -10,12 +10,12 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -271,6 +271,7 @@ type LoadBalancerPolicy struct {
 	PolicyName                  string            `json:"policyName"`
 	PolicyTypeName              string            `json:"policyTypeName"`
 	LoadBalancerName            string            `json:"loadBalancerName"`
+	Region                      string            `json:"region,omitempty"`
 	PolicyAttributeDescriptions []PolicyAttribute `json:"policyAttributeDescriptions"`
 }
 
@@ -362,57 +363,49 @@ type StorageBackend interface {
 	DescribeLoadBalancerPolicyTypes(ctx context.Context, policyTypeNames []string) ([]PolicyTypeDescription, error)
 }
 
-// InMemoryBackend implements StorageBackend using in-memory maps.
+// InMemoryBackend implements StorageBackend using two [store.Table]s.
 //
-// Both the lbs and policies maps are nested by region (outer key = region) so
-// that same-named load balancers and policies are fully isolated across
-// regions. The per-region inner maps are created lazily via the *Store helpers.
-// Callers must hold b.mu while accessing the inner maps.
+// Classic ELB load balancer names (and, transitively, policy names) are
+// unique only WITHIN a region -- see getRegion's region-isolation doc above
+// -- so both tables are keyed by a composite "region|name" key (see
+// store_setup.go) rather than a bare name, and a secondary index groups
+// entries by their owning region/load-balancer for region- and
+// load-balancer-scoped scans. Callers must hold b.mu while accessing either
+// table or index.
 type InMemoryBackend struct {
-	// lbs stores load balancers nested by region: lbs[region][loadBalancerName].
-	lbs map[string]map[string]*LoadBalancer
-	// policies stores load balancer policies nested by region and keyed by
-	// "loadBalancerName/policyName": policies[region][key].
-	policies  map[string]map[string]*LoadBalancerPolicy
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	registry *store.Registry
+	// lbs stores load balancers keyed by region+"|"+loadBalancerName.
+	lbs *store.Table[LoadBalancer]
+	// lbsByRegion indexes lbs by region for region-scoped listing.
+	lbsByRegion *store.Index[LoadBalancer]
+	// policies stores load balancer policies keyed by
+	// region+"|"+loadBalancerName+"/"+policyName.
+	policies *store.Table[LoadBalancerPolicy]
+	// policiesByLB indexes policies by their owning load balancer
+	// (region+"|"+loadBalancerName) for per-LB listing and cascade delete.
+	policiesByLB *store.Index[LoadBalancerPolicy]
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		lbs:       make(map[string]map[string]*LoadBalancer),
-		policies:  make(map[string]map[string]*LoadBalancerPolicy),
+	b := &InMemoryBackend{
+		registry:  store.NewRegistry(),
 		mu:        lockmetrics.New("elb"),
 		accountID: accountID,
 		region:    region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend was configured with. It is the
 // fallback region used when a request context carries no region.
 func (b *InMemoryBackend) Region() string { return b.region }
-
-// lbsStore returns the per-region load balancer map, lazily creating it.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) lbsStore(region string) map[string]*LoadBalancer {
-	if b.lbs[region] == nil {
-		b.lbs[region] = make(map[string]*LoadBalancer)
-	}
-
-	return b.lbs[region]
-}
-
-// policiesStore returns the per-region policy map, lazily creating it.
-// Callers must hold b.mu.
-func (b *InMemoryBackend) policiesStore(region string) map[string]*LoadBalancerPolicy {
-	if b.policies[region] == nil {
-		b.policies[region] = make(map[string]*LoadBalancerPolicy)
-	}
-
-	return b.policies[region]
-}
 
 // Reset clears all backend state across every region. All Tags registries are
 // closed to avoid metric leaks.
@@ -420,16 +413,13 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, regionLBs := range b.lbs {
-		for _, lb := range regionLBs {
-			if lb.Tags != nil {
-				lb.Tags.Close()
-			}
+	for _, lb := range b.lbs.All() {
+		if lb.Tags != nil {
+			lb.Tags.Close()
 		}
 	}
 
-	b.lbs = make(map[string]map[string]*LoadBalancer)
-	b.policies = make(map[string]map[string]*LoadBalancerPolicy)
+	b.registry.ResetAll()
 }
 
 // lbCopy returns a deep copy of a LoadBalancer, excluding the Tags pointer (which is
@@ -477,10 +467,17 @@ func lbCopy(lb *LoadBalancer) LoadBalancer {
 }
 
 // AddLoadBalancerInternal inserts a pre-built LoadBalancer for seeding test state.
-// The lb is deep-copied on insertion. Tags is initialised if nil.
+// The lb is deep-copied on insertion. Tags is initialised if nil. Region
+// defaults to the backend's configured region if unset, matching every other
+// insertion path (e.g. CreateLoadBalancer) so the seeded LB is reachable via
+// the default-region fallback in getRegion.
 func (b *InMemoryBackend) AddLoadBalancerInternal(lb LoadBalancer) {
 	b.mu.Lock("AddLoadBalancerInternal")
 	defer b.mu.Unlock()
+
+	if lb.Region == "" {
+		lb.Region = b.region
+	}
 
 	if lb.Tags == nil {
 		lb.Tags = tags.New("elb." + lb.LoadBalancerName)
@@ -511,7 +508,7 @@ func (b *InMemoryBackend) AddLoadBalancerInternal(lb LoadBalancer) {
 	}
 
 	cp := lbCopy(&lb)
-	b.lbsStore(b.region)[lb.LoadBalancerName] = &cp
+	b.lbs.Put(&cp)
 }
 
 // validateCreateLBName checks that the LB name is present and well-formed.
@@ -619,14 +616,13 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.lbsStore(region)
 
-	if _, exists := store[input.LoadBalancerName]; exists {
+	if b.lbs.Has(lbTableKey(region, input.LoadBalancerName)) {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerAlreadyExists, input.LoadBalancerName)
 	}
 
 	const maxLBs = 20
-	if len(store) >= maxLBs {
+	if len(b.lbsByRegion.Get(region)) >= maxLBs {
 		return nil, fmt.Errorf(
 			"%w: classic-load-balancers limit of %d exceeded",
 			ErrValidation, maxLBs,
@@ -682,7 +678,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 		IsVPC:                     isVPC,
 	}
 
-	store[input.LoadBalancerName] = lb
+	b.lbs.Put(lb)
 
 	cp := lbCopy(lb)
 
@@ -696,23 +692,22 @@ func (b *InMemoryBackend) DeleteLoadBalancer(ctx context.Context, name string) e
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.lbsStore(region)
 
-	lb, ok := store[name]
+	lb, ok := b.lbs.Get(lbTableKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
 	lb.Tags.Close()
-	delete(store, name)
+	b.lbs.Delete(lbTableKey(region, name))
 
-	// Cascade-delete all policies that belong to this load balancer.
-	policies := b.policiesStore(region)
-	prefix := name + "/"
-	for k := range policies {
-		if strings.HasPrefix(k, prefix) {
-			delete(policies, k)
-		}
+	// Cascade-delete all policies that belong to this load balancer. The
+	// index lookup is copied into a fresh slice first because Table.Delete
+	// mutates the very index group policiesByLB.Get returns; iterating the
+	// live group while deleting from it would corrupt the in-progress scan.
+	policiesToDelete := slices.Clone(b.policiesByLB.Get(lbTableKey(region, name)))
+	for _, p := range policiesToDelete {
+		b.policies.Delete(policyTableKey(p.Region, p.LoadBalancerName, p.PolicyName))
 	}
 
 	return nil
@@ -724,13 +719,13 @@ func (b *InMemoryBackend) DescribeLoadBalancers(ctx context.Context, names []str
 	b.mu.RLock("DescribeLoadBalancers")
 	defer b.mu.RUnlock()
 
-	store := b.lbsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
 	if len(names) > 0 {
 		result := make([]LoadBalancer, 0, len(names))
 
 		for _, name := range names {
-			lb, ok := store[name]
+			lb, ok := b.lbs.Get(lbTableKey(region, name))
 			if !ok {
 				return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 			}
@@ -741,8 +736,9 @@ func (b *InMemoryBackend) DescribeLoadBalancers(ctx context.Context, names []str
 		return result, nil
 	}
 
-	result := make([]LoadBalancer, 0, len(store))
-	for _, lb := range store {
+	regionLBs := b.lbsByRegion.Get(region)
+	result := make([]LoadBalancer, 0, len(regionLBs))
+	for _, lb := range regionLBs {
 		result = append(result, lbCopy(lb))
 	}
 
@@ -760,7 +756,7 @@ func (b *InMemoryBackend) RegisterInstancesWithLoadBalancer(
 	b.mu.Lock("RegisterInstancesWithLoadBalancer")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -816,7 +812,7 @@ func (b *InMemoryBackend) DeregisterInstancesFromLoadBalancer(
 	b.mu.Lock("DeregisterInstancesFromLoadBalancer")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -848,7 +844,7 @@ func (b *InMemoryBackend) ConfigureHealthCheck(
 	b.mu.Lock("ConfigureHealthCheck")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -864,7 +860,7 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tag
 	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
-	store := b.lbsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
 	const maxTagKeyLen = 128
 	const maxTagValueLen = 256
@@ -882,7 +878,7 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tag
 	}
 
 	for _, name := range names {
-		lb, ok := store[name]
+		lb, ok := b.lbs.Get(lbTableKey(region, name))
 		if !ok {
 			return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 		}
@@ -919,11 +915,11 @@ func (b *InMemoryBackend) DescribeTags(ctx context.Context, names []string) (map
 	b.mu.RLock("DescribeTags")
 	defer b.mu.RUnlock()
 
-	store := b.lbsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 	result := make(map[string][]tags.KV, len(names))
 
 	for _, name := range names {
-		lb, ok := store[name]
+		lb, ok := b.lbs.Get(lbTableKey(region, name))
 		if !ok {
 			return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 		}
@@ -948,10 +944,10 @@ func (b *InMemoryBackend) RemoveTags(ctx context.Context, names []string, keys [
 	b.mu.Lock("RemoveTags")
 	defer b.mu.Unlock()
 
-	store := b.lbsStore(getRegion(ctx, b.region))
+	region := getRegion(ctx, b.region)
 
 	for _, name := range names {
-		lb, ok := store[name]
+		lb, ok := b.lbs.Get(lbTableKey(region, name))
 		if !ok {
 			return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 		}
@@ -969,7 +965,7 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(ctx context.Context, name 
 	b.mu.Lock("CreateLoadBalancerListeners")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1022,7 +1018,7 @@ func (b *InMemoryBackend) DeleteLoadBalancerListeners(ctx context.Context, name 
 	b.mu.Lock("DeleteLoadBalancerListeners")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1053,7 +1049,7 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
 	b.mu.Lock("ModifyLoadBalancerAttributes")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1071,7 +1067,7 @@ func (b *InMemoryBackend) DescribeLoadBalancerAttributes(
 	b.mu.RLock("DescribeLoadBalancerAttributes")
 	defer b.mu.RUnlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1110,7 +1106,7 @@ func (b *InMemoryBackend) ApplySecurityGroupsToLoadBalancer(
 	b.mu.Lock("ApplySecurityGroupsToLoadBalancer")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1137,7 +1133,7 @@ func (b *InMemoryBackend) AttachLoadBalancerToSubnets(
 	b.mu.Lock("AttachLoadBalancerToSubnets")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1172,7 +1168,7 @@ func (b *InMemoryBackend) DetachLoadBalancerFromSubnets(
 	b.mu.Lock("DetachLoadBalancerFromSubnets")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1205,7 +1201,7 @@ func (b *InMemoryBackend) EnableAvailabilityZonesForLoadBalancer(
 	b.mu.Lock("EnableAvailabilityZonesForLoadBalancer")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1243,7 +1239,7 @@ func (b *InMemoryBackend) DisableAvailabilityZonesForLoadBalancer(
 	b.mu.Lock("DisableAvailabilityZonesForLoadBalancer")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1292,7 +1288,7 @@ func (b *InMemoryBackend) SetLoadBalancerListenerSSLCertificate(
 	b.mu.Lock("SetLoadBalancerListenerSSLCertificate")
 	defer b.mu.Unlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1342,16 +1338,15 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	policies := b.policiesStore(region)
 
-	lb, ok := b.lbsStore(region)[name]
+	lb, ok := b.lbs.Get(lbTableKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
 	// Validate each policy exists for this LB.
 	for _, p := range policyNames {
-		if _, exists := policies[policyKey(name, p)]; !exists {
+		if !b.policies.Has(policyTableKey(region, name, p)) {
 			return fmt.Errorf("%w: %q", ErrPolicyNotFound, p)
 		}
 	}
@@ -1360,7 +1355,8 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesOfListener(
 	proto := listenerProtocolForPort(lb, port)
 	if proto == protoTCP || proto == protoSSL {
 		for _, pName := range policyNames {
-			if isStickinessPolicy(policies[policyKey(name, pName)]) {
+			pol, _ := b.policies.Get(policyTableKey(region, name, pName))
+			if isStickinessPolicy(pol) {
 				return fmt.Errorf(
 					"%w: stickiness policies cannot be applied to TCP or SSL listeners",
 					ErrInvalidConfiguration,
@@ -1393,16 +1389,15 @@ func (b *InMemoryBackend) SetLoadBalancerPoliciesForBackendServer(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	policies := b.policiesStore(region)
 
-	lb, ok := b.lbsStore(region)[name]
+	lb, ok := b.lbs.Get(lbTableKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
 	// Validate each policy exists for this LB.
 	for _, p := range policyNames {
-		if _, exists := policies[policyKey(name, p)]; !exists {
+		if !b.policies.Has(policyTableKey(region, name, p)) {
 			return fmt.Errorf("%w: %q", ErrPolicyNotFound, p)
 		}
 	}
@@ -1456,25 +1451,24 @@ func (b *InMemoryBackend) CreateAppCookieStickinessPolicy(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	policies := b.policiesStore(region)
 
-	if _, ok := b.lbsStore(region)[name]; !ok {
+	if !b.lbs.Has(lbTableKey(region, name)) {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
-	k := policyKey(name, policyName)
-	if _, ok := policies[k]; ok {
+	if b.policies.Has(policyTableKey(region, name, policyName)) {
 		return fmt.Errorf("%w: %q", ErrPolicyAlreadyExists, policyName)
 	}
 
-	policies[k] = &LoadBalancerPolicy{
+	b.policies.Put(&LoadBalancerPolicy{
 		PolicyName:       policyName,
 		PolicyTypeName:   policyTypeAppCookie,
 		LoadBalancerName: name,
+		Region:           region,
 		PolicyAttributeDescriptions: []PolicyAttribute{
 			{AttributeName: "CookieName", AttributeValue: cookieName},
 		},
-	}
+	})
 
 	return nil
 }
@@ -1491,14 +1485,12 @@ func (b *InMemoryBackend) CreateLBCookieStickinessPolicy(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	policies := b.policiesStore(region)
 
-	if _, ok := b.lbsStore(region)[name]; !ok {
+	if !b.lbs.Has(lbTableKey(region, name)) {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
-	k := policyKey(name, policyName)
-	if _, ok := policies[k]; ok {
+	if b.policies.Has(policyTableKey(region, name, policyName)) {
 		return fmt.Errorf("%w: %q", ErrPolicyAlreadyExists, policyName)
 	}
 
@@ -1507,14 +1499,15 @@ func (b *InMemoryBackend) CreateLBCookieStickinessPolicy(
 		expStr = strconv.FormatInt(cookieExpirationPeriod, 10)
 	}
 
-	policies[k] = &LoadBalancerPolicy{
+	b.policies.Put(&LoadBalancerPolicy{
 		PolicyName:       policyName,
 		PolicyTypeName:   policyTypeLBCookie,
 		LoadBalancerName: name,
+		Region:           region,
 		PolicyAttributeDescriptions: []PolicyAttribute{
 			{AttributeName: "CookieExpirationPeriod", AttributeValue: expStr},
 		},
-	}
+	})
 
 	return nil
 }
@@ -1533,26 +1526,25 @@ func (b *InMemoryBackend) CreateLoadBalancerPolicy(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	policies := b.policiesStore(region)
 
-	if _, ok := b.lbsStore(region)[name]; !ok {
+	if !b.lbs.Has(lbTableKey(region, name)) {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
-	k := policyKey(name, policyName)
-	if _, ok := policies[k]; ok {
+	if b.policies.Has(policyTableKey(region, name, policyName)) {
 		return fmt.Errorf("%w: %q", ErrPolicyAlreadyExists, policyName)
 	}
 
 	attrCopy := make([]PolicyAttribute, len(attrs))
 	copy(attrCopy, attrs)
 
-	policies[k] = &LoadBalancerPolicy{
+	b.policies.Put(&LoadBalancerPolicy{
 		PolicyName:                  policyName,
 		PolicyTypeName:              policyTypeName,
 		LoadBalancerName:            name,
+		Region:                      region,
 		PolicyAttributeDescriptions: attrCopy,
-	}
+	})
 
 	return nil
 }
@@ -1563,15 +1555,14 @@ func (b *InMemoryBackend) DeleteLoadBalancerPolicy(ctx context.Context, name, po
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	policies := b.policiesStore(region)
 
-	lb, ok := b.lbsStore(region)[name]
+	lb, ok := b.lbs.Get(lbTableKey(region, name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
 
-	k := policyKey(name, policyName)
-	if _, exists := policies[k]; !exists {
+	k := policyTableKey(region, name, policyName)
+	if !b.policies.Has(k) {
 		return fmt.Errorf("%w: %q", ErrPolicyNotFound, policyName)
 	}
 
@@ -1599,7 +1590,7 @@ func (b *InMemoryBackend) DeleteLoadBalancerPolicy(ctx context.Context, name, po
 		}
 	}
 
-	delete(policies, k)
+	b.policies.Delete(k)
 
 	return nil
 }
@@ -1623,7 +1614,7 @@ func (b *InMemoryBackend) DescribeInstanceHealth(
 	b.mu.RLock("DescribeInstanceHealth")
 	defer b.mu.RUnlock()
 
-	lb, ok := b.lbsStore(getRegion(ctx, b.region))[name]
+	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 	}
@@ -1699,7 +1690,7 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 
 	// When a load balancer name is given, validate it exists.
 	if name != "" {
-		if _, ok := b.lbsStore(region)[name]; !ok {
+		if !b.lbs.Has(lbTableKey(region, name)) {
 			return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
 		}
 	}
@@ -1730,13 +1721,9 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicies(
 		return result, nil
 	}
 
-	policies := b.policiesStore(region)
-	result := make([]LoadBalancerPolicy, 0, len(policies))
-	for _, p := range policies {
-		if p.LoadBalancerName != name {
-			continue
-		}
-
+	lbPolicies := b.policiesByLB.Get(lbTableKey(region, name))
+	result := make([]LoadBalancerPolicy, 0, len(lbPolicies))
+	for _, p := range lbPolicies {
 		if len(filterNames) > 0 && !filterNames[p.PolicyName] {
 			continue
 		}

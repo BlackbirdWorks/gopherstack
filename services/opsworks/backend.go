@@ -1,9 +1,9 @@
 package opsworks
 
 import (
-	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,7 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -397,72 +397,57 @@ func (l *storedLoadBasedAutoScaling) toLoadBasedAutoScaling() *LoadBasedAutoScal
 	}
 }
 
-// snapshot holds serializable backend state.
-type snapshot struct {
-	Stacks             map[string]*storedStack                `json:"stacks"`
-	Layers             map[string]*storedLayer                `json:"layers"`
-	Instances          map[string]*storedInstance             `json:"instances"`
-	Apps               map[string]*storedApp                  `json:"apps"`
-	Deployments        map[string]*storedDeployment           `json:"deployments"`
-	Commands           map[string]*storedCommand              `json:"commands"`
-	Tags               map[string]map[string]string           `json:"tags"`
-	UserProfiles       map[string]*storedUserProfile          `json:"userProfiles"`
-	ElasticLBs         map[string]*storedElasticLoadBalancer  `json:"elasticLBs"`
-	ElasticIPs         map[string]*storedElasticIP            `json:"elasticIps"`
-	Volumes            map[string]*storedVolume               `json:"volumes"`
-	RdsDBInstances     map[string]*storedRdsDBInstance        `json:"rdsDbInstances"`
-	EcsClusters        map[string]*storedEcsCluster           `json:"ecsClusters"`
-	Permissions        map[string]*storedPermission           `json:"permissions"`
-	TimeBasedAutoScale map[string]*storedTimeBasedAutoScaling `json:"timeBasedAutoScale"`
-	LoadBasedAutoScale map[string]*storedLoadBasedAutoScaling `json:"loadBasedAutoScale"`
-}
-
 // InMemoryBackend is an in-memory OpsWorks backend.
 type InMemoryBackend struct {
-	mu                 *lockmetrics.RWMutex
-	stacks             map[string]*storedStack
-	layers             map[string]*storedLayer
-	instances          map[string]*storedInstance
-	apps               map[string]*storedApp
-	deployments        map[string]*storedDeployment
-	commands           map[string]*storedCommand
-	tags               map[string]map[string]string
-	userProfiles       map[string]*storedUserProfile
-	elasticLBs         map[string]*storedElasticLoadBalancer
-	elasticIPs         map[string]*storedElasticIP
-	volumes            map[string]*storedVolume
-	rdsDBInstances     map[string]*storedRdsDBInstance
-	ecsClusters        map[string]*storedEcsCluster
-	permissions        map[string]*storedPermission
-	timeBasedAutoScale map[string]*storedTimeBasedAutoScaling
-	loadBasedAutoScale map[string]*storedLoadBasedAutoScaling
-	accountID          string
-	region             string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	stacks *store.Table[storedStack]
+
+	layers             *store.Table[storedLayer]
+	layersByStack      *store.Index[storedLayer]
+	instances          *store.Table[storedInstance]
+	instancesByStack   *store.Index[storedInstance]
+	apps               *store.Table[storedApp]
+	appsByStack        *store.Index[storedApp]
+	deployments        *store.Table[storedDeployment]
+	deploymentsByStack *store.Index[storedDeployment]
+	commands           *store.Table[storedCommand]
+
+	tags map[string]map[string]string
+
+	userProfiles *store.Table[storedUserProfile]
+	elasticLBs   *store.Table[storedElasticLoadBalancer]
+	elasticIPs   *store.Table[storedElasticIP]
+
+	volumes               *store.Table[storedVolume]
+	volumesByStack        *store.Index[storedVolume]
+	rdsDBInstances        *store.Table[storedRdsDBInstance]
+	rdsDBInstancesByStack *store.Index[storedRdsDBInstance]
+	ecsClusters           *store.Table[storedEcsCluster]
+	ecsClustersByStack    *store.Index[storedEcsCluster]
+	permissions           *store.Table[storedPermission]
+	permissionsByStack    *store.Index[storedPermission]
+
+	timeBasedAutoScale *store.Table[storedTimeBasedAutoScaling]
+	loadBasedAutoScale *store.Table[storedLoadBasedAutoScaling]
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new in-memory OpsWorks backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                 lockmetrics.New("opsworks"),
-		stacks:             make(map[string]*storedStack),
-		layers:             make(map[string]*storedLayer),
-		instances:          make(map[string]*storedInstance),
-		apps:               make(map[string]*storedApp),
-		deployments:        make(map[string]*storedDeployment),
-		commands:           make(map[string]*storedCommand),
-		tags:               make(map[string]map[string]string),
-		userProfiles:       make(map[string]*storedUserProfile),
-		elasticLBs:         make(map[string]*storedElasticLoadBalancer),
-		elasticIPs:         make(map[string]*storedElasticIP),
-		volumes:            make(map[string]*storedVolume),
-		rdsDBInstances:     make(map[string]*storedRdsDBInstance),
-		ecsClusters:        make(map[string]*storedEcsCluster),
-		permissions:        make(map[string]*storedPermission),
-		timeBasedAutoScale: make(map[string]*storedTimeBasedAutoScaling),
-		loadBasedAutoScale: make(map[string]*storedLoadBasedAutoScaling),
-		accountID:          accountID,
-		region:             region,
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("opsworks"),
+		registry:  store.NewRegistry(),
+		tags:      make(map[string]map[string]string),
+		accountID: accountID,
+		region:    region,
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the configured account ID.
@@ -476,77 +461,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.stacks = make(map[string]*storedStack)
-	b.layers = make(map[string]*storedLayer)
-	b.instances = make(map[string]*storedInstance)
-	b.apps = make(map[string]*storedApp)
-	b.deployments = make(map[string]*storedDeployment)
-	b.commands = make(map[string]*storedCommand)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.userProfiles = make(map[string]*storedUserProfile)
-	b.elasticLBs = make(map[string]*storedElasticLoadBalancer)
-	b.elasticIPs = make(map[string]*storedElasticIP)
-	b.volumes = make(map[string]*storedVolume)
-	b.rdsDBInstances = make(map[string]*storedRdsDBInstance)
-	b.ecsClusters = make(map[string]*storedEcsCluster)
-	b.permissions = make(map[string]*storedPermission)
-	b.timeBasedAutoScale = make(map[string]*storedTimeBasedAutoScaling)
-	b.loadBasedAutoScale = make(map[string]*storedLoadBasedAutoScaling)
-}
-
-// Snapshot serializes the backend state.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "opsworks", snapshot{
-		Stacks:             b.stacks,
-		Layers:             b.layers,
-		Instances:          b.instances,
-		Apps:               b.apps,
-		Deployments:        b.deployments,
-		Commands:           b.commands,
-		Tags:               b.tags,
-		UserProfiles:       b.userProfiles,
-		ElasticLBs:         b.elasticLBs,
-		ElasticIPs:         b.elasticIPs,
-		Volumes:            b.volumes,
-		RdsDBInstances:     b.rdsDBInstances,
-		EcsClusters:        b.ecsClusters,
-		Permissions:        b.permissions,
-		TimeBasedAutoScale: b.timeBasedAutoScale,
-		LoadBasedAutoScale: b.loadBasedAutoScale,
-	})
-}
-
-// Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	var s snapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "opsworks", data, &s); err != nil {
-		return err
-	}
-
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	b.stacks = s.Stacks
-	b.layers = s.Layers
-	b.instances = s.Instances
-	b.apps = s.Apps
-	b.deployments = s.Deployments
-	b.commands = s.Commands
-	b.tags = s.Tags
-	b.userProfiles = s.UserProfiles
-	b.elasticLBs = s.ElasticLBs
-	b.elasticIPs = s.ElasticIPs
-	b.volumes = s.Volumes
-	b.rdsDBInstances = s.RdsDBInstances
-	b.ecsClusters = s.EcsClusters
-	b.permissions = s.Permissions
-	b.timeBasedAutoScale = s.TimeBasedAutoScale
-	b.loadBasedAutoScale = s.LoadBasedAutoScale
-
-	return nil
 }
 
 func (b *InMemoryBackend) stackARN(stackID string) string {
@@ -567,6 +483,19 @@ func (b *InMemoryBackend) appARN(appID string) string {
 
 func permissionKey(stackID, iamUserArn string) string {
 	return stackID + ":" + iamUserArn
+}
+
+// stackScoped returns byStack(stackID) when stackID is set, otherwise every
+// value in the owning table (via all). It centralizes the "list everything,
+// optionally narrowed to one stack" selection shared by several Describe*
+// methods (DescribeInstances, DescribeDeployments, ...), each of which then
+// applies its own additional in-memory filter on top of this base set.
+func stackScoped[V any](stackID string, all func() []*V, byStack func(string) []*V) []*V {
+	if stackID == "" {
+		return all()
+	}
+
+	return byStack(stackID)
 }
 
 // CreateStack creates a new OpsWorks stack.
@@ -595,7 +524,7 @@ func (b *InMemoryBackend) CreateStack(
 		ServiceRoleArn:            serviceRoleArn,
 		Status:                    "running",
 	}
-	b.stacks[id] = s
+	b.stacks.Put(s)
 
 	return s.toStack(), nil
 }
@@ -605,7 +534,7 @@ func (b *InMemoryBackend) CloneStack(sourceStackID, name, region string) (*Stack
 	b.mu.Lock("CloneStack")
 	defer b.mu.Unlock()
 
-	src, ok := b.stacks[sourceStackID]
+	src, ok := b.stacks.Get(sourceStackID)
 	if !ok {
 		return nil, ErrStackNotFound
 	}
@@ -634,7 +563,7 @@ func (b *InMemoryBackend) CloneStack(sourceStackID, name, region string) (*Stack
 		ServiceRoleArn:            src.ServiceRoleArn,
 		Status:                    "running",
 	}
-	b.stacks[id] = s
+	b.stacks.Put(s)
 
 	return s.toStack(), nil
 }
@@ -647,7 +576,7 @@ func (b *InMemoryBackend) DescribeStacks(stackIDs []string) ([]*Stack, error) {
 	if len(stackIDs) > 0 {
 		result := make([]*Stack, 0, len(stackIDs))
 		for _, id := range stackIDs {
-			s, ok := b.stacks[id]
+			s, ok := b.stacks.Get(id)
 			if !ok {
 				return nil, ErrStackNotFound
 			}
@@ -657,8 +586,9 @@ func (b *InMemoryBackend) DescribeStacks(stackIDs []string) ([]*Stack, error) {
 		return result, nil
 	}
 
-	result := make([]*Stack, 0, len(b.stacks))
-	for _, s := range b.stacks {
+	all := b.stacks.All()
+	result := make([]*Stack, 0, len(all))
+	for _, s := range all {
 		result = append(result, s.toStack())
 	}
 
@@ -670,7 +600,7 @@ func (b *InMemoryBackend) UpdateStack(stackID, name string) error {
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
 
-	s, ok := b.stacks[stackID]
+	s, ok := b.stacks.Get(stackID)
 	if !ok {
 		return ErrStackNotFound
 	}
@@ -684,50 +614,34 @@ func (b *InMemoryBackend) UpdateStack(stackID, name string) error {
 
 // deleteStackResources removes layers, instances, apps, and deployments for a stack (caller holds lock).
 func (b *InMemoryBackend) deleteStackResources(stackID string) {
-	for id, l := range b.layers {
-		if l.StackID == stackID {
-			delete(b.layers, id)
-		}
+	for _, l := range slices.Clone(b.layersByStack.Get(stackID)) {
+		b.layers.Delete(l.LayerID)
 	}
-	for id, i := range b.instances {
-		if i.StackID == stackID {
-			delete(b.instances, id)
-		}
+	for _, i := range slices.Clone(b.instancesByStack.Get(stackID)) {
+		b.instances.Delete(i.InstanceID)
 	}
-	for id, a := range b.apps {
-		if a.StackID == stackID {
-			delete(b.apps, id)
-		}
+	for _, a := range slices.Clone(b.appsByStack.Get(stackID)) {
+		b.apps.Delete(a.AppID)
 	}
-	for id, d := range b.deployments {
-		if d.StackID == stackID {
-			delete(b.deployments, id)
-		}
+	for _, d := range slices.Clone(b.deploymentsByStack.Get(stackID)) {
+		b.deployments.Delete(d.DeploymentID)
 	}
 }
 
 // deleteStackAssociations removes permissions, volumes, RDS instances, and ECS clusters for a stack
 // (caller holds lock).
 func (b *InMemoryBackend) deleteStackAssociations(stackID string) {
-	for k, p := range b.permissions {
-		if p.StackID == stackID {
-			delete(b.permissions, k)
-		}
+	for _, p := range slices.Clone(b.permissionsByStack.Get(stackID)) {
+		b.permissions.Delete(permissionKey(p.StackID, p.IamUserArn))
 	}
-	for k, v := range b.volumes {
-		if v.StackID == stackID {
-			delete(b.volumes, k)
-		}
+	for _, v := range slices.Clone(b.volumesByStack.Get(stackID)) {
+		b.volumes.Delete(v.VolumeID)
 	}
-	for k, r := range b.rdsDBInstances {
-		if r.StackID == stackID {
-			delete(b.rdsDBInstances, k)
-		}
+	for _, r := range slices.Clone(b.rdsDBInstancesByStack.Get(stackID)) {
+		b.rdsDBInstances.Delete(r.RdsDBInstanceArn)
 	}
-	for k, e := range b.ecsClusters {
-		if e.StackID == stackID {
-			delete(b.ecsClusters, k)
-		}
+	for _, e := range slices.Clone(b.ecsClustersByStack.Get(stackID)) {
+		b.ecsClusters.Delete(e.EcsClusterArn)
 	}
 }
 
@@ -742,7 +656,7 @@ func (b *InMemoryBackend) DeleteStack(stackID string) error {
 	b.mu.Lock("DeleteStack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return ErrStackNotFound
 	}
 
@@ -750,7 +664,7 @@ func (b *InMemoryBackend) DeleteStack(stackID string) error {
 
 	stackArn := b.stackARN(stackID)
 	delete(b.tags, stackArn)
-	delete(b.stacks, stackID)
+	b.stacks.Delete(stackID)
 
 	return nil
 }
@@ -760,12 +674,12 @@ func (b *InMemoryBackend) StartStack(stackID string) error {
 	b.mu.Lock("StartStack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return ErrStackNotFound
 	}
 
-	for _, i := range b.instances {
-		if i.StackID == stackID && i.Status == instanceStatusStopped {
+	for _, i := range b.instancesByStack.Get(stackID) {
+		if i.Status == instanceStatusStopped {
 			i.Status = instanceStatusStarting
 		}
 	}
@@ -778,12 +692,12 @@ func (b *InMemoryBackend) StopStack(stackID string) error {
 	b.mu.Lock("StopStack")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return ErrStackNotFound
 	}
 
-	for _, i := range b.instances {
-		if i.StackID == stackID && i.Status == instanceStatusOnline {
+	for _, i := range b.instancesByStack.Get(stackID) {
+		if i.Status == instanceStatusOnline {
 			i.Status = instanceStatusStopping
 		}
 	}
@@ -796,7 +710,7 @@ func (b *InMemoryBackend) GetHostnameSuggestion(stackID, _ string) (string, erro
 	b.mu.RLock("GetHostnameSuggestion")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return "", ErrStackNotFound
 	}
 
@@ -810,16 +724,13 @@ func (b *InMemoryBackend) DescribeStackSummary(stackID string) (*StackSummary, e
 	b.mu.RLock("DescribeStackSummary")
 	defer b.mu.RUnlock()
 
-	s, ok := b.stacks[stackID]
+	s, ok := b.stacks.Get(stackID)
 	if !ok {
 		return nil, ErrStackNotFound
 	}
 
 	counts := &InstancesCount{}
-	for _, i := range b.instances {
-		if i.StackID != stackID {
-			continue
-		}
+	for _, i := range b.instancesByStack.Get(stackID) {
 		counts.Total++
 		switch i.Status {
 		case instanceStatusOnline:
@@ -834,20 +745,14 @@ func (b *InMemoryBackend) DescribeStackSummary(stackID string) (*StackSummary, e
 	}
 
 	var layerCount, appCount, deploymentCount int32
-	for _, l := range b.layers {
-		if l.StackID == stackID {
-			layerCount++
-		}
+	for range b.layersByStack.Get(stackID) {
+		layerCount++
 	}
-	for _, a := range b.apps {
-		if a.StackID == stackID {
-			appCount++
-		}
+	for range b.appsByStack.Get(stackID) {
+		appCount++
 	}
-	for _, d := range b.deployments {
-		if d.StackID == stackID {
-			deploymentCount++
-		}
+	for range b.deploymentsByStack.Get(stackID) {
+		deploymentCount++
 	}
 
 	return &StackSummary{
@@ -866,7 +771,7 @@ func (b *InMemoryBackend) DescribeStackProvisioningParameters(stackID string) (m
 	b.mu.RLock("DescribeStackProvisioningParameters")
 	defer b.mu.RUnlock()
 
-	s, ok := b.stacks[stackID]
+	s, ok := b.stacks.Get(stackID)
 	if !ok {
 		return nil, "", ErrStackNotFound
 	}
@@ -890,7 +795,7 @@ func (b *InMemoryBackend) CreateLayer(stackID, layerType, name, shortname string
 	b.mu.Lock("CreateLayer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return nil, ErrStackNotFound
 	}
 
@@ -906,7 +811,7 @@ func (b *InMemoryBackend) CreateLayer(stackID, layerType, name, shortname string
 		Name:      name,
 		Shortname: shortname,
 	}
-	b.layers[id] = l
+	b.layers.Put(l)
 
 	return l.toLayer(), nil
 }
@@ -919,7 +824,7 @@ func (b *InMemoryBackend) DescribeLayers(stackID string, layerIDs []string) ([]*
 	if len(layerIDs) > 0 {
 		result := make([]*Layer, 0, len(layerIDs))
 		for _, id := range layerIDs {
-			l, ok := b.layers[id]
+			l, ok := b.layers.Get(id)
 			if !ok {
 				return nil, ErrLayerNotFound
 			}
@@ -929,11 +834,11 @@ func (b *InMemoryBackend) DescribeLayers(stackID string, layerIDs []string) ([]*
 		return result, nil
 	}
 
-	result := make([]*Layer, 0)
-	for _, l := range b.layers {
-		if stackID == "" || l.StackID == stackID {
-			result = append(result, l.toLayer())
-		}
+	source := stackScoped(stackID, b.layers.All, b.layersByStack.Get)
+
+	result := make([]*Layer, 0, len(source))
+	for _, l := range source {
+		result = append(result, l.toLayer())
 	}
 
 	return result, nil
@@ -944,7 +849,7 @@ func (b *InMemoryBackend) UpdateLayer(layerID, name string) error {
 	b.mu.Lock("UpdateLayer")
 	defer b.mu.Unlock()
 
-	l, ok := b.layers[layerID]
+	l, ok := b.layers.Get(layerID)
 	if !ok {
 		return ErrLayerNotFound
 	}
@@ -961,11 +866,9 @@ func (b *InMemoryBackend) DeleteLayer(layerID string) error {
 	b.mu.Lock("DeleteLayer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.layers[layerID]; !ok {
+	if !b.layers.Delete(layerID) {
 		return ErrLayerNotFound
 	}
-
-	delete(b.layers, layerID)
 
 	return nil
 }
@@ -975,7 +878,7 @@ func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) 
 	b.mu.Lock("CreateInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return nil, ErrStackNotFound
 	}
 
@@ -994,7 +897,7 @@ func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) 
 		InstanceType: instanceType,
 		Status:       instanceStatusStopped,
 	}
-	b.instances[id] = i
+	b.instances.Put(i)
 
 	return i.toInstance(), nil
 }
@@ -1004,7 +907,7 @@ func (b *InMemoryBackend) RegisterInstance(stackID, hostname string) (string, er
 	b.mu.Lock("RegisterInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return "", ErrStackNotFound
 	}
 
@@ -1025,7 +928,7 @@ func (b *InMemoryBackend) RegisterInstance(stackID, hostname string) (string, er
 		Status:     instanceStatusStopped,
 		Registered: true,
 	}
-	b.instances[id] = i
+	b.instances.Put(i)
 
 	return id, nil
 }
@@ -1035,11 +938,9 @@ func (b *InMemoryBackend) DeregisterInstance(instanceID string) error {
 	b.mu.Lock("DeregisterInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if !b.instances.Delete(instanceID) {
 		return ErrInstanceNotFound
 	}
-
-	delete(b.instances, instanceID)
 
 	return nil
 }
@@ -1049,7 +950,7 @@ func (b *InMemoryBackend) AssignInstance(instanceID string, layerIDs []string) e
 	b.mu.Lock("AssignInstance")
 	defer b.mu.Unlock()
 
-	i, ok := b.instances[instanceID]
+	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -1066,7 +967,7 @@ func (b *InMemoryBackend) UnassignInstance(instanceID string) error {
 	b.mu.Lock("UnassignInstance")
 	defer b.mu.Unlock()
 
-	i, ok := b.instances[instanceID]
+	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -1084,7 +985,7 @@ func (b *InMemoryBackend) DescribeInstances(stackID, layerID string, instanceIDs
 	if len(instanceIDs) > 0 {
 		result := make([]*Instance, 0, len(instanceIDs))
 		for _, id := range instanceIDs {
-			i, ok := b.instances[id]
+			i, ok := b.instances.Get(id)
 			if !ok {
 				return nil, ErrInstanceNotFound
 			}
@@ -1094,11 +995,10 @@ func (b *InMemoryBackend) DescribeInstances(stackID, layerID string, instanceIDs
 		return result, nil
 	}
 
-	result := make([]*Instance, 0)
-	for _, i := range b.instances {
-		if stackID != "" && i.StackID != stackID {
-			continue
-		}
+	source := stackScoped(stackID, b.instances.All, b.instancesByStack.Get)
+
+	result := make([]*Instance, 0, len(source))
+	for _, i := range source {
 		if layerID != "" && i.LayerID != layerID {
 			continue
 		}
@@ -1113,7 +1013,7 @@ func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string) error {
 	b.mu.Lock("UpdateInstance")
 	defer b.mu.Unlock()
 
-	i, ok := b.instances[instanceID]
+	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -1130,11 +1030,9 @@ func (b *InMemoryBackend) DeleteInstance(instanceID string) error {
 	b.mu.Lock("DeleteInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if !b.instances.Delete(instanceID) {
 		return ErrInstanceNotFound
 	}
-
-	delete(b.instances, instanceID)
 
 	return nil
 }
@@ -1144,7 +1042,7 @@ func (b *InMemoryBackend) StartInstance(instanceID string) error {
 	b.mu.Lock("StartInstance")
 	defer b.mu.Unlock()
 
-	i, ok := b.instances[instanceID]
+	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -1159,7 +1057,7 @@ func (b *InMemoryBackend) StopInstance(instanceID string) error {
 	b.mu.Lock("StopInstance")
 	defer b.mu.Unlock()
 
-	i, ok := b.instances[instanceID]
+	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -1174,7 +1072,7 @@ func (b *InMemoryBackend) RebootInstance(instanceID string) error {
 	b.mu.Lock("RebootInstance")
 	defer b.mu.Unlock()
 
-	i, ok := b.instances[instanceID]
+	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
 	}
@@ -1193,7 +1091,7 @@ func (b *InMemoryBackend) CreateApp(stackID, name, appType string) (*App, error)
 	b.mu.Lock("CreateApp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return nil, ErrStackNotFound
 	}
 
@@ -1208,7 +1106,7 @@ func (b *InMemoryBackend) CreateApp(stackID, name, appType string) (*App, error)
 		Name:      name,
 		Type:      appType,
 	}
-	b.apps[id] = a
+	b.apps.Put(a)
 
 	return a.toApp(), nil
 }
@@ -1221,7 +1119,7 @@ func (b *InMemoryBackend) DescribeApps(stackID string, appIDs []string) ([]*App,
 	if len(appIDs) > 0 {
 		result := make([]*App, 0, len(appIDs))
 		for _, id := range appIDs {
-			a, ok := b.apps[id]
+			a, ok := b.apps.Get(id)
 			if !ok {
 				return nil, ErrAppNotFound
 			}
@@ -1231,11 +1129,11 @@ func (b *InMemoryBackend) DescribeApps(stackID string, appIDs []string) ([]*App,
 		return result, nil
 	}
 
-	result := make([]*App, 0)
-	for _, a := range b.apps {
-		if stackID == "" || a.StackID == stackID {
-			result = append(result, a.toApp())
-		}
+	source := stackScoped(stackID, b.apps.All, b.appsByStack.Get)
+
+	result := make([]*App, 0, len(source))
+	for _, a := range source {
+		result = append(result, a.toApp())
 	}
 
 	return result, nil
@@ -1246,7 +1144,7 @@ func (b *InMemoryBackend) UpdateApp(appID, name string) error {
 	b.mu.Lock("UpdateApp")
 	defer b.mu.Unlock()
 
-	a, ok := b.apps[appID]
+	a, ok := b.apps.Get(appID)
 	if !ok {
 		return ErrAppNotFound
 	}
@@ -1263,11 +1161,9 @@ func (b *InMemoryBackend) DeleteApp(appID string) error {
 	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	if !b.apps.Delete(appID) {
 		return ErrAppNotFound
 	}
-
-	delete(b.apps, appID)
 
 	return nil
 }
@@ -1277,7 +1173,7 @@ func (b *InMemoryBackend) CreateDeployment(stackID, appID, command string) (*Dep
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return nil, ErrStackNotFound
 	}
 
@@ -1295,7 +1191,7 @@ func (b *InMemoryBackend) CreateDeployment(stackID, appID, command string) (*Dep
 		Status:       deploymentStatusSuccessful,
 		Duration:     1,
 	}
-	b.deployments[id] = d
+	b.deployments.Put(d)
 
 	cmdID := uuid.NewString()
 	cmd := &storedCommand{
@@ -1309,7 +1205,7 @@ func (b *InMemoryBackend) CreateDeployment(stackID, appID, command string) (*Dep
 		Status:         commandStatusSuccessful,
 		ExitCode:       0,
 	}
-	b.commands[cmdID] = cmd
+	b.commands.Put(cmd)
 
 	return d.toDeployment(), nil
 }
@@ -1322,7 +1218,7 @@ func (b *InMemoryBackend) DescribeDeployments(stackID, appID string, deploymentI
 	if len(deploymentIDs) > 0 {
 		result := make([]*Deployment, 0, len(deploymentIDs))
 		for _, id := range deploymentIDs {
-			d, ok := b.deployments[id]
+			d, ok := b.deployments.Get(id)
 			if !ok {
 				return nil, ErrDeploymentNotFound
 			}
@@ -1332,11 +1228,10 @@ func (b *InMemoryBackend) DescribeDeployments(stackID, appID string, deploymentI
 		return result, nil
 	}
 
-	result := make([]*Deployment, 0)
-	for _, d := range b.deployments {
-		if stackID != "" && d.StackID != stackID {
-			continue
-		}
+	source := stackScoped(stackID, b.deployments.All, b.deploymentsByStack.Get)
+
+	result := make([]*Deployment, 0, len(source))
+	for _, d := range source {
 		if appID != "" && d.AppID != appID {
 			continue
 		}
@@ -1354,7 +1249,7 @@ func (b *InMemoryBackend) DescribeCommands(deploymentID, instanceID string, comm
 	if len(commandIDs) > 0 {
 		result := make([]*Command, 0, len(commandIDs))
 		for _, id := range commandIDs {
-			c, ok := b.commands[id]
+			c, ok := b.commands.Get(id)
 			if !ok {
 				return nil, ErrCommandNotFound
 			}
@@ -1365,7 +1260,7 @@ func (b *InMemoryBackend) DescribeCommands(deploymentID, instanceID string, comm
 	}
 
 	result := make([]*Command, 0)
-	for _, c := range b.commands {
+	for _, c := range b.commands.All() {
 		if deploymentID != "" && c.DeploymentID != deploymentID {
 			continue
 		}
@@ -1490,7 +1385,7 @@ func (b *InMemoryBackend) CreateUserProfile(
 		SSHPublicKey:        sshPublicKey,
 		AllowSelfManagement: allowSelfManagement,
 	}
-	b.userProfiles[iamUserArn] = u
+	b.userProfiles.Put(u)
 
 	return u.toUserProfile(), nil
 }
@@ -1500,11 +1395,9 @@ func (b *InMemoryBackend) DeleteUserProfile(iamUserArn string) error {
 	b.mu.Lock("DeleteUserProfile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.userProfiles[iamUserArn]; !ok {
+	if !b.userProfiles.Delete(iamUserArn) {
 		return ErrUserProfileNotFound
 	}
-
-	delete(b.userProfiles, iamUserArn)
 
 	return nil
 }
@@ -1516,8 +1409,8 @@ func (b *InMemoryBackend) DescribeUserProfiles(iamUserArns []string) ([]*UserPro
 
 	if len(iamUserArns) > 0 {
 		result := make([]*UserProfile, 0, len(iamUserArns))
-		for _, arn := range iamUserArns {
-			u, ok := b.userProfiles[arn]
+		for _, a := range iamUserArns {
+			u, ok := b.userProfiles.Get(a)
 			if !ok {
 				return nil, ErrUserProfileNotFound
 			}
@@ -1527,8 +1420,9 @@ func (b *InMemoryBackend) DescribeUserProfiles(iamUserArns []string) ([]*UserPro
 		return result, nil
 	}
 
-	result := make([]*UserProfile, 0, len(b.userProfiles))
-	for _, u := range b.userProfiles {
+	all := b.userProfiles.All()
+	result := make([]*UserProfile, 0, len(all))
+	for _, u := range all {
 		result = append(result, u.toUserProfile())
 	}
 
@@ -1540,7 +1434,7 @@ func (b *InMemoryBackend) UpdateUserProfile(iamUserArn, sshUsername, sshPublicKe
 	b.mu.Lock("UpdateUserProfile")
 	defer b.mu.Unlock()
 
-	u, ok := b.userProfiles[iamUserArn]
+	u, ok := b.userProfiles.Get(iamUserArn)
 	if !ok {
 		return ErrUserProfileNotFound
 	}
@@ -1579,18 +1473,18 @@ func (b *InMemoryBackend) AttachElasticLoadBalancer(elbName, layerID string) err
 	b.mu.Lock("AttachElasticLoadBalancer")
 	defer b.mu.Unlock()
 
-	l, ok := b.layers[layerID]
+	l, ok := b.layers.Get(layerID)
 	if !ok {
 		return ErrLayerNotFound
 	}
 
-	b.elasticLBs[elbName] = &storedElasticLoadBalancer{
+	b.elasticLBs.Put(&storedElasticLoadBalancer{
 		ElasticLoadBalancerName: elbName,
 		Region:                  b.region,
 		DNSName:                 fmt.Sprintf("%s.%s.elb.amazonaws.com", elbName, b.region),
 		StackID:                 l.StackID,
 		LayerID:                 layerID,
-	}
+	})
 
 	return nil
 }
@@ -1600,11 +1494,9 @@ func (b *InMemoryBackend) DetachElasticLoadBalancer(elbName, _ string) error {
 	b.mu.Lock("DetachElasticLoadBalancer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.elasticLBs[elbName]; !ok {
+	if !b.elasticLBs.Delete(elbName) {
 		return ErrElasticLBNotFound
 	}
-
-	delete(b.elasticLBs, elbName)
 
 	return nil
 }
@@ -1615,7 +1507,7 @@ func (b *InMemoryBackend) DescribeElasticLoadBalancers(stackID, _ string) ([]*El
 	defer b.mu.RUnlock()
 
 	result := make([]*ElasticLoadBalancer, 0)
-	for _, e := range b.elasticLBs {
+	for _, e := range b.elasticLBs.All() {
 		if stackID != "" && e.StackID != stackID {
 			continue
 		}
@@ -1644,7 +1536,7 @@ func (b *InMemoryBackend) RegisterElasticIP(elasticIP, region string) (*ElasticI
 		Region: r,
 		Domain: "vpc",
 	}
-	b.elasticIPs[elasticIP] = e
+	b.elasticIPs.Put(e)
 
 	return e.toElasticIP(), nil
 }
@@ -1654,11 +1546,9 @@ func (b *InMemoryBackend) DeregisterElasticIP(elasticIP string) error {
 	b.mu.Lock("DeregisterElasticIP")
 	defer b.mu.Unlock()
 
-	if _, ok := b.elasticIPs[elasticIP]; !ok {
+	if !b.elasticIPs.Delete(elasticIP) {
 		return ErrElasticIPNotFound
 	}
-
-	delete(b.elasticIPs, elasticIP)
 
 	return nil
 }
@@ -1668,12 +1558,12 @@ func (b *InMemoryBackend) AssociateElasticIP(elasticIP, instanceID string) error
 	b.mu.Lock("AssociateElasticIP")
 	defer b.mu.Unlock()
 
-	e, ok := b.elasticIPs[elasticIP]
+	e, ok := b.elasticIPs.Get(elasticIP)
 	if !ok {
 		return ErrElasticIPNotFound
 	}
 
-	if _, exists := b.instances[instanceID]; !exists {
+	if !b.instances.Has(instanceID) {
 		return ErrInstanceNotFound
 	}
 
@@ -1687,7 +1577,7 @@ func (b *InMemoryBackend) DisassociateElasticIP(elasticIP string) error {
 	b.mu.Lock("DisassociateElasticIP")
 	defer b.mu.Unlock()
 
-	e, ok := b.elasticIPs[elasticIP]
+	e, ok := b.elasticIPs.Get(elasticIP)
 	if !ok {
 		return ErrElasticIPNotFound
 	}
@@ -1705,7 +1595,7 @@ func (b *InMemoryBackend) DescribeElasticIps(instanceID string, ips []string) ([
 	if len(ips) > 0 {
 		result := make([]*ElasticIP, 0, len(ips))
 		for _, ip := range ips {
-			e, ok := b.elasticIPs[ip]
+			e, ok := b.elasticIPs.Get(ip)
 			if !ok {
 				return nil, ErrElasticIPNotFound
 			}
@@ -1716,7 +1606,7 @@ func (b *InMemoryBackend) DescribeElasticIps(instanceID string, ips []string) ([
 	}
 
 	result := make([]*ElasticIP, 0)
-	for _, e := range b.elasticIPs {
+	for _, e := range b.elasticIPs.All() {
 		if instanceID != "" && e.InstanceID != instanceID {
 			continue
 		}
@@ -1731,7 +1621,7 @@ func (b *InMemoryBackend) UpdateElasticIP(elasticIP, name string) error {
 	b.mu.Lock("UpdateElasticIP")
 	defer b.mu.Unlock()
 
-	e, ok := b.elasticIPs[elasticIP]
+	e, ok := b.elasticIPs.Get(elasticIP)
 	if !ok {
 		return ErrElasticIPNotFound
 	}
@@ -1746,7 +1636,7 @@ func (b *InMemoryBackend) RegisterVolume(ec2VolumeID, stackID string) (string, e
 	b.mu.Lock("RegisterVolume")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return "", ErrStackNotFound
 	}
 
@@ -1759,7 +1649,7 @@ func (b *InMemoryBackend) RegisterVolume(ec2VolumeID, stackID string) (string, e
 		Status:       volumeStatusRegistered,
 		Region:       b.region,
 	}
-	b.volumes[id] = v
+	b.volumes.Put(v)
 
 	return id, nil
 }
@@ -1769,11 +1659,9 @@ func (b *InMemoryBackend) DeregisterVolume(volumeID string) error {
 	b.mu.Lock("DeregisterVolume")
 	defer b.mu.Unlock()
 
-	if _, ok := b.volumes[volumeID]; !ok {
+	if !b.volumes.Delete(volumeID) {
 		return ErrVolumeNotFound
 	}
-
-	delete(b.volumes, volumeID)
 
 	return nil
 }
@@ -1783,12 +1671,12 @@ func (b *InMemoryBackend) AssignVolume(volumeID, instanceID string) error {
 	b.mu.Lock("AssignVolume")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[volumeID]
+	v, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return ErrVolumeNotFound
 	}
 
-	if _, exists := b.instances[instanceID]; !exists {
+	if !b.instances.Has(instanceID) {
 		return ErrInstanceNotFound
 	}
 
@@ -1802,7 +1690,7 @@ func (b *InMemoryBackend) UnassignVolume(volumeID string) error {
 	b.mu.Lock("UnassignVolume")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[volumeID]
+	v, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return ErrVolumeNotFound
 	}
@@ -1820,7 +1708,7 @@ func (b *InMemoryBackend) DescribeVolumes(instanceID, _ string, volumeIDs []stri
 	if len(volumeIDs) > 0 {
 		result := make([]*Volume, 0, len(volumeIDs))
 		for _, id := range volumeIDs {
-			v, ok := b.volumes[id]
+			v, ok := b.volumes.Get(id)
 			if !ok {
 				return nil, ErrVolumeNotFound
 			}
@@ -1831,7 +1719,7 @@ func (b *InMemoryBackend) DescribeVolumes(instanceID, _ string, volumeIDs []stri
 	}
 
 	result := make([]*Volume, 0)
-	for _, v := range b.volumes {
+	for _, v := range b.volumes.All() {
 		if instanceID != "" && v.InstanceID != instanceID {
 			continue
 		}
@@ -1846,7 +1734,7 @@ func (b *InMemoryBackend) UpdateVolume(volumeID, name, mountPoint string) error 
 	b.mu.Lock("UpdateVolume")
 	defer b.mu.Unlock()
 
-	v, ok := b.volumes[volumeID]
+	v, ok := b.volumes.Get(volumeID)
 	if !ok {
 		return ErrVolumeNotFound
 	}
@@ -1870,7 +1758,7 @@ func (b *InMemoryBackend) RegisterRdsDBInstance(stackID, rdsDBInstanceArn, dbUse
 	b.mu.Lock("RegisterRdsDBInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return ErrStackNotFound
 	}
 
@@ -1880,14 +1768,14 @@ func (b *InMemoryBackend) RegisterRdsDBInstance(stackID, rdsDBInstanceArn, dbUse
 		id = rdsDBInstanceArn[idx+1:]
 	}
 
-	b.rdsDBInstances[rdsDBInstanceArn] = &storedRdsDBInstance{
+	b.rdsDBInstances.Put(&storedRdsDBInstance{
 		RdsDBInstanceArn:     rdsDBInstanceArn,
 		DBInstanceIdentifier: id,
 		DBUser:               dbUser,
 		StackID:              stackID,
 		Region:               b.region,
 		Address:              fmt.Sprintf("%s.%s.rds.amazonaws.com", id, b.region),
-	}
+	})
 
 	return nil
 }
@@ -1897,11 +1785,9 @@ func (b *InMemoryBackend) DeregisterRdsDBInstance(rdsDBInstanceArn string) error
 	b.mu.Lock("DeregisterRdsDBInstance")
 	defer b.mu.Unlock()
 
-	if _, ok := b.rdsDBInstances[rdsDBInstanceArn]; !ok {
+	if !b.rdsDBInstances.Delete(rdsDBInstanceArn) {
 		return ErrRdsDBInstanceNotFound
 	}
-
-	delete(b.rdsDBInstances, rdsDBInstanceArn)
 
 	return nil
 }
@@ -1914,7 +1800,7 @@ func (b *InMemoryBackend) DescribeRdsDBInstances(stackID string, rdsDBInstanceAr
 	if len(rdsDBInstanceArns) > 0 {
 		result := make([]*RdsDBInstance, 0, len(rdsDBInstanceArns))
 		for _, rArn := range rdsDBInstanceArns {
-			r, ok := b.rdsDBInstances[rArn]
+			r, ok := b.rdsDBInstances.Get(rArn)
 			if !ok {
 				return nil, ErrRdsDBInstanceNotFound
 			}
@@ -1924,11 +1810,10 @@ func (b *InMemoryBackend) DescribeRdsDBInstances(stackID string, rdsDBInstanceAr
 		return result, nil
 	}
 
-	result := make([]*RdsDBInstance, 0)
-	for _, r := range b.rdsDBInstances {
-		if stackID != "" && r.StackID != stackID {
-			continue
-		}
+	source := stackScoped(stackID, b.rdsDBInstances.All, b.rdsDBInstancesByStack.Get)
+
+	result := make([]*RdsDBInstance, 0, len(source))
+	for _, r := range source {
 		result = append(result, r.toRdsDBInstance())
 	}
 
@@ -1940,7 +1825,7 @@ func (b *InMemoryBackend) UpdateRdsDBInstance(rdsDBInstanceArn, dbUser, _ string
 	b.mu.Lock("UpdateRdsDBInstance")
 	defer b.mu.Unlock()
 
-	r, ok := b.rdsDBInstances[rdsDBInstanceArn]
+	r, ok := b.rdsDBInstances.Get(rdsDBInstanceArn)
 	if !ok {
 		return ErrRdsDBInstanceNotFound
 	}
@@ -1961,7 +1846,7 @@ func (b *InMemoryBackend) RegisterEcsCluster(ecsClusterArn, stackID string) (str
 	b.mu.Lock("RegisterEcsCluster")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return "", ErrStackNotFound
 	}
 
@@ -1970,13 +1855,13 @@ func (b *InMemoryBackend) RegisterEcsCluster(ecsClusterArn, stackID string) (str
 		name = ecsClusterArn[idx+1:]
 	}
 
-	b.ecsClusters[ecsClusterArn] = &storedEcsCluster{
+	b.ecsClusters.Put(&storedEcsCluster{
 		RegisteredAt:   time.Now().UTC(),
 		EcsClusterArn:  ecsClusterArn,
 		EcsClusterName: name,
 		StackID:        stackID,
 		Status:         ecsClusterStatusRegistered,
-	}
+	})
 
 	return ecsClusterArn, nil
 }
@@ -1986,11 +1871,9 @@ func (b *InMemoryBackend) DeregisterEcsCluster(ecsClusterArn string) error {
 	b.mu.Lock("DeregisterEcsCluster")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ecsClusters[ecsClusterArn]; !ok {
+	if !b.ecsClusters.Delete(ecsClusterArn) {
 		return ErrEcsClusterNotFound
 	}
-
-	delete(b.ecsClusters, ecsClusterArn)
 
 	return nil
 }
@@ -2003,7 +1886,7 @@ func (b *InMemoryBackend) DescribeEcsClusters(stackID string, ecsClusterArns []s
 	if len(ecsClusterArns) > 0 {
 		result := make([]*EcsCluster, 0, len(ecsClusterArns))
 		for _, clusterArn := range ecsClusterArns {
-			e, ok := b.ecsClusters[clusterArn]
+			e, ok := b.ecsClusters.Get(clusterArn)
 			if !ok {
 				return nil, ErrEcsClusterNotFound
 			}
@@ -2013,11 +1896,10 @@ func (b *InMemoryBackend) DescribeEcsClusters(stackID string, ecsClusterArns []s
 		return result, nil
 	}
 
-	result := make([]*EcsCluster, 0)
-	for _, e := range b.ecsClusters {
-		if stackID != "" && e.StackID != stackID {
-			continue
-		}
+	source := stackScoped(stackID, b.ecsClusters.All, b.ecsClustersByStack.Get)
+
+	result := make([]*EcsCluster, 0, len(source))
+	for _, e := range source {
 		result = append(result, e.toEcsCluster())
 	}
 
@@ -2029,18 +1911,17 @@ func (b *InMemoryBackend) SetPermission(stackID, iamUserArn, level string, allow
 	b.mu.Lock("SetPermission")
 	defer b.mu.Unlock()
 
-	if _, ok := b.stacks[stackID]; !ok {
+	if !b.stacks.Has(stackID) {
 		return ErrStackNotFound
 	}
 
-	key := permissionKey(stackID, iamUserArn)
-	b.permissions[key] = &storedPermission{
+	b.permissions.Put(&storedPermission{
 		StackID:    stackID,
 		IamUserArn: iamUserArn,
 		Level:      level,
 		AllowSSH:   allowSSH,
 		AllowSudo:  allowSudo,
-	}
+	})
 
 	return nil
 }
@@ -2052,7 +1933,7 @@ func (b *InMemoryBackend) DescribePermissions(stackID, iamUserArn string) ([]*Pe
 
 	if stackID != "" && iamUserArn != "" {
 		key := permissionKey(stackID, iamUserArn)
-		p, ok := b.permissions[key]
+		p, ok := b.permissions.Get(key)
 		if !ok {
 			return []*Permission{}, nil
 		}
@@ -2061,7 +1942,7 @@ func (b *InMemoryBackend) DescribePermissions(stackID, iamUserArn string) ([]*Pe
 	}
 
 	result := make([]*Permission, 0)
-	for _, p := range b.permissions {
+	for _, p := range b.permissions.All() {
 		if stackID != "" && p.StackID != stackID {
 			continue
 		}
@@ -2079,14 +1960,14 @@ func (b *InMemoryBackend) SetTimeBasedAutoScaling(instanceID string, schedule *A
 	b.mu.Lock("SetTimeBasedAutoScaling")
 	defer b.mu.Unlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if !b.instances.Has(instanceID) {
 		return ErrInstanceNotFound
 	}
 
-	b.timeBasedAutoScale[instanceID] = &storedTimeBasedAutoScaling{
+	b.timeBasedAutoScale.Put(&storedTimeBasedAutoScaling{
 		AutoScalingSchedule: schedule,
 		InstanceID:          instanceID,
-	}
+	})
 
 	return nil
 }
@@ -2098,7 +1979,7 @@ func (b *InMemoryBackend) DescribeTimeBasedAutoScaling(instanceIDs []string) ([]
 
 	result := make([]*TimeBasedAutoScaling, 0, len(instanceIDs))
 	for _, id := range instanceIDs {
-		t, ok := b.timeBasedAutoScale[id]
+		t, ok := b.timeBasedAutoScale.Get(id)
 		if !ok {
 			// Return a record with empty schedule if not configured.
 			result = append(result, &TimeBasedAutoScaling{
@@ -2123,16 +2004,16 @@ func (b *InMemoryBackend) SetLoadBasedAutoScaling(
 	b.mu.Lock("SetLoadBasedAutoScaling")
 	defer b.mu.Unlock()
 
-	if _, ok := b.layers[layerID]; !ok {
+	if !b.layers.Has(layerID) {
 		return ErrLayerNotFound
 	}
 
-	b.loadBasedAutoScale[layerID] = &storedLoadBasedAutoScaling{
+	b.loadBasedAutoScale.Put(&storedLoadBasedAutoScaling{
 		UpScaling:   upScaling,
 		DownScaling: downScaling,
 		LayerID:     layerID,
 		Enable:      enable,
-	}
+	})
 
 	return nil
 }
@@ -2144,7 +2025,7 @@ func (b *InMemoryBackend) DescribeLoadBasedAutoScaling(layerIDs []string) ([]*Lo
 
 	result := make([]*LoadBasedAutoScaling, 0, len(layerIDs))
 	for _, id := range layerIDs {
-		l, ok := b.loadBasedAutoScale[id]
+		l, ok := b.loadBasedAutoScale.Get(id)
 		if !ok {
 			result = append(result, &LoadBasedAutoScaling{LayerID: id})
 
@@ -2161,7 +2042,7 @@ func (b *InMemoryBackend) GrantAccess(instanceID string, validForInMinutes int32
 	b.mu.RLock("GrantAccess")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if !b.instances.Has(instanceID) {
 		return nil, ErrInstanceNotFound
 	}
 
@@ -2187,7 +2068,7 @@ func (b *InMemoryBackend) DescribeServiceErrors(
 	defer b.mu.RUnlock()
 
 	if stackID != "" {
-		if _, ok := b.stacks[stackID]; !ok {
+		if !b.stacks.Has(stackID) {
 			return nil, ErrStackNotFound
 		}
 	}
@@ -2212,7 +2093,7 @@ func (b *InMemoryBackend) DescribeAgentVersions(stackID string) ([]*AgentVersion
 	defer b.mu.RUnlock()
 
 	if stackID != "" {
-		if _, ok := b.stacks[stackID]; !ok {
+		if !b.stacks.Has(stackID) {
 			return nil, ErrStackNotFound
 		}
 	}
@@ -2285,28 +2166,16 @@ func (b *InMemoryBackend) DescribeOperatingSystems() ([]*OperatingSystem, error)
 // resourceExists checks if a resource ARN refers to a known resource.
 func (b *InMemoryBackend) resourceExists(resourceArn string) bool {
 	if strings.Contains(resourceArn, ":stack/") {
-		id := arnSuffix(resourceArn)
-		_, ok := b.stacks[id]
-
-		return ok
+		return b.stacks.Has(arnSuffix(resourceArn))
 	}
 	if strings.Contains(resourceArn, ":layer/") {
-		id := arnSuffix(resourceArn)
-		_, ok := b.layers[id]
-
-		return ok
+		return b.layers.Has(arnSuffix(resourceArn))
 	}
 	if strings.Contains(resourceArn, ":instance/") {
-		id := arnSuffix(resourceArn)
-		_, ok := b.instances[id]
-
-		return ok
+		return b.instances.Has(arnSuffix(resourceArn))
 	}
 	if strings.Contains(resourceArn, ":app/") {
-		id := arnSuffix(resourceArn)
-		_, ok := b.apps[id]
-
-		return ok
+		return b.apps.Has(arnSuffix(resourceArn))
 	}
 
 	return false

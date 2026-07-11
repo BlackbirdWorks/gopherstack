@@ -202,6 +202,16 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
+// Snapshot returns a serialized snapshot of the backend state.
+// It implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapshot(ctx) }
+
+// Restore restores the backend state from a snapshot.
+// It implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
+
 // Handler returns the echo handler func.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

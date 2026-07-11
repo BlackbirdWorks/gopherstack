@@ -56,14 +56,14 @@ func (s *sortedStringIndex) rebuildFromKeys(keys []string) {
 }
 
 // rebuildServerlessIndexes reconstructs all serverless sorted indexes from the
-// current backing maps. Callers MUST hold b.mu for writing (it is invoked from
-// Restore, which swaps every map under the lock).
+// current backing store.Tables. Callers MUST hold b.mu for writing (it is
+// invoked from Restore, which loads every table under the lock).
 func (b *InMemoryBackend) rebuildServerlessIndexes() {
-	b.slNamespaceIdx.rebuildFromKeys(mapKeys(b.slNamespaces))
-	b.slWorkgroupIdx.rebuildFromKeys(mapKeys(b.slWorkgroups))
-	b.slSnapshotIdx.rebuildFromKeys(mapKeys(b.slSnapshots))
-	b.slUsageLimitIdx.rebuildFromKeys(mapKeys(b.slUsageLimits))
-	b.slScheduledActionIdx.rebuildFromKeys(mapKeys(b.slScheduledActions))
+	b.slNamespaceIdx.rebuildFromKeys(tableKeys(b.slNamespaces, slNamespacesKeyFn))
+	b.slWorkgroupIdx.rebuildFromKeys(tableKeys(b.slWorkgroups, slWorkgroupsKeyFn))
+	b.slSnapshotIdx.rebuildFromKeys(tableKeys(b.slSnapshots, slSnapshotsKeyFn))
+	b.slUsageLimitIdx.rebuildFromKeys(tableKeys(b.slUsageLimits, slUsageLimitsKeyFn))
+	b.slScheduledActionIdx.rebuildFromKeys(tableKeys(b.slScheduledActions, slScheduledActionsKeyFn))
 }
 
 // resetServerlessIndexes clears every serverless sorted index.
@@ -73,14 +73,4 @@ func (b *InMemoryBackend) resetServerlessIndexes() {
 	b.slSnapshotIdx.reset()
 	b.slUsageLimitIdx.reset()
 	b.slScheduledActionIdx.reset()
-}
-
-// mapKeys returns the keys of m in unspecified order.
-func mapKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-
-	return keys
 }

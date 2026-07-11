@@ -1,19 +1,16 @@
 package dlm
 
 import (
-	"context"
 	"fmt"
 	"maps"
-	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -74,16 +71,11 @@ func (p *storedPolicy) toSummary() *PolicySummary {
 	}
 }
 
-// backendSnapshot holds serializable backend state.
-type backendSnapshot struct {
-	Policies map[string]*storedPolicy `json:"policies"`
-	Counter  int                      `json:"counter"`
-}
-
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	mu        *lockmetrics.RWMutex
-	policies  map[string]*storedPolicy // policyID → policy
+	registry  *store.Registry
+	policies  *store.Table[storedPolicy] // policyID → policy
 	accountID string
 	region    string
 	counter   int
@@ -91,12 +83,16 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		mu:        lockmetrics.New("dlm"),
-		policies:  make(map[string]*storedPolicy),
+		registry:  store.NewRegistry(),
 		accountID: accountID,
 		region:    region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // CreateLifecyclePolicy creates a new lifecycle policy and returns it.
@@ -132,7 +128,7 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 		Tags:             storedTags,
 		PolicyDetails:    policyDetails,
 	}
-	b.policies[policyID] = p
+	b.policies.Put(p)
 
 	return p.toPolicy(), nil
 }
@@ -142,11 +138,11 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(policyID string) error {
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.policies[policyID]; !ok {
+	if !b.policies.Has(policyID) {
 		return ErrPolicyNotFound
 	}
 
-	delete(b.policies, policyID)
+	b.policies.Delete(policyID)
 
 	return nil
 }
@@ -164,7 +160,7 @@ func (b *InMemoryBackend) GetLifecyclePolicies(policyIDs []string, state string)
 
 	var result []*PolicySummary
 
-	for _, p := range b.policies {
+	for _, p := range b.policies.All() {
 		if len(idFilter) > 0 {
 			if _, ok := idFilter[p.PolicyID]; !ok {
 				continue
@@ -188,7 +184,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(policyID string) (*Policy, error) {
 	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
-	p, ok := b.policies[policyID]
+	p, ok := b.policies.Get(policyID)
 	if !ok {
 		return nil, ErrPolicyNotFound
 	}
@@ -204,7 +200,7 @@ func (b *InMemoryBackend) UpdateLifecyclePolicy(
 	b.mu.Lock("UpdateLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	p, ok := b.policies[policyID]
+	p, ok := b.policies.Get(policyID)
 	if !ok {
 		return ErrPolicyNotFound
 	}
@@ -281,13 +277,19 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 // findPolicyByARNLocked returns the policy matching the given ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findPolicyByARNLocked(policyARN string) (*storedPolicy, bool) {
-	for _, p := range b.policies {
-		if p.PolicyArn == policyARN {
-			return p, true
-		}
-	}
+	var found *storedPolicy
 
-	return nil, false
+	b.policies.Range(func(p *storedPolicy) bool {
+		if p.PolicyArn == policyARN {
+			found = p
+
+			return false
+		}
+
+		return true
+	})
+
+	return found, found != nil
 }
 
 // AccountID returns the account ID.
@@ -301,58 +303,6 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.policies = make(map[string]*storedPolicy)
+	b.registry.ResetAll()
 	b.counter = 0
-}
-
-// Snapshot serializes the backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	return persistence.MarshalSnapshot(ctx, "dlm", backendSnapshot{
-		Policies: b.policies,
-		Counter:  b.counter,
-	})
-}
-
-// Restore deserializes backend state from a snapshot.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	var snap backendSnapshot
-	if err := persistence.UnmarshalSnapshot(ctx, "dlm", data, &snap); err != nil {
-		return err
-	}
-
-	if snap.Policies != nil {
-		b.policies = snap.Policies
-	} else {
-		b.policies = make(map[string]*storedPolicy)
-	}
-
-	// Counter backward compat: if snapshot pre-dates counter field, derive from existing IDs.
-	if snap.Counter > 0 {
-		b.counter = snap.Counter
-	} else {
-		b.counter = maxCounterFromPolicies(b.policies)
-	}
-
-	return nil
-}
-
-// maxCounterFromPolicies derives the highest counter value seen in the policy ID set.
-// Used for backward compat when restoring snapshots that predate counter serialization.
-func maxCounterFromPolicies(policies map[string]*storedPolicy) int {
-	var highest int
-
-	for id := range policies {
-		hex := strings.TrimPrefix(id, policyIDPrefix)
-		if n, err := strconv.ParseInt(hex, 16, 64); err == nil && n >= 0 && n <= math.MaxInt && int(n) > highest {
-			highest = int(n)
-		}
-	}
-
-	return highest
 }

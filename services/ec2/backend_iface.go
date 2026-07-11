@@ -17,6 +17,11 @@ type Backend interface {
 	// Returns ErrInvalidInstanceState if the instance must be stopped for the given attribute.
 	SetInstanceAttribute(instanceID, attribute, value string) error
 
+	// PrimaryNetworkInterfaceSourceDestCheck returns the sourceDestCheck flag
+	// of instanceID's primary network interface (defaults to true, matching
+	// AWS's default for VPC instances).
+	PrimaryNetworkInterfaceSourceDestCheck(instanceID string) bool
+
 	// DescribeInstances returns instances, optionally filtered by IDs or state name.
 	DescribeInstances(ids []string, state string) []*Instance
 

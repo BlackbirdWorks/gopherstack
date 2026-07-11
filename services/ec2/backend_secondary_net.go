@@ -138,11 +138,6 @@ type OutpostLag struct {
 // resetSecondaryNetworkMapsLocked re-initialises all maps owned by this file.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) resetSecondaryNetworkMapsLocked() {
-	b.secondaryNetworks = make(map[string]*SecondaryNetwork)
-	b.secondarySubnets = make(map[string]*SecondarySubnet)
-	b.secondaryInterfaces = make(map[string]*SecondaryInterface)
-	b.serviceLinkVirtualInterfaces = make(map[string]*ServiceLinkVirtualInterface)
-	b.outpostLags = make(map[string]*OutpostLag)
 }
 
 // ---- Secondary Networks ----
@@ -179,7 +174,7 @@ func (b *InMemoryBackend) CreateSecondaryNetwork(
 		},
 		Tags: tags,
 	}
-	b.secondaryNetworks[id] = net
+	b.secondaryNetworks.Put(net)
 
 	cp := *net
 
@@ -196,20 +191,19 @@ func (b *InMemoryBackend) DeleteSecondaryNetwork(id string) (*SecondaryNetwork, 
 	b.mu.Lock("DeleteSecondaryNetwork")
 	defer b.mu.Unlock()
 
-	net, ok := b.secondaryNetworks[id]
+	net, ok := b.secondaryNetworks.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSecondaryNetworkNotFound, id)
 	}
 
-	for _, s := range b.secondarySubnets {
+	for _, s := range b.secondarySubnets.All() {
 		if s.SecondaryNetworkID == id {
 			return nil, fmt.Errorf(
 				"%w: secondary network %s still has secondary subnets", ErrSecondaryNetworkHasSubnets, id,
 			)
 		}
 	}
-
-	delete(b.secondaryNetworks, id)
+	b.secondaryNetworks.Delete(id)
 
 	cp := *net
 	cp.State = secondaryStateDeleteComplete
@@ -227,9 +221,9 @@ func (b *InMemoryBackend) DescribeSecondaryNetworks(ids []string) []*SecondaryNe
 		idSet[id] = true
 	}
 
-	out := make([]*SecondaryNetwork, 0, len(b.secondaryNetworks))
+	out := make([]*SecondaryNetwork, 0, b.secondaryNetworks.Len())
 
-	for _, n := range b.secondaryNetworks {
+	for _, n := range b.secondaryNetworks.All() {
 		if len(idSet) > 0 && !idSet[n.SecondaryNetworkID] {
 			continue
 		}
@@ -260,7 +254,7 @@ func (b *InMemoryBackend) CreateSecondarySubnet(
 	b.mu.Lock("CreateSecondarySubnet")
 	defer b.mu.Unlock()
 
-	net, ok := b.secondaryNetworks[secondaryNetworkID]
+	net, ok := b.secondaryNetworks.Get(secondaryNetworkID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSecondaryNetworkNotFound, secondaryNetworkID)
 	}
@@ -288,7 +282,7 @@ func (b *InMemoryBackend) CreateSecondarySubnet(
 		},
 		Tags: tags,
 	}
-	b.secondarySubnets[id] = sub
+	b.secondarySubnets.Put(sub)
 
 	cp := *sub
 
@@ -304,12 +298,11 @@ func (b *InMemoryBackend) DeleteSecondarySubnet(id string) (*SecondarySubnet, er
 	b.mu.Lock("DeleteSecondarySubnet")
 	defer b.mu.Unlock()
 
-	sub, ok := b.secondarySubnets[id]
+	sub, ok := b.secondarySubnets.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSecondarySubnetNotFound, id)
 	}
-
-	delete(b.secondarySubnets, id)
+	b.secondarySubnets.Delete(id)
 
 	cp := *sub
 	cp.State = secondaryStateDeleteComplete
@@ -327,9 +320,9 @@ func (b *InMemoryBackend) DescribeSecondarySubnets(ids []string) []*SecondarySub
 		idSet[id] = true
 	}
 
-	out := make([]*SecondarySubnet, 0, len(b.secondarySubnets))
+	out := make([]*SecondarySubnet, 0, b.secondarySubnets.Len())
 
-	for _, s := range b.secondarySubnets {
+	for _, s := range b.secondarySubnets.All() {
 		if len(idSet) > 0 && !idSet[s.SecondarySubnetID] {
 			continue
 		}
@@ -364,7 +357,7 @@ func (b *InMemoryBackend) SeedSecondaryInterface(si SecondaryInterface) (*Second
 	}
 
 	cp := si
-	b.secondaryInterfaces[cp.SecondaryInterfaceID] = &cp
+	b.secondaryInterfaces.Put(&cp)
 
 	out := cp
 
@@ -382,9 +375,9 @@ func (b *InMemoryBackend) DescribeSecondaryInterfaces(ids []string) []*Secondary
 		idSet[id] = true
 	}
 
-	out := make([]*SecondaryInterface, 0, len(b.secondaryInterfaces))
+	out := make([]*SecondaryInterface, 0, b.secondaryInterfaces.Len())
 
-	for _, si := range b.secondaryInterfaces {
+	for _, si := range b.secondaryInterfaces.All() {
 		if len(idSet) > 0 && !idSet[si.SecondaryInterfaceID] {
 			continue
 		}
@@ -423,7 +416,7 @@ func (b *InMemoryBackend) SeedServiceLinkVirtualInterface(
 	}
 
 	cp := vif
-	b.serviceLinkVirtualInterfaces[cp.ServiceLinkVirtualInterfaceID] = &cp
+	b.serviceLinkVirtualInterfaces.Put(&cp)
 
 	out := cp
 
@@ -441,9 +434,9 @@ func (b *InMemoryBackend) DescribeServiceLinkVirtualInterfaces(ids []string) []*
 		idSet[id] = true
 	}
 
-	out := make([]*ServiceLinkVirtualInterface, 0, len(b.serviceLinkVirtualInterfaces))
+	out := make([]*ServiceLinkVirtualInterface, 0, b.serviceLinkVirtualInterfaces.Len())
 
-	for _, vif := range b.serviceLinkVirtualInterfaces {
+	for _, vif := range b.serviceLinkVirtualInterfaces.All() {
 		if len(idSet) > 0 && !idSet[vif.ServiceLinkVirtualInterfaceID] {
 			continue
 		}
@@ -480,7 +473,7 @@ func (b *InMemoryBackend) SeedOutpostLag(lag OutpostLag) (*OutpostLag, error) {
 	}
 
 	cp := lag
-	b.outpostLags[cp.OutpostLagID] = &cp
+	b.outpostLags.Put(&cp)
 
 	out := cp
 
@@ -497,9 +490,9 @@ func (b *InMemoryBackend) DescribeOutpostLags(ids []string) []*OutpostLag {
 		idSet[id] = true
 	}
 
-	out := make([]*OutpostLag, 0, len(b.outpostLags))
+	out := make([]*OutpostLag, 0, b.outpostLags.Len())
 
-	for _, lag := range b.outpostLags {
+	for _, lag := range b.outpostLags.All() {
 		if len(idSet) > 0 && !idSet[lag.OutpostLagID] {
 			continue
 		}

@@ -5,28 +5,38 @@ import (
 )
 
 // MetricDatum holds a single metric data point.
+//
+// A datum is built from exactly one of three mutually-exclusive input shapes:
+// a single Value, a pre-aggregated StatisticValues set, or a Values/Counts
+// array pair (up to 150 unique values, each with an occurrence count). The
+// Has* flags record which shape was supplied on the wire so validation can
+// enforce mutual exclusion by presence rather than by zero-value guessing.
 type MetricDatum struct {
-	MetricName        string      `json:"MetricName"`
-	Namespace         string      `json:"Namespace"`
-	Unit              string      `json:"Unit,omitempty"`
-	Timestamp         time.Time   `json:"Timestamp"`
-	Dimensions        []Dimension `json:"Dimensions,omitempty"`
-	Value             float64     `json:"Value"`
-	Count             float64     `json:"SampleCount"`
-	Sum               float64     `json:"Sum"`
-	Min               float64     `json:"Min"`
-	Max               float64     `json:"Max"`
-	StorageResolution int32       `json:"StorageResolution,omitempty"`
-	// HasStatisticSet is true when the datum was built from a StatisticValues input (not from Value).
-	// Used to enforce mutual exclusion of Value + StatisticSet at the handler level.
+	Timestamp  time.Time   `json:"Timestamp"`
+	MetricName string      `json:"MetricName"`
+	Namespace  string      `json:"Namespace"`
+	Unit       string      `json:"Unit,omitempty"`
+	Dimensions []Dimension `json:"Dimensions,omitempty"`
+	// Values and Counts implement the PutMetricData "array of values" input: each
+	// Values[i] occurred Counts[i] times during the period. Populated only when
+	// HasValuesArray is true; Counts is defaulted to all-1s by the parser when the
+	// caller omits it.
+	Values []float64 `json:"Values,omitempty"`
+	Counts []float64 `json:"Counts,omitempty"`
+	Count  float64   `json:"SampleCount"`
+	Value  float64   `json:"Value"`
+	Sum    float64   `json:"Sum"`
+	Min    float64   `json:"Min"`
+	Max    float64   `json:"Max"`
+	// StorageResolution is 1 (high-resolution) or 60 (standard); 0 means "use default".
+	StorageResolution int32 `json:"StorageResolution,omitempty"`
+	// HasStatisticSet is true when the datum was built from a StatisticValues input.
 	HasStatisticSet bool `json:"-"`
-}
-
-// UnprocessedMetricDatum describes a MetricDatum entry that could not be stored.
-type UnprocessedMetricDatum struct {
-	MetricName   string `json:"MetricName"`
-	ErrorCode    string `json:"ErrorCode"`
-	ErrorMessage string `json:"ErrorMessage"`
+	// HasValuesArray is true when the datum was built from a Values/Counts input.
+	HasValuesArray bool `json:"-"`
+	// HasValue is true when the caller explicitly supplied the Value field
+	// (independent of whether that value is the float zero value).
+	HasValue bool `json:"-"`
 }
 
 // Metric represents a named metric (name+namespace+dimensions).

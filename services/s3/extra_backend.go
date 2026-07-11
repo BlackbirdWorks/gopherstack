@@ -126,6 +126,7 @@ func (b *InMemoryBackend) GetBucketRequestPayment(
 
 // ObjectAttributes is the projection of object metadata returned by GetObjectAttributes.
 type ObjectAttributes struct {
+	LastModified time.Time
 	Checksum     map[string]string
 	ETag         string
 	StorageClass string
@@ -171,6 +172,7 @@ func (b *InMemoryBackend) GetObjectAttributes(
 		ETag:         ver.ETag,
 		ObjectSize:   ver.Size,
 		StorageClass: ver.StorageClass,
+		LastModified: ver.LastModified,
 		Checksum:     map[string]string{},
 	}
 

@@ -25,11 +25,11 @@ func (b *InMemoryBackend) DeletePartner(_, clusterID, databaseName, partnerName 
 	defer b.mu.Unlock()
 
 	key := partnerKey(clusterID, databaseName, partnerName)
-	if _, exists := b.partners[key]; !exists {
+	if _, exists := b.partners.Get(key); !exists {
 		return fmt.Errorf("%w: partner %s not found", ErrPartnerNotFound, partnerName)
 	}
 
-	delete(b.partners, key)
+	b.partners.Delete(key)
 
 	return nil
 }
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) DescribePartners(_, clusterID, databaseName, partnerNa
 
 	var result []Partner
 
-	for _, p := range b.partners {
+	for _, p := range b.partners.All() {
 		if clusterID != "" && p.ClusterIdentifier != clusterID {
 			continue
 		}
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) UpdatePartnerStatus(
 
 	key := partnerKey(clusterID, databaseName, partnerName)
 
-	p, exists := b.partners[key]
+	p, exists := b.partners.Get(key)
 	if !exists {
 		return nil, fmt.Errorf("%w: partner %s not found", ErrPartnerNotFound, partnerName)
 	}
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) DescribeDataShares(dataShareArn string) ([]DataShare, 
 	defer b.mu.RUnlock()
 
 	if dataShareArn != "" {
-		ds, exists := b.dataShares[dataShareArn]
+		ds, exists := b.dataShares.Get(dataShareArn)
 		if !exists {
 			return nil, fmt.Errorf("%w: data share %s not found", ErrDataShareNotFound, dataShareArn)
 		}
@@ -106,9 +106,9 @@ func (b *InMemoryBackend) DescribeDataShares(dataShareArn string) ([]DataShare, 
 		return []DataShare{*cloneDataShare(ds)}, nil
 	}
 
-	result := make([]DataShare, 0, len(b.dataShares))
+	result := make([]DataShare, 0, b.dataShares.Len())
 
-	for _, ds := range b.dataShares {
+	for _, ds := range b.dataShares.All() {
 		result = append(result, *cloneDataShare(ds))
 	}
 
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) DescribeDataSharesForConsumer(consumerArn, status stri
 
 	var result []DataShare
 
-	for _, ds := range b.dataShares {
+	for _, ds := range b.dataShares.All() {
 		for _, a := range ds.DataShareAssociations {
 			if consumerArn != "" && a.ConsumerIdentifier != consumerArn {
 				continue
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) DescribeDataSharesForProducer(producerArn, status stri
 
 	var result []DataShare
 
-	for _, ds := range b.dataShares {
+	for _, ds := range b.dataShares.All() {
 		if producerArn != "" && ds.ProducerArn != producerArn {
 			continue
 		}
@@ -184,7 +184,7 @@ func (b *InMemoryBackend) DeauthorizeDataShare(dataShareArn, consumerIdentifier 
 	b.mu.Lock("DeauthorizeDataShare")
 	defer b.mu.Unlock()
 
-	ds, exists := b.dataShares[dataShareArn]
+	ds, exists := b.dataShares.Get(dataShareArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: data share %s not found", ErrDataShareNotFound, dataShareArn)
 	}
@@ -210,7 +210,7 @@ func (b *InMemoryBackend) DisassociateDataShareConsumer(
 	b.mu.Lock("DisassociateDataShareConsumer")
 	defer b.mu.Unlock()
 
-	ds, exists := b.dataShares[dataShareArn]
+	ds, exists := b.dataShares.Get(dataShareArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: data share %s not found", ErrDataShareNotFound, dataShareArn)
 	}
@@ -237,7 +237,7 @@ func (b *InMemoryBackend) RejectDataShare(dataShareArn string) (*DataShare, erro
 	b.mu.Lock("RejectDataShare")
 	defer b.mu.Unlock()
 
-	ds, exists := b.dataShares[dataShareArn]
+	ds, exists := b.dataShares.Get(dataShareArn)
 	if !exists {
 		return nil, fmt.Errorf("%w: data share %s not found", ErrDataShareNotFound, dataShareArn)
 	}
@@ -261,7 +261,7 @@ func (b *InMemoryBackend) DescribeEndpointAuthorization(
 
 	var result []EndpointAuthorization
 
-	for _, ea := range b.endpointAuths {
+	for _, ea := range b.endpointAuths.All() {
 		if clusterID != "" && ea.ClusterIdentifier != clusterID {
 			continue
 		}
@@ -298,7 +298,7 @@ func (b *InMemoryBackend) RevokeEndpointAccess(
 
 	key := endpointAuthKey(clusterID, account)
 
-	ea, exists := b.endpointAuths[key]
+	ea, exists := b.endpointAuths.Get(key)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: endpoint authorization for cluster %s account %s not found",
@@ -313,7 +313,7 @@ func (b *InMemoryBackend) RevokeEndpointAccess(
 	cp := cloneEndpointAuth(ea)
 
 	if force {
-		delete(b.endpointAuths, key)
+		b.endpointAuths.Delete(key)
 	}
 
 	return cp, nil
@@ -353,7 +353,7 @@ func (b *InMemoryBackend) RevokeSnapshotAccess(snapshotID, accountWithRestoreAcc
 	b.mu.Lock("RevokeSnapshotAccess")
 	defer b.mu.Unlock()
 
-	snap, exists := b.snapshots[snapshotID]
+	snap, exists := b.snapshots.Get(snapshotID)
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
@@ -393,7 +393,7 @@ func (b *InMemoryBackend) ModifyClusterSnapshot(snapshotID string, retentionPeri
 	b.mu.Lock("ModifyClusterSnapshot")
 	defer b.mu.Unlock()
 
-	snap, exists := b.snapshots[snapshotID]
+	snap, exists := b.snapshots.Get(snapshotID)
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
@@ -421,7 +421,7 @@ func (b *InMemoryBackend) GetClusterCredentials(
 	b.mu.RLock("GetClusterCredentials")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.clusters[clusterID]; !exists {
+	if _, exists := b.clusters.Get(clusterID); !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 

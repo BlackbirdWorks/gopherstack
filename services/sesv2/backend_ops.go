@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -131,11 +132,11 @@ func (b *InMemoryBackend) PutSuppressedDestination(email, reason string) error {
 	b.mu.Lock("PutSuppressedDestination")
 	defer b.mu.Unlock()
 
-	b.suppressedDestinations[email] = &SuppressedDestination{
+	b.suppressedDestinations.Put(&SuppressedDestination{
 		EmailAddress:   email,
 		Reason:         reason,
 		LastUpdateTime: time.Now(),
-	}
+	})
 
 	return nil
 }
@@ -145,7 +146,7 @@ func (b *InMemoryBackend) GetSuppressedDestination(email string) (*SuppressedDes
 	b.mu.RLock("GetSuppressedDestination")
 	defer b.mu.RUnlock()
 
-	dest, ok := b.suppressedDestinations[email]
+	dest, ok := b.suppressedDestinations.Get(email)
 	if !ok {
 		return nil, fmt.Errorf("%w: suppressed destination %s not found", ErrNotFound, email)
 	}
@@ -160,11 +161,11 @@ func (b *InMemoryBackend) DeleteSuppressedDestination(email string) error {
 	b.mu.Lock("DeleteSuppressedDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.suppressedDestinations[email]; !ok {
+	if !b.suppressedDestinations.Has(email) {
 		return fmt.Errorf("%w: suppressed destination %s not found", ErrNotFound, email)
 	}
 
-	delete(b.suppressedDestinations, email)
+	b.suppressedDestinations.Delete(email)
 
 	return nil
 }
@@ -177,11 +178,11 @@ func (b *InMemoryBackend) ListSuppressedDestinations(
 	b.mu.RLock("ListSuppressedDestinations")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.suppressedDestinations)
+	snap := b.suppressedDestinations.Snapshot()
 
-	items := make([]*SuppressedDestination, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.suppressedDestinations[k]
+	items := make([]*SuppressedDestination, 0, len(snap))
+	for _, d := range snap {
+		cp := *d
 		items = append(items, &cp)
 	}
 
@@ -195,7 +196,7 @@ func (b *InMemoryBackend) GetContactList(name string) (*ContactList, error) {
 	b.mu.RLock("GetContactList")
 	defer b.mu.RUnlock()
 
-	cl, ok := b.contactLists[name]
+	cl, ok := b.contactLists.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: contact list %s not found", ErrNotFound, name)
 	}
@@ -210,12 +211,19 @@ func (b *InMemoryBackend) DeleteContactList(name string) error {
 	b.mu.Lock("DeleteContactList")
 	defer b.mu.Unlock()
 
-	if _, ok := b.contactLists[name]; !ok {
+	if !b.contactLists.Has(name) {
 		return fmt.Errorf("%w: contact list %s not found", ErrNotFound, name)
 	}
 
-	delete(b.contactLists, name)
-	delete(b.contacts, name)
+	b.contactLists.Delete(name)
+
+	// Cascade-delete every contact of this contact list. slices.Clone the
+	// index results first: deleting from b.contacts mutates
+	// contactsByList's backing slice in place, which would otherwise
+	// corrupt this very loop.
+	for _, c := range slices.Clone(b.contactsByList.Get(name)) {
+		b.contacts.Delete(contactKey(name, c.EmailAddress))
+	}
 
 	return nil
 }
@@ -225,7 +233,7 @@ func (b *InMemoryBackend) UpdateContactList(name, description string) error {
 	b.mu.Lock("UpdateContactList")
 	defer b.mu.Unlock()
 
-	cl, ok := b.contactLists[name]
+	cl, ok := b.contactLists.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: contact list %s not found", ErrNotFound, name)
 	}
@@ -241,11 +249,11 @@ func (b *InMemoryBackend) ListContactLists(nextToken string, pageSize int) page.
 	b.mu.RLock("ListContactLists")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.contactLists)
+	snap := b.contactLists.Snapshot()
 
-	items := make([]*ContactList, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.contactLists[k]
+	items := make([]*ContactList, 0, len(snap))
+	for _, cl := range snap {
+		cp := *cl
 		items = append(items, &cp)
 	}
 
@@ -257,12 +265,11 @@ func (b *InMemoryBackend) GetContact(contactListName, emailAddress string) (*Con
 	b.mu.RLock("GetContact")
 	defer b.mu.RUnlock()
 
-	listContacts, ok := b.contacts[contactListName]
-	if !ok {
+	if !b.contactLists.Has(contactListName) {
 		return nil, fmt.Errorf("%w: contact list %s not found", ErrNotFound, contactListName)
 	}
 
-	c, ok := listContacts[emailAddress]
+	c, ok := b.contacts.Get(contactKey(contactListName, emailAddress))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: contact %s not found in list %s",
@@ -282,12 +289,12 @@ func (b *InMemoryBackend) DeleteContact(contactListName, emailAddress string) er
 	b.mu.Lock("DeleteContact")
 	defer b.mu.Unlock()
 
-	listContacts, ok := b.contacts[contactListName]
-	if !ok {
+	if !b.contactLists.Has(contactListName) {
 		return fmt.Errorf("%w: contact list %s not found", ErrNotFound, contactListName)
 	}
 
-	if _, exists := listContacts[emailAddress]; !exists {
+	key := contactKey(contactListName, emailAddress)
+	if !b.contacts.Has(key) {
 		return fmt.Errorf(
 			"%w: contact %s not found in list %s",
 			ErrNotFound,
@@ -296,7 +303,7 @@ func (b *InMemoryBackend) DeleteContact(contactListName, emailAddress string) er
 		)
 	}
 
-	delete(listContacts, emailAddress)
+	b.contacts.Delete(key)
 
 	return nil
 }
@@ -309,12 +316,11 @@ func (b *InMemoryBackend) UpdateContact(
 	b.mu.Lock("UpdateContact")
 	defer b.mu.Unlock()
 
-	listContacts, ok := b.contacts[contactListName]
-	if !ok {
+	if !b.contactLists.Has(contactListName) {
 		return fmt.Errorf("%w: contact list %s not found", ErrNotFound, contactListName)
 	}
 
-	c, ok := listContacts[emailAddress]
+	c, ok := b.contacts.Get(contactKey(contactListName, emailAddress))
 	if !ok {
 		return fmt.Errorf(
 			"%w: contact %s not found in list %s",
@@ -340,8 +346,7 @@ func (b *InMemoryBackend) ListContacts(
 	b.mu.RLock("ListContacts")
 	defer b.mu.RUnlock()
 
-	listContacts, ok := b.contacts[contactListName]
-	if !ok {
+	if !b.contactLists.Has(contactListName) {
 		return page.Page[*Contact]{}, fmt.Errorf(
 			"%w: contact list %s not found",
 			ErrNotFound,
@@ -349,11 +354,14 @@ func (b *InMemoryBackend) ListContacts(
 		)
 	}
 
-	keys := collections.SortedKeys(listContacts)
+	listContacts := slices.Clone(b.contactsByList.Get(contactListName))
+	sort.Slice(listContacts, func(i, j int) bool {
+		return listContacts[i].EmailAddress < listContacts[j].EmailAddress
+	})
 
-	items := make([]*Contact, 0, len(keys))
-	for _, k := range keys {
-		cp := *listContacts[k]
+	items := make([]*Contact, 0, len(listContacts))
+	for _, c := range listContacts {
+		cp := *c
 		items = append(items, &cp)
 	}
 
@@ -369,7 +377,7 @@ func (b *InMemoryBackend) GetCustomVerificationEmailTemplate(
 	b.mu.RLock("GetCustomVerificationEmailTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.customVerificationTemplates[name]
+	t, ok := b.customVerificationTemplates.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: custom verification template %s not found", ErrNotFound, name)
 	}
@@ -384,11 +392,11 @@ func (b *InMemoryBackend) DeleteCustomVerificationEmailTemplate(name string) err
 	b.mu.Lock("DeleteCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customVerificationTemplates[name]; !ok {
+	if !b.customVerificationTemplates.Has(name) {
 		return fmt.Errorf("%w: custom verification template %s not found", ErrNotFound, name)
 	}
 
-	delete(b.customVerificationTemplates, name)
+	b.customVerificationTemplates.Delete(name)
 
 	return nil
 }
@@ -400,7 +408,7 @@ func (b *InMemoryBackend) UpdateCustomVerificationEmailTemplate(
 	b.mu.Lock("UpdateCustomVerificationEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customVerificationTemplates[in.TemplateName]; !ok {
+	if !b.customVerificationTemplates.Has(in.TemplateName) {
 		return fmt.Errorf(
 			"%w: custom verification template %s not found",
 			ErrNotFound,
@@ -409,7 +417,7 @@ func (b *InMemoryBackend) UpdateCustomVerificationEmailTemplate(
 	}
 
 	cp := *in
-	b.customVerificationTemplates[in.TemplateName] = &cp
+	b.customVerificationTemplates.Put(&cp)
 
 	return nil
 }
@@ -422,11 +430,11 @@ func (b *InMemoryBackend) ListCustomVerificationEmailTemplates(
 	b.mu.RLock("ListCustomVerificationEmailTemplates")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.customVerificationTemplates)
+	snap := b.customVerificationTemplates.Snapshot()
 
-	items := make([]*CustomVerificationEmailTemplate, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.customVerificationTemplates[k]
+	items := make([]*CustomVerificationEmailTemplate, 0, len(snap))
+	for _, t := range snap {
+		cp := *t
 		items = append(items, &cp)
 	}
 
@@ -440,7 +448,7 @@ func (b *InMemoryBackend) GetDedicatedIPPool(poolName string) (*DedicatedIPPool,
 	b.mu.RLock("GetDedicatedIPPool")
 	defer b.mu.RUnlock()
 
-	pool, ok := b.dedicatedIPPools[poolName]
+	pool, ok := b.dedicatedIPPools.Get(poolName)
 	if !ok {
 		return nil, fmt.Errorf("%w: dedicated IP pool %s not found", ErrNotFound, poolName)
 	}
@@ -455,11 +463,11 @@ func (b *InMemoryBackend) DeleteDedicatedIPPool(poolName string) error {
 	b.mu.Lock("DeleteDedicatedIPPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dedicatedIPPools[poolName]; !ok {
+	if !b.dedicatedIPPools.Has(poolName) {
 		return fmt.Errorf("%w: dedicated IP pool %s not found", ErrNotFound, poolName)
 	}
 
-	delete(b.dedicatedIPPools, poolName)
+	b.dedicatedIPPools.Delete(poolName)
 
 	return nil
 }
@@ -469,7 +477,12 @@ func (b *InMemoryBackend) ListDedicatedIPPools(nextToken string, pageSize int) p
 	b.mu.RLock("ListDedicatedIPPools")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.dedicatedIPPools)
+	snap := b.dedicatedIPPools.Snapshot()
+	keys := make([]string, len(snap))
+
+	for i, p := range snap {
+		keys[i] = p.PoolName
+	}
 
 	return page.New(keys, nextToken, pageSize, sesv2DefaultMaxItems)
 }
@@ -491,7 +504,7 @@ func (b *InMemoryBackend) GetDedicatedIP(ip string) (map[string]any, error) {
 	b.mu.RLock("GetDedicatedIP")
 	defer b.mu.RUnlock()
 
-	if d, ok := b.dedicatedIPs[ip]; ok {
+	if d, ok := b.dedicatedIPs.Get(ip); ok {
 		return dedicatedIPToMap(d), nil
 	}
 
@@ -507,11 +520,11 @@ func (b *InMemoryBackend) GetDedicatedIps() []map[string]any {
 	b.mu.RLock("GetDedicatedIps")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.dedicatedIPs)
+	snap := b.dedicatedIPs.Snapshot()
 
-	out := make([]map[string]any, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, dedicatedIPToMap(b.dedicatedIPs[k]))
+	out := make([]map[string]any, 0, len(snap))
+	for _, d := range snap {
+		out = append(out, dedicatedIPToMap(d))
 	}
 
 	return out
@@ -520,14 +533,14 @@ func (b *InMemoryBackend) GetDedicatedIps() []map[string]any {
 // dedicatedIPLocked returns the tracked dedicated IP, creating a default entry if
 // it does not yet exist. Callers must hold the write lock.
 func (b *InMemoryBackend) dedicatedIPLocked(ip string) *DedicatedIP {
-	d, ok := b.dedicatedIPs[ip]
+	d, ok := b.dedicatedIPs.Get(ip)
 	if !ok {
 		d = &DedicatedIP{
 			IP:               ip,
 			WarmupPercentage: warmupPercentComplete,
 			WarmupStatus:     warmupDone,
 		}
-		b.dedicatedIPs[ip] = d
+		b.dedicatedIPs.Put(d)
 	}
 
 	return d
@@ -539,7 +552,7 @@ func (b *InMemoryBackend) PutDedicatedIPInPool(ip, poolName string) error {
 	b.mu.Lock("PutDedicatedIPInPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dedicatedIPPools[poolName]; !ok {
+	if !b.dedicatedIPPools.Has(poolName) {
 		return fmt.Errorf("%w: dedicated IP pool %s not found", ErrNotFound, poolName)
 	}
 
@@ -553,7 +566,7 @@ func (b *InMemoryBackend) PutDedicatedIPPoolScalingAttributes(poolName, scalingM
 	b.mu.Lock("PutDedicatedIPPoolScalingAttributes")
 	defer b.mu.Unlock()
 
-	pool, ok := b.dedicatedIPPools[poolName]
+	pool, ok := b.dedicatedIPPools.Get(poolName)
 	if !ok {
 		return fmt.Errorf("%w: dedicated IP pool %s not found", ErrNotFound, poolName)
 	}
@@ -600,7 +613,7 @@ func (b *InMemoryBackend) GetDeliverabilityTestReport(
 	b.mu.RLock("GetDeliverabilityTestReport")
 	defer b.mu.RUnlock()
 
-	r, ok := b.deliverabilityTestReports[reportID]
+	r, ok := b.deliverabilityTestReports.Get(reportID)
 	if !ok {
 		return nil, fmt.Errorf("%w: deliverability test report %s not found", ErrNotFound, reportID)
 	}
@@ -618,11 +631,11 @@ func (b *InMemoryBackend) ListDeliverabilityTestReports(
 	b.mu.RLock("ListDeliverabilityTestReports")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.deliverabilityTestReports)
+	snap := b.deliverabilityTestReports.Snapshot()
 
-	items := make([]*DeliverabilityTestReport, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.deliverabilityTestReports[k]
+	items := make([]*DeliverabilityTestReport, 0, len(snap))
+	for _, r := range snap {
+		cp := *r
 		items = append(items, &cp)
 	}
 
@@ -698,7 +711,7 @@ func (b *InMemoryBackend) GetEmailTemplate(name string) (*EmailTemplate, error) 
 	b.mu.RLock("GetEmailTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.emailTemplates[name]
+	t, ok := b.emailTemplates.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
@@ -713,11 +726,11 @@ func (b *InMemoryBackend) DeleteEmailTemplate(name string) error {
 	b.mu.Lock("DeleteEmailTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.emailTemplates[name]; !ok {
+	if !b.emailTemplates.Has(name) {
 		return fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
 
-	delete(b.emailTemplates, name)
+	b.emailTemplates.Delete(name)
 
 	return nil
 }
@@ -727,7 +740,7 @@ func (b *InMemoryBackend) UpdateEmailTemplate(name string, content *EmailTemplat
 	b.mu.Lock("UpdateEmailTemplate")
 	defer b.mu.Unlock()
 
-	t, ok := b.emailTemplates[name]
+	t, ok := b.emailTemplates.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
@@ -748,11 +761,11 @@ func (b *InMemoryBackend) ListEmailTemplates(
 	b.mu.RLock("ListEmailTemplates")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.emailTemplates)
+	snap := b.emailTemplates.Snapshot()
 
-	items := make([]*EmailTemplate, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.emailTemplates[k]
+	items := make([]*EmailTemplate, 0, len(snap))
+	for _, t := range snap {
+		cp := *t
 		items = append(items, &cp)
 	}
 
@@ -764,7 +777,7 @@ func (b *InMemoryBackend) TestRenderEmailTemplate(name, templateData string) (st
 	b.mu.RLock("TestRenderEmailTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.emailTemplates[name]
+	t, ok := b.emailTemplates.Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: email template %s not found", ErrNotFound, name)
 	}
@@ -813,7 +826,7 @@ func (b *InMemoryBackend) CreateExportJob(dataSource string) (*ExportJob, error)
 	_ = dataSource
 
 	b.mu.Lock("CreateExportJob")
-	b.exportJobs[jobID] = job
+	b.exportJobs.Put(job)
 	b.mu.Unlock()
 
 	cp := *job
@@ -826,7 +839,7 @@ func (b *InMemoryBackend) GetExportJob(jobID string) (*ExportJob, error) {
 	b.mu.RLock("GetExportJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.exportJobs[jobID]
+	job, ok := b.exportJobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: export job %s not found", ErrNotFound, jobID)
 	}
@@ -841,11 +854,11 @@ func (b *InMemoryBackend) ListExportJobs(nextToken string, pageSize int) page.Pa
 	b.mu.RLock("ListExportJobs")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.exportJobs)
+	snap := b.exportJobs.Snapshot()
 
-	items := make([]*ExportJob, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.exportJobs[k]
+	items := make([]*ExportJob, 0, len(snap))
+	for _, j := range snap {
+		cp := *j
 		items = append(items, &cp)
 	}
 
@@ -865,7 +878,7 @@ func (b *InMemoryBackend) CreateImportJob(dataSource string) (*ImportJob, error)
 	_ = dataSource
 
 	b.mu.Lock("CreateImportJob")
-	b.importJobs[jobID] = job
+	b.importJobs.Put(job)
 	b.mu.Unlock()
 
 	cp := *job
@@ -878,7 +891,7 @@ func (b *InMemoryBackend) GetImportJob(jobID string) (*ImportJob, error) {
 	b.mu.RLock("GetImportJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.importJobs[jobID]
+	job, ok := b.importJobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: import job %s not found", ErrNotFound, jobID)
 	}
@@ -893,11 +906,11 @@ func (b *InMemoryBackend) ListImportJobs(nextToken string, pageSize int) page.Pa
 	b.mu.RLock("ListImportJobs")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.importJobs)
+	snap := b.importJobs.Snapshot()
 
-	items := make([]*ImportJob, 0, len(keys))
-	for _, k := range keys {
-		cp := *b.importJobs[k]
+	items := make([]*ImportJob, 0, len(snap))
+	for _, j := range snap {
+		cp := *j
 		items = append(items, &cp)
 	}
 
@@ -911,7 +924,7 @@ func (b *InMemoryBackend) GetEmailIdentityPolicies(identity string) (map[string]
 	b.mu.RLock("GetEmailIdentityPolicies")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.identities[identity]; !ok {
+	if !b.identities.Has(identity) {
 		return nil, fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
@@ -951,7 +964,7 @@ func (b *InMemoryBackend) UpdateEmailIdentityPolicy(identity, policyName, policy
 	b.mu.Lock("UpdateEmailIdentityPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.identities[identity]; !ok {
+	if !b.identities.Has(identity) {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
@@ -973,11 +986,11 @@ func (b *InMemoryBackend) GetConfigurationSetEventDestinations(
 	b.mu.RLock("GetConfigurationSetEventDestinations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.configurationSets[configSetName]; !ok {
+	if !b.configurationSets.Has(configSetName) {
 		return nil, fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
 	}
 
-	dests := b.eventDestinations[configSetName]
+	dests := b.eventDestinationsByConfigSet.Get(configSetName)
 	out := make([]*EventDestination, 0, len(dests))
 
 	for _, d := range dests {
@@ -995,12 +1008,12 @@ func (b *InMemoryBackend) DeleteConfigurationSetEventDestination(
 	b.mu.Lock("DeleteConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	dests, ok := b.eventDestinations[configSetName]
-	if !ok {
+	if !b.configurationSets.Has(configSetName) {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
 	}
 
-	if _, exists := dests[destName]; !exists {
+	key := eventDestinationKey(configSetName, destName)
+	if !b.eventDestinations.Has(key) {
 		return fmt.Errorf(
 			"%w: event destination %s not found in %s",
 			ErrNotFound,
@@ -1009,7 +1022,7 @@ func (b *InMemoryBackend) DeleteConfigurationSetEventDestination(
 		)
 	}
 
-	delete(dests, destName)
+	b.eventDestinations.Delete(key)
 
 	return nil
 }
@@ -1023,12 +1036,11 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(
 	b.mu.Lock("UpdateConfigurationSetEventDestination")
 	defer b.mu.Unlock()
 
-	dests, ok := b.eventDestinations[configSetName]
-	if !ok {
+	if !b.configurationSets.Has(configSetName) {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, configSetName)
 	}
 
-	dest, ok := dests[destName]
+	dest, ok := b.eventDestinations.Get(eventDestinationKey(configSetName, destName))
 	if !ok {
 		return fmt.Errorf(
 			"%w: event destination %s not found in %s",
@@ -1052,7 +1064,7 @@ func (b *InMemoryBackend) PutConfigurationSetArchivingOptions(name, archiveARN s
 	b.mu.Lock("PutConfigurationSetArchivingOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1069,7 +1081,7 @@ func (b *InMemoryBackend) PutConfigurationSetDeliveryOptions(
 	b.mu.Lock("PutConfigurationSetDeliveryOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1088,7 +1100,7 @@ func (b *InMemoryBackend) PutConfigurationSetReputationOptions(
 	b.mu.Lock("PutConfigurationSetReputationOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1106,7 +1118,7 @@ func (b *InMemoryBackend) PutConfigurationSetSendingOptions(
 	b.mu.Lock("PutConfigurationSetSendingOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1124,7 +1136,7 @@ func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
 	b.mu.Lock("PutConfigurationSetSuppressionOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1143,7 +1155,7 @@ func (b *InMemoryBackend) PutConfigurationSetTrackingOptions(
 	b.mu.Lock("PutConfigurationSetTrackingOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1162,7 +1174,7 @@ func (b *InMemoryBackend) PutConfigurationSetVdmOptions(
 	b.mu.Lock("PutConfigurationSetVdmOptions")
 	defer b.mu.Unlock()
 
-	cs, ok := b.configurationSets[name]
+	cs, ok := b.configurationSets.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: configuration set %s not found", ErrNotFound, name)
 	}
@@ -1184,7 +1196,7 @@ func (b *InMemoryBackend) PutEmailIdentityConfigurationSetAttributes(
 	b.mu.Lock("PutEmailIdentityConfigurationSetAttributes")
 	defer b.mu.Unlock()
 
-	ei, ok := b.identities[identity]
+	ei, ok := b.identities.Get(identity)
 	if !ok {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
@@ -1202,7 +1214,7 @@ func (b *InMemoryBackend) PutEmailIdentityDkimAttributes(
 	b.mu.Lock("PutEmailIdentityDkimAttributes")
 	defer b.mu.Unlock()
 
-	ei, ok := b.identities[identity]
+	ei, ok := b.identities.Get(identity)
 	if !ok {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
@@ -1217,7 +1229,7 @@ func (b *InMemoryBackend) PutEmailIdentityDkimSigningAttributes(identity string)
 	b.mu.RLock("PutEmailIdentityDkimSigningAttributes")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.identities[identity]; !ok {
+	if !b.identities.Has(identity) {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
 
@@ -1232,7 +1244,7 @@ func (b *InMemoryBackend) PutEmailIdentityFeedbackAttributes(
 	b.mu.Lock("PutEmailIdentityFeedbackAttributes")
 	defer b.mu.Unlock()
 
-	ei, ok := b.identities[identity]
+	ei, ok := b.identities.Get(identity)
 	if !ok {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
@@ -1249,7 +1261,7 @@ func (b *InMemoryBackend) PutEmailIdentityMailFromAttributes(
 	b.mu.Lock("PutEmailIdentityMailFromAttributes")
 	defer b.mu.Unlock()
 
-	ei, ok := b.identities[identity]
+	ei, ok := b.identities.Get(identity)
 	if !ok {
 		return fmt.Errorf("%w: identity %s not found", ErrNotFound, identity)
 	}
@@ -1312,7 +1324,7 @@ func (b *InMemoryBackend) SendCustomVerificationEmail(
 ) (string, error) {
 	b.mu.RLock("SendCustomVerificationEmail")
 
-	_, ok := b.customVerificationTemplates[templateName]
+	ok := b.customVerificationTemplates.Has(templateName)
 	b.mu.RUnlock()
 
 	if !ok {
@@ -1580,10 +1592,10 @@ func reputationEntityToMap(e *ReputationEntity) map[string]any {
 // reputationEntityLocked returns the tracked reputation entity, creating an entry
 // if it does not yet exist. Callers must hold the write lock.
 func (b *InMemoryBackend) reputationEntityLocked(entityID string) *ReputationEntity {
-	e, ok := b.reputationEntities[entityID]
+	e, ok := b.reputationEntities.Get(entityID)
 	if !ok {
 		e = &ReputationEntity{EntityRef: entityID}
-		b.reputationEntities[entityID] = e
+		b.reputationEntities.Put(e)
 	}
 
 	return e
@@ -1597,7 +1609,7 @@ func (b *InMemoryBackend) GetReputationEntity(entityID string) (map[string]any, 
 	b.mu.RLock("GetReputationEntity")
 	defer b.mu.RUnlock()
 
-	if e, ok := b.reputationEntities[entityID]; ok {
+	if e, ok := b.reputationEntities.Get(entityID); ok {
 		return reputationEntityToMap(e), nil
 	}
 
@@ -1612,11 +1624,11 @@ func (b *InMemoryBackend) ListReputationEntities(
 	b.mu.RLock("ListReputationEntities")
 	defer b.mu.RUnlock()
 
-	keys := collections.SortedKeys(b.reputationEntities)
+	snap := b.reputationEntities.Snapshot()
 
-	out := make([]map[string]any, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, reputationEntityToMap(b.reputationEntities[k]))
+	out := make([]map[string]any, 0, len(snap))
+	for _, e := range snap {
+		out = append(out, reputationEntityToMap(e))
 	}
 
 	return out, "", nil

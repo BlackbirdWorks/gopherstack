@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -19,42 +20,63 @@ type Snapshottable interface {
 	Restore(context.Context, []byte) error
 }
 
-// backendSnapshot holds a serializable snapshot of InMemoryBackend state.
+// iotanalyticsSnapshotVersion identifies the shape of [backendSnapshot]. It
+// must be bumped whenever a change to backendSnapshot (or a value type held
+// by one of the registered tables) would make an older snapshot unsafe to
+// decode as the current shape. Restore compares this against the persisted
+// value and discards (registry.ResetAll, not a partial decode) any mismatch
+// -- see Restore. The pre-Phase-3.3 snapshot format had no version field at
+// all, so an old snapshot decodes with Version == 0, which is guaranteed to
+// mismatch iotanalyticsSnapshotVersion and is discarded the same way any
+// other incompatible snapshot is.
+const iotanalyticsSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the IoT Analytics backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// b.registry.SnapshotAll() (channels, datastores, datasets, pipelines -- see
+// store_setup.go); all four are "clean" tables (see store_setup.go's file doc
+// comment), so no ephemeral DTO registry is needed here. Tags,
+// ChannelMessages, and DatasetContents are the three maps left un-converted
+// (their values are not *T -- see store_setup.go). Version guards against
+// decoding a snapshot from an incompatible (older or newer) build of this
+// backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Channels        map[string]*Channel          `json:"channels"`
-	Datastores      map[string]*Datastore        `json:"datastores"`
-	Datasets        map[string]*Dataset          `json:"datasets"`
-	Pipelines       map[string]*Pipeline         `json:"pipelines"`
+	Tables          map[string]json.RawMessage   `json:"tables"`
 	Tags            map[string]map[string]string `json:"tags"`
 	ChannelMessages map[string][][]byte          `json:"channelMessages"`
 	DatasetContents map[string][]*DatasetContent `json:"datasetContents"`
 	LoggingOptions  *LoggingOptions              `json:"loggingOptions"`
+	Version         int                          `json:"version"`
 }
 
 // Snapshot serializes backend state to JSON.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock()
+	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are all plain JSON-friendly structs, so a
+		// marshal failure here would indicate a programming error rather
+		// than bad input data. Log and skip the snapshot rather than panic,
+		// matching the persistence.Persistable contract (nil is skipped by
+		// the Manager).
+		logger.Load(ctx).WarnContext(ctx, "iotanalytics: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Channels:        b.channels,
-		Datastores:      b.datastores,
-		Datasets:        b.datasets,
-		Pipelines:       b.pipelines,
+		Version:         iotanalyticsSnapshotVersion,
+		Tables:          tables,
 		Tags:            b.tags,
 		ChannelMessages: b.channelMessages,
 		DatasetContents: b.datasetContents,
 		LoggingOptions:  b.loggingOptions,
 	}
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "iotanalytics: failed to marshal snapshot", "error", err)
-
-		return nil
-	}
-
-	return data
+	return persistence.MarshalSnapshot(ctx, "iotanalytics", &snap)
 }
 
 // Restore deserializes backend state from a JSON snapshot.
@@ -65,23 +87,31 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Channels == nil {
-		snap.Channels = make(map[string]*Channel)
+	if snap.Version != iotanalyticsSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"iotanalytics: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", iotanalyticsSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.tags = make(map[string]map[string]string)
+		b.channelMessages = make(map[string][][]byte)
+		b.datasetContents = make(map[string][]*DatasetContent)
+		b.loggingOptions = nil
+
+		return nil
 	}
 
-	if snap.Datastores == nil {
-		snap.Datastores = make(map[string]*Datastore)
-	}
-
-	if snap.Datasets == nil {
-		snap.Datasets = make(map[string]*Dataset)
-	}
-
-	if snap.Pipelines == nil {
-		snap.Pipelines = make(map[string]*Pipeline)
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("iotanalytics: restore snapshot tables: %w", err)
 	}
 
 	if snap.Tags == nil {
@@ -96,10 +126,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.DatasetContents = make(map[string][]*DatasetContent)
 	}
 
-	b.channels = snap.Channels
-	b.datastores = snap.Datastores
-	b.datasets = snap.Datasets
-	b.pipelines = snap.Pipelines
 	b.tags = snap.Tags
 	b.channelMessages = snap.ChannelMessages
 	b.datasetContents = snap.DatasetContents

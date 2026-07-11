@@ -136,32 +136,26 @@ func (h *AgentsHandler) ChaosOperations() []string { return h.GetSupportedOperat
 func (h *AgentsHandler) ChaosRegions() []string { return []string{h.Backend.region} }
 
 // Reset clears all agent/kb state.
+//
+// registry.ResetAll empties every store.Table registered on this backend
+// instance -- including the non-agent-domain (guardrails/models/...) tables
+// registerAllTables also registers -- but AgentsHandler's own backend
+// instance (see AgentsProvider.Init in provider.go) never receives core
+// Bedrock mutations (RouteMatcher only matches /agents/ and /knowledgebases/
+// paths), so those tables are always already empty here; resetting them is a
+// no-op, not a behavior change.
 func (h *AgentsHandler) Reset() {
 	h.Backend.mu.Lock("AgentsHandler.Reset")
 	defer h.Backend.mu.Unlock()
 
-	h.Backend.agents = make(map[string]*Agent)
+	h.Backend.registry.ResetAll()
 	h.Backend.agentsByName = make(map[string]string)
-	h.Backend.agentActionGroups = make(map[string]*AgentActionGroup)
-	h.Backend.agentAliases = make(map[string]*AgentAlias)
-	h.Backend.agentKBAssociations = make(map[string]*AgentKnowledgeBaseAssociation)
-	h.Backend.knowledgeBases = make(map[string]*KnowledgeBase)
 	h.Backend.kbByName = make(map[string]string)
-	h.Backend.dataSources = make(map[string]*DataSource)
-	h.Backend.ingestionJobs = make(map[string]*IngestionJob)
-	h.Backend.flows = make(map[string]*Flow)
 	h.Backend.flowsByName = make(map[string]string)
-	h.Backend.flowAliases = make(map[string]*FlowAlias)
-	h.Backend.flowVersions = make(map[string]map[string]*FlowVersion)
 	h.Backend.flowVersionCounters = make(map[string]int)
-	h.Backend.prompts = make(map[string]*Prompt)
 	h.Backend.promptsByName = make(map[string]string)
-	h.Backend.promptVersions = make(map[string]map[string]*PromptVersion)
 	h.Backend.promptVersionCounters = make(map[string]int)
-	h.Backend.agentVersions = make(map[string]map[string]*AgentVersion)
 	h.Backend.agentVersionCounters = make(map[string]int)
-	h.Backend.agentCollaborators = make(map[string]map[string]*AgentCollaborator)
-	h.Backend.kbDocuments = make(map[string]*KnowledgeBaseDocument)
 	h.Backend.agentTags = make(map[string]map[string]string)
 	h.Backend.agentMemory = make(map[string][]any)
 	// Reset ID counters for deterministic IDs after reset.

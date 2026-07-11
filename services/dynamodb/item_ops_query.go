@@ -86,7 +86,10 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
-	if verr := validateSelectConstraints(input.Select, idxName, projection); verr != nil {
+	if verr := validateSelectConstraints(
+		input.Select, idxName, projection,
+		aws.ToString(input.ProjectionExpression), input.AttributesToGet,
+	); verr != nil {
 		return nil, verr
 	}
 
@@ -458,10 +461,16 @@ func (db *InMemoryDB) processQueryResults(
 		eav,
 	)
 
-	outItems := make([]map[string]types.AttributeValue, len(items))
-	for i, it := range items {
-		sdkIt, _ := models.ToSDKItem(it)
-		outItems[i] = sdkIt
+	// AWS omits Items entirely when Select=COUNT: "Returns the number of matching
+	// items, rather than the matching items themselves." Count/ScannedCount still
+	// reflect the matched/scanned totals.
+	var outItems []map[string]types.AttributeValue
+	if input.Select != types.SelectCount {
+		outItems = make([]map[string]types.AttributeValue, len(items))
+		for i, it := range items {
+			sdkIt, _ := models.ToSDKItem(it)
+			outItems[i] = sdkIt
+		}
 	}
 
 	out := &dynamodb.QueryOutput{

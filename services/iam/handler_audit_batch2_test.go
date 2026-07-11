@@ -519,7 +519,8 @@ func TestHandler_SimulatePrincipalPolicy_UserNotFound(t *testing.T) {
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	// NoSuchEntity is 404 on real AWS IAM.
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ---- ServiceSpecificCredential UpdateStatus handler ----

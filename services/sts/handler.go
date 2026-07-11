@@ -84,8 +84,10 @@ func (h *Handler) Name() string {
 }
 
 // GetSupportedOperations returns the list of supported STS operations.
-// Note: GetWebIdentityToken is an internal gopherstack operation and is NOT a real
-// AWS STS API action; it is intentionally omitted from this list.
+// GetDelegatedAccessToken and GetWebIdentityToken are real actions present in
+// aws-sdk-go-v2/service/sts (api_op_GetDelegatedAccessToken.go and
+// api_op_GetWebIdentityToken.go); both are included here and are routed by
+// dispatch.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AssumeRole",
@@ -98,6 +100,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDelegatedAccessToken",
 		"GetFederationToken",
 		"GetSessionToken",
+		"GetWebIdentityToken",
 	}
 }
 
@@ -526,9 +529,9 @@ func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoRe
 	// Look up the key in the session store.
 	b, ok := h.Backend.(*InMemoryBackend)
 	if ok {
-		b.mu.Lock()
-		session, found := b.sessions[accessKeyID]
-		b.mu.Unlock()
+		b.mu.RLock("GetAccessKeyInfo")
+		session, found := b.sessions.Get(accessKeyID)
+		b.mu.RUnlock()
 
 		if found {
 			return &GetAccessKeyInfoResponse{
@@ -638,6 +641,8 @@ func mapErrorToCode(reqErr error) (string, int) {
 		return "PackedPolicyTooLarge", http.StatusBadRequest
 	case errors.Is(reqErr, ErrExpiredToken), errors.Is(reqErr, ErrSessionExpired):
 		return "ExpiredTokenException", http.StatusBadRequest
+	case errors.Is(reqErr, ErrExpiredTradeInToken):
+		return "ExpiredTradeInTokenException", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidIdentityToken), errors.Is(reqErr, ErrInvalidSAMLAssertion):
 		return "InvalidIdentityToken", http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidAuthorizationMessage):

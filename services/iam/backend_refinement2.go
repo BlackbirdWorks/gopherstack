@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // insertSorted inserts v into a sorted []string slice in lexicographic order.
@@ -30,24 +31,13 @@ func deleteSorted(s []string, v string) []string {
 	return slices.Delete(s, i, i+1)
 }
 
-// rebuildSortedNames rebuilds a sorted name slice from the keys of a generic map.
-func rebuildSortedNames[T any](m map[string]T) []string {
-	names := make([]string, 0, len(m))
-	for k := range m {
-		names = append(names, k)
-	}
-
-	slices.Sort(names)
-
-	return names
-}
-
 // pageFromSortedNames paginates over a pre-sorted name slice, building the value page
-// by looking up each name in the provided map. Marker is a base64-encoded integer index
-// (opaque to callers) enabling O(1) position resolution without scanning all names.
+// by looking up each name via lookup (typically a [store.Table.Get] method value).
+// Marker is a base64-encoded integer index (opaque to callers) enabling O(1) position
+// resolution without scanning all names.
 func pageFromSortedNames[T any](
 	names []string,
-	lookup map[string]T,
+	lookup func(string) (*T, bool),
 	marker string,
 	limit, defaultLimit int,
 ) page.Page[T] {
@@ -73,8 +63,8 @@ func pageFromSortedNames[T any](
 	data := make([]T, 0, len(window))
 
 	for _, name := range window {
-		if v, ok := lookup[name]; ok {
-			data = append(data, v)
+		if v, ok := lookup(name); ok {
+			data = append(data, *v)
 		}
 	}
 
@@ -97,11 +87,11 @@ func (b *InMemoryBackend) UpdateServiceSpecificCredential(
 	b.mu.Lock("UpdateServiceSpecificCredential")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	cred, exists := b.serviceSpecificCreds[credentialID]
+	cred, exists := b.serviceSpecificCreds.Get(credentialID)
 	if !exists {
 		return fmt.Errorf(
 			"%w: service-specific credential %q not found",
@@ -120,7 +110,7 @@ func (b *InMemoryBackend) UpdateServiceSpecificCredential(
 	}
 
 	cred.Status = status
-	b.serviceSpecificCreds[credentialID] = cred
+	b.serviceSpecificCreds.Put(cred)
 
 	return nil
 }
@@ -146,18 +136,18 @@ func (b *InMemoryBackend) GetAccountSummary() AccountSummary {
 	}
 
 	return AccountSummary{
-		Users:             len(b.users),
-		Groups:            len(b.groups),
-		Roles:             len(b.roles),
-		Policies:          len(b.policies),
-		InstanceProfiles:  len(b.instanceProfiles),
-		SAMLProviders:     len(b.samlProviders),
-		MFADevices:        len(b.virtualMFADevices),
+		Users:             b.users.Len(),
+		Groups:            b.groups.Len(),
+		Roles:             b.roles.Len(),
+		Policies:          b.policies.Len(),
+		InstanceProfiles:  b.instanceProfiles.Len(),
+		SAMLProviders:     b.samlProviders.Len(),
+		MFADevices:        b.virtualMFADevices.Len(),
 		AccessKeysPerUser: totalKeys,
 		ActiveAccessKeys:  activeKeys,
 		AttachedPolicies:  attachedPolicies,
 		AccountAliases:    len(b.accountAliases),
-		OIDCProviders:     len(b.oidcProviders),
+		OIDCProviders:     b.oidcProviders.Len(),
 	}
 }
 
@@ -166,7 +156,7 @@ func (b *InMemoryBackend) GetAccountSummary() AccountSummary {
 func (b *InMemoryBackend) accessKeyCountLocked() (int, int) {
 	var total, active int
 
-	for _, ak := range b.accessKeys {
+	for _, ak := range b.accessKeys.All() {
 		total++
 		if ak.Status == accessKeyStatusActive {
 			active++
@@ -219,14 +209,14 @@ func credKeyFields(ak *AccessKey) []string {
 func credUserMFAActive(
 	userName string,
 	links map[string]string,
-	devices map[string]VirtualMFADevice,
+	devices *store.Table[VirtualMFADevice],
 ) string {
 	for serial, owner := range links {
 		if owner != userName {
 			continue
 		}
 
-		if dev, ok := devices[serial]; ok && dev.Status == MFAStatusEnabled {
+		if dev, ok := devices.Get(serial); ok && dev.Status == MFAStatusEnabled {
 			return credTrue
 		}
 	}
@@ -272,15 +262,15 @@ func (b *InMemoryBackend) credUserRow(u User, mfaLinks map[string]string) string
 	createdAt := u.CreateDate.UTC().Format(time.RFC3339)
 
 	passwordEnabled := credFalse
-	if _, has := b.loginProfiles[u.UserName]; has {
+	if _, has := b.loginProfiles.Get(u.UserName); has {
 		passwordEnabled = credTrue
 	}
 
 	var userKeys []AccessKey
 	userKeysList := b.userAccessKeys[u.UserName]
 	for _, id := range userKeysList {
-		if ak, ok := b.accessKeys[id]; ok {
-			userKeys = append(userKeys, ak)
+		if ak, ok := b.accessKeys.Get(id); ok {
+			userKeys = append(userKeys, *ak)
 		}
 	}
 

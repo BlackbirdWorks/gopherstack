@@ -3,12 +3,33 @@ package sagemaker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
-// persistedCluster is a serialisable version of Cluster that includes Nodes.
+// sagemakerSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change would make an older snapshot unsafe to decode
+// as the current shape. Restore compares this against the persisted value
+// and discards (rather than attempts to partially decode) any mismatch — see
+// Restore below. This is bumped from the pre-Phase-3.3 format, which had no
+// Version field at all and persisted resources as region-nested raw maps
+// rather than store.Registry tables, so any snapshot taken before this
+// pkgs/store conversion is treated as "missing/incompatible" and discarded
+// cleanly rather than misinterpreted.
+const sagemakerSnapshotVersion = 1
+
+// persistedCluster is a serialisable DTO for Cluster. It exists — mirroring
+// the SQS pilot's queueSnapshot — because Cluster is a "dirty" struct for
+// persistence purposes: Nodes carries `json:"-"` (hidden from the AWS wire
+// shape returned to API callers) but must still be persisted, and
+// CreationTime is persisted as an explicit RFC3339 string (this backend's
+// pre-conversion snapshot format) rather than store.Table's default
+// json.Marshal-of-time.Time encoding.
 type persistedCluster struct {
 	CreationTime   string                  `json:"CreationTime"`
 	Nodes          map[string]*ClusterNode `json:"Nodes"`
@@ -20,688 +41,342 @@ type persistedCluster struct {
 	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
 }
 
-// backendSnapshot holds the serialisable state of InMemoryBackend.
-// All resource maps are nested by region (outer key = region).
+// toPersistedCluster converts a live Cluster to its persisted DTO shape.
+func toPersistedCluster(c *Cluster) *persistedCluster {
+	pc := &persistedCluster{
+		CreationTime:   c.CreationTime.Format(time.RFC3339),
+		ClusterArn:     c.ClusterArn,
+		ClusterName:    c.ClusterName,
+		ClusterStatus:  c.ClusterStatus,
+		NodeRecovery:   c.NodeRecovery,
+		Tags:           c.Tags,
+		InstanceGroups: c.InstanceGroups,
+		Nodes:          make(map[string]*ClusterNode, len(c.Nodes)),
+	}
+
+	for nk, nv := range c.Nodes {
+		nodeCopy := *nv
+		pc.Nodes[nk] = &nodeCopy
+	}
+
+	return pc
+}
+
+// fromPersistedCluster rebuilds a live Cluster from its persisted DTO shape.
+func fromPersistedCluster(ctx context.Context, pc *persistedCluster) *Cluster {
+	t, err := time.Parse(time.RFC3339, pc.CreationTime)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx,
+			"sagemaker: failed to parse cluster creation time", "cluster", pc.ClusterName, "error", err)
+	}
+
+	c := &Cluster{
+		ClusterArn:     pc.ClusterArn,
+		ClusterName:    pc.ClusterName,
+		ClusterStatus:  pc.ClusterStatus,
+		NodeRecovery:   pc.NodeRecovery,
+		Tags:           pc.Tags,
+		InstanceGroups: pc.InstanceGroups,
+		CreationTime:   t,
+		Nodes:          make(map[string]*ClusterNode, len(pc.Nodes)),
+	}
+
+	for nk, nv := range pc.Nodes {
+		nodeCopy := *nv
+		c.Nodes[nk] = &nodeCopy
+	}
+
+	return c
+}
+
+// clusterTablePrefix names the per-region entries carved out of
+// backendSnapshot.Tables for DTO-based Cluster encoding — see Snapshot/Restore.
+const clusterTablePrefix = "clusters:"
+
+// hubContentKeyString serialises a hubContentKey to a single delimited string
+// for use as the store.Table primary key for b.hubContents.
+func hubContentKeyString(k hubContentKey) string {
+	return k.HubName + "|" + k.HubContentType + "|" + k.HubContentName + "|" + k.HubContentVersion
+}
+
+// backendSnapshot is the top-level on-disk shape for the SageMaker backend.
+//
+// Tables holds one JSON-encoded array per registered store.Table (produced by
+// [store.Registry.SnapshotAll]) — one entry per (resource, region) pair,
+// e.g. "models:us-east-1", "endpointConfigs:us-east-1". Clusters are the one
+// exception: their table entries are re-encoded through [persistedCluster]
+// (see Snapshot/Restore) rather than left as the registry's generic
+// json.Marshal-of-Cluster output.
+//
+// The five fields below are not (yet) backed by store.Table — see the doc
+// comments on the corresponding InMemoryBackend fields in backend.go for why
+// each one doesn't fit the Table[V] keyed-by-string-derived-from-V model —
+// so they are persisted directly here instead of via Tables.
 type backendSnapshot struct {
-	Models                     map[string]map[string]*Model                     `json:"models"`
-	EndpointConfigs            map[string]map[string]*EndpointConfig            `json:"endpointConfigs"`
-	Endpoints                  map[string]map[string]*Endpoint                  `json:"endpoints"`
-	TrainingJobs               map[string]map[string]*TrainingJob               `json:"trainingJobs"`
-	Notebooks                  map[string]map[string]*NotebookInstance          `json:"notebooks"`
-	HPTuningJobs               map[string]map[string]*HyperParameterTuningJob   `json:"hpTuningJobs"`
-	Associations               map[string]map[string]*Association               `json:"associations"`
-	TrialComponentAssociations map[string]map[string]*TrialComponentAssociation `json:"trialComponentAssociations"`
-	Actions                    map[string]map[string]*Action                    `json:"actions"`
-	Artifacts                  map[string]map[string]*Artifact                  `json:"artifacts"`
-	Contexts                   map[string]map[string]*Context                   `json:"contexts"`
-	Algorithms                 map[string]map[string]*Algorithm                 `json:"algorithms"`
-	Clusters                   map[string]map[string]*persistedCluster          `json:"clusters"`
-	ModelPackages              map[string]map[string]*ModelPackage              `json:"modelPackages"`
-	Domains                    map[string]map[string]*Domain                    `json:"domains"`
-	// UserProfiles is stored as region → "domainID|profileName" → UserProfile.
-	UserProfiles map[string]map[string]*UserProfile `json:"userProfiles"`
-	// Apps is stored as region → "domainID|userProfileName|appType|appName" → App.
-	Apps                     map[string]map[string]*App                             `json:"apps"`
-	FeatureGroups            map[string]map[string]*FeatureGroup                    `json:"featureGroups"`
-	Pipelines                map[string]map[string]*Pipeline                        `json:"pipelines"`
-	PipelineExecutions       map[string]map[string]*PipelineExecution               `json:"pipelineExecutions"`
-	PipelineExecSteps        map[string]map[string]*PipelineExecutionStep           `json:"pipelineExecSteps"`
-	Experiments              map[string]map[string]*Experiment                      `json:"experiments"`
-	Trials                   map[string]map[string]*Trial                           `json:"trials"`
-	TrialComponents          map[string]map[string]*TrialComponent                  `json:"trialComponents"`
-	NotebookLifecycleConfigs map[string]map[string]*NotebookInstanceLifecycleConfig `json:"notebookLifecycleConfigs"`
-	ProcessingJobs           map[string]map[string]*ProcessingJob                   `json:"processingJobs"`
-	TransformJobs            map[string]map[string]*TransformJob                    `json:"transformJobs"`
-	EdgeDeploymentPlans      map[string]map[string]*EdgeDeploymentPlan              `json:"edgeDeploymentPlans"`
-	FeatureRecords           map[string]map[string]*FeatureRecord                   `json:"featureRecords"`
-	FeatureMetadata          map[string]map[string]*FeatureMetadata                 `json:"featureMetadata"`
-	Hubs                     map[string]map[string]*Hub                             `json:"hubs"`
-	// HubContents is stored as region → "hubName|contentType|contentName|contentVersion" → HubContent.
-	HubContents map[string]map[string]*HubContent `json:"hubContents"`
-	// Model Monitor job definitions (Create/Describe/Delete/List*JobDefinitions).
-	DataQualityJobDefs  map[string]map[string]*JobDefinition `json:"dataQualityJobDefs"`
-	ModelBiasJobDefs    map[string]map[string]*JobDefinition `json:"modelBiasJobDefs"`
-	ModelQualityJobDefs map[string]map[string]*JobDefinition `json:"modelQualityJobDefs"`
-	ModelExplainJobDefs map[string]map[string]*JobDefinition `json:"modelExplainJobDefs"`
-	// MonitoringAlerts is stored as region → monitoringScheduleName → alertName → MonitoringAlert.
-	MonitoringAlerts map[string]map[string]map[string]*MonitoringAlert `json:"monitoringAlerts"`
-	// MonitoringAlertHistory is stored as region → history entries (across all schedules/alerts).
-	MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry `json:"monitoringAlertHistory"`
-	// MonitoringExecutions is stored as region → "scheduleName|processingJobArn" → MonitoringExecution.
-	MonitoringExecutions  map[string]map[string]*MonitoringExecution  `json:"monitoringExecutions"`
-	Workteams             map[string]map[string]*Workteam             `json:"workteams"`
-	Workforces            map[string]map[string]*Workforce            `json:"workforces"`
-	LabelingJobs          map[string]map[string]*LabelingJob          `json:"labelingJobs"`
-	MlflowTrackingServers map[string]map[string]*MlflowTrackingServer `json:"mlflowTrackingServers"`
-	MlflowApps            map[string]map[string]*MlflowApp            `json:"mlflowApps"`
-	PartnerApps           map[string]map[string]*PartnerApp           `json:"partnerApps"`
-	TrainingPlans         map[string]map[string]*TrainingPlan         `json:"trainingPlans"`
-	ReservedCapacities    map[string]map[string]*ReservedCapacity     `json:"reservedCapacities"`
-	// TrainingPlanExtensionOfferings is stored as region -> extensionOfferingID -> pending extension offer.
-	TrainingPlanExtensionOfferings pendingExtensionsByRegion                 `json:"trainingPlanExtensionOfferings"`
-	ModelCardExportJobs            map[string]map[string]*ModelCardExportJob `json:"modelCardExportJobs"`
-	ModelPackageGroups             map[string]map[string]*ModelPackageGroup  `json:"modelPackageGroups"`
-	// PipelineVersions is stored as region -> pipelineName -> version history.
-	PipelineVersions map[string]map[string][]*PipelineVersion `json:"pipelineVersions"`
-	// ServicecatalogPortfolioEnabled is region -> whether the Service Catalog
-	// portfolio has been enabled.
-	ServicecatalogPortfolioEnabled map[string]bool `json:"servicecatalogPortfolioEnabled"`
-	AccountID                      string          `json:"accountID"`
-	Region                         string          `json:"region"`
-}
-
-// pendingExtensionsByRegion is region -> extensionOfferingID -> pending
-// training plan extension offer awaiting an ExtendTrainingPlan call.
-type pendingExtensionsByRegion = map[string]map[string]*pendingTrainingPlanExtension
-
-// snapshotClusters converts map[string]map[string]*Cluster →
-// map[string]map[string]*persistedCluster.
-func snapshotClusters(b *InMemoryBackend) map[string]map[string]*persistedCluster {
-	clusters := make(map[string]map[string]*persistedCluster, len(b.clusters))
-
-	for region, regionClusters := range b.clusters {
-		clusters[region] = make(map[string]*persistedCluster, len(regionClusters))
-		for k, c := range regionClusters {
-			pc := &persistedCluster{
-				CreationTime:   c.CreationTime.Format("2006-01-02T15:04:05Z07:00"),
-				ClusterArn:     c.ClusterArn,
-				ClusterName:    c.ClusterName,
-				ClusterStatus:  c.ClusterStatus,
-				NodeRecovery:   c.NodeRecovery,
-				Tags:           c.Tags,
-				InstanceGroups: c.InstanceGroups,
-				Nodes:          make(map[string]*ClusterNode, len(c.Nodes)),
-			}
-			for nk, nv := range c.Nodes {
-				nodeCopy := *nv
-				pc.Nodes[nk] = &nodeCopy
-			}
-
-			clusters[region][k] = pc
-		}
-	}
-
-	return clusters
-}
-
-// snapshotUserProfiles converts map[string]map[userProfileKey]*UserProfile →
-// map[string]map[string]*UserProfile (inner key = "domainID|profileName").
-func snapshotUserProfiles(b *InMemoryBackend) map[string]map[string]*UserProfile {
-	userProfiles := make(map[string]map[string]*UserProfile, len(b.userProfiles))
-
-	for region, regionProfiles := range b.userProfiles {
-		userProfiles[region] = make(map[string]*UserProfile, len(regionProfiles))
-		for k, v := range regionProfiles {
-			cp := *v
-			userProfiles[region][k.DomainID+"|"+k.UserProfileName] = &cp
-		}
-	}
-
-	return userProfiles
-}
-
-// snapshotApps converts map[string]map[appKey]*App → map[string]map[string]*App
-// (inner key = "domainID|userProfileName|appType|appName").
-func snapshotApps(b *InMemoryBackend) map[string]map[string]*App {
-	apps := make(map[string]map[string]*App, len(b.apps))
-
-	for region, regionApps := range b.apps {
-		apps[region] = make(map[string]*App, len(regionApps))
-		for k, v := range regionApps {
-			cp := *v
-			apps[region][k.DomainID+"|"+k.UserProfileName+"|"+k.AppType+"|"+k.AppName] = &cp
-		}
-	}
-
-	return apps
-}
-
-// snapshotHubContents converts map[string]map[hubContentKey]*HubContent →
-// map[string]map[string]*HubContent (inner key =
-// "hubName|contentType|contentName|contentVersion").
-func snapshotHubContents(b *InMemoryBackend) map[string]map[string]*HubContent {
-	hubContents := make(map[string]map[string]*HubContent, len(b.hubContents))
-
-	for region, regionContents := range b.hubContents {
-		hubContents[region] = make(map[string]*HubContent, len(regionContents))
-		for k, v := range regionContents {
-			cp := *v
-			hubContents[region][hubContentKeyString(k)] = &cp
-		}
-	}
-
-	return hubContents
+	Tables                 map[string]json.RawMessage                  `json:"tables"`
+	ImageVersions          map[string]map[string]map[int]*ImageVersion `json:"imageVersions,omitempty"`
+	ImageVersionCounts     map[string]map[string]int                   `json:"imageVersionCounts,omitempty"`
+	MonitoringAlertHistory map[string][]*MonitoringAlertHistoryEntry   `json:"monitoringAlertHistory,omitempty"`
+	PipelineVersions       map[string]map[string][]*PipelineVersion    `json:"pipelineVersions,omitempty"`
+	SCPortfolioEnabled     map[string]bool                             `json:"servicecatalogPortfolioEnabled,omitempty"`
+	AccountID              string                                      `json:"accountID"`
+	Region                 string                                      `json:"region"`
+	Version                int                                         `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
+// It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	clusters := snapshotClusters(b)
-	userProfiles := snapshotUserProfiles(b)
-	apps := snapshotApps(b)
-	hubContents := snapshotHubContents(b)
-
-	snap := backendSnapshot{
-		Models:                         b.models,
-		EndpointConfigs:                b.endpointConfigs,
-		Endpoints:                      b.endpoints,
-		TrainingJobs:                   b.trainingJobs,
-		Notebooks:                      b.notebooks,
-		HPTuningJobs:                   b.hpTuningJobs,
-		Associations:                   b.associations,
-		TrialComponentAssociations:     b.trialComponentAssociations,
-		Actions:                        b.actions,
-		Artifacts:                      b.artifacts,
-		Contexts:                       b.contexts,
-		Algorithms:                     b.algorithms,
-		Clusters:                       clusters,
-		ModelPackages:                  b.modelPackages,
-		Domains:                        b.domains,
-		UserProfiles:                   userProfiles,
-		Apps:                           apps,
-		FeatureGroups:                  b.featureGroups,
-		Pipelines:                      b.pipelines,
-		PipelineExecutions:             b.pipelineExecutions,
-		PipelineExecSteps:              b.pipelineExecSteps,
-		Experiments:                    b.experiments,
-		Trials:                         b.trials,
-		TrialComponents:                b.trialComponents,
-		NotebookLifecycleConfigs:       b.notebookLifecycleConfigs,
-		ProcessingJobs:                 b.processingJobs,
-		TransformJobs:                  b.transformJobs,
-		EdgeDeploymentPlans:            b.edgeDeploymentPlans,
-		FeatureRecords:                 b.featureRecords,
-		FeatureMetadata:                b.featureMetadata,
-		Hubs:                           b.hubs,
-		HubContents:                    hubContents,
-		DataQualityJobDefs:             b.dataQualityJobDefs,
-		ModelBiasJobDefs:               b.modelBiasJobDefs,
-		ModelQualityJobDefs:            b.modelQualityJobDefs,
-		ModelExplainJobDefs:            b.modelExplainJobDefs,
-		MonitoringAlerts:               b.monitoringAlerts,
-		MonitoringAlertHistory:         b.monitoringAlertHistory,
-		MonitoringExecutions:           b.monitoringExecutions,
-		Workteams:                      b.workteams,
-		Workforces:                     b.workforces,
-		LabelingJobs:                   b.labelingJobs,
-		MlflowTrackingServers:          b.mlflowTrackingServers,
-		MlflowApps:                     b.mlflowApps,
-		PartnerApps:                    b.partnerApps,
-		TrainingPlans:                  b.trainingPlans,
-		ReservedCapacities:             b.reservedCapacities,
-		TrainingPlanExtensionOfferings: b.trainingPlanExtensionOfferings,
-		ModelCardExportJobs:            b.modelCardExportJobs,
-		ModelPackageGroups:             b.modelPackageGroups,
-		PipelineVersions:               b.pipelineVersions,
-		ServicecatalogPortfolioEnabled: b.servicecatalogPortfolioEnabled,
-		AccountID:                      b.accountID,
-		Region:                         b.region,
-	}
-
-	data, err := json.Marshal(snap)
+	tables, err := b.registry.SnapshotAll()
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "sagemaker: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "sagemaker: snapshot table marshal failed", "error", err)
 
 		return nil
 	}
 
-	return data
+	// Overwrite the generic per-region cluster table encoding (which would
+	// silently drop Nodes, since Cluster.Nodes carries `json:"-"`) with the
+	// persistedCluster DTO shape.
+	for region, tbl := range b.clusters {
+		clusters := tbl.Snapshot()
+		dtos := make([]*persistedCluster, len(clusters))
+
+		for i, c := range clusters {
+			dtos[i] = toPersistedCluster(c)
+		}
+
+		data, marshalErr := json.Marshal(dtos)
+		if marshalErr != nil {
+			logger.Load(ctx).WarnContext(ctx,
+				"sagemaker: snapshot cluster table marshal failed", "region", region, "error", marshalErr)
+
+			return nil
+		}
+
+		tables[clusterTablePrefix+region] = data
+	}
+
+	snap := backendSnapshot{
+		Version:                sagemakerSnapshotVersion,
+		Tables:                 tables,
+		ImageVersions:          b.imageVersions,
+		ImageVersionCounts:     b.imageVersionCounts,
+		MonitoringAlertHistory: b.monitoringAlertHistory,
+		PipelineVersions:       b.pipelineVersions,
+		SCPortfolioEnabled:     b.servicecatalogPortfolioEnabled,
+		AccountID:              b.accountID,
+		Region:                 b.region,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "sagemaker", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
+// It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := persistence.UnmarshalSnapshot(ctx, "sagemaker", data, &snap); err != nil {
 		return err
 	}
-
-	ensureNonNilMaps(&snap)
-	fixNilTagMaps(&snap)
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.restoreFields(ctx, &snap)
-	b.resetLifecycleContext() // cancel pending goroutines, create fresh context
+	if snap.Version != sagemakerSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape — that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across this Phase 3.3 snapshot-format
+		// change), not data corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"sagemaker: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", sagemakerSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.resetNonTableFieldsLocked()
+		b.resetLifecycleContext()
+
+		return nil
+	}
+
+	// Cluster entries need DTO decoding (see Snapshot): pull them out of the
+	// raw table map before delegating the rest to registry.RestoreAll, then
+	// restore each region's store.Table[Cluster] from the decoded DTOs
+	// afterward. Any region not present in the snapshot is left absent from
+	// b.clusters here; RestoreAll's "reset tables absent from data" behavior
+	// (since we've stripped every "clusters:*" key from snap.Tables) clears
+	// any such region's table if it was already registered.
+	clusterTables := make(map[string]json.RawMessage)
+
+	for name, raw := range snap.Tables {
+		if region, ok := strings.CutPrefix(name, clusterTablePrefix); ok {
+			clusterTables[region] = raw
+
+			delete(snap.Tables, name)
+		}
+	}
+
+	// registry.RestoreAll only visits tables already registered in the
+	// registry; every resource table is registered lazily per-region on
+	// first use (see e.g. modelsStore), so a freshly constructed backend —
+	// the common Restore target — starts with none registered. Without this,
+	// RestoreAll would silently skip every region the backend hasn't
+	// happened to touch yet, dropping that data on the floor.
+	b.ensureTablesRegistered(snap.Tables)
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("sagemaker: restore snapshot tables: %w", err)
+	}
+
+	for region, raw := range clusterTables {
+		var dtos []*persistedCluster
+
+		if err := json.Unmarshal(raw, &dtos); err != nil {
+			return fmt.Errorf("sagemaker: restore cluster table %q: %w", region, err)
+		}
+
+		clusters := make([]*Cluster, len(dtos))
+		for i, pc := range dtos {
+			clusters[i] = fromPersistedCluster(ctx, pc)
+		}
+
+		b.clustersStore(region).Restore(clusters)
+	}
+
+	b.imageVersions = snap.ImageVersions
+	b.imageVersionCounts = snap.ImageVersionCounts
+	b.monitoringAlertHistory = snap.MonitoringAlertHistory
+	b.pipelineVersions = snap.PipelineVersions
+	b.servicecatalogPortfolioEnabled = snap.SCPortfolioEnabled
+
+	if b.imageVersions == nil {
+		b.imageVersions = make(map[string]map[string]map[int]*ImageVersion)
+	}
+
+	if b.imageVersionCounts == nil {
+		b.imageVersionCounts = make(map[string]map[string]int)
+	}
+
+	if b.monitoringAlertHistory == nil {
+		b.monitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
+	}
+
+	if b.pipelineVersions == nil {
+		b.pipelineVersions = make(map[string]map[string][]*PipelineVersion)
+	}
+
+	if b.servicecatalogPortfolioEnabled == nil {
+		b.servicecatalogPortfolioEnabled = make(map[string]bool)
+	}
+
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	b.resetLifecycleContext()
 	b.rebuildARNIndexes()
 
 	return nil
 }
 
-// restoreFields assigns deserialized maps to backend fields (called with lock held).
-func restoreUserProfiles(snap *backendSnapshot) map[string]map[userProfileKey]*UserProfile {
-	result := make(map[string]map[userProfileKey]*UserProfile, len(snap.UserProfiles))
-	for region, regionProfiles := range snap.UserProfiles {
-		result[region] = make(map[userProfileKey]*UserProfile, len(regionProfiles))
-		for _, v := range regionProfiles {
-			key := userProfileKey{DomainID: v.DomainID, UserProfileName: v.UserProfileName}
-			cp := *v
-			result[region][key] = &cp
-		}
-	}
-
-	return result
+// resetNonTableFieldsLocked clears the handful of resource collections not
+// backed by store.Table (and therefore not covered by registry.ResetAll),
+// plus the ARN indexes (which are pure caches derived from the Table-backed
+// resource maps). Callers must hold b.mu.
+func (b *InMemoryBackend) resetNonTableFieldsLocked() {
+	b.imageVersions = make(map[string]map[string]map[int]*ImageVersion)
+	b.imageVersionCounts = make(map[string]map[string]int)
+	b.monitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
+	b.pipelineVersions = make(map[string]map[string][]*PipelineVersion)
+	b.servicecatalogPortfolioEnabled = make(map[string]bool)
+	b.rebuildARNIndexes()
 }
 
-func restoreApps(snap *backendSnapshot) map[string]map[appKey]*App {
-	result := make(map[string]map[appKey]*App, len(snap.Apps))
-	for region, regionApps := range snap.Apps {
-		result[region] = make(map[appKey]*App, len(regionApps))
-		for _, v := range regionApps {
-			key := appKey{
-				DomainID:        v.DomainID,
-				UserProfileName: v.UserProfileName,
-				AppType:         v.AppType,
-				AppName:         v.AppName,
-			}
-			cp := *v
-			result[region][key] = &cp
-		}
-	}
-
-	return result
-}
-
-// hubContentKeyString serialises a hubContentKey to a single delimited string
-// for use as a JSON map key.
-func hubContentKeyString(k hubContentKey) string {
-	return k.HubName + "|" + k.HubContentType + "|" + k.HubContentName + "|" + k.HubContentVersion
-}
-
-func restoreHubContents(snap *backendSnapshot) map[string]map[hubContentKey]*HubContent {
-	result := make(map[string]map[hubContentKey]*HubContent, len(snap.HubContents))
-	for region, regionContents := range snap.HubContents {
-		result[region] = make(map[hubContentKey]*HubContent, len(regionContents))
-		for _, v := range regionContents {
-			key := hubContentKey{
-				HubName: v.HubName, HubContentType: v.HubContentType,
-				HubContentName: v.HubContentName, HubContentVersion: v.HubContentVersion,
-			}
-			cp := *v
-			result[region][key] = &cp
-		}
-	}
-
-	return result
-}
-
-func restoreClusters(ctx context.Context, snap *backendSnapshot) map[string]map[string]*Cluster {
-	result := make(map[string]map[string]*Cluster, len(snap.Clusters))
-	for region, regionClusters := range snap.Clusters {
-		result[region] = make(map[string]*Cluster, len(regionClusters))
-		for k, pc := range regionClusters {
-			t, err := time.Parse("2006-01-02T15:04:05Z07:00", pc.CreationTime)
-			if err != nil {
-				logger.Load(ctx).WarnContext(ctx,
-					"sagemaker: failed to parse cluster creation time", "cluster", k, "error", err)
-			}
-			c := &Cluster{
-				ClusterArn:     pc.ClusterArn,
-				ClusterName:    pc.ClusterName,
-				ClusterStatus:  pc.ClusterStatus,
-				NodeRecovery:   pc.NodeRecovery,
-				Tags:           ensureSageTagMap(pc.Tags),
-				InstanceGroups: pc.InstanceGroups,
-				CreationTime:   t,
-				Nodes:          make(map[string]*ClusterNode, len(pc.Nodes)),
-			}
-			for nk, nv := range pc.Nodes {
-				nodeCopy := *nv
-				c.Nodes[nk] = &nodeCopy
-			}
-			result[region][k] = c
-		}
-	}
-
-	return result
-}
-
-func (b *InMemoryBackend) restoreFields(ctx context.Context, snap *backendSnapshot) {
-	b.models = snap.Models
-	b.endpointConfigs = snap.EndpointConfigs
-	b.endpoints = snap.Endpoints
-	b.trainingJobs = snap.TrainingJobs
-	b.notebooks = snap.Notebooks
-	b.hpTuningJobs = snap.HPTuningJobs
-	b.associations = snap.Associations
-	b.trialComponentAssociations = snap.TrialComponentAssociations
-	b.actions = snap.Actions
-	b.artifacts = snap.Artifacts
-	b.contexts = snap.Contexts
-	b.algorithms = snap.Algorithms
-	b.modelPackages = snap.ModelPackages
-	b.domains = snap.Domains
-	b.featureGroups = snap.FeatureGroups
-	b.pipelines = snap.Pipelines
-	b.pipelineExecutions = snap.PipelineExecutions
-	b.pipelineExecSteps = snap.PipelineExecSteps
-	b.experiments = snap.Experiments
-	b.trials = snap.Trials
-	b.trialComponents = snap.TrialComponents
-	b.notebookLifecycleConfigs = snap.NotebookLifecycleConfigs
-	b.processingJobs = snap.ProcessingJobs
-	b.transformJobs = snap.TransformJobs
-	b.edgeDeploymentPlans = snap.EdgeDeploymentPlans
-	b.featureRecords = snap.FeatureRecords
-	b.featureMetadata = snap.FeatureMetadata
-	b.hubs = snap.Hubs
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-	b.userProfiles = restoreUserProfiles(snap)
-	b.apps = restoreApps(snap)
-	b.clusters = restoreClusters(ctx, snap)
-	b.hubContents = restoreHubContents(snap)
-	b.dataQualityJobDefs = snap.DataQualityJobDefs
-	b.modelBiasJobDefs = snap.ModelBiasJobDefs
-	b.modelQualityJobDefs = snap.ModelQualityJobDefs
-	b.modelExplainJobDefs = snap.ModelExplainJobDefs
-	b.monitoringAlerts = snap.MonitoringAlerts
-	b.monitoringAlertHistory = snap.MonitoringAlertHistory
-	b.monitoringExecutions = snap.MonitoringExecutions
-	b.workteams = snap.Workteams
-	b.workforces = snap.Workforces
-	b.labelingJobs = snap.LabelingJobs
-	b.mlflowTrackingServers = snap.MlflowTrackingServers
-	b.mlflowApps = snap.MlflowApps
-	b.partnerApps = snap.PartnerApps
-	b.restoreTrainingPlanExtFields(snap)
-}
-
-// restoreTrainingPlanExtFields assigns the Training Plan / Reserved Capacity
-// and ModelCard export job fields from snap. Split out from restoreFields to
-// keep that method's statement count low.
-func (b *InMemoryBackend) restoreTrainingPlanExtFields(snap *backendSnapshot) {
-	b.trainingPlans = snap.TrainingPlans
-	b.reservedCapacities = snap.ReservedCapacities
-	b.trainingPlanExtensionOfferings = snap.TrainingPlanExtensionOfferings
-	b.modelCardExportJobs = snap.ModelCardExportJobs
-	b.modelPackageGroups = snap.ModelPackageGroups
-	b.pipelineVersions = snap.PipelineVersions
-	b.servicecatalogPortfolioEnabled = snap.ServicecatalogPortfolioEnabled
-}
-
-func buildARNIndex[V any](src map[string]map[string]V, arnFn func(string, V) string) map[string]map[string]string {
+// buildARNIndex reconstructs a region -> ARN -> name index from a region ->
+// store.Table[V] resource map. arnFn derives both the resource's own primary
+// name/key and its ARN from the stored value (rather than from the table's
+// internal key, which [store.Table] does not expose) so the index can be
+// rebuilt purely by scanning each table's contents after a restore.
+func buildARNIndex[V any](
+	src map[string]*store.Table[V],
+	arnFn func(*V) (name, arn string),
+) map[string]map[string]string {
 	idx := make(map[string]map[string]string, len(src))
-	for region, regionItems := range src {
-		regionIdx := make(map[string]string, len(regionItems))
-		for name, item := range regionItems {
-			regionIdx[arnFn(name, item)] = name
+
+	for region, tbl := range src {
+		regionIdx := make(map[string]string, tbl.Len())
+
+		for _, item := range tbl.All() {
+			name, arn := arnFn(item)
+			regionIdx[arn] = name
 		}
+
 		idx[region] = regionIdx
 	}
 
 	return idx
 }
 
-func fixNestedTagsSage[V any](nested map[string]map[string]V, fix func(V)) {
-	for _, region := range nested {
-		for _, item := range region {
-			fix(item)
-		}
-	}
-}
-
-func ensureSageTagMap(m map[string]string) map[string]string {
-	if m == nil {
-		return make(map[string]string)
-	}
-
-	return m
-}
-
-// rebuildARNIndexes reconstructs all ARN-to-name indexes after a restore (called with lock held).
+// rebuildARNIndexes reconstructs all ARN-to-name indexes after a restore
+// (called with lock held). These indexes are pure derived caches over the
+// Table-backed resource maps (see the "modelARNIndex" family of fields in
+// backend.go) — never persisted themselves.
 func (b *InMemoryBackend) rebuildARNIndexes() {
-	b.modelARNIndex = buildARNIndex(b.models, func(_ string, m *Model) string { return m.ModelARN })
+	b.modelARNIndex = buildARNIndex(b.models, func(m *Model) (string, string) { return m.ModelName, m.ModelARN })
 	b.endpointConfigARNIndex = buildARNIndex(
 		b.endpointConfigs,
-		func(_ string, ec *EndpointConfig) string { return ec.EndpointConfigARN },
+		func(ec *EndpointConfig) (string, string) { return ec.EndpointConfigName, ec.EndpointConfigARN },
 	)
-	b.actionARNIndex = buildARNIndex(b.actions, func(_ string, a *Action) string { return a.ActionArn })
-	b.contextARNIndex = buildARNIndex(b.contexts, func(_ string, c *Context) string { return c.ContextArn })
-	b.algorithmARNIndex = buildARNIndex(b.algorithms, func(_ string, al *Algorithm) string { return al.AlgorithmArn })
-	b.clusterARNIndex = buildARNIndex(b.clusters, func(_ string, c *Cluster) string { return c.ClusterArn })
-	b.modelPackageARNIndex = buildARNIndex(b.modelPackages, func(name string, _ *ModelPackage) string { return name })
-	b.endpointARNIndex = buildARNIndex(b.endpoints, func(_ string, ep *Endpoint) string { return ep.EndpointArn })
+	b.actionARNIndex = buildARNIndex(b.actions, func(a *Action) (string, string) { return a.ActionName, a.ActionArn })
+	b.contextARNIndex = buildARNIndex(
+		b.contexts,
+		func(c *Context) (string, string) { return c.ContextName, c.ContextArn },
+	)
+	b.algorithmARNIndex = buildARNIndex(
+		b.algorithms,
+		func(al *Algorithm) (string, string) { return al.AlgorithmName, al.AlgorithmArn },
+	)
+	b.clusterARNIndex = buildARNIndex(
+		b.clusters,
+		func(c *Cluster) (string, string) { return c.ClusterName, c.ClusterArn },
+	)
+	// ModelPackage's own primary store.Table key is already its ARN (see
+	// modelsStore-family doc in backend.go), so this index degenerates to
+	// ARN -> ARN — preserved exactly from the pre-conversion behavior.
+	b.modelPackageARNIndex = buildARNIndex(
+		b.modelPackages,
+		func(mp *ModelPackage) (string, string) { return mp.ModelPackageArn, mp.ModelPackageArn },
+	)
+	b.endpointARNIndex = buildARNIndex(
+		b.endpoints,
+		func(ep *Endpoint) (string, string) { return ep.EndpointName, ep.EndpointArn },
+	)
 	b.trainingJobARNIndex = buildARNIndex(
 		b.trainingJobs,
-		func(_ string, tj *TrainingJob) string { return tj.TrainingJobArn },
+		func(tj *TrainingJob) (string, string) { return tj.TrainingJobName, tj.TrainingJobArn },
 	)
 	b.notebookARNIndex = buildARNIndex(
 		b.notebooks,
-		func(_ string, nb *NotebookInstance) string { return nb.NotebookInstanceArn },
+		func(nb *NotebookInstance) (string, string) { return nb.NotebookInstanceName, nb.NotebookInstanceArn },
 	)
 	b.hpTuningJobARNIndex = buildARNIndex(
 		b.hpTuningJobs,
-		func(_ string, j *HyperParameterTuningJob) string { return j.HyperParameterTuningJobArn },
+		func(j *HyperParameterTuningJob) (string, string) {
+			return j.HyperParameterTuningJobName, j.HyperParameterTuningJobArn
+		},
 	)
 	b.processingJobARNIndex = buildARNIndex(
 		b.processingJobs,
-		func(_ string, pj *ProcessingJob) string { return pj.ProcessingJobArn },
+		func(pj *ProcessingJob) (string, string) { return pj.ProcessingJobName, pj.ProcessingJobArn },
 	)
 	b.transformJobARNIndex = buildARNIndex(
 		b.transformJobs,
-		func(_ string, tj *TransformJob) string { return tj.TransformJobArn },
+		func(tj *TransformJob) (string, string) { return tj.TransformJobName, tj.TransformJobArn },
 	)
-}
-
-func ensureNonNilMaps(snap *backendSnapshot) {
-	ensureCoreResourceMaps(snap)
-	ensureJobMaps(snap)
-	ensureConfigMaps(snap)
-	ensureMetadataMaps(snap)
-	ensureLineageMaps(snap)
-	ensureHubMaps(snap)
-	ensureMonitorMaps(snap)
-	ensureTrainingPlanExtMaps(snap)
-}
-
-// ensureMonitorMaps initialises the Model Monitor job definition and
-// alert/execution maps if a snapshot predates their introduction.
-func ensureMonitorMaps(snap *backendSnapshot) {
-	if snap.DataQualityJobDefs == nil {
-		snap.DataQualityJobDefs = make(map[string]map[string]*JobDefinition)
-	}
-	if snap.ModelBiasJobDefs == nil {
-		snap.ModelBiasJobDefs = make(map[string]map[string]*JobDefinition)
-	}
-	if snap.ModelQualityJobDefs == nil {
-		snap.ModelQualityJobDefs = make(map[string]map[string]*JobDefinition)
-	}
-	if snap.ModelExplainJobDefs == nil {
-		snap.ModelExplainJobDefs = make(map[string]map[string]*JobDefinition)
-	}
-	if snap.MonitoringAlerts == nil {
-		snap.MonitoringAlerts = make(map[string]map[string]map[string]*MonitoringAlert)
-	}
-	if snap.MonitoringAlertHistory == nil {
-		snap.MonitoringAlertHistory = make(map[string][]*MonitoringAlertHistoryEntry)
-	}
-	if snap.MonitoringExecutions == nil {
-		snap.MonitoringExecutions = make(map[string]map[string]*MonitoringExecution)
-	}
-	if snap.Workteams == nil {
-		snap.Workteams = make(map[string]map[string]*Workteam)
-	}
-	if snap.Workforces == nil {
-		snap.Workforces = make(map[string]map[string]*Workforce)
-	}
-	if snap.LabelingJobs == nil {
-		snap.LabelingJobs = make(map[string]map[string]*LabelingJob)
-	}
-	if snap.MlflowTrackingServers == nil {
-		snap.MlflowTrackingServers = make(map[string]map[string]*MlflowTrackingServer)
-	}
-	if snap.MlflowApps == nil {
-		snap.MlflowApps = make(map[string]map[string]*MlflowApp)
-	}
-	if snap.PartnerApps == nil {
-		snap.PartnerApps = make(map[string]map[string]*PartnerApp)
-	}
-}
-
-// ensureTrainingPlanExtMaps initialises the Training Plan / Reserved
-// Capacity and ModelCard export job maps if a snapshot predates their
-// introduction.
-func ensureTrainingPlanExtMaps(snap *backendSnapshot) {
-	if snap.TrainingPlans == nil {
-		snap.TrainingPlans = make(map[string]map[string]*TrainingPlan)
-	}
-
-	if snap.ReservedCapacities == nil {
-		snap.ReservedCapacities = make(map[string]map[string]*ReservedCapacity)
-	}
-
-	if snap.TrainingPlanExtensionOfferings == nil {
-		snap.TrainingPlanExtensionOfferings = make(map[string]map[string]*pendingTrainingPlanExtension)
-	}
-
-	if snap.ModelCardExportJobs == nil {
-		snap.ModelCardExportJobs = make(map[string]map[string]*ModelCardExportJob)
-	}
-
-	if snap.ModelPackageGroups == nil {
-		snap.ModelPackageGroups = make(map[string]map[string]*ModelPackageGroup)
-	}
-
-	if snap.PipelineVersions == nil {
-		snap.PipelineVersions = make(map[string]map[string][]*PipelineVersion)
-	}
-
-	if snap.ServicecatalogPortfolioEnabled == nil {
-		snap.ServicecatalogPortfolioEnabled = make(map[string]bool)
-	}
-}
-
-func ensureHubMaps(snap *backendSnapshot) {
-	if snap.Hubs == nil {
-		snap.Hubs = make(map[string]map[string]*Hub)
-	}
-
-	if snap.HubContents == nil {
-		snap.HubContents = make(map[string]map[string]*HubContent)
-	}
-}
-
-func ensureLineageMaps(snap *backendSnapshot) {
-	if snap.Artifacts == nil {
-		snap.Artifacts = make(map[string]map[string]*Artifact)
-	}
-	if snap.Contexts == nil {
-		snap.Contexts = make(map[string]map[string]*Context)
-	}
-}
-
-func ensureCoreResourceMaps(snap *backendSnapshot) {
-	if snap.Models == nil {
-		snap.Models = make(map[string]map[string]*Model)
-	}
-	if snap.EndpointConfigs == nil {
-		snap.EndpointConfigs = make(map[string]map[string]*EndpointConfig)
-	}
-	if snap.Endpoints == nil {
-		snap.Endpoints = make(map[string]map[string]*Endpoint)
-	}
-	if snap.Actions == nil {
-		snap.Actions = make(map[string]map[string]*Action)
-	}
-	if snap.Algorithms == nil {
-		snap.Algorithms = make(map[string]map[string]*Algorithm)
-	}
-	if snap.ModelPackages == nil {
-		snap.ModelPackages = make(map[string]map[string]*ModelPackage)
-	}
-}
-
-// ensureNestedMap initialises *m to an empty map if it is nil. It is used to
-// backfill region-nested resource maps that may be absent from snapshots
-// taken before the corresponding resource family was introduced.
-func ensureNestedMap[K comparable, V any](m *map[string]map[K]V) {
-	if *m == nil {
-		*m = make(map[string]map[K]V)
-	}
-}
-
-func ensureJobMaps(snap *backendSnapshot) {
-	ensureNestedMap(&snap.TrainingJobs)
-	ensureNestedMap(&snap.Notebooks)
-	ensureNestedMap(&snap.HPTuningJobs)
-	ensureNestedMap(&snap.ProcessingJobs)
-	ensureNestedMap(&snap.TransformJobs)
-	ensureNestedMap(&snap.EdgeDeploymentPlans)
-	ensureNestedMap(&snap.FeatureRecords)
-	ensureNestedMap(&snap.FeatureMetadata)
-}
-
-func ensureConfigMaps(snap *backendSnapshot) {
-	if snap.Domains == nil {
-		snap.Domains = make(map[string]map[string]*Domain)
-	}
-	if snap.UserProfiles == nil {
-		snap.UserProfiles = make(map[string]map[string]*UserProfile)
-	}
-	if snap.Apps == nil {
-		snap.Apps = make(map[string]map[string]*App)
-	}
-	if snap.FeatureGroups == nil {
-		snap.FeatureGroups = make(map[string]map[string]*FeatureGroup)
-	}
-	if snap.NotebookLifecycleConfigs == nil {
-		snap.NotebookLifecycleConfigs = make(map[string]map[string]*NotebookInstanceLifecycleConfig)
-	}
-	if snap.Clusters == nil {
-		snap.Clusters = make(map[string]map[string]*persistedCluster)
-	}
-}
-
-func ensureMetadataMaps(snap *backendSnapshot) {
-	ensureNestedMap(&snap.Pipelines)
-	ensureNestedMap(&snap.PipelineExecutions)
-	ensureNestedMap(&snap.PipelineExecSteps)
-	ensureNestedMap(&snap.Experiments)
-	ensureNestedMap(&snap.Trials)
-	ensureNestedMap(&snap.TrialComponents)
-	ensureNestedMap(&snap.Associations)
-	ensureNestedMap(&snap.TrialComponentAssociations)
-}
-
-func fixNilTagMaps(snap *backendSnapshot) {
-	fixNilTagMapsCoreResources(snap)
-	fixNilTagMapsNewResources(snap)
-}
-
-func fixNilTagMapsCoreResources(snap *backendSnapshot) {
-	fixNestedTagsSage(snap.Models, func(m *Model) { m.Tags = ensureSageTagMap(m.Tags) })
-	fixNestedTagsSage(snap.EndpointConfigs, func(ec *EndpointConfig) { ec.Tags = ensureSageTagMap(ec.Tags) })
-	fixNestedTagsSage(snap.Actions, func(a *Action) { a.Tags = ensureSageTagMap(a.Tags) })
-	fixNestedTagsSage(snap.Artifacts, func(ar *Artifact) { ar.Tags = ensureSageTagMap(ar.Tags) })
-	fixNestedTagsSage(snap.Contexts, func(c *Context) { c.Tags = ensureSageTagMap(c.Tags) })
-	fixNestedTagsSage(snap.Algorithms, func(al *Algorithm) { al.Tags = ensureSageTagMap(al.Tags) })
-	fixNestedTagsSage(
-		snap.MlflowTrackingServers,
-		func(s *MlflowTrackingServer) { s.Tags = ensureSageTagMap(s.Tags) },
-	)
-	fixNestedTagsSage(snap.MlflowApps, func(m *MlflowApp) { m.Tags = ensureSageTagMap(m.Tags) })
-	fixNestedTagsSage(snap.PartnerApps, func(p *PartnerApp) { p.Tags = ensureSageTagMap(p.Tags) })
-	fixNestedTagsSage(snap.ModelPackages, func(mp *ModelPackage) { mp.Tags = ensureSageTagMap(mp.Tags) })
-}
-
-func fixNilTagMapsNewResources(snap *backendSnapshot) {
-	fixNestedTagsSage(snap.Endpoints, func(ep *Endpoint) { ep.Tags = ensureSageTagMap(ep.Tags) })
-	fixNestedTagsSage(snap.TrainingJobs, func(tj *TrainingJob) { tj.Tags = ensureSageTagMap(tj.Tags) })
-	fixNestedTagsSage(snap.Notebooks, func(nb *NotebookInstance) { nb.Tags = ensureSageTagMap(nb.Tags) })
-	fixNestedTagsSage(snap.HPTuningJobs, func(j *HyperParameterTuningJob) { j.Tags = ensureSageTagMap(j.Tags) })
-	fixNestedTagsSage(snap.Hubs, func(h *Hub) { h.Tags = ensureSageTagMap(h.Tags) })
-	fixNestedTagsSage(snap.HubContents, func(hc *HubContent) { hc.Tags = ensureSageTagMap(hc.Tags) })
-	fixNestedTagsSage(snap.DataQualityJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
-	fixNestedTagsSage(snap.ModelBiasJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
-	fixNestedTagsSage(snap.ModelQualityJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
-	fixNestedTagsSage(snap.ModelExplainJobDefs, func(j *JobDefinition) { j.Tags = ensureSageTagMap(j.Tags) })
-	fixNestedTagsSage(snap.EdgeDeploymentPlans, func(p *EdgeDeploymentPlan) { p.Tags = ensureSageTagMap(p.Tags) })
-	fixNestedTagsSage(snap.TrainingPlans, func(t *TrainingPlan) { t.Tags = ensureSageTagMap(t.Tags) })
-	fixNestedTagsSage(snap.ModelPackageGroups, func(g *ModelPackageGroup) { g.Tags = ensureSageTagMap(g.Tags) })
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
@@ -712,4 +387,106 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+// tableRegistrars maps each store.Table-backed resource's field name (the
+// part of a "field:region" registry table name before the colon) to a
+// function that lazily registers that field's table for a given region —
+// i.e. the same xxxStore(region) helper the backend's own operations call.
+//
+// Restore needs this because store.Registry.RestoreAll only visits tables
+// ALREADY registered in the registry; a freshly constructed backend (the
+// common Restore target) has none registered until first touched, so
+// without this pre-registration step every resource's snapshot data would
+// be silently dropped for any region the fresh backend hasn't used yet.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at package load
+var tableRegistrars = map[string]func(*InMemoryBackend, string){
+	"actions":                        func(b *InMemoryBackend, r string) { b.actionsStore(r) },
+	"algorithms":                     func(b *InMemoryBackend, r string) { b.algorithmsStore(r) },
+	"appImageConfigs":                func(b *InMemoryBackend, r string) { b.appImageConfigsStore(r) },
+	"apps":                           func(b *InMemoryBackend, r string) { b.appsStore(r) },
+	"artifacts":                      func(b *InMemoryBackend, r string) { b.artifactsStore(r) },
+	"associations":                   func(b *InMemoryBackend, r string) { b.associationsStore(r) },
+	"autoMLJobs":                     func(b *InMemoryBackend, r string) { b.autoMLJobsStore(r) },
+	"clusterSchedulerConfigs":        func(b *InMemoryBackend, r string) { b.clusterSchedulerConfigsStore(r) },
+	"clusters":                       func(b *InMemoryBackend, r string) { b.clustersStore(r) },
+	"codeRepositories":               func(b *InMemoryBackend, r string) { b.codeRepositoriesStore(r) },
+	"compilationJobs":                func(b *InMemoryBackend, r string) { b.compilationJobsStore(r) },
+	"computeQuotas":                  func(b *InMemoryBackend, r string) { b.computeQuotasStore(r) },
+	"contexts":                       func(b *InMemoryBackend, r string) { b.contextsStore(r) },
+	"dataQualityJobDefs":             func(b *InMemoryBackend, r string) { b.dataQualityJobDefsStore(r) },
+	"deviceFleets":                   func(b *InMemoryBackend, r string) { b.deviceFleetsStore(r) },
+	"devices":                        func(b *InMemoryBackend, r string) { b.devicesStore(r) },
+	"domains":                        func(b *InMemoryBackend, r string) { b.domainsStore(r) },
+	"edgeDeploymentPlans":            func(b *InMemoryBackend, r string) { b.edgeDeploymentPlansStore(r) },
+	"edgePackagingJobs":              func(b *InMemoryBackend, r string) { b.edgePackagingJobsStore(r) },
+	"endpointConfigs":                func(b *InMemoryBackend, r string) { b.endpointConfigsStore(r) },
+	"endpoints":                      func(b *InMemoryBackend, r string) { b.endpointsStore(r) },
+	"experiments":                    func(b *InMemoryBackend, r string) { b.experimentsStore(r) },
+	"featureGroups":                  func(b *InMemoryBackend, r string) { b.featureGroupsStore(r) },
+	"featureMetadata":                func(b *InMemoryBackend, r string) { b.featureMetadataStore(r) },
+	"featureRecords":                 func(b *InMemoryBackend, r string) { b.featureRecordsStore(r) },
+	"flowDefinitions":                func(b *InMemoryBackend, r string) { b.flowDefinitionsStore(r) },
+	"hpTuningJobs":                   func(b *InMemoryBackend, r string) { b.hpTuningJobsStore(r) },
+	"hubContents":                    func(b *InMemoryBackend, r string) { b.hubContentsStore(r) },
+	"hubs":                           func(b *InMemoryBackend, r string) { b.hubsStore(r) },
+	"humanTaskUis":                   func(b *InMemoryBackend, r string) { b.humanTaskUisStore(r) },
+	"inferenceComponents":            func(b *InMemoryBackend, r string) { b.inferenceComponentsStore(r) },
+	"inferenceExperiments":           func(b *InMemoryBackend, r string) { b.inferenceExperimentsStore(r) },
+	"inferenceRecommendationsJobs":   func(b *InMemoryBackend, r string) { b.inferenceRecommendationsJobsStore(r) },
+	"labelingJobs":                   func(b *InMemoryBackend, r string) { b.labelingJobsStore(r) },
+	"mlflowApps":                     func(b *InMemoryBackend, r string) { b.mlflowAppsStore(r) },
+	"mlflowTrackingServers":          func(b *InMemoryBackend, r string) { b.mlflowTrackingServersStore(r) },
+	"modelBiasJobDefs":               func(b *InMemoryBackend, r string) { b.modelBiasJobDefsStore(r) },
+	"modelCardExportJobs":            func(b *InMemoryBackend, r string) { b.modelCardExportJobsStore(r) },
+	"modelCards":                     func(b *InMemoryBackend, r string) { b.modelCardsStore(r) },
+	"modelExplainJobDefs":            func(b *InMemoryBackend, r string) { b.modelExplainJobDefsStore(r) },
+	"modelPackageGroups":             func(b *InMemoryBackend, r string) { b.modelPackageGroupsStore(r) },
+	"modelPackages":                  func(b *InMemoryBackend, r string) { b.modelPackagesStore(r) },
+	"modelQualityJobDefs":            func(b *InMemoryBackend, r string) { b.modelQualityJobDefsStore(r) },
+	"models":                         func(b *InMemoryBackend, r string) { b.modelsStore(r) },
+	"monitoringExecutions":           func(b *InMemoryBackend, r string) { b.monitoringExecutionsStore(r) },
+	"monitoringSchedules":            func(b *InMemoryBackend, r string) { b.monitoringSchedulesStore(r) },
+	"notebookLifecycleConfigs":       func(b *InMemoryBackend, r string) { b.notebookLifecycleConfigsStore(r) },
+	"notebooks":                      func(b *InMemoryBackend, r string) { b.notebooksStore(r) },
+	"optimizationJobs":               func(b *InMemoryBackend, r string) { b.optimizationJobsStore(r) },
+	"partnerApps":                    func(b *InMemoryBackend, r string) { b.partnerAppsStore(r) },
+	"pipelineExecSteps":              func(b *InMemoryBackend, r string) { b.pipelineExecStepsStore(r) },
+	"pipelineExecutions":             func(b *InMemoryBackend, r string) { b.pipelineExecutionsStore(r) },
+	"pipelines":                      func(b *InMemoryBackend, r string) { b.pipelinesStore(r) },
+	"processingJobs":                 func(b *InMemoryBackend, r string) { b.processingJobsStore(r) },
+	"projects":                       func(b *InMemoryBackend, r string) { b.projectsStore(r) },
+	"reservedCapacities":             func(b *InMemoryBackend, r string) { b.reservedCapacitiesStore(r) },
+	"smImages":                       func(b *InMemoryBackend, r string) { b.smImagesStore(r) },
+	"spaces":                         func(b *InMemoryBackend, r string) { b.spacesStore(r) },
+	"studioLifecycleConfigs":         func(b *InMemoryBackend, r string) { b.studioLifecycleConfigsStore(r) },
+	"trainingJobs":                   func(b *InMemoryBackend, r string) { b.trainingJobsStore(r) },
+	"trainingPlanExtensionOfferings": func(b *InMemoryBackend, r string) { b.trainingPlanExtensionOfferingsStore(r) },
+	"trainingPlans":                  func(b *InMemoryBackend, r string) { b.trainingPlansStore(r) },
+	"transformJobs":                  func(b *InMemoryBackend, r string) { b.transformJobsStore(r) },
+	"trialComponentAssociations":     func(b *InMemoryBackend, r string) { b.trialComponentAssociationsStore(r) },
+	"trialComponents":                func(b *InMemoryBackend, r string) { b.trialComponentsStore(r) },
+	"trials":                         func(b *InMemoryBackend, r string) { b.trialsStore(r) },
+	"userProfiles":                   func(b *InMemoryBackend, r string) { b.userProfilesStore(r) },
+	"workforces":                     func(b *InMemoryBackend, r string) { b.workforcesStore(r) },
+	"workteams":                      func(b *InMemoryBackend, r string) { b.workteamsStore(r) },
+	"monitoringAlerts":               func(b *InMemoryBackend, r string) { b.monitoringAlertsStore(r) },
+}
+
+// ensureTablesRegistered pre-registers a store.Table for every "field:region"
+// key present in raw — see tableRegistrars — so the subsequent
+// registry.RestoreAll call actually receives every table the snapshot
+// contains, not just whichever ones happen to already be registered.
+func (b *InMemoryBackend) ensureTablesRegistered(raw map[string]json.RawMessage) {
+	for name := range raw {
+		field, region, cut := strings.Cut(name, ":")
+		if !cut {
+			continue
+		}
+
+		if fn, ok := tableRegistrars[field]; ok {
+			fn(b, region)
+		}
+	}
 }

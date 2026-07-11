@@ -379,19 +379,29 @@ func TestRefinement2_GetWebIdentityTokenInvalidSigningAlgo(t *testing.T) {
 	assert.ErrorIs(t, err, sts.ErrValidation)
 }
 
-// TestRefinement2_GetWebIdentityTokenValidSigningAlgorithms verifies RS256/ES256/PS256 all succeed.
-func TestRefinement2_GetWebIdentityTokenValidSigningAlgorithms(t *testing.T) {
+// TestRefinement2_GetWebIdentityTokenSigningAlgorithms verifies that only the two
+// algorithms the real AWS STS GetWebIdentityToken API documents as valid — RS256
+// (RSA with SHA-256) and ES384 (ECDSA P-384 with SHA-384) — are accepted; every
+// other JOSE algorithm name (even ones valid for other JWT use cases, such as
+// ES256 or PS256) must be rejected with ValidationError. Corrected from a prior
+// version of this test that asserted the emulator's old (overly permissive)
+// nine-algorithm allowlist, which did not match the real API's documented
+// two-algorithm constraint.
+func TestRefinement2_GetWebIdentityTokenSigningAlgorithms(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		alg  string
+		name    string
+		alg     string
+		wantErr bool
 	}{
-		{name: "RS256", alg: "RS256"},
-		{name: "ES256", alg: "ES256"},
-		{name: "PS256", alg: "PS256"},
-		{name: "RS384", alg: "RS384"},
-		{name: "RS512", alg: "RS512"},
+		{name: "RS256_valid", alg: "RS256", wantErr: false},
+		{name: "ES384_valid", alg: "ES384", wantErr: false},
+		{name: "ES256_rejected", alg: "ES256", wantErr: true},
+		{name: "PS256_rejected", alg: "PS256", wantErr: true},
+		{name: "RS384_rejected", alg: "RS384", wantErr: true},
+		{name: "RS512_rejected", alg: "RS512", wantErr: true},
+		{name: "HS256_rejected", alg: "HS256", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -403,6 +413,13 @@ func TestRefinement2_GetWebIdentityTokenValidSigningAlgorithms(t *testing.T) {
 				Audience:         []string{"https://example.com"},
 				SigningAlgorithm: tt.alg,
 			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, sts.ErrValidation)
+
+				return
+			}
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, resp.GetWebIdentityTokenResult.WebIdentityToken)

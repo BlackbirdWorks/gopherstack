@@ -433,8 +433,10 @@ func cborDimensions(m cbor.Map) []Dimension {
 	return dims
 }
 
-// cborDecodeDatum parses a single MetricDatum from a CBOR map.
-// StatisticValues takes precedence over Value when present.
+// cborDecodeDatum parses a single MetricDatum from a CBOR map. The Values/Counts
+// array takes precedence over StatisticValues, which takes precedence over
+// Value, mirroring the order AWS documents them (the Has* flags let
+// validateMetricDatum reject any invalid combination of these instead).
 func cborDecodeDatum(m cbor.Map) MetricDatum {
 	ts := cborTime(m, "Timestamp")
 	dims := cborDimensions(m)
@@ -442,34 +444,52 @@ func cborDecodeDatum(m cbor.Map) MetricDatum {
 	name := cborStr(m, keyMetricName)
 	unit := cborStr(m, "Unit")
 
-	if ssMap, ok := cborStatisticValues(m); ok {
-		return MetricDatum{
-			MetricName:        name,
-			Unit:              unit,
-			Timestamp:         ts,
-			Count:             cborFloat(ssMap, "SampleCount"),
-			Sum:               cborFloat(ssMap, statSum),
-			Min:               cborFloat(ssMap, "Minimum"),
-			Max:               cborFloat(ssMap, "Maximum"),
-			Dimensions:        dims,
-			StorageResolution: storageRes,
-		}
-	}
-
-	val := cborFloat(m, keyValue)
-
-	return MetricDatum{
+	datum := MetricDatum{
 		MetricName:        name,
-		Value:             val,
 		Unit:              unit,
 		Timestamp:         ts,
-		Count:             1,
-		Sum:               val,
-		Min:               val,
-		Max:               val,
 		Dimensions:        dims,
 		StorageResolution: storageRes,
 	}
+
+	if values, hasValues := cborFloatList(m, "Values"); hasValues {
+		counts, hasCounts := cborFloatList(m, "Counts")
+		if !hasCounts {
+			counts = make([]float64, len(values))
+			for i := range counts {
+				counts[i] = 1
+			}
+		}
+
+		// The backend (storeDatum) derives Sum/SampleCount/Min/Max from
+		// Values/Counts at store time, so this only carries the raw arrays.
+		datum.HasValuesArray = true
+		datum.Values = values
+		datum.Counts = counts
+
+		return datum
+	}
+
+	if ssMap, ok := cborStatisticValues(m); ok {
+		datum.HasStatisticSet = true
+		datum.Count = cborFloat(ssMap, "SampleCount")
+		datum.Sum = cborFloat(ssMap, statSum)
+		datum.Min = cborFloat(ssMap, "Minimum")
+		datum.Max = cborFloat(ssMap, "Maximum")
+
+		return datum
+	}
+
+	_, hasValue := m[keyValue]
+	val := cborFloat(m, keyValue)
+	datum.HasValue = hasValue
+	datum.Value = val
+	datum.Count = 1
+	datum.Sum = val
+	datum.Min = val
+	datum.Max = val
+
+	return datum
 }
 
 // cborStatisticValues returns the StatisticValues sub-map when present.
@@ -481,6 +501,27 @@ func cborStatisticValues(m cbor.Map) (cbor.Map, bool) {
 	ssMap, isSS := ssVal.(cbor.Map)
 
 	return ssMap, isSS
+}
+
+// cborFloatList extracts a []float64 from a CBOR map by key. ok is false when
+// the key is absent so callers can distinguish "no list" from an empty one.
+func cborFloatList(m cbor.Map, key string) ([]float64, bool) {
+	v, present := m[key]
+	if !present {
+		return nil, false
+	}
+
+	list, isList := v.(cbor.List)
+	if !isList {
+		return nil, false
+	}
+
+	vals := make([]float64, 0, len(list))
+	for _, item := range list {
+		vals = append(vals, cborValFloat(item))
+	}
+
+	return vals, true
 }
 
 func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
@@ -507,31 +548,13 @@ func (h *Handler) cborPutMetricData(input cbor.Map, c *echo.Context) error {
 		}
 	}
 
-	unprocessed, err := h.Backend.PutMetricData(namespace, data)
-	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	if err := h.Backend.PutMetricData(namespace, data); err != nil {
+		return h.cborError(c, putMetricDataErrorStatus(err), putMetricDataErrorCode(err), err.Error())
 	}
 
-	return writeCBOR(c, buildUnprocessedCBORResponse(unprocessed))
-}
-
-// buildUnprocessedCBORResponse constructs the CBOR response map for PutMetricData.
-func buildUnprocessedCBORResponse(unprocessed []UnprocessedMetricDatum) cbor.Map {
-	resp := cbor.Map{}
-	if len(unprocessed) == 0 {
-		return resp
-	}
-	uList := make(cbor.List, 0, len(unprocessed))
-	for _, u := range unprocessed {
-		uList = append(uList, cbor.Map{
-			"MetricName":   cbor.String(u.MetricName),
-			"ErrorCode":    cbor.String(u.ErrorCode),
-			"ErrorMessage": cbor.String(u.ErrorMessage),
-		})
-	}
-	resp["UnprocessedMetricData"] = uList
-
-	return resp
+	// PutMetricDataOutput has no members besides the request ID: CloudWatch has
+	// no partial-success concept for this operation.
+	return writeCBOR(c, cbor.Map{})
 }
 
 func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error {
@@ -747,12 +770,17 @@ func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 	namespace := cborStr(input, keyNamespace)
 	metricName := cborStr(input, keyMetricName)
 	nextToken := cborStr(input, "NextToken")
+	recentlyActive := cborStr(input, "RecentlyActive")
 	maxResults := int(cborInt32(input, "MaxResults"))
 	dimensions := cborDimensions(input)
 
-	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, nextToken, maxResults)
+	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, recentlyActive, nextToken, maxResults)
 	if err != nil {
-		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		if errors.Is(err, ErrValidation) {
+			return h.cborError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
+		return h.cborError(c, http.StatusInternalServerError, errCodeInternalFailure, err.Error())
 	}
 
 	mList := make(cbor.List, 0, len(p.Data))
@@ -2164,7 +2192,7 @@ func (h *Handler) cborPutManagedInsightRules(input cbor.Map, c *echo.Context) er
 				}); err != nil {
 					failures = append(failures, InsightRuleFailure{
 						RuleName:           ruleName,
-						FailureCode:        "InternalFailure",
+						FailureCode:        errCodeInternalFailure,
 						FailureDescription: err.Error(),
 					})
 				}

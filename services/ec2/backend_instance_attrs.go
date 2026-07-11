@@ -145,7 +145,7 @@ func (b *InMemoryBackend) ModifyHosts(
 	unsuccessful := make([]HostModifyFailure, 0)
 
 	for _, id := range hostIDs {
-		host, ok := b.dedicatedHosts[id]
+		host, ok := b.dedicatedHosts.Get(id)
 		if !ok {
 			unsuccessful = append(unsuccessful, HostModifyFailure{
 				HostID: id, Code: ErrHostNotFound.Error(), Message: "Host " + id + " does not exist",
@@ -202,13 +202,13 @@ func (b *InMemoryBackend) ModifyInstanceCapacityReservationAttributes(
 	b.mu.Lock("ModifyInstanceCapacityReservationAttributes")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
 	if targetID != "" {
-		if _, found := b.capacityReservations[targetID]; !found {
+		if _, found := b.capacityReservations.Get(targetID); !found {
 			return nil, fmt.Errorf("%w: %s", ErrCapacityReservationNotFound, targetID)
 		}
 	}
@@ -238,7 +238,7 @@ func (b *InMemoryBackend) ModifyInstanceCPUOptions(
 	b.mu.Lock("ModifyInstanceCpuOptions")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -288,7 +288,7 @@ func (b *InMemoryBackend) ModifyInstanceEventStartTime(
 	b.mu.Lock("ModifyInstanceEventStartTime")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -321,7 +321,7 @@ func (b *InMemoryBackend) ModifyInstanceMaintenanceOptions(
 	b.mu.Lock("ModifyInstanceMaintenanceOptions")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -357,7 +357,7 @@ func (b *InMemoryBackend) ModifyInstanceNetworkPerformanceOptions(
 	b.mu.Lock("ModifyInstanceNetworkPerformanceOptions")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -394,7 +394,7 @@ func (b *InMemoryBackend) ModifyInstancePlacement(in ModifyInstancePlacementInpu
 	b.mu.Lock("ModifyInstancePlacement")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[in.InstanceID]
+	inst, ok := b.instances.Get(in.InstanceID)
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrInstanceNotFound, in.InstanceID)
 	}
@@ -406,7 +406,7 @@ func (b *InMemoryBackend) ModifyInstancePlacement(in ModifyInstancePlacementInpu
 	}
 
 	if in.HostID != "" {
-		if _, found := b.dedicatedHosts[in.HostID]; !found {
+		if _, found := b.dedicatedHosts.Get(in.HostID); !found {
 			return false, fmt.Errorf("%w: %s", ErrHostNotFound, in.HostID)
 		}
 	}
@@ -462,7 +462,7 @@ func (b *InMemoryBackend) ModifyPrivateDNSNameOptions(
 	b.mu.Lock("ModifyPrivateDnsNameOptions")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -498,7 +498,7 @@ func (b *InMemoryBackend) ModifyPublicIPDNSNameOptions(networkInterfaceID, hostn
 	b.mu.Lock("ModifyPublicIpDnsNameOptions")
 	defer b.mu.Unlock()
 
-	ni, ok := b.networkInterfaces[networkInterfaceID]
+	ni, ok := b.networkInterfaces.Get(networkInterfaceID)
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, networkInterfaceID)
 	}
@@ -522,7 +522,7 @@ func (b *InMemoryBackend) AssociateInstanceEventWindow(
 	b.mu.Lock("AssociateInstanceEventWindow")
 	defer b.mu.Unlock()
 
-	ew, ok := b.instanceEventWindows[windowID]
+	ew, ok := b.instanceEventWindows.Get(windowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, windowID)
 	}
@@ -547,7 +547,7 @@ func (b *InMemoryBackend) DisassociateInstanceEventWindow(
 	b.mu.Lock("DisassociateInstanceEventWindow")
 	defer b.mu.Unlock()
 
-	ew, ok := b.instanceEventWindows[windowID]
+	ew, ok := b.instanceEventWindows.Get(windowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceEventWindowNotFound, windowID)
 	}
@@ -624,7 +624,7 @@ func (b *InMemoryBackend) GetInstanceTpmEkPub(instanceID, keyFormat, keyType str
 	b.mu.RLock("GetInstanceTpmEkPub")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
@@ -644,7 +644,7 @@ func (b *InMemoryBackend) GetInstanceUefiData(instanceID string) (string, error)
 	b.mu.RLock("GetInstanceUefiData")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.instances[instanceID]; !ok {
+	if _, ok := b.instances.Get(instanceID); !ok {
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 

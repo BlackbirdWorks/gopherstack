@@ -103,7 +103,7 @@ func (b *InMemoryBackend) CreateApplication(
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[name]; ok {
+	if b.applications.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) CreateApplication(
 		LaunchPath:  launchPath,
 		AppBlockArn: appBlockArn,
 	}
-	b.applications[name] = app
+	b.applications.Put(app)
 	b.tags[arn] = storedTags
 
 	return app.toApplication(), nil
@@ -136,13 +136,13 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[name]
+	app, ok := b.applications.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
 
 	delete(b.tags, app.Arn)
-	delete(b.applications, name)
+	b.applications.Delete(name)
 	delete(b.appFleetAssoc, name)
 
 	return nil
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) DescribeApplications(names []string) ([]*Application, 
 		var result []*Application
 
 		for _, name := range names {
-			app, ok := b.applications[name]
+			app, ok := b.applications.Get(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -168,8 +168,8 @@ func (b *InMemoryBackend) DescribeApplications(names []string) ([]*Application, 
 		return result, nil
 	}
 
-	result := make([]*Application, 0, len(b.applications))
-	for _, app := range b.applications {
+	result := make([]*Application, 0, b.applications.Len())
+	for _, app := range b.applications.All() {
 		result = append(result, app.toApplication())
 	}
 
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) UpdateApplication(name, displayName, description, laun
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
-	app, ok := b.applications[name]
+	app, ok := b.applications.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -211,11 +211,11 @@ func (b *InMemoryBackend) AssociateApplicationFleet(appName, fleetName string) e
 	b.mu.Lock("AssociateApplicationFleet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return ErrNotFound
 	}
 
-	if _, ok := b.fleets[fleetName]; !ok {
+	if !b.fleets.Has(fleetName) {
 		return ErrNotFound
 	}
 
@@ -233,11 +233,11 @@ func (b *InMemoryBackend) DisassociateApplicationFleet(appName, fleetName string
 	b.mu.Lock("DisassociateApplicationFleet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[appName]; !ok {
+	if !b.applications.Has(appName) {
 		return ErrNotFound
 	}
 
-	if _, ok := b.fleets[fleetName]; !ok {
+	if !b.fleets.Has(fleetName) {
 		return ErrNotFound
 	}
 
@@ -262,7 +262,7 @@ func (b *InMemoryBackend) DescribeApplicationFleetAssociations(
 			continue
 		}
 
-		app, ok := b.applications[aName]
+		app, ok := b.applications.Get(aName)
 		if !ok {
 			continue
 		}
@@ -292,7 +292,7 @@ func (b *InMemoryBackend) CreateEntitlement(
 	defer b.mu.Unlock()
 
 	key := entitlementKey(name, stackName)
-	if _, ok := b.entitlements[key]; ok {
+	if b.entitlements.Has(key) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -309,7 +309,7 @@ func (b *InMemoryBackend) CreateEntitlement(
 		Description:    description,
 		AppVisibility:  appVisibility,
 	}
-	b.entitlements[key] = ent
+	b.entitlements.Put(ent)
 
 	return ent.toEntitlement(), nil
 }
@@ -320,11 +320,11 @@ func (b *InMemoryBackend) DeleteEntitlement(name, stackName string) error {
 	defer b.mu.Unlock()
 
 	key := entitlementKey(name, stackName)
-	if _, ok := b.entitlements[key]; !ok {
+	if !b.entitlements.Has(key) {
 		return ErrNotFound
 	}
 
-	delete(b.entitlements, key)
+	b.entitlements.Delete(key)
 	delete(b.entitlementApps, key)
 
 	return nil
@@ -337,7 +337,7 @@ func (b *InMemoryBackend) DescribeEntitlements(name, stackName string) ([]*Entit
 
 	if name != "" {
 		key := entitlementKey(name, stackName)
-		ent, ok := b.entitlements[key]
+		ent, ok := b.entitlements.Get(key)
 		if !ok {
 			return nil, ErrNotFound
 		}
@@ -347,7 +347,7 @@ func (b *InMemoryBackend) DescribeEntitlements(name, stackName string) ([]*Entit
 
 	var result []*Entitlement
 
-	for _, ent := range b.entitlements {
+	for _, ent := range b.entitlements.All() {
 		if stackName != "" && ent.StackName != stackName {
 			continue
 		}
@@ -367,7 +367,7 @@ func (b *InMemoryBackend) UpdateEntitlement(
 	defer b.mu.Unlock()
 
 	key := entitlementKey(name, stackName)
-	ent, ok := b.entitlements[key]
+	ent, ok := b.entitlements.Get(key)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -397,7 +397,7 @@ func (b *InMemoryBackend) AssociateApplicationToEntitlement(appID, entitlementNa
 	defer b.mu.Unlock()
 
 	key := entitlementKey(entitlementName, stackName)
-	if _, ok := b.entitlements[key]; !ok {
+	if !b.entitlements.Has(key) {
 		return ErrNotFound
 	}
 
@@ -416,7 +416,7 @@ func (b *InMemoryBackend) DisassociateApplicationFromEntitlement(appID, entitlem
 	defer b.mu.Unlock()
 
 	key := entitlementKey(entitlementName, stackName)
-	if _, ok := b.entitlements[key]; !ok {
+	if !b.entitlements.Has(key) {
 		return ErrNotFound
 	}
 
@@ -433,7 +433,7 @@ func (b *InMemoryBackend) ListEntitledApplications(entitlementName, stackName st
 	defer b.mu.RUnlock()
 
 	key := entitlementKey(entitlementName, stackName)
-	if _, ok := b.entitlements[key]; !ok {
+	if !b.entitlements.Has(key) {
 		return nil, ErrNotFound
 	}
 
@@ -455,7 +455,7 @@ func (b *InMemoryBackend) CreateDirectoryConfig(
 	b.mu.Lock("CreateDirectoryConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.directoryConfigs[name]; ok {
+	if b.directoryConfigs.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -469,7 +469,7 @@ func (b *InMemoryBackend) CreateDirectoryConfig(
 		DirectoryName:                        name,
 		Arn:                                  arn,
 	}
-	b.directoryConfigs[name] = dc
+	b.directoryConfigs.Put(dc)
 
 	return dc.toDirectoryConfig(), nil
 }
@@ -479,11 +479,11 @@ func (b *InMemoryBackend) DeleteDirectoryConfig(name string) error {
 	b.mu.Lock("DeleteDirectoryConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.directoryConfigs[name]; !ok {
+	if !b.directoryConfigs.Has(name) {
 		return ErrNotFound
 	}
 
-	delete(b.directoryConfigs, name)
+	b.directoryConfigs.Delete(name)
 
 	return nil
 }
@@ -497,7 +497,7 @@ func (b *InMemoryBackend) DescribeDirectoryConfigs(names []string) ([]*Directory
 		var result []*DirectoryConfig
 
 		for _, name := range names {
-			dc, ok := b.directoryConfigs[name]
+			dc, ok := b.directoryConfigs.Get(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -508,8 +508,8 @@ func (b *InMemoryBackend) DescribeDirectoryConfigs(names []string) ([]*Directory
 		return result, nil
 	}
 
-	result := make([]*DirectoryConfig, 0, len(b.directoryConfigs))
-	for _, dc := range b.directoryConfigs {
+	result := make([]*DirectoryConfig, 0, b.directoryConfigs.Len())
+	for _, dc := range b.directoryConfigs.All() {
 		result = append(result, dc.toDirectoryConfig())
 	}
 
@@ -524,7 +524,7 @@ func (b *InMemoryBackend) UpdateDirectoryConfig(
 	b.mu.Lock("UpdateDirectoryConfig")
 	defer b.mu.Unlock()
 
-	dc, ok := b.directoryConfigs[name]
+	dc, ok := b.directoryConfigs.Get(name)
 	if !ok {
 		return nil, ErrNotFound
 	}

@@ -345,18 +345,7 @@ type IpamResourceDiscoveryAssociation struct {
 // resetAdvancedNetworkingMapsLocked re-initialises all advanced-networking maps.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) resetAdvancedNetworkingMapsLocked() {
-	b.vpnGateways = make(map[string]*VpnGateway)
-	b.customerGateways = make(map[string]*CustomerGateway)
-	b.vpnConnections = make(map[string]*VpnConnection)
-	b.vpcEndpointServiceConfigs = make(map[string]*VpcEndpointServiceConfig)
-	b.ipams = make(map[string]*Ipam)
-	b.ipamScopes = make(map[string]*IpamScope)
-	b.ipamPools = make(map[string]*IpamPool)
 	b.ipamPoolCidrs = make(map[string][]*IpamPoolCidr)
-	b.ipamPoolAllocations = make(map[string]*IpamPoolAllocation)
-	b.ipamResourceDiscoveries = make(map[string]*IpamResourceDiscovery)
-	b.ipamResourceDiscoveryAssocs = make(map[string]*IpamResourceDiscoveryAssociation)
-	b.spotFleets = make(map[string]*SpotFleetRequest)
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
 }
 
@@ -376,7 +365,7 @@ func (b *InMemoryBackend) CreateVpnGateway(gatewayType string) (*VpnGateway, err
 		State:        stateAvailable,
 		Type:         gatewayType,
 	}
-	b.vpnGateways[vgw.VpnGatewayID] = vgw
+	b.vpnGateways.Put(vgw)
 
 	cp := *vgw
 
@@ -393,9 +382,9 @@ func (b *InMemoryBackend) DescribeVpnGateways(ids []string) []*VpnGateway {
 		idSet[id] = true
 	}
 
-	out := make([]*VpnGateway, 0, len(b.vpnGateways))
+	out := make([]*VpnGateway, 0, b.vpnGateways.Len())
 
-	for _, vgw := range b.vpnGateways {
+	for _, vgw := range b.vpnGateways.All() {
 		if len(idSet) > 0 && !idSet[vgw.VpnGatewayID] {
 			continue
 		}
@@ -420,11 +409,10 @@ func (b *InMemoryBackend) DeleteVpnGateway(id string) error {
 	b.mu.Lock("DeleteVpnGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpnGateways[id]; !ok {
+	if _, ok := b.vpnGateways.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, id)
 	}
-
-	delete(b.vpnGateways, id)
+	b.vpnGateways.Delete(id)
 
 	return nil
 }
@@ -442,12 +430,12 @@ func (b *InMemoryBackend) AttachVpnGateway(vgwID, vpcID string) error {
 	b.mu.Lock("AttachVpnGateway")
 	defer b.mu.Unlock()
 
-	vgw, ok := b.vpnGateways[vgwID]
+	vgw, ok := b.vpnGateways.Get(vgwID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vgwID)
 	}
 
-	if _, exists := b.vpcs[vpcID]; !exists {
+	if _, exists := b.vpcs.Get(vpcID); !exists {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -466,7 +454,7 @@ func (b *InMemoryBackend) DetachVpnGateway(vgwID, vpcID string) error {
 	b.mu.Lock("DetachVpnGateway")
 	defer b.mu.Unlock()
 
-	vgw, ok := b.vpnGateways[vgwID]
+	vgw, ok := b.vpnGateways.Get(vgwID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vgwID)
 	}
@@ -506,7 +494,7 @@ func (b *InMemoryBackend) CreateCustomerGateway(
 		BgpAsn:            bgpAsn,
 		IPAddress:         ipAddress,
 	}
-	b.customerGateways[cgw.CustomerGatewayID] = cgw
+	b.customerGateways.Put(cgw)
 
 	cp := *cgw
 
@@ -523,9 +511,9 @@ func (b *InMemoryBackend) DescribeCustomerGateways(ids []string) []*CustomerGate
 		idSet[id] = true
 	}
 
-	out := make([]*CustomerGateway, 0, len(b.customerGateways))
+	out := make([]*CustomerGateway, 0, b.customerGateways.Len())
 
-	for _, cgw := range b.customerGateways {
+	for _, cgw := range b.customerGateways.All() {
 		if len(idSet) > 0 && !idSet[cgw.CustomerGatewayID] {
 			continue
 		}
@@ -550,11 +538,10 @@ func (b *InMemoryBackend) DeleteCustomerGateway(id string) error {
 	b.mu.Lock("DeleteCustomerGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customerGateways[id]; !ok {
+	if _, ok := b.customerGateways.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrCustomerGatewayNotFound, id)
 	}
-
-	delete(b.customerGateways, id)
+	b.customerGateways.Delete(id)
 
 	return nil
 }
@@ -580,11 +567,11 @@ func (b *InMemoryBackend) CreateVpnConnection(
 	b.mu.Lock("CreateVpnConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customerGateways[customerGatewayID]; !ok {
+	if _, ok := b.customerGateways.Get(customerGatewayID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrCustomerGatewayNotFound, customerGatewayID)
 	}
 
-	if _, ok := b.vpnGateways[vpnGatewayID]; !ok {
+	if _, ok := b.vpnGateways.Get(vpnGatewayID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnGatewayNotFound, vpnGatewayID)
 	}
 
@@ -596,11 +583,10 @@ func (b *InMemoryBackend) CreateVpnConnection(
 		Type:              connType,
 		Category:          "VPN",
 	}
-	conn.Options = VpnConnectionOptions{TunnelOptions: generateVpnTunnels(len(b.vpnConnections))}
+	conn.Options = VpnConnectionOptions{TunnelOptions: generateVpnTunnels(b.vpnConnections.Len())}
 	conn.VgwTelemetry = vgwTelemetryFromTunnels(conn.Options.TunnelOptions)
 	conn.CustomerGatewayConfiguration = buildCustomerGatewayConfiguration(conn)
-
-	b.vpnConnections[conn.VpnConnectionID] = conn
+	b.vpnConnections.Put(conn)
 
 	return copyVpnConnection(conn), nil
 }
@@ -615,9 +601,9 @@ func (b *InMemoryBackend) DescribeVpnConnections(ids []string) []*VpnConnection 
 		idSet[id] = true
 	}
 
-	out := make([]*VpnConnection, 0, len(b.vpnConnections))
+	out := make([]*VpnConnection, 0, b.vpnConnections.Len())
 
-	for _, conn := range b.vpnConnections {
+	for _, conn := range b.vpnConnections.All() {
 		if len(idSet) > 0 && !idSet[conn.VpnConnectionID] {
 			continue
 		}
@@ -641,16 +627,16 @@ func (b *InMemoryBackend) DeleteVpnConnection(id string) error {
 	b.mu.Lock("DeleteVpnConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpnConnections[id]; !ok {
+	if _, ok := b.vpnConnections.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, id)
 	}
-
-	delete(b.vpnConnections, id)
+	b.vpnConnections.Delete(id)
 
 	prefix := id + ":"
-	for key := range b.vpnConnectionRoutes {
+	for _, route := range b.vpnConnectionRoutes.All() {
+		key := vpnConnectionRoutesKeyFn(route)
 		if strings.HasPrefix(key, prefix) {
-			delete(b.vpnConnectionRoutes, key)
+			b.vpnConnectionRoutes.Delete(key)
 		}
 	}
 
@@ -665,7 +651,8 @@ func (b *InMemoryBackend) GetVpnConnectionRoutes(vpnConnectionID string) []*VpnC
 	prefix := vpnConnectionID + ":"
 	out := make([]*VpnConnectionRoute, 0)
 
-	for key, route := range b.vpnConnectionRoutes {
+	for _, route := range b.vpnConnectionRoutes.All() {
+		key := vpnConnectionRoutesKeyFn(route)
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
@@ -807,7 +794,7 @@ func (b *InMemoryBackend) ModifyVpnConnectionOptions(
 	b.mu.Lock("ModifyVpnConnectionOptions")
 	defer b.mu.Unlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
@@ -842,7 +829,7 @@ func (b *InMemoryBackend) ModifyVpnTunnelOptions(
 	b.mu.Lock("ModifyVpnTunnelOptions")
 	defer b.mu.Unlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
@@ -913,7 +900,7 @@ func (b *InMemoryBackend) ModifyVpnTunnelCertificate(
 	b.mu.Lock("ModifyVpnTunnelCertificate")
 	defer b.mu.Unlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
@@ -999,7 +986,7 @@ func (b *InMemoryBackend) GetVpnConnectionDeviceSampleConfiguration(
 	b.mu.RLock("GetVpnConnectionDeviceSampleConfiguration")
 	defer b.mu.RUnlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
@@ -1043,7 +1030,7 @@ func (b *InMemoryBackend) GetVpnTunnelReplacementStatus(
 	b.mu.RLock("GetVpnTunnelReplacementStatus")
 	defer b.mu.RUnlock()
 
-	conn, ok := b.vpnConnections[vpnConnectionID]
+	conn, ok := b.vpnConnections.Get(vpnConnectionID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVpnConnectionNotFound, vpnConnectionID)
 	}
@@ -1076,7 +1063,7 @@ func (b *InMemoryBackend) RejectVpcPeeringConnection(id string) error {
 	b.mu.Lock("RejectVpcPeeringConnection")
 	defer b.mu.Unlock()
 
-	pc, ok := b.vpcPeeringConnections[id]
+	pc, ok := b.vpcPeeringConnections.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpcPeeringConnectionNotFound, id)
 	}
@@ -1105,7 +1092,7 @@ func (b *InMemoryBackend) CreateVpcEndpointServiceConfiguration(
 		AcceptanceRequired:      acceptanceRequired,
 		NetworkLoadBalancerARNs: nlbARNs,
 	}
-	b.vpcEndpointServiceConfigs[svcID] = cfg
+	b.vpcEndpointServiceConfigs.Put(cfg)
 
 	cp := *cfg
 	cp.NetworkLoadBalancerARNs = append([]string(nil), cfg.NetworkLoadBalancerARNs...)
@@ -1125,9 +1112,9 @@ func (b *InMemoryBackend) DescribeVpcEndpointServiceConfigurations(
 		idSet[id] = true
 	}
 
-	out := make([]*VpcEndpointServiceConfig, 0, len(b.vpcEndpointServiceConfigs))
+	out := make([]*VpcEndpointServiceConfig, 0, b.vpcEndpointServiceConfigs.Len())
 
-	for _, cfg := range b.vpcEndpointServiceConfigs {
+	for _, cfg := range b.vpcEndpointServiceConfigs.All() {
 		if len(idSet) > 0 && !idSet[cfg.ServiceID] {
 			continue
 		}
@@ -1150,13 +1137,13 @@ func (b *InMemoryBackend) DeleteVpcEndpointServiceConfigurations(ids []string) e
 	defer b.mu.Unlock()
 
 	for _, id := range ids {
-		if _, ok := b.vpcEndpointServiceConfigs[id]; !ok {
+		if _, ok := b.vpcEndpointServiceConfigs.Get(id); !ok {
 			return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, id)
 		}
 	}
 
 	for _, id := range ids {
-		delete(b.vpcEndpointServiceConfigs, id)
+		b.vpcEndpointServiceConfigs.Delete(id)
 	}
 
 	return nil
@@ -1174,7 +1161,7 @@ func (b *InMemoryBackend) ModifyVpcEndpointServiceConfiguration(
 	b.mu.Lock("ModifyVpcEndpointServiceConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.vpcEndpointServiceConfigs[id]
+	cfg, ok := b.vpcEndpointServiceConfigs.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, id)
 	}
@@ -1195,7 +1182,7 @@ func (b *InMemoryBackend) StartVpcEndpointServicePrivateDNSVerification(id strin
 	b.mu.Lock("StartVpcEndpointServicePrivateDnsVerification")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.vpcEndpointServiceConfigs[id]
+	cfg, ok := b.vpcEndpointServiceConfigs.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrVpcEndpointServiceNotFound, id)
 	}
@@ -1235,7 +1222,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 		State:         ipamStateCreateComplete,
 	}
 	privScope.IpamScopeARN += privScope.IpamScopeID
-	b.ipamScopes[privScope.IpamScopeID] = privScope
+	b.ipamScopes.Put(privScope)
 
 	pubScope := &IpamScope{
 		IpamScopeID:   "ipam-scope-" + uuid.New().String()[:8],
@@ -1246,7 +1233,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 		State:         ipamStateCreateComplete,
 	}
 	pubScope.IpamScopeARN += pubScope.IpamScopeID
-	b.ipamScopes[pubScope.IpamScopeID] = pubScope
+	b.ipamScopes.Put(pubScope)
 
 	discovery := &IpamResourceDiscovery{
 		IpamResourceDiscoveryID: "ipam-res-disco-" + uuid.New().String()[:8],
@@ -1257,7 +1244,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	}
 	discovery.IpamResourceDiscoveryARN = "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
 		":ipam-resource-discovery/" + discovery.IpamResourceDiscoveryID
-	b.ipamResourceDiscoveries[discovery.IpamResourceDiscoveryID] = discovery
+	b.ipamResourceDiscoveries.Put(discovery)
 
 	assoc := &IpamResourceDiscoveryAssociation{
 		IpamResourceDiscoveryAssociationID: "ipam-res-disco-assoc-" + uuid.New().String()[:8],
@@ -1272,7 +1259,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	}
 	assoc.IpamResourceDiscoveryAssociationARN = "arn:aws:ec2:" + b.Region + ":" + b.AccountID +
 		":ipam-resource-discovery-association/" + assoc.IpamResourceDiscoveryAssociationID
-	b.ipamResourceDiscoveryAssocs[assoc.IpamResourceDiscoveryAssociationID] = assoc
+	b.ipamResourceDiscoveryAssocs.Put(assoc)
 
 	ipam := &Ipam{
 		IpamID:                                ipamID,
@@ -1293,8 +1280,7 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 	if ipam.Tier == "" {
 		ipam.Tier = "advanced"
 	}
-
-	b.ipams[ipamID] = ipam
+	b.ipams.Put(ipam)
 
 	cp := *ipam
 	cp.OperatingRegions = append([]string(nil), ipam.OperatingRegions...)
@@ -1312,9 +1298,9 @@ func (b *InMemoryBackend) DescribeIpams(ids []string) []*Ipam {
 		idSet[id] = true
 	}
 
-	out := make([]*Ipam, 0, len(b.ipams))
+	out := make([]*Ipam, 0, b.ipams.Len())
 
-	for _, ipam := range b.ipams {
+	for _, ipam := range b.ipams.All() {
 		if len(idSet) > 0 && !idSet[ipam.IpamID] {
 			continue
 		}
@@ -1340,7 +1326,7 @@ func (b *InMemoryBackend) ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
 	b.mu.Lock("ModifyIpam")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[id]
+	ipam, ok := b.ipams.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, id)
 	}
@@ -1374,16 +1360,15 @@ func (b *InMemoryBackend) DeleteIpam(id string) error {
 	b.mu.Lock("DeleteIpam")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[id]
+	ipam, ok := b.ipams.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrIpamNotFound, id)
 	}
-
-	delete(b.ipamScopes, ipam.PublicDefaultScopeID)
-	delete(b.ipamScopes, ipam.PrivateDefaultScopeID)
-	delete(b.ipamResourceDiscoveries, ipam.DefaultResourceDiscoveryID)
-	delete(b.ipamResourceDiscoveryAssocs, ipam.DefaultResourceDiscoveryAssociationID)
-	delete(b.ipams, id)
+	b.ipamScopes.Delete(ipam.PublicDefaultScopeID)
+	b.ipamScopes.Delete(ipam.PrivateDefaultScopeID)
+	b.ipamResourceDiscoveries.Delete(ipam.DefaultResourceDiscoveryID)
+	b.ipamResourceDiscoveryAssocs.Delete(ipam.DefaultResourceDiscoveryAssociationID)
+	b.ipams.Delete(id)
 
 	return nil
 }
@@ -1399,7 +1384,7 @@ func (b *InMemoryBackend) CreateIpamScope(ipamID, description string) (*IpamScop
 	b.mu.Lock("CreateIpamScope")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[ipamID]
+	ipam, ok := b.ipams.Get(ipamID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
@@ -1413,7 +1398,7 @@ func (b *InMemoryBackend) CreateIpamScope(ipamID, description string) (*IpamScop
 		State:         ipamStateCreateComplete,
 		Description:   description,
 	}
-	b.ipamScopes[scopeID] = scope
+	b.ipamScopes.Put(scope)
 	ipam.ScopeCount++
 
 	cp := *scope
@@ -1431,9 +1416,9 @@ func (b *InMemoryBackend) DescribeIpamScopes(ids []string) []*IpamScope {
 		idSet[id] = true
 	}
 
-	out := make([]*IpamScope, 0, len(b.ipamScopes))
+	out := make([]*IpamScope, 0, b.ipamScopes.Len())
 
-	for _, scope := range b.ipamScopes {
+	for _, scope := range b.ipamScopes.All() {
 		if len(idSet) > 0 && !idSet[scope.IpamScopeID] {
 			continue
 		}
@@ -1458,7 +1443,7 @@ func (b *InMemoryBackend) ModifyIpamScope(id, description string) (*IpamScope, e
 	b.mu.Lock("ModifyIpamScope")
 	defer b.mu.Unlock()
 
-	scope, ok := b.ipamScopes[id]
+	scope, ok := b.ipamScopes.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamScopeNotFound, id)
 	}
@@ -1480,7 +1465,7 @@ func (b *InMemoryBackend) DeleteIpamScope(id string) error {
 	b.mu.Lock("DeleteIpamScope")
 	defer b.mu.Unlock()
 
-	scope, ok := b.ipamScopes[id]
+	scope, ok := b.ipamScopes.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrIpamScopeNotFound, id)
 	}
@@ -1489,11 +1474,10 @@ func (b *InMemoryBackend) DeleteIpamScope(id string) error {
 		return fmt.Errorf("%w: default IPAM scopes cannot be deleted", ErrIpamScopeDefault)
 	}
 
-	if ipam, ipamOK := b.ipams[scope.IpamID]; ipamOK {
+	if ipam, ipamOK := b.ipams.Get(scope.IpamID); ipamOK {
 		ipam.ScopeCount--
 	}
-
-	delete(b.ipamScopes, id)
+	b.ipamScopes.Delete(id)
 
 	return nil
 }
@@ -1528,7 +1512,7 @@ func (b *InMemoryBackend) CreateIpamPool(
 	b.mu.Lock("CreateIpamPool")
 	defer b.mu.Unlock()
 
-	ipam, ok := b.ipams[ipamID]
+	ipam, ok := b.ipams.Get(ipamID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, ipamID)
 	}
@@ -1559,7 +1543,7 @@ func (b *InMemoryBackend) CreateIpamPool(
 		AllocationMaxNetmaskLength:     o.AllocationMaxNetmaskLength,
 		AllocationDefaultNetmaskLength: o.AllocationDefaultNetmaskLength,
 	}
-	b.ipamPools[poolID] = pool
+	b.ipamPools.Put(pool)
 
 	if cidr != "" {
 		b.ipamPoolCidrs[poolID] = []*IpamPoolCidr{{Cidr: cidr, State: ipamPoolCidrStateProvisioned}}
@@ -1580,9 +1564,9 @@ func (b *InMemoryBackend) DescribeIpamPools(ids []string) []*IpamPool {
 		idSet[id] = true
 	}
 
-	out := make([]*IpamPool, 0, len(b.ipamPools))
+	out := make([]*IpamPool, 0, b.ipamPools.Len())
 
-	for _, pool := range b.ipamPools {
+	for _, pool := range b.ipamPools.All() {
 		if len(idSet) > 0 && !idSet[pool.IpamPoolID] {
 			continue
 		}
@@ -1607,7 +1591,7 @@ func (b *InMemoryBackend) ModifyIpamPool(id string, opts IpamPoolOptions) (*Ipam
 	b.mu.Lock("ModifyIpamPool")
 	defer b.mu.Unlock()
 
-	pool, ok := b.ipamPools[id]
+	pool, ok := b.ipamPools.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, id)
 	}
@@ -1646,11 +1630,10 @@ func (b *InMemoryBackend) DeleteIpamPool(id string) error {
 	b.mu.Lock("DeleteIpamPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipamPools[id]; !ok {
+	if _, ok := b.ipamPools.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrIpamPoolNotFound, id)
 	}
-
-	delete(b.ipamPools, id)
+	b.ipamPools.Delete(id)
 	delete(b.ipamPoolCidrs, id)
 
 	return nil
@@ -1671,7 +1654,7 @@ func (b *InMemoryBackend) ProvisionIpamPoolCidr(poolID, cidr string) (*IpamPoolC
 	b.mu.Lock("ProvisionIpamPoolCidr")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipamPools[poolID]; !ok {
+	if _, ok := b.ipamPools.Get(poolID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, poolID)
 	}
 
@@ -1696,7 +1679,7 @@ func (b *InMemoryBackend) DeprovisionIpamPoolCidr(poolID, cidr string) (*IpamPoo
 	b.mu.Lock("DeprovisionIpamPoolCidr")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipamPools[poolID]; !ok {
+	if _, ok := b.ipamPools.Get(poolID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, poolID)
 	}
 
@@ -1753,7 +1736,7 @@ func (b *InMemoryBackend) autoCIDRLocked(poolCidr string, netmaskLength int) (st
 		return "", fmt.Errorf("%w: invalid pool CIDR %s", ErrInvalidParameter, poolCidr)
 	}
 
-	existingCount := len(b.ipamPoolAllocations)
+	existingCount := b.ipamPoolAllocations.Len()
 
 	ip := network.IP.To4()
 	if ip == nil {
@@ -1811,7 +1794,7 @@ func (b *InMemoryBackend) AllocateIpamPoolCidr(
 	b.mu.Lock("AllocateIpamPoolCidr")
 	defer b.mu.Unlock()
 
-	pool, ok := b.ipamPools[poolID]
+	pool, ok := b.ipamPools.Get(poolID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, poolID)
 	}
@@ -1838,8 +1821,7 @@ func (b *InMemoryBackend) AllocateIpamPoolCidr(
 	if alloc.ResourceType == "" {
 		alloc.ResourceType = "custom"
 	}
-
-	b.ipamPoolAllocations[alloc.IpamPoolAllocationID] = alloc
+	b.ipamPoolAllocations.Put(alloc)
 	b.recordIpamResourceCidrLocked(pool, alloc)
 
 	cp := *alloc
@@ -1857,13 +1839,13 @@ func (b *InMemoryBackend) GetIpamPoolAllocations(poolID, allocationID string) ([
 	b.mu.RLock("GetIpamPoolAllocations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.ipamPools[poolID]; !ok {
+	if _, ok := b.ipamPools.Get(poolID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrIpamPoolNotFound, poolID)
 	}
 
-	out := make([]*IpamPoolAllocation, 0, len(b.ipamPoolAllocations))
+	out := make([]*IpamPoolAllocation, 0, b.ipamPoolAllocations.Len())
 
-	for _, alloc := range b.ipamPoolAllocations {
+	for _, alloc := range b.ipamPoolAllocations.All() {
 		if alloc.IpamPoolID != poolID {
 			continue
 		}
@@ -1892,7 +1874,7 @@ func (b *InMemoryBackend) ReleaseIpamPoolAllocation(poolID, allocationID string)
 	b.mu.Lock("ReleaseIpamPoolAllocation")
 	defer b.mu.Unlock()
 
-	alloc, ok := b.ipamPoolAllocations[allocationID]
+	alloc, ok := b.ipamPoolAllocations.Get(allocationID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrIpamAllocationNotFound, allocationID)
 	}
@@ -1902,7 +1884,7 @@ func (b *InMemoryBackend) ReleaseIpamPoolAllocation(poolID, allocationID string)
 	}
 
 	b.forgetIpamResourceCidrLocked(alloc)
-	delete(b.ipamPoolAllocations, allocationID)
+	b.ipamPoolAllocations.Delete(allocationID)
 
 	return nil
 }
@@ -1919,9 +1901,9 @@ func (b *InMemoryBackend) DescribeIpamResourceDiscoveries(ids []string) []*IpamR
 		idSet[id] = true
 	}
 
-	out := make([]*IpamResourceDiscovery, 0, len(b.ipamResourceDiscoveries))
+	out := make([]*IpamResourceDiscovery, 0, b.ipamResourceDiscoveries.Len())
 
-	for _, d := range b.ipamResourceDiscoveries {
+	for _, d := range b.ipamResourceDiscoveries.All() {
 		if len(idSet) > 0 && !idSet[d.IpamResourceDiscoveryID] {
 			continue
 		}
@@ -1951,9 +1933,9 @@ func (b *InMemoryBackend) DescribeIpamResourceDiscoveryAssociations(
 		idSet[id] = true
 	}
 
-	out := make([]*IpamResourceDiscoveryAssociation, 0, len(b.ipamResourceDiscoveryAssocs))
+	out := make([]*IpamResourceDiscoveryAssociation, 0, b.ipamResourceDiscoveryAssocs.Len())
 
-	for _, a := range b.ipamResourceDiscoveryAssocs {
+	for _, a := range b.ipamResourceDiscoveryAssocs.All() {
 		if len(idSet) > 0 && !idSet[a.IpamResourceDiscoveryAssociationID] {
 			continue
 		}

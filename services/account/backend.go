@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -107,18 +109,25 @@ type StorageBackend interface {
 	AcceptPrimaryEmailUpdate(otp, email string) error
 	PutAccountName(name string) error
 	CloseAccount() error
+
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so a persistence manager that
+	// registers Account can pick it up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
+	registry          *store.Registry
+	alternateContacts *store.Table[AlternateContact]
+	contactInfo       *ContactInformation
 	accountID         string
 	region            string
 	accountName       string
 	primaryEmail      string
 	pendingEmail      string
 	pendingOTP        string
-	alternateContacts map[ContactType]*AlternateContact
-	contactInfo       *ContactInformation
 	regions           []*Region
 	closed            bool
 	mu                sync.RWMutex
@@ -130,15 +139,20 @@ const simOTP = "123456"
 // defaultPrimaryEmail is the initial primary email for all new backends.
 const defaultPrimaryEmail = "admin@example.com"
 
+// defaultAccountName is the initial account display name for all new
+// backends.
+const defaultAccountName = "Test Account"
+
 // NewInMemoryBackend creates a new in-memory backend for the account service.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID:         accountID,
-		region:            region,
-		accountName:       "Test Account",
-		primaryEmail:      defaultPrimaryEmail,
-		alternateContacts: make(map[ContactType]*AlternateContact),
+		accountID:    accountID,
+		region:       region,
+		accountName:  defaultAccountName,
+		primaryEmail: defaultPrimaryEmail,
+		registry:     store.NewRegistry(),
 	}
+	registerAllTables(b)
 	b.initDefaultRegions()
 
 	return b
@@ -163,9 +177,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.alternateContacts = make(map[ContactType]*AlternateContact)
+	b.registry.ResetAll()
 	b.contactInfo = nil
-	b.accountName = "Test Account"
+	b.accountName = defaultAccountName
 	b.primaryEmail = defaultPrimaryEmail
 	b.pendingEmail = ""
 	b.pendingOTP = ""
@@ -318,7 +332,7 @@ func (b *InMemoryBackend) GetAlternateContact(ct ContactType) (*AlternateContact
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	contact, ok := b.alternateContacts[ct]
+	contact, ok := b.alternateContacts.Get(string(ct))
 	if !ok {
 		return nil, fmt.Errorf("%w: type %s", errNoAlternateContact, ct)
 	}
@@ -334,7 +348,7 @@ func (b *InMemoryBackend) PutAlternateContact(contact *AlternateContact) error {
 	defer b.mu.Unlock()
 
 	cp := *contact
-	b.alternateContacts[contact.AlternateContactType] = &cp
+	b.alternateContacts.Put(&cp)
 
 	return nil
 }
@@ -344,11 +358,9 @@ func (b *InMemoryBackend) DeleteAlternateContact(ct ContactType) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.alternateContacts[ct]; !ok {
+	if !b.alternateContacts.Delete(string(ct)) {
 		return fmt.Errorf("%w: type %s", errNoAlternateContact, ct)
 	}
-
-	delete(b.alternateContacts, ct)
 
 	return nil
 }

@@ -47,7 +47,7 @@ func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 	j.Backend.mu.Lock("EventBridgeArchiveJanitor")
 	count := 0
 	for region, archives := range j.Backend.archives {
-		for name, archive := range archives {
+		for _, archive := range archives.All() {
 			if archive.RetentionDays <= 0 {
 				continue
 			}
@@ -57,8 +57,8 @@ func (j *ArchiveJanitor) SweepOnce(ctx context.Context) {
 				continue
 			}
 
-			delete(j.Backend.archives[region], name)
-			delete(j.Backend.archivedEvents[region], name)
+			archives.Delete(archive.ArchiveName)
+			delete(j.Backend.archivedEvents[region], archive.ArchiveName)
 			count++
 		}
 	}

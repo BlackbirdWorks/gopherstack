@@ -20,6 +20,13 @@ type PipelineExecutionStep struct {
 	StepType      string    `json:"StepType"`
 	StepStatus    string    `json:"StepStatus"`
 	FailureReason string    `json:"FailureReason,omitempty"`
+	// ExecutionArn is the owning pipeline execution's ARN, carried internally so
+	// the store.Table's keyFn can derive pipelineExecutionStepsKey(ExecutionArn,
+	// StepName) and Restore can rebuild it after a JSON round-trip. Exported
+	// (with a json tag) solely so it survives persistence — handler.go never
+	// marshals PipelineExecutionStep directly to API callers, so this has no
+	// effect on the AWS wire shape.
+	ExecutionArn string `json:"executionArn"`
 }
 
 const (
@@ -49,7 +56,7 @@ func (b *InMemoryBackend) RetryPipelineExecution(ctx context.Context, execArn st
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region)[execArn]
+	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline execution %q not found",
@@ -68,14 +75,14 @@ func (b *InMemoryBackend) RetryPipelineExecution(ctx context.Context, execArn st
 		PipelineExecutionStatus: pipelineStatusExecuting,
 		StartTime:               now,
 	}
-	b.pipelineExecutionsStore(region)[newArn] = newExec
+	b.pipelineExecutionsStore(region).Put(newExec)
 
 	// Transition to Succeeded after a short delay.
 	b.runDelayed(b.lifecycleCtx, retryTransitionDelay, func() {
 		b.mu.Lock("RetryPipelineExecution.goroutine")
 		defer b.mu.Unlock()
 
-		if exec, exists := b.pipelineExecutionsStore(region)[newArn]; exists {
+		if exec, exists := b.pipelineExecutionsStore(region).Get(newArn); exists {
 			exec.PipelineExecutionStatus = pipelineStatusSucceeded
 		}
 	})
@@ -90,7 +97,7 @@ func (b *InMemoryBackend) StopPipelineExecution(ctx context.Context, execArn str
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region)[execArn]
+	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline execution %q not found",
@@ -107,7 +114,7 @@ func (b *InMemoryBackend) StopPipelineExecution(ctx context.Context, execArn str
 		b.mu.Lock("StopPipelineExecution.goroutine")
 		defer b.mu.Unlock()
 
-		if exec, exists := b.pipelineExecutionsStore(region)[execArn]; exists {
+		if exec, exists := b.pipelineExecutionsStore(region).Get(execArn); exists {
 			exec.PipelineExecutionStatus = pipelineStatusStopped
 		}
 	})
@@ -122,7 +129,7 @@ func (b *InMemoryBackend) SendPipelineExecutionStepSuccess(ctx context.Context, 
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelineExecutionsStore(region)[execArn]; !ok {
+	if _, ok := b.pipelineExecutionsStore(region).Get(execArn); !ok {
 		return fmt.Errorf(
 			"%w: pipeline execution %q not found",
 			ErrPipelineExecutionNotFound,
@@ -130,16 +137,16 @@ func (b *InMemoryBackend) SendPipelineExecutionStepSuccess(ctx context.Context, 
 		)
 	}
 
-	key := pipelineExecutionStepsKey(execArn, stepName)
 	now := time.Now()
 
-	b.pipelineExecStepsStore(region)[key] = &PipelineExecutionStep{
-		StartTime:  now,
-		EndTime:    now,
-		StepName:   stepName,
-		StepType:   stepTypeCallback,
-		StepStatus: stepStatusSucceeded,
-	}
+	b.pipelineExecStepsStore(region).Put(&PipelineExecutionStep{
+		StartTime:    now,
+		EndTime:      now,
+		StepName:     stepName,
+		StepType:     stepTypeCallback,
+		StepStatus:   stepStatusSucceeded,
+		ExecutionArn: execArn,
+	})
 
 	return nil
 }
@@ -153,7 +160,7 @@ func (b *InMemoryBackend) SendPipelineExecutionStepFailure(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.pipelineExecutionsStore(region)[execArn]; !ok {
+	if _, ok := b.pipelineExecutionsStore(region).Get(execArn); !ok {
 		return fmt.Errorf(
 			"%w: pipeline execution %q not found",
 			ErrPipelineExecutionNotFound,
@@ -161,17 +168,17 @@ func (b *InMemoryBackend) SendPipelineExecutionStepFailure(
 		)
 	}
 
-	key := pipelineExecutionStepsKey(execArn, stepName)
 	now := time.Now()
 
-	b.pipelineExecStepsStore(region)[key] = &PipelineExecutionStep{
+	b.pipelineExecStepsStore(region).Put(&PipelineExecutionStep{
 		StartTime:     now,
 		EndTime:       now,
 		StepName:      stepName,
 		StepType:      stepTypeCallback,
 		StepStatus:    stepStatusFailed,
 		FailureReason: failureReason,
-	}
+		ExecutionArn:  execArn,
+	})
 
 	return nil
 }
@@ -185,11 +192,10 @@ func (b *InMemoryBackend) ListPipelineExecutionSteps(
 
 	region := getRegion(ctx, b.region)
 
-	prefix := execArn + "|"
-	list := make([]*PipelineExecutionStep, 0, len(b.pipelineExecStepsStore(region)))
+	list := make([]*PipelineExecutionStep, 0, b.pipelineExecStepsStore(region).Len())
 
-	for key, step := range b.pipelineExecStepsStore(region) {
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+	for _, step := range b.pipelineExecStepsStore(region).All() {
+		if step.ExecutionArn == execArn {
 			cp := *step
 			list = append(list, &cp)
 		}

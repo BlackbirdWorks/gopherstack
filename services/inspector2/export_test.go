@@ -5,7 +5,7 @@ func FilterCount(b *InMemoryBackend) int {
 	b.mu.RLock("FilterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.filters)
+	return b.filters.Len()
 }
 
 // FindingCount returns the number of stored findings.
@@ -13,7 +13,7 @@ func FindingCount(b *InMemoryBackend) int {
 	b.mu.RLock("FindingCount")
 	defer b.mu.RUnlock()
 
-	return len(b.findings)
+	return b.findings.Len()
 }
 
 // SeedFinding adds a finding directly to the backend for testing.

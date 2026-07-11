@@ -1,12 +1,19 @@
 package appmesh
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 )
 
 // StorageBackend is the storage interface for the App Mesh service.
 type StorageBackend interface {
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks App Mesh up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+
 	// Mesh operations
 	CreateMesh(name string, spec json.RawMessage, tags map[string]string) (*Mesh, error)
 	DescribeMesh(name string) (*Mesh, error)

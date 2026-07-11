@@ -70,21 +70,15 @@ func (j *Janitor) sweepTerminatedSessions(ctx context.Context) {
 	var expired []expiredSession
 
 	for region, sessions := range b.sessions {
-		for id, s := range sessions {
+		for _, s := range sessions.All() {
 			if s.Status == sessionStatusTerminated && s.EndDate > 0 && s.EndDate < cutoff {
-				expired = append(expired, expiredSession{region: region, id: id})
+				expired = append(expired, expiredSession{region: region, id: s.SessionID})
 			}
 		}
 	}
 
-	regions := make(map[string]struct{}, len(expired))
 	for _, e := range expired {
-		delete(b.sessions[e.region], e.id)
-		regions[e.region] = struct{}{}
-	}
-
-	for region := range regions {
-		cleanupEmptyInnerMap(b.sessions, region)
+		b.sessions[e.region].Delete(e.id)
 	}
 
 	b.mu.Unlock()
@@ -114,22 +108,21 @@ func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 	var expired []expiredCmd
 
 	for region, commands := range b.commands {
-		for id, cmd := range commands {
+		for _, cmd := range commands.All() {
 			if cmd.ExpiresAfter > 0 && cmd.ExpiresAfter < now {
-				expired = append(expired, expiredCmd{region: region, id: id})
+				expired = append(expired, expiredCmd{region: region, id: cmd.CommandID})
 			}
 		}
 	}
 
 	regions := make(map[string]struct{}, len(expired))
 	for _, e := range expired {
-		delete(b.commands[e.region], e.id)
+		b.commands[e.region].Delete(e.id)
 		delete(b.commandInvocations[e.region], e.id)
 		regions[e.region] = struct{}{}
 	}
 
 	for region := range regions {
-		cleanupEmptyInnerMap(b.commands, region)
 		cleanupEmptyInnerMap(b.commandInvocations, region)
 	}
 
@@ -172,15 +165,15 @@ func (j *Janitor) sweepExpiredParameters(ctx context.Context) {
 	var expired []expiredParam
 
 	for region, params := range b.parameters {
-		for name, p := range params {
+		for _, p := range params.All() {
 			if t, ok := parameterExpiresAt(p.Policies); ok && now.After(t) {
-				expired = append(expired, expiredParam{region: region, name: name})
+				expired = append(expired, expiredParam{region: region, name: p.Name})
 			}
 		}
 	}
 
 	for _, e := range expired {
-		delete(b.parameters[e.region], e.name)
+		b.parameters[e.region].Delete(e.name)
 		delete(b.history[e.region], e.name)
 		delete(b.parameterLabels[e.region], e.name)
 	}

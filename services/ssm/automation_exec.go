@@ -71,7 +71,7 @@ func parseAutomationDocSteps(content string) []automationDocStep {
 // with b.mu held.
 func (b *InMemoryBackend) buildAutomationSteps(region, docName string) []AutomationStepExec {
 	var content string
-	if doc, ok := b.documentsStore(region)[docName]; ok {
+	if doc, ok := b.documentsStore(region).Get(docName); ok {
 		content = doc.Content
 	}
 

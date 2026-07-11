@@ -78,11 +78,13 @@ func (b *InMemoryBackend) collectExportStreams(task *ExportTask) []exportStream 
 	b.mu.RLock("collectExportStreams")
 	defer b.mu.RUnlock()
 
-	groupEvents := b.eventsStore(b.region)[task.LogGroupName]
-	names := make([]string, 0, len(groupEvents))
-	for name := range groupEvents {
-		if task.LogStreamNamePrefix == "" || strings.HasPrefix(name, task.LogStreamNamePrefix) {
-			names = append(names, name)
+	groupStreams := b.streamsInGroup(b.region, task.LogGroupName)
+	streamsByName := make(map[string]*LogStream, len(groupStreams))
+	names := make([]string, 0, len(groupStreams))
+	for _, s := range groupStreams {
+		if task.LogStreamNamePrefix == "" || strings.HasPrefix(s.LogStreamName, task.LogStreamNamePrefix) {
+			names = append(names, s.LogStreamName)
+			streamsByName[s.LogStreamName] = s
 		}
 	}
 
@@ -90,7 +92,7 @@ func (b *InMemoryBackend) collectExportStreams(task *ExportTask) []exportStream 
 
 	out := make([]exportStream, 0, len(names))
 	for _, name := range names {
-		if evts := exportWindowEvents(groupEvents[name], task.From, task.To); len(evts) > 0 {
+		if evts := exportWindowEvents(streamsByName[name].events, task.From, task.To); len(evts) > 0 {
 			out = append(out, exportStream{name: name, events: evts})
 		}
 	}

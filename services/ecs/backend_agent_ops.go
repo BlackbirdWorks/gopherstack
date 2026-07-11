@@ -56,13 +56,15 @@ type SubmitContainerStateChangeInput struct {
 
 // resolveTaskInClusterLocked finds a task within clusterTasks by full ARN or by
 // bare task ID (the trailing path segment of the ARN). Callers must hold b.mu.
-func resolveTaskInClusterLocked(clusterTasks map[string]*Task, ref string) *Task {
+func resolveTaskInClusterLocked(clusterTasks []*Task, ref string) *Task {
 	if ref == "" {
 		return nil
 	}
 
-	if t, ok := clusterTasks[ref]; ok {
-		return t
+	for _, t := range clusterTasks {
+		if t.TaskArn == ref {
+			return t
+		}
 	}
 
 	if strings.HasPrefix(ref, "arn:") {
@@ -70,8 +72,8 @@ func resolveTaskInClusterLocked(clusterTasks map[string]*Task, ref string) *Task
 	}
 
 	suffix := "/" + ref
-	for arn, t := range clusterTasks {
-		if strings.HasSuffix(arn, suffix) {
+	for _, t := range clusterTasks {
+		if strings.HasSuffix(t.TaskArn, suffix) {
 			return t
 		}
 	}
@@ -142,12 +144,11 @@ func (b *InMemoryBackend) SubmitTaskStateChange(input SubmitTaskStateChangeInput
 	b.mu.Lock("SubmitTaskStateChange")
 	defer b.mu.Unlock()
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil
 	}
 
-	task := resolveTaskInClusterLocked(clusterTasks, input.Task)
+	task := resolveTaskInClusterLocked(b.tasksByCluster.Get(clusterName), input.Task)
 	if task == nil {
 		return nil
 	}
@@ -180,12 +181,11 @@ func (b *InMemoryBackend) SubmitContainerStateChange(input SubmitContainerStateC
 	b.mu.Lock("SubmitContainerStateChange")
 	defer b.mu.Unlock()
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil
 	}
 
-	task := resolveTaskInClusterLocked(clusterTasks, input.Task)
+	task := resolveTaskInClusterLocked(b.tasksByCluster.Get(clusterName), input.Task)
 	if task == nil {
 		return nil
 	}
@@ -220,12 +220,11 @@ func (b *InMemoryBackend) SubmitAttachmentStateChanges(cluster string, attachmen
 	b.mu.Lock("SubmitAttachmentStateChanges")
 	defer b.mu.Unlock()
 
-	clusterTasks, ok := b.tasks[clusterName]
-	if !ok {
+	if !b.clusters.Has(clusterName) {
 		return nil
 	}
 
-	for _, task := range clusterTasks {
+	for _, task := range b.tasksByCluster.Get(clusterName) {
 		applyAttachmentStateChangesLocked(task, attachments)
 	}
 

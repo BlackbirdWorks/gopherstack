@@ -322,8 +322,8 @@ func TestBatch1_SetIdentityMailFromDomain_Clear(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("mf@example.com"))
-	require.NoError(t, b.SetIdentityMailFromDomain("mf@example.com", "mail.example.com"))
-	require.NoError(t, b.SetIdentityMailFromDomain("mf@example.com", ""))
+	require.NoError(t, b.SetIdentityMailFromDomain("mf@example.com", "mail.example.com", ""))
+	require.NoError(t, b.SetIdentityMailFromDomain("mf@example.com", "", ""))
 
 	attrs := b.GetIdentityMailFromDomainAttributes([]string{"mf@example.com"})
 	assert.Empty(t, attrs["mf@example.com"].MailFromDomain)
@@ -335,7 +335,7 @@ func TestBatch1_GetIdentityMailFromDomainAttributes_Handler(t *testing.T) {
 
 	h := newHandler()
 	require.NoError(t, h.Backend.VerifyEmailIdentity("mf2@example.com"))
-	require.NoError(t, h.Backend.SetIdentityMailFromDomain("mf2@example.com", "bounce.example.com"))
+	require.NoError(t, h.Backend.SetIdentityMailFromDomain("mf2@example.com", "bounce.example.com", ""))
 
 	rec := postForm(t, h, url.Values{
 		"Action":              {"GetIdentityMailFromDomainAttributes"},
@@ -945,7 +945,7 @@ func TestBatch1_SendBulkTemplatedEmail_PerDestinationData(t *testing.T) {
 		{To: []string{"b@example.com"}, Cc: []string{"cc@example.com"}},
 	}
 
-	ids, err := b.SendBulkTemplatedEmail("s@example.com", "t", "", dests)
+	ids, err := b.SendBulkTemplatedEmail("s@example.com", "t", "", "", "", "", nil, dests)
 	require.NoError(t, err)
 	assert.Len(t, ids, 2)
 
@@ -969,15 +969,55 @@ func TestBatch1_SendBounce_Handler(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// AWS SES requires BounceSender to be a verified identity and
+	// BouncedRecipientInfoList to contain at least one recipient entry.
+	require.NoError(t, h.Backend.VerifyEmailIdentity("mailer-daemon@example.com"))
+
 	rec := postForm(t, h, url.Values{
-		"Action":                  {"SendBounce"},
-		"Version":                 {"2010-12-01"},
-		"OriginalMessageId":       {msgID},
-		"BounceSender":            {"mailer-daemon@example.com"},
-		"MessageDsn.ReportingMta": {"dns; example.com"},
+		"Action":            {"SendBounce"},
+		"Version":           {"2010-12-01"},
+		"OriginalMessageId": {msgID},
+		"BounceSender":      {"mailer-daemon@example.com"},
+		"BouncedRecipientInfoList.member.1.Recipient": {"to@example.com"},
+		"MessageDsn.ReportingMta":                     {"dns; example.com"},
 	}.Encode())
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "SendBounceResponse")
+}
+
+func TestBatch1_SendBounce_Handler_RequiresBounceSenderAndRecipients(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("s@example.com"))
+	msgID, err := h.Backend.SendEmail(ses.SendEmailInput{
+		From:     "s@example.com",
+		To:       []string{"to@example.com"},
+		Subject:  "orig",
+		BodyText: "body",
+	})
+	require.NoError(t, err)
+
+	// Missing BounceSender entirely: AWS SES models it as a required member.
+	rec := postForm(t, h, url.Values{
+		"Action":            {"SendBounce"},
+		"Version":           {"2010-12-01"},
+		"OriginalMessageId": {msgID},
+		"BouncedRecipientInfoList.member.1.Recipient": {"to@example.com"},
+	}.Encode())
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+
+	// BounceSender present but not a verified identity: MessageRejected.
+	rec = postForm(t, h, url.Values{
+		"Action":            {"SendBounce"},
+		"Version":           {"2010-12-01"},
+		"OriginalMessageId": {msgID},
+		"BounceSender":      {"unverified@example.com"},
+		"BouncedRecipientInfoList.member.1.Recipient": {"to@example.com"},
+	}.Encode())
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MessageRejected")
 }
 
 // ---- SendCustomVerificationEmail ----
@@ -2231,6 +2271,9 @@ func TestBatch1_SendEmail_Tags_ConfigSet(t *testing.T) {
 
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("s@example.com"))
+	// AWS SES requires ConfigurationSetName to reference an existing configuration
+	// set (ConfigurationSetDoesNotExist otherwise), so create it up front.
+	require.NoError(t, b.CreateConfigurationSet("my-cs"))
 
 	tags := []ses.Tag{{Name: "env", Value: "prod"}, {Name: "team", Value: "backend"}}
 	msgID, err := b.SendEmail(ses.SendEmailInput{

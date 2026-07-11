@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -354,23 +355,23 @@ const accessKeyStatusActive = "Active"
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	roles                 map[string]Role
-	delegationRequests    map[string]DelegationRequest
-	policies              map[string]Policy
+	roles                 *store.Table[Role]
+	delegationRequests    *store.Table[DelegationRequest]
+	policies              *store.Table[Policy]
 	policyByARN           map[string]string
 	roleByARN             map[string]string
-	accessKeys            map[string]AccessKey
+	accessKeys            *store.Table[AccessKey]
 	userAccessKeys        map[string][]string // username -> list of access key IDs
-	instanceProfiles      map[string]InstanceProfile
-	samlProviders         map[string]SAMLProvider
+	instanceProfiles      *store.Table[InstanceProfile]
+	samlProviders         *store.Table[SAMLProvider]
 	groupMembers          map[string][]string
 	groupPolicies         map[string][]string
 	userPolicies          map[string][]string
 	policyAttachments     map[string]policyAttachmentRefs
 	mu                    *lockmetrics.RWMutex
-	loginProfiles         map[string]LoginProfile
-	groups                map[string]Group
-	oidcProviders         map[string]OIDCProvider
+	loginProfiles         *store.Table[LoginProfile]
+	groups                *store.Table[Group]
+	oidcProviders         *store.Table[OIDCProvider]
 	userInlinePolicies    map[string]map[string]string
 	roleInlinePolicies    map[string]map[string]string
 	groupInlinePolicies   map[string]map[string]string
@@ -378,12 +379,13 @@ type InMemoryBackend struct {
 	policyVersions        map[string][]StoredPolicyVersion
 	policyVersionCounters map[string]int  // monotonic counter per policy ARN, never resets on delete
 	deletedV1Policies     map[string]bool // tracks policies where v1 has been explicitly deleted
-	serviceSpecificCreds  map[string]ServiceSpecificCredential
-	virtualMFADevices     map[string]VirtualMFADevice
-	signingCertificates   map[string]SigningCertificate // certID → SigningCertificate
-	serverCertificates    map[string]ServerCertificate  // name → ServerCertificate
+	serviceSpecificCreds  *store.Table[ServiceSpecificCredential]
+	virtualMFADevices     *store.Table[VirtualMFADevice]
+	signingCertificates   *store.Table[SigningCertificate] // certID → SigningCertificate
+	serverCertificates    *store.Table[ServerCertificate]  // name → ServerCertificate
 	passwordPolicy        *PasswordPolicy
-	users                 map[string]User
+	users                 *store.Table[User]
+	registry              *store.Registry
 	comprehensive         *comprehensiveBackend
 	accountID             string
 	accountAliases        []string
@@ -409,19 +411,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
 func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
-	return &InMemoryBackend{
-		users:                 make(map[string]User),
-		roles:                 make(map[string]Role),
+	b := &InMemoryBackend{
 		roleByARN:             make(map[string]string),
-		policies:              make(map[string]Policy),
 		policyByARN:           make(map[string]string),
-		groups:                make(map[string]Group),
-		accessKeys:            make(map[string]AccessKey),
 		userAccessKeys:        make(map[string][]string),
-		instanceProfiles:      make(map[string]InstanceProfile),
-		samlProviders:         make(map[string]SAMLProvider),
-		oidcProviders:         make(map[string]OIDCProvider),
-		loginProfiles:         make(map[string]LoginProfile),
 		userPolicies:          make(map[string][]string),
 		rolePolicies:          make(map[string][]string),
 		groupPolicies:         make(map[string][]string),
@@ -434,13 +427,9 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		policyVersions:        make(map[string][]StoredPolicyVersion),
 		policyVersionCounters: make(map[string]int),
 		deletedV1Policies:     make(map[string]bool),
-		serviceSpecificCreds:  make(map[string]ServiceSpecificCredential),
-		virtualMFADevices:     make(map[string]VirtualMFADevice),
-		signingCertificates:   make(map[string]SigningCertificate),
-		serverCertificates:    make(map[string]ServerCertificate),
-		delegationRequests:    make(map[string]DelegationRequest),
 		accountID:             accountID,
 		mu:                    lockmetrics.New("iam"),
+		registry:              store.NewRegistry(),
 		comprehensive:         newComprehensiveBackend(),
 		// Sorted name indexes start empty; populated via insertSorted on create.
 		sortedUserNames:   nil,
@@ -449,6 +438,10 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		sortedGroupNames:  nil,
 		sortedIPNames:     nil,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // normPath returns a normalized IAM path, defaulting to "/" if empty.
@@ -492,9 +485,10 @@ func (b *InMemoryBackend) addPolicyAttachmentLocked(policyArn, entityName, entit
 	b.policyAttachments[policyArn] = refs
 
 	if polName, ok := b.policyByARN[policyArn]; ok {
-		pol := b.policies[polName]
-		pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
-		b.policies[polName] = pol
+		if pol, ok2 := b.policies.Get(polName); ok2 {
+			pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
+			b.policies.Put(pol)
+		}
 	}
 }
 
@@ -517,9 +511,10 @@ func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, en
 		delete(b.policyAttachments, policyArn)
 
 		if polName, ok := b.policyByARN[policyArn]; ok {
-			pol := b.policies[polName]
-			pol.AttachmentCount = 0
-			b.policies[polName] = pol
+			if pol, ok2 := b.policies.Get(polName); ok2 {
+				pol.AttachmentCount = 0
+				b.policies.Put(pol)
+			}
 		}
 
 		return
@@ -528,9 +523,10 @@ func (b *InMemoryBackend) removePolicyAttachmentLocked(policyArn, entityName, en
 	b.policyAttachments[policyArn] = refs
 
 	if polName, ok := b.policyByARN[policyArn]; ok {
-		pol := b.policies[polName]
-		pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
-		b.policies[polName] = pol
+		if pol, ok2 := b.policies.Get(polName); ok2 {
+			pol.AttachmentCount = len(refs.users) + len(refs.roles) + len(refs.groups)
+			b.policies.Put(pol)
+		}
 	}
 }
 
@@ -549,23 +545,23 @@ func (b *InMemoryBackend) getPolicyByARNLocked(policyArn string) (Policy, bool) 
 		return Policy{}, false
 	}
 
-	pol, exists := b.policies[policyName]
+	pol, exists := b.policies.Get(policyName)
 	if !exists {
 		return Policy{}, false
 	}
 
-	return pol, true
+	return *pol, true
 }
 
 func (b *InMemoryBackend) rebuildIndexesLocked() {
-	b.roleByARN = make(map[string]string, len(b.roles))
-	for roleName, role := range b.roles {
-		b.roleByARN[role.Arn] = roleName
+	b.roleByARN = make(map[string]string, b.roles.Len())
+	for _, role := range b.roles.All() {
+		b.roleByARN[role.Arn] = role.RoleName
 	}
 
-	b.policyByARN = make(map[string]string, len(b.policies))
-	for policyName, policy := range b.policies {
-		b.policyByARN[policy.Arn] = policyName
+	b.policyByARN = make(map[string]string, b.policies.Len())
+	for _, policy := range b.policies.All() {
+		b.policyByARN[policy.Arn] = policy.PolicyName
 	}
 
 	b.policyAttachments = make(map[string]policyAttachmentRefs)
@@ -588,11 +584,11 @@ func (b *InMemoryBackend) rebuildIndexesLocked() {
 	}
 
 	// Rebuild sorted name indexes.
-	b.sortedUserNames = rebuildSortedNames(b.users)
-	b.sortedRoleNames = rebuildSortedNames(b.roles)
-	b.sortedPolicyNames = rebuildSortedNames(b.policies)
-	b.sortedGroupNames = rebuildSortedNames(b.groups)
-	b.sortedIPNames = rebuildSortedNames(b.instanceProfiles)
+	b.sortedUserNames = sortedTableNames(b.users, usersKeyFn)
+	b.sortedRoleNames = sortedTableNames(b.roles, rolesKeyFn)
+	b.sortedPolicyNames = sortedTableNames(b.policies, policiesKeyFn)
+	b.sortedGroupNames = sortedTableNames(b.groups, groupsKeyFn)
+	b.sortedIPNames = sortedTableNames(b.instanceProfiles, instanceProfilesKeyFn)
 }
 
 // ---- Users ----
@@ -602,7 +598,7 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; exists {
+	if _, exists := b.users.Get(userName); exists {
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, userName)
 	}
 
@@ -615,7 +611,7 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 		CreateDate:          time.Now().UTC(),
 		PermissionsBoundary: permissionsBoundary,
 	}
-	b.users[userName] = u
+	b.users.Put(&u)
 	b.sortedUserNames = insertSorted(b.sortedUserNames, userName)
 
 	return &u, nil
@@ -626,7 +622,7 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -640,12 +636,12 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 
 	// Clean up access keys belonging to the user.
 	for _, id := range b.userAccessKeys[userName] {
-		delete(b.accessKeys, id)
+		b.accessKeys.Delete(id)
 	}
 	delete(b.userAccessKeys, userName)
 
 	// Clean up login profile.
-	delete(b.loginProfiles, userName)
+	b.loginProfiles.Delete(userName)
 
 	// Remove user from all group memberships.
 	for groupName, members := range b.groupMembers {
@@ -658,7 +654,7 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 		}
 	}
 
-	delete(b.users, userName)
+	b.users.Delete(userName)
 	b.sortedUserNames = deleteSorted(b.sortedUserNames, userName)
 
 	return nil
@@ -671,7 +667,7 @@ func (b *InMemoryBackend) ListUsers(marker string, maxItems int) (page.Page[User
 
 	return pageFromSortedNames(
 		b.sortedUserNames,
-		b.users,
+		b.users.Get,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
@@ -683,12 +679,12 @@ func (b *InMemoryBackend) GetUser(userName string) (*User, error) {
 	b.mu.RLock("GetUser")
 	defer b.mu.RUnlock()
 
-	u, exists := b.users[userName]
+	u, exists := b.users.Get(userName)
 	if !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	return &u, nil
+	return u, nil
 }
 
 // ---- Roles ----
@@ -700,7 +696,7 @@ func (b *InMemoryBackend) CreateRole(
 	b.mu.Lock("CreateRole")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; exists {
+	if _, exists := b.roles.Get(roleName); exists {
 		return nil, fmt.Errorf("%w: role %q already exists", ErrRoleAlreadyExists, roleName)
 	}
 
@@ -725,7 +721,7 @@ func (b *InMemoryBackend) CreateRole(
 		CreateDate:               time.Now().UTC(),
 		PermissionsBoundary:      permissionsBoundary,
 	}
-	b.roles[roleName] = r
+	b.roles.Put(&r)
 	b.roleByARN[r.Arn] = roleName
 	b.sortedRoleNames = insertSorted(b.sortedRoleNames, roleName)
 
@@ -737,7 +733,7 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 	b.mu.Lock("DeleteRole")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -749,8 +745,8 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 		return fmt.Errorf("%w: role %q has inline policies", ErrDeleteConflict, roleName)
 	}
 
-	role := b.roles[roleName]
-	delete(b.roles, roleName)
+	role, _ := b.roles.Get(roleName)
+	b.roles.Delete(roleName)
 	delete(b.roleByARN, role.Arn)
 	b.sortedRoleNames = deleteSorted(b.sortedRoleNames, roleName)
 
@@ -764,7 +760,7 @@ func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role
 
 	return pageFromSortedNames(
 		b.sortedRoleNames,
-		b.roles,
+		b.roles.Get,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
@@ -776,12 +772,12 @@ func (b *InMemoryBackend) GetRole(roleName string) (*Role, error) {
 	b.mu.RLock("GetRole")
 	defer b.mu.RUnlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
-	return &r, nil
+	return r, nil
 }
 
 // GetRoleByArn retrieves a single IAM role by its full ARN.
@@ -794,12 +790,12 @@ func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
 		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
 	}
 
-	role, exists := b.roles[roleName]
+	role, exists := b.roles.Get(roleName)
 	if !exists {
 		return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
 	}
 
-	return &role, nil
+	return role, nil
 }
 
 // UpdateRoleMaxSessionDuration sets the maximum session duration for a role.
@@ -810,13 +806,13 @@ func (b *InMemoryBackend) UpdateRoleMaxSessionDuration(
 	b.mu.Lock("UpdateRoleMaxSessionDuration")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
 	r.MaxSessionDuration = maxSessionDuration
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -831,7 +827,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.policies[policyName]; exists {
+	if _, exists := b.policies.Get(policyName); exists {
 		return nil, fmt.Errorf("%w: policy %q already exists", ErrPolicyAlreadyExists, policyName)
 	}
 
@@ -857,7 +853,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 		DefaultVersionID: "v1",
 		IsAttachable:     true,
 	}
-	b.policies[policyName] = pol
+	b.policies.Put(&pol)
 	b.policyByARN[pol.Arn] = policyName
 	b.sortedPolicyNames = insertSorted(b.sortedPolicyNames, policyName)
 
@@ -903,7 +899,7 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 		return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 	}
 
-	delete(b.policies, policyName)
+	b.policies.Delete(policyName)
 	delete(b.policyByARN, policyArn)
 	delete(b.policyAttachments, policyArn)
 	delete(b.policyVersions, policyArn)
@@ -921,7 +917,7 @@ func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[P
 
 	return pageFromSortedNames(
 		b.sortedPolicyNames,
-		b.policies,
+		b.policies.Get,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
@@ -933,7 +929,7 @@ func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
 	b.mu.Lock("AttachUserPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -952,7 +948,7 @@ func (b *InMemoryBackend) DetachUserPolicy(userName, policyArn string) error {
 	b.mu.Lock("DetachUserPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -974,7 +970,7 @@ func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 	b.mu.Lock("AttachRolePolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -993,7 +989,7 @@ func (b *InMemoryBackend) DetachRolePolicy(roleName, policyArn string) error {
 	b.mu.Lock("DetachRolePolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1017,7 +1013,7 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; exists {
+	if _, exists := b.groups.Get(groupName); exists {
 		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, groupName)
 	}
 
@@ -1029,7 +1025,7 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
-	b.groups[groupName] = g
+	b.groups.Put(&g)
 	b.sortedGroupNames = insertSorted(b.sortedGroupNames, groupName)
 
 	return &g, nil
@@ -1040,7 +1036,7 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1052,7 +1048,7 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 		return fmt.Errorf("%w: group %q has inline policies", ErrDeleteConflict, groupName)
 	}
 
-	delete(b.groups, groupName)
+	b.groups.Delete(groupName)
 	b.sortedGroupNames = deleteSorted(b.sortedGroupNames, groupName)
 
 	// Clean up group membership tracking.
@@ -1066,11 +1062,11 @@ func (b *InMemoryBackend) AddUserToGroup(groupName, userName string) error {
 	b.mu.Lock("AddUserToGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1088,11 +1084,11 @@ func (b *InMemoryBackend) RemoveUserFromGroup(groupName, userName string) error 
 	b.mu.Lock("RemoveUserFromGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1113,12 +1109,12 @@ func (b *InMemoryBackend) GetGroup(groupName string) (*Group, error) {
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
 
-	g, exists := b.groups[groupName]
+	g, exists := b.groups.Get(groupName)
 	if !exists {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
-	return &g, nil
+	return g, nil
 }
 
 // GetGroupUsers returns the users that are members of the given group.
@@ -1126,7 +1122,7 @@ func (b *InMemoryBackend) GetGroupUsers(groupName string) ([]User, error) {
 	b.mu.RLock("GetGroupUsers")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1134,8 +1130,8 @@ func (b *InMemoryBackend) GetGroupUsers(groupName string) ([]User, error) {
 	out := make([]User, 0, len(members))
 
 	for _, userName := range members {
-		if u, ok := b.users[userName]; ok {
-			out = append(out, u)
+		if u, ok := b.users.Get(userName); ok {
+			out = append(out, *u)
 		}
 	}
 
@@ -1147,7 +1143,7 @@ func (b *InMemoryBackend) AttachGroupPolicy(groupName, policyArn string) error {
 	b.mu.Lock("AttachGroupPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1166,7 +1162,7 @@ func (b *InMemoryBackend) DetachGroupPolicy(groupName, policyArn string) error {
 	b.mu.Lock("DetachGroupPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1188,7 +1184,7 @@ func (b *InMemoryBackend) ListAttachedGroupPolicies(groupName string) ([]Attache
 	b.mu.RLock("ListAttachedGroupPolicies")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1210,7 +1206,7 @@ func (b *InMemoryBackend) ListGroups(marker string, maxItems int) (page.Page[Gro
 
 	return pageFromSortedNames(
 		b.sortedGroupNames,
-		b.groups,
+		b.groups.Get,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
@@ -1224,7 +1220,7 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 	b.mu.Lock("CreateAccessKey")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1252,7 +1248,7 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 		Status:          "Active",
 		CreateDate:      time.Now().UTC(),
 	}
-	b.accessKeys[ak.AccessKeyID] = ak
+	b.accessKeys.Put(&ak)
 	b.userAccessKeys[userName] = append(b.userAccessKeys[userName], ak.AccessKeyID)
 
 	return &ak, nil
@@ -1263,7 +1259,7 @@ func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
 	b.mu.Lock("DeleteAccessKey")
 	defer b.mu.Unlock()
 
-	ak, exists := b.accessKeys[accessKeyID]
+	ak, exists := b.accessKeys.Get(accessKeyID)
 	if !exists || ak.UserName != userName {
 		return fmt.Errorf(
 			"%w: access key %q not found for user %q",
@@ -1273,7 +1269,7 @@ func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
 		)
 	}
 
-	delete(b.accessKeys, accessKeyID)
+	b.accessKeys.Delete(accessKeyID)
 
 	keys := b.userAccessKeys[userName]
 	for i, id := range keys {
@@ -1295,7 +1291,7 @@ func (b *InMemoryBackend) ListAccessKeys(
 	b.mu.RLock("ListAccessKeys")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return page.Page[AccessKey]{}, fmt.Errorf(
 			"%w: user %q not found",
 			ErrUserNotFound,
@@ -1306,8 +1302,8 @@ func (b *InMemoryBackend) ListAccessKeys(
 	userKeys := b.userAccessKeys[userName]
 	keys := make([]AccessKey, 0, len(userKeys))
 	for _, id := range userKeys {
-		if ak, ok := b.accessKeys[id]; ok {
-			keys = append(keys, ak)
+		if ak, ok := b.accessKeys.Get(id); ok {
+			keys = append(keys, *ak)
 		}
 	}
 
@@ -1323,7 +1319,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 	b.mu.Lock("CreateInstanceProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.instanceProfiles[name]; exists {
+	if _, exists := b.instanceProfiles.Get(name); exists {
 		return nil, fmt.Errorf(
 			"%w: instance profile %q already exists",
 			ErrInstanceProfileAlreadyExists,
@@ -1340,7 +1336,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 		Roles:               []string{},
 		CreateDate:          time.Now().UTC(),
 	}
-	b.instanceProfiles[name] = ip
+	b.instanceProfiles.Put(&ip)
 	b.sortedIPNames = insertSorted(b.sortedIPNames, name)
 
 	return &ip, nil
@@ -1351,11 +1347,11 @@ func (b *InMemoryBackend) DeleteInstanceProfile(name string) error {
 	b.mu.Lock("DeleteInstanceProfile")
 	defer b.mu.Unlock()
 
-	if _, exists := b.instanceProfiles[name]; !exists {
+	if _, exists := b.instanceProfiles.Get(name); !exists {
 		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, name)
 	}
 
-	delete(b.instanceProfiles, name)
+	b.instanceProfiles.Delete(name)
 	b.sortedIPNames = deleteSorted(b.sortedIPNames, name)
 
 	return nil
@@ -1371,7 +1367,7 @@ func (b *InMemoryBackend) ListInstanceProfiles(
 
 	return pageFromSortedNames(
 		b.sortedIPNames,
-		b.instanceProfiles,
+		b.instanceProfiles.Get,
 		marker,
 		maxItems,
 		iamDefaultMaxItems,
@@ -1383,7 +1379,7 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 	b.mu.Lock("AddRoleToInstanceProfile")
 	defer b.mu.Unlock()
 
-	ip, exists := b.instanceProfiles[instanceProfileName]
+	ip, exists := b.instanceProfiles.Get(instanceProfileName)
 	if !exists {
 		return fmt.Errorf(
 			"%w: instance profile %q not found",
@@ -1392,7 +1388,7 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 		)
 	}
 
-	if _, roleExists := b.roles[roleName]; !roleExists {
+	if _, roleExists := b.roles.Get(roleName); !roleExists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1410,7 +1406,7 @@ func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName
 	}
 
 	ip.Roles = append(ip.Roles, roleName)
-	b.instanceProfiles[instanceProfileName] = ip
+	b.instanceProfiles.Put(ip)
 
 	return nil
 }
@@ -1422,7 +1418,7 @@ func (b *InMemoryBackend) RemoveRoleFromInstanceProfile(
 	b.mu.Lock("RemoveRoleFromInstanceProfile")
 	defer b.mu.Unlock()
 
-	ip, exists := b.instanceProfiles[instanceProfileName]
+	ip, exists := b.instanceProfiles.Get(instanceProfileName)
 	if !exists {
 		return fmt.Errorf(
 			"%w: instance profile %q not found",
@@ -1434,7 +1430,7 @@ func (b *InMemoryBackend) RemoveRoleFromInstanceProfile(
 	for i, r := range ip.Roles {
 		if r == roleName {
 			ip.Roles = append(ip.Roles[:i], ip.Roles[i+1:]...)
-			b.instanceProfiles[instanceProfileName] = ip
+			b.instanceProfiles.Put(ip)
 
 			return nil
 		}
@@ -1458,9 +1454,9 @@ func (b *InMemoryBackend) ListAllRoles() []Role {
 	b.mu.RLock("ListAllRoles")
 	defer b.mu.RUnlock()
 
-	roles := make([]Role, 0, len(b.roles))
-	for _, r := range b.roles {
-		roles = append(roles, r)
+	roles := make([]Role, 0, b.roles.Len())
+	for _, r := range b.roles.All() {
+		roles = append(roles, *r)
 	}
 
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
@@ -1473,9 +1469,9 @@ func (b *InMemoryBackend) ListAllPolicies() []Policy {
 	b.mu.RLock("ListAllPolicies")
 	defer b.mu.RUnlock()
 
-	policies := make([]Policy, 0, len(b.policies))
-	for _, p := range b.policies {
-		policies = append(policies, p)
+	policies := make([]Policy, 0, b.policies.Len())
+	for _, p := range b.policies.All() {
+		policies = append(policies, *p)
 	}
 
 	sort.Slice(
@@ -1491,9 +1487,9 @@ func (b *InMemoryBackend) ListAllGroups() []Group {
 	b.mu.RLock("ListAllGroups")
 	defer b.mu.RUnlock()
 
-	groups := make([]Group, 0, len(b.groups))
-	for _, g := range b.groups {
-		groups = append(groups, g)
+	groups := make([]Group, 0, b.groups.Len())
+	for _, g := range b.groups.All() {
+		groups = append(groups, *g)
 	}
 
 	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
@@ -1506,9 +1502,9 @@ func (b *InMemoryBackend) ListAllAccessKeys() []AccessKey {
 	b.mu.RLock("ListAllAccessKeys")
 	defer b.mu.RUnlock()
 
-	keys := make([]AccessKey, 0, len(b.accessKeys))
-	for _, ak := range b.accessKeys {
-		keys = append(keys, ak)
+	keys := make([]AccessKey, 0, b.accessKeys.Len())
+	for _, ak := range b.accessKeys.All() {
+		keys = append(keys, *ak)
 	}
 
 	sort.Slice(keys, func(i, j int) bool { return keys[i].AccessKeyID < keys[j].AccessKeyID })
@@ -1521,9 +1517,9 @@ func (b *InMemoryBackend) ListAllInstanceProfiles() []InstanceProfile {
 	b.mu.RLock("ListAllInstanceProfiles")
 	defer b.mu.RUnlock()
 
-	profiles := make([]InstanceProfile, 0, len(b.instanceProfiles))
-	for _, ip := range b.instanceProfiles {
-		profiles = append(profiles, ip)
+	profiles := make([]InstanceProfile, 0, b.instanceProfiles.Len())
+	for _, ip := range b.instanceProfiles.All() {
+		profiles = append(profiles, *ip)
 	}
 
 	sort.Slice(profiles, func(i, j int) bool {
@@ -1535,13 +1531,16 @@ func (b *InMemoryBackend) ListAllInstanceProfiles() []InstanceProfile {
 
 // ---- Helpers ----
 
-func sortedUsers(m map[string]User) []User {
-	users := make([]User, 0, len(m))
-	for _, u := range m {
-		users = append(users, u)
-	}
+func sortedUsers(t *store.Table[User]) []User {
+	// t.Snapshot() is already ordered by key ascending, and the key is
+	// UserName (see usersKeyFn), so this matches the prior sort.Slice by
+	// UserName exactly.
+	items := t.Snapshot()
+	users := make([]User, 0, len(items))
 
-	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
+	for _, u := range items {
+		users = append(users, *u)
+	}
 
 	return users
 }
@@ -1616,7 +1615,7 @@ func (b *InMemoryBackend) ListAttachedUserPolicies(userName string) ([]AttachedP
 	b.mu.RLock("ListAttachedUserPolicies")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1636,7 +1635,7 @@ func (b *InMemoryBackend) ListAttachedRolePolicies(roleName string) ([]AttachedP
 	b.mu.RLock("ListAttachedRolePolicies")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1720,17 +1719,17 @@ func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error
 	b.mu.RLock("GetUserByAccessKeyID")
 	defer b.mu.RUnlock()
 
-	ak, exists := b.accessKeys[accessKeyID]
+	ak, exists := b.accessKeys.Get(accessKeyID)
 	if !exists {
 		return nil, fmt.Errorf("%w: access key %q not found", ErrAccessKeyNotFound, accessKeyID)
 	}
 
-	u, exists := b.users[ak.UserName]
+	u, exists := b.users.Get(ak.UserName)
 	if !exists {
 		return nil, fmt.Errorf("%w: user %q not found for access key", ErrUserNotFound, ak.UserName)
 	}
 
-	return &u, nil
+	return u, nil
 }
 
 // GetPoliciesForUser returns the policy documents for all policies attached to the named user.
@@ -1739,7 +1738,7 @@ func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) 
 	b.mu.RLock("GetPoliciesForUser")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1765,7 +1764,7 @@ func (b *InMemoryBackend) PutUserPolicy(userName, policyName, policyDocument str
 	b.mu.Lock("PutUserPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1792,7 +1791,7 @@ func (b *InMemoryBackend) GetUserPolicy(userName, policyName string) (string, er
 	b.mu.RLock("GetUserPolicy")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1814,7 +1813,7 @@ func (b *InMemoryBackend) DeleteUserPolicy(userName, policyName string) error {
 	b.mu.Lock("DeleteUserPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1837,7 +1836,7 @@ func (b *InMemoryBackend) ListUserPolicies(userName string) ([]string, error) {
 	b.mu.RLock("ListUserPolicies")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.users[userName]; !exists {
+	if _, exists := b.users.Get(userName); !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
@@ -1851,7 +1850,7 @@ func (b *InMemoryBackend) PutRolePolicy(roleName, policyName, policyDocument str
 	b.mu.Lock("PutRolePolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1878,7 +1877,7 @@ func (b *InMemoryBackend) GetRolePolicy(roleName, policyName string) (string, er
 	b.mu.RLock("GetRolePolicy")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return "", fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1900,7 +1899,7 @@ func (b *InMemoryBackend) DeleteRolePolicy(roleName, policyName string) error {
 	b.mu.Lock("DeleteRolePolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1923,7 +1922,7 @@ func (b *InMemoryBackend) ListRolePolicies(roleName string) ([]string, error) {
 	b.mu.RLock("ListRolePolicies")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.roles[roleName]; !exists {
+	if _, exists := b.roles.Get(roleName); !exists {
 		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
@@ -1937,7 +1936,7 @@ func (b *InMemoryBackend) PutGroupPolicy(groupName, policyName, policyDocument s
 	b.mu.Lock("PutGroupPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1964,7 +1963,7 @@ func (b *InMemoryBackend) GetGroupPolicy(groupName, policyName string) (string, 
 	b.mu.RLock("GetGroupPolicy")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return "", fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -1986,7 +1985,7 @@ func (b *InMemoryBackend) DeleteGroupPolicy(groupName, policyName string) error 
 	b.mu.Lock("DeleteGroupPolicy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -2009,7 +2008,7 @@ func (b *InMemoryBackend) ListGroupPolicies(groupName string) ([]string, error) 
 	b.mu.RLock("ListGroupPolicies")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groups[groupName]; !exists {
+	if _, exists := b.groups.Get(groupName); !exists {
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
@@ -2025,13 +2024,13 @@ func (b *InMemoryBackend) PutUserPermissionsBoundary(userName, policyArn string)
 	b.mu.Lock("PutUserPermissionsBoundary")
 	defer b.mu.Unlock()
 
-	u, exists := b.users[userName]
+	u, exists := b.users.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	u.PermissionsBoundary = policyArn
-	b.users[userName] = u
+	b.users.Put(u)
 
 	return nil
 }
@@ -2041,13 +2040,13 @@ func (b *InMemoryBackend) DeleteUserPermissionsBoundary(userName string) error {
 	b.mu.Lock("DeleteUserPermissionsBoundary")
 	defer b.mu.Unlock()
 
-	u, exists := b.users[userName]
+	u, exists := b.users.Get(userName)
 	if !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	u.PermissionsBoundary = ""
-	b.users[userName] = u
+	b.users.Put(u)
 
 	return nil
 }
@@ -2057,13 +2056,13 @@ func (b *InMemoryBackend) PutRolePermissionsBoundary(roleName, policyArn string)
 	b.mu.Lock("PutRolePermissionsBoundary")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
 	r.PermissionsBoundary = policyArn
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -2073,13 +2072,13 @@ func (b *InMemoryBackend) DeleteRolePermissionsBoundary(roleName string) error {
 	b.mu.Lock("DeleteRolePermissionsBoundary")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
 
 	r.PermissionsBoundary = ""
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -2091,7 +2090,7 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 	b.mu.Lock("UpdateAssumeRolePolicy")
 	defer b.mu.Unlock()
 
-	r, exists := b.roles[roleName]
+	r, exists := b.roles.Get(roleName)
 	if !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
@@ -2108,7 +2107,7 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 	}
 
 	r.AssumeRolePolicyDocument = policyDocument
-	b.roles[roleName] = r
+	b.roles.Put(r)
 
 	return nil
 }
@@ -2192,7 +2191,7 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	defer b.mu.RUnlock()
 
 	// Build reverse group-membership map: userName → []groupName.
-	userGroupMap := make(map[string][]string, len(b.users))
+	userGroupMap := make(map[string][]string, b.users.Len())
 	for groupName, members := range b.groupMembers {
 		for _, member := range members {
 			userGroupMap[member] = append(userGroupMap[member], groupName)
@@ -2200,9 +2199,9 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	}
 
 	// Build user details.
-	users := make([]UserDetail, 0, len(b.users))
-	for _, u := range b.users {
-		user := u
+	users := make([]UserDetail, 0, b.users.Len())
+	for _, u := range b.users.All() {
+		user := *u
 		attached := attachedFromARNs(b.userPolicies[u.UserName])
 		inline := inlineEntries(b.userInlinePolicies[u.UserName])
 		groupNames := userGroupMap[u.UserName]
@@ -2216,9 +2215,9 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
 
 	// Build group details.
-	groups := make([]GroupDetail, 0, len(b.groups))
-	for _, g := range b.groups {
-		group := g
+	groups := make([]GroupDetail, 0, b.groups.Len())
+	for _, g := range b.groups.All() {
+		group := *g
 		attached := attachedFromARNs(b.groupPolicies[g.GroupName])
 		inline := inlineEntries(b.groupInlinePolicies[g.GroupName])
 		groups = append(
@@ -2230,9 +2229,9 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
 
 	// Build role details.
-	roles := make([]RoleDetail, 0, len(b.roles))
-	for _, r := range b.roles {
-		role := r
+	roles := make([]RoleDetail, 0, b.roles.Len())
+	for _, r := range b.roles.All() {
+		role := *r
 		attached := attachedFromARNs(b.rolePolicies[r.RoleName])
 		inline := inlineEntries(b.roleInlinePolicies[r.RoleName])
 		roles = append(
@@ -2244,9 +2243,9 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
 
 	// Build managed policy list.
-	policies := make([]Policy, 0, len(b.policies))
-	for _, p := range b.policies {
-		policies = append(policies, p)
+	policies := make([]Policy, 0, b.policies.Len())
+	for _, p := range b.policies.All() {
+		policies = append(policies, *p)
 	}
 
 	sort.Slice(
@@ -2494,7 +2493,7 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(
 		idx := strings.LastIndex(principalArn, userPrefix)
 		userName := principalArn[idx+len(userPrefix):]
 
-		if _, exists := b.users[userName]; !exists {
+		if _, exists := b.users.Get(userName); !exists {
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 		}
 
@@ -2523,7 +2522,7 @@ func (b *InMemoryBackend) collectNamedPrincipalPolicies(
 		idx := strings.LastIndex(principalArn, rolePrefix)
 		roleName := principalArn[idx+len(rolePrefix):]
 
-		if _, exists := b.roles[roleName]; !exists {
+		if _, exists := b.roles.Get(roleName); !exists {
 			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 		}
 
@@ -2555,7 +2554,7 @@ func (b *InMemoryBackend) collectNamedEntityPolicies(
 			continue
 		}
 
-		p, ok := b.policies[polName]
+		p, ok := b.policies.Get(polName)
 		if ok && p.PolicyDocument != "" {
 			named = append(named, namedPolicyDoc{SourceID: p.Arn, Doc: p.PolicyDocument})
 		}
@@ -2576,19 +2575,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.users = make(map[string]User)
-	b.roles = make(map[string]Role)
+	b.registry.ResetAll()
 	b.roleByARN = make(map[string]string)
-	b.policies = make(map[string]Policy)
 	b.policyByARN = make(map[string]string)
 	b.policyAttachments = make(map[string]policyAttachmentRefs)
-	b.groups = make(map[string]Group)
-	b.accessKeys = make(map[string]AccessKey)
 	b.userAccessKeys = make(map[string][]string)
-	b.instanceProfiles = make(map[string]InstanceProfile)
-	b.samlProviders = make(map[string]SAMLProvider)
-	b.oidcProviders = make(map[string]OIDCProvider)
-	b.loginProfiles = make(map[string]LoginProfile)
 	b.userPolicies = make(map[string][]string)
 	b.rolePolicies = make(map[string][]string)
 	b.groupPolicies = make(map[string][]string)
@@ -2600,11 +2591,6 @@ func (b *InMemoryBackend) Reset() {
 	b.policyVersions = make(map[string][]StoredPolicyVersion)
 	b.policyVersionCounters = make(map[string]int)
 	b.deletedV1Policies = make(map[string]bool)
-	b.serviceSpecificCreds = make(map[string]ServiceSpecificCredential)
-	b.virtualMFADevices = make(map[string]VirtualMFADevice)
-	b.signingCertificates = make(map[string]SigningCertificate)
-	b.serverCertificates = make(map[string]ServerCertificate)
-	b.delegationRequests = make(map[string]DelegationRequest)
 	b.sortedUserNames = nil
 	b.sortedRoleNames = nil
 	b.sortedPolicyNames = nil
@@ -2636,12 +2622,13 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 // purgeUsersLocked removes users created before cutoff and cleans up associated data.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeUsersLocked(cutoff time.Time) {
-	for name, u := range b.users {
+	for _, u := range b.users.All() {
 		if !u.CreateDate.Before(cutoff) {
 			continue
 		}
-		delete(b.users, name)
-		delete(b.loginProfiles, name)
+		name := u.UserName
+		b.users.Delete(name)
+		b.loginProfiles.Delete(name)
 		delete(b.userPolicies, name)
 		delete(b.userInlinePolicies, name)
 		b.removeUserFromGroupsLocked(name)
@@ -2665,9 +2652,10 @@ func (b *InMemoryBackend) removeUserFromGroupsLocked(userName string) {
 // purgeRolesLocked removes roles created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeRolesLocked(cutoff time.Time) {
-	for name, r := range b.roles {
+	for _, r := range b.roles.All() {
 		if r.CreateDate.Before(cutoff) {
-			delete(b.roles, name)
+			name := r.RoleName
+			b.roles.Delete(name)
 			delete(b.rolePolicies, name)
 			delete(b.roleInlinePolicies, name)
 		}
@@ -2677,9 +2665,9 @@ func (b *InMemoryBackend) purgeRolesLocked(cutoff time.Time) {
 // purgePoliciesLocked removes policies created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgePoliciesLocked(cutoff time.Time) {
-	for name, p := range b.policies {
+	for _, p := range b.policies.All() {
 		if p.CreateDate.Before(cutoff) {
-			delete(b.policies, name)
+			b.policies.Delete(p.PolicyName)
 		}
 	}
 }
@@ -2687,9 +2675,10 @@ func (b *InMemoryBackend) purgePoliciesLocked(cutoff time.Time) {
 // purgeGroupsLocked removes groups created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeGroupsLocked(cutoff time.Time) {
-	for name, g := range b.groups {
+	for _, g := range b.groups.All() {
 		if g.CreateDate.Before(cutoff) {
-			delete(b.groups, name)
+			name := g.GroupName
+			b.groups.Delete(name)
 			delete(b.groupPolicies, name)
 			delete(b.groupInlinePolicies, name)
 			delete(b.groupMembers, name)
@@ -2700,9 +2689,9 @@ func (b *InMemoryBackend) purgeGroupsLocked(cutoff time.Time) {
 // purgeAccessKeysLocked removes access keys created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeAccessKeysLocked(cutoff time.Time) {
-	for id, ak := range b.accessKeys {
+	for _, ak := range b.accessKeys.All() {
 		if ak.CreateDate.Before(cutoff) {
-			delete(b.accessKeys, id)
+			b.accessKeys.Delete(ak.AccessKeyID)
 		}
 	}
 }
@@ -2710,9 +2699,9 @@ func (b *InMemoryBackend) purgeAccessKeysLocked(cutoff time.Time) {
 // purgeInstanceProfilesLocked removes instance profiles created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeInstanceProfilesLocked(cutoff time.Time) {
-	for name, ip := range b.instanceProfiles {
+	for _, ip := range b.instanceProfiles.All() {
 		if ip.CreateDate.Before(cutoff) {
-			delete(b.instanceProfiles, name)
+			b.instanceProfiles.Delete(ip.InstanceProfileName)
 		}
 	}
 }
@@ -2720,9 +2709,9 @@ func (b *InMemoryBackend) purgeInstanceProfilesLocked(cutoff time.Time) {
 // purgeSAMLProvidersLocked removes SAML providers created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeSAMLProvidersLocked(cutoff time.Time) {
-	for arnStr, p := range b.samlProviders {
+	for _, p := range b.samlProviders.All() {
 		if p.CreateDate.Before(cutoff) {
-			delete(b.samlProviders, arnStr)
+			b.samlProviders.Delete(p.Arn)
 		}
 	}
 }
@@ -2730,9 +2719,9 @@ func (b *InMemoryBackend) purgeSAMLProvidersLocked(cutoff time.Time) {
 // purgeOIDCProvidersLocked removes OIDC providers created before cutoff.
 // Caller must hold b.mu.
 func (b *InMemoryBackend) purgeOIDCProvidersLocked(cutoff time.Time) {
-	for arnStr, p := range b.oidcProviders {
+	for _, p := range b.oidcProviders.All() {
 		if p.CreateDate.Before(cutoff) {
-			delete(b.oidcProviders, arnStr)
+			b.oidcProviders.Delete(p.Arn)
 		}
 	}
 }

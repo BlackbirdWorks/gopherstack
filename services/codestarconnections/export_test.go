@@ -8,7 +8,7 @@ func (b *InMemoryBackend) ConnectionCount() int {
 	b.mu.RLock("ConnectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.connections[b.defaultRegion])
+	return len(b.connectionsByRegion.Get(b.defaultRegion))
 }
 
 // ConnectionCountForRegion returns the number of connections stored for a specific region.
@@ -17,7 +17,7 @@ func (b *InMemoryBackend) ConnectionCountForRegion(region string) int {
 	b.mu.RLock("ConnectionCountForRegion")
 	defer b.mu.RUnlock()
 
-	return len(b.connections[region])
+	return len(b.connectionsByRegion.Get(region))
 }
 
 // HostCount returns the number of hosts stored in the backend for the default region.
@@ -26,7 +26,7 @@ func (b *InMemoryBackend) HostCount() int {
 	b.mu.RLock("HostCount")
 	defer b.mu.RUnlock()
 
-	return len(b.hosts[b.defaultRegion])
+	return len(b.hostsByRegion.Get(b.defaultRegion))
 }
 
 // RepositoryLinkCount returns the number of repository links stored in the backend for the default region.
@@ -35,7 +35,7 @@ func (b *InMemoryBackend) RepositoryLinkCount() int {
 	b.mu.RLock("RepositoryLinkCount")
 	defer b.mu.RUnlock()
 
-	return len(b.repositoryLinks[b.defaultRegion])
+	return len(b.repositoryLinksByRegion.Get(b.defaultRegion))
 }
 
 // SyncConfigurationCount returns the number of sync configurations stored in the backend for the default region.
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) SyncConfigurationCount() int {
 	b.mu.RLock("SyncConfigurationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.syncConfigurations[b.defaultRegion])
+	return len(b.syncConfigurationsByRegion.Get(b.defaultRegion))
 }
 
 // RegionContextKey exposes regionContextKey for isolation tests.

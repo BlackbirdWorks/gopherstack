@@ -83,19 +83,21 @@ func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 
 	var swept []string
 
-	for id, inst := range j.Backend.instances {
+	for _, inst := range j.Backend.instances.All() {
+		id := instancesKeyFn(inst)
 		if inst.State == StateTerminated && !inst.TerminatedAt.IsZero() &&
 			inst.TerminatedAt.Before(cutoff) {
 			swept = append(swept, id)
-			delete(j.Backend.instances, id)
+			j.Backend.instances.Delete(id)
 			delete(j.Backend.tags, id)
 
 			// Defensive: remove any ENIs still referencing this instance
 			// (can happen when state is restored from a pre-cleanup snapshot).
-			for eniID, eni := range j.Backend.networkInterfaces {
+			for _, eni := range j.Backend.networkInterfaces.All() {
+				eniID := networkInterfacesKeyFn(eni)
 				if eni.InstanceID == id {
 					j.Backend.recycleENIIPsLocked(eni)
-					delete(j.Backend.networkInterfaces, eniID)
+					j.Backend.networkInterfaces.Delete(eniID)
 					delete(j.Backend.tags, eniID)
 				}
 			}
@@ -131,11 +133,12 @@ func (j *Janitor) sweepCancelledSpotRequests(ctx context.Context) {
 
 	var swept []string
 
-	for id, req := range j.Backend.spotRequests {
+	for _, req := range j.Backend.spotRequests.All() {
+		id := spotRequestsKeyFn(req)
 		terminal := req.State == stateCancelled || req.State == "closed"
 		if terminal && !req.CancelledAt.IsZero() && req.CancelledAt.Before(cutoff) {
 			swept = append(swept, id)
-			delete(j.Backend.spotRequests, id)
+			j.Backend.spotRequests.Delete(id)
 			delete(j.Backend.tags, id)
 		}
 	}

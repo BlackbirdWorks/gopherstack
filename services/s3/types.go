@@ -13,10 +13,18 @@ import (
 const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
+//
+// Region is the region the bucket was created in. It is the [store.Table] key
+// function's identity companion: buckets are keyed by Name (globally unique —
+// CreateBucket enforces this across all regions, mirroring real S3's global
+// bucket-namespace), so Region moved here from the old region->name->*StoredBucket
+// nesting to make that identity self-contained. It never changes after
+// creation (S3 has no "move bucket to another region" operation).
 type StoredBucket struct {
 	CreationDate                 time.Time                `json:"creationDate"`
 	Objects                      map[string]*StoredObject `json:"objects,omitempty"`
 	mu                           *lockmetrics.RWMutex
+	Region                       string                       `json:"region,omitempty"`
 	WebsiteConfig                string                       `json:"websiteConfig,omitempty"`
 	PublicAccessBlockConfig      string                       `json:"publicAccessBlockConfig,omitempty"`
 	LifecycleConfig              string                       `json:"lifecycleConfig,omitempty"`
@@ -74,12 +82,16 @@ type StoredObjectVersion struct {
 	// PUT for SSE-S3/SSE-KMS objects. Real S3 wraps this under a KMS CMK and
 	// stores only the wrapped form; for an in-memory mock the storage is
 	// the same address space so we keep the raw key. SSE-C objects don't
-	// store the key — the customer re-supplies it on GET.
-	EncryptionDEK []byte `json:"-"`
+	// store the key — the customer re-supplies it on GET. It MUST persist:
+	// the ciphertext lives in Data (persisted), so dropping the DEK on a
+	// snapshot/restore would leave every SSE-S3/SSE-KMS object permanently
+	// undecryptable ([]byte round-trips as base64 under encoding/json).
+	EncryptionDEK []byte `json:"encryptionDEK,omitempty"`
 	// EncryptionNonce is the GCM nonce/IV used for this object's ciphertext.
 	// Stored alongside the ciphertext (in StoredObjectVersion.Data) so GET
-	// can decrypt without re-deriving anything.
-	EncryptionNonce         []byte                   `json:"-"`
+	// can decrypt without re-deriving anything. Persisted for the same reason
+	// as EncryptionDEK.
+	EncryptionNonce         []byte                   `json:"encryptionNonce,omitempty"`
 	Key                     string                   `json:"key"`
 	ETag                    string                   `json:"etag"`
 	ContentType             string                   `json:"contentType"`
@@ -122,8 +134,12 @@ type StoredMultipartUpload struct {
 	Tagging string `json:"tagging,omitempty"`
 	// SSE captures the encryption headers from CreateMultipartUpload so the
 	// completed object's assembled body can be sealed with the same envelope
-	// (matching real S3 — SSE is fixed at session-init).
-	SSE sseInfo `json:"-"`
+	// (matching real S3 — SSE is fixed at session-init). Persisted so that an
+	// in-flight upload that survives a snapshot/restore still completes with
+	// the caller's chosen encryption rather than silently landing unencrypted.
+	// (The SSE-C customer key inside sseInfo stays request-scoped — see
+	// sseInfo.SSECKeyB64 — so SSE-C uploads still require the key on Complete.)
+	SSE sseInfo `json:"sse"`
 	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
 	// before the upload is removed from the index, so that concurrent UploadPart
 	// calls that already hold a pointer to this struct can detect the invalidation.

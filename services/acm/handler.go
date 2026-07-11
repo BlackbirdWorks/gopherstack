@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -260,10 +261,25 @@ type updateCertificateOptionsInput struct {
 
 type updateCertificateOptionsOutput struct{}
 
+// certTagsEntry associates a live *tags.Tags collection with the certificate
+// ARN it annotates. svcTags.Tags carries no identity of its own (see
+// pkgs/tags), so ResourceID is a hidden identity field purely for
+// store.Table's key -- the same "identity-less" technique used elsewhere in
+// this rollout for values with no field of their own to key on. It also
+// makes h.tags a "dirty" table: a live *tags.Tags pointer cannot round-trip
+// through plain json.Marshal, so persistence.go handles its Snapshot/Restore
+// via a plain-map DTO instead of registering it on any store.Registry.
+type certTagsEntry struct {
+	Tags       *svcTags.Tags
+	ResourceID string
+}
+
+func certTagsKeyFn(v *certTagsEntry) string { return v.ResourceID }
+
 // Handler is the Echo HTTP handler for ACM operations.
 type Handler struct {
 	Backend       *InMemoryBackend
-	tags          map[string]*svcTags.Tags
+	tags          *store.Table[certTagsEntry]
 	tagsMu        *lockmetrics.RWMutex
 	janitorCancel context.CancelFunc
 	janitorDone   chan struct{}
@@ -273,7 +289,7 @@ type Handler struct {
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		tags:    make(map[string]*svcTags.Tags),
+		tags:    store.New(certTagsKeyFn),
 		tagsMu:  lockmetrics.New("acm.tags"),
 	}
 }
@@ -332,24 +348,28 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) error {
 	defer h.tagsMu.Unlock()
 
 	const maxTagsPerCertificate = 50
+
+	entry, exists := h.tags.Get(resourceID)
 	newKeys := 0
-	if h.tags[resourceID] != nil {
+
+	if exists {
 		for k := range kv {
-			if !h.tags[resourceID].HasTag(k) {
+			if !entry.Tags.HasTag(k) {
 				newKeys++
 			}
 		}
-		if h.tags[resourceID].Len()+newKeys > maxTagsPerCertificate {
+		if entry.Tags.Len()+newKeys > maxTagsPerCertificate {
 			return fmt.Errorf("%w: maximum of 50 tags allowed", ErrInvalidParameter)
 		}
 	} else if len(kv) > maxTagsPerCertificate {
 		return fmt.Errorf("%w: maximum of 50 tags allowed", ErrInvalidParameter)
 	}
 
-	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = svcTags.New("acm." + resourceID + ".tags")
+	if !exists {
+		entry = &certTagsEntry{ResourceID: resourceID, Tags: svcTags.New("acm." + resourceID + ".tags")}
+		h.tags.Put(entry)
 	}
-	h.tags[resourceID].Merge(kv)
+	entry.Tags.Merge(kv)
 
 	return nil
 }
@@ -357,28 +377,28 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) error {
 func (h *Handler) removeTags(resourceID string, keys []string) {
 	h.tagsMu.Lock("removeTags")
 	defer h.tagsMu.Unlock()
-	if t := h.tags[resourceID]; t != nil {
-		t.DeleteKeys(keys)
+	if entry, ok := h.tags.Get(resourceID); ok {
+		entry.Tags.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) cleanupTags(resourceID string) {
 	h.tagsMu.Lock("cleanupTags")
 	defer h.tagsMu.Unlock()
-	if t, ok := h.tags[resourceID]; ok {
-		t.Close()
-		delete(h.tags, resourceID)
+	if entry, ok := h.tags.Get(resourceID); ok {
+		entry.Tags.Close()
+		h.tags.Delete(resourceID)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) []map[string]string {
 	h.tagsMu.RLock("getTags")
-	t := h.tags[resourceID]
+	entry, ok := h.tags.Get(resourceID)
 	h.tagsMu.RUnlock()
-	if t == nil {
+	if !ok {
 		return []map[string]string{}
 	}
-	tagMap := t.Clone()
+	tagMap := entry.Tags.Clone()
 	result := make([]map[string]string, 0, len(tagMap))
 	for k, v := range tagMap {
 		result = append(result, map[string]string{"Key": k, "Value": v})
@@ -1023,10 +1043,10 @@ func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message 
 // Reset clears all handler tag state and delegates to the backend Reset.
 func (h *Handler) Reset() {
 	h.tagsMu.Lock("Reset")
-	for _, t := range h.tags {
-		t.Close()
+	for _, entry := range h.tags.All() {
+		entry.Tags.Close()
 	}
-	h.tags = make(map[string]*svcTags.Tags)
+	h.tags.Reset()
 	h.tagsMu.Unlock()
 
 	h.Backend.Reset()

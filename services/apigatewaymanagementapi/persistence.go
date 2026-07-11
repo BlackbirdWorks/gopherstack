@@ -3,8 +3,32 @@ package apigatewaymanagementapi
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
+
+// apigatewaymanagementapiSnapshotVersion identifies the shape of
+// [backendSnapshot]. It must be bumped whenever a change to backendSnapshot
+// (or a value type it holds) would make an older snapshot unsafe to decode as
+// the current shape. Restore compares this against the persisted value and
+// discards (reset, not a partial decode) any mismatch -- see Restore. The
+// pre-Phase-3.3 snapshot format had no version field at all, so an old
+// snapshot decodes with Version == 0, which is guaranteed to mismatch
+// apigatewaymanagementapiSnapshotVersion and is discarded the same way any
+// other incompatible snapshot is.
+//
+// This backend has no [pkgs/store.Table] to register: its only internal
+// resource map, connections, is keyed by connState, and connState embeds a
+// live `downstream chan []byte` handle wired to an in-flight WebSocket
+// simulation. A live channel has no meaningful JSON representation and can't
+// survive a process restart regardless, so connState can never go through
+// store.Table snapshot cleanly -- it stays a raw map (persistence-audit: see
+// backendSnapshot's Connections field doc). Only the genuinely serializable
+// parts of each connection (its Connection metadata, buffered messages, and
+// lifecycle events) are captured via the persistedConn DTO; the channel is
+// intentionally dropped on Restore, matching real AWS semantics where a
+// restart drops live WebSocket connections anyway.
+const apigatewaymanagementapiSnapshotVersion = 1
 
 type persistedConn struct {
 	Connection *Connection      `json:"connection"`
@@ -12,9 +36,18 @@ type persistedConn struct {
 	Events     []LifecycleEvent `json:"events,omitempty"`
 }
 
+// backendSnapshot is the top-level on-disk shape for the API Gateway
+// Management API backend.
+//
+// Connections was persisted before this Phase 3.3 pass and must stay
+// persisted (persistence-audit: was y, still y); it is left as a raw map
+// (rather than a [pkgs/store.Table]) because its value type, connState,
+// embeds a live channel handle -- see apigatewaymanagementapiSnapshotVersion's
+// doc comment.
 type backendSnapshot struct {
 	Connections map[string]persistedConn `json:"connections"`
 	Stats       Stats                    `json:"stats"`
+	Version     int                      `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -24,6 +57,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
+		Version:     apigatewaymanagementapiSnapshotVersion,
 		Connections: make(map[string]persistedConn, len(b.connections)),
 		Stats:       b.stats,
 	}
@@ -50,6 +84,23 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
+
+	if snap.Version != apigatewaymanagementapiSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"apigatewaymanagementapi: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", apigatewaymanagementapiSnapshotVersion)
+
+		b.connections = make(map[string]*connState)
+		b.stats = Stats{}
+
+		return nil
+	}
 
 	b.connections = make(map[string]*connState, len(snap.Connections))
 	b.stats = snap.Stats

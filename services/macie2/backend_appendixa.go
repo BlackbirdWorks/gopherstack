@@ -54,7 +54,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 		pct = 100
 	}
 
-	b.classificationJobs[id] = &ClassificationJob{
+	b.classificationJobs.Put(&ClassificationJob{
 		JobID:              id,
 		Name:               name,
 		Description:        description,
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 		SamplingPercentage: pct,
 		InitialRun:         initialRun,
 		ClientToken:        clientToken,
-	}
+	})
 
 	return id, nil
 }
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) DescribeClassificationJob(jobID string) (*Classificati
 	b.mu.RLock("DescribeClassificationJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.classificationJobs[jobID]
+	job, ok := b.classificationJobs.Get(jobID)
 	if !ok {
 		return nil, ErrClassificationJobNotFound
 	}
@@ -95,9 +95,10 @@ func (b *InMemoryBackend) ListClassificationJobs(
 	b.mu.RLock("ListClassificationJobs")
 	defer b.mu.RUnlock()
 
-	result := make([]*ClassificationJobSummary, 0, len(b.classificationJobs))
+	jobs := b.classificationJobs.All()
+	result := make([]*ClassificationJobSummary, 0, len(jobs))
 
-	for _, job := range b.classificationJobs {
+	for _, job := range jobs {
 		result = append(result, &ClassificationJobSummary{
 			JobID:       job.JobID,
 			Name:        job.Name,
@@ -120,7 +121,7 @@ func (b *InMemoryBackend) UpdateClassificationJob(jobID, status string) error {
 	b.mu.Lock("UpdateClassificationJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.classificationJobs[jobID]
+	job, ok := b.classificationJobs.Get(jobID)
 	if !ok {
 		return ErrClassificationJobNotFound
 	}
@@ -137,12 +138,12 @@ func (b *InMemoryBackend) CreateMember(accountID, email string, tags map[string]
 	b.mu.Lock("CreateMember")
 	defer b.mu.Unlock()
 
-	if _, exists := b.members[accountID]; exists {
+	if b.members.Has(accountID) {
 		return ErrMemberAlreadyExists
 	}
 
 	now := time.Now().UTC()
-	b.members[accountID] = &Member{
+	b.members.Put(&Member{
 		AccountID:              accountID,
 		AdministratorAccountID: b.accountID,
 		Email:                  email,
@@ -151,7 +152,7 @@ func (b *InMemoryBackend) CreateMember(accountID, email string, tags map[string]
 		InvitedAt:              now,
 		UpdatedAt:              now,
 		Tags:                   maps.Clone(tags),
-	}
+	})
 
 	return nil
 }
@@ -161,7 +162,7 @@ func (b *InMemoryBackend) GetMember(accountID string) (*Member, error) {
 	b.mu.RLock("GetMember")
 	defer b.mu.RUnlock()
 
-	m, ok := b.members[accountID]
+	m, ok := b.members.Get(accountID)
 	if !ok {
 		return nil, ErrMemberNotFound
 	}
@@ -177,11 +178,9 @@ func (b *InMemoryBackend) DeleteMember(accountID string) error {
 	b.mu.Lock("DeleteMember")
 	defer b.mu.Unlock()
 
-	if _, ok := b.members[accountID]; !ok {
+	if !b.members.Delete(accountID) {
 		return ErrMemberNotFound
 	}
-
-	delete(b.members, accountID)
 
 	return nil
 }
@@ -191,9 +190,10 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool) ([]*Member, error) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	result := make([]*Member, 0, len(b.members))
+	members := b.members.All()
+	result := make([]*Member, 0, len(members))
 
-	for _, m := range b.members {
+	for _, m := range members {
 		if onlyAssociated && m.RelationshipStatus == "DISASSOCIATED" {
 			continue
 		}
@@ -213,7 +213,7 @@ func (b *InMemoryBackend) DisassociateMember(accountID string) error {
 	b.mu.Lock("DisassociateMember")
 	defer b.mu.Unlock()
 
-	m, ok := b.members[accountID]
+	m, ok := b.members.Get(accountID)
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -229,7 +229,7 @@ func (b *InMemoryBackend) UpdateMemberSession(accountID, status string) error {
 	b.mu.Lock("UpdateMemberSession")
 	defer b.mu.Unlock()
 
-	m, ok := b.members[accountID]
+	m, ok := b.members.Get(accountID)
 	if !ok {
 		return ErrMemberNotFound
 	}
@@ -256,12 +256,12 @@ func (b *InMemoryBackend) CreateInvitations(
 
 	for _, accountID := range accountIDs {
 		id := uuid.New().String()
-		b.invitations[id] = &Invitation{
+		b.invitations.Put(&Invitation{
 			AccountID:          accountID,
 			InvitationID:       id,
 			InvitedAt:          now,
 			RelationshipStatus: "INVITED",
-		}
+		})
 	}
 
 	return nil, nil
@@ -292,7 +292,7 @@ func (b *InMemoryBackend) DeclineInvitations(accountIDs []string) ([]Unprocessed
 		decline[id] = true
 	}
 
-	for _, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		if decline[inv.AccountID] {
 			inv.RelationshipStatus = "RESIGNED"
 		}
@@ -311,9 +311,9 @@ func (b *InMemoryBackend) DeleteInvitations(accountIDs []string) ([]UnprocessedA
 		toDelete[id] = true
 	}
 
-	for id, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		if toDelete[inv.AccountID] {
-			delete(b.invitations, id)
+			b.invitations.Delete(inv.InvitationID)
 		}
 	}
 
@@ -327,7 +327,7 @@ func (b *InMemoryBackend) GetInvitationsCount() (int64, error) {
 
 	var count int64
 
-	for _, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		if inv.RelationshipStatus == "INVITED" {
 			count++
 		}
@@ -341,9 +341,10 @@ func (b *InMemoryBackend) ListInvitations() ([]*Invitation, error) {
 	b.mu.RLock("ListInvitations")
 	defer b.mu.RUnlock()
 
-	result := make([]*Invitation, 0, len(b.invitations))
+	invitations := b.invitations.All()
+	result := make([]*Invitation, 0, len(invitations))
 
-	for _, inv := range b.invitations {
+	for _, inv := range invitations {
 		cp := *inv
 		result = append(result, &cp)
 	}
@@ -396,10 +397,10 @@ func (b *InMemoryBackend) EnableOrganizationAdminAccount(accountID string) error
 	b.mu.Lock("EnableOrganizationAdminAccount")
 	defer b.mu.Unlock()
 
-	b.orgAdminAccounts[accountID] = &OrgAdminAccount{
+	b.orgAdminAccounts.Put(&OrgAdminAccount{
 		AccountID: accountID,
 		Status:    "ENABLED",
-	}
+	})
 
 	return nil
 }
@@ -409,11 +410,9 @@ func (b *InMemoryBackend) DisableOrganizationAdminAccount(accountID string) erro
 	b.mu.Lock("DisableOrganizationAdminAccount")
 	defer b.mu.Unlock()
 
-	if _, ok := b.orgAdminAccounts[accountID]; !ok {
+	if !b.orgAdminAccounts.Delete(accountID) {
 		return ErrOrgAdminNotFound
 	}
-
-	delete(b.orgAdminAccounts, accountID)
 
 	return nil
 }
@@ -423,9 +422,10 @@ func (b *InMemoryBackend) ListOrganizationAdminAccounts() ([]*OrgAdminAccount, e
 	b.mu.RLock("ListOrganizationAdminAccounts")
 	defer b.mu.RUnlock()
 
-	result := make([]*OrgAdminAccount, 0, len(b.orgAdminAccounts))
+	accts := b.orgAdminAccounts.All()
+	result := make([]*OrgAdminAccount, 0, len(accts))
 
-	for _, acct := range b.orgAdminAccounts {
+	for _, acct := range accts {
 		cp := *acct
 		result = append(result, &cp)
 	}
@@ -506,9 +506,10 @@ func (b *InMemoryBackend) ListAutomatedDiscoveryAccounts() ([]*AutoDiscoveryAcco
 	b.mu.RLock("ListAutomatedDiscoveryAccounts")
 	defer b.mu.RUnlock()
 
-	result := make([]*AutoDiscoveryAccount, 0, len(b.autoDiscoveryAccounts))
+	accts := b.autoDiscoveryAccounts.All()
+	result := make([]*AutoDiscoveryAccount, 0, len(accts))
 
-	for _, acct := range b.autoDiscoveryAccounts {
+	for _, acct := range accts {
 		cp := *acct
 		result = append(result, &cp)
 	}
@@ -524,13 +525,13 @@ func (b *InMemoryBackend) BatchUpdateAutomatedDiscoveryAccounts(updates []AutoDi
 	defer b.mu.Unlock()
 
 	for _, u := range updates {
-		if acct, ok := b.autoDiscoveryAccounts[u.AccountID]; ok {
+		if acct, ok := b.autoDiscoveryAccounts.Get(u.AccountID); ok {
 			acct.Status = u.Status
 		} else {
-			b.autoDiscoveryAccounts[u.AccountID] = &AutoDiscoveryAccount{
+			b.autoDiscoveryAccounts.Put(&AutoDiscoveryAccount{
 				AccountID: u.AccountID,
 				Status:    u.Status,
-			}
+			})
 		}
 	}
 
@@ -545,7 +546,7 @@ func (b *InMemoryBackend) AddS3Bucket(bucket S3BucketMetadata) {
 	defer b.mu.Unlock()
 
 	cp := bucket
-	b.s3Buckets[bucket.BucketArn] = &cp
+	b.s3Buckets.Put(&cp)
 }
 
 // DescribeBuckets returns S3 bucket metadata, filtered by criteria.
@@ -553,9 +554,10 @@ func (b *InMemoryBackend) DescribeBuckets(criteria map[string]any) ([]map[string
 	b.mu.RLock("DescribeBuckets")
 	defer b.mu.RUnlock()
 
-	all := make([]*S3BucketMetadata, 0, len(b.s3Buckets))
+	buckets := b.s3Buckets.All()
+	all := make([]*S3BucketMetadata, 0, len(buckets))
 
-	for _, bkt := range b.s3Buckets {
+	for _, bkt := range buckets {
 		if !matchesBucketCriteria(bkt, criteria) {
 			continue
 		}
@@ -629,7 +631,8 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 	b.mu.RLock("GetBucketStatistics")
 	defer b.mu.RUnlock()
 
-	bucketCount := int64(len(b.s3Buckets))
+	buckets := b.s3Buckets.All()
+	bucketCount := int64(len(buckets))
 
 	var classifiableBucketCount int64
 	var classifiableSizeInBytes int64
@@ -637,7 +640,7 @@ func (b *InMemoryBackend) GetBucketStatistics(_ string) (map[string]any, error) 
 	permCounts := map[string]int64{"PUBLIC": 0, "NOT_PUBLIC": 0, "UNKNOWN": 0}
 	encCounts := map[string]int64{"AES256": 0, "aws:kms": 0, "NONE": 0}
 
-	for _, bkt := range b.s3Buckets {
+	for _, bkt := range buckets {
 		if bkt.ClassifiableObjectCount > 0 {
 			classifiableBucketCount++
 		}
@@ -686,7 +689,7 @@ func (b *InMemoryBackend) BatchGetCustomDataIdentifiers(ids []string) ([]*Custom
 	result := make([]*CustomDataIdentifier, 0, len(ids))
 
 	for _, id := range ids {
-		cdi, ok := b.customDataIDs[id]
+		cdi, ok := b.customDataIDs.Get(id)
 		if !ok || cdi.Deleted {
 			continue
 		}
@@ -737,19 +740,19 @@ func (b *InMemoryBackend) PutClassificationExportConfiguration(cfg *Classificati
 const defaultScopeName = "Default classification scope"
 
 func (b *InMemoryBackend) ensureDefaultScope() {
-	if len(b.classScopes) > 0 {
+	if b.classScopes.Len() > 0 {
 		return
 	}
 
 	id := uuid.New().String()
 	now := time.Now().UTC()
-	b.classScopes[id] = &ClassificationScope{
+	b.classScopes.Put(&ClassificationScope{
 		ID:        id,
 		Name:      defaultScopeName,
 		S3:        &ClassificationScopeS3{},
 		CreatedAt: now,
 		UpdatedAt: now,
-	}
+	})
 }
 
 // GetClassificationScope returns a classification scope by ID.
@@ -759,7 +762,7 @@ func (b *InMemoryBackend) GetClassificationScope(scopeID string) (*Classificatio
 
 	b.ensureDefaultScope()
 
-	scope, ok := b.classScopes[scopeID]
+	scope, ok := b.classScopes.Get(scopeID)
 	if !ok {
 		return nil, ErrClassificationScopeNotFound
 	}
@@ -776,9 +779,10 @@ func (b *InMemoryBackend) ListClassificationScopes() ([]*ClassificationScopeSumm
 
 	b.ensureDefaultScope()
 
-	result := make([]*ClassificationScopeSummary, 0, len(b.classScopes))
+	scopes := b.classScopes.All()
+	result := make([]*ClassificationScopeSummary, 0, len(scopes))
 
-	for _, s := range b.classScopes {
+	for _, s := range scopes {
 		result = append(result, &ClassificationScopeSummary{ID: s.ID, Name: s.Name})
 	}
 
@@ -792,7 +796,7 @@ func (b *InMemoryBackend) UpdateClassificationScope(scopeID string, s3 *Classifi
 	b.mu.Lock("UpdateClassificationScope")
 	defer b.mu.Unlock()
 
-	scope, ok := b.classScopes[scopeID]
+	scope, ok := b.classScopes.Get(scopeID)
 	if !ok {
 		return ErrClassificationScopeNotFound
 	}
@@ -846,7 +850,7 @@ func (b *InMemoryBackend) GetResourceProfile(resourceARN string) (*ResourceProfi
 	b.mu.RLock("GetResourceProfile")
 	defer b.mu.RUnlock()
 
-	if p, ok := b.resourceProfiles[resourceARN]; ok {
+	if p, ok := b.resourceProfiles.Get(resourceARN); ok {
 		cp := *p
 
 		return &cp, nil
@@ -864,16 +868,16 @@ func (b *InMemoryBackend) UpdateResourceProfile(resourceARN string, sensitivityS
 	b.mu.Lock("UpdateResourceProfile")
 	defer b.mu.Unlock()
 
-	if p, ok := b.resourceProfiles[resourceARN]; ok {
+	if p, ok := b.resourceProfiles.Get(resourceARN); ok {
 		p.SensitivityScore = sensitivityScore
 		p.SensitivityScoreOverride = true
 	} else {
-		b.resourceProfiles[resourceARN] = &ResourceProfile{
+		b.resourceProfiles.Put(&ResourceProfile{
 			ResourceArn:              resourceARN,
 			SensitivityScore:         sensitivityScore,
 			SensitivityScoreOverride: true,
 			Statistics:               &ResourceStatistics{},
-		}
+		})
 	}
 
 	return nil
@@ -960,7 +964,7 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrences(findingID string) (map[str
 	b.mu.RLock("GetSensitiveDataOccurrences")
 	defer b.mu.RUnlock()
 
-	finding, ok := b.findings[findingID]
+	finding, ok := b.findings.Get(findingID)
 	if !ok {
 		return nil, ErrFindingNotFound
 	}
@@ -988,7 +992,7 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrencesAvailability(findingID stri
 	b.mu.RLock("GetSensitiveDataOccurrencesAvailability")
 	defer b.mu.RUnlock()
 
-	finding, ok := b.findings[findingID]
+	finding, ok := b.findings.Get(findingID)
 	if !ok {
 		return "", nil, ErrFindingNotFound
 	}
@@ -1009,15 +1013,15 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrencesAvailability(findingID stri
 const defaultTemplateName = "Default sensitivity inspection template"
 
 func (b *InMemoryBackend) ensureDefaultTemplate() {
-	if len(b.sensitivityTemplates) > 0 {
+	if b.sensitivityTemplates.Len() > 0 {
 		return
 	}
 
 	id := uuid.New().String()
-	b.sensitivityTemplates[id] = &SensitivityInspectionTemplate{
+	b.sensitivityTemplates.Put(&SensitivityInspectionTemplate{
 		ID:   id,
 		Name: defaultTemplateName,
-	}
+	})
 }
 
 // GetSensitivityInspectionTemplate returns a sensitivity inspection template by ID.
@@ -1027,7 +1031,7 @@ func (b *InMemoryBackend) GetSensitivityInspectionTemplate(templateID string) (*
 
 	b.ensureDefaultTemplate()
 
-	tmpl, ok := b.sensitivityTemplates[templateID]
+	tmpl, ok := b.sensitivityTemplates.Get(templateID)
 	if !ok {
 		return nil, ErrSensitivityTemplateNotFound
 	}
@@ -1044,9 +1048,10 @@ func (b *InMemoryBackend) ListSensitivityInspectionTemplates() ([]*SensitivityIn
 
 	b.ensureDefaultTemplate()
 
-	result := make([]*SensitivityInspectionTemplateSummary, 0, len(b.sensitivityTemplates))
+	templates := b.sensitivityTemplates.All()
+	result := make([]*SensitivityInspectionTemplateSummary, 0, len(templates))
 
-	for _, t := range b.sensitivityTemplates {
+	for _, t := range templates {
 		result = append(result, &SensitivityInspectionTemplateSummary{ID: t.ID, Name: t.Name})
 	}
 
@@ -1063,7 +1068,7 @@ func (b *InMemoryBackend) UpdateSensitivityInspectionTemplate(
 	b.mu.Lock("UpdateSensitivityInspectionTemplate")
 	defer b.mu.Unlock()
 
-	tmpl, ok := b.sensitivityTemplates[templateID]
+	tmpl, ok := b.sensitivityTemplates.Get(templateID)
 	if !ok {
 		return ErrSensitivityTemplateNotFound
 	}

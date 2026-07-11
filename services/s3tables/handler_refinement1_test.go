@@ -1146,11 +1146,15 @@ func TestRefinement1_RestoreMinimalSnapshot(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	// Restore a minimal snapshot with nil maps to exercise ensureNonNilMaps
+	// A snapshot with no "version" field decodes with Version == 0, which
+	// mismatches s3tablesSnapshotVersion -- Restore discards it (ResetAll +
+	// raw-map reset) and leaves the backend's existing AccountID/Region
+	// untouched rather than applying the snapshot's, per the Phase 3.3
+	// version-guard contract (see persistence.go's Restore doc comment).
 	require.NoError(t, b.Restore(t.Context(), []byte(`{"accountID":"123456789012","region":"us-west-2"}`)))
 	assert.Equal(t, 0, s3tables.BucketCount(b))
-	assert.Equal(t, "123456789012", b.AccountID())
-	assert.Equal(t, "us-west-2", b.Region())
+	assert.Equal(t, "000000000000", b.AccountID())
+	assert.Equal(t, "us-east-1", b.Region())
 }
 
 func TestRefinement1_DeleteTableBucketReplicationNotFound(t *testing.T) {

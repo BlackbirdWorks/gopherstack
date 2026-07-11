@@ -75,7 +75,6 @@ type MacModificationTask struct {
 // called with b.mu held. (Mac Hosts themselves are derived on read from
 // b.dedicatedHosts, so there is no separate map to reset for them.)
 func (b *InMemoryBackend) resetMacHostMapsLocked() {
-	b.macModificationTasks = make(map[string]*MacModificationTask)
 }
 
 // isMacInstanceType reports whether instanceType is an EC2 Mac Dedicated Host
@@ -114,9 +113,9 @@ func (b *InMemoryBackend) DescribeMacHosts(ids []string) []*MacHost {
 		idSet[id] = true
 	}
 
-	out := make([]*MacHost, 0, len(b.dedicatedHosts))
+	out := make([]*MacHost, 0, b.dedicatedHosts.Len())
 
-	for _, h := range b.dedicatedHosts {
+	for _, h := range b.dedicatedHosts.All() {
 		if !isMacInstanceType(h.InstanceType) {
 			continue
 		}
@@ -139,7 +138,7 @@ func (b *InMemoryBackend) DescribeMacHosts(ids []string) []*MacHost {
 // requireMacInstanceLocked validates that instanceID exists and refers to a
 // Mac (mac1/mac2/mac-m*) instance. Must be called with b.mu held.
 func (b *InMemoryBackend) requireMacInstanceLocked(instanceID string) error {
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -186,7 +185,7 @@ func (b *InMemoryBackend) CreateMacSystemIntegrityProtectionModificationTask(
 		SIPConfig:             config,
 		Tags:                  tags,
 	}
-	b.macModificationTasks[task.MacModificationTaskID] = task
+	b.macModificationTasks.Put(task)
 
 	cp := *task
 
@@ -221,7 +220,7 @@ func (b *InMemoryBackend) CreateDelegateMacVolumeOwnershipTask(
 		StartTime:             time.Now().UTC(),
 		Tags:                  tags,
 	}
-	b.macModificationTasks[task.MacModificationTaskID] = task
+	b.macModificationTasks.Put(task)
 
 	cp := *task
 
@@ -240,9 +239,9 @@ func (b *InMemoryBackend) DescribeMacModificationTasks(ids []string) []*MacModif
 		idSet[id] = true
 	}
 
-	out := make([]*MacModificationTask, 0, len(b.macModificationTasks))
+	out := make([]*MacModificationTask, 0, b.macModificationTasks.Len())
 
-	for _, t := range b.macModificationTasks {
+	for _, t := range b.macModificationTasks.All() {
 		if len(idSet) > 0 && !idSet[t.MacModificationTaskID] {
 			continue
 		}

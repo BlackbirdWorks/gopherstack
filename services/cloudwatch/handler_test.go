@@ -1838,7 +1838,7 @@ func TestCloudWatchHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	base := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 1; i <= 3; i++ {
 		ts := base.Add(time.Duration(i) * time.Minute)
-		_, _ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
+		_ = b.PutMetricData("NS", []cloudwatch.MetricDatum{
 			{
 				MetricName: "Counter", Value: float64(i), Count: 1,
 				Sum: float64(i), Min: float64(i), Max: float64(i), Timestamp: ts,
@@ -1876,7 +1876,12 @@ func TestCloudWatchHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	}
 }
 
-func TestCloudWatchHandler_PutMetricData_UnprocessedOnCap(t *testing.T) {
+// TestCloudWatchHandler_PutMetricData_RejectedOnCap verifies that once a
+// namespace is at its distinct-time-series cap, submitting one more new series
+// fails the whole PutMetricData call with a real AWS-shaped error (400
+// LimitExceeded) rather than a 200 with a fabricated per-datum "unprocessed"
+// entry — PutMetricDataOutput carries no such field.
+func TestCloudWatchHandler_PutMetricData_RejectedOnCap(t *testing.T) {
 	t.Parallel()
 
 	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1"))
@@ -1884,7 +1889,7 @@ func TestCloudWatchHandler_PutMetricData_UnprocessedOnCap(t *testing.T) {
 	// Fill up the namespace to the cap first.
 	b := h.Backend.(*cloudwatch.InMemoryBackend)
 	for i := range cloudwatch.CwMaxMetricNamesPerNamespace {
-		_, _ = b.PutMetricData("FullNS", []cloudwatch.MetricDatum{
+		_ = b.PutMetricData("FullNS", []cloudwatch.MetricDatum{
 			{
 				MetricName: strings.Repeat("x", 1) + strings.Repeat("y", i%10) + strings.Repeat("z", i/10),
 				Value:      1, Count: 1, Sum: 1, Min: 1, Max: 1,
@@ -1894,10 +1899,13 @@ func TestCloudWatchHandler_PutMetricData_UnprocessedOnCap(t *testing.T) {
 
 	body := "Action=PutMetricData&Namespace=FullNS&MetricData.member.1.MetricName=Overflow&MetricData.member.1.Value=1"
 	rec := postForm(t, h, body)
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "LimitExceeded")
 
-	// Response should contain an UnprocessedMetricData entry.
-	assert.Contains(t, rec.Body.String(), "Overflow")
+	// The overflow metric must not have been stored.
+	metric, err := b.ListMetrics("FullNS", "Overflow", nil, "", "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, metric.Data)
 }
 
 func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
@@ -1939,7 +1947,7 @@ func TestCloudWatchHandler_GetInsightRuleReport_WithData(t *testing.T) {
 		Name: "rule-test", Definition: `{}`, Schema: "CloudWatchLogRule",
 	}))
 
-	_, _ = b.PutMetricData("App", []cloudwatch.MetricDatum{
+	_ = b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Hits", Value: 100, Count: 100, Sum: 1000, Min: 5, Max: 15,
 			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}},

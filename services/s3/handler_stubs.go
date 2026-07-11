@@ -214,13 +214,15 @@ func actionIncludesGetObject(action any) bool {
 }
 
 // objectAttributesResult is the populated XML body for GetObjectAttributes.
+// ObjectSize carries no omitempty: a legitimate 0-byte object must still emit
+// <ObjectSize>0</ObjectSize> so the SDK populates its *int64 field.
 type objectAttributesResult struct {
 	XMLName      xml.Name           `xml:"GetObjectAttributesResult"`
 	Xmlns        string             `xml:"xmlns,attr"`
 	ETag         string             `xml:"ETag,omitempty"`
 	Checksum     *attrsChecksumElem `xml:"Checksum,omitempty"`
 	StorageClass string             `xml:"StorageClass,omitempty"`
-	ObjectSize   int64              `xml:"ObjectSize,omitempty"`
+	ObjectSize   int64              `xml:"ObjectSize"`
 }
 
 type attrsChecksumElem struct {
@@ -280,6 +282,12 @@ func (h *S3Handler) handleGetObjectAttributes(
 
 	if versionID != "" {
 		w.Header().Set("X-Amz-Version-Id", versionID)
+	}
+
+	// AWS returns the object's Last-Modified as an HTTP header (RFC1123), not a
+	// body element, on GetObjectAttributes.
+	if !attrs.LastModified.IsZero() {
+		w.Header().Set("Last-Modified", attrs.LastModified.UTC().Format(http.TimeFormat))
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, out)

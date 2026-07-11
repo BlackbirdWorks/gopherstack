@@ -99,6 +99,49 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
+// version field doesn't match the current apigatewaymanagementapiSnapshotVersion
+// is discarded (reset to empty) rather than partially decoded, and that an
+// absent version field (pre-Phase-3.3 snapshots decode as Version == 0) is
+// treated the same way.
+func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "future_version",
+			body: `{"version":999,"connections":{"stale-conn":{"connection":` +
+				`{"connectionId":"stale-conn"}}},"stats":{"totalConnections":1}}`,
+		},
+		{
+			name: "absent_version_decodes_as_zero",
+			body: `{"connections":{"stale-conn":{"connection":` +
+				`{"connectionId":"stale-conn"}}},"stats":{"totalConnections":1}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewaymanagementapi.NewInMemoryBackend()
+
+			_, err := b.CreateConnection("pre-existing", "9.9.9.9", "pre-agent", nil)
+			require.NoError(t, err)
+
+			require.NoError(t, b.Restore(t.Context(), []byte(tt.body)))
+
+			// Mismatched version resets to empty rather than adopting either the
+			// pre-existing state or the (discarded) snapshot's stale-conn.
+			assert.Empty(t, b.ListConnections())
+			assert.Equal(t, apigatewaymanagementapi.Stats{}, b.Stats())
+		})
+	}
+}
+
 func TestInMemoryBackend_Reset(t *testing.T) {
 	t.Parallel()
 

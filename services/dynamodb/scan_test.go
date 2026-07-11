@@ -480,3 +480,97 @@ func TestScan_ConsumedCapacity(t *testing.T) {
 	require.NotNil(t, out.ConsumedCapacity, "ConsumedCapacity should be populated when requested")
 	assert.Greater(t, *out.ConsumedCapacity.CapacityUnits, 0.0)
 }
+
+// TestScan_SelectCount_OmitsItems verifies AWS's documented Select=COUNT
+// behaviour: "Returns the number of matching items, rather than the matching
+// items themselves." Count/ScannedCount must still reflect the real totals,
+// but Items must come back empty.
+func TestScan_SelectCount_OmitsItems(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	tableName := "ScanSelectCountTable"
+	_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+		TableName: &tableName,
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	for i := range 4 {
+		_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+			TableName: &tableName,
+			Item: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: "item-" + strconv.Itoa(i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+		TableName: &tableName,
+		Select:    types.SelectCount,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), out.Count)
+	assert.Equal(t, int32(4), out.ScannedCount)
+	assert.Empty(t, out.Items, "Select=COUNT must not return Items")
+}
+
+// TestScan_SelectConstraints_Rejected mirrors the equivalent Query coverage:
+// Select values other than SPECIFIC_ATTRIBUTES cannot be combined with a
+// ProjectionExpression, and SPECIFIC_ATTRIBUTES requires one.
+func TestScan_SelectConstraints_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mutate func(*dynamodb_sdk.ScanInput)
+		name   string
+	}{
+		{
+			name: "COUNT with ProjectionExpression",
+			mutate: func(in *dynamodb_sdk.ScanInput) {
+				in.Select = types.SelectCount
+				in.ProjectionExpression = aws.String("pk")
+			},
+		},
+		{
+			name: "SPECIFIC_ATTRIBUTES without a projection",
+			mutate: func(in *dynamodb_sdk.ScanInput) {
+				in.Select = types.SelectSpecificAttributes
+			},
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			tableName := "ScanSelectRejectTable" + strconv.Itoa(i)
+			_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+				TableName: &tableName,
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+				},
+				BillingMode: types.BillingModePayPerRequest,
+			})
+			require.NoError(t, err)
+
+			scanInput := &dynamodb_sdk.ScanInput{TableName: &tableName}
+			tc.mutate(scanInput)
+
+			_, err = db.Scan(t.Context(), scanInput)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "ValidationException")
+		})
+	}
+}

@@ -58,11 +58,11 @@ func (b *InMemoryBackend) CreateUserDefinedFunction(
 	b.mu.Lock("CreateUserDefinedFunction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return nil, fmt.Errorf("database %q not found: %w", dbName, ErrNotFound)
 	}
 	key := b.udfKey(dbName, input.FunctionName)
-	if _, exists := b.udfs[key]; exists {
+	if b.udfs.Has(key) {
 		return nil, fmt.Errorf(
 			"user defined function %q already exists in database %q: %w",
 			input.FunctionName,
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateUserDefinedFunction(
 	udf.DatabaseName = dbName
 	udf.FunctionARN = b.udfARN(dbName, input.FunctionName)
 	udf.CreateTime = float64(time.Now().Unix())
-	b.udfs[key] = &udf
+	b.udfs.Put(&udf)
 	if len(tags) > 0 {
 		_ = b.tagResource(udf.FunctionARN, tags)
 	}
@@ -88,7 +88,7 @@ func (b *InMemoryBackend) GetUserDefinedFunction(
 	b.mu.RLock("GetUserDefinedFunction")
 	defer b.mu.RUnlock()
 
-	u, ok := b.udfs[b.udfKey(dbName, name)]
+	u, ok := b.udfs.Get(b.udfKey(dbName, name))
 	if !ok {
 		return nil, fmt.Errorf(
 			"user defined function %q not found in database %q: %w",
@@ -106,9 +106,8 @@ func (b *InMemoryBackend) GetUserDefinedFunctions(dbName string) []*UserDefinedF
 	defer b.mu.RUnlock()
 
 	var out []*UserDefinedFunction
-	for key, u := range b.udfs {
+	for _, u := range b.udfs.All() {
 		if dbName == "" || u.DatabaseName == dbName {
-			_ = key
 			out = append(out, cloneUDF(u))
 		}
 	}
@@ -125,7 +124,7 @@ func (b *InMemoryBackend) UpdateUserDefinedFunction(
 	defer b.mu.Unlock()
 
 	key := b.udfKey(dbName, name)
-	existing, ok := b.udfs[key]
+	existing, ok := b.udfs.Get(key)
 	if !ok {
 		return fmt.Errorf(
 			"user defined function %q not found in database %q: %w",
@@ -138,7 +137,7 @@ func (b *InMemoryBackend) UpdateUserDefinedFunction(
 	input.FunctionName = name
 	input.FunctionARN = existing.FunctionARN
 	input.CreateTime = existing.CreateTime
-	b.udfs[key] = &input
+	b.udfs.Put(&input)
 
 	return nil
 }
@@ -148,7 +147,7 @@ func (b *InMemoryBackend) DeleteUserDefinedFunction(dbName, name string) error {
 	defer b.mu.Unlock()
 
 	key := b.udfKey(dbName, name)
-	if _, ok := b.udfs[key]; !ok {
+	if !b.udfs.Has(key) {
 		return fmt.Errorf(
 			"user defined function %q not found in database %q: %w",
 			name,
@@ -156,7 +155,7 @@ func (b *InMemoryBackend) DeleteUserDefinedFunction(dbName, name string) error {
 			ErrNotFound,
 		)
 	}
-	delete(b.udfs, key)
+	b.udfs.Delete(key)
 
 	return nil
 }
@@ -210,7 +209,7 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 	b.mu.Lock("CreateSecurityConfiguration")
 	defer b.mu.Unlock()
 
-	if _, exists := b.securityConfigs[name]; exists {
+	if b.securityConfigs.Has(name) {
 		return nil, fmt.Errorf(
 			"security configuration %q already exists: %w",
 			name,
@@ -222,7 +221,7 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 		EncryptionConfiguration: enc,
 		CreatedTimeStamp:        float64(time.Now().Unix()),
 	}
-	b.securityConfigs[name] = sc
+	b.securityConfigs.Put(sc)
 
 	return cloneSecurityConfig(sc), nil
 }
@@ -231,7 +230,7 @@ func (b *InMemoryBackend) GetSecurityConfiguration(name string) (*SecurityConfig
 	b.mu.RLock("GetSecurityConfiguration")
 	defer b.mu.RUnlock()
 
-	sc, ok := b.securityConfigs[name]
+	sc, ok := b.securityConfigs.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("security configuration %q not found: %w", name, ErrNotFound)
 	}
@@ -243,10 +242,10 @@ func (b *InMemoryBackend) DeleteSecurityConfiguration(name string) error {
 	b.mu.Lock("DeleteSecurityConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.securityConfigs[name]; !ok {
+	if !b.securityConfigs.Has(name) {
 		return fmt.Errorf("security configuration %q not found: %w", name, ErrNotFound)
 	}
-	delete(b.securityConfigs, name)
+	b.securityConfigs.Delete(name)
 
 	return nil
 }
@@ -255,8 +254,9 @@ func (b *InMemoryBackend) ListSecurityConfigurations() []*SecurityConfiguration 
 	b.mu.RLock("ListSecurityConfigurations")
 	defer b.mu.RUnlock()
 
-	out := make([]*SecurityConfiguration, 0, len(b.securityConfigs))
-	for _, sc := range b.securityConfigs {
+	src := b.securityConfigs.All()
+	out := make([]*SecurityConfiguration, 0, len(src))
+	for _, sc := range src {
 		out = append(out, cloneSecurityConfig(sc))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -323,7 +323,7 @@ func (b *InMemoryBackend) CreateSession(
 	b.mu.Lock("CreateSession")
 	defer b.mu.Unlock()
 
-	if _, exists := b.sessions[id]; exists {
+	if b.sessions.Has(id) {
 		return nil, fmt.Errorf("session %q already exists: %w", id, ErrAlreadyExists)
 	}
 	s := &Session{
@@ -337,7 +337,7 @@ func (b *InMemoryBackend) CreateSession(
 		Description:      opts.Description,
 		DefaultArguments: opts.DefaultArguments,
 	}
-	b.sessions[id] = s
+	b.sessions.Put(s)
 	b.sessionStatements[id] = nil
 
 	return cloneSession(s), nil
@@ -347,7 +347,7 @@ func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
 	b.mu.RLock("GetSession")
 	defer b.mu.RUnlock()
 
-	s, ok := b.sessions[id]
+	s, ok := b.sessions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("session %q not found: %w", id, ErrNotFound)
 	}
@@ -359,8 +359,9 @@ func (b *InMemoryBackend) ListSessions() []*Session {
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
-	out := make([]*Session, 0, len(b.sessions))
-	for _, s := range b.sessions {
+	src := b.sessions.All()
+	out := make([]*Session, 0, len(src))
+	for _, s := range src {
 		out = append(out, cloneSession(s))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SessionID < out[j].SessionID })
@@ -372,10 +373,10 @@ func (b *InMemoryBackend) DeleteSession(id string) error {
 	b.mu.Lock("DeleteSession")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sessions[id]; !ok {
+	if !b.sessions.Has(id) {
 		return fmt.Errorf("session %q not found: %w", id, ErrNotFound)
 	}
-	delete(b.sessions, id)
+	b.sessions.Delete(id)
 	delete(b.sessionStatements, id)
 
 	return nil
@@ -385,7 +386,7 @@ func (b *InMemoryBackend) StopSession(id string) error {
 	b.mu.Lock("StopSession")
 	defer b.mu.Unlock()
 
-	s, ok := b.sessions[id]
+	s, ok := b.sessions.Get(id)
 	if !ok {
 		return fmt.Errorf("session %q not found: %w", id, ErrNotFound)
 	}
@@ -398,7 +399,7 @@ func (b *InMemoryBackend) RunStatement(sessionID, code string) (*Statement, erro
 	b.mu.Lock("RunStatement")
 	defer b.mu.Unlock()
 
-	if _, ok := b.sessions[sessionID]; !ok {
+	if !b.sessions.Has(sessionID) {
 		return nil, fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
 	}
 	stmts := b.sessionStatements[sessionID]
@@ -440,7 +441,7 @@ func (b *InMemoryBackend) GetStatements(sessionID string) ([]*Statement, error) 
 	b.mu.RLock("GetStatements")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.sessions[sessionID]; !ok {
+	if !b.sessions.Has(sessionID) {
 		return nil, fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
 	}
 	stmts := b.sessionStatements[sessionID]
@@ -532,7 +533,7 @@ func (b *InMemoryBackend) CreateTableOptimizer(
 	defer b.mu.Unlock()
 
 	key := b.tableOptimizerKey(dbName, tableName, optimizerType)
-	if _, exists := b.tableOptimizers[key]; exists {
+	if b.tableOptimizers.Has(key) {
 		return fmt.Errorf(
 			"table optimizer type %q already exists for %s.%s: %w",
 			optimizerType,
@@ -543,7 +544,7 @@ func (b *InMemoryBackend) CreateTableOptimizer(
 	}
 
 	now := float64(time.Now().Unix())
-	b.tableOptimizers[key] = &TableOptimizer{
+	b.tableOptimizers.Put(&TableOptimizer{
 		CatalogID:     catalogID,
 		DatabaseName:  dbName,
 		TableName:     tableName,
@@ -554,7 +555,7 @@ func (b *InMemoryBackend) CreateTableOptimizer(
 			StartedAt: now,
 			EndedAt:   now,
 		},
-	}
+	})
 
 	return nil
 }
@@ -565,7 +566,7 @@ func (b *InMemoryBackend) GetTableOptimizer(
 	b.mu.RLock("GetTableOptimizer")
 	defer b.mu.RUnlock()
 
-	to, ok := b.tableOptimizers[b.tableOptimizerKey(dbName, tableName, optimizerType)]
+	to, ok := b.tableOptimizers.Get(b.tableOptimizerKey(dbName, tableName, optimizerType))
 	if !ok {
 		return nil, fmt.Errorf(
 			"table optimizer %q not found for %s.%s: %w",
@@ -587,7 +588,7 @@ func (b *InMemoryBackend) UpdateTableOptimizer(
 	defer b.mu.Unlock()
 
 	key := b.tableOptimizerKey(dbName, tableName, optimizerType)
-	to, ok := b.tableOptimizers[key]
+	to, ok := b.tableOptimizers.Get(key)
 	if !ok {
 		return fmt.Errorf(
 			"table optimizer %q not found for %s.%s: %w",
@@ -607,7 +608,7 @@ func (b *InMemoryBackend) DeleteTableOptimizer(dbName, tableName, optimizerType 
 	defer b.mu.Unlock()
 
 	key := b.tableOptimizerKey(dbName, tableName, optimizerType)
-	if _, ok := b.tableOptimizers[key]; !ok {
+	if !b.tableOptimizers.Has(key) {
 		return fmt.Errorf(
 			"table optimizer %q not found for %s.%s: %w",
 			optimizerType,
@@ -616,7 +617,7 @@ func (b *InMemoryBackend) DeleteTableOptimizer(dbName, tableName, optimizerType 
 			ErrNotFound,
 		)
 	}
-	delete(b.tableOptimizers, key)
+	b.tableOptimizers.Delete(key)
 
 	return nil
 }
@@ -648,7 +649,7 @@ func (b *InMemoryBackend) BatchGetTableOptimizer(
 	var errs []BatchGetTableOptimizerError
 	for _, e := range entries {
 		key := b.tableOptimizerKey(e.DatabaseName, e.TableName, e.Type)
-		if to, ok := b.tableOptimizers[key]; ok {
+		if to, ok := b.tableOptimizers.Get(key); ok {
 			found = append(found, cloneTableOptimizer(to))
 		} else {
 			errs = append(errs, BatchGetTableOptimizerError{
@@ -705,7 +706,7 @@ func (b *InMemoryBackend) UpdateColumnStatisticsForTable(
 	b.mu.Lock("UpdateColumnStatisticsForTable")
 	defer b.mu.Unlock()
 
-	if _, ok := b.databases[dbName]; !ok {
+	if !b.databases.Has(dbName) {
 		return fmt.Errorf("database %q not found: %w", dbName, ErrNotFound)
 	}
 	for _, cs := range stats {
@@ -979,7 +980,7 @@ func (b *InMemoryBackend) CreateMLTransform(
 		CreatedOn:         float64(time.Now().Unix()),
 		LastModifiedOn:    float64(time.Now().Unix()),
 	}
-	b.mlTransforms[id] = m
+	b.mlTransforms.Put(m)
 	if len(tags) > 0 {
 		_ = b.tagResource(b.mlTransformARN(id), tags)
 	}
@@ -991,7 +992,7 @@ func (b *InMemoryBackend) GetMLTransform(id string) (*MLTransform, error) {
 	b.mu.RLock("GetMLTransform")
 	defer b.mu.RUnlock()
 
-	m, ok := b.mlTransforms[id]
+	m, ok := b.mlTransforms.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("ML transform %q not found: %w", id, ErrNotFound)
 	}
@@ -1003,8 +1004,9 @@ func (b *InMemoryBackend) GetMLTransforms() []*MLTransform {
 	b.mu.RLock("GetMLTransforms")
 	defer b.mu.RUnlock()
 
-	out := make([]*MLTransform, 0, len(b.mlTransforms))
-	for _, m := range b.mlTransforms {
+	src := b.mlTransforms.All()
+	out := make([]*MLTransform, 0, len(src))
+	for _, m := range src {
 		out = append(out, cloneMLTransform(m))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -1016,14 +1018,14 @@ func (b *InMemoryBackend) UpdateMLTransform(id string, update MLTransform) error
 	b.mu.Lock("UpdateMLTransform")
 	defer b.mu.Unlock()
 
-	existing, ok := b.mlTransforms[id]
+	existing, ok := b.mlTransforms.Get(id)
 	if !ok {
 		return fmt.Errorf("ML transform %q not found: %w", id, ErrNotFound)
 	}
 	update.TransformID = id
 	update.CreatedOn = existing.CreatedOn
 	update.LastModifiedOn = float64(time.Now().Unix())
-	b.mlTransforms[id] = &update
+	b.mlTransforms.Put(&update)
 
 	return nil
 }
@@ -1032,10 +1034,10 @@ func (b *InMemoryBackend) DeleteMLTransform(id string) error {
 	b.mu.Lock("DeleteMLTransform")
 	defer b.mu.Unlock()
 
-	if _, ok := b.mlTransforms[id]; !ok {
+	if !b.mlTransforms.Has(id) {
 		return fmt.Errorf("ML transform %q not found: %w", id, ErrNotFound)
 	}
-	delete(b.mlTransforms, id)
+	b.mlTransforms.Delete(id)
 
 	return nil
 }
@@ -1070,16 +1072,16 @@ func (b *InMemoryBackend) CreateCatalog(
 	b.mu.Lock("CreateCatalog")
 	defer b.mu.Unlock()
 
-	if _, exists := b.catalogs[catalogID]; exists {
+	if b.catalogs.Has(catalogID) {
 		return fmt.Errorf("catalog %q already exists: %w", catalogID, ErrAlreadyExists)
 	}
-	b.catalogs[catalogID] = &CatalogEntry{
+	b.catalogs.Put(&CatalogEntry{
 		CatalogID:   catalogID,
 		Name:        name,
 		Description: description,
 		Parameters:  params,
 		CreateTime:  float64(time.Now().Unix()),
-	}
+	})
 
 	return nil
 }
@@ -1088,7 +1090,7 @@ func (b *InMemoryBackend) GetCatalog(catalogID string) (*CatalogEntry, error) {
 	b.mu.RLock("GetCatalog")
 	defer b.mu.RUnlock()
 
-	c, ok := b.catalogs[catalogID]
+	c, ok := b.catalogs.Get(catalogID)
 	if !ok {
 		return nil, fmt.Errorf("catalog %q not found: %w", catalogID, ErrNotFound)
 	}
@@ -1100,8 +1102,9 @@ func (b *InMemoryBackend) GetCatalogs() []*CatalogEntry {
 	b.mu.RLock("GetCatalogs")
 	defer b.mu.RUnlock()
 
-	out := make([]*CatalogEntry, 0, len(b.catalogs))
-	for _, c := range b.catalogs {
+	src := b.catalogs.All()
+	out := make([]*CatalogEntry, 0, len(src))
+	for _, c := range src {
 		out = append(out, cloneCatalogEntry(c))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CatalogID < out[j].CatalogID })
@@ -1116,7 +1119,7 @@ func (b *InMemoryBackend) UpdateCatalog(
 	b.mu.Lock("UpdateCatalog")
 	defer b.mu.Unlock()
 
-	c, ok := b.catalogs[catalogID]
+	c, ok := b.catalogs.Get(catalogID)
 	if !ok {
 		return fmt.Errorf("catalog %q not found: %w", catalogID, ErrNotFound)
 	}
@@ -1132,10 +1135,10 @@ func (b *InMemoryBackend) DeleteCatalog(catalogID string) error {
 	b.mu.Lock("DeleteCatalog")
 	defer b.mu.Unlock()
 
-	if _, ok := b.catalogs[catalogID]; !ok {
+	if !b.catalogs.Has(catalogID) {
 		return fmt.Errorf("catalog %q not found: %w", catalogID, ErrNotFound)
 	}
-	delete(b.catalogs, catalogID)
+	b.catalogs.Delete(catalogID)
 
 	return nil
 }
@@ -1203,7 +1206,7 @@ func (b *InMemoryBackend) DeleteTableVersion(dbName, tableName, versionID string
 	defer b.mu.Unlock()
 
 	key := tableVersionKey(dbName, tableName, versionID)
-	if _, ok := b.tableVersions[key]; !ok {
+	if !b.tableVersions.Has(key) {
 		return fmt.Errorf(
 			"table version %q not found for %s.%s: %w",
 			versionID,
@@ -1212,7 +1215,7 @@ func (b *InMemoryBackend) DeleteTableVersion(dbName, tableName, versionID string
 			ErrNotFound,
 		)
 	}
-	delete(b.tableVersions, key)
+	b.tableVersions.Delete(key)
 
 	return nil
 }
@@ -1221,7 +1224,7 @@ func (b *InMemoryBackend) UpdateDevEndpoint(name string, args map[string]string)
 	b.mu.Lock("UpdateDevEndpoint")
 	defer b.mu.Unlock()
 
-	dep, ok := b.devEndpoints[name]
+	dep, ok := b.devEndpoints.Get(name)
 	if !ok {
 		return fmt.Errorf("dev endpoint %q not found: %w", name, ErrNotFound)
 	}

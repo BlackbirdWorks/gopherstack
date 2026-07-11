@@ -132,7 +132,7 @@ func (b *InMemoryBackend) CreateTopic(
 	defer b.mu.Unlock()
 
 	key := topicKey(accountID, topicID)
-	if _, exists := b.topics[key]; exists {
+	if b.topics.Has(key) {
 		return nil, ErrTopicAlreadyExists
 	}
 
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) CreateTopic(
 		Refreshes:             make(map[string]*storedTopicRefresh),
 		ReviewedAnswers:       make(map[string]*storedTopicReviewedAnswer),
 	}
-	b.topics[key] = t
+	b.topics.Put(t)
 
 	if len(tags) > 0 {
 		b.tags[t.Arn] = maps.Clone(tags)
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) DescribeTopic(accountID, topicID string) (*Topic, erro
 	b.mu.RLock("DescribeTopic")
 	defer b.mu.RUnlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) UpdateTopic(
 	defer b.mu.Unlock()
 
 	key := topicKey(accountID, topicID)
-	t, ok := b.topics[key]
+	t, ok := b.topics.Get(key)
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -207,25 +207,19 @@ func (b *InMemoryBackend) DeleteTopic(accountID, topicID string) error {
 	defer b.mu.Unlock()
 
 	key := topicKey(accountID, topicID)
-	t, ok := b.topics[key]
+	t, ok := b.topics.Get(key)
 	if !ok {
 		return ErrTopicNotFound
 	}
 
 	delete(b.tags, t.Arn)
-	delete(b.topics, key)
+	b.topics.Delete(key)
 
 	return nil
 }
 
-func (b *InMemoryBackend) allTopicsLocked(accountID string) []*storedTopic {
-	prefix := accountID + "/"
-	all := make([]*storedTopic, 0, len(b.topics))
-	for k, t := range b.topics {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, t)
-		}
-	}
+func (b *InMemoryBackend) allTopicsLocked(_ string) []*storedTopic {
+	all := b.topics.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].TopicID < all[j].TopicID })
 
 	return all
@@ -280,7 +274,7 @@ func (b *InMemoryBackend) ListTopics(
 //
 //nolint:dupl // search functions share structure but operate on different stored types
 func (b *InMemoryBackend) SearchTopics(
-	accountID string,
+	_ string,
 	filters []SearchFilter,
 	maxResults int32,
 	nextToken string,
@@ -288,10 +282,9 @@ func (b *InMemoryBackend) SearchTopics(
 	b.mu.RLock("SearchTopics")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + "/"
 	var filtered []*storedTopic
-	for k, t := range b.topics {
-		if strings.HasPrefix(k, prefix) && matchesAllNameFilters(t.Name, filters, filterTopicName) {
+	for _, t := range b.topics.All() {
+		if matchesAllNameFilters(t.Name, filters, filterTopicName) {
 			filtered = append(filtered, t)
 		}
 	}
@@ -368,7 +361,7 @@ func (b *InMemoryBackend) DescribeTopicPermissions(accountID, topicID string) (*
 	b.mu.RLock("DescribeTopicPermissions")
 	defer b.mu.RUnlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, nil, ErrTopicNotFound
 	}
@@ -383,7 +376,7 @@ func (b *InMemoryBackend) UpdateTopicPermissions(
 	b.mu.Lock("UpdateTopicPermissions")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, nil, ErrTopicNotFound
 	}
@@ -410,7 +403,7 @@ func (b *InMemoryBackend) DescribeTopicRefresh(accountID, topicID, refreshID str
 	b.mu.Lock("DescribeTopicRefresh")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -442,7 +435,7 @@ func (b *InMemoryBackend) CreateTopicRefreshSchedule(
 	b.mu.Lock("CreateTopicRefreshSchedule")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -473,7 +466,7 @@ func (b *InMemoryBackend) DescribeTopicRefreshSchedule(
 	b.mu.RLock("DescribeTopicRefreshSchedule")
 	defer b.mu.RUnlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -498,7 +491,7 @@ func (b *InMemoryBackend) UpdateTopicRefreshSchedule(
 	b.mu.Lock("UpdateTopicRefreshSchedule")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -525,7 +518,7 @@ func (b *InMemoryBackend) DeleteTopicRefreshSchedule(accountID, topicID, dataset
 	b.mu.Lock("DeleteTopicRefreshSchedule")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return ErrTopicNotFound
 	}
@@ -542,7 +535,7 @@ func (b *InMemoryBackend) ListTopicRefreshSchedules(accountID, topicID string) (
 	b.mu.RLock("ListTopicRefreshSchedules")
 	defer b.mu.RUnlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}
@@ -570,7 +563,7 @@ func (b *InMemoryBackend) BatchCreateTopicReviewedAnswer(
 	b.mu.Lock("BatchCreateTopicReviewedAnswer")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, nil, ErrTopicNotFound
 	}
@@ -618,7 +611,7 @@ func (b *InMemoryBackend) BatchDeleteTopicReviewedAnswer(
 	b.mu.Lock("BatchDeleteTopicReviewedAnswer")
 	defer b.mu.Unlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, nil, ErrTopicNotFound
 	}
@@ -643,7 +636,7 @@ func (b *InMemoryBackend) ListTopicReviewedAnswers(accountID, topicID string) ([
 	b.mu.RLock("ListTopicReviewedAnswers")
 	defer b.mu.RUnlock()
 
-	t, ok := b.topics[topicKey(accountID, topicID)]
+	t, ok := b.topics.Get(topicKey(accountID, topicID))
 	if !ok {
 		return nil, ErrTopicNotFound
 	}

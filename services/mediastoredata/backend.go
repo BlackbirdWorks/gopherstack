@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -56,8 +57,17 @@ func isValidStorageClass(sc string) bool {
 }
 
 // Object represents a stored media object.
+//
+// Path is the object's normalized path (see normalizePath) and is also the
+// primary key of the per-region [store.Table] it is stored in (see
+// objectKeyFn in store_setup.go) -- it must always be set to the same value
+// as the map key that used to hold the object pre-Phase-3.3, and must stay
+// exported/serialized (no json:"-") since Object is registered directly
+// rather than through a DTO (see .claude/memories/parity-principles.md's
+// json:"-" hidden-ID gotcha).
 type Object struct {
 	LastModified       time.Time
+	Path               string
 	ETag               string
 	SHA256             string // cached hex-encoded SHA-256 of Body
 	ContentType        string
@@ -68,20 +78,17 @@ type Object struct {
 	ContentLength      int64
 }
 
-// regionState holds all objects for a single AWS region.
-type regionState struct {
-	objects map[string]*Object
-}
-
-func newRegionState() *regionState {
-	return &regionState{
-		objects: make(map[string]*Object),
-	}
-}
-
 // InMemoryBackend is the in-memory store for MediaStore Data objects, nested per region.
+//
+// states is nested per-region (map[string]*store.Table[Object] -- outer key
+// is region) because MediaStore Data objects are isolated per region (see
+// getRegion): the set of regions is only known at runtime, so states is NOT
+// registered on a *store.Registry (Registry's SnapshotAll/RestoreAll require
+// a fixed, construction-time-known table-name set) and is
+// captured/restored directly in persistence.go instead, matching
+// services/mediastore's region-nested containers field.
 type InMemoryBackend struct {
-	states        map[string]*regionState // region → state
+	states        map[string]*store.Table[Object] // region → objects table
 	mu            *lockmetrics.RWMutex
 	defaultRegion string
 }
@@ -89,7 +96,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory MediaStore Data backend.
 func NewInMemoryBackend(region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		states:        make(map[string]*regionState),
+		states:        make(map[string]*store.Table[Object]),
 		mu:            lockmetrics.New("mediastoredata"),
 		defaultRegion: region,
 	}
@@ -98,22 +105,23 @@ func NewInMemoryBackend(region string) *InMemoryBackend {
 // Region returns the backend's default region.
 func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
-// state returns the per-region state for region, lazily creating it.
-// Must be called while holding a write lock.
-func (b *InMemoryBackend) state(region string) *regionState {
-	st, ok := b.states[region]
-	if !ok {
-		st = newRegionState()
-		b.states[region] = st
+// state returns the per-region objects [store.Table] for region, creating it
+// on first use. Because creation mutates b.states, callers must already hold
+// b.mu for writing (Lock) -- read paths that only need to look up an
+// already-existing region must use [InMemoryBackend.stateRO] instead so a
+// lazy allocation never races under a shared RLock.
+func (b *InMemoryBackend) state(region string) *store.Table[Object] {
+	if b.states[region] == nil {
+		b.states[region] = store.New(objectKeyFn)
 	}
 
-	return st
+	return b.states[region]
 }
 
-// stateRO returns the per-region state for read-only access.
-// Returns nil if the region has no state yet.
-// Must be called while holding at least a read lock.
-func (b *InMemoryBackend) stateRO(region string) *regionState {
+// stateRO returns the per-region objects [store.Table] for read-only access.
+// Returns nil if the region has no state yet. Must be called while holding
+// at least a read lock.
+func (b *InMemoryBackend) stateRO(region string) *store.Table[Object] {
 	return b.states[region]
 }
 
@@ -183,6 +191,7 @@ func (b *InMemoryBackend) PutObject(
 	stored := append([]byte(nil), body...)
 	sha := contentSHA256(stored)
 	obj := &Object{
+		Path:               key,
 		Body:               stored,
 		SHA256:             sha,
 		ETag:               fmt.Sprintf(`"%s"`, sha),
@@ -193,7 +202,7 @@ func (b *InMemoryBackend) PutObject(
 		ContentLength:      int64(len(stored)),
 		UploadAvailability: uploadAvailability,
 	}
-	b.state(region).objects[key] = obj
+	b.state(region).Put(obj)
 
 	return cloneObject(obj), nil
 }
@@ -208,14 +217,14 @@ func (b *InMemoryBackend) GetObject(ctx context.Context, path string) (*Object, 
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	st := b.stateRO(region)
+	tbl := b.stateRO(region)
 
-	if st == nil {
+	if tbl == nil {
 		return nil, fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
 
 	key := normalizePath(path)
-	obj, ok := st.objects[key]
+	obj, ok := tbl.Get(key)
 
 	if !ok {
 		return nil, fmt.Errorf("%w: object %q not found", ErrNotFound, path)
@@ -234,18 +243,16 @@ func (b *InMemoryBackend) DeleteObject(ctx context.Context, path string) error {
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	st := b.stateRO(region)
+	tbl := b.stateRO(region)
 
-	if st == nil {
+	if tbl == nil {
 		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
 
 	key := normalizePath(path)
-	if _, ok := st.objects[key]; !ok {
+	if !tbl.Delete(key) {
 		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
-
-	delete(st.objects, key)
 
 	return nil
 }
@@ -261,19 +268,22 @@ func (b *InMemoryBackend) UpdateObjectMetadata(ctx context.Context, path, conten
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	st := b.stateRO(region)
+	tbl := b.stateRO(region)
 
-	if st == nil {
+	if tbl == nil {
 		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
 
 	key := normalizePath(path)
-	obj, ok := st.objects[key]
+	obj, ok := tbl.Get(key)
 
 	if !ok {
 		return fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
 
+	// In-place mutation is safe here: Path (the table's primary key) is not
+	// being changed, and this table has no [store.Index] registered, so
+	// there is no stale-index risk (see .claude/memories/parity-principles.md).
 	obj.ContentType = contentType
 	obj.CacheControl = cacheControl
 	obj.LastModified = time.Now().UTC()
@@ -313,22 +323,28 @@ func (b *InMemoryBackend) ListItems(ctx context.Context, in ListItemsInput) *Lis
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	st := b.stateRO(region)
+	tbl := b.stateRO(region)
 
 	prefix := normalizePath(in.FolderPath)
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
 
-	var objects map[string]*Object
-	if st != nil {
-		objects = st.objects
+	var objects []*Object
+	if tbl != nil {
+		objects = tbl.All()
 	}
 
 	seen := make(map[string]bool)
 	all := make([]*Item, 0, len(objects))
 
-	for key, obj := range objects {
+	// [store.Table.All] returns objects in unspecified order, matching the
+	// old map[string]*Object iteration order this code always relied on --
+	// the explicit sort.Slice by Name below (unchanged from before this
+	// conversion) is what makes ListItems output order deterministic, not
+	// the underlying map/table order. See store_setup.go.
+	for _, obj := range objects {
+		key := obj.Path
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
@@ -403,18 +419,20 @@ func (b *InMemoryBackend) Stats(ctx context.Context) Stats {
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	st := b.stateRO(region)
+	tbl := b.stateRO(region)
 
 	var s Stats
-	if st == nil {
+	if tbl == nil {
 		return s
 	}
 
-	s.ObjectCount = len(st.objects)
+	s.ObjectCount = tbl.Len()
 
-	for _, obj := range st.objects {
+	tbl.Range(func(obj *Object) bool {
 		s.TotalBytes += obj.ContentLength
-	}
+
+		return true
+	})
 
 	return s
 }
@@ -425,15 +443,17 @@ func (b *InMemoryBackend) ListAllObjects(ctx context.Context, prefix string) []*
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	st := b.stateRO(region)
+	tbl := b.stateRO(region)
 
-	if st == nil {
+	if tbl == nil {
 		return nil
 	}
 
-	items := make([]*Item, 0, len(st.objects))
+	objects := tbl.All()
+	items := make([]*Item, 0, len(objects))
 
-	for key, obj := range st.objects {
+	for _, obj := range objects {
+		key := obj.Path
 		if prefix != "" && !strings.HasPrefix(key, prefix) {
 			continue
 		}

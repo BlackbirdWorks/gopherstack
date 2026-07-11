@@ -429,13 +429,11 @@ func TestSESBackend_EmailRetentionLimit(t *testing.T) {
 	b := ses.NewInMemoryBackend()
 	require.NoError(t, b.VerifyEmailIdentity("sender@test.com"))
 
-	// Send more emails than the cap.
-	for i := range ses.MaxRetainedEmails + 100 {
-		_, err := b.SendEmail(ses.SendEmailInput{
-			From: "sender@test.com", To: []string{"to@test.com"},
-			Subject: fmt.Sprintf("Subject %d", i), BodyText: "body",
-		})
-		require.NoError(t, err)
+	// Append more emails than the cap via AppendEmailForTest, which exercises
+	// the same eviction path as SendEmail without being gated by the
+	// simulated 200/day send quota that real SendEmail now enforces.
+	for range ses.MaxRetainedEmails + 100 {
+		b.AppendEmailForTest("sender@test.com", []string{"to@test.com"})
 	}
 
 	assert.Equal(t, ses.MaxRetainedEmails, b.EmailCount())

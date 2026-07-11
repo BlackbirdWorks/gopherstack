@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -462,26 +463,38 @@ type StorageBackend interface {
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
+//
+// Every AWS resource collection is a *store.Table[T] registered on registry
+// (see store_setup.go for the full split between tables registered directly
+// and the two "dirty" tables handled separately); queryResults, tableData,
+// and resourceTags remain plain maps -- see the store_setup.go file doc for
+// why each is left as-is.
 type InMemoryBackend struct {
-	capacityReservations map[string]*CapacityReservation
-	notebookNames        map[string]struct{}
-	dataCatalogs         map[string]*DataCatalog
-	notebooks            map[string]*Notebook
-	queryResults         map[string]*sqlResult
-	tableData            map[string][]map[string]any
-	resourceTags         map[string]map[string]string
-	preparedStatements   map[string]*PreparedStatement
-	namedQueries         map[string]*NamedQuery
-	workGroups           map[string]*WorkGroup
-	queryExecutions      map[string]*QueryExecution
-	sessions             map[string]*Session
-	calculations         map[string]*CalculationExecution
-	capacityAssignments  map[string]*CapacityAssignmentConfiguration
-	databases            map[string]map[string]*Database
-	tables               map[string]map[string]*TableMetadata
-	mu                   *lockmetrics.RWMutex
-	accountID            string
-	region               string
+	registry                      *store.Registry
+	workGroups                    *store.Table[WorkGroup]
+	namedQueries                  *store.Table[NamedQuery]
+	namedQueriesByWorkGroup       *store.Index[NamedQuery]
+	dataCatalogs                  *store.Table[DataCatalog]
+	notebooks                     *store.Table[Notebook]
+	notebooksByName               *store.Index[Notebook]
+	queryResults                  map[string]*sqlResult
+	tableData                     map[string][]map[string]any
+	resourceTags                  map[string]map[string]string
+	preparedStatements            *store.Table[PreparedStatement]
+	preparedStatementsByWorkGroup *store.Index[PreparedStatement]
+	queryExecutions               *store.Table[QueryExecution]
+	queryExecutionsByWorkGroup    *store.Index[QueryExecution]
+	sessions                      *store.Table[Session]
+	calculations                  *store.Table[CalculationExecution]
+	capacityReservations          *store.Table[CapacityReservation]
+	capacityAssignments           *store.Table[CapacityAssignmentConfiguration]
+	databases                     *store.Table[Database]
+	databasesByCatalog            *store.Index[Database]
+	tables                        *store.Table[TableMetadata]
+	tablesByDatabase              *store.Index[TableMetadata]
+	mu                            *lockmetrics.RWMutex
+	accountID                     string
+	region                        string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend and seeds the default "primary" workgroup.
@@ -495,31 +508,21 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	}
 
 	b := &InMemoryBackend{
-		workGroups:           make(map[string]*WorkGroup),
-		namedQueries:         make(map[string]*NamedQuery),
-		dataCatalogs:         make(map[string]*DataCatalog),
-		queryExecutions:      make(map[string]*QueryExecution),
-		queryResults:         make(map[string]*sqlResult),
-		tableData:            make(map[string][]map[string]any),
-		resourceTags:         make(map[string]map[string]string),
-		preparedStatements:   make(map[string]*PreparedStatement),
-		capacityReservations: make(map[string]*CapacityReservation),
-		notebooks:            make(map[string]*Notebook),
-		notebookNames:        make(map[string]struct{}),
-		sessions:             make(map[string]*Session),
-		calculations:         make(map[string]*CalculationExecution),
-		capacityAssignments:  make(map[string]*CapacityAssignmentConfiguration),
-		databases:            make(map[string]map[string]*Database),
-		tables:               make(map[string]map[string]*TableMetadata),
-		region:               region,
-		accountID:            accountID,
-		mu:                   lockmetrics.New("athena"),
+		registry:     store.NewRegistry(),
+		queryResults: make(map[string]*sqlResult),
+		tableData:    make(map[string][]map[string]any),
+		resourceTags: make(map[string]map[string]string),
+		region:       region,
+		accountID:    accountID,
+		mu:           lockmetrics.New("athena"),
 	}
 
-	b.workGroups[defaultWorkGroup] = &WorkGroup{
+	registerAllTables(b)
+
+	b.workGroups.Put(&WorkGroup{
 		Name:  defaultWorkGroup,
 		State: workGroupStateEnabled,
-	}
+	})
 
 	b.seedDefaultMetadata()
 
@@ -531,29 +534,28 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 func (b *InMemoryBackend) seedDefaultMetadata() {
 	const database = "default"
 
-	b.dataCatalogs[awsDataCatalog] = &DataCatalog{
+	b.dataCatalogs.Put(&DataCatalog{
 		Name:   awsDataCatalog,
 		Type:   "GLUE",
 		Status: "CREATE_COMPLETE",
-	}
+	})
 
-	b.databases[awsDataCatalog] = map[string]*Database{
-		database: {
-			Name:        database,
-			Description: "Default Athena database",
-		},
-	}
+	b.databases.Put(&Database{
+		Catalog:     awsDataCatalog,
+		Name:        database,
+		Description: "Default Athena database",
+	})
 
-	b.tables[awsDataCatalog+"/"+database] = map[string]*TableMetadata{
-		"sample_table": {
-			Name:      "sample_table",
-			TableType: tableTypeExternal,
-			Columns: []Column{
-				{Name: "id", Type: "bigint"},
-				{Name: "value", Type: columnTypeString},
-			},
+	b.tables.Put(&TableMetadata{
+		Catalog:   awsDataCatalog,
+		Database:  database,
+		Name:      "sample_table",
+		TableType: tableTypeExternal,
+		Columns: []Column{
+			{Name: "id", Type: "bigint"},
+			{Name: "value", Type: columnTypeString},
 		},
-	}
+	})
 }
 
 // randomID generates a cryptographically random 10-character hex ID.
@@ -635,7 +637,7 @@ func (b *InMemoryBackend) CreateWorkGroup(
 	b.mu.Lock("CreateWorkGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workGroups[name]; ok {
+	if b.workGroups.Has(name) {
 		return fmt.Errorf("%w: workgroup %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -644,14 +646,14 @@ func (b *InMemoryBackend) CreateWorkGroup(
 	}
 
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
-	b.workGroups[name] = &WorkGroup{
+	b.workGroups.Put(&WorkGroup{
 		Name:          name,
 		Description:   description,
 		State:         state,
 		Tags:          maps.Clone(tags),
 		Configuration: cfg,
 		CreationTime:  now,
-	}
+	})
 
 	arn := b.workGroupARN(name)
 	if len(tags) > 0 {
@@ -666,7 +668,7 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 	b.mu.RLock("GetWorkGroup")
 	defer b.mu.RUnlock()
 
-	wg, ok := b.workGroups[name]
+	wg, ok := b.workGroups.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
 	}
@@ -685,8 +687,8 @@ func (b *InMemoryBackend) ListWorkGroups(
 	b.mu.RLock("ListWorkGroups")
 	defer b.mu.RUnlock()
 
-	all := make([]*WorkGroupSummary, 0, len(b.workGroups))
-	for _, wg := range b.workGroups {
+	all := make([]*WorkGroupSummary, 0, b.workGroups.Len())
+	for _, wg := range b.workGroups.All() {
 		sum := &WorkGroupSummary{
 			Name:         wg.Name,
 			Description:  wg.Description,
@@ -751,7 +753,7 @@ func (b *InMemoryBackend) UpdateWorkGroup(
 	b.mu.Lock("UpdateWorkGroup")
 	defer b.mu.Unlock()
 
-	wg, ok := b.workGroups[name]
+	wg, ok := b.workGroups.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
 	}
@@ -780,11 +782,11 @@ func (b *InMemoryBackend) DeleteWorkGroup(name string) error {
 		return fmt.Errorf("%w: cannot delete the primary workgroup", ErrProtected)
 	}
 
-	if _, ok := b.workGroups[name]; !ok {
+	if !b.workGroups.Has(name) {
 		return fmt.Errorf("%w: workgroup %q not found", ErrNotFound, name)
 	}
 
-	delete(b.workGroups, name)
+	b.workGroups.Delete(name)
 	delete(b.resourceTags, b.workGroupARN(name))
 
 	return nil
@@ -812,19 +814,19 @@ func (b *InMemoryBackend) CreateNamedQuery(
 	b.mu.Lock("CreateNamedQuery")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workGroups[workGroup]; !ok {
+	if !b.workGroups.Has(workGroup) {
 		return "", fmt.Errorf("%w: workgroup %q not found", ErrNotFound, workGroup)
 	}
 
 	id := randomID()
-	b.namedQueries[id] = &NamedQuery{
+	b.namedQueries.Put(&NamedQuery{
 		NamedQueryID: id,
 		Name:         name,
 		Description:  description,
 		Database:     database,
 		QueryString:  queryString,
 		WorkGroup:    workGroup,
-	}
+	})
 
 	return id, nil
 }
@@ -834,7 +836,7 @@ func (b *InMemoryBackend) GetNamedQuery(id string) (*NamedQuery, error) {
 	b.mu.RLock("GetNamedQuery")
 	defer b.mu.RUnlock()
 
-	q, ok := b.namedQueries[id]
+	q, ok := b.namedQueries.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: named query %q not found", ErrNotFound, id)
 	}
@@ -852,11 +854,16 @@ func (b *InMemoryBackend) ListNamedQueries(
 	b.mu.RLock("ListNamedQueries")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.namedQueries))
-	for id, q := range b.namedQueries {
-		if workGroup == "" || q.WorkGroup == workGroup {
-			ids = append(ids, id)
-		}
+	var matches []*NamedQuery
+	if workGroup == "" {
+		matches = b.namedQueries.All()
+	} else {
+		matches = b.namedQueriesByWorkGroup.Get(workGroup)
+	}
+
+	ids := make([]string, 0, len(matches))
+	for _, q := range matches {
+		ids = append(ids, q.NamedQueryID)
 	}
 
 	sort.Strings(ids)
@@ -900,7 +907,7 @@ func (b *InMemoryBackend) BatchGetNamedQuery(
 	unprocessed := make([]UnprocessedNamedQueryID, 0, len(ids))
 
 	for _, id := range ids {
-		q, ok := b.namedQueries[id]
+		q, ok := b.namedQueries.Get(id)
 		if ok {
 			found = append(found, *q)
 		} else {
@@ -920,11 +927,11 @@ func (b *InMemoryBackend) DeleteNamedQuery(id string) error {
 	b.mu.Lock("DeleteNamedQuery")
 	defer b.mu.Unlock()
 
-	if _, ok := b.namedQueries[id]; !ok {
+	if !b.namedQueries.Has(id) {
 		return fmt.Errorf("%w: named query %q not found", ErrNotFound, id)
 	}
 
-	delete(b.namedQueries, id)
+	b.namedQueries.Delete(id)
 
 	return nil
 }
@@ -954,7 +961,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 	b.mu.Lock("CreateDataCatalog")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dataCatalogs[name]; ok {
+	if b.dataCatalogs.Has(name) {
 		return fmt.Errorf("%w: data catalog %q already exists", ErrAlreadyExists, name)
 	}
 
@@ -963,7 +970,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		status = "CREATE_IN_PROGRESS"
 	}
 
-	b.dataCatalogs[name] = &DataCatalog{
+	b.dataCatalogs.Put(&DataCatalog{
 		Name:           name,
 		Type:           catalogType,
 		Description:    description,
@@ -971,7 +978,7 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		Parameters:     maps.Clone(params),
 		Tags:           maps.Clone(tags),
 		Status:         status,
-	}
+	})
 
 	arn := b.dataCatalogARN(name)
 	if len(tags) > 0 {
@@ -986,7 +993,7 @@ func (b *InMemoryBackend) GetDataCatalog(name string) (*DataCatalog, error) {
 	b.mu.RLock("GetDataCatalog")
 	defer b.mu.RUnlock()
 
-	dc, ok := b.dataCatalogs[name]
+	dc, ok := b.dataCatalogs.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
@@ -1006,8 +1013,8 @@ func (b *InMemoryBackend) ListDataCatalogs(
 	b.mu.RLock("ListDataCatalogs")
 	defer b.mu.RUnlock()
 
-	all := make([]*DataCatalogSummary, 0, len(b.dataCatalogs))
-	for _, dc := range b.dataCatalogs {
+	all := make([]*DataCatalogSummary, 0, b.dataCatalogs.Len())
+	for _, dc := range b.dataCatalogs.All() {
 		all = append(all, &DataCatalogSummary{
 			CatalogName:    dc.Name,
 			Type:           dc.Type,
@@ -1057,7 +1064,7 @@ func (b *InMemoryBackend) UpdateDataCatalog(
 	b.mu.Lock("UpdateDataCatalog")
 	defer b.mu.Unlock()
 
-	dc, ok := b.dataCatalogs[name]
+	dc, ok := b.dataCatalogs.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
@@ -1095,11 +1102,11 @@ func (b *InMemoryBackend) DeleteDataCatalog(name string) error {
 	b.mu.Lock("DeleteDataCatalog")
 	defer b.mu.Unlock()
 
-	if _, ok := b.dataCatalogs[name]; !ok {
+	if !b.dataCatalogs.Has(name) {
 		return fmt.Errorf("%w: data catalog %q not found", ErrNotFound, name)
 	}
 
-	delete(b.dataCatalogs, name)
+	b.dataCatalogs.Delete(name)
 	delete(b.resourceTags, b.dataCatalogARN(name))
 
 	return nil
@@ -1127,7 +1134,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 
 	b.mu.Lock("StartQueryExecution")
 
-	wg, ok := b.workGroups[workGroup]
+	wg, ok := b.workGroups.Get(workGroup)
 	if !ok {
 		b.mu.Unlock()
 
@@ -1162,9 +1169,8 @@ func (b *InMemoryBackend) StartQueryExecution(
 			time.Now().Add(-time.Duration(maxAge)*time.Minute).UnixMilli(),
 		) / millisToSeconds
 
-		for _, prev := range b.queryExecutions {
+		for _, prev := range b.queryExecutionsByWorkGroup.Get(workGroup) {
 			if prev.Query == query &&
-				prev.WorkGroup == workGroup &&
 				prev.Status.State == stateSucceeded &&
 				prev.Status.CompletionDateTime >= cutoff &&
 				!prev.Statistics.ReusedPreviousResult {
@@ -1207,7 +1213,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 		},
 	}
 
-	b.queryExecutions[id] = qe
+	b.queryExecutions.Put(qe)
 	b.mu.Unlock()
 
 	// Execute the statement outside the write-lock. executeStatement acquires
@@ -1227,7 +1233,7 @@ func (b *InMemoryBackend) StartQueryExecution(
 // statement failed, transitions the execution to FAILED with an AWS-shaped
 // AthenaError. Failed queries carry no result set. Callers must hold b.mu.
 func (b *InMemoryBackend) finalizeExecution(id string, result *sqlResult, outcome statementOutcome) {
-	qe, ok := b.queryExecutions[id]
+	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
 		// Evicted between dispatch and finalize; nothing to store.
 		return
@@ -1276,7 +1282,7 @@ func (b *InMemoryBackend) GetQueryExecution(id string) (*QueryExecution, error) 
 	b.mu.RLock("GetQueryExecution")
 	defer b.mu.RUnlock()
 
-	qe, ok := b.queryExecutions[id]
+	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
 	}
@@ -1291,11 +1297,16 @@ func (b *InMemoryBackend) ListQueryExecutions(workGroup string) ([]string, error
 	b.mu.RLock("ListQueryExecutions")
 	defer b.mu.RUnlock()
 
-	ids := make([]string, 0, len(b.queryExecutions))
-	for id, qe := range b.queryExecutions {
-		if workGroup == "" || qe.WorkGroup == workGroup {
-			ids = append(ids, id)
-		}
+	var matches []*QueryExecution
+	if workGroup == "" {
+		matches = b.queryExecutions.All()
+	} else {
+		matches = b.queryExecutionsByWorkGroup.Get(workGroup)
+	}
+
+	ids := make([]string, 0, len(matches))
+	for _, qe := range matches {
+		ids = append(ids, qe.QueryExecutionID)
 	}
 
 	sort.Strings(ids)
@@ -1318,7 +1329,7 @@ func (b *InMemoryBackend) StopQueryExecution(id string) error {
 	b.mu.Lock("StopQueryExecution")
 	defer b.mu.Unlock()
 
-	qe, ok := b.queryExecutions[id]
+	qe, ok := b.queryExecutions.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: query execution %q not found", ErrNotFound, id)
 	}
@@ -1348,7 +1359,7 @@ func (b *InMemoryBackend) BatchGetQueryExecution(
 	unprocessed := make([]UnprocessedQueryExecutionID, 0, len(ids))
 
 	for _, id := range ids {
-		qe, ok := b.queryExecutions[id]
+		qe, ok := b.queryExecutions.Get(id)
 		if ok {
 			found = append(found, *qe)
 		} else {
@@ -1453,7 +1464,7 @@ func (b *InMemoryBackend) CreatePreparedStatement(
 	defer b.mu.Unlock()
 
 	key := preparedStatementKey(workGroup, name)
-	if _, ok := b.preparedStatements[key]; ok {
+	if b.preparedStatements.Has(key) {
 		return fmt.Errorf(
 			"%w: prepared statement %q already exists in workgroup %q",
 			ErrAlreadyExists,
@@ -1463,13 +1474,13 @@ func (b *InMemoryBackend) CreatePreparedStatement(
 	}
 
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
-	b.preparedStatements[key] = &PreparedStatement{
+	b.preparedStatements.Put(&PreparedStatement{
 		StatementName:    name,
 		WorkGroupName:    workGroup,
 		QueryStatement:   queryStatement,
 		Description:      description,
 		LastModifiedTime: now,
-	}
+	})
 
 	return nil
 }
@@ -1480,7 +1491,7 @@ func (b *InMemoryBackend) GetPreparedStatement(name, workGroup string) (*Prepare
 	defer b.mu.RUnlock()
 
 	key := preparedStatementKey(workGroup, name)
-	ps, ok := b.preparedStatements[key]
+	ps, ok := b.preparedStatements.Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: prepared statement %q not found in workgroup %q",
@@ -1507,16 +1518,14 @@ func (b *InMemoryBackend) ListPreparedStatements(
 	b.mu.RLock("ListPreparedStatements")
 	defer b.mu.RUnlock()
 
-	prefix := workGroup + "/"
-	result := make([]PreparedStatementSummary, 0, len(b.preparedStatements))
+	matches := b.preparedStatementsByWorkGroup.Get(workGroup)
+	result := make([]PreparedStatementSummary, 0, len(matches))
 
-	for key, ps := range b.preparedStatements {
-		if strings.HasPrefix(key, prefix) {
-			result = append(result, PreparedStatementSummary{
-				StatementName:    ps.StatementName,
-				LastModifiedTime: ps.LastModifiedTime,
-			})
-		}
+	for _, ps := range matches {
+		result = append(result, PreparedStatementSummary{
+			StatementName:    ps.StatementName,
+			LastModifiedTime: ps.LastModifiedTime,
+		})
 	}
 
 	sort.Slice(result, func(i, j int) bool {
@@ -1563,7 +1572,7 @@ func (b *InMemoryBackend) BatchGetPreparedStatement(
 
 	for _, name := range names {
 		key := preparedStatementKey(workGroup, name)
-		ps, ok := b.preparedStatements[key]
+		ps, ok := b.preparedStatements.Get(key)
 		if ok {
 			found = append(found, *ps)
 		} else {
@@ -1583,7 +1592,7 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 	defer b.mu.Unlock()
 
 	key := preparedStatementKey(workGroup, name)
-	if _, ok := b.preparedStatements[key]; !ok {
+	if !b.preparedStatements.Has(key) {
 		return fmt.Errorf(
 			"%w: prepared statement %q not found in workgroup %q",
 			ErrResourceNotFound,
@@ -1592,7 +1601,7 @@ func (b *InMemoryBackend) DeletePreparedStatement(name, workGroup string) error 
 		)
 	}
 
-	delete(b.preparedStatements, key)
+	b.preparedStatements.Delete(key)
 
 	return nil
 }
@@ -1617,12 +1626,12 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 	b.mu.Lock("CreateCapacityReservation")
 	defer b.mu.Unlock()
 
-	if _, ok := b.capacityReservations[name]; ok {
+	if b.capacityReservations.Has(name) {
 		return fmt.Errorf("%w: capacity reservation %q already exists", ErrAlreadyExists, name)
 	}
 
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
-	b.capacityReservations[name] = &CapacityReservation{
+	b.capacityReservations.Put(&CapacityReservation{
 		Name:          name,
 		Status:        "ACTIVE",
 		TargetDpus:    targetDPUs,
@@ -1635,7 +1644,7 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 			Status:                stateSucceeded,
 		},
 		LastSuccessfulAllocationTime: now,
-	}
+	})
 
 	return nil
 }
@@ -1645,7 +1654,7 @@ func (b *InMemoryBackend) CancelCapacityReservation(name string) error {
 	b.mu.Lock("CancelCapacityReservation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[name]
+	cr, ok := b.capacityReservations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
@@ -1661,7 +1670,7 @@ func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 	b.mu.Lock("DeleteCapacityReservation")
 	defer b.mu.Unlock()
 
-	cr, ok := b.capacityReservations[name]
+	cr, ok := b.capacityReservations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: capacity reservation %q not found", ErrNotFound, name)
 	}
@@ -1675,7 +1684,7 @@ func (b *InMemoryBackend) DeleteCapacityReservation(name string) error {
 		)
 	}
 
-	delete(b.capacityReservations, name)
+	b.capacityReservations.Delete(name)
 
 	return nil
 }
@@ -1698,7 +1707,7 @@ func (b *InMemoryBackend) CreateNotebook(
 	defer b.mu.Unlock()
 
 	nameKey := notebookNameKey(workGroup, name)
-	if _, exists := b.notebookNames[nameKey]; exists {
+	if len(b.notebooksByName.Get(nameKey)) > 0 {
 		return "", fmt.Errorf(
 			"%w: notebook %q already exists in workgroup %q",
 			ErrAlreadyExists,
@@ -1709,7 +1718,7 @@ func (b *InMemoryBackend) CreateNotebook(
 
 	id := randomID()
 	now := float64(time.Now().UnixMilli()) / millisToSeconds
-	b.notebooks[id] = &Notebook{
+	b.notebooks.Put(&Notebook{
 		NotebookID:       id,
 		Name:             name,
 		WorkGroup:        workGroup,
@@ -1717,8 +1726,7 @@ func (b *InMemoryBackend) CreateNotebook(
 		CreationTime:     now,
 		LastModifiedTime: now,
 		Content:          "",
-	}
-	b.notebookNames[nameKey] = struct{}{}
+	})
 
 	if len(tags) > 0 {
 		notebookARN := arn.Build("athena", b.region, b.accountID, fmt.Sprintf("notebook/%s", id))
@@ -1742,14 +1750,11 @@ func (b *InMemoryBackend) DeleteNotebook(notebookID string) error {
 	b.mu.Lock("DeleteNotebook")
 	defer b.mu.Unlock()
 
-	nb, ok := b.notebooks[notebookID]
-	if !ok {
+	if !b.notebooks.Has(notebookID) {
 		return fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
-	nameKey := notebookNameKey(nb.WorkGroup, nb.Name)
-	delete(b.notebookNames, nameKey)
-	delete(b.notebooks, notebookID)
+	b.notebooks.Delete(notebookID)
 
 	return nil
 }
@@ -1759,7 +1764,7 @@ func (b *InMemoryBackend) ExportNotebook(notebookID string) (NotebookMetadata, s
 	b.mu.RLock("ExportNotebook")
 	defer b.mu.RUnlock()
 
-	nb, ok := b.notebooks[notebookID]
+	nb, ok := b.notebooks.Get(notebookID)
 	if !ok {
 		return NotebookMetadata{}, "", fmt.Errorf(
 			"%w: notebook %q not found",

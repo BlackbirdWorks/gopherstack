@@ -142,7 +142,7 @@ func TestCreateLoadBalancer(t *testing.T) {
 				"Version": {"2015-12-01"},
 				"Name":    {"dup-alb"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_name_returns_bad_request",
@@ -257,13 +257,13 @@ func TestDeleteLoadBalancerByARN(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Querying a specific ARN that no longer exists should return 404 (AWS behavior).
+	// Querying a specific ARN that no longer exists should return 400 (AWS query-protocol error status).
 	rec2 := doELBv2(t, h, url.Values{
 		"Action":                    {"DescribeLoadBalancers"},
 		"Version":                   {"2015-12-01"},
 		"LoadBalancerArns.member.1": {lbArn},
 	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 // TestDescribeLoadBalancers tests describe operations.
@@ -382,7 +382,7 @@ func TestCreateTargetGroup(t *testing.T) {
 				"Protocol": {"HTTP"},
 				"Port":     {"80"},
 			},
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_name_returns_bad_request",
@@ -514,7 +514,7 @@ func TestDeleteTargetGroup(t *testing.T) {
 		"Version":                  {"2015-12-01"},
 		"TargetGroupArns.member.1": {tgArn},
 	})
-	require.Equal(t, http.StatusNotFound, rec2.Code)
+	require.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 // TestRegisterAndDeregisterTargets tests target registration.
@@ -623,7 +623,7 @@ func TestCreateListener(t *testing.T) {
 					"DefaultActions.member.1.FixedResponseConfig.StatusCode": {"200"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -931,7 +931,7 @@ func TestDeleteListener(t *testing.T) {
 					"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no/0/no"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1029,7 +1029,7 @@ func TestModifyListener(t *testing.T) {
 		"Version":     {"2015-12-01"},
 		"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no/0/no"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	// Test missing arn
 	rec3 := doELBv2(t, h, url.Values{
@@ -1113,7 +1113,7 @@ func TestDeleteRule(t *testing.T) {
 		"Version": {"2015-12-01"},
 		"RuleArn": {"arn:aws:no-such-rule"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec3.Code)
+	assert.Equal(t, http.StatusBadRequest, rec3.Code)
 }
 
 // TestDescribeRules tests rule describe operations.
@@ -1251,7 +1251,7 @@ func TestModifyRule(t *testing.T) {
 		"Version": {"2015-12-01"},
 		"RuleArn": {"arn:aws:no-such-rule"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	// Missing arn
 	rec3 := doELBv2(t, h, url.Values{
@@ -1353,7 +1353,7 @@ func TestDeleteTargetGroupNotFound(t *testing.T) {
 		"Version":        {"2015-12-01"},
 		"TargetGroupArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/no-such/0"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestRegisterTargetsMissingARN tests missing ARN for register targets.
@@ -1474,7 +1474,7 @@ func TestCreateRuleListenerNotFound(t *testing.T) {
 		"Actions.member.1.Type": {"fixed-response"},
 		"Actions.member.1.FixedResponseConfig.StatusCode": {"200"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDescribeTagsForTargetGroupAndListener tests describe tags for TG and listener ARNs.
@@ -1717,7 +1717,7 @@ func TestDeleteLoadBalancerNotFound(t *testing.T) {
 		"Version":         {"2015-12-01"},
 		"LoadBalancerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/no-such/0"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestModifyLoadBalancerAttributesMissing tests missing ARN.
@@ -1782,7 +1782,7 @@ func TestModifyTargetGroupAttributes(t *testing.T) {
 				"Version":        {"2015-12-01"},
 				"TargetGroupArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/no-such/0"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1904,7 +1904,7 @@ func TestModifyListenerAttributes(t *testing.T) {
 				"Version":     {"2015-12-01"},
 				"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no-such/0/80"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -1955,7 +1955,7 @@ func TestDescribeListenerAttributes(t *testing.T) {
 				"Version":     {"2015-12-01"},
 				"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no-such/0/80"},
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -2150,7 +2150,7 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 					},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "delete_trust_store_missing_arn",
@@ -2221,6 +2221,24 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, revRec.Code)
 
+	// AddTrustStoreRevocations must echo back the added revocation info in its
+	// AddTrustStoreRevocationsResult.TrustStoreRevocations list (AWS behaviour) —
+	// this used to be silently dropped (an empty response body).
+	var addResp struct {
+		Result struct {
+			TrustStoreRevocations struct {
+				Members []struct {
+					RevocationID  string `xml:"RevocationId"`
+					TrustStoreArn string `xml:"TrustStoreArn"`
+				} `xml:"member"`
+			} `xml:"TrustStoreRevocations"`
+		} `xml:"AddTrustStoreRevocationsResult"`
+	}
+	require.NoError(t, xml.Unmarshal(revRec.Body.Bytes(), &addResp))
+	require.Len(t, addResp.Result.TrustStoreRevocations.Members, 1)
+	assert.Equal(t, "s3://my-bucket/revocations.crl", addResp.Result.TrustStoreRevocations.Members[0].RevocationID)
+	assert.Equal(t, tsArn, addResp.Result.TrustStoreRevocations.Members[0].TrustStoreArn)
+
 	// Describe trust store associations (expect empty).
 	assocRec := doELBv2(t, h, url.Values{
 		"Action":        {"DescribeTrustStoreAssociations"},
@@ -2251,16 +2269,18 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 
 	var revDescResp struct {
 		Result struct {
-			RevocationContents struct {
+			TrustStoreRevocations struct {
 				Members []struct {
-					RevocationID string `xml:"RevocationId"`
+					RevocationID  string `xml:"RevocationId"`
+					TrustStoreArn string `xml:"TrustStoreArn"`
 				} `xml:"member"`
-			} `xml:"RevocationContents"`
+			} `xml:"TrustStoreRevocations"`
 		} `xml:"DescribeTrustStoreRevocationsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(revDescRec.Body.Bytes(), &revDescResp))
-	require.Len(t, revDescResp.Result.RevocationContents.Members, 1)
-	assert.Equal(t, "s3://my-bucket/revocations.crl", revDescResp.Result.RevocationContents.Members[0].RevocationID)
+	require.Len(t, revDescResp.Result.TrustStoreRevocations.Members, 1)
+	assert.Equal(t, "s3://my-bucket/revocations.crl", revDescResp.Result.TrustStoreRevocations.Members[0].RevocationID)
+	assert.Equal(t, tsArn, revDescResp.Result.TrustStoreRevocations.Members[0].TrustStoreArn)
 
 	// RemoveTrustStoreRevocations — remove the entry we added.
 	revRmRec := doELBv2(t, h, url.Values{
@@ -2281,15 +2301,15 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 
 	var revDescResp2 struct {
 		Result struct {
-			RevocationContents struct {
+			TrustStoreRevocations struct {
 				Members []struct {
 					RevocationID string `xml:"RevocationId"`
 				} `xml:"member"`
-			} `xml:"RevocationContents"`
+			} `xml:"TrustStoreRevocations"`
 		} `xml:"DescribeTrustStoreRevocationsResult"`
 	}
 	require.NoError(t, xml.Unmarshal(revDescRec2.Body.Bytes(), &revDescResp2))
-	assert.Empty(t, revDescResp2.Result.RevocationContents.Members)
+	assert.Empty(t, revDescResp2.Result.TrustStoreRevocations.Members)
 
 	// DescribeTrustStores — should return our trust store.
 	descTSRec := doELBv2(t, h, url.Values{
@@ -2336,14 +2356,14 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 	assert.Equal(t, "my-ts-renamed", modTSResp.Result.TrustStores.Members[0].Name)
 
 	// DeleteSharedTrustStoreAssociation with no existing association returns
-	// AssociationNotFound (404), matching AWS behavior.
+	// AssociationNotFound (HTTP 400, AWS query-protocol status), matching AWS behavior.
 	delAssocRec := doELBv2(t, h, url.Values{
 		"Action":        {"DeleteSharedTrustStoreAssociation"},
 		"Version":       {"2015-12-01"},
 		"TrustStoreArn": {tsArn},
 		"ResourceArn":   {"arn:aws:elasticloadbalancing:us-east-1:000000000000:listener/app/x/y/z"},
 	})
-	assert.Equal(t, http.StatusNotFound, delAssocRec.Code)
+	assert.Equal(t, http.StatusBadRequest, delAssocRec.Code)
 
 	// Delete trust store.
 	delRec := doELBv2(t, h, url.Values{
@@ -2359,7 +2379,7 @@ func TestELBv2_TrustStoreFullLifecycle(t *testing.T) {
 		"Version":       {"2015-12-01"},
 		"TrustStoreArn": {tsArn},
 	})
-	assert.Equal(t, http.StatusNotFound, delRec2.Code)
+	assert.Equal(t, http.StatusBadRequest, delRec2.Code)
 }
 
 // TestELBv2_ListenerCertificates validates error handling for add and describe listener certificate operations.
@@ -2386,7 +2406,7 @@ func TestELBv2_ListenerCertificates(t *testing.T) {
 					"Certificates.member.1.CertificateArn": {"arn:aws:acm:us-east-1:123:certificate/abc"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "describe_certificates_listener_not_found",
@@ -2399,7 +2419,7 @@ func TestELBv2_ListenerCertificates(t *testing.T) {
 					"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123:listener/nonexistent"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "add_certificates_missing_listener_arn",
@@ -2443,7 +2463,7 @@ func TestELBv2_ListenerCertificates(t *testing.T) {
 					"Certificates.member.1.CertificateArn": {"arn:aws:acm:us-east-1:123:certificate/abc"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -2765,7 +2785,7 @@ func TestELBv2_SetRulePriorities(t *testing.T) {
 					"RulePriorities.member.1.Priority": {"10"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "no_priorities_provided",
@@ -2955,7 +2975,7 @@ func TestELBv2_ModifyTrustStore(t *testing.T) {
 					"Name":          {"new-name"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing_arn",
@@ -3006,8 +3026,8 @@ func TestELBv2_StubOperations(t *testing.T) {
 					"ResourceArn": {lbArn},
 				}
 			},
-			// No resource policy is set, so AWS returns ResourceNotFound (404).
-			wantStatus: http.StatusNotFound,
+			// No resource policy is set, so AWS returns ResourceNotFound (HTTP 400, AWS query-protocol status).
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "get_resource_policy_missing_arn",
@@ -3063,7 +3083,7 @@ func TestELBv2_StubOperations(t *testing.T) {
 					"TrustStoreArn": {"arn:aws:elasticloadbalancing:us-east-1:123:truststore/nonexistent/abc"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "modify_capacity_reservation",
@@ -3090,7 +3110,7 @@ func TestELBv2_StubOperations(t *testing.T) {
 					"LoadBalancerArn": {"arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/nonexistent/abc"},
 				}
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "modify_ip_pools",
@@ -3491,7 +3511,7 @@ func TestDuplicateListenerPortRejected(t *testing.T) {
 		"DefaultActions.member.1.Type":           {"forward"},
 		"DefaultActions.member.1.TargetGroupArn": {tgArn},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestMutualAuthenticationOnListener verifies mTLS mode is stored and returned.
@@ -4432,12 +4452,12 @@ func TestPortValidationCreateListener(t *testing.T) {
 		port       string
 		wantStatus int
 	}{
-		{"valid_port_80", "80", http.StatusNotFound}, // will fail on nonexistent LB, not port
+		{"valid_port_80", "80", http.StatusBadRequest}, // will fail on nonexistent LB, not port
 		{"port_zero", "0", http.StatusBadRequest},
 		{"port_negative", "-1", http.StatusBadRequest},
 		{"port_65536", "65536", http.StatusBadRequest},
-		{"port_65535_valid", "65535", http.StatusNotFound},
-		{"port_1_valid", "1", http.StatusNotFound},
+		{"port_65535_valid", "65535", http.StatusBadRequest},
+		{"port_1_valid", "1", http.StatusBadRequest},
 		{"port_non_numeric", "abc", http.StatusBadRequest},
 	}
 
@@ -4922,7 +4942,9 @@ func TestCachedDispatchTable(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestDuplicateRulePriorityErrorCode tests that ErrDuplicateRulePriority returns DuplicatePriority code.
+// TestDuplicateRulePriorityErrorCode tests that ErrDuplicateRulePriority returns the real
+// AWS PriorityInUse error code (not the fabricated "DuplicatePriority" code the mock
+// used to return; verified against aws-sdk-go-v2/service/elasticloadbalancingv2/types).
 func TestDuplicateRulePriorityErrorCode(t *testing.T) {
 	t.Parallel()
 
@@ -4963,7 +4985,7 @@ func TestDuplicateRulePriorityErrorCode(t *testing.T) {
 		} `xml:"Error"`
 	}
 	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &errResp))
-	assert.Equal(t, "DuplicatePriority", errResp.Error.Code)
+	assert.Equal(t, "PriorityInUse", errResp.Error.Code)
 }
 
 // TestCreateListenerNoDefaultActions tests that missing DefaultActions returns 400.
@@ -5371,7 +5393,7 @@ func TestSetSecurityGroupsPersist(t *testing.T) {
 	assert.Equal(t, "sg-00000002", resp.Result.SecurityGroupIDs.Members[1].Value)
 }
 
-// TestSetSecurityGroupsNotFound verifies that SetSecurityGroups returns 404 for missing LB.
+// TestSetSecurityGroupsNotFound verifies that SetSecurityGroups returns 400 (LoadBalancerNotFound) for missing LB.
 func TestSetSecurityGroupsNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -5384,7 +5406,7 @@ func TestSetSecurityGroupsNotFound(t *testing.T) {
 		},
 		"SecurityGroups.member.1": {"sg-00000001"},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestSetSubnetsPersist verifies that SetSubnets updates the LB availability zones.
@@ -5688,7 +5710,7 @@ func TestModifyListenerDuplicatePortRejected(t *testing.T) {
 		"ListenerArn": {listenerArn1},
 		"Port":        {"443"},
 	})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestNLBDNSFormat verifies that NLB uses the correct DNS format (elb before region).
@@ -5933,6 +5955,102 @@ func mustCreateNLB(t *testing.T, h *elbv2.Handler, name string) string {
 	return resp.Result.LoadBalancers.Members[0].LoadBalancerArn
 }
 
+// Test_AlpnPolicyWireShape verifies AlpnPolicy is wire-encoded as an AWS list
+// (<AlpnPolicy><member>...</member></AlpnPolicy>, request field AlpnPolicy.member.N),
+// not a bare string element — matching aws-sdk-go-v2 types.Listener.AlpnPolicy ([]string) —
+// and that CreateListener, DescribeListeners, and ModifyListener all agree on that shape.
+func Test_AlpnPolicyWireShape(t *testing.T) {
+	t.Parallel()
+
+	type alpnListenerResp struct {
+		ListenerArn string `xml:"ListenerArn"`
+		AlpnPolicy  struct {
+			Members []string `xml:"member"`
+		} `xml:"AlpnPolicy"`
+	}
+
+	cases := []struct {
+		name    string
+		values  []string
+		wantNil bool
+	}{
+		{name: "single_policy", values: []string{"HTTP2Optional"}},
+		{name: "multiple_policies", values: []string{"HTTP2Optional", "HTTP1Only"}},
+		{name: "no_policy_omits_element", values: nil, wantNil: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			nameSuffix := strings.ReplaceAll(tc.name, "_", "-")
+
+			h := newTestHandler()
+			lbArn := mustCreateNLB(t, h, "alpn-"+nameSuffix)
+			tgArn := mustCreateTG(t, h, "alpn-tg-"+nameSuffix)
+
+			vals := url.Values{
+				"Action":                                 {"CreateListener"},
+				"Version":                                {"2015-12-01"},
+				"LoadBalancerArn":                        {lbArn},
+				"Protocol":                               {"TLS"},
+				"Port":                                   {"443"},
+				"DefaultActions.member.1.Type":           {"forward"},
+				"DefaultActions.member.1.TargetGroupArn": {tgArn},
+				"Certificates.member.1.CertificateArn":   {"arn:aws:acm:us-east-1:123456789012:certificate/abc"},
+			}
+
+			for i, p := range tc.values {
+				vals.Set(fmt.Sprintf("AlpnPolicy.member.%d", i+1), p)
+			}
+
+			rec := doELBv2(t, h, vals)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			var createResp struct {
+				Result struct {
+					Listeners struct {
+						Members []alpnListenerResp `xml:"member"`
+					} `xml:"Listeners"`
+				} `xml:"CreateListenerResult"`
+			}
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.Len(t, createResp.Result.Listeners.Members, 1)
+
+			if tc.wantNil {
+				assert.Empty(t, createResp.Result.Listeners.Members[0].AlpnPolicy.Members)
+			} else {
+				assert.Equal(t, tc.values, createResp.Result.Listeners.Members[0].AlpnPolicy.Members)
+			}
+
+			// DescribeListeners must round-trip the same list shape.
+			listenerArn := createResp.Result.Listeners.Members[0].ListenerArn
+			descRec := doELBv2(t, h, url.Values{
+				"Action":                {"DescribeListeners"},
+				"Version":               {"2015-12-01"},
+				"ListenerArns.member.1": {listenerArn},
+			})
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			var descResp struct {
+				Result struct {
+					Listeners struct {
+						Members []alpnListenerResp `xml:"member"`
+					} `xml:"Listeners"`
+				} `xml:"DescribeListenersResult"`
+			}
+			require.NoError(t, xml.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.Len(t, descResp.Result.Listeners.Members, 1)
+
+			if tc.wantNil {
+				assert.Empty(t, descResp.Result.Listeners.Members[0].AlpnPolicy.Members)
+			} else {
+				assert.Equal(t, tc.values, descResp.Result.Listeners.Members[0].AlpnPolicy.Members)
+			}
+		})
+	}
+}
+
 // TestNameTooLong verifies that LB and TG names longer than 32 chars are rejected.
 func TestNameTooLong(t *testing.T) {
 	t.Parallel()
@@ -6166,7 +6284,7 @@ func TestDescribeLoadBalancersNotFound(t *testing.T) {
 		"Version":                   {"2015-12-01"},
 		"LoadBalancerArns.member.1": {fakeArn},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestDescribeListenersNotFound verifies that querying non-existent listener ARNs returns an error.
@@ -6181,7 +6299,7 @@ func TestDescribeListenersNotFound(t *testing.T) {
 		"Version":               {"2015-12-01"},
 		"ListenerArns.member.1": {fakeArn},
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // TestTargetGroupLoadBalancerArnsAfterListener verifies that TG shows LB ARNs after listener creation.
@@ -6591,8 +6709,9 @@ func TestNLBAttributeDefaults(t *testing.T) {
 	assert.NotContains(t, attrMap, "routing.http.response.server.enabled")
 }
 
-// TestDescribeLoadBalancersByNameNotFound verifies that querying a non-existent LB by name returns 404,
-// matching real AWS which raises LoadBalancerNotFoundException for any unknown name.
+// TestDescribeLoadBalancersByNameNotFound verifies that querying a non-existent LB by name
+// returns 400 (LoadBalancerNotFound), matching real AWS which raises
+// LoadBalancerNotFoundException for any unknown name.
 func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -6608,7 +6727,7 @@ func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
 				"Version":        {"2015-12-01"},
 				"Names.member.1": {"does-not-exist"},
 			},
-			expect: http.StatusNotFound,
+			expect: http.StatusBadRequest,
 		},
 		{
 			name: "one_valid_one_missing_name",
@@ -6618,7 +6737,7 @@ func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
 				"Names.member.1": {"desc-lb-name-exists"},
 				"Names.member.2": {"does-not-exist"},
 			},
-			expect: http.StatusNotFound,
+			expect: http.StatusBadRequest,
 		},
 	}
 
@@ -6637,8 +6756,9 @@ func TestDescribeLoadBalancersByNameNotFound(t *testing.T) {
 	}
 }
 
-// TestDescribeTargetGroupsByNameNotFound verifies that querying non-existent TG names returns 404,
-// matching real AWS which raises TargetGroupNotFoundException for any unknown name.
+// TestDescribeTargetGroupsByNameNotFound verifies that querying non-existent TG names
+// returns 400 (TargetGroupNotFound), matching real AWS which raises
+// TargetGroupNotFoundException for any unknown name.
 func TestDescribeTargetGroupsByNameNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -6654,7 +6774,7 @@ func TestDescribeTargetGroupsByNameNotFound(t *testing.T) {
 				"Version":        {"2015-12-01"},
 				"Names.member.1": {"does-not-exist"},
 			},
-			expect: http.StatusNotFound,
+			expect: http.StatusBadRequest,
 		},
 		{
 			name: "one_valid_one_missing_name",
@@ -6664,7 +6784,7 @@ func TestDescribeTargetGroupsByNameNotFound(t *testing.T) {
 				"Names.member.1": {"desc-tg-name-exists"},
 				"Names.member.2": {"does-not-exist"},
 			},
-			expect: http.StatusNotFound,
+			expect: http.StatusBadRequest,
 		},
 	}
 

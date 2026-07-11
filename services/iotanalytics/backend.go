@@ -7,7 +7,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -16,6 +15,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -248,17 +249,30 @@ func validateRetentionPeriod(rp *RetentionPeriod) error {
 }
 
 // InMemoryBackend is the in-memory backend for IoT Analytics.
+//
+// channels, datastores, datasets, and pipelines are each a *store.Table[T]
+// (see store_setup.go): all four key off a real, non-json:"-" identity field
+// the value type already carries (Name), so none need a DTO wrapper, and none
+// need a secondary store.Index since nothing in this backend does an
+// ARN-keyed reverse lookup against them (resolveARNResource parses the
+// resource name back out of the ARN string and looks it up directly). tags,
+// channelMessages, and datasetContents are left as plain maps: none of their
+// value types is a *T (map[string]string, [][]byte, and []*DatasetContent
+// respectively), so none fits store.Table's keyed-by-single-identity-value
+// shape. See persistence.go for how they round-trip alongside the registered
+// tables.
 type InMemoryBackend struct {
 	loggingOptions  *LoggingOptions
 	channelMessages map[string][][]byte
 	datasetContents map[string][]*DatasetContent
-	channels        map[string]*Channel
-	datastores      map[string]*Datastore
-	datasets        map[string]*Dataset
-	pipelines       map[string]*Pipeline
 	tags            map[string]map[string]string
+	channels        *store.Table[Channel]
+	datastores      *store.Table[Datastore]
+	datasets        *store.Table[Dataset]
+	pipelines       *store.Table[Pipeline]
+	registry        *store.Registry
 	svcCtx          context.Context
-	mu              sync.RWMutex
+	mu              *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory IoT Analytics backend with a background service context.
@@ -273,27 +287,26 @@ func NewInMemoryBackendWithContext(svcCtx context.Context) *InMemoryBackend {
 		svcCtx = context.Background()
 	}
 
-	return &InMemoryBackend{
-		channels:        make(map[string]*Channel),
-		datastores:      make(map[string]*Datastore),
-		datasets:        make(map[string]*Dataset),
-		pipelines:       make(map[string]*Pipeline),
+	b := &InMemoryBackend{
 		tags:            make(map[string]map[string]string),
 		channelMessages: make(map[string][][]byte),
 		datasetContents: make(map[string][]*DatasetContent),
+		registry:        store.NewRegistry(),
 		svcCtx:          svcCtx,
+		mu:              lockmetrics.New("iotanalytics"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Reset clears all backend state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.channels = make(map[string]*Channel)
-	b.datastores = make(map[string]*Datastore)
-	b.datasets = make(map[string]*Dataset)
-	b.pipelines = make(map[string]*Pipeline)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
 	b.channelMessages = make(map[string][][]byte)
 	b.datasetContents = make(map[string][]*DatasetContent)
@@ -644,10 +657,10 @@ func (b *InMemoryBackend) CreateChannel(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateChannel")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[name]; ok {
+	if b.channels.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -664,7 +677,7 @@ func (b *InMemoryBackend) CreateChannel(
 		RetentionPeriod: cloneRetentionPeriod(retention),
 	}
 	maps.Copy(c.Tags, tags)
-	b.channels[name] = c
+	b.channels.Put(c)
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
@@ -673,10 +686,10 @@ func (b *InMemoryBackend) CreateChannel(
 
 // DescribeChannel returns channel metadata.
 func (b *InMemoryBackend) DescribeChannel(name string) (*Channel, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeChannel")
 	defer b.mu.RUnlock()
 
-	c, ok := b.channels[name]
+	c, ok := b.channels.Get(name)
 	if !ok {
 		return nil, ErrChannelNotFound
 	}
@@ -690,10 +703,10 @@ func (b *InMemoryBackend) UpdateChannel(name string, storage *ChannelStorage, re
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateChannel")
 	defer b.mu.Unlock()
 
-	c, ok := b.channels[name]
+	c, ok := b.channels.Get(name)
 	if !ok {
 		return ErrChannelNotFound
 	}
@@ -713,16 +726,16 @@ func (b *InMemoryBackend) UpdateChannel(name string, storage *ChannelStorage, re
 
 // DeleteChannel deletes a channel and its associated messages.
 func (b *InMemoryBackend) DeleteChannel(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	c, ok := b.channels[name]
+	c, ok := b.channels.Get(name)
 	if !ok {
 		return ErrChannelNotFound
 	}
 
 	delete(b.tags, c.ARN)
-	delete(b.channels, name)
+	b.channels.Delete(name)
 	delete(b.channelMessages, name)
 
 	return nil
@@ -730,14 +743,14 @@ func (b *InMemoryBackend) DeleteChannel(name string) error {
 
 // ListChannels returns all channels sorted by name.
 func (b *InMemoryBackend) ListChannels() []*Channel {
-	b.mu.RLock()
+	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.channels)
-	result := make([]*Channel, 0, len(b.channels))
+	items := b.channels.Snapshot()
+	result := make([]*Channel, 0, len(items))
 
-	for _, k := range keys {
-		result = append(result, cloneChannel(b.channels[k]))
+	for _, c := range items {
+		result = append(result, cloneChannel(c))
 	}
 
 	return result
@@ -768,10 +781,10 @@ func (b *InMemoryBackend) CreateDatastore(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDatastore")
 	defer b.mu.Unlock()
 
-	if _, ok := b.datastores[name]; ok {
+	if b.datastores.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -790,7 +803,7 @@ func (b *InMemoryBackend) CreateDatastore(
 		Partitions:              cloneDatastorePartitions(partitions),
 	}
 	maps.Copy(d.Tags, tags)
-	b.datastores[name] = d
+	b.datastores.Put(d)
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
@@ -799,10 +812,10 @@ func (b *InMemoryBackend) CreateDatastore(
 
 // DescribeDatastore returns datastore metadata.
 func (b *InMemoryBackend) DescribeDatastore(name string) (*Datastore, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDatastore")
 	defer b.mu.RUnlock()
 
-	d, ok := b.datastores[name]
+	d, ok := b.datastores.Get(name)
 	if !ok {
 		return nil, ErrDatastoreNotFound
 	}
@@ -822,10 +835,10 @@ func (b *InMemoryBackend) UpdateDatastore(
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateDatastore")
 	defer b.mu.Unlock()
 
-	d, ok := b.datastores[name]
+	d, ok := b.datastores.Get(name)
 	if !ok {
 		return ErrDatastoreNotFound
 	}
@@ -853,30 +866,30 @@ func (b *InMemoryBackend) UpdateDatastore(
 
 // DeleteDatastore deletes a datastore.
 func (b *InMemoryBackend) DeleteDatastore(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDatastore")
 	defer b.mu.Unlock()
 
-	d, ok := b.datastores[name]
+	d, ok := b.datastores.Get(name)
 	if !ok {
 		return ErrDatastoreNotFound
 	}
 
 	delete(b.tags, d.ARN)
-	delete(b.datastores, name)
+	b.datastores.Delete(name)
 
 	return nil
 }
 
 // ListDatastores returns all datastores sorted by name.
 func (b *InMemoryBackend) ListDatastores() []*Datastore {
-	b.mu.RLock()
+	b.mu.RLock("ListDatastores")
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.datastores)
-	result := make([]*Datastore, 0, len(b.datastores))
+	items := b.datastores.Snapshot()
+	result := make([]*Datastore, 0, len(items))
 
-	for _, k := range keys {
-		result = append(result, cloneDatastore(b.datastores[k]))
+	for _, d := range items {
+		result = append(result, cloneDatastore(d))
 	}
 
 	return result
@@ -904,10 +917,10 @@ func (b *InMemoryBackend) CreateDataset(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDataset")
 	defer b.mu.Unlock()
 
-	if _, ok := b.datasets[name]; ok {
+	if b.datasets.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -927,7 +940,7 @@ func (b *InMemoryBackend) CreateDataset(
 		VersioningConfiguration: cloneVersioningConfiguration(versioningConfig),
 	}
 	maps.Copy(d.Tags, tags)
-	b.datasets[name] = d
+	b.datasets.Put(d)
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
@@ -936,10 +949,10 @@ func (b *InMemoryBackend) CreateDataset(
 
 // DescribeDataset returns dataset metadata.
 func (b *InMemoryBackend) DescribeDataset(name string) (*Dataset, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDataset")
 	defer b.mu.RUnlock()
 
-	d, ok := b.datasets[name]
+	d, ok := b.datasets.Get(name)
 	if !ok {
 		return nil, ErrDatasetNotFound
 	}
@@ -956,10 +969,10 @@ func (b *InMemoryBackend) UpdateDataset(
 	versioningConfig *VersioningConfiguration,
 	lateDataRules []LateDataRule,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateDataset")
 	defer b.mu.Unlock()
 
-	d, ok := b.datasets[name]
+	d, ok := b.datasets.Get(name)
 	if !ok {
 		return ErrDatasetNotFound
 	}
@@ -991,16 +1004,16 @@ func (b *InMemoryBackend) UpdateDataset(
 
 // DeleteDataset deletes a dataset and its associated content versions.
 func (b *InMemoryBackend) DeleteDataset(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDataset")
 	defer b.mu.Unlock()
 
-	d, ok := b.datasets[name]
+	d, ok := b.datasets.Get(name)
 	if !ok {
 		return ErrDatasetNotFound
 	}
 
 	delete(b.tags, d.ARN)
-	delete(b.datasets, name)
+	b.datasets.Delete(name)
 	delete(b.datasetContents, name)
 
 	return nil
@@ -1008,14 +1021,14 @@ func (b *InMemoryBackend) DeleteDataset(name string) error {
 
 // ListDatasets returns all datasets sorted by name.
 func (b *InMemoryBackend) ListDatasets() []*Dataset {
-	b.mu.RLock()
+	b.mu.RLock("ListDatasets")
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.datasets)
-	result := make([]*Dataset, 0, len(b.datasets))
+	items := b.datasets.Snapshot()
+	result := make([]*Dataset, 0, len(items))
 
-	for _, k := range keys {
-		result = append(result, cloneDataset(b.datasets[k]))
+	for _, d := range items {
+		result = append(result, cloneDataset(d))
 	}
 
 	return result
@@ -1039,10 +1052,10 @@ func (b *InMemoryBackend) CreatePipeline(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreatePipeline")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipelines[name]; ok {
+	if b.pipelines.Has(name) {
 		return nil, ErrAlreadyExists
 	}
 
@@ -1058,7 +1071,7 @@ func (b *InMemoryBackend) CreatePipeline(
 		Activities:    clonePipelineActivities(activities),
 	}
 	maps.Copy(p.Tags, tags)
-	b.pipelines[name] = p
+	b.pipelines.Put(p)
 	b.tags[arn] = make(map[string]string)
 	maps.Copy(b.tags[arn], tags)
 
@@ -1067,10 +1080,10 @@ func (b *InMemoryBackend) CreatePipeline(
 
 // DescribePipeline returns pipeline metadata.
 func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribePipeline")
 	defer b.mu.RUnlock()
 
-	p, ok := b.pipelines[name]
+	p, ok := b.pipelines.Get(name)
 	if !ok {
 		return nil, ErrPipelineNotFound
 	}
@@ -1080,10 +1093,10 @@ func (b *InMemoryBackend) DescribePipeline(name string) (*Pipeline, error) {
 
 // UpdatePipeline updates a pipeline's activities and last update time.
 func (b *InMemoryBackend) UpdatePipeline(name string, activities []PipelineActivity) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdatePipeline")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[name]
+	p, ok := b.pipelines.Get(name)
 	if !ok {
 		return ErrPipelineNotFound
 	}
@@ -1099,30 +1112,30 @@ func (b *InMemoryBackend) UpdatePipeline(name string, activities []PipelineActiv
 
 // DeletePipeline deletes a pipeline.
 func (b *InMemoryBackend) DeletePipeline(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeletePipeline")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[name]
+	p, ok := b.pipelines.Get(name)
 	if !ok {
 		return ErrPipelineNotFound
 	}
 
 	delete(b.tags, p.ARN)
-	delete(b.pipelines, name)
+	b.pipelines.Delete(name)
 
 	return nil
 }
 
 // ListPipelines returns all pipelines sorted by name.
 func (b *InMemoryBackend) ListPipelines() []*Pipeline {
-	b.mu.RLock()
+	b.mu.RLock("ListPipelines")
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.pipelines)
-	result := make([]*Pipeline, 0, len(b.pipelines))
+	items := b.pipelines.Snapshot()
+	result := make([]*Pipeline, 0, len(items))
 
-	for _, k := range keys {
-		result = append(result, clonePipeline(b.pipelines[k]))
+	for _, p := range items {
+		result = append(result, clonePipeline(p))
 	}
 
 	return result
@@ -1154,24 +1167,16 @@ func (b *InMemoryBackend) resolveARNResource(arn string) bool {
 
 	switch resourceType {
 	case "channel":
-		_, ok := b.channels[name]
-
-		return ok
+		return b.channels.Has(name)
 
 	case "datastore":
-		_, ok := b.datastores[name]
-
-		return ok
+		return b.datastores.Has(name)
 
 	case "dataset":
-		_, ok := b.datasets[name]
-
-		return ok
+		return b.datasets.Has(name)
 
 	case "pipeline":
-		_, ok := b.pipelines[name]
-
-		return ok
+		return b.pipelines.Has(name)
 	}
 
 	return false
@@ -1180,7 +1185,7 @@ func (b *InMemoryBackend) resolveARNResource(arn string) bool {
 // ListTagsForResource returns tags for a resource ARN, sorted by key.
 // Returns empty slice (not error) when the resource exists but has no tags.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]TagDTO, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	// Check the tags map first (fast path for resources with tags initialized).
@@ -1203,7 +1208,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []TagDTO) error {
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	m, ok := b.tags[resourceARN]
@@ -1224,7 +1229,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []TagDTO) error {
 
 // UntagResource removes tags from a resource.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	m, ok := b.tags[resourceARN]
@@ -1247,10 +1252,10 @@ func (b *InMemoryBackend) BatchPutMessage(
 ) ([]BatchPutMessageErrorEntry, error) {
 	var errs []BatchPutMessageErrorEntry
 
-	b.mu.Lock()
+	b.mu.Lock("BatchPutMessage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		for _, msg := range messages {
 			errs = append(errs, BatchPutMessageErrorEntry{
 				ChannelName:  channelName,
@@ -1323,9 +1328,12 @@ func (b *InMemoryBackend) BatchPutMessage(
 		}
 	}
 
-	// Update lastMessageArrivalTime on any successful ingestion.
+	// Update lastMessageArrivalTime on any successful ingestion. The channel is
+	// guaranteed present here: existence was already checked (and the lock has
+	// been held continuously since) at the top of this function.
 	if len(b.channelMessages[channelName]) > 0 {
-		b.channels[channelName].LastMessageArrivalTime = epochSeconds(time.Now())
+		c, _ := b.channels.Get(channelName)
+		c.LastMessageArrivalTime = epochSeconds(time.Now())
 	}
 
 	if errs == nil {
@@ -1338,10 +1346,10 @@ func (b *InMemoryBackend) BatchPutMessage(
 // SampleChannelData returns up to maxMessages sample messages from a channel.
 // Returns InvalidRequestException for maxMessages <= 0 or > 10 (AWS behaviour).
 func (b *InMemoryBackend) SampleChannelData(channelName string, maxMessages int) ([][]byte, error) {
-	b.mu.RLock()
+	b.mu.RLock("SampleChannelData")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.channels[channelName]; !ok {
+	if !b.channels.Has(channelName) {
 		return nil, ErrChannelNotFound
 	}
 
@@ -1369,10 +1377,10 @@ func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string, startTi
 		return "", fmt.Errorf("%w: startTime must be before endTime", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("StartPipelineReprocessing")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[pipelineName]
+	p, ok := b.pipelines.Get(pipelineName)
 	if !ok {
 		return "", ErrPipelineNotFound
 	}
@@ -1409,10 +1417,10 @@ func (b *InMemoryBackend) StartPipelineReprocessing(pipelineName string, startTi
 
 // CancelPipelineReprocessing cancels a running pipeline reprocessing job.
 func (b *InMemoryBackend) CancelPipelineReprocessing(pipelineName, reprocessingID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelPipelineReprocessing")
 	defer b.mu.Unlock()
 
-	p, ok := b.pipelines[pipelineName]
+	p, ok := b.pipelines.Get(pipelineName)
 	if !ok {
 		return ErrPipelineNotFound
 	}
@@ -1434,10 +1442,10 @@ func (b *InMemoryBackend) CancelPipelineReprocessing(pipelineName, reprocessingI
 
 // CreateDatasetContent creates a new content version for a dataset.
 func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetContent, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDatasetContent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.datasets[datasetName]; !ok {
+	if !b.datasets.Has(datasetName) {
 		return nil, ErrDatasetNotFound
 	}
 
@@ -1461,10 +1469,10 @@ func (b *InMemoryBackend) CreateDatasetContent(datasetName string) (*DatasetCont
 
 // GetDatasetContent retrieves a specific or the latest content version of a dataset.
 func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*DatasetContent, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetDatasetContent")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.datasets[datasetName]; !ok {
+	if !b.datasets.Has(datasetName) {
 		return nil, ErrDatasetNotFound
 	}
 
@@ -1488,10 +1496,10 @@ func (b *InMemoryBackend) GetDatasetContent(datasetName, versionID string) (*Dat
 
 // ListDatasetContents returns all content versions for a dataset, sorted by creation time descending.
 func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetContent, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListDatasetContents")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.datasets[datasetName]; !ok {
+	if !b.datasets.Has(datasetName) {
 		return nil, ErrDatasetNotFound
 	}
 
@@ -1508,10 +1516,10 @@ func (b *InMemoryBackend) ListDatasetContents(datasetName string) ([]*DatasetCon
 
 // DeleteDatasetContent deletes a specific content version (or all if versionID is empty).
 func (b *InMemoryBackend) DeleteDatasetContent(datasetName, versionID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDatasetContent")
 	defer b.mu.Unlock()
 
-	if _, ok := b.datasets[datasetName]; !ok {
+	if !b.datasets.Has(datasetName) {
 		return ErrDatasetNotFound
 	}
 
@@ -1536,7 +1544,7 @@ func (b *InMemoryBackend) DeleteDatasetContent(datasetName, versionID string) er
 
 // DescribeLoggingOptions returns the current IoT Analytics logging options.
 func (b *InMemoryBackend) DescribeLoggingOptions() (*LoggingOptions, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeLoggingOptions")
 	defer b.mu.RUnlock()
 
 	if b.loggingOptions == nil {
@@ -1559,7 +1567,7 @@ func (b *InMemoryBackend) PutLoggingOptions(options *LoggingOptions) error {
 		return fmt.Errorf("%w: loggingOptions.roleArn is required when enabled is true", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutLoggingOptions")
 	defer b.mu.Unlock()
 
 	opts := *options

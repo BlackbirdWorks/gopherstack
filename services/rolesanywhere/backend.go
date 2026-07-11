@@ -13,7 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -74,8 +74,14 @@ type TrustAnchor struct {
 	TrustAnchorID  string            `json:"trustAnchorId"`
 	TrustAnchorArn string            `json:"trustAnchorArn"`
 	Name           string            `json:"name"`
-	Tags           []TagEntry        `json:"tags,omitempty"`
-	Enabled        bool              `json:"enabled"`
+	// region is the store.Table composite-key qualifier (see regionKey); it
+	// is not part of the wire API (Roles Anywhere trust anchors are
+	// region-scoped but the AWS TrustAnchor shape carries no Region field of
+	// its own -- the region is only ever recoverable from the request
+	// context).
+	region  string
+	Tags    []TagEntry `json:"tags,omitempty"`
+	Enabled bool       `json:"enabled"`
 }
 
 // TagEntry is a key-value tag pair (Roles Anywhere uses list-based tags).
@@ -92,8 +98,11 @@ type Crl struct {
 	CrlArn         string    `json:"crlArn"`
 	Name           string    `json:"name"`
 	TrustAnchorArn string    `json:"trustAnchorArn"`
-	CrlData        []byte    `json:"crlData,omitempty"`
-	Enabled        bool      `json:"enabled"`
+	// region is the store.Table composite-key qualifier (see regionKey); see
+	// TrustAnchor.region's doc comment for why it is unexported.
+	region  string
+	CrlData []byte `json:"crlData,omitempty"`
+	Enabled bool   `json:"enabled"`
 }
 
 // Subject represents an IAM Roles Anywhere subject (authenticating certificate).
@@ -104,7 +113,10 @@ type Subject struct {
 	SubjectID   string    `json:"subjectId"`
 	SubjectArn  string    `json:"subjectArn"`
 	X509Subject string    `json:"x509Subject"`
-	Enabled     bool      `json:"enabled"`
+	// region is the store.Table composite-key qualifier (see regionKey); see
+	// TrustAnchor.region's doc comment for why it is unexported.
+	region  string
+	Enabled bool `json:"enabled"`
 }
 
 // MappingRule is a single rule mapping a certificate field specifier to a session attribute.
@@ -134,13 +146,16 @@ type NotificationSettingKey struct {
 
 // Profile represents an IAM Roles Anywhere profile.
 type Profile struct {
-	CreatedAt                 time.Time  `json:"createdAt"`
-	UpdatedAt                 time.Time  `json:"updatedAt"`
-	DurationSeconds           *int32     `json:"durationSeconds,omitempty"`
-	ProfileID                 string     `json:"profileId"`
-	ProfileArn                string     `json:"profileArn"`
-	Name                      string     `json:"name"`
-	SessionPolicy             string     `json:"sessionPolicy,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	DurationSeconds *int32    `json:"durationSeconds,omitempty"`
+	ProfileID       string    `json:"profileId"`
+	ProfileArn      string    `json:"profileArn"`
+	Name            string    `json:"name"`
+	SessionPolicy   string    `json:"sessionPolicy,omitempty"`
+	// region is the store.Table composite-key qualifier (see regionKey); see
+	// TrustAnchor.region's doc comment for why it is unexported.
+	region                    string
 	Tags                      []TagEntry `json:"tags,omitempty"`
 	RoleArns                  []string   `json:"roleArns"`
 	ManagedPolicyArns         []string   `json:"managedPolicyArns,omitempty"`
@@ -149,13 +164,28 @@ type Profile struct {
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
+//
+// trustAnchors, profiles, crls, and subjects were previously
+// map[region]map[id]*T; Phase 3.3 replaces each with a flat *store.Table
+// keyed by the composite "region|id" string (see regionKey), with a
+// companion *store.Index grouping entries by region -- see store_setup.go's
+// registerAllTables doc for the full rationale and why all four are "dirty"
+// (unregistered on registry) tables. tags, attributeMappings, and
+// notificationSettings remain plain region-nested maps: each holds a slice
+// value ([]TagEntry / []AttributeMapping / []NotificationSetting), not a
+// *T, so there is nothing for store.Table to key on.
 type InMemoryBackend struct {
 	mu                   *lockmetrics.RWMutex
-	trustAnchors         map[string]map[string]*TrustAnchor          // region → id → TrustAnchor
-	profiles             map[string]map[string]*Profile              // region → id → Profile
+	registry             *store.Registry
+	trustAnchors         *store.Table[TrustAnchor]
+	trustAnchorsByRegion *store.Index[TrustAnchor]
+	profiles             *store.Table[Profile]
+	profilesByRegion     *store.Index[Profile]
+	crls                 *store.Table[Crl]
+	crlsByRegion         *store.Index[Crl]
+	subjects             *store.Table[Subject]
+	subjectsByRegion     *store.Index[Subject]
 	tags                 map[string]map[string][]TagEntry            // region → resourceARN → tags
-	crls                 map[string]map[string]*Crl                  // region → id → Crl
-	subjects             map[string]map[string]*Subject              // region → id → Subject
 	attributeMappings    map[string]map[string][]AttributeMapping    // region → profileID → mappings
 	notificationSettings map[string]map[string][]NotificationSetting // region → trustAnchorID → settings
 	accountID            string
@@ -164,37 +194,26 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		mu:                   lockmetrics.New("rolesanywhere"),
 		accountID:            accountID,
 		defaultRegion:        region,
-		trustAnchors:         make(map[string]map[string]*TrustAnchor),
-		profiles:             make(map[string]map[string]*Profile),
+		registry:             store.NewRegistry(),
 		tags:                 make(map[string]map[string][]TagEntry),
-		crls:                 make(map[string]map[string]*Crl),
-		subjects:             make(map[string]map[string]*Subject),
 		attributeMappings:    make(map[string]map[string][]AttributeMapping),
 		notificationSettings: make(map[string]map[string][]NotificationSetting),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
-// ---- per-region lazy store helpers ----
+// regionKey builds the composite store.Table primary key ("region|id") used
+// by trustAnchors, profiles, crls, and subjects.
+func regionKey(region, id string) string { return region + "|" + id }
 
-func (b *InMemoryBackend) trustAnchorsStore(region string) map[string]*TrustAnchor {
-	if b.trustAnchors[region] == nil {
-		b.trustAnchors[region] = make(map[string]*TrustAnchor)
-	}
-
-	return b.trustAnchors[region]
-}
-
-func (b *InMemoryBackend) profilesStore(region string) map[string]*Profile {
-	if b.profiles[region] == nil {
-		b.profiles[region] = make(map[string]*Profile)
-	}
-
-	return b.profiles[region]
-}
+// ---- per-region lazy store helpers (for the maps left unconverted) ----
 
 func (b *InMemoryBackend) tagsStore(region string) map[string][]TagEntry {
 	if b.tags[region] == nil {
@@ -202,14 +221,6 @@ func (b *InMemoryBackend) tagsStore(region string) map[string][]TagEntry {
 	}
 
 	return b.tags[region]
-}
-
-func (b *InMemoryBackend) crlsStore(region string) map[string]*Crl {
-	if b.crls[region] == nil {
-		b.crls[region] = make(map[string]*Crl)
-	}
-
-	return b.crls[region]
 }
 
 func (b *InMemoryBackend) attributeMappingsStore(region string) map[string][]AttributeMapping {
@@ -228,10 +239,11 @@ func (b *InMemoryBackend) notificationSettingsStore(region string) map[string][]
 	return b.notificationSettings[region]
 }
 
-// listRegionItems is a generic helper for paginated listing of region-keyed resources.
-// It reads from outerMap[region], copies each item, sorts by sortKey, then paginates.
-func listRegionItems[T any](
-	outerMap map[string]map[string]*T,
+// listByRegionIndex is a generic helper for paginated listing of region-keyed
+// resources held in a *store.Index. It reads idx.Get(region), copies each
+// item, sorts by sortKey, then paginates.
+func listByRegionIndex[T any](
+	idx *store.Index[T],
 	region string,
 	copyFn func(*T) *T,
 	sortKey func(*T) string,
@@ -239,10 +251,10 @@ func listRegionItems[T any](
 	pageToken string,
 	maxResults int,
 ) ([]*T, string) {
-	store := outerMap[region]
-	all := make([]*T, 0, len(store))
+	group := idx.Get(region)
+	all := make([]*T, 0, len(group))
 
-	for _, item := range store {
+	for _, item := range group {
 		all = append(all, copyFn(item))
 	}
 
@@ -286,9 +298,8 @@ func (b *InMemoryBackend) CreateTrustAnchor(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.trustAnchorsStore(region)
 
-	for _, ta := range store {
+	for _, ta := range b.trustAnchorsByRegion.Get(region) {
 		if ta.Name == name {
 			return nil, ErrTrustAnchorAlreadyExists
 		}
@@ -301,13 +312,14 @@ func (b *InMemoryBackend) CreateTrustAnchor(
 		TrustAnchorArn: b.trustAnchorARN(region, id),
 		Name:           name,
 		Source:         source,
+		region:         region,
 		Enabled:        true,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 		Tags:           cloneTags(tags),
 	}
 
-	store[id] = ta
+	b.trustAnchors.Put(ta)
 
 	return copyTrustAnchor(ta), nil
 }
@@ -319,7 +331,7 @@ func (b *InMemoryBackend) GetTrustAnchor(ctx context.Context, id string) (*Trust
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	ta, exists := b.trustAnchors[region][id]
+	ta, exists := b.trustAnchors.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrTrustAnchorNotFound
 	}
@@ -336,8 +348,8 @@ func (b *InMemoryBackend) ListTrustAnchors(
 	b.mu.RLock("ListTrustAnchors")
 	defer b.mu.RUnlock()
 
-	items, token := listRegionItems(
-		b.trustAnchors,
+	items, token := listByRegionIndex(
+		b.trustAnchorsByRegion,
 		getRegion(ctx, b.defaultRegion),
 		copyTrustAnchor,
 		func(t *TrustAnchor) string { return t.Name },
@@ -355,13 +367,10 @@ func (b *InMemoryBackend) DeleteTrustAnchor(ctx context.Context, id string) erro
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.trustAnchorsStore(region)
 
-	if _, exists := store[id]; !exists {
+	if !b.trustAnchors.Delete(regionKey(region, id)) {
 		return ErrTrustAnchorNotFound
 	}
-
-	delete(store, id)
 
 	return nil
 }
@@ -376,9 +385,8 @@ func (b *InMemoryBackend) UpdateTrustAnchor(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.trustAnchorsStore(region)
 
-	ta, exists := store[id]
+	ta, exists := b.trustAnchors.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrTrustAnchorNotFound
 	}
@@ -411,9 +419,8 @@ func (b *InMemoryBackend) setTrustAnchorEnabled(ctx context.Context, id string, 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.trustAnchorsStore(region)
 
-	ta, exists := store[id]
+	ta, exists := b.trustAnchors.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrTrustAnchorNotFound
 	}
@@ -445,9 +452,8 @@ func (b *InMemoryBackend) CreateProfile(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.profilesStore(region)
 
-	for _, p := range store {
+	for _, p := range b.profilesByRegion.Get(region) {
 		if p.Name == name {
 			return nil, ErrProfileAlreadyExists
 		}
@@ -459,6 +465,7 @@ func (b *InMemoryBackend) CreateProfile(
 		ProfileID:                 id,
 		ProfileArn:                b.profileARN(region, id),
 		Name:                      name,
+		region:                    region,
 		RoleArns:                  append([]string(nil), roleArns...),
 		Enabled:                   true,
 		CreatedAt:                 now,
@@ -470,7 +477,7 @@ func (b *InMemoryBackend) CreateProfile(
 		RequireInstanceProperties: requireInstanceProperties,
 	}
 
-	store[id] = p
+	b.profiles.Put(p)
 
 	return copyProfile(p), nil
 }
@@ -482,7 +489,7 @@ func (b *InMemoryBackend) GetProfile(ctx context.Context, id string) (*Profile, 
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	p, exists := b.profiles[region][id]
+	p, exists := b.profiles.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrProfileNotFound
 	}
@@ -499,8 +506,8 @@ func (b *InMemoryBackend) ListProfiles(
 	b.mu.RLock("ListProfiles")
 	defer b.mu.RUnlock()
 
-	items, token := listRegionItems(
-		b.profiles,
+	items, token := listByRegionIndex(
+		b.profilesByRegion,
 		getRegion(ctx, b.defaultRegion),
 		copyProfile,
 		func(p *Profile) string { return p.Name },
@@ -518,13 +525,10 @@ func (b *InMemoryBackend) DeleteProfile(ctx context.Context, id string) error {
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.profilesStore(region)
 
-	if _, exists := store[id]; !exists {
+	if !b.profiles.Delete(regionKey(region, id)) {
 		return ErrProfileNotFound
 	}
-
-	delete(store, id)
 
 	return nil
 }
@@ -543,9 +547,8 @@ func (b *InMemoryBackend) UpdateProfile(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.profilesStore(region)
 
-	p, exists := store[id]
+	p, exists := b.profiles.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrProfileNotFound
 	}
@@ -594,9 +597,8 @@ func (b *InMemoryBackend) setProfileEnabled(ctx context.Context, id string, enab
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.profilesStore(region)
 
-	p, exists := store[id]
+	p, exists := b.profiles.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrProfileNotFound
 	}
@@ -615,8 +617,8 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 	defer b.mu.Unlock()
 
 	region := regionFromARN(resourceARN, getRegion(ctx, b.defaultRegion))
-	store := b.tagsStore(region)
-	existing := store[resourceARN]
+	tagStore := b.tagsStore(region)
+	existing := tagStore[resourceARN]
 
 	for _, newTag := range tags {
 		updated := false
@@ -635,7 +637,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 		}
 	}
 
-	store[resourceARN] = existing
+	tagStore[resourceARN] = existing
 
 	return nil
 }
@@ -646,8 +648,8 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	defer b.mu.Unlock()
 
 	region := regionFromARN(resourceARN, getRegion(ctx, b.defaultRegion))
-	store := b.tagsStore(region)
-	existing := store[resourceARN]
+	tagStore := b.tagsStore(region)
+	existing := tagStore[resourceARN]
 	keySet := make(map[string]bool, len(tagKeys))
 
 	for _, k := range tagKeys {
@@ -662,7 +664,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 		}
 	}
 
-	store[resourceARN] = filtered
+	tagStore[resourceARN] = filtered
 
 	return nil
 }
@@ -696,9 +698,8 @@ func (b *InMemoryBackend) ImportCrl(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.crlsStore(region)
 
-	for _, c := range store {
+	for _, c := range b.crlsByRegion.Get(region) {
 		if c.Name == name {
 			return nil, ErrCrlAlreadyExists
 		}
@@ -710,6 +711,7 @@ func (b *InMemoryBackend) ImportCrl(
 		CrlID:          id,
 		CrlArn:         b.crlARN(region, id),
 		Name:           name,
+		region:         region,
 		CrlData:        crlData,
 		TrustAnchorArn: trustAnchorArn,
 		Enabled:        enabled,
@@ -717,7 +719,7 @@ func (b *InMemoryBackend) ImportCrl(
 		UpdatedAt:      now,
 	}
 
-	store[id] = crl
+	b.crls.Put(crl)
 
 	if len(tags) > 0 {
 		b.tagsStore(region)[crl.CrlArn] = cloneTags(tags)
@@ -733,7 +735,7 @@ func (b *InMemoryBackend) GetCrl(ctx context.Context, id string) (*Crl, error) {
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	crl, exists := b.crls[region][id]
+	crl, exists := b.crls.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrCrlNotFound
 	}
@@ -746,8 +748,8 @@ func (b *InMemoryBackend) ListCrls(ctx context.Context, pageToken string, maxRes
 	b.mu.RLock("ListCrls")
 	defer b.mu.RUnlock()
 
-	items, token := listRegionItems(
-		b.crls,
+	items, token := listByRegionIndex(
+		b.crlsByRegion,
 		getRegion(ctx, b.defaultRegion),
 		copyCrl,
 		func(c *Crl) string { return c.Name },
@@ -765,9 +767,8 @@ func (b *InMemoryBackend) UpdateCrl(ctx context.Context, id, name string, crlDat
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.crlsStore(region)
 
-	crl, exists := store[id]
+	crl, exists := b.crls.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrCrlNotFound
 	}
@@ -791,15 +792,14 @@ func (b *InMemoryBackend) DeleteCrl(ctx context.Context, id string) (*Crl, error
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.crlsStore(region)
 
-	crl, exists := store[id]
+	crl, exists := b.crls.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrCrlNotFound
 	}
 
 	snap := copyCrl(crl)
-	delete(store, id)
+	b.crls.Delete(regionKey(region, id))
 
 	return snap, nil
 }
@@ -819,9 +819,8 @@ func (b *InMemoryBackend) setCrlEnabled(ctx context.Context, id string, enabled 
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.crlsStore(region)
 
-	crl, exists := store[id]
+	crl, exists := b.crls.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrCrlNotFound
 	}
@@ -841,14 +840,12 @@ func (b *InMemoryBackend) GetSubject(ctx context.Context, id string) (*Subject, 
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	s, exists := b.subjects[region][id]
+	s, exists := b.subjects.Get(regionKey(region, id))
 	if !exists {
 		return nil, ErrSubjectNotFound
 	}
 
-	cp := *s
-
-	return &cp, nil
+	return copySubject(s), nil
 }
 
 // ListSubjects returns all subjects with optional pagination.
@@ -860,24 +857,17 @@ func (b *InMemoryBackend) ListSubjects(
 	b.mu.RLock("ListSubjects")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.defaultRegion)
-	store := b.subjects[region]
+	items, token := listByRegionIndex(
+		b.subjectsByRegion,
+		getRegion(ctx, b.defaultRegion),
+		copySubject,
+		func(s *Subject) string { return s.SubjectID },
+		func(s *Subject) string { return s.SubjectID },
+		pageToken,
+		maxResults,
+	)
 
-	all := make([]*Subject, 0, len(store))
-
-	for _, s := range store {
-		cp := *s
-		all = append(all, &cp)
-	}
-
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].SubjectID < all[j].SubjectID
-	})
-
-	getID := func(s *Subject) string { return s.SubjectID }
-	start, next := paginate(all, pageToken, maxResults, getID)
-
-	return all[start:next], nextTokenFromSlice(all, next, getID), nil
+	return items, token, nil
 }
 
 // ---- Attribute mapping operations ----
@@ -892,9 +882,9 @@ func (b *InMemoryBackend) PutAttributeMapping(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	profiles := b.profiles[region]
 
-	if profiles == nil || profiles[profileID] == nil {
+	p, exists := b.profiles.Get(regionKey(region, profileID))
+	if !exists {
 		return nil, ErrProfileNotFound
 	}
 
@@ -920,7 +910,7 @@ func (b *InMemoryBackend) PutAttributeMapping(
 
 	amStore[profileID] = mappings
 
-	return copyProfile(profiles[profileID]), nil
+	return copyProfile(p), nil
 }
 
 // DeleteAttributeMapping removes a certificate field mapping (and optional specifiers) from a profile.
@@ -933,9 +923,9 @@ func (b *InMemoryBackend) DeleteAttributeMapping(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	profiles := b.profiles[region]
 
-	if profiles == nil || profiles[profileID] == nil {
+	p, exists := b.profiles.Get(regionKey(region, profileID))
+	if !exists {
 		return nil, ErrProfileNotFound
 	}
 
@@ -947,7 +937,7 @@ func (b *InMemoryBackend) DeleteAttributeMapping(
 		amStore[profileID] = removeSpecifiers(amStore[profileID], certificateField, specifiers)
 	}
 
-	return copyProfile(profiles[profileID]), nil
+	return copyProfile(p), nil
 }
 
 // removeFieldMapping returns mappings with the named certificateField removed entirely.
@@ -996,13 +986,13 @@ func (b *InMemoryBackend) GetAttributeMappings(ctx context.Context, profileID st
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.attributeMappings[region]
+	amStore := b.attributeMappings[region]
 
-	if store == nil {
+	if amStore == nil {
 		return nil
 	}
 
-	src := store[profileID]
+	src := amStore[profileID]
 	out := make([]AttributeMapping, len(src))
 	copy(out, src)
 
@@ -1021,9 +1011,8 @@ func (b *InMemoryBackend) PutNotificationSettings(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	taStore := b.trustAnchorsStore(region)
 
-	ta, exists := taStore[trustAnchorID]
+	ta, exists := b.trustAnchors.Get(regionKey(region, trustAnchorID))
 	if !exists {
 		return nil, ErrTrustAnchorNotFound
 	}
@@ -1064,9 +1053,8 @@ func (b *InMemoryBackend) ResetNotificationSettings(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	taStore := b.trustAnchorsStore(region)
 
-	ta, exists := taStore[trustAnchorID]
+	ta, exists := b.trustAnchors.Get(regionKey(region, trustAnchorID))
 	if !exists {
 		return nil, ErrTrustAnchorNotFound
 	}
@@ -1103,13 +1091,13 @@ func (b *InMemoryBackend) GetNotificationSettings(ctx context.Context, trustAnch
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
-	store := b.notificationSettings[region]
+	nsStore := b.notificationSettings[region]
 
-	if store == nil {
+	if nsStore == nil {
 		return nil
 	}
 
-	src := store[trustAnchorID]
+	src := nsStore[trustAnchorID]
 	out := make([]NotificationSetting, len(src))
 	copy(out, src)
 
@@ -1123,11 +1111,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.trustAnchors = make(map[string]map[string]*TrustAnchor)
-	b.profiles = make(map[string]map[string]*Profile)
+	// trustAnchors, profiles, crls, and subjects are "dirty" tables
+	// deliberately NOT on b.registry (see store_setup.go's registerAllTables
+	// doc), so each needs its own Reset() call here rather than going
+	// through b.registry.ResetAll().
+	b.registry.ResetAll()
+	b.trustAnchors.Reset()
+	b.profiles.Reset()
+	b.crls.Reset()
+	b.subjects.Reset()
 	b.tags = make(map[string]map[string][]TagEntry)
-	b.crls = make(map[string]map[string]*Crl)
-	b.subjects = make(map[string]map[string]*Subject)
 	b.attributeMappings = make(map[string]map[string][]AttributeMapping)
 	b.notificationSettings = make(map[string]map[string][]NotificationSetting)
 }
@@ -1138,90 +1131,10 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 // AccountID returns the backend's account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	type snap struct {
-		TrustAnchors         map[string]map[string]*TrustAnchor          `json:"trustAnchors"`
-		Profiles             map[string]map[string]*Profile              `json:"profiles"`
-		Tags                 map[string]map[string][]TagEntry            `json:"tags"`
-		Crls                 map[string]map[string]*Crl                  `json:"crls"`
-		Subjects             map[string]map[string]*Subject              `json:"subjects"`
-		AttributeMappings    map[string]map[string][]AttributeMapping    `json:"attributeMappings"`
-		NotificationSettings map[string]map[string][]NotificationSetting `json:"notificationSettings"`
-	}
-
-	return persistence.MarshalSnapshot(ctx, "rolesanywhere", snap{
-		TrustAnchors:         b.trustAnchors,
-		Profiles:             b.profiles,
-		Tags:                 b.tags,
-		Crls:                 b.crls,
-		Subjects:             b.subjects,
-		AttributeMappings:    b.attributeMappings,
-		NotificationSettings: b.notificationSettings,
-	})
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	type snap struct {
-		TrustAnchors         map[string]map[string]*TrustAnchor          `json:"trustAnchors"`
-		Profiles             map[string]map[string]*Profile              `json:"profiles"`
-		Tags                 map[string]map[string][]TagEntry            `json:"tags"`
-		Crls                 map[string]map[string]*Crl                  `json:"crls"`
-		Subjects             map[string]map[string]*Subject              `json:"subjects"`
-		AttributeMappings    map[string]map[string][]AttributeMapping    `json:"attributeMappings"`
-		NotificationSettings map[string]map[string][]NotificationSetting `json:"notificationSettings"`
-	}
-
-	var s snap
-	if err := persistence.UnmarshalSnapshot(ctx, "rolesanywhere", data, &s); err != nil {
-		return err
-	}
-
-	b.trustAnchors = s.TrustAnchors
-	b.profiles = s.Profiles
-	b.tags = s.Tags
-	b.crls = s.Crls
-	b.subjects = s.Subjects
-	b.attributeMappings = s.AttributeMappings
-	b.notificationSettings = s.NotificationSettings
-
-	if b.trustAnchors == nil {
-		b.trustAnchors = make(map[string]map[string]*TrustAnchor)
-	}
-
-	if b.profiles == nil {
-		b.profiles = make(map[string]map[string]*Profile)
-	}
-
-	if b.tags == nil {
-		b.tags = make(map[string]map[string][]TagEntry)
-	}
-
-	if b.crls == nil {
-		b.crls = make(map[string]map[string]*Crl)
-	}
-
-	if b.subjects == nil {
-		b.subjects = make(map[string]map[string]*Subject)
-	}
-
-	if b.attributeMappings == nil {
-		b.attributeMappings = make(map[string]map[string][]AttributeMapping)
-	}
-
-	if b.notificationSettings == nil {
-		b.notificationSettings = make(map[string]map[string][]NotificationSetting)
-	}
-
-	return nil
-}
+// Snapshot and Restore (implementing persistence.Persistable) live in
+// persistence.go, alongside the "dirty" DTO registry they need for
+// trustAnchors/profiles/crls/subjects (see store_setup.go's registerAllTables
+// doc for why those four tables are dirty).
 
 // ---- helpers ----
 
@@ -1264,6 +1177,12 @@ func copyProfile(p *Profile) *Profile {
 func copyCrl(c *Crl) *Crl {
 	cp := *c
 	cp.CrlData = append([]byte(nil), c.CrlData...)
+
+	return &cp
+}
+
+func copySubject(s *Subject) *Subject {
+	cp := *s
 
 	return &cp
 }

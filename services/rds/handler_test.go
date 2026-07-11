@@ -233,17 +233,49 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantContains: []string{"DBInstanceAlreadyExists"},
 		},
 		{
-			name:         "DeleteDBInstance",
-			setupBodies:  []string{"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db"},
-			body:         "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db",
+			name:        "DeleteDBInstance",
+			setupBodies: []string{"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db"},
+			body: "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db" +
+				"&SkipFinalSnapshot=true",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DeleteDBInstanceResponse", "del-db"},
 		},
 		{
-			name:         "DeleteDBInstance_NotFound",
-			body:         "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=nonexistent",
+			name:     "DeleteDBInstance_NotFound",
+			body:     "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=nonexistent",
+			wantCode: http.StatusBadRequest,
+			wantContains: []string{
+				"DBInstanceNotFound",
+			},
+		},
+		{
+			name: "DeleteDBInstance_MissingSkipFinalSnapshotAndFinalSnapshotID",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db-nosnap",
+			},
+			body:         "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db-nosnap",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"DBInstanceNotFound"},
+			wantContains: []string{"InvalidParameterCombination", "FinalDBSnapshotIdentifier"},
+		},
+		{
+			name: "DeleteDBInstance_FinalSnapshotIDWithSkipFinalSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db-badcombo",
+			},
+			body: "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db-badcombo" +
+				"&SkipFinalSnapshot=true&FinalDBSnapshotIdentifier=del-db-badcombo-final",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterCombination", "FinalDBSnapshotIdentifier"},
+		},
+		{
+			name: "DeleteDBInstance_WithFinalSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db-finalsnap",
+			},
+			body: "Action=DeleteDBInstance&Version=2014-10-31&DBInstanceIdentifier=del-db-finalsnap" +
+				"&FinalDBSnapshotIdentifier=del-db-finalsnap-final",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDBInstanceResponse", "del-db-finalsnap"},
 		},
 		{
 			name:         "DescribeDBInstances",
@@ -629,7 +661,8 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			setupBodies: []string{
 				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster&Engine=aurora-postgresql",
 			},
-			body:         "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster",
+			body: "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster" +
+				"&SkipFinalSnapshot=true",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DeleteDBClusterResponse", "del-cluster"},
 		},
@@ -638,6 +671,27 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			body:         "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "DeleteDBCluster_MissingSkipFinalSnapshotAndFinalSnapshotID",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster-nosnap" +
+					"&Engine=aurora-postgresql",
+			},
+			body:         "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster-nosnap",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterCombination", "FinalDBSnapshotIdentifier"},
+		},
+		{
+			name: "DeleteDBCluster_WithFinalSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster-finalsnap" +
+					"&Engine=aurora-postgresql",
+			},
+			body: "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster-finalsnap" +
+				"&FinalDBSnapshotIdentifier=del-cluster-finalsnap-final",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDBClusterResponse", "del-cluster-finalsnap"},
 		},
 		{
 			name: "ModifyDBCluster",
@@ -1277,7 +1331,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
 			},
 			del: "Action=DeleteDBInstance&Version=2014-10-31" +
-				"&DBInstanceIdentifier=tag-inst",
+				"&DBInstanceIdentifier=tag-inst&SkipFinalSnapshot=true",
 			check: "Action=ListTagsForResource&Version=2014-10-31" +
 				"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:tag-inst",
 		},
@@ -1362,7 +1416,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
 			},
 			del: "Action=DeleteDBCluster&Version=2014-10-31" +
-				"&DBClusterIdentifier=tag-cluster",
+				"&DBClusterIdentifier=tag-cluster&SkipFinalSnapshot=true",
 			check: "Action=ListTagsForResource&Version=2014-10-31" +
 				"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster:tag-cluster",
 		},

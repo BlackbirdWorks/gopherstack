@@ -769,11 +769,28 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 		t.Fatalf("CreateService: %v", err)
 	}
 
-	// Inject a fake service deployment entry to test cascade deletion.
-	b.mu.Lock("test-inject")
-	b.serviceDeployments[svc.ServiceArn] = &ServiceDeployment{
-		ServiceDeploymentArn: "arn:aws:ecs:us-east-1:123456789012:service-deployment/test-cluster/my-svc/abc",
+	// CreateService itself records a real ServiceDeployment for the initial
+	// PRIMARY deployment (see syncServiceDeploymentsLocked in
+	// backend_new_ops.go), keyed by ServiceDeploymentArn — not by ServiceArn.
+	// Confirm it exists before asserting the cascade delete.
+	deploymentArns, err := b.ListServiceDeployments("test-cluster", "my-svc")
+	if err != nil {
+		t.Fatalf("ListServiceDeployments: %v", err)
 	}
+
+	if len(deploymentArns) != 1 {
+		t.Fatalf("ListServiceDeployments before delete = %d entries, want 1", len(deploymentArns))
+	}
+
+	// Also inject a second, independently-keyed entry (as an external caller
+	// or an older revision might leave behind) to prove the cascade matches on
+	// the ServiceArn field rather than assuming a single well-known key.
+	extraArn := "arn:aws:ecs:us-east-1:123456789012:service-deployment/test-cluster/my-svc/abc"
+	b.mu.Lock("test-inject")
+	b.serviceDeployments.Put(&ServiceDeployment{
+		ServiceDeploymentArn: extraArn,
+		ServiceArn:           svc.ServiceArn,
+	})
 	b.mu.Unlock()
 
 	_, err = b.DeleteCluster("test-cluster")
@@ -781,13 +798,18 @@ func TestDeleteCluster_CascadesServiceDeployments(t *testing.T) {
 		t.Fatalf("DeleteCluster: %v", err)
 	}
 
-	// Service deployment should be gone.
+	// Both the real and the injected service deployment should be gone.
 	b.mu.RLock("test-verify")
-	_, stillExists := b.serviceDeployments[svc.ServiceArn]
+	_, realStillExists := b.serviceDeployments.Get(deploymentArns[0])
+	_, extraStillExists := b.serviceDeployments.Get(extraArn)
 	b.mu.RUnlock()
 
-	if stillExists {
-		t.Error("service deployment not cascade-deleted with cluster")
+	if realStillExists {
+		t.Error("real service deployment not cascade-deleted with cluster")
+	}
+
+	if extraStillExists {
+		t.Error("injected service deployment not cascade-deleted with cluster")
 	}
 }
 

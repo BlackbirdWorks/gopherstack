@@ -267,6 +267,29 @@ type Document struct {
 	CreatedDate       float64              `json:"CreatedDate"`
 }
 
+// DocumentDescription is the document metadata shape returned by
+// CreateDocument, UpdateDocument, and DescribeDocument. Unlike Document (the
+// internal storage representation), AWS's real DocumentDescription structure
+// deliberately omits Content — only GetDocument returns document content, to
+// avoid every metadata call re-transmitting potentially large document bodies.
+type DocumentDescription struct {
+	TargetType        string               `json:"TargetType,omitempty"`
+	LatestVersion     string               `json:"LatestVersion"`
+	DocumentType      string               `json:"DocumentType"`
+	DocumentFormat    string               `json:"DocumentFormat"`
+	Status            string               `json:"Status"`
+	StatusInformation string               `json:"StatusInformation,omitempty"`
+	DefaultVersion    string               `json:"DefaultVersion"`
+	Name              string               `json:"Name"`
+	SchemaVersion     string               `json:"SchemaVersion"`
+	Description       string               `json:"Description,omitempty"`
+	DocumentVersion   string               `json:"DocumentVersion"`
+	PlatformTypes     []string             `json:"PlatformTypes,omitempty"`
+	Attachments       []DocumentAttachment `json:"Attachments,omitempty"`
+	Requires          []DocumentRequires   `json:"Requires,omitempty"`
+	CreatedDate       float64              `json:"CreatedDate"`
+}
+
 // DocumentVersion represents a specific version of an SSM document.
 type DocumentVersion struct {
 	Name             string  `json:"Name"`
@@ -315,7 +338,7 @@ type CreateDocumentInput struct {
 
 // CreateDocumentOutput is the response payload for CreateDocument.
 type CreateDocumentOutput struct {
-	DocumentDescription Document `json:"DocumentDescription"`
+	DocumentDescription DocumentDescription `json:"DocumentDescription"`
 }
 
 // GetDocumentInput is the request payload for GetDocument.
@@ -343,7 +366,7 @@ type DescribeDocumentInput struct {
 
 // DescribeDocumentOutput is the response payload for DescribeDocument.
 type DescribeDocumentOutput struct {
-	Document Document `json:"Document"`
+	Document DocumentDescription `json:"Document"`
 }
 
 // ListDocumentsInput is the request payload for ListDocuments.
@@ -370,7 +393,7 @@ type UpdateDocumentInput struct {
 
 // UpdateDocumentOutput is the response payload for UpdateDocument.
 type UpdateDocumentOutput struct {
-	DocumentDescription Document `json:"DocumentDescription"`
+	DocumentDescription DocumentDescription `json:"DocumentDescription"`
 }
 
 // DeleteDocumentInput is the request payload for DeleteDocument.

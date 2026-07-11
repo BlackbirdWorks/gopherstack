@@ -5,7 +5,7 @@ func TerminologyCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.terminologies)
+	return b.terminologies.Len()
 }
 
 // ParallelDataCount returns the number of stored parallel data resources.
@@ -13,7 +13,7 @@ func ParallelDataCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.parallelData)
+	return b.parallelData.Len()
 }
 
 // JobCount returns the number of stored translation jobs.
@@ -21,5 +21,5 @@ func JobCount(b *InMemoryBackend) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.jobs)
+	return b.jobs.Len()
 }

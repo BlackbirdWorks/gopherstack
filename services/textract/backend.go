@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -185,8 +187,14 @@ type QueryEntry struct {
 
 // DocumentJob represents an asynchronous Textract document job.
 type DocumentJob struct {
-	CreationTime        time.Time            `json:"creationTime"`
-	JobID               string               `json:"jobId"`
+	CreationTime time.Time `json:"creationTime"`
+	JobID        string    `json:"jobId"`
+	// Region is the store.Table[DocumentJob] key material (see jobKey in
+	// store_setup.go): this backend nests jobs by region, and DocumentJob
+	// otherwise carries no field recording which region bucket it lives in.
+	// Excluded from persisted JSON -- persistence.go's DTO-based
+	// Snapshot/Restore captures Region as a real field instead (Phase 3.3).
+	Region              string               `json:"-"`
 	JobStatus           string               `json:"jobStatus"`
 	JobType             string               `json:"jobType"` // "DocumentAnalysis" or "TextDetection"
 	Blocks              []Block              `json:"blocks"`
@@ -341,8 +349,12 @@ type LendingSummary struct {
 
 // LendingJob represents an asynchronous Textract lending analysis job.
 type LendingJob struct {
-	CreationTime        time.Time            `json:"creationTime"`
-	JobID               string               `json:"jobId"`
+	CreationTime time.Time `json:"creationTime"`
+	JobID        string    `json:"jobId"`
+	// Region is the store.Table[LendingJob] key material -- see the
+	// DocumentJob.Region doc comment above for why this field exists and is
+	// excluded from persisted JSON.
+	Region              string               `json:"-"`
 	JobStatus           string               `json:"jobStatus"`
 	Results             []LendingResult      `json:"results"`
 	Summary             *LendingSummary      `json:"summary,omitempty"`
@@ -375,14 +387,18 @@ type S3ObjectRef struct {
 
 // Adapter represents a Textract Adapter.
 type Adapter struct {
-	CreationTime       time.Time         `json:"creationTime"`
-	Tags               map[string]string `json:"tags"`
-	AdapterID          string            `json:"adapterId"`
-	AdapterName        string            `json:"adapterName"`
-	AutoUpdate         string            `json:"autoUpdate"`
-	Description        string            `json:"description"`
-	ClientRequestToken string            `json:"clientRequestToken,omitempty"`
-	FeatureTypes       []string          `json:"featureTypes"`
+	CreationTime time.Time         `json:"creationTime"`
+	Tags         map[string]string `json:"tags"`
+	AdapterID    string            `json:"adapterId"`
+	// Region is the store.Table[Adapter] key material -- see the
+	// DocumentJob.Region doc comment above for why this field exists and is
+	// excluded from persisted JSON.
+	Region             string   `json:"-"`
+	AdapterName        string   `json:"adapterName"`
+	AutoUpdate         string   `json:"autoUpdate"`
+	Description        string   `json:"description"`
+	ClientRequestToken string   `json:"clientRequestToken,omitempty"`
+	FeatureTypes       []string `json:"featureTypes"`
 }
 
 // AdapterVersion represents a version of a Textract Adapter.
@@ -392,13 +408,14 @@ type AdapterVersion struct {
 	DatasetConfig     *DatasetConfig     `json:"datasetConfig,omitempty"`
 	OutputConfig      *OutputConfig      `json:"outputConfig,omitempty"`
 	EvaluationMetrics *EvaluationMetrics `json:"evaluationMetrics,omitempty"`
-	AdapterID         string             `json:"adapterId"`
 	AdapterVersion    string             `json:"adapterVersion"`
+	AdapterID         string             `json:"adapterId"`
 	Status            string             `json:"status"`
 	StatusMessage     string             `json:"statusMessage"`
 	//nolint:revive,staticcheck // KMSKeyId: AWS SDK field name convention
 	KMSKeyId           string   `json:"kmsKeyId,omitempty"`
 	ClientRequestToken string   `json:"clientRequestToken,omitempty"`
+	Region             string   `json:"-"`
 	FeatureTypes       []string `json:"featureTypes"`
 }
 
@@ -410,8 +427,12 @@ const MaxJobHistory = maxJobHistory
 
 // ExpenseJob represents an asynchronous Textract expense analysis job.
 type ExpenseJob struct {
-	CreationTime        time.Time            `json:"creationTime"`
-	JobID               string               `json:"jobId"`
+	CreationTime time.Time `json:"creationTime"`
+	JobID        string    `json:"jobId"`
+	// Region is the store.Table[ExpenseJob] key material -- see the
+	// DocumentJob.Region doc comment above for why this field exists and is
+	// excluded from persisted JSON.
+	Region              string               `json:"-"`
 	JobStatus           string               `json:"jobStatus"`
 	ExpenseDocuments    []ExpenseDocument    `json:"expenseDocuments"`
 	OutputConfig        *OutputConfig        `json:"outputConfig,omitempty"`
@@ -424,24 +445,34 @@ type ExpenseJob struct {
 
 // InMemoryBackend is the in-memory store for Textract jobs.
 //
-// All resource maps are nested by region (outer key = region) so that
-// same-named resources in different regions are fully isolated.
+// jobs/expenseJobs/lendingJobs/adapters/adapterVersions were formerly nested
+// by region (outer key = region) so that same-named resources in different
+// regions are fully isolated; each is now a store.Table[T] keyed by a
+// region+id composite (see regionKey in store_setup.go) providing the same
+// isolation. clientTokenToJobID/adapterClientTokenToID remain plain
+// region-nested maps: their values are strings, not *T, so they do not fit
+// store.Table's keyed-by-identity-value shape.
 type InMemoryBackend struct {
-	svcCtx                 context.Context
-	adapterClientTokenToID map[string]map[string]string          // region → clientToken → adapterID
-	expenseJobs            map[string]map[string]*ExpenseJob     // region → jobID → ExpenseJob
-	adapters               map[string]map[string]*Adapter        // region → adapterID → Adapter
-	adapterVersions        map[string]map[string]*AdapterVersion // region → key → AdapterVersion
-	clientTokenToJobID     map[string]map[string]string          // region → clientToken → jobID
-	jobs                   map[string]map[string]*DocumentJob    // region → jobID → DocumentJob
-	mu                     *lockmetrics.RWMutex
-	lendingJobs            map[string]map[string]*LendingJob // region → jobID → LendingJob
-	cancel                 context.CancelFunc
-	accountID              string
-	region                 string // default region
-	wg                     sync.WaitGroup
-	asyncJobDelay          time.Duration
-	maxJobs                int
+	svcCtx                   context.Context
+	adapterClientTokenToID   map[string]map[string]string // region → clientToken → adapterID
+	clientTokenToJobID       map[string]map[string]string // region → clientToken → jobID
+	jobs                     *store.Table[DocumentJob]
+	jobsByRegion             *store.Index[DocumentJob]
+	expenseJobs              *store.Table[ExpenseJob]
+	expenseJobsByRegion      *store.Index[ExpenseJob]
+	lendingJobs              *store.Table[LendingJob]
+	lendingJobsByRegion      *store.Index[LendingJob]
+	adapters                 *store.Table[Adapter]
+	adaptersByRegion         *store.Index[Adapter]
+	adapterVersions          *store.Table[AdapterVersion]
+	adapterVersionsByAdapter *store.Index[AdapterVersion]
+	mu                       *lockmetrics.RWMutex
+	cancel                   context.CancelFunc
+	accountID                string
+	region                   string // default region
+	wg                       sync.WaitGroup
+	asyncJobDelay            time.Duration
+	maxJobs                  int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
@@ -461,12 +492,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 
 	ctx, cancel := context.WithCancel(svcCtx)
 
-	return &InMemoryBackend{
-		jobs:                   make(map[string]map[string]*DocumentJob),
-		expenseJobs:            make(map[string]map[string]*ExpenseJob),
-		lendingJobs:            make(map[string]map[string]*LendingJob),
-		adapters:               make(map[string]map[string]*Adapter),
-		adapterVersions:        make(map[string]map[string]*AdapterVersion),
+	b := &InMemoryBackend{
 		clientTokenToJobID:     make(map[string]map[string]string),
 		adapterClientTokenToID: make(map[string]map[string]string),
 		mu:                     lockmetrics.New("textract"),
@@ -477,6 +503,10 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		svcCtx:                 ctx,
 		cancel:                 cancel,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // runDelayed runs fn after delay, unless the backend's lifecycle context is
@@ -526,57 +556,13 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.jobs = make(map[string]map[string]*DocumentJob)
-	b.expenseJobs = make(map[string]map[string]*ExpenseJob)
-	b.lendingJobs = make(map[string]map[string]*LendingJob)
-	b.adapters = make(map[string]map[string]*Adapter)
-	b.adapterVersions = make(map[string]map[string]*AdapterVersion)
+	b.resetTablesLocked()
 	b.clientTokenToJobID = make(map[string]map[string]string)
 	b.adapterClientTokenToID = make(map[string]map[string]string)
 }
 
 // The following lazy per-region store helpers return the resource map for the
 // given region, creating it on first use. Callers must hold b.mu.
-
-func (b *InMemoryBackend) jobsStore(region string) map[string]*DocumentJob {
-	if b.jobs[region] == nil {
-		b.jobs[region] = make(map[string]*DocumentJob)
-	}
-
-	return b.jobs[region]
-}
-
-func (b *InMemoryBackend) expenseJobsStore(region string) map[string]*ExpenseJob {
-	if b.expenseJobs[region] == nil {
-		b.expenseJobs[region] = make(map[string]*ExpenseJob)
-	}
-
-	return b.expenseJobs[region]
-}
-
-func (b *InMemoryBackend) lendingJobsStore(region string) map[string]*LendingJob {
-	if b.lendingJobs[region] == nil {
-		b.lendingJobs[region] = make(map[string]*LendingJob)
-	}
-
-	return b.lendingJobs[region]
-}
-
-func (b *InMemoryBackend) adaptersStore(region string) map[string]*Adapter {
-	if b.adapters[region] == nil {
-		b.adapters[region] = make(map[string]*Adapter)
-	}
-
-	return b.adapters[region]
-}
-
-func (b *InMemoryBackend) adapterVersionsStore(region string) map[string]*AdapterVersion {
-	if b.adapterVersions[region] == nil {
-		b.adapterVersions[region] = make(map[string]*AdapterVersion)
-	}
-
-	return b.adapterVersions[region]
-}
 
 func (b *InMemoryBackend) clientTokenToJobIDStore(region string) map[string]string {
 	if b.clientTokenToJobID[region] == nil {
@@ -1184,76 +1170,55 @@ func cloneLendingJob(j *LendingJob) *LendingJob {
 	return &cp
 }
 
-// trimJobsIfNeeded removes the oldest jobs when the job count exceeds maxJobs.
-// Caller must hold the write lock.
-func trimJobsIfNeeded(jobs map[string]*DocumentJob, maxJobs int) {
-	if len(jobs) <= maxJobs {
+// trimJobsIfNeeded removes the oldest jobs in region once the per-region job
+// count exceeds maxJobs. Caller must hold the write lock. byRegion.Get
+// returns an index-owned slice that Table.Delete mutates in place, so it is
+// cloned before the delete loop below (see pkgs/store's Index.Get doc).
+func trimJobsIfNeeded(t *store.Table[DocumentJob], byRegion *store.Index[DocumentJob], region string, maxJobs int) {
+	entries := slices.Clone(byRegion.Get(region))
+	if len(entries) <= maxJobs {
 		return
-	}
-
-	type entry struct {
-		job *DocumentJob
-		id  string
-	}
-
-	entries := make([]entry, 0, len(jobs))
-	for id, j := range jobs {
-		entries = append(entries, entry{id: id, job: j})
 	}
 
 	sort.Slice(entries, func(i, k int) bool {
-		return entries[i].job.CreationTime.Before(entries[k].job.CreationTime)
+		return entries[i].CreationTime.Before(entries[k].CreationTime)
 	})
 
-	excess := len(jobs) - maxJobs
+	excess := len(entries) - maxJobs
 	for i := range excess {
-		delete(jobs, entries[i].id)
+		t.Delete(jobKey(entries[i]))
 	}
 }
 
-func trimExpenseJobsIfNeeded(jobs map[string]*ExpenseJob, maxJobs int) {
-	if len(jobs) <= maxJobs {
+func trimExpenseJobsIfNeeded(
+	t *store.Table[ExpenseJob], byRegion *store.Index[ExpenseJob], region string, maxJobs int,
+) {
+	entries := slices.Clone(byRegion.Get(region))
+	if len(entries) <= maxJobs {
 		return
 	}
 
-	type entry struct {
-		t  time.Time
-		id string
-	}
+	sort.Slice(entries, func(i, k int) bool { return entries[i].CreationTime.Before(entries[k].CreationTime) })
 
-	entries := make([]entry, 0, len(jobs))
-	for id, j := range jobs {
-		entries = append(entries, entry{id: id, t: j.CreationTime})
-	}
-
-	sort.Slice(entries, func(i, k int) bool { return entries[i].t.Before(entries[k].t) })
-
-	excess := len(jobs) - maxJobs
+	excess := len(entries) - maxJobs
 	for i := range excess {
-		delete(jobs, entries[i].id)
+		t.Delete(expenseJobKey(entries[i]))
 	}
 }
 
-func trimLendingJobsIfNeeded(jobs map[string]*LendingJob, maxJobs int) {
-	if len(jobs) <= maxJobs {
+func trimLendingJobsIfNeeded(
+	t *store.Table[LendingJob], byRegion *store.Index[LendingJob], region string, maxJobs int,
+) {
+	entries := slices.Clone(byRegion.Get(region))
+	if len(entries) <= maxJobs {
 		return
 	}
 
-	type entry struct {
-		t  time.Time
-		id string
-	}
+	sort.Slice(entries, func(i, k int) bool { return entries[i].CreationTime.Before(entries[k].CreationTime) })
 
-	entries := make([]entry, 0, len(jobs))
-	for id, j := range jobs {
-		entries = append(entries, entry{id: id, t: j.CreationTime})
-	}
-
-	sort.Slice(entries, func(i, k int) bool { return entries[i].t.Before(entries[k].t) })
-
-	excess := len(jobs) - maxJobs
+	excess := len(entries) - maxJobs
 	for i := range excess {
-		delete(jobs, entries[i].id)
+		t.Delete(lendingJobKey(entries[i]))
 	}
 }
 
@@ -1302,7 +1267,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 	// Idempotency: if token already seen, return existing job.
 	if clientRequestToken != "" {
 		if existingID, ok := b.clientTokenToJobIDStore(region)[clientRequestToken]; ok {
-			if existing, ok2 := b.jobsStore(region)[existingID]; ok2 {
+			if existing, ok2 := b.jobs.Get(regionKey(region, existingID)); ok2 {
 				result := cloneJob(existing)
 				b.mu.Unlock()
 
@@ -1314,6 +1279,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 	jobID := uuid.NewString()
 	blocks := analyzeDocumentBlocks(documentURI, featureTypes, queries)
 	job := &DocumentJob{
+		Region:             region,
 		JobID:              jobID,
 		JobStatus:          jobStatusInProgress,
 		JobType:            jobTypeDocumentAnalysis,
@@ -1323,8 +1289,8 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 		JobTag:             jobTag,
 		ClientRequestToken: clientRequestToken,
 	}
-	b.jobsStore(region)[jobID] = job
-	trimJobsIfNeeded(b.jobsStore(region), b.maxJobs)
+	b.jobs.Put(job)
+	trimJobsIfNeeded(b.jobs, b.jobsByRegion, region, b.maxJobs)
 
 	if clientRequestToken != "" {
 		b.clientTokenToJobIDStore(region)[clientRequestToken] = jobID
@@ -1341,18 +1307,21 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 
 	b.mu.Unlock()
 
+	key := jobKey(job)
+
 	// Transition to SUCCEEDED after a short delay.
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartDocumentAnalysis-complete")
 		defer b.mu.Unlock()
 
-		if j, ok := b.jobsStore(region)[jobID]; ok {
+		if j, ok := b.jobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
 		}
 	})
 
 	b.mu.RLock("StartDocumentAnalysis-read")
-	result := cloneJob(b.jobsStore(region)[jobID])
+	stored, _ := b.jobs.Get(key)
+	result := cloneJob(stored)
 	b.mu.RUnlock()
 
 	return result, nil
@@ -1366,7 +1335,7 @@ func (b *InMemoryBackend) GetDocumentAnalysis(ctx context.Context, jobID string)
 	b.mu.RLock("GetDocumentAnalysis")
 	defer b.mu.RUnlock()
 
-	job, ok := b.jobsStore(region)[jobID]
+	job, ok := b.jobs.Get(regionKey(region, jobID))
 	if !ok || job.JobType != jobTypeDocumentAnalysis {
 		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
 	}
@@ -1394,7 +1363,7 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 	// Idempotency: if token already seen, return existing job.
 	if clientRequestToken != "" {
 		if existingID, ok := b.clientTokenToJobIDStore(region)[clientRequestToken]; ok {
-			if existing, ok2 := b.jobsStore(region)[existingID]; ok2 {
+			if existing, ok2 := b.jobs.Get(regionKey(region, existingID)); ok2 {
 				result := cloneJob(existing)
 				b.mu.Unlock()
 
@@ -1405,6 +1374,7 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 
 	jobID := uuid.NewString()
 	job := &DocumentJob{
+		Region:              region,
 		JobID:               jobID,
 		JobStatus:           jobStatusInProgress,
 		JobType:             jobTypeTextDetection,
@@ -1415,8 +1385,8 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 		JobTag:              jobTag,
 		ClientRequestToken:  clientRequestToken,
 	}
-	b.jobsStore(region)[jobID] = job
-	trimJobsIfNeeded(b.jobsStore(region), b.maxJobs)
+	b.jobs.Put(job)
+	trimJobsIfNeeded(b.jobs, b.jobsByRegion, region, b.maxJobs)
 
 	if clientRequestToken != "" {
 		b.clientTokenToJobIDStore(region)[clientRequestToken] = jobID
@@ -1432,17 +1402,20 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 
 	b.mu.Unlock()
 
+	key := jobKey(job)
+
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartDocumentTextDetection-complete")
 		defer b.mu.Unlock()
 
-		if j, ok := b.jobsStore(region)[jobID]; ok {
+		if j, ok := b.jobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
 		}
 	})
 
 	b.mu.RLock("StartDocumentTextDetection-read")
-	result := cloneJob(b.jobsStore(region)[jobID])
+	stored, _ := b.jobs.Get(key)
+	result := cloneJob(stored)
 	b.mu.RUnlock()
 
 	return result, nil
@@ -1456,7 +1429,7 @@ func (b *InMemoryBackend) GetDocumentTextDetection(ctx context.Context, jobID st
 	b.mu.RLock("GetDocumentTextDetection")
 	defer b.mu.RUnlock()
 
-	job, ok := b.jobsStore(region)[jobID]
+	job, ok := b.jobs.Get(regionKey(region, jobID))
 	if !ok || job.JobType != jobTypeTextDetection {
 		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
 	}
@@ -1471,10 +1444,10 @@ func (b *InMemoryBackend) ListJobs(ctx context.Context) []DocumentJob {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
-	store := b.jobsStore(region)
-	out := make([]DocumentJob, 0, len(store))
+	jobs := b.jobsByRegion.Get(region)
+	out := make([]DocumentJob, 0, len(jobs))
 
-	for _, j := range store {
+	for _, j := range jobs {
 		out = append(out, *cloneJob(j))
 	}
 
@@ -1745,13 +1718,14 @@ func (b *InMemoryBackend) StartExpenseAnalysis(ctx context.Context, documentURI 
 
 	jobID := uuid.NewString()
 	job := &ExpenseJob{
+		Region:           region,
 		JobID:            jobID,
 		JobStatus:        jobStatusInProgress,
 		CreationTime:     time.Now(),
 		ExpenseDocuments: []ExpenseDocument{syntheticExpenseDocument(documentURI)},
 	}
-	b.expenseJobsStore(region)[jobID] = job
-	trimExpenseJobsIfNeeded(b.expenseJobsStore(region), b.maxJobs)
+	b.expenseJobs.Put(job)
+	trimExpenseJobsIfNeeded(b.expenseJobs, b.expenseJobsByRegion, region, b.maxJobs)
 
 	if b.asyncJobDelay == 0 {
 		job.JobStatus = jobStatusSucceeded
@@ -1763,17 +1737,20 @@ func (b *InMemoryBackend) StartExpenseAnalysis(ctx context.Context, documentURI 
 
 	b.mu.Unlock()
 
+	key := expenseJobKey(job)
+
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartExpenseAnalysis-complete")
 		defer b.mu.Unlock()
 
-		if j, ok := b.expenseJobsStore(region)[jobID]; ok {
+		if j, ok := b.expenseJobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
 		}
 	})
 
 	b.mu.RLock("StartExpenseAnalysis-read")
-	result := cloneExpenseJob(b.expenseJobsStore(region)[jobID])
+	stored, _ := b.expenseJobs.Get(key)
+	result := cloneExpenseJob(stored)
 	b.mu.RUnlock()
 
 	return result, nil
@@ -1787,7 +1764,7 @@ func (b *InMemoryBackend) GetExpenseAnalysis(ctx context.Context, jobID string) 
 	b.mu.RLock("GetExpenseAnalysis")
 	defer b.mu.RUnlock()
 
-	job, ok := b.expenseJobsStore(region)[jobID]
+	job, ok := b.expenseJobs.Get(regionKey(region, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: expense job %s not found", ErrJobNotFound, jobID)
 	}
@@ -1803,14 +1780,15 @@ func (b *InMemoryBackend) StartLendingAnalysis(ctx context.Context, _ string) (*
 
 	jobID := uuid.NewString()
 	job := &LendingJob{
+		Region:       region,
 		JobID:        jobID,
 		JobStatus:    jobStatusInProgress,
 		CreationTime: time.Now(),
 		Results:      syntheticLendingResults(),
 		Summary:      syntheticLendingSummary(),
 	}
-	b.lendingJobsStore(region)[jobID] = job
-	trimLendingJobsIfNeeded(b.lendingJobsStore(region), b.maxJobs)
+	b.lendingJobs.Put(job)
+	trimLendingJobsIfNeeded(b.lendingJobs, b.lendingJobsByRegion, region, b.maxJobs)
 
 	if b.asyncJobDelay == 0 {
 		job.JobStatus = jobStatusSucceeded
@@ -1822,17 +1800,20 @@ func (b *InMemoryBackend) StartLendingAnalysis(ctx context.Context, _ string) (*
 
 	b.mu.Unlock()
 
+	key := lendingJobKey(job)
+
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("StartLendingAnalysis-complete")
 		defer b.mu.Unlock()
 
-		if j, ok := b.lendingJobsStore(region)[jobID]; ok {
+		if j, ok := b.lendingJobs.Get(key); ok {
 			j.JobStatus = jobStatusSucceeded
 		}
 	})
 
 	b.mu.RLock("StartLendingAnalysis-read")
-	result := cloneLendingJob(b.lendingJobsStore(region)[jobID])
+	stored, _ := b.lendingJobs.Get(key)
+	result := cloneLendingJob(stored)
 	b.mu.RUnlock()
 
 	return result, nil
@@ -1846,7 +1827,7 @@ func (b *InMemoryBackend) GetLendingAnalysis(ctx context.Context, jobID string) 
 	b.mu.RLock("GetLendingAnalysis")
 	defer b.mu.RUnlock()
 
-	job, ok := b.lendingJobsStore(region)[jobID]
+	job, ok := b.lendingJobs.Get(regionKey(region, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
 	}
@@ -1905,13 +1886,15 @@ func arnAdapterID(resourceARN string) string {
 	return rest
 }
 
-// resolveARNToAdapter finds an adapter by ARN or adapter ID in the given region store.
-func resolveARNToAdapter(adapters map[string]*Adapter, resourceARN string) (*Adapter, bool) {
+// resolveARNToAdapter finds an adapter by ARN or adapter ID in the given
+// region. The old map[string]*Adapter this replaces was always keyed by
+// AdapterID (see CreateAdapterWithToken), so a linear scan checking
+// a.AdapterID == X was behaviorally identical to a keyed lookup; this is a
+// mechanical Table.Get in place of that scan, not a behavior change.
+func resolveARNToAdapter(adapters *store.Table[Adapter], region, resourceARN string) (*Adapter, bool) {
 	// Try direct adapter ID match first.
-	for _, a := range adapters {
-		if a.AdapterID == resourceARN {
-			return a, true
-		}
+	if a, ok := adapters.Get(regionKey(region, resourceARN)); ok {
+		return a, true
 	}
 
 	// Try ARN match: arn:aws:textract:region:account:adapter/adapterID
@@ -1920,18 +1903,12 @@ func resolveARNToAdapter(adapters map[string]*Adapter, resourceARN string) (*Ada
 		return nil, false
 	}
 
-	for _, a := range adapters {
-		if a.AdapterID == adapterID {
-			return a, true
-		}
-	}
-
-	return nil, false
+	return adapters.Get(regionKey(region, adapterID))
 }
 
-// resolveARNToAdapterVersion finds an adapter version by ARN in the given region store.
+// resolveARNToAdapterVersion finds an adapter version by ARN in the given region.
 func resolveARNToAdapterVersion(
-	adapterVersions map[string]*AdapterVersion, resourceARN string,
+	adapterVersions *store.Table[AdapterVersion], region, resourceARN string,
 ) (*AdapterVersion, bool) {
 	const versionPrefix = "/version/"
 
@@ -1951,10 +1928,8 @@ func resolveARNToAdapterVersion(
 	}
 
 	adapterID := adapterPart[adIdx+len(adapterPrefix):]
-	key := adapterVersionKey(adapterID, version)
-	av, ok := adapterVersions[key]
 
-	return av, ok
+	return adapterVersions.Get(regionKey(region, adapterVersionKey(adapterID, version)))
 }
 
 // lastIndex finds the last occurrence of substr in s.
@@ -2013,7 +1988,7 @@ func (b *InMemoryBackend) CreateAdapterWithToken(
 	// Idempotency check.
 	if clientRequestToken != "" {
 		if existingID, ok := b.adapterClientTokenToIDStore(region)[clientRequestToken]; ok {
-			if existing, ok2 := b.adaptersStore(region)[existingID]; ok2 {
+			if existing, ok2 := b.adapters.Get(regionKey(region, existingID)); ok2 {
 				return cloneAdapter(existing), nil
 			}
 		}
@@ -2021,6 +1996,7 @@ func (b *InMemoryBackend) CreateAdapterWithToken(
 
 	adapterID := uuid.NewString()
 	adapter := &Adapter{
+		Region:             region,
 		AdapterID:          adapterID,
 		AdapterName:        name,
 		AutoUpdate:         autoUpdate,
@@ -2030,7 +2006,7 @@ func (b *InMemoryBackend) CreateAdapterWithToken(
 		Tags:               cloneTags(tags),
 		ClientRequestToken: clientRequestToken,
 	}
-	b.adaptersStore(region)[adapterID] = adapter
+	b.adapters.Put(adapter)
 
 	if clientRequestToken != "" {
 		b.adapterClientTokenToIDStore(region)[clientRequestToken] = adapterID
@@ -2046,7 +2022,7 @@ func (b *InMemoryBackend) GetAdapter(ctx context.Context, adapterID string) (*Ad
 	b.mu.RLock("GetAdapter")
 	defer b.mu.RUnlock()
 
-	adapter, ok := b.adaptersStore(region)[adapterID]
+	adapter, ok := b.adapters.Get(regionKey(region, adapterID))
 	if !ok {
 		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
 	}
@@ -2067,7 +2043,7 @@ func (b *InMemoryBackend) UpdateAdapter(
 	b.mu.Lock("UpdateAdapter")
 	defer b.mu.Unlock()
 
-	adapter, ok := b.adaptersStore(region)[adapterID]
+	adapter, ok := b.adapters.Get(regionKey(region, adapterID))
 	if !ok {
 		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
 	}
@@ -2090,10 +2066,10 @@ func (b *InMemoryBackend) ListAdapters(ctx context.Context) []Adapter {
 	b.mu.RLock("ListAdapters")
 	defer b.mu.RUnlock()
 
-	store := b.adaptersStore(region)
-	out := make([]Adapter, 0, len(store))
+	adapters := b.adaptersByRegion.Get(region)
+	out := make([]Adapter, 0, len(adapters))
 
-	for _, a := range store {
+	for _, a := range adapters {
 		out = append(out, *cloneAdapter(a))
 	}
 
@@ -2111,18 +2087,18 @@ func (b *InMemoryBackend) DeleteAdapter(ctx context.Context, adapterID string) e
 	b.mu.Lock("DeleteAdapter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.adaptersStore(region)[adapterID]; !ok {
+	key := regionKey(region, adapterID)
+	if !b.adapters.Has(key) {
 		return fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
 	}
 
-	delete(b.adaptersStore(region), adapterID)
+	b.adapters.Delete(key)
 
-	// Remove all versions belonging to this adapter in this region.
-	avStore := b.adapterVersionsStore(region)
-	for key, av := range avStore {
-		if av.AdapterID == adapterID {
-			delete(avStore, key)
-		}
+	// Remove all versions belonging to this adapter in this region. The index
+	// slice mutates under Table.Delete, so it is cloned before the loop.
+	versions := slices.Clone(b.adapterVersionsByAdapter.Get(key))
+	for _, av := range versions {
+		b.adapterVersions.Delete(adapterVersionTableKey(av))
 	}
 
 	return nil
@@ -2155,7 +2131,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 
 	b.mu.Lock("CreateAdapterVersion")
 
-	adapter, ok := b.adaptersStore(region)[adapterID]
+	adapter, ok := b.adapters.Get(regionKey(region, adapterID))
 	if !ok {
 		b.mu.Unlock()
 
@@ -2164,6 +2140,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 
 	version := uuid.NewString()
 	av := &AdapterVersion{
+		Region:         region,
 		AdapterID:      adapterID,
 		AdapterVersion: version,
 		CreationTime:   time.Now(),
@@ -2181,7 +2158,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 			Recall:    evalRecall,
 		},
 	}
-	b.adapterVersionsStore(region)[adapterVersionKey(adapterID, version)] = av
+	b.adapterVersions.Put(av)
 
 	if b.asyncJobDelay == 0 {
 		av.Status = adapterVersionActive
@@ -2193,19 +2170,21 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 
 	b.mu.Unlock()
 
+	key := adapterVersionTableKey(av)
+
 	// Transition to ACTIVE after a short delay.
 	b.runDelayed(b.asyncJobDelay, func() {
 		b.mu.Lock("CreateAdapterVersion-complete")
 		defer b.mu.Unlock()
 
-		key := adapterVersionKey(adapterID, version)
-		if stored, ok2 := b.adapterVersionsStore(region)[key]; ok2 {
+		if stored, ok2 := b.adapterVersions.Get(key); ok2 {
 			stored.Status = adapterVersionActive
 		}
 	})
 
 	b.mu.RLock("CreateAdapterVersion-read")
-	result := cloneAdapterVersion(b.adapterVersionsStore(region)[adapterVersionKey(adapterID, version)])
+	stored, _ := b.adapterVersions.Get(key)
+	result := cloneAdapterVersion(stored)
 	b.mu.RUnlock()
 
 	return result, nil
@@ -2218,7 +2197,7 @@ func (b *InMemoryBackend) GetAdapterVersion(ctx context.Context, adapterID, vers
 	b.mu.RLock("GetAdapterVersion")
 	defer b.mu.RUnlock()
 
-	av, ok := b.adapterVersionsStore(region)[adapterVersionKey(adapterID, version)]
+	av, ok := b.adapterVersions.Get(regionKey(region, adapterVersionKey(adapterID, version)))
 	if !ok {
 		return nil, fmt.Errorf("%w: adapter version %s/%s not found", ErrAdapterVersionNotFound, adapterID, version)
 	}
@@ -2233,17 +2212,15 @@ func (b *InMemoryBackend) ListAdapterVersions(ctx context.Context, adapterID str
 	b.mu.RLock("ListAdapterVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.adaptersStore(region)[adapterID]; !ok {
+	if !b.adapters.Has(regionKey(region, adapterID)) {
 		return nil, fmt.Errorf("%w: adapter %s not found", ErrAdapterNotFound, adapterID)
 	}
 
-	avStore := b.adapterVersionsStore(region)
-	out := make([]AdapterVersion, 0, len(avStore))
+	versions := b.adapterVersionsByAdapter.Get(regionKey(region, adapterID))
+	out := make([]AdapterVersion, 0, len(versions))
 
-	for _, av := range avStore {
-		if av.AdapterID == adapterID {
-			out = append(out, *cloneAdapterVersion(av))
-		}
+	for _, av := range versions {
+		out = append(out, *cloneAdapterVersion(av))
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -2260,12 +2237,12 @@ func (b *InMemoryBackend) DeleteAdapterVersion(ctx context.Context, adapterID, v
 	b.mu.Lock("DeleteAdapterVersion")
 	defer b.mu.Unlock()
 
-	key := adapterVersionKey(adapterID, version)
-	if _, ok := b.adapterVersionsStore(region)[key]; !ok {
+	key := regionKey(region, adapterVersionKey(adapterID, version))
+	if !b.adapterVersions.Has(key) {
 		return fmt.Errorf("%w: adapter version %s/%s not found", ErrAdapterVersionNotFound, adapterID, version)
 	}
 
-	delete(b.adapterVersionsStore(region), key)
+	b.adapterVersions.Delete(key)
 
 	return nil
 }
@@ -2279,14 +2256,14 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 	defer b.mu.Unlock()
 
 	// Try adapter version first (ARN contains /version/).
-	if av, ok := resolveARNToAdapterVersion(b.adapterVersionsStore(region), resourceARN); ok {
+	if av, ok := resolveARNToAdapterVersion(b.adapterVersions, region, resourceARN); ok {
 		maps.Copy(av.Tags, tags)
 
 		return nil
 	}
 
 	// Try adapter.
-	if a, ok := resolveARNToAdapter(b.adaptersStore(region), resourceARN); ok {
+	if a, ok := resolveARNToAdapter(b.adapters, region, resourceARN); ok {
 		maps.Copy(a.Tags, tags)
 
 		return nil
@@ -2304,7 +2281,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	defer b.mu.Unlock()
 
 	// Try adapter version first.
-	if av, ok := resolveARNToAdapterVersion(b.adapterVersionsStore(region), resourceARN); ok {
+	if av, ok := resolveARNToAdapterVersion(b.adapterVersions, region, resourceARN); ok {
 		for _, k := range tagKeys {
 			delete(av.Tags, k)
 		}
@@ -2313,7 +2290,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	}
 
 	// Try adapter.
-	if a, ok := resolveARNToAdapter(b.adaptersStore(region), resourceARN); ok {
+	if a, ok := resolveARNToAdapter(b.adapters, region, resourceARN); ok {
 		for _, k := range tagKeys {
 			delete(a.Tags, k)
 		}
@@ -2333,12 +2310,12 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 	defer b.mu.RUnlock()
 
 	// Try adapter version first.
-	if av, ok := resolveARNToAdapterVersion(b.adapterVersionsStore(region), resourceARN); ok {
+	if av, ok := resolveARNToAdapterVersion(b.adapterVersions, region, resourceARN); ok {
 		return cloneTags(av.Tags), nil
 	}
 
 	// Try adapter.
-	if a, ok := resolveARNToAdapter(b.adaptersStore(region), resourceARN); ok {
+	if a, ok := resolveARNToAdapter(b.adapters, region, resourceARN); ok {
 		return cloneTags(a.Tags), nil
 	}
 
@@ -2352,7 +2329,7 @@ func (b *InMemoryBackend) GetLendingAnalysisSummary(ctx context.Context, jobID s
 	b.mu.RLock("GetLendingAnalysisSummary")
 	defer b.mu.RUnlock()
 
-	job, ok := b.lendingJobsStore(region)[jobID]
+	job, ok := b.lendingJobs.Get(regionKey(region, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
 	}

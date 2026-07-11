@@ -1136,6 +1136,22 @@ func TestBackend_UpdateStack_InvalidTemplate(t *testing.T) {
 			updated, err := b.UpdateStack(t.Context(), "upd-stack", tt.updateBody, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
+
+			// A failed update must record a stack-level event carrying the
+			// failure status, exactly like the CreateStack failure paths do —
+			// callers polling DescribeStackEvents rely on this.
+			evtPage, evErr := b.DescribeStackEvents("upd-stack", "")
+			require.NoError(t, evErr)
+			events := evtPage.Data
+			foundFailureEvent := false
+			for _, ev := range events {
+				if ev.ResourceStatus == tt.wantStatus && ev.LogicalResourceID == "upd-stack" {
+					foundFailureEvent = true
+
+					break
+				}
+			}
+			assert.True(t, foundFailureEvent, "expected a stack-level %s event", tt.wantStatus)
 		})
 	}
 }

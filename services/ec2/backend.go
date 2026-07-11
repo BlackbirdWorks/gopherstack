@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // Errors returned by the EC2 backend.
@@ -55,6 +56,10 @@ var (
 	// ErrInvalidPaginationToken is returned when a NextToken is forged, tampered
 	// with, or otherwise fails HMAC verification.
 	ErrInvalidPaginationToken = errors.New("InvalidPaginationToken")
+	// ErrOperationNotPermitted is returned when an operation is blocked by an
+	// instance-level API protection attribute (disableApiTermination /
+	// disableApiStop), mirroring AWS's OperationNotPermitted error code.
+	ErrOperationNotPermitted = errors.New("OperationNotPermitted")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -109,33 +114,48 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime                time.Time                         `json:"launchTime"`
-	TerminatedAt              time.Time                         `json:"terminatedAt"`
-	EventStartTimeOverrides   map[string]time.Time              `json:"eventStartTimeOverrides,omitempty"`
-	Placement                 InstancePlacement                 `json:"placement"`
-	CapacityReservationSpec   CapacityReservationSpec           `json:"capacityReservationSpecification"`
-	MaintenanceOptions        InstanceMaintenanceOptions        `json:"maintenanceOptions"`
-	CPUOptions                CPUOptions                        `json:"cpuOptions"`
-	MetadataOptionsState      string                            `json:"metadataOptionsState,omitempty"`
-	VPCID                     string                            `json:"vpcID,omitempty"`
-	ID                        string                            `json:"id,omitempty"`
-	PrivateIP                 string                            `json:"privateIP,omitempty"`
-	PublicIPAddress           string                            `json:"publicIPAddress,omitempty"`
-	SubnetID                  string                            `json:"subnetID,omitempty"`
-	UserData                  string                            `json:"userData,omitempty"`
-	SriovNetSupport           string                            `json:"sriovNetSupport,omitempty"`
-	ProviderID                string                            `json:"providerID,omitempty"`
-	PublicDNSName             string                            `json:"publicDNSName,omitempty"`
+	TerminatedAt            time.Time                  `json:"terminatedAt"`
+	LaunchTime              time.Time                  `json:"launchTime"`
+	EventStartTimeOverrides map[string]time.Time       `json:"eventStartTimeOverrides,omitempty"`
+	CapacityReservationSpec CapacityReservationSpec    `json:"capacityReservationSpecification"`
+	MaintenanceOptions      InstanceMaintenanceOptions `json:"maintenanceOptions"`
+	PublicDNSName           string                     `json:"publicDNSName,omitempty"`
+	MetadataOptionsTokens   string                     `json:"metadataOptionsTokens,omitempty"`
+	MetadataOptionsState    string                     `json:"metadataOptionsState,omitempty"`
+	VPCID                   string                     `json:"vpcID,omitempty"`
+	ID                      string                     `json:"id,omitempty"`
+	PrivateIP               string                     `json:"privateIP,omitempty"`
+	PublicIPAddress         string                     `json:"publicIPAddress,omitempty"`
+	SubnetID                string                     `json:"subnetID,omitempty"`
+	UserData                string                     `json:"userData,omitempty"`
+	SriovNetSupport         string                     `json:"sriovNetSupport,omitempty"`
+	ProviderID              string                     `json:"providerID,omitempty"`
+	// InstanceInitiatedShutdownBehavior is "stop" (default) or "terminate".
+	InstanceInitiatedShutdownBehavior string `json:"instanceInitiatedShutdownBehavior,omitempty"`
+	// NetworkPerformanceOptions carries the bandwidth-weighting mode.
 	NetworkPerformanceOptions InstanceNetworkPerformanceOptions `json:"networkPerformanceOptions"`
 	KeyName                   string                            `json:"keyName,omitempty"`
 	InstanceType              string                            `json:"instanceType,omitempty"`
-	MetadataOptionsTokens     string                            `json:"metadataOptionsTokens,omitempty"`
-	ImageID                   string                            `json:"imageID,omitempty"`
-	PrivateDNSNameOptions     PrivateDNSNameOptions             `json:"privateDnsNameOptions"`
-	State                     InstanceState                     `json:"state"`
-	SecurityGroups            []string                          `json:"securityGroups,omitempty"`
-	SSHPort                   int                               `json:"sshPort,omitempty"`
-	EnaSupport                bool                              `json:"enaSupport,omitempty"`
+	// StateTransitionReason mirrors AWS's legacy <reason> element (e.g.
+	// "User initiated (2016-05-...)").
+	StateTransitionReason string `json:"stateTransitionReason,omitempty"`
+	ImageID               string `json:"imageID,omitempty"`
+	// StateReasonCode/StateReasonMessage mirror AWS's <stateReason> element,
+	// populated on user-initiated stop/terminate and cleared on start.
+	StateReasonMessage    string                `json:"stateReasonMessage,omitempty"`
+	StateReasonCode       string                `json:"stateReasonCode,omitempty"`
+	Placement             InstancePlacement     `json:"placement"`
+	SecurityGroups        []string              `json:"securityGroups,omitempty"`
+	State                 InstanceState         `json:"state"`
+	PrivateDNSNameOptions PrivateDNSNameOptions `json:"privateDnsNameOptions"`
+	CPUOptions            CPUOptions            `json:"cpuOptions"`
+	SSHPort               int                   `json:"sshPort,omitempty"`
+	EnaSupport            bool                  `json:"enaSupport,omitempty"`
+	// DisableAPITermination / DisableAPIStop gate TerminateInstances /
+	// StopInstances respectively (ModifyInstanceAttribute-settable).
+	DisableAPITermination bool `json:"disableApiTermination,omitempty"`
+	DisableAPIStop        bool `json:"disableApiStop,omitempty"`
+	EBSOptimized          bool `json:"ebsOptimized,omitempty"`
 }
 
 // LaunchTemplate represents an EC2 launch template.
@@ -238,92 +258,92 @@ type InMemoryBackend struct {
 	compute                        Compute
 	dnsRegistrar                   DNSRegistrar
 	addressTransfers               map[string]*AddressTransfer
-	capacityReservations           map[string]*CapacityReservation
-	vpcs                           map[string]*VPC
-	subnets                        map[string]*Subnet
-	keyPairs                       map[string]*KeyPair
-	reservedInstancesExchanges     map[string]*ReservedInstancesExchange
-	addresses                      map[string]*Address
-	internetGateways               map[string]*InternetGateway
-	natGateways                    map[string]*NatGateway
-	routeTables                    map[string]*RouteTable
-	placementGroups                map[string]*PlacementGroup
-	spotRequests                   map[string]*SpotInstanceRequest
-	instances                      map[string]*Instance
-	images                         map[string]*AMIStub
-	imageUsageReports              map[string]*ImageUsageReport
-	launchTemplates                map[string]*LaunchTemplate
-	vpcEndpoints                   map[string]*VpcEndpoint
+	capacityReservations           *store.Table[CapacityReservation]
+	vpcs                           *store.Table[VPC]
+	subnets                        *store.Table[Subnet]
+	keyPairs                       *store.Table[KeyPair]
+	reservedInstancesExchanges     *store.Table[ReservedInstancesExchange]
+	addresses                      *store.Table[Address]
+	internetGateways               *store.Table[InternetGateway]
+	natGateways                    *store.Table[NatGateway]
+	routeTables                    *store.Table[RouteTable]
+	placementGroups                *store.Table[PlacementGroup]
+	spotRequests                   *store.Table[SpotInstanceRequest]
+	instances                      *store.Table[Instance]
+	images                         *store.Table[AMIStub]
+	imageUsageReports              *store.Table[ImageUsageReport]
+	launchTemplates                *store.Table[LaunchTemplate]
+	vpcEndpoints                   *store.Table[VpcEndpoint]
 	tags                           map[string]map[string]string
-	securityGroups                 map[string]*SecurityGroup
-	networkInterfaces              map[string]*NetworkInterface
-	volumes                        map[string]*Volume
-	tgwMulticastDomainAssociations map[string]*TransitGatewayMulticastDomainAssociation
-	tgwPeeringAttachments          map[string]*TransitGatewayPeeringAttachment
-	tgwVpcAttachments              map[string]*TransitGatewayVpcAttachment
-	vpcEndpointConnections         map[string]*VpcEndpointConnection
-	vpcPeeringConnections          map[string]*VpcPeeringConnection
-	byoipCidrs                     map[string]*ByoipCidr
-	dedicatedHosts                 map[string]*Host
-	snapshots                      map[string]*Snapshot
-	networkACLs                    map[string]*StoredNetworkACL
-	transitGateways                map[string]*TransitGateway
-	flowLogs                       map[string]*FlowLog
-	dhcpOptionSets                 map[string]*DhcpOptions
-	egressOnlyIGWs                 map[string]*EgressOnlyInternetGateway
-	iamAssociations                map[string]*IamInstanceProfileAssociation
-	tgwRouteTables                 map[string]*TransitGatewayRouteTable
-	tgwRoutes                      map[string]*TransitGatewayRoute
-	tgwRTAssociations              map[string]*TransitGatewayRouteTableAssociation
-	tgwPolicyTables                map[string]*TransitGatewayPolicyTable
-	tgwPolicyTableAssociations     map[string]*TransitGatewayPolicyTableAssociation
-	tgwRouteTableAnnouncements     map[string]*TransitGatewayRouteTableAnnouncement
+	securityGroups                 *store.Table[SecurityGroup]
+	networkInterfaces              *store.Table[NetworkInterface]
+	volumes                        *store.Table[Volume]
+	tgwMulticastDomainAssociations *store.Table[TransitGatewayMulticastDomainAssociation]
+	tgwPeeringAttachments          *store.Table[TransitGatewayPeeringAttachment]
+	tgwVpcAttachments              *store.Table[TransitGatewayVpcAttachment]
+	vpcEndpointConnections         *store.Table[VpcEndpointConnection]
+	vpcPeeringConnections          *store.Table[VpcPeeringConnection]
+	byoipCidrs                     *store.Table[ByoipCidr]
+	dedicatedHosts                 *store.Table[Host]
+	snapshots                      *store.Table[Snapshot]
+	networkACLs                    *store.Table[StoredNetworkACL]
+	transitGateways                *store.Table[TransitGateway]
+	flowLogs                       *store.Table[FlowLog]
+	dhcpOptionSets                 *store.Table[DhcpOptions]
+	egressOnlyIGWs                 *store.Table[EgressOnlyInternetGateway]
+	iamAssociations                *store.Table[IamInstanceProfileAssociation]
+	tgwRouteTables                 *store.Table[TransitGatewayRouteTable]
+	tgwRoutes                      *store.Table[TransitGatewayRoute]
+	tgwRTAssociations              *store.Table[TransitGatewayRouteTableAssociation]
+	tgwPolicyTables                *store.Table[TransitGatewayPolicyTable]
+	tgwPolicyTableAssociations     *store.Table[TransitGatewayPolicyTableAssociation]
+	tgwRouteTableAnnouncements     *store.Table[TransitGatewayRouteTableAnnouncement]
 	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
-	vpnGateways                    map[string]*VpnGateway
-	customerGateways               map[string]*CustomerGateway
-	vpnConnections                 map[string]*VpnConnection
-	vpcEndpointServiceConfigs      map[string]*VpcEndpointServiceConfig
-	ipams                          map[string]*Ipam
-	ipamScopes                     map[string]*IpamScope
-	ipamPools                      map[string]*IpamPool
+	vpnGateways                    *store.Table[VpnGateway]
+	customerGateways               *store.Table[CustomerGateway]
+	vpnConnections                 *store.Table[VpnConnection]
+	vpcEndpointServiceConfigs      *store.Table[VpcEndpointServiceConfig]
+	ipams                          *store.Table[Ipam]
+	ipamScopes                     *store.Table[IpamScope]
+	ipamPools                      *store.Table[IpamPool]
 	ipamPoolCidrs                  map[string][]*IpamPoolCidr
-	ipamPoolAllocations            map[string]*IpamPoolAllocation
-	ipamResourceDiscoveries        map[string]*IpamResourceDiscovery
-	ipamResourceDiscoveryAssocs    map[string]*IpamResourceDiscoveryAssociation
-	ipamByoasns                    map[string]*IpamByoasn
-	ipamAsnAssociations            map[string]*IpamAsnAssociation
-	ipamVerificationTokens         map[string]*IpamExternalResourceVerificationToken
-	ipamResourceCidrs              map[string]*IpamResourceCidr
-	ipamPrefixListResolvers        map[string]*IpamPrefixListResolver
+	ipamPoolAllocations            *store.Table[IpamPoolAllocation]
+	ipamResourceDiscoveries        *store.Table[IpamResourceDiscovery]
+	ipamResourceDiscoveryAssocs    *store.Table[IpamResourceDiscoveryAssociation]
+	ipamByoasns                    *store.Table[IpamByoasn]
+	ipamAsnAssociations            *store.Table[IpamAsnAssociation]
+	ipamVerificationTokens         *store.Table[IpamExternalResourceVerificationToken]
+	ipamResourceCidrs              *store.Table[IpamResourceCidr]
+	ipamPrefixListResolvers        *store.Table[IpamPrefixListResolver]
 	ipamPrefixListResolverVersions map[string][]int64
-	ipamPrefixListResolverTargets  map[string]*IpamPrefixListResolverTarget
-	ipamPolicies                   map[string]*IpamPolicy
+	ipamPrefixListResolverTargets  *store.Table[IpamPrefixListResolverTarget]
+	ipamPolicies                   *store.Table[IpamPolicy]
 	ipamPolicyEnabledTargets       map[string]string
 	ipamOrgAdminAccountID          string
-	spotFleets                     map[string]*SpotFleetRequest
+	spotFleets                     *store.Table[SpotFleetRequest]
 	spotFleetHistory               map[string][]SpotFleetHistoryRecord
 	// batch1 additions
-	volumeModifications      map[string]*VolumeModification
+	volumeModifications      *store.Table[VolumeModification]
 	snapshotTiers            map[string]string
 	snapshotAttributes       map[string]map[string]string
 	sgVpcAssociations        map[string]map[string]string
 	vpcTenancy               map[string]string
 	vpcPeeringOptions        map[string]*PeeringConnectionOptions
 	subnetCIDRAssociations   map[string][]*SubnetCIDRAssociation
-	addressAttributes        map[string]*AddressAttribute
+	addressAttributes        *store.Table[AddressAttribute]
 	instanceMonitoring       map[string]string
 	instanceCreditSpecs      map[string]string
 	instanceIMDSOptions      map[string]*IMDSOptions
 	instanceMetadataDefaults *InstanceMetadataDefaults
 	instanceEventNotifAttrs  *InstanceEventNotificationAttributes
-	niPermissions            map[string]*NetworkInterfacePermission
+	niPermissions            *store.Table[NetworkInterfacePermission]
 	niIPv6Addresses          map[string][]string
 	idFormatSettings         map[string]bool
 	// batch2 additions
-	endpointConnectionNotifs      map[string]*VpcEndpointConnectionNotification
+	endpointConnectionNotifs      *store.Table[VpcEndpointConnectionNotification]
 	vpcEndpointServicePermissions map[string][]string
-	snapshotLocks                 map[string]*SnapshotLock
-	replaceRootVolumeTasks        map[string]*ReplaceRootVolumeTask
+	snapshotLocks                 *store.Table[SnapshotLock]
+	replaceRootVolumeTasks        *store.Table[ReplaceRootVolumeTask]
 	subnetCIDRReservations        map[string][]*SubnetCIDRReservation
 	imageDisabled                 map[string]bool
 	imageDeprecated               map[string]string
@@ -331,126 +351,130 @@ type InMemoryBackend struct {
 	imageAttributes               map[string]map[string]string
 	vgwRoutePropagation           map[string]bool
 	// batch4 additions
-	managedPrefixLists           map[string]*ManagedPrefixList
-	clientVpnEndpoints           map[string]*ClientVpnEndpoint
-	tgwConnects                  map[string]*TransitGatewayConnect
-	tgwConnectPeers              map[string]*TransitGatewayConnectPeer
-	tgwPrefixListRefs            map[string]*TransitGatewayPrefixListReference
-	verifiedAccessEndpoints      map[string]*VerifiedAccessEndpoint
-	verifiedAccessGroups         map[string]*VerifiedAccessGroup
-	verifiedAccessInstances      map[string]*VerifiedAccessInstance
-	verifiedAccessTrustProviders map[string]*VerifiedAccessTrustProvider
+	managedPrefixLists           *store.Table[ManagedPrefixList]
+	clientVpnEndpoints           *store.Table[ClientVpnEndpoint]
+	tgwConnects                  *store.Table[TransitGatewayConnect]
+	tgwConnectPeers              *store.Table[TransitGatewayConnectPeer]
+	tgwPrefixListRefs            *store.Table[TransitGatewayPrefixListReference]
+	verifiedAccessEndpoints      *store.Table[VerifiedAccessEndpoint]
+	verifiedAccessGroups         *store.Table[VerifiedAccessGroup]
+	verifiedAccessInstances      *store.Table[VerifiedAccessInstance]
+	verifiedAccessTrustProviders *store.Table[VerifiedAccessTrustProvider]
 	// batch3 additions
-	instanceConnectEndpoints map[string]*InstanceConnectEndpoint
-	instanceEventWindows     map[string]*InstanceEventWindow
-	imageImportTasks         map[string]*ImageImportTask
-	snapshotImportTasks      map[string]*SnapshotImportTask
-	recycleBinImages         map[string]*RecycleBinImage
-	recycleBinSnapshots      map[string]*Snapshot
-	recycleBinVolumes        map[string]*RecycleBinVolume
+	instanceConnectEndpoints *store.Table[InstanceConnectEndpoint]
+	instanceEventWindows     *store.Table[InstanceEventWindow]
+	imageImportTasks         *store.Table[ImageImportTask]
+	snapshotImportTasks      *store.Table[SnapshotImportTask]
+	recycleBinImages         *store.Table[RecycleBinImage]
+	recycleBinSnapshots      *store.Table[Snapshot]
+	recycleBinVolumes        *store.Table[RecycleBinVolume]
 	fastLaunchImages         map[string]bool
 	fastSnapshotRestores     map[string]bool
-	vpnConnectionRoutes      map[string]*VpnConnectionRoute
+	vpnConnectionRoutes      *store.Table[VpnConnectionRoute]
 	spotDatafeed             *SpotDatafeed
 	// batch5 additions
-	trafficMirrorFilters               map[string]*TrafficMirrorFilter
-	trafficMirrorFilterRules           map[string]*TrafficMirrorFilterRule
-	trafficMirrorSessions              map[string]*TrafficMirrorSession
-	trafficMirrorTargets               map[string]*TrafficMirrorTarget
-	fleets                             map[string]*Fleet
-	networkInsightsPaths               map[string]*NetworkInsightsPath
-	networkInsightsAnalyses            map[string]*NetworkInsightsAnalysis
-	networkInsightsAccessScopes        map[string]*NetworkInsightsAccessScope
-	networkInsightsAccessScopeAnalyses map[string]*NetworkInsightsAccessScopeAnalysis
-	carrierGateways                    map[string]*CarrierGateway
-	reservedInstances                  map[string]*ReservedInstance
-	reservedInstancesOfferings         map[string]*ReservedInstancesOffering
-	reservedInstancesListings          map[string]*ReservedInstancesListing
-	reservedInstancesModifications     map[string]*ReservedInstancesModification
+	trafficMirrorFilters               *store.Table[TrafficMirrorFilter]
+	trafficMirrorFilterRules           *store.Table[TrafficMirrorFilterRule]
+	trafficMirrorSessions              *store.Table[TrafficMirrorSession]
+	trafficMirrorTargets               *store.Table[TrafficMirrorTarget]
+	fleets                             *store.Table[Fleet]
+	networkInsightsPaths               *store.Table[NetworkInsightsPath]
+	networkInsightsAnalyses            *store.Table[NetworkInsightsAnalysis]
+	networkInsightsAccessScopes        *store.Table[NetworkInsightsAccessScope]
+	networkInsightsAccessScopeAnalyses *store.Table[NetworkInsightsAccessScopeAnalysis]
+	carrierGateways                    *store.Table[CarrierGateway]
+	reservedInstances                  *store.Table[ReservedInstance]
+	reservedInstancesOfferings         *store.Table[ReservedInstancesOffering]
+	reservedInstancesListings          *store.Table[ReservedInstancesListing]
+	reservedInstancesModifications     *store.Table[ReservedInstancesModification]
 	// route server additions
-	routeServers            map[string]*RouteServer
-	routeServerEndpoints    map[string]*RouteServerEndpoint
-	routeServerPeers        map[string]*RouteServerPeer
-	routeServerAssociations map[string]*RouteServerAssociation
-	routeServerPropagations map[string]*RouteServerPropagation
+	routeServers            *store.Table[RouteServer]
+	routeServerEndpoints    *store.Table[RouteServerEndpoint]
+	routeServerPeers        *store.Table[RouteServerPeer]
+	routeServerAssociations *store.Table[RouteServerAssociation]
+	routeServerPropagations *store.Table[RouteServerPropagation]
 	// local gateway additions
-	localGateways                              map[string]*LocalGateway
-	localGatewayVirtualInterfaces              map[string]*LocalGatewayVirtualInterface
-	localGatewayVirtualInterfaceGroups         map[string]*LocalGatewayVirtualInterfaceGroup
-	localGatewayRouteTables                    map[string]*LocalGatewayRouteTable
-	localGatewayRoutes                         map[string]*LocalGatewayRoute
-	localGatewayRouteTableVpcAssociations      map[string]*LocalGatewayRouteTableVpcAssociation
-	localGatewayRouteTableVifGroupAssociations map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation
+	localGateways                              *store.Table[LocalGateway]
+	localGatewayVirtualInterfaces              *store.Table[LocalGatewayVirtualInterface]
+	localGatewayVirtualInterfaceGroups         *store.Table[LocalGatewayVirtualInterfaceGroup]
+	localGatewayRouteTables                    *store.Table[LocalGatewayRouteTable]
+	localGatewayRoutes                         *store.Table[LocalGatewayRoute]
+	localGatewayRouteTableVpcAssociations      *store.Table[LocalGatewayRouteTableVpcAssociation]
+	localGatewayRouteTableVifGroupAssociations *store.Table[LocalGatewayRouteTableVirtualInterfaceGroupAssociation]
 	// transit gateway multicast domain / metering policy additions
-	tgwMulticastDomains      map[string]*TransitGatewayMulticastDomain
-	tgwMulticastGroupEntries map[string]*TransitGatewayMulticastGroupEntry
-	tgwMeteringPolicies      map[string]*TransitGatewayMeteringPolicy
-	tgwMeteringPolicyEntries map[string]*TransitGatewayMeteringPolicyEntry
+	tgwMulticastDomains      *store.Table[TransitGatewayMulticastDomain]
+	tgwMulticastGroupEntries *store.Table[TransitGatewayMulticastGroupEntry]
+	tgwMeteringPolicies      *store.Table[TransitGatewayMeteringPolicy]
+	tgwMeteringPolicyEntries *store.Table[TransitGatewayMeteringPolicyEntry]
 	// VPC ClassicLink / Block Public Access additions
-	classicLinkInstances           map[string]*ClassicLinkInstance
+	classicLinkInstances           *store.Table[ClassicLinkInstance]
 	vpcBlockPublicAccessOptions    *VpcBlockPublicAccessOptions
-	vpcBlockPublicAccessExclusions map[string]*VpcBlockPublicAccessExclusion
+	vpcBlockPublicAccessExclusions *store.Table[VpcBlockPublicAccessExclusion]
 	// Capacity Reservation Fleet / Capacity Block / Capacity Manager additions
-	capacityReservationFleets          map[string]*CapacityReservationFleet
-	capacityBlockOfferings             map[string]*CapacityBlockOffering
-	capacityBlockExtensionOfferings    map[string]*CapacityBlockExtensionOffering
-	capacityBlocks                     map[string]*CapacityBlock
-	capacityBlockExtensions            map[string]*CapacityBlockExtension
-	capacityReservationBillingRequests map[string]*CapacityReservationBillingRequest
-	capacityManagerDataExports         map[string]*CapacityManagerDataExport
+	capacityReservationFleets          *store.Table[CapacityReservationFleet]
+	capacityBlockOfferings             *store.Table[CapacityBlockOffering]
+	capacityBlockExtensionOfferings    *store.Table[CapacityBlockExtensionOffering]
+	capacityBlocks                     *store.Table[CapacityBlock]
+	capacityBlockExtensions            *store.Table[CapacityBlockExtension]
+	capacityReservationBillingRequests *store.Table[CapacityReservationBillingRequest]
+	capacityManagerDataExports         *store.Table[CapacityManagerDataExport]
 	capacityManagerState               *CapacityManagerState
 	// VerifiedAccess policy / logging additions
 	verifiedAccessEndpointPolicies       map[string]*VerifiedAccessPolicy
 	verifiedAccessGroupPolicies          map[string]*VerifiedAccessPolicy
-	verifiedAccessInstanceLoggingConfigs map[string]*VerifiedAccessInstanceLoggingConfig
+	verifiedAccessInstanceLoggingConfigs *store.Table[VerifiedAccessInstanceLoggingConfig]
 	// FPGA image additions
-	fpgaImages map[string]*FpgaImage
+	fpgaImages *store.Table[FpgaImage]
 	// Scheduled Instances additions
-	scheduledInstances        map[string]*ScheduledInstance
+	scheduledInstances        *store.Table[ScheduledInstance]
 	scheduledInstanceLaunched map[string]int32
 	// COIP / Public IPv4 / IPv6 pool additions
-	coipPools map[string]*CoipPool
-	coipCidrs map[string]*CoipCidr
-	ipv4Pools map[string]*Ipv4Pool
-	ipv6Pools map[string]*Ipv6Pool
+	coipPools *store.Table[CoipPool]
+	coipCidrs *store.Table[CoipCidr]
+	ipv4Pools *store.Table[Ipv4Pool]
+	ipv6Pools *store.Table[Ipv6Pool]
 	// VM Import/Export, Bundle, and Conversion Task additions
-	bundleTasks      map[string]*BundleTask
-	conversionTasks  map[string]*ConversionTask
-	exportTasks      map[string]*ExportTask
-	exportImageTasks map[string]*ExportImageTaskRec
+	bundleTasks      *store.Table[BundleTask]
+	conversionTasks  *store.Table[ConversionTask]
+	exportTasks      *store.Table[ExportTask]
+	exportImageTasks *store.Table[ExportImageTaskRec]
 	// Trunk Interface / Enclave Certificate IAM Role additions
-	trunkInterfaceAssociations map[string]*TrunkInterfaceAssociation
+	trunkInterfaceAssociations *store.Table[TrunkInterfaceAssociation]
 	enclaveCertIamRoles        map[string][]*EnclaveCertIamRoleAssociation
 	// Allowed Images Settings / Store-Restore Image Task / Image Usage Report additions
 	allowedImagesSettings *AllowedImagesSettings
-	storeImageTasks       map[string]*StoreImageTask
-	usageReports          map[string]*UsageReport
+	storeImageTasks       *store.Table[StoreImageTask]
+	usageReports          *store.Table[UsageReport]
 	usageReportEntries    map[string][]*UsageReportEntry
 	instanceProductCodes  map[string][]string
 	// Mac Host / Mac modification task additions
-	macModificationTasks map[string]*MacModificationTask
+	macModificationTasks *store.Table[MacModificationTask]
 	// Secondary Network / Secondary Subnet / Secondary Interface / Outpost LAG /
 	// Service Link Virtual Interface additions
-	secondaryNetworks            map[string]*SecondaryNetwork
-	secondarySubnets             map[string]*SecondarySubnet
-	secondaryInterfaces          map[string]*SecondaryInterface
-	serviceLinkVirtualInterfaces map[string]*ServiceLinkVirtualInterface
-	outpostLags                  map[string]*OutpostLag
+	secondaryNetworks            *store.Table[SecondaryNetwork]
+	secondarySubnets             *store.Table[SecondarySubnet]
+	secondaryInterfaces          *store.Table[SecondaryInterface]
+	serviceLinkVirtualInterfaces *store.Table[ServiceLinkVirtualInterface]
+	outpostLags                  *store.Table[OutpostLag]
 	// Instance-attribute misc cluster additions (AZ group opt-in, SQL HA)
 	availabilityZoneGroupOptIns map[string]string
-	sqlHaRegistrations          map[string]*RegisteredSQLHaInstance
+	sqlHaRegistrations          *store.Table[RegisteredSQLHaInstance]
 	sqlHaHistory                map[string][]*RegisteredSQLHaInstance
 	// parity-sweep-2 additions: VPC Encryption Control, VPN Concentrator, Host
 	// Reservations, Declarative Policies, AWS Network Performance
-	vpcEncryptionControls           map[string]*VpcEncryptionControl
-	vpnConcentrators                map[string]*VpnConcentrator
-	hostReservations                map[string]*HostReservation
-	declarativePoliciesReports      map[string]*DeclarativePoliciesReport
-	networkPerformanceSubscriptions map[string]*NetworkPerformanceSubscription
+	vpcEncryptionControls           *store.Table[VpcEncryptionControl]
+	vpnConcentrators                *store.Table[VpnConcentrator]
+	hostReservations                *store.Table[HostReservation]
+	declarativePoliciesReports      *store.Table[DeclarativePoliciesReport]
+	networkPerformanceSubscriptions *store.Table[NetworkPerformanceSubscription]
 	// gopherstack-5o9 final EC2 parity sweep additions
-	tgwRTPropagations              map[string]map[string]*TransitGatewayRouteTablePropagation
-	interruptibleCRAllocations     map[string]*InterruptibleCapacityReservationAllocation
-	movingAddresses                map[string]*MovingAddressStatus
+	tgwRTPropagations          map[string]map[string]*TransitGatewayRouteTablePropagation
+	interruptibleCRAllocations *store.Table[InterruptibleCapacityReservationAllocation]
+	movingAddresses            *store.Table[MovingAddressStatus]
+	// registry lets Reset collapse the ~150 converted resource maps' lifecycle
+	// to one call (registry.ResetAll()) instead of hand-rolled re-initialization
+	// of each map. See store_setup.go for every Table registration.
+	registry                       *store.Registry
 	mu                             *lockmetrics.RWMutex
 	lifecycleStop                  chan struct{}
 	eniIDByAttachment              map[string]string
@@ -479,74 +503,21 @@ type InMemoryBackend struct {
 
 func newInMemoryBackendMaps() *InMemoryBackend {
 	b := &InMemoryBackend{
-		instances:                      make(map[string]*Instance),
-		securityGroups:                 make(map[string]*SecurityGroup),
-		vpcs:                           make(map[string]*VPC),
-		subnets:                        make(map[string]*Subnet),
-		keyPairs:                       make(map[string]*KeyPair),
-		volumes:                        make(map[string]*Volume),
-		addresses:                      make(map[string]*Address),
-		internetGateways:               make(map[string]*InternetGateway),
-		routeTables:                    make(map[string]*RouteTable),
-		natGateways:                    make(map[string]*NatGateway),
-		networkInterfaces:              make(map[string]*NetworkInterface),
-		spotRequests:                   make(map[string]*SpotInstanceRequest),
-		placementGroups:                make(map[string]*PlacementGroup),
-		images:                         make(map[string]*AMIStub),
-		imageUsageReports:              make(map[string]*ImageUsageReport),
-		launchTemplates:                make(map[string]*LaunchTemplate),
-		vpcEndpoints:                   make(map[string]*VpcEndpoint),
-		tags:                           make(map[string]map[string]string),
-		addressTransfers:               make(map[string]*AddressTransfer),
-		capacityReservations:           make(map[string]*CapacityReservation),
-		reservedInstancesExchanges:     make(map[string]*ReservedInstancesExchange),
-		tgwMulticastDomainAssociations: make(map[string]*TransitGatewayMulticastDomainAssociation),
-		tgwPeeringAttachments:          make(map[string]*TransitGatewayPeeringAttachment),
-		tgwVpcAttachments:              make(map[string]*TransitGatewayVpcAttachment),
-		vpcEndpointConnections:         make(map[string]*VpcEndpointConnection),
-		vpcPeeringConnections:          make(map[string]*VpcPeeringConnection),
-		byoipCidrs:                     make(map[string]*ByoipCidr),
-		dedicatedHosts:                 make(map[string]*Host),
-		snapshots:                      make(map[string]*Snapshot),
-		networkACLs:                    make(map[string]*StoredNetworkACL),
-		transitGateways:                make(map[string]*TransitGateway),
-		flowLogs:                       make(map[string]*FlowLog),
-		dhcpOptionSets:                 make(map[string]*DhcpOptions),
-		egressOnlyIGWs:                 make(map[string]*EgressOnlyInternetGateway),
-		iamAssociations:                make(map[string]*IamInstanceProfileAssociation),
-		tgwRouteTables:                 make(map[string]*TransitGatewayRouteTable),
-		tgwRoutes:                      make(map[string]*TransitGatewayRoute),
-		tgwRTAssociations:              make(map[string]*TransitGatewayRouteTableAssociation),
-		tgwPolicyTables:                make(map[string]*TransitGatewayPolicyTable),
-		tgwPolicyTableAssociations:     make(map[string]*TransitGatewayPolicyTableAssociation),
-		tgwRouteTableAnnouncements:     make(map[string]*TransitGatewayRouteTableAnnouncement),
-		vpcCidrAssociations:            make(map[string]*VpcCidrBlockAssociation),
-		vpnGateways:                    make(map[string]*VpnGateway),
-		customerGateways:               make(map[string]*CustomerGateway),
-		vpnConnections:                 make(map[string]*VpnConnection),
-		vpcEndpointServiceConfigs:      make(map[string]*VpcEndpointServiceConfig),
-		ipams:                          make(map[string]*Ipam),
-		ipamScopes:                     make(map[string]*IpamScope),
-		ipamPools:                      make(map[string]*IpamPool),
-		ipamPoolCidrs:                  make(map[string][]*IpamPoolCidr),
-		ipamPoolAllocations:            make(map[string]*IpamPoolAllocation),
-		ipamResourceDiscoveries:        make(map[string]*IpamResourceDiscovery),
-		ipamResourceDiscoveryAssocs:    make(map[string]*IpamResourceDiscoveryAssociation),
-		instanceIDsByVPC:               make(map[string]map[string]struct{}),
-		eniIDsByInstance:               make(map[string]map[string]struct{}),
-		eniIDByAttachment:              make(map[string]string),
+		registry:            store.NewRegistry(),
+		tags:                make(map[string]map[string]string),
+		addressTransfers:    make(map[string]*AddressTransfer),
+		vpcCidrAssociations: make(map[string]*VpcCidrBlockAssociation),
+		ipamPoolCidrs:       make(map[string][]*IpamPoolCidr),
+		instanceIDsByVPC:    make(map[string]map[string]struct{}),
+		eniIDsByInstance:    make(map[string]map[string]struct{}),
+		eniIDByAttachment:   make(map[string]string),
 	}
+	registerAllTables(b)
 	initCoreExtraMaps(b)
-	initBatch5Maps(b)
 	initBatch6Maps(b)
-	initRouteServerMaps(b)
-	initLocalGatewayMaps(b)
-	initTGWMulticastMaps(b)
 	initVpcConfigMaps(b)
 	initCapacityFamilyMaps(b)
 	initVerifiedAccessExtMaps(b)
-	initFpgaImageMaps(b)
-	initParitySweep2Maps(b)
 	initParityFinalMaps(b)
 	initSecondaryIndexMaps(b)
 	b.resetIpamDiscoveryMapsLocked()
@@ -573,70 +544,42 @@ func newInMemoryBackendMaps() *InMemoryBackend {
 func initVerifiedAccessExtMaps(b *InMemoryBackend) {
 	b.verifiedAccessEndpointPolicies = make(map[string]*VerifiedAccessPolicy)
 	b.verifiedAccessGroupPolicies = make(map[string]*VerifiedAccessPolicy)
-	b.verifiedAccessInstanceLoggingConfigs = make(map[string]*VerifiedAccessInstanceLoggingConfig)
-}
-
-// initFpgaImageMaps initialises the FPGA image state map (split out to keep
-// newInMemoryBackendMaps under the funlen limit).
-func initFpgaImageMaps(b *InMemoryBackend) {
-	b.fpgaImages = make(map[string]*FpgaImage)
 }
 
 // initCoreExtraMaps initialises spot fleet, snapshot, IMDS, and batch4 state
 // maps (split out to keep newInMemoryBackendMaps under the funlen limit).
 func initCoreExtraMaps(b *InMemoryBackend) {
-	b.spotFleets = make(map[string]*SpotFleetRequest)
 	b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
-	b.volumeModifications = make(map[string]*VolumeModification)
 	b.snapshotTiers = make(map[string]string)
 	b.snapshotAttributes = make(map[string]map[string]string)
 	b.sgVpcAssociations = make(map[string]map[string]string)
 	b.vpcTenancy = make(map[string]string)
 	b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
 	b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
-	b.addressAttributes = make(map[string]*AddressAttribute)
 	b.instanceMonitoring = make(map[string]string)
 	b.instanceCreditSpecs = make(map[string]string)
 	b.instanceIMDSOptions = make(map[string]*IMDSOptions)
-	b.niPermissions = make(map[string]*NetworkInterfacePermission)
 	b.niIPv6Addresses = make(map[string][]string)
 	b.idFormatSettings = make(map[string]bool)
-	b.endpointConnectionNotifs = make(map[string]*VpcEndpointConnectionNotification)
 	b.vpcEndpointServicePermissions = make(map[string][]string)
-	b.snapshotLocks = make(map[string]*SnapshotLock)
-	b.replaceRootVolumeTasks = make(map[string]*ReplaceRootVolumeTask)
 	b.subnetCIDRReservations = make(map[string][]*SubnetCIDRReservation)
 	b.imageDisabled = make(map[string]bool)
 	b.imageDeprecated = make(map[string]string)
 	b.imageDeregistrationProtection = make(map[string]bool)
 	b.imageAttributes = make(map[string]map[string]string)
 	b.vgwRoutePropagation = make(map[string]bool)
-	b.managedPrefixLists = make(map[string]*ManagedPrefixList)
-	b.clientVpnEndpoints = make(map[string]*ClientVpnEndpoint)
-	b.tgwConnects = make(map[string]*TransitGatewayConnect)
-	b.tgwConnectPeers = make(map[string]*TransitGatewayConnectPeer)
-	b.tgwPrefixListRefs = make(map[string]*TransitGatewayPrefixListReference)
 }
 
 // initCapacityFamilyMaps initialises the Capacity Reservation Fleet, Capacity
 // Block, and Capacity Manager state maps (split out to keep
 // newInMemoryBackendMaps under the funlen limit).
 func initCapacityFamilyMaps(b *InMemoryBackend) {
-	b.capacityReservationFleets = make(map[string]*CapacityReservationFleet)
-	b.capacityBlockOfferings = make(map[string]*CapacityBlockOffering)
-	b.capacityBlockExtensionOfferings = make(map[string]*CapacityBlockExtensionOffering)
-	b.capacityBlocks = make(map[string]*CapacityBlock)
-	b.capacityBlockExtensions = make(map[string]*CapacityBlockExtension)
-	b.capacityReservationBillingRequests = make(map[string]*CapacityReservationBillingRequest)
-	b.capacityManagerDataExports = make(map[string]*CapacityManagerDataExport)
 	b.capacityManagerState = &CapacityManagerState{Status: capacityManagerStatusDisabled}
 }
 
 // initVpcConfigMaps initialises the VPC ClassicLink and Block Public Access
 // state maps (split out to keep newInMemoryBackendMaps under the funlen limit).
 func initVpcConfigMaps(b *InMemoryBackend) {
-	b.classicLinkInstances = make(map[string]*ClassicLinkInstance)
-	b.vpcBlockPublicAccessExclusions = make(map[string]*VpcBlockPublicAccessExclusion)
 	b.vpcBlockPublicAccessOptions = &VpcBlockPublicAccessOptions{
 		InternetGatewayBlockMode: vpcBPABlockModeOff,
 		State:                    vpcBPAStateDefault,
@@ -645,86 +588,12 @@ func initVpcConfigMaps(b *InMemoryBackend) {
 	}
 }
 
-// initTGWMulticastMaps initialises the transit gateway multicast domain and
-// metering policy state maps (split out to keep newInMemoryBackendMaps under
-// the funlen limit).
-func initTGWMulticastMaps(b *InMemoryBackend) {
-	b.tgwMulticastDomains = make(map[string]*TransitGatewayMulticastDomain)
-	b.tgwMulticastGroupEntries = make(map[string]*TransitGatewayMulticastGroupEntry)
-	b.tgwMeteringPolicies = make(map[string]*TransitGatewayMeteringPolicy)
-	b.tgwMeteringPolicyEntries = make(map[string]*TransitGatewayMeteringPolicyEntry)
-}
-
-// initLocalGatewayMaps initialises the Local Gateway state maps (split out to keep
-// newInMemoryBackendMaps under the funlen limit).
-func initLocalGatewayMaps(b *InMemoryBackend) {
-	b.localGateways = make(map[string]*LocalGateway)
-	b.localGatewayVirtualInterfaces = make(map[string]*LocalGatewayVirtualInterface)
-	b.localGatewayVirtualInterfaceGroups = make(map[string]*LocalGatewayVirtualInterfaceGroup)
-	b.localGatewayRouteTables = make(map[string]*LocalGatewayRouteTable)
-	b.localGatewayRoutes = make(map[string]*LocalGatewayRoute)
-	b.localGatewayRouteTableVpcAssociations = make(map[string]*LocalGatewayRouteTableVpcAssociation)
-	b.localGatewayRouteTableVifGroupAssociations = make(
-		map[string]*LocalGatewayRouteTableVirtualInterfaceGroupAssociation,
-	)
-}
-
-// initParitySweep2Maps initialises the VPC Encryption Control, VPN Concentrator,
-// Host Reservation, Declarative Policies, and AWS Network Performance state maps
-// (split out to keep newInMemoryBackendMaps under the funlen limit).
-func initParitySweep2Maps(b *InMemoryBackend) {
-	b.vpcEncryptionControls = make(map[string]*VpcEncryptionControl)
-	b.vpnConcentrators = make(map[string]*VpnConcentrator)
-	b.hostReservations = make(map[string]*HostReservation)
-	b.declarativePoliciesReports = make(map[string]*DeclarativePoliciesReport)
-	b.networkPerformanceSubscriptions = make(map[string]*NetworkPerformanceSubscription)
-}
-
 // initBatch6Maps initialises the verified-access, import-task, recycle-bin,
 // fast-launch and VPN-route maps (split out to keep newInMemoryBackendMaps
 // under the funlen limit).
 func initBatch6Maps(b *InMemoryBackend) {
-	b.verifiedAccessEndpoints = make(map[string]*VerifiedAccessEndpoint)
-	b.verifiedAccessGroups = make(map[string]*VerifiedAccessGroup)
-	b.verifiedAccessInstances = make(map[string]*VerifiedAccessInstance)
-	b.verifiedAccessTrustProviders = make(map[string]*VerifiedAccessTrustProvider)
-	b.instanceConnectEndpoints = make(map[string]*InstanceConnectEndpoint)
-	b.instanceEventWindows = make(map[string]*InstanceEventWindow)
-	b.imageImportTasks = make(map[string]*ImageImportTask)
-	b.snapshotImportTasks = make(map[string]*SnapshotImportTask)
-	b.recycleBinImages = make(map[string]*RecycleBinImage)
-	b.recycleBinSnapshots = make(map[string]*Snapshot)
-	b.recycleBinVolumes = make(map[string]*RecycleBinVolume)
 	b.fastLaunchImages = make(map[string]bool)
 	b.fastSnapshotRestores = make(map[string]bool)
-	b.vpnConnectionRoutes = make(map[string]*VpnConnectionRoute)
-}
-
-func initBatch5Maps(b *InMemoryBackend) {
-	b.trafficMirrorFilters = make(map[string]*TrafficMirrorFilter)
-	b.trafficMirrorFilterRules = make(map[string]*TrafficMirrorFilterRule)
-	b.trafficMirrorSessions = make(map[string]*TrafficMirrorSession)
-	b.trafficMirrorTargets = make(map[string]*TrafficMirrorTarget)
-	b.fleets = make(map[string]*Fleet)
-	b.networkInsightsPaths = make(map[string]*NetworkInsightsPath)
-	b.networkInsightsAnalyses = make(map[string]*NetworkInsightsAnalysis)
-	b.networkInsightsAccessScopes = make(map[string]*NetworkInsightsAccessScope)
-	b.networkInsightsAccessScopeAnalyses = make(map[string]*NetworkInsightsAccessScopeAnalysis)
-	b.carrierGateways = make(map[string]*CarrierGateway)
-	b.reservedInstances = make(map[string]*ReservedInstance)
-	b.reservedInstancesOfferings = make(map[string]*ReservedInstancesOffering)
-	b.reservedInstancesListings = make(map[string]*ReservedInstancesListing)
-	b.reservedInstancesModifications = make(map[string]*ReservedInstancesModification)
-}
-
-// initRouteServerMaps initialises the VPC Route Server state maps (split out
-// to keep newInMemoryBackendMaps under the funlen limit).
-func initRouteServerMaps(b *InMemoryBackend) {
-	b.routeServers = make(map[string]*RouteServer)
-	b.routeServerEndpoints = make(map[string]*RouteServerEndpoint)
-	b.routeServerPeers = make(map[string]*RouteServerPeer)
-	b.routeServerAssociations = make(map[string]*RouteServerAssociation)
-	b.routeServerPropagations = make(map[string]*RouteServerPropagation)
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -785,7 +654,7 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 	// Fast path: read-lock to detect any transitional instance.
 	b.mu.RLock("reconcileInstanceLifecycle-check")
 	hasTransitional := false
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		switch inst.State {
 		case StatePending, StateStopping, StateShuttingDown:
 			hasTransitional = true
@@ -804,7 +673,7 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 	b.mu.Lock("reconcileInstanceLifecycle")
 	defer b.mu.Unlock()
 
-	for _, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		switch inst.State {
 		case StatePending:
 			inst.State = StateRunning
@@ -819,29 +688,29 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 // initDefaults pre-populates a default VPC, subnet, and security group.
 func (b *InMemoryBackend) initDefaults() {
 	defaultVPCID := vpcDefaultName
-	b.vpcs[defaultVPCID] = &VPC{
+	b.vpcs.Put(&VPC{
 		ID:        defaultVPCID,
 		CIDRBlock: "172.31.0.0/16",
 		IsDefault: true,
-	}
+	})
 
 	defaultSubnetID := "subnet-default"
-	b.subnets[defaultSubnetID] = &Subnet{
+	b.subnets.Put(&Subnet{
 		ID:               defaultSubnetID,
 		VPCID:            defaultVPCID,
 		CIDRBlock:        "172.31.0.0/20",
 		AvailabilityZone: b.Region + "a",
 		IsDefault:        true,
-	}
+	})
 	b.indexSubnetLocked(defaultSubnetID, defaultVPCID)
 
 	defaultSGID := "sg-default"
-	b.securityGroups[defaultSGID] = &SecurityGroup{
+	b.securityGroups.Put(&SecurityGroup{
 		ID:          defaultSGID,
 		Name:        "default",
 		Description: "default VPC security group",
 		VPCID:       defaultVPCID,
-	}
+	})
 	b.indexSGLocked(defaultSGID, defaultVPCID)
 }
 
@@ -863,7 +732,7 @@ func (b *InMemoryBackend) RunInstances(
 
 	if subnetID == "" {
 		subnetID = b.findDefaultSubnetID()
-	} else if _, ok := b.subnets[subnetID]; !ok {
+	} else if _, ok := b.subnets.Get(subnetID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
@@ -871,7 +740,7 @@ func (b *InMemoryBackend) RunInstances(
 	mapPublicIP := false
 	availabilityZone := ""
 
-	if sub, ok := b.subnets[subnetID]; ok {
+	if sub, ok := b.subnets.Get(subnetID); ok {
 		vpcID = sub.VPCID
 		mapPublicIP = sub.MapPublicIPOnLaunch
 		availabilityZone = sub.AvailabilityZone
@@ -905,7 +774,7 @@ func (b *InMemoryBackend) RunInstances(
 		}
 		eniID := "eni-" + uuid.New().String()[:17]
 		attachID := "eni-attach-" + uuid.New().String()[:8]
-		b.networkInterfaces[eniID] = &NetworkInterface{
+		b.networkInterfaces.Put(&NetworkInterface{
 			ID:              eniID,
 			SubnetID:        subnetID,
 			VPCID:           vpcID,
@@ -915,11 +784,12 @@ func (b *InMemoryBackend) RunInstances(
 			DeviceIndex:     0,
 			Status:          stateInUse,
 			SourceDestCheck: true,
-		}
-		b.instances[id] = inst
+		})
+		b.instances.Put(inst)
 		b.indexInstanceLocked(inst)
-		b.indexENILocked(eniID, b.networkInterfaces[eniID])
-		b.indexENIByVPCLocked(eniID, b.networkInterfaces[eniID])
+		eni, _ := b.networkInterfaces.Get(eniID)
+		b.indexENILocked(eniID, eni)
+		b.indexENIByVPCLocked(eniID, eni)
 		instances = append(instances, inst)
 	}
 
@@ -982,7 +852,7 @@ func (b *InMemoryBackend) LookupKeyPairAuthorizedKey(name string) string {
 	b.mu.RLock("LookupKeyPairAuthorizedKey")
 	defer b.mu.RUnlock()
 
-	kp, ok := b.keyPairs[name]
+	kp, ok := b.keyPairs.Get(name)
 	if !ok {
 		return ""
 	}
@@ -998,7 +868,7 @@ func (b *InMemoryBackend) SetComputeResult(instanceID string, r LaunchResult) er
 	b.mu.Lock("SetComputeResult")
 	defer b.mu.Unlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -1013,7 +883,7 @@ func (b *InMemoryBackend) SetComputeResult(instanceID string, r LaunchResult) er
 		// keep primary ENI in sync so DescribeNetworkInterfaces shows the
 		// container's actual address
 		for eniID := range b.eniIDsByInstance[instanceID] {
-			if eni, exists := b.networkInterfaces[eniID]; exists && eni.PrivateIP == oldPrivate {
+			if eni, exists := b.networkInterfaces.Get(eniID); exists && eni.PrivateIP == oldPrivate {
 				eni.PrivateIP = r.PrivateIP
 			}
 		}
@@ -1040,7 +910,7 @@ func (b *InMemoryBackend) LookupInstanceProviderID(instanceID string) string {
 	b.mu.RLock("LookupInstanceProviderID")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ""
 	}
@@ -1054,7 +924,7 @@ func (b *InMemoryBackend) LookupInstancePublicDNSName(instanceID string) string 
 	b.mu.RLock("LookupInstancePublicDNSName")
 	defer b.mu.RUnlock()
 
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ""
 	}
@@ -1065,7 +935,8 @@ func (b *InMemoryBackend) LookupInstancePublicDNSName(instanceID string) string 
 // findDefaultSubnetID returns the ID of the default subnet, or empty string if none.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) findDefaultSubnetID() string {
-	for id, s := range b.subnets {
+	for _, s := range b.subnets.All() {
+		id := subnetsKeyFn(s)
 		if s.IsDefault {
 			return id
 		}
@@ -1084,7 +955,7 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 		out := make([]*Instance, 0, len(ids))
 
 		for _, id := range ids {
-			inst, ok := b.instances[id]
+			inst, ok := b.instances.Get(id)
 			if !ok {
 				continue
 			}
@@ -1104,8 +975,8 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 
 	// Collect matching pointers under the read lock (no allocations), then copy
 	// outside the lock to narrow the critical section for concurrent writers.
-	ptrs := make([]*Instance, 0, len(b.instances))
-	for _, inst := range b.instances {
+	ptrs := make([]*Instance, 0, b.instances.Len())
+	for _, inst := range b.instances.All() {
 		if state == "" || inst.State.Name == state {
 			ptrs = append(ptrs, inst)
 		}
@@ -1132,9 +1003,16 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 	var result []*InstanceStateChange
 
 	for _, id := range ids {
-		inst, ok := b.instances[id]
+		inst, ok := b.instances.Get(id)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
+		}
+
+		if inst.DisableAPITermination {
+			return nil, fmt.Errorf(
+				"%w: the instance %s may not be terminated. "+
+					"Modify its 'disableApiTermination' instance attribute and try again",
+				ErrOperationNotPermitted, id)
 		}
 
 		prev := inst.State
@@ -1143,6 +1021,11 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		// do not observe dangling attachments, but state advances asynchronously.
 		inst.State = StateShuttingDown
 		inst.TerminatedAt = time.Now()
+		inst.StateReasonCode = "Client.UserInitiatedShutdown"
+		inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
+		inst.StateTransitionReason = fmt.Sprintf(
+			"User initiated (%s)", time.Now().UTC().Format("2006-01-02 15:04:05 GMT"),
+		)
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -1151,7 +1034,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 
 		// Mirror AWS behaviour: when the backing instance of a spot request is
 		// terminated, the request transitions to "closed" (not stateCancelled).
-		for _, req := range b.spotRequests {
+		for _, req := range b.spotRequests.All() {
 			if req.InstanceID == id && req.State == stateActive {
 				req.State = "closed"
 				req.CancelledAt = time.Now()
@@ -1164,7 +1047,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		// the default for all network interfaces attached at launch).
 		eniIDs := b.eniIDsByInstance[id]
 		for eniID := range eniIDs {
-			eni, exists := b.networkInterfaces[eniID]
+			eni, exists := b.networkInterfaces.Get(eniID)
 			if !exists {
 				continue
 			}
@@ -1172,7 +1055,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			b.deindexENILocked(eniID, eni)
 			b.deindexENIByVPCLocked(eniID, eni)
 			b.recycleENIIPsLocked(eni)
-			delete(b.networkInterfaces, eniID)
+			b.networkInterfaces.Delete(eniID)
 			delete(b.tags, eniID)
 		}
 		b.deindexInstanceLocked(inst)
@@ -1200,7 +1083,7 @@ func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup 
 		out := make([]*SecurityGroup, 0, len(ids))
 
 		for _, id := range ids {
-			sg, ok := b.securityGroups[id]
+			sg, ok := b.securityGroups.Get(id)
 			if !ok {
 				continue
 			}
@@ -1212,9 +1095,9 @@ func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup 
 		return out
 	}
 
-	out := make([]*SecurityGroup, 0, len(b.securityGroups))
+	out := make([]*SecurityGroup, 0, b.securityGroups.Len())
 
-	for _, sg := range b.securityGroups {
+	for _, sg := range b.securityGroups.All() {
 		cp := *sg
 		out = append(out, &cp)
 	}
@@ -1234,12 +1117,12 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 	defer b.mu.Unlock()
 
 	if vpcID != "" {
-		if _, ok := b.vpcs[vpcID]; !ok {
+		if _, ok := b.vpcs.Get(vpcID); !ok {
 			return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 		}
 	}
 
-	for _, sg := range b.securityGroups {
+	for _, sg := range b.securityGroups.All() {
 		if sg.Name == name && sg.VPCID == vpcID {
 			return nil, fmt.Errorf(
 				"%w: group named %s already exists in VPC %s",
@@ -1261,7 +1144,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(
 			{Protocol: "-1", IPRange: cidrAllIPv4},
 		},
 	}
-	b.securityGroups[id] = sg
+	b.securityGroups.Put(sg)
 	b.indexSGLocked(id, vpcID)
 
 	return sg, nil
@@ -1272,13 +1155,13 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 	b.mu.Lock("DeleteSecurityGroup")
 	defer b.mu.Unlock()
 
-	sg, ok := b.securityGroups[id]
+	sg, ok := b.securityGroups.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
 	}
 
 	b.deindexSGLocked(id, sg.VPCID)
-	delete(b.securityGroups, id)
+	b.securityGroups.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -1295,7 +1178,7 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 		out := make([]*VPC, 0, len(ids))
 
 		for _, id := range ids {
-			v, ok := b.vpcs[id]
+			v, ok := b.vpcs.Get(id)
 			if !ok {
 				continue
 			}
@@ -1307,9 +1190,9 @@ func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
 		return out
 	}
 
-	out := make([]*VPC, 0, len(b.vpcs))
+	out := make([]*VPC, 0, b.vpcs.Len())
 
-	for _, v := range b.vpcs {
+	for _, v := range b.vpcs.All() {
 		cp := *v
 		out = append(out, &cp)
 	}
@@ -1326,7 +1209,7 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
 
-	for _, existing := range b.vpcs {
+	for _, existing := range b.vpcs.All() {
 		if cidrsOverlap(cidr, existing.CIDRBlock) {
 			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing VPC %s (%s)",
 				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
@@ -1338,7 +1221,7 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 		ID:        id,
 		CIDRBlock: cidr,
 	}
-	b.vpcs[id] = v
+	b.vpcs.Put(v)
 
 	return v, nil
 }
@@ -1346,10 +1229,11 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 // cascadeDeleteVpcIGWsLocked removes all internet gateways that have an
 // attachment to the given VPC. Must be called with b.mu held.
 func (b *InMemoryBackend) cascadeDeleteVpcIGWsLocked(vpcID string) {
-	for igwID, igw := range b.internetGateways {
+	for _, igw := range b.internetGateways.All() {
+		igwID := internetGatewaysKeyFn(igw)
 		for _, att := range igw.Attachments {
 			if att.VPCID == vpcID {
-				delete(b.internetGateways, igwID)
+				b.internetGateways.Delete(igwID)
 				delete(b.tags, igwID)
 
 				break
@@ -1367,13 +1251,13 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	b.mu.Lock("DeleteVpc")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[id]; !ok {
+	if _, ok := b.vpcs.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, id)
 	}
 
 	// Cascade: terminate instances belonging to this VPC via secondary index.
 	for instID := range b.instanceIDsByVPC[id] {
-		if inst, ok := b.instances[instID]; ok {
+		if inst, ok := b.instances.Get(instID); ok {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now()
 			delete(b.tags, instID)
@@ -1388,9 +1272,9 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	// Cascade: delete NAT gateways belonging to this VPC via secondary index,
 	// avoiding a full-map scan under the write lock.
 	for ngwID := range b.natGatewayIDsByVPC[id] {
-		if ngw, ok := b.natGateways[ngwID]; ok {
+		if ngw, ok := b.natGateways.Get(ngwID); ok {
 			b.recycleIPLocked(ngw.PrivateIP)
-			delete(b.natGateways, ngwID)
+			b.natGateways.Delete(ngwID)
 			delete(b.tags, ngwID)
 		}
 	}
@@ -1398,14 +1282,14 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 
 	// Cascade: remove route tables belonging to this VPC via secondary index.
 	for rtID := range b.routeTableIDsByVPC[id] {
-		delete(b.routeTables, rtID)
+		b.routeTables.Delete(rtID)
 		delete(b.tags, rtID)
 	}
 	delete(b.routeTableIDsByVPC, id)
 
 	// Cascade: remove security groups belonging to this VPC via secondary index.
 	for sgID := range b.sgIDsByVPC[id] {
-		delete(b.securityGroups, sgID)
+		b.securityGroups.Delete(sgID)
 		delete(b.tags, sgID)
 	}
 	delete(b.sgIDsByVPC, id)
@@ -1413,10 +1297,10 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	// Cascade: remove network interfaces belonging to this VPC via secondary
 	// index, avoiding a full-map scan under the write lock.
 	for eniID := range b.eniIDsByVPC[id] {
-		if eni, ok := b.networkInterfaces[eniID]; ok {
+		if eni, ok := b.networkInterfaces.Get(eniID); ok {
 			b.recycleENIIPsLocked(eni)
 			b.deindexENILocked(eniID, eni)
-			delete(b.networkInterfaces, eniID)
+			b.networkInterfaces.Delete(eniID)
 			delete(b.tags, eniID)
 		}
 	}
@@ -1424,12 +1308,11 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 
 	// Cascade: remove subnets belonging to this VPC via secondary index.
 	for subnetID := range b.subnetIDsByVPC[id] {
-		delete(b.subnets, subnetID)
+		b.subnets.Delete(subnetID)
 		delete(b.tags, subnetID)
 	}
 	delete(b.subnetIDsByVPC, id)
-
-	delete(b.vpcs, id)
+	b.vpcs.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -1446,7 +1329,7 @@ func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
 		out := make([]*Subnet, 0, len(ids))
 
 		for _, id := range ids {
-			s, ok := b.subnets[id]
+			s, ok := b.subnets.Get(id)
 			if !ok {
 				continue
 			}
@@ -1458,9 +1341,9 @@ func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
 		return out
 	}
 
-	out := make([]*Subnet, 0, len(b.subnets))
+	out := make([]*Subnet, 0, b.subnets.Len())
 
-	for _, s := range b.subnets {
+	for _, s := range b.subnets.All() {
 		cp := *s
 		out = append(out, &cp)
 	}
@@ -1481,7 +1364,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 	b.mu.Lock("CreateSubnet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs[vpcID]; !ok {
+	if _, ok := b.vpcs.Get(vpcID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
@@ -1489,13 +1372,13 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		az = b.Region + "a"
 	}
 
-	vpc := b.vpcs[vpcID]
+	vpc, _ := b.vpcs.Get(vpcID)
 	if !cidrContains(vpc.CIDRBlock, cidr) {
 		return nil, fmt.Errorf("%w: subnet CIDR %s is not within VPC CIDR %s",
 			ErrInvalidParameter, cidr, vpc.CIDRBlock)
 	}
 
-	for _, existing := range b.subnets {
+	for _, existing := range b.subnets.All() {
 		if existing.VPCID == vpcID && cidrsOverlap(cidr, existing.CIDRBlock) {
 			return nil, fmt.Errorf("%w: CIDR %s overlaps with existing subnet %s (%s)",
 				ErrCIDRConflict, cidr, existing.ID, existing.CIDRBlock)
@@ -1509,7 +1392,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		CIDRBlock:        cidr,
 		AvailabilityZone: az,
 	}
-	b.subnets[id] = s
+	b.subnets.Put(s)
 	b.indexSubnetLocked(id, vpcID)
 
 	return s, nil
@@ -1521,12 +1404,13 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	b.mu.Lock("DeleteSubnet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnets[id]; !ok {
+	if _, ok := b.subnets.Get(id); !ok {
 		return fmt.Errorf("%w: %s", ErrSubnetNotFound, id)
 	}
 
 	// Cascade: terminate instances in this subnet.
-	for instID, inst := range b.instances {
+	for _, inst := range b.instances.All() {
+		instID := instancesKeyFn(inst)
 		if inst.SubnetID == id {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now()
@@ -1536,29 +1420,31 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	}
 
 	// Cascade: delete NAT gateways in this subnet.
-	for ngwID, ngw := range b.natGateways {
+	for _, ngw := range b.natGateways.All() {
+		ngwID := natGatewaysKeyFn(ngw)
 		if ngw.SubnetID == id {
 			b.recycleIPLocked(ngw.PrivateIP)
 			b.deindexNatGatewayLocked(ngw)
-			delete(b.natGateways, ngwID)
+			b.natGateways.Delete(ngwID)
 			delete(b.tags, ngwID)
 		}
 	}
 
 	// Cascade: remove network interfaces in this subnet.
-	for eniID, eni := range b.networkInterfaces {
+	for _, eni := range b.networkInterfaces.All() {
+		eniID := networkInterfacesKeyFn(eni)
 		if eni.SubnetID == id {
 			b.recycleENIIPsLocked(eni)
 			b.deindexENILocked(eniID, eni)
 			b.deindexENIByVPCLocked(eniID, eni)
-			delete(b.networkInterfaces, eniID)
+			b.networkInterfaces.Delete(eniID)
 			delete(b.tags, eniID)
 		}
 	}
 
-	subnet := b.subnets[id]
+	subnet, _ := b.subnets.Get(id)
 	b.deindexSubnetLocked(id, subnet.VPCID)
-	delete(b.subnets, id)
+	b.subnets.Delete(id)
 	delete(b.tags, id)
 
 	return nil
@@ -1572,31 +1458,9 @@ type TagEntry struct {
 	Value        string `json:"value,omitempty"`
 }
 
-// resourceTypeByID infers the EC2 resource type from the ID prefix.
-func resourceTypeByID(id string) string {
-	prefixes := []struct {
-		prefix string
-		rtype  string
-	}{
-		{"i-", "instance"},
-		{"sg-", "security-group"},
-		{"vpc-", resourceTypeVPC},
-		{"subnet-", "subnet"},
-		{"vol-", "volume"},
-		{"igw-", "internet-gateway"},
-		{"rtb-", "route-table"},
-		{"nat-", "natgateway"},
-		{"eipalloc-", "elastic-ip"},
-	}
-
-	for _, e := range prefixes {
-		if strings.HasPrefix(id, e.prefix) {
-			return e.rtype
-		}
-	}
-
-	return "resource"
-}
+// resourceTypeByID and resourceExistsLocked live in backend_resource_types.go
+// (split out: the full taggable-resource-type table is large and orthogonal
+// to the rest of this file).
 
 // recycleIPLocked adds ip to the free list if it is an auto-allocated
 // 172.31.x.y address and the free list has capacity remaining.
@@ -1623,77 +1487,19 @@ func (b *InMemoryBackend) recycleENIIPsLocked(eni *NetworkInterface) {
 // after the instance transitions to the terminated state.
 // Must be called with b.mu held.
 func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
-	for _, vol := range b.volumes {
+	for _, vol := range b.volumes.All() {
 		if vol.Attachment != nil && vol.Attachment.InstanceID == instanceID {
 			vol.Attachment = nil
 			vol.State = stateAvailable
 		}
 	}
 
-	for _, addr := range b.addresses {
+	for _, addr := range b.addresses.All() {
 		if addr.InstanceID == instanceID {
 			addr.AssociationID = ""
 			addr.InstanceID = ""
 		}
 	}
-}
-
-// resourceExistsLocked reports whether id refers to any known EC2 resource.
-// Must be called with b.mu held.
-func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
-	if _, ok := b.instances[id]; ok {
-		return true
-	}
-
-	if _, ok := b.securityGroups[id]; ok {
-		return true
-	}
-
-	if _, ok := b.vpcs[id]; ok {
-		return true
-	}
-
-	if _, ok := b.subnets[id]; ok {
-		return true
-	}
-
-	if _, ok := b.keyPairs[id]; ok {
-		return true
-	}
-
-	if _, ok := b.volumes[id]; ok {
-		return true
-	}
-
-	if _, ok := b.addresses[id]; ok {
-		return true
-	}
-
-	if _, ok := b.internetGateways[id]; ok {
-		return true
-	}
-
-	if _, ok := b.routeTables[id]; ok {
-		return true
-	}
-
-	if _, ok := b.natGateways[id]; ok {
-		return true
-	}
-
-	if _, ok := b.networkInterfaces[id]; ok {
-		return true
-	}
-
-	if _, ok := b.spotRequests[id]; ok {
-		return true
-	}
-
-	if _, ok := b.placementGroups[id]; ok {
-		return true
-	}
-
-	return false
 }
 
 // CreateTags adds or updates tags on one or more resources.

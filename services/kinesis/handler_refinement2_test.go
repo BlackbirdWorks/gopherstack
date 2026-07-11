@@ -963,7 +963,11 @@ func TestRefinement2_AddStreamInternal_DefaultsStreamMode(t *testing.T) {
 	}
 }
 
-func TestRefinement2_ListTagsForResource_UsesHandlerTags(t *testing.T) {
+// TestRefinement2_ListTagsForResource_TagsFromCreate verifies that tags supplied
+// inline on CreateStream are visible via ListTagsForResource. Both paths write
+// through to the backend's persisted stream.Tags store (see
+// TestRefinement2_Tags_SurvivePersistenceRestore for the restart case).
+func TestRefinement2_ListTagsForResource_TagsFromCreate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -1026,6 +1030,125 @@ func TestRefinement2_ListTagsForResource_UsesHandlerTags(t *testing.T) {
 				}
 			}
 			assert.True(t, found, "expected tag key %q not found", tt.tagKey)
+		})
+	}
+}
+
+// TestRefinement2_Tags_SurvivePersistenceRestore proves that stream tags applied
+// via every tag-mutating operation (inline on CreateStream, the legacy
+// AddTagsToStream API, and the ARN-based TagResource API) are stored on the
+// backend's persisted stream.Tags field and therefore survive a
+// Snapshot/Restore round-trip. Previously, CreateStream/AddTagsToStream/
+// RemoveTagsFromStream/ListTagsForStream/ListTagsForResource operated on a
+// handler-local map that was never included in the persisted snapshot, so
+// those tags silently vanished on every restart (a real data-loss bug, not a
+// "looks-wrong-but-correct" case) even though the stream itself and its
+// shards/records persisted correctly.
+func TestRefinement2_Tags_SurvivePersistenceRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		streamName string
+		apply      func(t *testing.T, h *kinesis.Handler, streamName, streamARN string)
+		wantKey    string
+		wantValue  string
+	}{
+		{
+			name:       "tag_from_create",
+			streamName: "persist-tags-create",
+			apply: func(t *testing.T, h *kinesis.Handler, streamName, _ string) {
+				t.Helper()
+				rec := doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": streamName,
+					"ShardCount": 1,
+					"Tags":       map[string]any{"owner": "create"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantKey:   "owner",
+			wantValue: "create",
+		},
+		{
+			name:       "tag_from_add_tags_to_stream",
+			streamName: "persist-tags-add",
+			apply: func(t *testing.T, h *kinesis.Handler, streamName, _ string) {
+				t.Helper()
+				require.Equal(t, http.StatusOK, doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": streamName,
+					"ShardCount": 1,
+				}).Code)
+				rec := doRequest(t, h, "AddTagsToStream", map[string]any{
+					"StreamName": streamName,
+					"Tags":       map[string]string{"owner": "add-tags"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantKey:   "owner",
+			wantValue: "add-tags",
+		},
+		{
+			name:       "tag_from_tag_resource",
+			streamName: "persist-tags-tagresource",
+			apply: func(t *testing.T, h *kinesis.Handler, streamName, streamARN string) {
+				t.Helper()
+				require.Equal(t, http.StatusOK, doRequest(t, h, "CreateStream", map[string]any{
+					"StreamName": streamName,
+					"ShardCount": 1,
+				}).Code)
+				rec := doRequest(t, h, "TagResource", map[string]any{
+					"ResourceARN": streamARN,
+					"Tags":        map[string]string{"owner": "tag-resource"},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantKey:   "owner",
+			wantValue: "tag-resource",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			h := kinesis.NewHandler(backend)
+
+			// TagResource needs the ARN up front; build it the same way the
+			// backend does so the sub-test can address the stream before it exists.
+			streamARN := "arn:aws:kinesis:us-east-1:000000000000:stream/" + tt.streamName
+			tt.apply(t, h, tt.streamName, streamARN)
+
+			// Simulate a process restart: snapshot the backend, then restore
+			// into a brand-new backend/handler pair (no shared state).
+			snap := backend.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			restoredBackend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			require.NoError(t, restoredBackend.Restore(t.Context(), snap))
+			restoredHandler := kinesis.NewHandler(restoredBackend)
+
+			rec := doRequest(t, restoredHandler, "ListTagsForResource", map[string]any{
+				"ResourceARN": streamARN,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				Tags []struct {
+					Key   string `json:"Key"`
+					Value string `json:"Value"`
+				} `json:"Tags"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			found := false
+			for _, kv := range resp.Tags {
+				if kv.Key == tt.wantKey {
+					assert.Equal(t, tt.wantValue, kv.Value)
+					found = true
+				}
+			}
+			assert.True(t, found, "expected tag %q to survive persistence restore, got %+v", tt.wantKey, resp.Tags)
 		})
 	}
 }

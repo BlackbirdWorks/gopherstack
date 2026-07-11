@@ -1,9 +1,9 @@
 package guardduty
 
 import (
-	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,9 +11,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -153,56 +152,112 @@ type ThreatIntelSet struct {
 	DetectorID       string            `json:"-"`
 }
 
-// InMemoryBackend implements StorageBackend using in-memory maps.
+// InMemoryBackend implements StorageBackend using pkgs/store tables.
+//
+// See store_setup.go for how the tables/indexes below are registered and
+// persistence.go for how they are snapshotted/restored. tags (a
+// map[string]string value map, not *T) and memberSeq (a scalar counter) are
+// the only state left as plain fields -- see persistence.go's file doc
+// comment for the per-field persistence audit.
 type InMemoryBackend struct {
-	orgConfigs             map[string]*OrgConfig
-	adminAccounts          map[string]*AdminAccount
-	filters                map[string]map[string]*Filter
-	findings               map[string]map[string]*Finding
-	ipSets                 map[string]map[string]*IPSet
-	threatIntelSets        map[string]map[string]*ThreatIntelSet
-	tags                   map[string]map[string]string
-	members                map[string]map[string]*Member
-	invitations            map[string]*Invitation
-	orgAdminAccounts       map[string]*OrgAdminAccount
-	detectors              map[string]*Detector
-	publishingDestinations map[string]map[string]*PublishingDestination
-	mu                     *lockmetrics.RWMutex
-	malwareScans           map[string]*MalwareScan
-	malwareScanSettings    map[string]*MalwareScanSettings
-	malwareProtectionPlans map[string]*MalwareProtectionPlan
-	threatEntitySets       map[string]map[string]*ThreatEntitySet
-	trustedEntitySets      map[string]map[string]*TrustedEntitySet
-	accountID              string
-	region                 string
-	memberSeq              int64
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	// detectors is a "clean" table: DetectorID is a real, wire-visible
+	// identity field, so it is registered directly on registry.
+	detectors *store.Table[Detector]
+
+	// filters, ipSets, and threatIntelSets were detector-nested maps
+	// (map[string]map[string]*T). Each is now a single flat table keyed by
+	// the composite "detectorID|id" string (see detectorKey), with a
+	// companion byDetector index replacing the per-detector scans the
+	// nested maps used to answer directly. DetectorID is hidden from the
+	// wire shape (json:"-"), so these are "dirty" tables -- not registered
+	// on registry directly (see persistence.go's DTO wrapping).
+	filters           *store.Table[Filter]
+	filtersByDetector *store.Index[Filter]
+
+	ipSets           *store.Table[IPSet]
+	ipSetsByDetector *store.Index[IPSet]
+
+	threatIntelSets           *store.Table[ThreatIntelSet]
+	threatIntelSetsByDetector *store.Index[ThreatIntelSet]
+
+	// findings and members were also detector-nested, but Finding.DetectorID
+	// and Member.DetectorID are real (non-hidden) wire fields, so both are
+	// "clean" composite-keyed tables registered directly on registry.
+	findings           *store.Table[Finding]
+	findingsByDetector *store.Index[Finding]
+
+	members           *store.Table[Member]
+	membersByDetector *store.Index[Member]
+
+	// tags is a non-*T value map (map[string]string), so it does not fit
+	// store.Table's keyed-by-identity-value shape; it remains a plain map,
+	// persisted directly (see persistence.go).
+	tags map[string]map[string]string
+
+	// invitations and orgAdminAccounts are flat (not detector-nested) maps
+	// whose value types carry a real identity field (InvitationID,
+	// AdminAccountID), so both are "clean" tables registered directly.
+	invitations      *store.Table[Invitation]
+	orgAdminAccounts *store.Table[OrgAdminAccount]
+
+	// orgConfigs and adminAccounts were flat maps keyed by detectorID, but
+	// OrgConfig and AdminAccount carry no identity field of their own
+	// (identity-less). Each gained an unexported detectorID field purely
+	// for the table's key; being unexported it never round-trips through a
+	// direct json.Marshal of the value, so both are "dirty" tables (see
+	// persistence.go's DTO wrapping).
+	orgConfigs    *store.Table[OrgConfig]
+	adminAccounts *store.Table[AdminAccount]
+
+	// publishingDestinations, threatEntitySets, and trustedEntitySets are
+	// detector-nested maps whose value types hide DetectorID (json:"-"),
+	// same treatment as filters/ipSets/threatIntelSets above.
+	publishingDestinations           *store.Table[PublishingDestination]
+	publishingDestinationsByDetector *store.Index[PublishingDestination]
+
+	threatEntitySets           *store.Table[ThreatEntitySet]
+	threatEntitySetsByDetector *store.Index[ThreatEntitySet]
+
+	trustedEntitySets           *store.Table[TrustedEntitySet]
+	trustedEntitySetsByDetector *store.Index[TrustedEntitySet]
+
+	// malwareScans and malwareProtectionPlans are flat maps whose value
+	// types carry a real identity field (ScanID, MalwareProtectionPlanID),
+	// so both are "clean" tables registered directly.
+	malwareScans           *store.Table[MalwareScan]
+	malwareProtectionPlans *store.Table[MalwareProtectionPlan]
+
+	// malwareScanSettings was a flat map keyed by detectorID; like
+	// orgConfigs/adminAccounts, MalwareScanSettings is identity-less and
+	// gained an unexported detectorID field, making it a "dirty" table.
+	malwareScanSettings *store.Table[MalwareScanSettings]
+
+	accountID string
+	region    string
+	memberSeq int64
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                     lockmetrics.New("guardduty"),
-		accountID:              accountID,
-		region:                 region,
-		detectors:              make(map[string]*Detector),
-		filters:                make(map[string]map[string]*Filter),
-		findings:               make(map[string]map[string]*Finding),
-		ipSets:                 make(map[string]map[string]*IPSet),
-		threatIntelSets:        make(map[string]map[string]*ThreatIntelSet),
-		tags:                   make(map[string]map[string]string),
-		members:                make(map[string]map[string]*Member),
-		invitations:            make(map[string]*Invitation),
-		orgAdminAccounts:       make(map[string]*OrgAdminAccount),
-		orgConfigs:             make(map[string]*OrgConfig),
-		adminAccounts:          make(map[string]*AdminAccount),
-		publishingDestinations: make(map[string]map[string]*PublishingDestination),
-		malwareScans:           make(map[string]*MalwareScan),
-		malwareScanSettings:    make(map[string]*MalwareScanSettings),
-		malwareProtectionPlans: make(map[string]*MalwareProtectionPlan),
-		threatEntitySets:       make(map[string]map[string]*ThreatEntitySet),
-		trustedEntitySets:      make(map[string]map[string]*TrustedEntitySet),
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("guardduty"),
+		accountID: accountID,
+		region:    region,
+		registry:  store.NewRegistry(),
+		tags:      make(map[string]map[string]string),
 	}
+	registerAllTables(b)
+
+	return b
 }
+
+// detectorKey builds the composite primary key used by every detector-nested
+// table (filters, findings, ipSets, threatIntelSets, members,
+// publishingDestinations, threatEntitySets, trustedEntitySets).
+func detectorKey(detectorID, id string) string { return detectorID + "|" + id }
 
 func (b *InMemoryBackend) detectorARN(id string) string {
 	return arn.Build("guardduty", b.region, b.accountID, fmt.Sprintf("detector/%s", id))
@@ -237,7 +292,7 @@ func (b *InMemoryBackend) CreateDetector(
 	b.mu.Lock("CreateDetector")
 	defer b.mu.Unlock()
 
-	if len(b.detectors) > 0 {
+	if b.detectors.Len() > 0 {
 		return nil, ErrDetectorAlreadyExists
 	}
 
@@ -265,15 +320,7 @@ func (b *InMemoryBackend) CreateDetector(
 		Tags:      tags,
 		Features:  features,
 	}
-	b.detectors[id] = d
-	b.filters[id] = make(map[string]*Filter)
-	b.findings[id] = make(map[string]*Finding)
-	b.ipSets[id] = make(map[string]*IPSet)
-	b.threatIntelSets[id] = make(map[string]*ThreatIntelSet)
-	b.members[id] = make(map[string]*Member)
-	b.publishingDestinations[id] = make(map[string]*PublishingDestination)
-	b.threatEntitySets[id] = make(map[string]*ThreatEntitySet)
-	b.trustedEntitySets[id] = make(map[string]*TrustedEntitySet)
+	b.detectors.Put(d)
 
 	arn := b.detectorARN(id)
 	if tags != nil {
@@ -288,7 +335,7 @@ func (b *InMemoryBackend) GetDetector(detectorID string) (*Detector, error) {
 	b.mu.RLock("GetDetector")
 	defer b.mu.RUnlock()
 
-	d, ok := b.detectors[detectorID]
+	d, ok := b.detectors.Get(detectorID)
 	if !ok {
 		return nil, ErrDetectorNotFound
 	}
@@ -306,7 +353,7 @@ func (b *InMemoryBackend) UpdateDetector(
 	b.mu.Lock("UpdateDetector")
 	defer b.mu.Unlock()
 
-	d, ok := b.detectors[detectorID]
+	d, ok := b.detectors.Get(detectorID)
 	if !ok {
 		return ErrDetectorNotFound
 	}
@@ -337,19 +384,46 @@ func (b *InMemoryBackend) DeleteDetector(detectorID string) error {
 	b.mu.Lock("DeleteDetector")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	delete(b.detectors, detectorID)
-	delete(b.filters, detectorID)
-	delete(b.findings, detectorID)
-	delete(b.ipSets, detectorID)
-	delete(b.threatIntelSets, detectorID)
-	delete(b.members, detectorID)
-	delete(b.publishingDestinations, detectorID)
-	delete(b.threatEntitySets, detectorID)
-	delete(b.trustedEntitySets, detectorID)
+	b.detectors.Delete(detectorID)
+
+	// slices.Clone: Index.Get's returned slice mutates under Delete, so it
+	// must be cloned before the delete loop below.
+	for _, f := range slices.Clone(b.filtersByDetector.Get(detectorID)) {
+		b.filters.Delete(detectorKey(detectorID, f.Name))
+	}
+
+	for _, f := range slices.Clone(b.findingsByDetector.Get(detectorID)) {
+		b.findings.Delete(detectorKey(detectorID, f.ID))
+	}
+
+	for _, s := range slices.Clone(b.ipSetsByDetector.Get(detectorID)) {
+		b.ipSets.Delete(detectorKey(detectorID, s.IPSetID))
+	}
+
+	for _, s := range slices.Clone(b.threatIntelSetsByDetector.Get(detectorID)) {
+		b.threatIntelSets.Delete(detectorKey(detectorID, s.ThreatIntelSetID))
+	}
+
+	for _, m := range slices.Clone(b.membersByDetector.Get(detectorID)) {
+		b.members.Delete(detectorKey(detectorID, m.AccountID))
+	}
+
+	for _, d := range slices.Clone(b.publishingDestinationsByDetector.Get(detectorID)) {
+		b.publishingDestinations.Delete(detectorKey(detectorID, d.DestinationID))
+	}
+
+	for _, s := range slices.Clone(b.threatEntitySetsByDetector.Get(detectorID)) {
+		b.threatEntitySets.Delete(detectorKey(detectorID, s.ThreatEntitySetID))
+	}
+
+	for _, s := range slices.Clone(b.trustedEntitySetsByDetector.Get(detectorID)) {
+		b.trustedEntitySets.Delete(detectorKey(detectorID, s.TrustedEntitySetID))
+	}
+
 	delete(b.tags, b.detectorARN(detectorID))
 
 	return nil
@@ -360,7 +434,12 @@ func (b *InMemoryBackend) ListDetectors() []string {
 	b.mu.RLock("ListDetectors")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.detectors)
+	items := b.detectors.Snapshot()
+	ids := make([]string, len(items))
+
+	for i, d := range items {
+		ids[i] = d.DetectorID
+	}
 
 	return ids
 }
@@ -375,11 +454,11 @@ func (b *InMemoryBackend) CreateFilter(
 	b.mu.Lock("CreateFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	if _, ok := b.filters[detectorID][name]; ok {
+	if b.filters.Has(detectorKey(detectorID, name)) {
 		return nil, ErrFilterAlreadyExists
 	}
 
@@ -395,7 +474,7 @@ func (b *InMemoryBackend) CreateFilter(
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	b.filters[detectorID][name] = f
+	b.filters.Put(f)
 
 	arn := b.filterARN(detectorID, name)
 	if tags != nil {
@@ -410,11 +489,11 @@ func (b *InMemoryBackend) GetFilter(detectorID, filterName string) (*Filter, err
 	b.mu.RLock("GetFilter")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	f, ok := b.filters[detectorID][filterName]
+	f, ok := b.filters.Get(detectorKey(detectorID, filterName))
 	if !ok {
 		return nil, ErrFilterNotFound
 	}
@@ -431,11 +510,11 @@ func (b *InMemoryBackend) UpdateFilter(
 	b.mu.Lock("UpdateFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	f, ok := b.filters[detectorID][filterName]
+	f, ok := b.filters.Get(detectorKey(detectorID, filterName))
 	if !ok {
 		return nil, ErrFilterNotFound
 	}
@@ -466,15 +545,14 @@ func (b *InMemoryBackend) DeleteFilter(detectorID, filterName string) error {
 	b.mu.Lock("DeleteFilter")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	if _, ok := b.filters[detectorID][filterName]; !ok {
+	if !b.filters.Delete(detectorKey(detectorID, filterName)) {
 		return ErrFilterNotFound
 	}
 
-	delete(b.filters[detectorID], filterName)
 	delete(b.tags, b.filterARN(detectorID, filterName))
 
 	return nil
@@ -485,11 +563,18 @@ func (b *InMemoryBackend) ListFilters(detectorID string) ([]string, error) {
 	b.mu.RLock("ListFilters")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	names := collections.SortedKeys(b.filters[detectorID])
+	items := b.filtersByDetector.Get(detectorID)
+	names := make([]string, len(items))
+
+	for i, f := range items {
+		names[i] = f.Name
+	}
+
+	slices.Sort(names)
 
 	return names, nil
 }
@@ -499,14 +584,14 @@ func (b *InMemoryBackend) GetFindings(detectorID string, findingIDs []string) ([
 	b.mu.RLock("GetFindings")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
 	results := make([]*Finding, 0, len(findingIDs))
 
 	for _, id := range findingIDs {
-		f, ok := b.findings[detectorID][id]
+		f, ok := b.findings.Get(detectorKey(detectorID, id))
 		if !ok {
 			return nil, ErrFindingNotFound
 		}
@@ -522,11 +607,18 @@ func (b *InMemoryBackend) ListFindings(detectorID string) ([]string, error) {
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := collections.SortedKeys(b.findings[detectorID])
+	items := b.findingsByDetector.Get(detectorID)
+	ids := make([]string, len(items))
+
+	for i, f := range items {
+		ids[i] = f.ID
+	}
+
+	slices.Sort(ids)
 
 	return ids, nil
 }
@@ -536,14 +628,14 @@ func (b *InMemoryBackend) ArchiveFindings(detectorID string, findingIDs []string
 	b.mu.Lock("ArchiveFindings")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, id := range findingIDs {
-		if f, ok := b.findings[detectorID][id]; ok {
+		if f, ok := b.findings.Get(detectorKey(detectorID, id)); ok {
 			f.Service.Archived = true
 			f.UpdatedAt = now
 		}
@@ -557,14 +649,14 @@ func (b *InMemoryBackend) UnarchiveFindings(detectorID string, findingIDs []stri
 	b.mu.Lock("UnarchiveFindings")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, id := range findingIDs {
-		if f, ok := b.findings[detectorID][id]; ok {
+		if f, ok := b.findings.Get(detectorKey(detectorID, id)); ok {
 			f.Service.Archived = false
 			f.UpdatedAt = now
 		}
@@ -578,7 +670,7 @@ func (b *InMemoryBackend) CreateSampleFindings(detectorID string, findingTypes [
 	b.mu.Lock("CreateSampleFindings")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
@@ -590,7 +682,7 @@ func (b *InMemoryBackend) CreateSampleFindings(detectorID string, findingTypes [
 
 	for _, ft := range findingTypes {
 		id := strings.ReplaceAll(uuid.New().String(), "-", "")
-		b.findings[detectorID][id] = &Finding{
+		b.findings.Put(&Finding{
 			AccountID:     b.accountID,
 			Arn:           b.findingARN(detectorID, id),
 			CreatedAt:     now,
@@ -615,7 +707,7 @@ func (b *InMemoryBackend) CreateSampleFindings(detectorID string, findingTypes [
 			Resource: FindingResource{
 				ResourceType: "AccessKey",
 			},
-		}
+		})
 	}
 
 	return nil
@@ -626,13 +718,13 @@ func (b *InMemoryBackend) GetFindingsStatistics(detectorID string) (map[string]a
 	b.mu.RLock("GetFindingsStatistics")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
 	countBySeverity := map[string]int{}
 
-	for _, f := range b.findings[detectorID] {
+	for _, f := range b.findingsByDetector.Get(detectorID) {
 		key := fmt.Sprintf("%.1f", f.Severity)
 		countBySeverity[key]++
 	}
@@ -649,14 +741,14 @@ func (b *InMemoryBackend) UpdateFindingsFeedback(detectorID string, findingIDs [
 	b.mu.Lock("UpdateFindingsFeedback")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, id := range findingIDs {
-		if f, ok := b.findings[detectorID][id]; ok {
+		if f, ok := b.findings.Get(detectorKey(detectorID, id)); ok {
 			f.Service.UserFeedback = feedback
 			f.UpdatedAt = now
 		}
@@ -676,11 +768,11 @@ func (b *InMemoryBackend) CreateIPSet(
 	b.mu.Lock("CreateIPSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	for _, existing := range b.ipSets[detectorID] {
+	for _, existing := range b.ipSetsByDetector.Get(detectorID) {
 		if existing.Name == name {
 			return nil, ErrIPSetAlreadyExists
 		}
@@ -704,7 +796,7 @@ func (b *InMemoryBackend) CreateIPSet(
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	b.ipSets[detectorID][id] = s
+	b.ipSets.Put(s)
 
 	arn := b.ipSetARN(detectorID, id)
 	if tags != nil {
@@ -719,11 +811,11 @@ func (b *InMemoryBackend) GetIPSet(detectorID, ipSetID string) (*IPSet, error) {
 	b.mu.RLock("GetIPSet")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	s, ok := b.ipSets[detectorID][ipSetID]
+	s, ok := b.ipSets.Get(detectorKey(detectorID, ipSetID))
 	if !ok {
 		return nil, ErrIPSetNotFound
 	}
@@ -736,11 +828,11 @@ func (b *InMemoryBackend) UpdateIPSet(detectorID, ipSetID, name, location string
 	b.mu.Lock("UpdateIPSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	s, ok := b.ipSets[detectorID][ipSetID]
+	s, ok := b.ipSets.Get(detectorKey(detectorID, ipSetID))
 	if !ok {
 		return ErrIPSetNotFound
 	}
@@ -771,15 +863,14 @@ func (b *InMemoryBackend) DeleteIPSet(detectorID, ipSetID string) error {
 	b.mu.Lock("DeleteIPSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	if _, ok := b.ipSets[detectorID][ipSetID]; !ok {
+	if !b.ipSets.Delete(detectorKey(detectorID, ipSetID)) {
 		return ErrIPSetNotFound
 	}
 
-	delete(b.ipSets[detectorID], ipSetID)
 	delete(b.tags, b.ipSetARN(detectorID, ipSetID))
 
 	return nil
@@ -790,11 +881,18 @@ func (b *InMemoryBackend) ListIPSets(detectorID string) ([]string, error) {
 	b.mu.RLock("ListIPSets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := collections.SortedKeys(b.ipSets[detectorID])
+	items := b.ipSetsByDetector.Get(detectorID)
+	ids := make([]string, len(items))
+
+	for i, s := range items {
+		ids[i] = s.IPSetID
+	}
+
+	slices.Sort(ids)
 
 	return ids, nil
 }
@@ -810,11 +908,11 @@ func (b *InMemoryBackend) CreateThreatIntelSet(
 	b.mu.Lock("CreateThreatIntelSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	for _, existing := range b.threatIntelSets[detectorID] {
+	for _, existing := range b.threatIntelSetsByDetector.Get(detectorID) {
 		if existing.Name == name {
 			return nil, ErrThreatIntelSetAlreadyExists
 		}
@@ -838,7 +936,7 @@ func (b *InMemoryBackend) CreateThreatIntelSet(
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
-	b.threatIntelSets[detectorID][id] = s
+	b.threatIntelSets.Put(s)
 
 	arn := b.threatIntelSetARN(detectorID, id)
 	if tags != nil {
@@ -853,11 +951,11 @@ func (b *InMemoryBackend) GetThreatIntelSet(detectorID, setID string) (*ThreatIn
 	b.mu.RLock("GetThreatIntelSet")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	s, ok := b.threatIntelSets[detectorID][setID]
+	s, ok := b.threatIntelSets.Get(detectorKey(detectorID, setID))
 	if !ok {
 		return nil, ErrThreatIntelSetNotFound
 	}
@@ -870,11 +968,11 @@ func (b *InMemoryBackend) UpdateThreatIntelSet(detectorID, setID, name, location
 	b.mu.Lock("UpdateThreatIntelSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	s, ok := b.threatIntelSets[detectorID][setID]
+	s, ok := b.threatIntelSets.Get(detectorKey(detectorID, setID))
 	if !ok {
 		return ErrThreatIntelSetNotFound
 	}
@@ -905,15 +1003,14 @@ func (b *InMemoryBackend) DeleteThreatIntelSet(detectorID, setID string) error {
 	b.mu.Lock("DeleteThreatIntelSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return ErrDetectorNotFound
 	}
 
-	if _, ok := b.threatIntelSets[detectorID][setID]; !ok {
+	if !b.threatIntelSets.Delete(detectorKey(detectorID, setID)) {
 		return ErrThreatIntelSetNotFound
 	}
 
-	delete(b.threatIntelSets[detectorID], setID)
 	delete(b.tags, b.threatIntelSetARN(detectorID, setID))
 
 	return nil
@@ -924,11 +1021,18 @@ func (b *InMemoryBackend) ListThreatIntelSets(detectorID string) ([]string, erro
 	b.mu.RLock("ListThreatIntelSets")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.detectors[detectorID]; !ok {
+	if !b.detectors.Has(detectorID) {
 		return nil, ErrDetectorNotFound
 	}
 
-	ids := collections.SortedKeys(b.threatIntelSets[detectorID])
+	items := b.threatIntelSetsByDetector.Get(detectorID)
+	ids := make([]string, len(items))
+
+	for i, s := range items {
+		ids[i] = s.ThreatIntelSetID
+	}
+
+	slices.Sort(ids)
 
 	return ids, nil
 }
@@ -987,123 +1091,21 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.detectors = make(map[string]*Detector)
-	b.filters = make(map[string]map[string]*Filter)
-	b.findings = make(map[string]map[string]*Finding)
-	b.ipSets = make(map[string]map[string]*IPSet)
-	b.threatIntelSets = make(map[string]map[string]*ThreatIntelSet)
+	// registry.ResetAll handles every "clean" table (detectors, findings,
+	// members, invitations, orgAdminAccounts, malwareScans,
+	// malwareProtectionPlans). The "dirty" tables below were deliberately
+	// NOT registered on registry (see store_setup.go), so each is reset
+	// individually.
+	b.registry.ResetAll()
+	b.filters.Reset()
+	b.ipSets.Reset()
+	b.threatIntelSets.Reset()
+	b.publishingDestinations.Reset()
+	b.threatEntitySets.Reset()
+	b.trustedEntitySets.Reset()
+	b.orgConfigs.Reset()
+	b.adminAccounts.Reset()
+	b.malwareScanSettings.Reset()
 	b.tags = make(map[string]map[string]string)
-	b.members = make(map[string]map[string]*Member)
-	b.invitations = make(map[string]*Invitation)
-	b.orgAdminAccounts = make(map[string]*OrgAdminAccount)
-	b.orgConfigs = make(map[string]*OrgConfig)
-	b.adminAccounts = make(map[string]*AdminAccount)
-	b.publishingDestinations = make(map[string]map[string]*PublishingDestination)
-	b.malwareScans = make(map[string]*MalwareScan)
-	b.malwareScanSettings = make(map[string]*MalwareScanSettings)
-	b.malwareProtectionPlans = make(map[string]*MalwareProtectionPlan)
-	b.threatEntitySets = make(map[string]map[string]*ThreatEntitySet)
-	b.trustedEntitySets = make(map[string]map[string]*TrustedEntitySet)
 	b.memberSeq = 0
-}
-
-// Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	type snap struct {
-		Detectors              map[string]*Detector                         `json:"detectors"`
-		Filters                map[string]map[string]*Filter                `json:"filters"`
-		Findings               map[string]map[string]*Finding               `json:"findings"`
-		IPSets                 map[string]map[string]*IPSet                 `json:"ipSets"`
-		ThreatIntelSets        map[string]map[string]*ThreatIntelSet        `json:"threatIntelSets"`
-		Tags                   map[string]map[string]string                 `json:"tags"`
-		Members                map[string]map[string]*Member                `json:"members"`
-		Invitations            map[string]*Invitation                       `json:"invitations"`
-		OrgAdminAccounts       map[string]*OrgAdminAccount                  `json:"orgAdminAccounts"`
-		OrgConfigs             map[string]*OrgConfig                        `json:"orgConfigs"`
-		AdminAccounts          map[string]*AdminAccount                     `json:"adminAccounts"`
-		PublishingDestinations map[string]map[string]*PublishingDestination `json:"publishingDestinations"`
-		MalwareScans           map[string]*MalwareScan                      `json:"malwareScans"`
-		MalwareScanSettings    map[string]*MalwareScanSettings              `json:"malwareScanSettings"`
-		MalwareProtectionPlans map[string]*MalwareProtectionPlan            `json:"malwareProtectionPlans"`
-		ThreatEntitySets       map[string]map[string]*ThreatEntitySet       `json:"threatEntitySets"`
-		TrustedEntitySets      map[string]map[string]*TrustedEntitySet      `json:"trustedEntitySets"`
-		MemberSeq              int64                                        `json:"memberSeq"`
-	}
-
-	return persistence.MarshalSnapshot(ctx, "guardduty", snap{
-		Detectors:              b.detectors,
-		Filters:                b.filters,
-		Findings:               b.findings,
-		IPSets:                 b.ipSets,
-		ThreatIntelSets:        b.threatIntelSets,
-		Tags:                   b.tags,
-		Members:                b.members,
-		Invitations:            b.invitations,
-		OrgAdminAccounts:       b.orgAdminAccounts,
-		OrgConfigs:             b.orgConfigs,
-		AdminAccounts:          b.adminAccounts,
-		PublishingDestinations: b.publishingDestinations,
-		MalwareScans:           b.malwareScans,
-		MalwareScanSettings:    b.malwareScanSettings,
-		MalwareProtectionPlans: b.malwareProtectionPlans,
-		ThreatEntitySets:       b.threatEntitySets,
-		TrustedEntitySets:      b.trustedEntitySets,
-		MemberSeq:              b.memberSeq,
-	})
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	type snap struct {
-		Detectors              map[string]*Detector                         `json:"detectors"`
-		Filters                map[string]map[string]*Filter                `json:"filters"`
-		Findings               map[string]map[string]*Finding               `json:"findings"`
-		IPSets                 map[string]map[string]*IPSet                 `json:"ipSets"`
-		ThreatIntelSets        map[string]map[string]*ThreatIntelSet        `json:"threatIntelSets"`
-		Tags                   map[string]map[string]string                 `json:"tags"`
-		Members                map[string]map[string]*Member                `json:"members"`
-		Invitations            map[string]*Invitation                       `json:"invitations"`
-		OrgAdminAccounts       map[string]*OrgAdminAccount                  `json:"orgAdminAccounts"`
-		OrgConfigs             map[string]*OrgConfig                        `json:"orgConfigs"`
-		AdminAccounts          map[string]*AdminAccount                     `json:"adminAccounts"`
-		PublishingDestinations map[string]map[string]*PublishingDestination `json:"publishingDestinations"`
-		MalwareScans           map[string]*MalwareScan                      `json:"malwareScans"`
-		MalwareScanSettings    map[string]*MalwareScanSettings              `json:"malwareScanSettings"`
-		MalwareProtectionPlans map[string]*MalwareProtectionPlan            `json:"malwareProtectionPlans"`
-		ThreatEntitySets       map[string]map[string]*ThreatEntitySet       `json:"threatEntitySets"`
-		TrustedEntitySets      map[string]map[string]*TrustedEntitySet      `json:"trustedEntitySets"`
-		MemberSeq              int64                                        `json:"memberSeq"`
-	}
-
-	var s snap
-	if err := persistence.UnmarshalSnapshot(ctx, "guardduty", data, &s); err != nil {
-		return err
-	}
-
-	b.detectors = s.Detectors
-	b.filters = s.Filters
-	b.findings = s.Findings
-	b.ipSets = s.IPSets
-	b.threatIntelSets = s.ThreatIntelSets
-	b.tags = s.Tags
-	b.members = s.Members
-	b.invitations = s.Invitations
-	b.orgAdminAccounts = s.OrgAdminAccounts
-	b.orgConfigs = s.OrgConfigs
-	b.adminAccounts = s.AdminAccounts
-	b.publishingDestinations = s.PublishingDestinations
-	b.malwareScans = s.MalwareScans
-	b.malwareScanSettings = s.MalwareScanSettings
-	b.malwareProtectionPlans = s.MalwareProtectionPlans
-	b.threatEntitySets = s.ThreatEntitySets
-	b.trustedEntitySets = s.TrustedEntitySets
-	b.memberSeq = s.MemberSeq
-
-	return nil
 }

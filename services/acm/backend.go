@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -107,44 +108,49 @@ type DomainValidationOption struct {
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	RevokedAt                          *time.Time `json:"revokedAt,omitempty"`
-	IssuedAt                           *time.Time `json:"issuedAt,omitempty"`
-	ImportedAt                         *time.Time `json:"importedAt,omitempty"`
-	CreatedAt                          time.Time  `json:"createdAt"`
-	NotBefore                          time.Time  `json:"notBefore"`
-	NotAfter                           time.Time  `json:"notAfter"`
-	ARN                                string     `json:"arn"`
-	DomainName                         string     `json:"domainName"`
-	Serial                             string     `json:"serial,omitempty"`
-	Subject                            string     `json:"subject,omitempty"`
-	Issuer                             string     `json:"issuer,omitempty"`
-	KeyAlgorithm                       string     `json:"keyAlgorithm,omitempty"`
-	SignatureAlgorithm                 string     `json:"signatureAlgorithm,omitempty"`
-	Status                             string     `json:"status"`
-	Type                               string     `json:"type"`
-	RevocationReason                   string     `json:"revocationReason,omitempty"`
-	RenewalEligibility                 string     `json:"renewalEligibility,omitempty"`
-	ValidationMethod                   string     `json:"validationMethod,omitempty"`
-	CertificateBody                    string     `json:"certificateBody,omitempty"`
-	CertificateChain                   string     `json:"certificateChain,omitempty"`
-	PrivateKey                         string     `json:"privateKey,omitempty"`
-	CertificateTransparencyLoggingPref string     `json:"certTransparencyLoggingPref,omitempty"`
-	IdempotencyToken                   string     `json:"idempotencyToken,omitempty"`
-	CertificateAuthorityArn            string     `json:"certificateAuthorityArn,omitempty"`
-	KeyID                              string     `json:"keyId,omitempty"`
-	// FailureReason is set when the certificate enters FAILED status.
-	FailureReason           string                   `json:"failureReason,omitempty"`
-	SubjectAlternativeNames []string                 `json:"subjectAlternativeNames,omitempty"`
-	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	NotBefore  time.Time  `json:"notBefore"`
+	NotAfter   time.Time  `json:"notAfter"`
+	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
+	IssuedAt   *time.Time `json:"issuedAt,omitempty"`
+	ImportedAt *time.Time `json:"importedAt,omitempty"`
 	// RenewalSummary describes the state of the most recent managed renewal attempt.
 	// It is set when RenewCertificate is called on an AMAZON_ISSUED certificate.
-	RenewalSummary *RenewalSummary `json:"renewalSummary,omitempty"`
+	RenewalSummary                     *RenewalSummary `json:"renewalSummary,omitempty"`
+	RenewalEligibility                 string          `json:"renewalEligibility,omitempty"`
+	PrivateKey                         string          `json:"privateKey,omitempty"`
+	Subject                            string          `json:"subject,omitempty"`
+	Issuer                             string          `json:"issuer,omitempty"`
+	KeyAlgorithm                       string          `json:"keyAlgorithm,omitempty"`
+	SignatureAlgorithm                 string          `json:"signatureAlgorithm,omitempty"`
+	Status                             string          `json:"status"`
+	Type                               string          `json:"type"`
+	RevocationReason                   string          `json:"revocationReason,omitempty"`
+	DomainName                         string          `json:"domainName"`
+	ValidationMethod                   string          `json:"validationMethod,omitempty"`
+	CertificateBody                    string          `json:"certificateBody,omitempty"`
+	CertificateChain                   string          `json:"certificateChain,omitempty"`
+	Serial                             string          `json:"serial,omitempty"`
+	CertificateTransparencyLoggingPref string          `json:"certTransparencyLoggingPref,omitempty"`
+	IdempotencyToken                   string          `json:"idempotencyToken,omitempty"`
+	CertificateAuthorityArn            string          `json:"certificateAuthorityArn,omitempty"`
+	KeyID                              string          `json:"keyId,omitempty"`
+	// FailureReason is set when the certificate enters FAILED status.
+	FailureReason string `json:"failureReason,omitempty"`
+	// region is the store.Table composite-key qualifier (see regionKey); it
+	// is not part of the wire API (ACM certificates are region-scoped but
+	// the AWS Certificate shape carries no Region field of its own -- the
+	// region is only ever recoverable from the ARN).
+	region                  string
+	ARN                     string                   `json:"arn"`
+	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
 	// InUseBy holds the ARNs of AWS resources that use this certificate.
 	InUseBy []string `json:"inUseBy,omitempty"`
 	// KeyUsage lists the allowed key usages parsed from the X.509 certificate.
 	KeyUsage []string `json:"keyUsage,omitempty"`
 	// ExtendedKeyUsage lists the extended key usages parsed from the X.509 certificate.
-	ExtendedKeyUsage []string `json:"extendedKeyUsage,omitempty"`
+	ExtendedKeyUsage        []string `json:"extendedKeyUsage,omitempty"`
+	SubjectAlternativeNames []string `json:"subjectAlternativeNames,omitempty"`
 }
 
 // AccountConfig holds account-level ACM configuration.
@@ -181,17 +187,25 @@ type RenewalSummary struct {
 }
 
 // InMemoryBackend is the in-memory store for ACM certificates.
-// InMemoryBackend stores ACM state. All resource maps are nested by region
-// (outer key = region) so that certificates are isolated per region.
+// InMemoryBackend stores ACM state. certs is a single flat store.Table keyed
+// by the composite "region|arn" string (see regionKey) with a companion
+// byRegion Index, replacing the previous map[region]map[arn]*Certificate
+// nesting -- see store_setup.go. The remaining maps are non-*T value maps
+// (their values are plain structs, not pointers) and stay nested by region
+// as plain maps.
 type InMemoryBackend struct {
 	timers map[string]map[string]*time.Timer
-	certs  map[string]map[string]*Certificate
+	certs  *store.Table[Certificate]
+	// certsByRegion groups certs by region, replacing the per-region scans
+	// the old outer map nesting answered directly.
+	certsByRegion *store.Index[Certificate]
 	// idempotencyMap maps RequestCertificate idempotency tokens to cert info (per region).
 	idempotencyMap map[string]map[string]certIdempotencyEntry
 	// accountIdempotency maps PutAccountConfiguration tokens to their applied settings (per region).
 	accountIdempotency map[string]map[string]accountIdempotencyEntry
 	// accountConfig holds the account-level configuration per region.
 	accountConfig map[string]AccountConfig
+	registry      *store.Registry
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
@@ -199,8 +213,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		certs:              make(map[string]map[string]*Certificate),
+	b := &InMemoryBackend{
 		timers:             make(map[string]map[string]*time.Timer),
 		idempotencyMap:     make(map[string]map[string]certIdempotencyEntry),
 		accountIdempotency: make(map[string]map[string]accountIdempotencyEntry),
@@ -208,22 +221,23 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:          accountID,
 		region:             region,
 		mu:                 lockmetrics.New("acm"),
+		registry:           store.NewRegistry(),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// regionKey builds the composite store.Table primary key ("region|id") used
+// by certs -- see store_setup.go.
+func regionKey(region, id string) string { return region + "|" + id }
+
 // The *Store helpers return the per-region inner map, lazily creating it.
 // Callers must hold b.mu.
-
-func (b *InMemoryBackend) certsStore(region string) map[string]*Certificate {
-	if b.certs[region] == nil {
-		b.certs[region] = make(map[string]*Certificate)
-	}
-
-	return b.certs[region]
-}
 
 func (b *InMemoryBackend) timersStore(region string) map[string]*time.Timer {
 	if b.timers[region] == nil {
@@ -353,7 +367,8 @@ func (b *InMemoryBackend) RequestCertificate(
 		CertificateTransparencyLoggingPref: optionsPref,
 		CertificateAuthorityArn:            caArn,
 	}
-	b.certsStore(region)[certARN] = cert
+	cert.region = region
+	b.certs.Put(cert)
 	b.recordNewCert(region, certARN, idempotencyToken, status, now)
 
 	cp := copyCert(cert)
@@ -391,7 +406,7 @@ func (b *InMemoryBackend) checkIdempotency(
 		return nil, false, nil
 	}
 
-	c, exists := b.certsStore(region)[entry.ARN]
+	c, exists := b.certs.Get(regionKey(region, entry.ARN))
 	if !exists {
 		return nil, false, nil
 	}
@@ -573,7 +588,7 @@ func (b *InMemoryBackend) autoValidate(region, certARN string) {
 
 	delete(b.timersStore(region), certARN)
 
-	c, ok := b.certsStore(region)[certARN]
+	c, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok || c.Status != statusPendingValidation {
 		return
 	}
@@ -595,7 +610,7 @@ func (b *InMemoryBackend) autoValidateRenewal(region, certARN string) {
 
 	delete(b.timersStore(region), certARN)
 
-	c, ok := b.certsStore(region)[certARN]
+	c, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok || c.RenewalSummary == nil || c.RenewalSummary.RenewalStatus != renewalStatusPendingValidation {
 		return
 	}
@@ -635,11 +650,9 @@ func (b *InMemoryBackend) ImportCertificate(
 	b.mu.Lock("ImportCertificate")
 	defer b.mu.Unlock()
 
-	certs := b.certsStore(region)
-
 	// Re-import: update existing certificate in-place.
 	if certARNToUpdate != "" {
-		existing, ok := certs[certARNToUpdate]
+		existing, ok := b.certs.Get(regionKey(region, certARNToUpdate))
 		if !ok {
 			return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARNToUpdate)
 		}
@@ -688,8 +701,9 @@ func (b *InMemoryBackend) ImportCertificate(
 		KeyUsage:                           meta.keyUsage,
 		ExtendedKeyUsage:                   meta.extKeyUsage,
 		CertificateTransparencyLoggingPref: transparencyLoggingEnabled,
+		region:                             region,
 	}
-	certs[certARN] = cert
+	b.certs.Put(cert)
 
 	cp := copyCert(cert)
 
@@ -705,7 +719,7 @@ func (b *InMemoryBackend) RenewCertificate(ctx context.Context, certARN string) 
 	b.mu.Lock("RenewCertificate")
 	defer b.mu.Unlock()
 
-	c, exists := b.certsStore(region)[certARN]
+	c, exists := b.certs.Get(regionKey(region, certARN))
 	if !exists {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -799,7 +813,7 @@ func (b *InMemoryBackend) ExportCertificate(
 	b.mu.RLock("ExportCertificate")
 	defer b.mu.RUnlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -834,7 +848,7 @@ func (b *InMemoryBackend) GetCertificate(ctx context.Context, certARN string) (s
 	b.mu.RLock("GetCertificate")
 	defer b.mu.RUnlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return "", "", fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -854,7 +868,7 @@ func (b *InMemoryBackend) DescribeCertificate(ctx context.Context, arn string) (
 	b.mu.RLock("DescribeCertificate")
 	defer b.mu.RUnlock()
 
-	cert, exists := b.certsStore(region)[arn]
+	cert, exists := b.certs.Get(regionKey(region, arn))
 	if !exists {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
 	}
@@ -952,7 +966,7 @@ func (b *InMemoryBackend) ListCertificates(
 	defer b.mu.RUnlock()
 
 	filters := buildListCertFilters(p)
-	regionCerts := b.certsStore(region)
+	regionCerts := b.certsByRegion.Get(region)
 	certs := make([]Certificate, 0, len(regionCerts))
 
 	for _, c := range regionCerts {
@@ -1007,9 +1021,7 @@ func (b *InMemoryBackend) CertExists(ctx context.Context, certARN string) bool {
 	b.mu.RLock("CertExists")
 	defer b.mu.RUnlock()
 
-	_, ok := b.certsStore(region)[certARN]
-
-	return ok
+	return b.certs.Has(regionKey(region, certARN))
 }
 
 // AddInUseBy records that a resource ARN is using the certificate. It is a no-op
@@ -1020,7 +1032,7 @@ func (b *InMemoryBackend) AddInUseBy(ctx context.Context, certARN, resourceARN s
 	b.mu.Lock("AddInUseBy")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return
 	}
@@ -1040,7 +1052,7 @@ func (b *InMemoryBackend) RemoveInUseBy(ctx context.Context, certARN, resourceAR
 	b.mu.Lock("RemoveInUseBy")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return
 	}
@@ -1063,8 +1075,9 @@ func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, certARN string)
 	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
-	certs := b.certsStore(region)
-	cert, exists := certs[certARN]
+	key := regionKey(region, certARN)
+
+	cert, exists := b.certs.Get(key)
 	if !exists {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1079,7 +1092,7 @@ func (b *InMemoryBackend) DeleteCertificate(ctx context.Context, certARN string)
 		delete(timers, certARN)
 	}
 
-	delete(certs, certARN)
+	b.certs.Delete(key)
 
 	// Drop any idempotency-token entries that pointed at this cert so the
 	// map cannot grow unbounded for long-running backends.
@@ -1408,7 +1421,11 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
-	b.certs = make(map[string]map[string]*Certificate)
+	b.registry.ResetAll()
+	// certs is a "dirty" table (hidden region field) deliberately NOT on
+	// b.registry -- see store_setup.go's registerAllTables doc -- so it
+	// needs its own Reset() call here.
+	b.certs.Reset()
 	b.timers = make(map[string]map[string]*time.Timer)
 	b.idempotencyMap = make(map[string]map[string]certIdempotencyEntry)
 	b.accountIdempotency = make(map[string]map[string]accountIdempotencyEntry)
@@ -1506,7 +1523,7 @@ func (b *InMemoryBackend) ResendValidationEmail(ctx context.Context, certARN, do
 	b.mu.Lock("ResendValidationEmail")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1577,7 +1594,7 @@ func (b *InMemoryBackend) RevokeCertificate(ctx context.Context, certARN, revoca
 	b.mu.Lock("RevokeCertificate")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1637,7 +1654,7 @@ func (b *InMemoryBackend) UpdateCertificateOptions(ctx context.Context, certARN,
 	b.mu.Lock("UpdateCertificateOptions")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1660,7 +1677,7 @@ func (b *InMemoryBackend) ExpireCertificate(ctx context.Context, certARN string)
 	b.mu.Lock("ExpireCertificate")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1683,7 +1700,7 @@ func (b *InMemoryBackend) InactivateCertificate(ctx context.Context, certARN str
 	b.mu.Lock("InactivateCertificate")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1706,7 +1723,7 @@ func (b *InMemoryBackend) TimeoutPendingValidation(ctx context.Context, certARN 
 	b.mu.Lock("TimeoutPendingValidation")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -1740,7 +1757,7 @@ func (b *InMemoryBackend) FailCertificate(ctx context.Context, certARN, reason s
 	b.mu.Lock("FailCertificate")
 	defer b.mu.Unlock()
 
-	cert, ok := b.certsStore(region)[certARN]
+	cert, ok := b.certs.Get(regionKey(region, certARN))
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}

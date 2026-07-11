@@ -1542,6 +1542,77 @@ func TestRefinement3_DescribeStream_UpdateShardCount_IncludesOldClosedShards(t *
 	assert.Len(t, descResp.StreamDescription.Shards, 5, "3 closed + 2 open = 5")
 }
 
+// TestRefinement3_DescribeStream_ShardPagination verifies that DescribeStream
+// paginates its Shards list using Limit/ExclusiveStartShardId/HasMoreShards,
+// matching the AWS contract (default page size 100, resumable pagination).
+// A stream accumulates CLOSED shards forever across reshards, so a
+// long-lived, heavily-resharded stream can exceed a single page — previously
+// DescribeStream always returned every shard in one response and hardcoded
+// HasMoreShards to false.
+func TestRefinement3_DescribeStream_ShardPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                  string
+		exclusiveStartShardID string
+		limit                 int
+		shardCount            int
+		wantLen               int
+		wantHasMore           bool
+	}{
+		{
+			name:        "default_limit_under_page",
+			shardCount:  5,
+			wantLen:     5,
+			wantHasMore: false,
+		},
+		{
+			name:        "explicit_limit_truncates",
+			shardCount:  5,
+			limit:       2,
+			wantLen:     2,
+			wantHasMore: true,
+		},
+		{
+			name:                  "exclusive_start_resumes_after_page",
+			shardCount:            5,
+			limit:                 2,
+			exclusiveStartShardID: "shardId-000000000001", // page 1 returned shards 0,1
+			wantLen:               2,                      // shards 2,3
+			wantHasMore:           true,
+		},
+		{
+			name:                  "exclusive_start_reaches_end",
+			shardCount:            5,
+			limit:                 2,
+			exclusiveStartShardID: "shardId-000000000003", // shards 4 remains
+			wantLen:               1,
+			wantHasMore:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kinesis.NewInMemoryBackend()
+			require.NoError(t, b.CreateStream(context.Background(), &kinesis.CreateStreamInput{
+				StreamName: "paginated-stream",
+				ShardCount: tt.shardCount,
+			}))
+
+			out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{
+				StreamName:            "paginated-stream",
+				Limit:                 tt.limit,
+				ExclusiveStartShardID: tt.exclusiveStartShardID,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.Shards, tt.wantLen)
+			assert.Equal(t, tt.wantHasMore, out.HasMoreShards)
+		})
+	}
+}
+
 func TestRefinement3_UpdateShardCount_SecondScaleStillWorks(t *testing.T) {
 	t.Parallel()
 
@@ -1874,14 +1945,14 @@ func TestRefinement3_PutRecords_EmptyBatch(t *testing.T) {
 		ShardCount: 1,
 	}))
 
-	// Empty records slice.
+	// AWS rejects an empty Records list outright (MinItems=1 in the SDK model)
+	// with a validation error — it does not return a 200 with zero results.
 	out, err := b.PutRecords(context.Background(), &kinesis.PutRecordsInput{
 		StreamName: "empty-batch-stream",
 		Records:    []kinesis.PutRecordsEntry{},
 	})
-	require.NoError(t, err)
-	assert.Equal(t, 0, out.FailedRecordCount)
-	assert.Empty(t, out.Records)
+	require.ErrorIs(t, err, kinesis.ErrInvalidArgument)
+	assert.Nil(t, out)
 }
 
 func TestRefinement3_ListShards_ExclusiveStart_WithMaxResults(t *testing.T) {

@@ -446,6 +446,10 @@ func (n *noopBackend) PutGatewayResponse(_ apigateway.PutGatewayResponseInput) (
 	return nil, errNoopNotImplemented
 }
 
+func (n *noopBackend) UpdateGatewayResponse(_ apigateway.PutGatewayResponseInput) (*apigateway.GatewayResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
 func (n *noopBackend) DeleteGatewayResponse(_ string, _ string) error { return errNoopNotImplemented }
 
 func (n *noopBackend) GenerateClientCertificate(
@@ -606,8 +610,14 @@ func TestHandlerPersistence_NoopBackend(t *testing.T) {
 	}
 }
 
-// TestInMemoryBackend_RestoreWithNilMaps ensures that nil maps in the JSON snapshot
-// are initialised to empty maps after Restore (covers the nil-map branches in Restore).
+// TestInMemoryBackend_RestoreWithNilMaps ensures that a snapshot whose "dirty"
+// tables (resources/deployments/stages -- see store_setup.go's
+// registerAllTables doc) are explicitly null or entirely absent restores
+// cleanly to empty tables rather than panicking. Pre-Phase-3.3 this exercised
+// hand-rolled nil-map init logic in Restore; that logic is now handled
+// generically by store.Registry.RestoreAll/store.Table.Restore (both treat
+// nil/absent data as "reset to empty" -- see pkgs/store's docs), so this
+// covers the same edge case against the current Tables-based snapshot shape.
 func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
 	t.Parallel()
 
@@ -617,12 +627,14 @@ func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
 	}{
 		{
 			name: "null_resources_deployments_stages",
-			snapshot: `{"apis":{"api1":{"api":{"id":"api1","name":"n","createdDate":0},` +
-				`"resources":null,"deployments":null,"stages":null}}}`,
+			snapshot: `{"version":1,"tables":{` +
+				`"restApis":[{"id":"api1","name":"n","createdDate":0}],` +
+				`"resources":null,"deployments":null,"stages":null}}`,
 		},
 		{
-			name:     "missing_inner_maps",
-			snapshot: `{"apis":{"api2":{"api":{"id":"api2","name":"m","createdDate":0}}}}`,
+			name: "missing_inner_tables",
+			snapshot: `{"version":1,"tables":{` +
+				`"restApis":[{"id":"api2","name":"m","createdDate":0}]}}`,
 		},
 	}
 
@@ -634,10 +646,11 @@ func TestInMemoryBackend_RestoreWithNilMaps(t *testing.T) {
 			err := b.Restore(t.Context(), []byte(tt.snapshot))
 			require.NoError(t, err)
 
-			// The Restore should have initialised the empty maps – calling GetResources
-			// should succeed without a nil-pointer panic.
+			// The Restore should have initialised the empty tables – calling
+			// GetResources should succeed (the REST API itself was restored) without
+			// a nil-pointer panic, and report no resources.
 			apiID := "api1"
-			if tt.name == "missing_inner_maps" {
+			if tt.name == "missing_inner_tables" {
 				apiID = "api2"
 			}
 

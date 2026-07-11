@@ -12,7 +12,7 @@ func (b *InMemoryBackend) GetPartition(dbName, tableName string, values []string
 	defer b.mu.RUnlock()
 
 	key := partitionKey(dbName, tableName, values)
-	p, ok := b.partitions[key]
+	p, ok := b.partitions.Get(key)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -27,16 +27,16 @@ func (b *InMemoryBackend) GetPartitions(dbName, tableName string) ([]*Partition,
 	b.mu.RLock("GetPartitions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.tables[tableKey(dbName, tableName)]; !ok {
+	if !b.tables.Has(tableKey(dbName, tableName)) {
 		return nil, ErrNotFound
 	}
 
 	prefix := dbName + "|" + tableName + "|"
 	out := make([]*Partition, 0)
 
-	for _, k := range sortedKeys(b.partitions) {
-		if strings.HasPrefix(k, prefix) {
-			out = append(out, clonePartition(b.partitions[k]))
+	for _, p := range b.partitions.Snapshot() {
+		if k := partitionEntryKeyFn(p); strings.HasPrefix(k, prefix) {
+			out = append(out, clonePartition(p))
 		}
 	}
 
@@ -62,7 +62,7 @@ func (b *InMemoryBackend) updatePartitionLocked(
 	input PartitionInput,
 ) error {
 	oldKey := partitionKey(dbName, tableName, partitionValues)
-	p, ok := b.partitions[oldKey]
+	p, ok := b.partitions.Get(oldKey)
 	if !ok {
 		return ErrNotFound
 	}
@@ -72,23 +72,30 @@ func (b *InMemoryBackend) updatePartitionLocked(
 	}
 
 	p.StorageDescriptor = input.StorageDescriptor
+	p.Parameters = maps.Clone(input.Parameters)
 
 	return nil
 }
 
 // renamePartitionLocked moves a partition to a new key based on new values.
+// It deletes the old entry and re-inserts p under its new key (rather than
+// mutating p.Values in place and leaving it under oldKey) because
+// store.Table derives a value's key from its own fields via
+// partitionEntryKeyFn -- mutating the identity field without re-Put would
+// leave the table indexed under a stale key for this value.
 func (b *InMemoryBackend) renamePartitionLocked(
 	p *Partition, dbName, tableName, oldKey string, input PartitionInput,
 ) error {
 	newKey := partitionKey(dbName, tableName, input.Values)
-	if _, exists := b.partitions[newKey]; exists {
+	if b.partitions.Has(newKey) {
 		return ErrAlreadyExists
 	}
 
-	delete(b.partitions, oldKey)
+	b.partitions.Delete(oldKey)
 	p.Values = append([]string(nil), input.Values...)
 	p.StorageDescriptor = input.StorageDescriptor
-	b.partitions[newKey] = p
+	p.Parameters = maps.Clone(input.Parameters)
+	b.partitions.Put(p)
 
 	return nil
 }
@@ -102,8 +109,7 @@ func (b *InMemoryBackend) SearchTables(searchText string) []*Table {
 	lower := strings.ToLower(searchText)
 	out := make([]*Table, 0)
 
-	for _, k := range sortedKeys(b.tables) {
-		t := b.tables[k]
+	for _, t := range b.tables.Snapshot() {
 		if lower == "" || strings.Contains(strings.ToLower(t.Name), lower) {
 			out = append(out, cloneTable(t))
 		}
@@ -117,7 +123,7 @@ func (b *InMemoryBackend) UpdateConnection(name string, connType string, props m
 	b.mu.Lock("UpdateConnection")
 	defer b.mu.Unlock()
 
-	c, ok := b.connections[name]
+	c, ok := b.connections.Get(name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -133,10 +139,8 @@ func (b *InMemoryBackend) UpdateConnection(name string, connType string, props m
 func clonePartition(p *Partition) *Partition {
 	cp := *p
 	cp.Values = append([]string(nil), p.Values...)
-	if len(p.StorageDescriptor.Columns) > 0 {
-		cp.StorageDescriptor.Columns = make([]Column, len(p.StorageDescriptor.Columns))
-		copy(cp.StorageDescriptor.Columns, p.StorageDescriptor.Columns)
-	}
+	cp.StorageDescriptor = cloneStorageDescriptor(p.StorageDescriptor)
+	cp.Parameters = maps.Clone(p.Parameters)
 
 	return &cp
 }

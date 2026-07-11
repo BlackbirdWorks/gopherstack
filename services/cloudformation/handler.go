@@ -855,10 +855,11 @@ func (h *Handler) handleDescribeStackEvents(form url.Values, c *echo.Context) er
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
-	events, err := h.Backend.DescribeStackEvents(stackName)
+	p, err := h.Backend.DescribeStackEvents(stackName, form.Get("NextToken"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
+	events := p.Data
 
 	type eventXML struct {
 		EventID              string `xml:"EventId"`
@@ -887,6 +888,7 @@ func (h *Handler) handleDescribeStackEvents(form url.Values, c *echo.Context) er
 	}
 
 	type eventsResult struct {
+		NextToken   string     `xml:"NextToken,omitempty"`
 		StackEvents []eventXML `xml:"StackEvents>member"`
 	}
 	type response struct {
@@ -898,7 +900,7 @@ func (h *Handler) handleDescribeStackEvents(form url.Values, c *echo.Context) er
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    eventsResult{StackEvents: members},
+		Result:    eventsResult{StackEvents: members, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }
@@ -948,7 +950,11 @@ func (h *Handler) handleExecuteChangeSet(form url.Values, c *echo.Context) error
 	changeSetName := form.Get("ChangeSetName")
 
 	if err := h.Backend.ExecuteChangeSet(c.Request().Context(), stackName, changeSetName); err != nil {
-		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
+		if errors.Is(err, ErrChangeSetNotExecutable) {
+			return h.xmlError(c, "InvalidChangeSetStatus", err.Error())
+		}
+
+		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
 
 	type response struct {
@@ -965,7 +971,7 @@ func (h *Handler) handleDeleteChangeSet(form url.Values, c *echo.Context) error 
 	changeSetName := form.Get("ChangeSetName")
 
 	if err := h.Backend.DeleteChangeSet(stackName, changeSetName); err != nil {
-		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
+		return h.xmlError(c, "ChangeSetNotFound", err.Error())
 	}
 
 	type response struct {

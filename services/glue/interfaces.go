@@ -49,10 +49,17 @@ type StorageBackend interface {
 		targets CrawlerTarget,
 		tags map[string]string,
 	) (*Crawler, error)
+	CreateCrawlerWithOptions(
+		name, role, dbName string,
+		targets CrawlerTarget,
+		tags map[string]string,
+		opts CrawlerOptions,
+	) (*Crawler, error)
 	GetCrawler(name string) (*Crawler, error)
 	GetCrawlers() []*Crawler
 	ListCrawlers() []string
 	UpdateCrawler(name, role, dbName string, targets CrawlerTarget) error
+	UpdateCrawlerWithOptions(name, role, dbName string, targets CrawlerTarget, opts CrawlerOptions) error
 	DeleteCrawler(name string) error
 
 	// Job operations.

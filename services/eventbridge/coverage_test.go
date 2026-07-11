@@ -397,9 +397,14 @@ func TestHandler_PutEvents_Empty(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "empty entries returns OK",
+			// AWS's PutEventsRequestEntryList requires at least 1 item
+			// ("Array Members: Minimum number of 1 item"); an empty batch is
+			// a validation error, not a no-op success. Previously this
+			// backend accepted an empty batch as a 200 with zero results,
+			// which is the wrong AWS behavior.
+			name:     "empty entries returns validation error",
 			body:     `{"Entries":[]}`,
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 

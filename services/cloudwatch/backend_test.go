@@ -27,7 +27,7 @@ func TestCloudWatchBackend_PutMetricData(t *testing.T) {
 			Timestamp:  time.Now(),
 		},
 	}
-	_, err := b.PutMetricData("AWS/EC2", data)
+	err := b.PutMetricData("AWS/EC2", data)
 	require.NoError(t, err)
 }
 
@@ -39,9 +39,9 @@ func TestCloudWatchBackend_PutMetricData_Multiple(t *testing.T) {
 		{MetricName: "CPU", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: time.Now()},
 		{MetricName: "CPU", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20, Timestamp: time.Now()},
 	}
-	_, err := b.PutMetricData("AWS/EC2", data)
+	err := b.PutMetricData("AWS/EC2", data)
 	require.NoError(t, err)
-	metrics, err := b.ListMetrics("AWS/EC2", "CPU", nil, "", 0)
+	metrics, err := b.ListMetrics("AWS/EC2", "CPU", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, metrics.Data, 1)
 }
@@ -50,23 +50,23 @@ func TestCloudWatchBackend_ListMetrics(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-	_, _ = b.PutMetricData("NS1", []cloudwatch.MetricDatum{
+	_ = b.PutMetricData("NS1", []cloudwatch.MetricDatum{
 		{MetricName: "M1", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: time.Now()},
 	})
-	_, _ = b.PutMetricData("NS2", []cloudwatch.MetricDatum{
+	_ = b.PutMetricData("NS2", []cloudwatch.MetricDatum{
 		{MetricName: "M2", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: time.Now()},
 	})
 
-	all, err := b.ListMetrics("", "", nil, "", 0)
+	all, err := b.ListMetrics("", "", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, all.Data, 2)
 
-	ns1, err := b.ListMetrics("NS1", "", nil, "", 0)
+	ns1, err := b.ListMetrics("NS1", "", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, ns1.Data, 1)
 	assert.Equal(t, "M1", ns1.Data[0].MetricName)
 
-	byName, err := b.ListMetrics("", "M2", nil, "", 0)
+	byName, err := b.ListMetrics("", "M2", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, byName.Data, 1)
 }
@@ -116,7 +116,7 @@ func TestCloudWatchBackend_GetMetricStatistics(t *testing.T) {
 						Timestamp:  now.Add(5 * time.Second),
 					},
 				}
-				_, err := b.PutMetricData("AWS/EC2", data)
+				err := b.PutMetricData("AWS/EC2", data)
 				require.NoError(t, err)
 			},
 			namespace:       "AWS/EC2",
@@ -148,7 +148,7 @@ func TestCloudWatchBackend_GetMetricStatistics(t *testing.T) {
 						Timestamp:  old,
 					},
 				}
-				_, err := b.PutMetricData("AWS/EC2", data)
+				err := b.PutMetricData("AWS/EC2", data)
 				require.NoError(t, err)
 			},
 			namespace:  "AWS/EC2",
@@ -709,6 +709,23 @@ func TestCloudWatchBackend_CompositeAlarmActionsFireOnChildChange(t *testing.T) 
 
 	assert.Len(t, pub.messages, 1, "composite alarm action should have been fired")
 	assert.Contains(t, pub.messages[0], "parent2")
+
+	// The fired action's history entry must be tagged AlarmType=CompositeAlarm
+	// (previously hardcoded to "MetricAlarm" for every action-fired entry,
+	// regardless of which kind of alarm actually fired it), so
+	// DescribeAlarmHistory's AlarmType filter can find it.
+	composite, err := b.DescribeAlarmHistory(
+		"parent2", "CompositeAlarm", "Action", "", time.Time{}, time.Time{}, 0,
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, composite.Data, "composite alarm's Action history should be tagged CompositeAlarm")
+
+	metricTyped, err := b.DescribeAlarmHistory(
+		"parent2", "MetricAlarm", "Action", "", time.Time{}, time.Time{}, 0,
+	)
+	require.NoError(t, err)
+	assert.Empty(t, metricTyped.Data,
+		"a composite alarm's Action history must not be mistagged as MetricAlarm")
 }
 
 // mockLambdaInvoker captures lambda invocations for assertions.
@@ -1209,7 +1226,7 @@ func TestCloudWatchBackend_MetricDataCap(t *testing.T) {
 	// Insert more than cwMaxMetricDataPoints data points.
 	const total = 1100
 	for range total {
-		_, err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
 			{
 				MetricName: "CPUUtilization",
 				Value:      42.0,
@@ -1221,7 +1238,7 @@ func TestCloudWatchBackend_MetricDataCap(t *testing.T) {
 	}
 
 	// At least one metric entry should still exist after capping.
-	page, err := b.ListMetrics("AWS/EC2", "CPUUtilization", nil, "", 0)
+	page, err := b.ListMetrics("AWS/EC2", "CPUUtilization", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, page.Data)
 }
@@ -1408,11 +1425,12 @@ func TestCloudWatchBackend_PutMetricData_NamespaceCapEnforced(t *testing.T) {
 			Max:        1,
 			Timestamp:  time.Now(),
 		}
-		_, err := b.PutMetricData("NS/Cap", []cloudwatch.MetricDatum{datum})
+		err := b.PutMetricData("NS/Cap", []cloudwatch.MetricDatum{datum})
 		require.NoError(t, err)
 	}
 
-	// Attempt to add one more unique metric; it should be silently dropped.
+	// Attempt to add one more unique metric; the whole request must fail since
+	// PutMetricData has no partial-success shape in real CloudWatch.
 	extra := cloudwatch.MetricDatum{
 		MetricName: "ExtraMetric",
 		Value:      1,
@@ -1422,10 +1440,10 @@ func TestCloudWatchBackend_PutMetricData_NamespaceCapEnforced(t *testing.T) {
 		Max:        1,
 		Timestamp:  time.Now(),
 	}
-	_, err := b.PutMetricData("NS/Cap", []cloudwatch.MetricDatum{extra})
-	require.NoError(t, err)
+	err := b.PutMetricData("NS/Cap", []cloudwatch.MetricDatum{extra})
+	require.ErrorIs(t, err, cloudwatch.ErrMetricSeriesLimitExceeded)
 
-	metrics, err2 := b.ListMetrics("NS/Cap", "", nil, "", 0)
+	metrics, err2 := b.ListMetrics("NS/Cap", "", nil, "", "", 0)
 	require.NoError(t, err2)
 	assert.LessOrEqual(t, len(metrics.Data), cloudwatch.CwMaxMetricNamesPerNamespace,
 		"namespace metric count should not exceed the cap")
@@ -1453,13 +1471,13 @@ func TestCloudWatchBackend_SweepExpiredMetrics(t *testing.T) {
 		Timestamp: recentTimestamp,
 	}
 
-	_, err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{oldDatum, recentDatum})
+	err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{oldDatum, recentDatum})
 	require.NoError(t, err)
 
 	b.SweepExpiredMetrics()
 
 	// OldMetric should be evicted; RecentMetric should remain.
-	all, err := b.ListMetrics("NS/Sweep", "", nil, "", 0)
+	all, err := b.ListMetrics("NS/Sweep", "", nil, "", "", 0)
 	require.NoError(t, err)
 
 	names := make(map[string]bool, len(all.Data))
@@ -1486,7 +1504,7 @@ func TestCloudWatchBackend_SweepExpiredMetrics_OutOfOrder(t *testing.T) {
 		{MetricName: "Mixed", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: recent},
 		{MetricName: "Mixed", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: old},
 	}
-	_, err := b.PutMetricData("NS/OutOfOrder", pts)
+	err := b.PutMetricData("NS/OutOfOrder", pts)
 	require.NoError(t, err)
 
 	b.SweepExpiredMetrics()
@@ -1789,7 +1807,7 @@ func TestCloudWatchBackend_DimensionAwareStorage(t *testing.T) {
 	dims1 := []cloudwatch.Dimension{{Name: "Host", Value: "host-1"}}
 	dims2 := []cloudwatch.Dimension{{Name: "Host", Value: "host-2"}}
 
-	_, err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
 		{
 			MetricName: "CPUUtilization", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10,
 			Timestamp: now, Dimensions: dims1,
@@ -1802,12 +1820,12 @@ func TestCloudWatchBackend_DimensionAwareStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	// ListMetrics should return two separate series, not one.
-	all, err := b.ListMetrics("AWS/EC2", "CPUUtilization", nil, "", 0)
+	all, err := b.ListMetrics("AWS/EC2", "CPUUtilization", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, all.Data, 2, "each dimension set is a distinct metric series")
 
 	// Filter by dims1 should return exactly one series.
-	filtered, err := b.ListMetrics("AWS/EC2", "CPUUtilization", dims1, "", 0)
+	filtered, err := b.ListMetrics("AWS/EC2", "CPUUtilization", dims1, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, filtered.Data, 1)
 	assert.Equal(t, "host-1", filtered.Data[0].Dimensions[0].Value)
@@ -1823,7 +1841,7 @@ func TestCloudWatchBackend_DimensionAwareGetMetricStatistics(t *testing.T) {
 	dimsA := []cloudwatch.Dimension{{Name: "Service", Value: "A"}}
 	dimsB := []cloudwatch.Dimension{{Name: "Service", Value: "B"}}
 
-	_, err := b.PutMetricData("App/Metrics", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App/Metrics", []cloudwatch.MetricDatum{
 		{MetricName: "Latency", Value: 100, Count: 1, Sum: 100, Min: 100, Max: 100, Timestamp: mid, Dimensions: dimsA},
 		{MetricName: "Latency", Value: 200, Count: 1, Sum: 200, Min: 200, Max: 200, Timestamp: mid, Dimensions: dimsB},
 	})
@@ -1852,7 +1870,7 @@ func TestCloudWatchBackend_DimensionAwareGetMetricData(t *testing.T) {
 
 	dimsX := []cloudwatch.Dimension{{Name: "Shard", Value: "x"}}
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Errors", Value: 5, Count: 1, Sum: 5, Min: 5, Max: 5, Timestamp: mid, Dimensions: dimsX},
 		{MetricName: "Errors", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: mid},
 	})
@@ -1885,7 +1903,7 @@ func TestCloudWatchBackend_StatisticSet(t *testing.T) {
 	ts := time.Now().UTC().Add(-time.Minute)
 
 	// Pre-aggregated StatisticSet datum.
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "RequestCount",
 			Timestamp:  ts,
@@ -1916,7 +1934,7 @@ func TestCloudWatchBackend_DimensionlessVsDimensioned(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("MyNS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("MyNS", []cloudwatch.MetricDatum{
 		{MetricName: "M", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts},
 		{
 			MetricName: "M", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: ts,
@@ -1926,11 +1944,11 @@ func TestCloudWatchBackend_DimensionlessVsDimensioned(t *testing.T) {
 	require.NoError(t, err)
 
 	// No-dim query should return only the dimensionless series.
-	all, err := b.ListMetrics("MyNS", "M", nil, "", 0)
+	all, err := b.ListMetrics("MyNS", "M", nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, all.Data, 2, "dimensionless and dimensioned are separate series")
 
-	noDim, err := b.ListMetrics("MyNS", "M", []cloudwatch.Dimension{}, "", 0)
+	noDim, err := b.ListMetrics("MyNS", "M", []cloudwatch.Dimension{}, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, noDim.Data, 2, "empty dimension filter matches all")
 }
@@ -1944,7 +1962,7 @@ func TestCloudWatchBackend_ScanByDescending(t *testing.T) {
 	t2 := now.Add(-2 * time.Minute)
 	t3 := now.Add(-time.Minute)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Counter", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: t1},
 		{MetricName: "Counter", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: t2},
 		{MetricName: "Counter", Value: 3, Count: 1, Sum: 3, Min: 3, Max: 3, Timestamp: t3},
@@ -1981,7 +1999,7 @@ func TestCloudWatchBackend_ReturnDataFalse_SuppressesExpressionResult(t *testing
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC().Add(-30 * time.Second)
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{MetricName: "Val", Value: 7, Count: 1, Sum: 7, Min: 7, Max: 7, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -2012,14 +2030,19 @@ func TestCloudWatchBackend_ReturnDataFalse_SuppressesExpressionResult(t *testing
 	assert.NotContains(t, ids, "e1", "e1 ReturnData=false should be suppressed")
 }
 
-func TestCloudWatchBackend_UnprocessedMetricData_NamespaceCap(t *testing.T) {
+// TestCloudWatchBackend_PutMetricData_NamespaceCap verifies that once a
+// namespace has reached its distinct-time-series cap, PutMetricData rejects a
+// request introducing one more new series with the whole call failing (real
+// CloudWatch has no per-datum "unprocessed" result — PutMetricDataOutput only
+// carries a request ID) rather than a partial/fabricated success.
+func TestCloudWatchBackend_PutMetricData_NamespaceCap(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Fill the namespace to the cap.
 	for i := range cloudwatch.CwMaxMetricNamesPerNamespace {
-		_, err := b.PutMetricData("NS/Full", []cloudwatch.MetricDatum{
+		err := b.PutMetricData("NS/Full", []cloudwatch.MetricDatum{
 			{
 				MetricName: fmt.Sprintf("M%d", i),
 				Value:      float64(i),
@@ -2030,14 +2053,16 @@ func TestCloudWatchBackend_UnprocessedMetricData_NamespaceCap(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// One more new metric should come back as unprocessed.
-	unprocessed, err := b.PutMetricData("NS/Full", []cloudwatch.MetricDatum{
+	// One more new metric should fail the whole request.
+	err := b.PutMetricData("NS/Full", []cloudwatch.MetricDatum{
 		{MetricName: "OverflowMetric", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: time.Now()},
 	})
-	require.NoError(t, err)
-	require.Len(t, unprocessed, 1)
-	assert.Equal(t, "OverflowMetric", unprocessed[0].MetricName)
-	assert.Equal(t, "LimitExceeded", unprocessed[0].ErrorCode)
+	require.ErrorIs(t, err, cloudwatch.ErrMetricSeriesLimitExceeded)
+
+	// The overflow metric must not have been stored.
+	p, lerr := b.ListMetrics("NS/Full", "", nil, "", "", 0)
+	require.NoError(t, lerr)
+	assert.NotContains(t, metricNames(p.Data), "OverflowMetric")
 }
 
 func TestCloudWatchBackend_MetricStream_IncludeFilter(t *testing.T) {
@@ -2058,7 +2083,7 @@ func TestCloudWatchBackend_MetricStream_IncludeFilter(t *testing.T) {
 
 	ts := time.Now().UTC()
 	// This metric matches the include filter.
-	_, err = b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
+	err = b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
 		{MetricName: "CPUUtilization", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -2080,7 +2105,7 @@ func TestCloudWatchBackend_MetricStream_IncludeFilter(t *testing.T) {
 		},
 	})
 	beforeNonMatch, _ := b.GetMetricStream("stream-include2")
-	_, err = b.PutMetricData("AWS/RDS", []cloudwatch.MetricDatum{
+	err = b.PutMetricData("AWS/RDS", []cloudwatch.MetricDatum{
 		{MetricName: "FreeStorageSpace", Value: 100, Count: 1, Sum: 100, Min: 100, Max: 100, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -2107,7 +2132,7 @@ func TestCloudWatchBackend_MetricStream_ExcludeFilter(t *testing.T) {
 	baseline, _ := b.GetMetricStream("stream-exclude")
 
 	// Excluded namespace: should not update stream.
-	_, err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
 		{MetricName: "CPUUtilization", Value: 50, Count: 1, Sum: 50, Min: 50, Max: 50, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -2117,7 +2142,7 @@ func TestCloudWatchBackend_MetricStream_ExcludeFilter(t *testing.T) {
 		"excluded namespace should not update stream")
 
 	// Non-excluded namespace: should update.
-	_, err = b.PutMetricData("AWS/RDS", []cloudwatch.MetricDatum{
+	err = b.PutMetricData("AWS/RDS", []cloudwatch.MetricDatum{
 		{MetricName: "FreeStorageSpace", Value: 99, Count: 1, Sum: 99, Min: 99, Max: 99, Timestamp: ts},
 	})
 	require.NoError(t, err)
@@ -2136,7 +2161,7 @@ func TestCloudWatchBackend_ListMetrics_DimensionFilter(t *testing.T) {
 	dimsA := []cloudwatch.Dimension{{Name: "Env", Value: "prod"}}
 	dimsB := []cloudwatch.Dimension{{Name: "Env", Value: "staging"}}
 
-	_, err := b.PutMetricData("Custom", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("Custom", []cloudwatch.MetricDatum{
 		{MetricName: "RPM", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts, Dimensions: dimsA},
 		{MetricName: "RPM", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: ts, Dimensions: dimsB},
 		{MetricName: "RPM", Value: 3, Count: 1, Sum: 3, Min: 3, Max: 3, Timestamp: ts},
@@ -2144,10 +2169,67 @@ func TestCloudWatchBackend_ListMetrics_DimensionFilter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Filter to prod only.
-	prod, err := b.ListMetrics("Custom", "RPM", dimsA, "", 0)
+	prod, err := b.ListMetrics("Custom", "RPM", dimsA, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, prod.Data, 1)
 	assert.Equal(t, "prod", prod.Data[0].Dimensions[0].Value)
+}
+
+// Test_ListMetrics_RecentlyActive verifies the RecentlyActive=PT3H filter:
+// AWS's only documented value, restricting results to metrics with a
+// datapoint in the last 3 hours. Previously this parameter was not parsed or
+// forwarded at all (silently ignored, never even reaching the backend), so a
+// caller filtering for recently-active metrics got back everything instead.
+func Test_ListMetrics_RecentlyActive(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name           string
+		recentlyActive string
+		wantNames      []string
+		wantErr        bool
+	}{
+		{
+			name:           "no filter returns everything",
+			recentlyActive: "",
+			wantNames:      []string{"Fresh", "Stale"},
+		},
+		{
+			name:           "PT3H returns only recently-active metrics",
+			recentlyActive: "PT3H",
+			wantNames:      []string{"Fresh"},
+		},
+		{
+			name:           "invalid value rejected",
+			recentlyActive: "PT1H",
+			wantErr:        true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackend()
+			now := time.Now().UTC()
+
+			err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+				{MetricName: "Fresh", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: now.Add(-time.Minute)},
+				{MetricName: "Stale", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: now.Add(-4 * time.Hour)},
+			})
+			require.NoError(t, err)
+
+			p, lerr := b.ListMetrics("NS", "", nil, tc.recentlyActive, "", 0)
+			if tc.wantErr {
+				require.ErrorIs(t, lerr, cloudwatch.ErrValidation)
+
+				return
+			}
+
+			require.NoError(t, lerr)
+			assert.ElementsMatch(t, tc.wantNames, metricNames(p.Data))
+		})
+	}
 }
 
 func TestCloudWatchBackend_ListMetrics_ReturnsDimensions(t *testing.T) {
@@ -2159,7 +2241,7 @@ func TestCloudWatchBackend_ListMetrics_ReturnsDimensions(t *testing.T) {
 		{Name: "Service", Value: "web"},
 	}
 
-	_, err := b.PutMetricData("Infra", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("Infra", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Errors", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
 			Timestamp: time.Now(), Dimensions: dims,
@@ -2167,7 +2249,7 @@ func TestCloudWatchBackend_ListMetrics_ReturnsDimensions(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	p, err := b.ListMetrics("Infra", "Errors", nil, "", 0)
+	p, err := b.ListMetrics("Infra", "Errors", nil, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 	assert.Len(t, p.Data[0].Dimensions, 2, "dimensions should be returned in ListMetrics")
@@ -2179,7 +2261,7 @@ func TestCloudWatchBackend_StorageResolution_StoredOnDatum(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackend()
 	ts := time.Now().UTC()
 
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Ticks", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1,
 			Timestamp: ts, StorageResolution: 1,
@@ -2188,7 +2270,7 @@ func TestCloudWatchBackend_StorageResolution_StoredOnDatum(t *testing.T) {
 	require.NoError(t, err)
 
 	// Metric should be stored and queryable.
-	p, err := b.ListMetrics("App", "Ticks", nil, "", 0)
+	p, err := b.ListMetrics("App", "Ticks", nil, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, p.Data, 1)
 }
@@ -2204,7 +2286,7 @@ func TestCloudWatchBackend_GetInsightRuleContributors(t *testing.T) {
 	}))
 
 	ts := time.Now().UTC().Add(-30 * time.Second)
-	_, err := b.PutMetricData("App", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("App", []cloudwatch.MetricDatum{
 		{
 			MetricName: "Hits", Value: 10, Count: 10, Sum: 100, Min: 8, Max: 12, Timestamp: ts,
 			Dimensions: []cloudwatch.Dimension{{Name: "Host", Value: "h1"}},
@@ -2240,7 +2322,7 @@ func TestCloudWatchBackend_DimensionOrderNormalized(t *testing.T) {
 	// Query with dims in different order.
 	dims2 := []cloudwatch.Dimension{{Name: "A", Value: "1"}, {Name: "B", Value: "2"}}
 
-	_, err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
+	err := b.PutMetricData("NS", []cloudwatch.MetricDatum{
 		{
 			MetricName: "M", Value: 42, Count: 1, Sum: 42, Min: 42, Max: 42,
 			Timestamp: ts, Dimensions: dims1,

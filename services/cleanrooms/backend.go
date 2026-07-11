@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -489,29 +490,74 @@ type CollaborationChangeRequest struct {
 // ---- InMemoryBackend ----
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+//
+// registry holds every converted resource table directly, including every
+// composite-keyed one (see store_setup.go): each derives its store.Table key
+// entirely from real, already-wire-visible identity field(s) already present
+// on the value type (e.g. ConfiguredTableAnalysisRule carries both
+// ConfiguredTableIdentifier and Type; AnalysisTemplate carries both
+// MembershipIdentifier and its own ID), so plain registry.SnapshotAll/
+// RestoreAll round-trips every table losslessly with no DTO wrapper needed
+// anywhere -- unlike services/workmail or services/codeartifact, which each
+// hide at least one unexported field behind a DTO. See persistence.go.
+//
+// tagsByArn is the one field left as a plain (non-store.Table) map: its
+// values are map[string]string, not *T, so there is nothing for store.Table
+// to key on. It is persisted directly (see persistence.go).
 type InMemoryBackend struct {
-	protectedQueries        map[string]map[string]*ProtectedQuery
-	protectedJobs           map[string]map[string]*ProtectedJob
-	nowFn                   func() float64
-	collaborations          map[string]*Collaboration
-	memberships             map[string]*Membership
-	configuredTables        map[string]*ConfiguredTable
-	ctAnalysisRules         map[string]map[string]*ConfiguredTableAnalysisRule
-	ctAssociations          map[string]map[string]*ConfiguredTableAssociation
-	ctaAnalysisRules        map[string]map[string]*ConfiguredTableAssociationAnalysisRule
-	privacyBudgetTemplates  map[string]map[string]*PrivacyBudgetTemplate
-	tagsByArn               map[string]map[string]string
-	mu                      *lockmetrics.RWMutex
-	analysisTemplates       map[string]map[string]*AnalysisTemplate
-	idMappingTables         map[string]map[string]*IDMappingTable
-	idNamespaceAssociations map[string]map[string]*IDNamespaceAssociation
-	camaAssociations        map[string]map[string]*ConfiguredAudienceModelAssociation
-	changeRequests          map[string]map[string]*CollaborationChangeRequest
-	schemas                 map[string]map[string]*Schema
-	schemaAnalysisRules     map[string]map[string]map[string]*SchemaAnalysisRule
-	accountID               string
-	region                  string
-	muNow                   sync.Mutex
+	registry *store.Registry
+
+	collaborations *store.Table[Collaboration]
+	memberships    *store.Table[Membership]
+
+	configuredTables *store.Table[ConfiguredTable]
+
+	ctAnalysisRules        *store.Table[ConfiguredTableAnalysisRule]
+	ctAnalysisRulesByTable *store.Index[ConfiguredTableAnalysisRule]
+
+	ctAssociations             *store.Table[ConfiguredTableAssociation]
+	ctAssociationsByMembership *store.Index[ConfiguredTableAssociation]
+
+	ctaAnalysisRules              *store.Table[ConfiguredTableAssociationAnalysisRule]
+	ctaAnalysisRulesByAssociation *store.Index[ConfiguredTableAssociationAnalysisRule]
+
+	analysisTemplates             *store.Table[AnalysisTemplate]
+	analysisTemplatesByMembership *store.Index[AnalysisTemplate]
+
+	privacyBudgetTemplates             *store.Table[PrivacyBudgetTemplate]
+	privacyBudgetTemplatesByMembership *store.Index[PrivacyBudgetTemplate]
+
+	idMappingTables             *store.Table[IDMappingTable]
+	idMappingTablesByMembership *store.Index[IDMappingTable]
+
+	idNamespaceAssociations             *store.Table[IDNamespaceAssociation]
+	idNamespaceAssociationsByMembership *store.Index[IDNamespaceAssociation]
+
+	camaAssociations             *store.Table[ConfiguredAudienceModelAssociation]
+	camaAssociationsByMembership *store.Index[ConfiguredAudienceModelAssociation]
+
+	changeRequests                *store.Table[CollaborationChangeRequest]
+	changeRequestsByCollaboration *store.Index[CollaborationChangeRequest]
+
+	schemas                *store.Table[Schema]
+	schemasByCollaboration *store.Index[Schema]
+
+	schemaAnalysisRules *store.Table[SchemaAnalysisRule]
+
+	protectedQueries             *store.Table[ProtectedQuery]
+	protectedQueriesByMembership *store.Index[ProtectedQuery]
+
+	protectedJobs             *store.Table[ProtectedJob]
+	protectedJobsByMembership *store.Index[ProtectedJob]
+
+	tagsByArn map[string]map[string]string
+
+	nowFn func() float64
+	mu    *lockmetrics.RWMutex
+
+	accountID string
+	region    string
+	muNow     sync.Mutex
 }
 
 // NewInMemoryBackendWithContext creates a backend tied to svcCtx (ignored; no lifecycle goroutines).
@@ -521,31 +567,17 @@ func NewInMemoryBackendWithContext(_ context.Context, accountID, region string) 
 
 // NewInMemoryBackend creates a new in-memory Clean Rooms backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:               lockmetrics.New("cleanrooms"),
-		accountID:        accountID,
-		region:           region,
-		collaborations:   make(map[string]*Collaboration),
-		memberships:      make(map[string]*Membership),
-		configuredTables: make(map[string]*ConfiguredTable),
-		ctAnalysisRules:  make(map[string]map[string]*ConfiguredTableAnalysisRule),
-		ctAssociations:   make(map[string]map[string]*ConfiguredTableAssociation),
-		ctaAnalysisRules: make(
-			map[string]map[string]*ConfiguredTableAssociationAnalysisRule,
-		),
-		analysisTemplates:       make(map[string]map[string]*AnalysisTemplate),
-		protectedQueries:        make(map[string]map[string]*ProtectedQuery),
-		protectedJobs:           make(map[string]map[string]*ProtectedJob),
-		privacyBudgetTemplates:  make(map[string]map[string]*PrivacyBudgetTemplate),
-		idMappingTables:         make(map[string]map[string]*IDMappingTable),
-		idNamespaceAssociations: make(map[string]map[string]*IDNamespaceAssociation),
-		camaAssociations:        make(map[string]map[string]*ConfiguredAudienceModelAssociation),
-		changeRequests:          make(map[string]map[string]*CollaborationChangeRequest),
-		schemas:                 make(map[string]map[string]*Schema),
-		schemaAnalysisRules:     make(map[string]map[string]map[string]*SchemaAnalysisRule),
-		tagsByArn:               make(map[string]map[string]string),
-		nowFn:                   func() float64 { return float64(time.Now().Unix()) },
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("cleanrooms"),
+		accountID: accountID,
+		region:    region,
+		registry:  store.NewRegistry(),
+		tagsByArn: make(map[string]map[string]string),
+		nowFn:     func() float64 { return float64(time.Now().Unix()) },
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) Region() string    { return b.region }
@@ -554,23 +586,34 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
-	b.collaborations = make(map[string]*Collaboration)
-	b.memberships = make(map[string]*Membership)
-	b.configuredTables = make(map[string]*ConfiguredTable)
-	b.ctAnalysisRules = make(map[string]map[string]*ConfiguredTableAnalysisRule)
-	b.ctAssociations = make(map[string]map[string]*ConfiguredTableAssociation)
-	b.ctaAnalysisRules = make(map[string]map[string]*ConfiguredTableAssociationAnalysisRule)
-	b.analysisTemplates = make(map[string]map[string]*AnalysisTemplate)
-	b.protectedQueries = make(map[string]map[string]*ProtectedQuery)
-	b.protectedJobs = make(map[string]map[string]*ProtectedJob)
-	b.privacyBudgetTemplates = make(map[string]map[string]*PrivacyBudgetTemplate)
-	b.idMappingTables = make(map[string]map[string]*IDMappingTable)
-	b.idNamespaceAssociations = make(map[string]map[string]*IDNamespaceAssociation)
-	b.camaAssociations = make(map[string]map[string]*ConfiguredAudienceModelAssociation)
-	b.changeRequests = make(map[string]map[string]*CollaborationChangeRequest)
-	b.schemas = make(map[string]map[string]*Schema)
-	b.schemaAnalysisRules = make(map[string]map[string]map[string]*SchemaAnalysisRule)
+
+	b.registry.ResetAll()
 	b.tagsByArn = make(map[string]map[string]string)
+}
+
+// ---- composite keys ----
+//
+// Every nested resource collection in this backend was previously a
+// two-or-three-level map (outer key(s) = a parent identifier or two;
+// innermost key = the resource's own identifier or type). Phase 3.3
+// flattens each into a single *store.Table keyed by a composite "a|b[|c]"
+// string, with a companion *store.Index (where a per-parent scan or cascade
+// delete needs one) grouping entries by the parent -- see store_setup.go.
+// Every value type already carries the real, wire-visible field(s) each key
+// component below reads, so no hidden field or DTO wrapper is needed
+// anywhere in this backend.
+func membershipKey(membershipID, id string) string { return membershipID + "|" + id }
+
+func collaborationKey(collaborationID, id string) string { return collaborationID + "|" + id }
+
+func ctAnalysisRuleKey(configuredTableID, ruleType string) string {
+	return configuredTableID + "|" + ruleType
+}
+
+func ctaAnalysisRuleKey(assocID, ruleType string) string { return assocID + "|" + ruleType }
+
+func schemaAnalysisRuleKey(collaborationID, name, ruleType string) string {
+	return collaborationKey(collaborationID, name) + "|" + ruleType
 }
 
 // ---- ARN helpers ----
@@ -635,10 +678,12 @@ func (b *InMemoryBackend) camaARN(membershipID, id string) string {
 
 // ---- pagination and listing helpers ----
 
-// listItems ranges over a flat map, optionally skipping items where include returns false,
-// converts each item to a summary, sorts by the less predicate, then paginates.
+// listItems ranges over a slice of items (typically the result of a
+// store.Index.Get lookup), optionally skipping items where include returns
+// false, converts each item to a summary, sorts by the less predicate, then
+// paginates.
 func listItems[T, S any](
-	items map[string]*T,
+	items []*T,
 	include func(*T) bool,
 	convert func(*T) *S,
 	less func(a, b *S) bool,
@@ -656,21 +701,20 @@ func listItems[T, S any](
 	return paginate(result, maxResults, nextToken)
 }
 
-// listNestedItems ranges over a nested map, collecting items that satisfy match,
-// converts them to summaries, sorts, and paginates.
+// listNestedItems ranges over a flat slice of items (typically the result of
+// a store.Table.All() account-wide scan), collecting items that satisfy
+// match, converts them to summaries, sorts, and paginates.
 func listNestedItems[T, S any](
-	allItems map[string]map[string]*T,
+	allItems []*T,
 	match func(*T) bool,
 	convert func(*T) *S,
 	less func(a, b *S) bool,
 	maxResults, nextToken string,
 ) ([]*S, string) {
 	var result []*S
-	for _, inner := range allItems {
-		for _, t := range inner {
-			if match(t) {
-				result = append(result, convert(t))
-			}
+	for _, t := range allItems {
+		if match(t) {
+			result = append(result, convert(t))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return less(result[i], result[j]) })
@@ -865,7 +909,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 		UpdateTime:              ts,
 		Tags:                    tags,
 	}
-	b.collaborations[id] = collab
+	b.collaborations.Put(collab)
 	if len(tags) > 0 {
 		b.tagsByArn[collab.Arn] = maps.Clone(tags)
 	}
@@ -876,7 +920,7 @@ func (b *InMemoryBackend) CreateCollaboration(
 func (b *InMemoryBackend) GetCollaboration(id string) (*Collaboration, error) {
 	b.mu.RLock("GetCollaboration")
 	defer b.mu.RUnlock()
-	c, ok := b.collaborations[id]
+	c, ok := b.collaborations.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -889,8 +933,9 @@ func (b *InMemoryBackend) ListCollaborations(
 ) ([]*CollaborationSummary, string) {
 	b.mu.RLock("ListCollaborations")
 	defer b.mu.RUnlock()
-	items := make([]*CollaborationSummary, 0, len(b.collaborations))
-	for _, c := range b.collaborations {
+	all := b.collaborations.All()
+	items := make([]*CollaborationSummary, 0, len(all))
+	for _, c := range all {
 		items = append(items, &CollaborationSummary{
 			CollaborationIdentifier: c.CollaborationIdentifier,
 			ID:                      c.CollaborationIdentifier,
@@ -917,7 +962,7 @@ func (b *InMemoryBackend) UpdateCollaboration(
 ) (*Collaboration, error) {
 	b.mu.Lock("UpdateCollaboration")
 	defer b.mu.Unlock()
-	c, ok := b.collaborations[id]
+	c, ok := b.collaborations.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -935,12 +980,12 @@ func (b *InMemoryBackend) UpdateCollaboration(
 func (b *InMemoryBackend) DeleteCollaboration(id string) error {
 	b.mu.Lock("DeleteCollaboration")
 	defer b.mu.Unlock()
-	c, ok := b.collaborations[id]
+	c, ok := b.collaborations.Get(id)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, c.Arn)
-	delete(b.collaborations, id)
+	b.collaborations.Delete(id)
 
 	return nil
 }
@@ -951,7 +996,7 @@ func (b *InMemoryBackend) ListMembers(
 ) ([]*MemberSummary, string, error) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
-	c, ok := b.collaborations[collaborationID]
+	c, ok := b.collaborations.Get(collaborationID)
 	if !ok {
 		return nil, "", ErrNotFound
 	}
@@ -965,7 +1010,7 @@ func (b *InMemoryBackend) ListMembers(
 func (b *InMemoryBackend) DeleteMember(collaborationID, accountID string) error {
 	b.mu.Lock("DeleteMember")
 	defer b.mu.Unlock()
-	c, ok := b.collaborations[collaborationID]
+	c, ok := b.collaborations.Get(collaborationID)
 	if !ok {
 		return ErrNotFound
 	}
@@ -994,7 +1039,7 @@ func (b *InMemoryBackend) CreateMembership(
 	if collaborationID == "" {
 		return nil, ErrValidation
 	}
-	collab, ok := b.collaborations[collaborationID]
+	collab, ok := b.collaborations.Get(collaborationID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1018,7 +1063,7 @@ func (b *InMemoryBackend) CreateMembership(
 		ID:                              id,
 		CollaborationID:                 collaborationID,
 	}
-	b.memberships[id] = m
+	b.memberships.Put(m)
 	if len(tags) > 0 {
 		b.tagsByArn[m.Arn] = maps.Clone(tags)
 	}
@@ -1029,7 +1074,7 @@ func (b *InMemoryBackend) CreateMembership(
 func (b *InMemoryBackend) GetMembership(id string) (*Membership, error) {
 	b.mu.RLock("GetMembership")
 	defer b.mu.RUnlock()
-	m, ok := b.memberships[id]
+	m, ok := b.memberships.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1043,7 +1088,7 @@ func (b *InMemoryBackend) ListMemberships(
 	b.mu.RLock("ListMemberships")
 	defer b.mu.RUnlock()
 	var items []*MembershipSummary
-	for _, m := range b.memberships {
+	for _, m := range b.memberships.All() {
 		if status != "" && m.Status != status {
 			continue
 		}
@@ -1078,7 +1123,7 @@ func (b *InMemoryBackend) UpdateMembership(
 ) (*Membership, error) {
 	b.mu.Lock("UpdateMembership")
 	defer b.mu.Unlock()
-	m, ok := b.memberships[id]
+	m, ok := b.memberships.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1096,12 +1141,12 @@ func (b *InMemoryBackend) UpdateMembership(
 func (b *InMemoryBackend) DeleteMembership(id string) error {
 	b.mu.Lock("DeleteMembership")
 	defer b.mu.Unlock()
-	m, ok := b.memberships[id]
+	m, ok := b.memberships.Get(id)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, m.Arn)
-	delete(b.memberships, id)
+	b.memberships.Delete(id)
 
 	return nil
 }
@@ -1135,7 +1180,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 		Tags:                      tags,
 		ID:                        id,
 	}
-	b.configuredTables[id] = ct
+	b.configuredTables.Put(ct)
 	if len(tags) > 0 {
 		b.tagsByArn[ct.Arn] = maps.Clone(tags)
 	}
@@ -1146,7 +1191,7 @@ func (b *InMemoryBackend) CreateConfiguredTable(
 func (b *InMemoryBackend) GetConfiguredTable(id string) (*ConfiguredTable, error) {
 	b.mu.RLock("GetConfiguredTable")
 	defer b.mu.RUnlock()
-	ct, ok := b.configuredTables[id]
+	ct, ok := b.configuredTables.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1159,8 +1204,9 @@ func (b *InMemoryBackend) ListConfiguredTables(
 ) ([]*ConfiguredTableSummary, string) {
 	b.mu.RLock("ListConfiguredTables")
 	defer b.mu.RUnlock()
-	items := make([]*ConfiguredTableSummary, 0, len(b.configuredTables))
-	for _, ct := range b.configuredTables {
+	all := b.configuredTables.All()
+	items := make([]*ConfiguredTableSummary, 0, len(all))
+	for _, ct := range all {
 		items = append(items, &ConfiguredTableSummary{
 			ConfiguredTableIdentifier: ct.ConfiguredTableIdentifier,
 			Arn:                       ct.Arn,
@@ -1186,7 +1232,7 @@ func (b *InMemoryBackend) UpdateConfiguredTable(
 ) (*ConfiguredTable, error) {
 	b.mu.Lock("UpdateConfiguredTable")
 	defer b.mu.Unlock()
-	ct, ok := b.configuredTables[id]
+	ct, ok := b.configuredTables.Get(id)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1204,13 +1250,16 @@ func (b *InMemoryBackend) UpdateConfiguredTable(
 func (b *InMemoryBackend) DeleteConfiguredTable(id string) error {
 	b.mu.Lock("DeleteConfiguredTable")
 	defer b.mu.Unlock()
-	ct, ok := b.configuredTables[id]
+	ct, ok := b.configuredTables.Get(id)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, ct.Arn)
-	delete(b.configuredTables, id)
-	delete(b.ctAnalysisRules, id)
+	b.configuredTables.Delete(id)
+
+	for _, rule := range slices.Clone(b.ctAnalysisRulesByTable.Get(id)) {
+		b.ctAnalysisRules.Delete(ctAnalysisRuleKey(rule.ConfiguredTableIdentifier, rule.Type))
+	}
 
 	return nil
 }
@@ -1223,14 +1272,11 @@ func (b *InMemoryBackend) CreateConfiguredTableAnalysisRule(
 ) (*ConfiguredTableAnalysisRule, error) {
 	b.mu.Lock("CreateConfiguredTableAnalysisRule")
 	defer b.mu.Unlock()
-	ct, ok := b.configuredTables[configuredTableID]
+	ct, ok := b.configuredTables.Get(configuredTableID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if b.ctAnalysisRules[configuredTableID] == nil {
-		b.ctAnalysisRules[configuredTableID] = make(map[string]*ConfiguredTableAnalysisRule)
-	}
-	if _, exists := b.ctAnalysisRules[configuredTableID][analysisRuleType]; exists {
+	if b.ctAnalysisRules.Has(ctAnalysisRuleKey(configuredTableID, analysisRuleType)) {
 		return nil, ErrAlreadyExists
 	}
 	ts := b.now()
@@ -1243,7 +1289,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAnalysisRule(
 		UpdateTime:                ts,
 		ConfiguredTableID:         configuredTableID,
 	}
-	b.ctAnalysisRules[configuredTableID][analysisRuleType] = rule
+	b.ctAnalysisRules.Put(rule)
 	if !contains(ct.AnalysisRuleTypes, analysisRuleType) {
 		ct.AnalysisRuleTypes = append(ct.AnalysisRuleTypes, analysisRuleType)
 	}
@@ -1256,11 +1302,7 @@ func (b *InMemoryBackend) GetConfiguredTableAnalysisRule(
 ) (*ConfiguredTableAnalysisRule, error) {
 	b.mu.RLock("GetConfiguredTableAnalysisRule")
 	defer b.mu.RUnlock()
-	rules, ok := b.ctAnalysisRules[configuredTableID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	rule, ok := rules[analysisRuleType]
+	rule, ok := b.ctAnalysisRules.Get(ctAnalysisRuleKey(configuredTableID, analysisRuleType))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1274,11 +1316,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAnalysisRule(
 ) (*ConfiguredTableAnalysisRule, error) {
 	b.mu.Lock("UpdateConfiguredTableAnalysisRule")
 	defer b.mu.Unlock()
-	rules, ok := b.ctAnalysisRules[configuredTableID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	rule, ok := rules[analysisRuleType]
+	rule, ok := b.ctAnalysisRules.Get(ctAnalysisRuleKey(configuredTableID, analysisRuleType))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1293,15 +1331,10 @@ func (b *InMemoryBackend) DeleteConfiguredTableAnalysisRule(
 ) error {
 	b.mu.Lock("DeleteConfiguredTableAnalysisRule")
 	defer b.mu.Unlock()
-	rules, ok := b.ctAnalysisRules[configuredTableID]
-	if !ok {
+	if !b.ctAnalysisRules.Delete(ctAnalysisRuleKey(configuredTableID, analysisRuleType)) {
 		return ErrNotFound
 	}
-	if _, exists := rules[analysisRuleType]; !exists {
-		return ErrNotFound
-	}
-	delete(rules, analysisRuleType)
-	if ct, ctOK := b.configuredTables[configuredTableID]; ctOK {
+	if ct, ctOK := b.configuredTables.Get(configuredTableID); ctOK {
 		ct.AnalysisRuleTypes = removeFrom(ct.AnalysisRuleTypes, analysisRuleType)
 	}
 
@@ -1316,16 +1349,13 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociation(
 ) (*ConfiguredTableAssociation, error) {
 	b.mu.Lock("CreateConfiguredTableAssociation")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	ct, ok := b.configuredTables[configuredTableID]
+	ct, ok := b.configuredTables.Get(configuredTableID)
 	if !ok {
 		return nil, ErrNotFound
-	}
-	if b.ctAssociations[membershipID] == nil {
-		b.ctAssociations[membershipID] = make(map[string]*ConfiguredTableAssociation)
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -1346,7 +1376,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociation(
 		MembershipID:                         membershipID,
 		ConfiguredTableID:                    configuredTableID,
 	}
-	b.ctAssociations[membershipID][id] = assoc
+	b.ctAssociations.Put(assoc)
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
@@ -1359,11 +1389,7 @@ func (b *InMemoryBackend) GetConfiguredTableAssociation(
 ) (*ConfiguredTableAssociation, error) {
 	b.mu.RLock("GetConfiguredTableAssociation")
 	defer b.mu.RUnlock()
-	assocs, ok := b.ctAssociations[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	assoc, ok := b.ctAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1376,11 +1402,11 @@ func (b *InMemoryBackend) ListConfiguredTableAssociations(
 ) ([]*ConfiguredTableAssociationSummary, string, error) {
 	b.mu.RLock("ListConfiguredTableAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	var items []*ConfiguredTableAssociationSummary
-	for _, a := range b.ctAssociations[membershipID] {
+	for _, a := range b.ctAssociationsByMembership.Get(membershipID) {
 		items = append(items, &ConfiguredTableAssociationSummary{
 			ConfiguredTableAssociationIdentifier: a.ConfiguredTableAssociationIdentifier,
 			Arn:                                  a.Arn,
@@ -1408,11 +1434,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociation(
 ) (*ConfiguredTableAssociation, error) {
 	b.mu.Lock("UpdateConfiguredTableAssociation")
 	defer b.mu.Unlock()
-	assocs, ok := b.ctAssociations[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	assoc, ok := b.ctAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1430,17 +1452,17 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociation(
 func (b *InMemoryBackend) DeleteConfiguredTableAssociation(membershipID, assocID string) error {
 	b.mu.Lock("DeleteConfiguredTableAssociation")
 	defer b.mu.Unlock()
-	assocs, ok := b.ctAssociations[membershipID]
-	if !ok {
-		return ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	key := membershipKey(membershipID, assocID)
+	assoc, ok := b.ctAssociations.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, assoc.Arn)
-	delete(assocs, assocID)
-	delete(b.ctaAnalysisRules, assocID)
+	b.ctAssociations.Delete(key)
+
+	for _, rule := range slices.Clone(b.ctaAnalysisRulesByAssociation.Get(assocID)) {
+		b.ctaAnalysisRules.Delete(ctaAnalysisRuleKey(rule.ConfiguredTableAssociationIdentifier, rule.Type))
+	}
 
 	return nil
 }
@@ -1453,21 +1475,14 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociationAnalysisRule(
 ) (*ConfiguredTableAssociationAnalysisRule, error) {
 	b.mu.Lock("CreateConfiguredTableAssociationAnalysisRule")
 	defer b.mu.Unlock()
-	assocs, ok := b.ctAssociations[membershipID]
+	assoc, ok := b.ctAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
-	assoc, ok := assocs[assocID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	if b.ctaAnalysisRules[assocID] == nil {
-		b.ctaAnalysisRules[assocID] = make(map[string]*ConfiguredTableAssociationAnalysisRule)
-	}
-	if _, exists := b.ctaAnalysisRules[assocID][ruleType]; exists {
+	if b.ctaAnalysisRules.Has(ctaAnalysisRuleKey(assocID, ruleType)) {
 		return nil, ErrAlreadyExists
 	}
-	mem := b.memberships[membershipID]
+	mem, _ := b.memberships.Get(membershipID)
 	ts := b.now()
 	rule := &ConfiguredTableAssociationAnalysisRule{
 		ConfiguredTableAssociationIdentifier: assocID,
@@ -1479,7 +1494,7 @@ func (b *InMemoryBackend) CreateConfiguredTableAssociationAnalysisRule(
 		CreateTime:                           ts,
 		UpdateTime:                           ts,
 	}
-	b.ctaAnalysisRules[assocID][ruleType] = rule
+	b.ctaAnalysisRules.Put(rule)
 	if !contains(assoc.AnalysisRuleTypes, ruleType) {
 		assoc.AnalysisRuleTypes = append(assoc.AnalysisRuleTypes, ruleType)
 	}
@@ -1492,11 +1507,7 @@ func (b *InMemoryBackend) GetConfiguredTableAssociationAnalysisRule(
 ) (*ConfiguredTableAssociationAnalysisRule, error) {
 	b.mu.RLock("GetConfiguredTableAssociationAnalysisRule")
 	defer b.mu.RUnlock()
-	rules, ok := b.ctaAnalysisRules[assocID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	rule, ok := rules[ruleType]
+	rule, ok := b.ctaAnalysisRules.Get(ctaAnalysisRuleKey(assocID, ruleType))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1510,11 +1521,7 @@ func (b *InMemoryBackend) UpdateConfiguredTableAssociationAnalysisRule(
 ) (*ConfiguredTableAssociationAnalysisRule, error) {
 	b.mu.Lock("UpdateConfiguredTableAssociationAnalysisRule")
 	defer b.mu.Unlock()
-	rules, ok := b.ctaAnalysisRules[assocID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	rule, ok := rules[ruleType]
+	rule, ok := b.ctaAnalysisRules.Get(ctaAnalysisRuleKey(assocID, ruleType))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1529,18 +1536,11 @@ func (b *InMemoryBackend) DeleteConfiguredTableAssociationAnalysisRule(
 ) error {
 	b.mu.Lock("DeleteConfiguredTableAssociationAnalysisRule")
 	defer b.mu.Unlock()
-	rules, ok := b.ctaAnalysisRules[assocID]
-	if !ok {
+	if !b.ctaAnalysisRules.Delete(ctaAnalysisRuleKey(assocID, ruleType)) {
 		return ErrNotFound
 	}
-	if _, exists := rules[ruleType]; !exists {
-		return ErrNotFound
-	}
-	delete(rules, ruleType)
-	if assocs, assocsOK := b.ctAssociations[membershipID]; assocsOK {
-		if assoc, assocOK := assocs[assocID]; assocOK {
-			assoc.AnalysisRuleTypes = removeFrom(assoc.AnalysisRuleTypes, ruleType)
-		}
+	if assoc, assocOK := b.ctAssociations.Get(membershipKey(membershipID, assocID)); assocOK {
+		assoc.AnalysisRuleTypes = removeFrom(assoc.AnalysisRuleTypes, ruleType)
 	}
 
 	return nil
@@ -1556,16 +1556,13 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 ) (*AnalysisTemplate, error) {
 	b.mu.Lock("CreateAnalysisTemplate")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if b.analysisTemplates[membershipID] == nil {
-		b.analysisTemplates[membershipID] = make(map[string]*AnalysisTemplate)
-	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
+	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -1589,7 +1586,7 @@ func (b *InMemoryBackend) CreateAnalysisTemplate(
 		MembershipID:               membershipID,
 		CollaborationID:            mem.CollaborationIdentifier,
 	}
-	b.analysisTemplates[membershipID][id] = tmpl
+	b.analysisTemplates.Put(tmpl)
 	if len(tags) > 0 {
 		b.tagsByArn[tmpl.Arn] = maps.Clone(tags)
 	}
@@ -1602,11 +1599,7 @@ func (b *InMemoryBackend) GetAnalysisTemplate(
 ) (*AnalysisTemplate, error) {
 	b.mu.RLock("GetAnalysisTemplate")
 	defer b.mu.RUnlock()
-	tmpls, ok := b.analysisTemplates[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	tmpl, ok := tmpls[templateID]
+	tmpl, ok := b.analysisTemplates.Get(membershipKey(membershipID, templateID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1619,11 +1612,11 @@ func (b *InMemoryBackend) ListAnalysisTemplates(
 ) ([]*AnalysisTemplateSummary, string, error) {
 	b.mu.RLock("ListAnalysisTemplates")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listItems(
-		b.analysisTemplates[membershipID],
+		b.analysisTemplatesByMembership.Get(membershipID),
 		nil,
 		toAnalysisTemplateSummary,
 		func(a, c *AnalysisTemplateSummary) bool {
@@ -1640,11 +1633,7 @@ func (b *InMemoryBackend) UpdateAnalysisTemplate(
 ) (*AnalysisTemplate, error) {
 	b.mu.Lock("UpdateAnalysisTemplate")
 	defer b.mu.Unlock()
-	tmpls, ok := b.analysisTemplates[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	tmpl, ok := tmpls[templateID]
+	tmpl, ok := b.analysisTemplates.Get(membershipKey(membershipID, templateID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1657,16 +1646,13 @@ func (b *InMemoryBackend) UpdateAnalysisTemplate(
 func (b *InMemoryBackend) DeleteAnalysisTemplate(membershipID, templateID string) error {
 	b.mu.Lock("DeleteAnalysisTemplate")
 	defer b.mu.Unlock()
-	tmpls, ok := b.analysisTemplates[membershipID]
-	if !ok {
-		return ErrNotFound
-	}
-	tmpl, ok := tmpls[templateID]
+	key := membershipKey(membershipID, templateID)
+	tmpl, ok := b.analysisTemplates.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, tmpl.Arn)
-	delete(tmpls, templateID)
+	b.analysisTemplates.Delete(key)
 
 	return nil
 }
@@ -1676,15 +1662,21 @@ func (b *InMemoryBackend) GetCollaborationAnalysisTemplate(
 ) (*AnalysisTemplate, error) {
 	b.mu.RLock("GetCollaborationAnalysisTemplate")
 	defer b.mu.RUnlock()
-	for _, tmpls := range b.analysisTemplates {
-		for _, t := range tmpls {
-			if t.CollaborationIdentifier == collaborationID && t.Arn == templateArn {
-				return t, nil
-			}
+	var found *AnalysisTemplate
+	b.analysisTemplates.Range(func(t *AnalysisTemplate) bool {
+		if t.CollaborationIdentifier == collaborationID && t.Arn == templateArn {
+			found = t
+
+			return false
 		}
+
+		return true
+	})
+	if found == nil {
+		return nil, ErrNotFound
 	}
 
-	return nil, ErrNotFound
+	return found, nil
 }
 
 func (b *InMemoryBackend) ListCollaborationAnalysisTemplates(
@@ -1692,11 +1684,11 @@ func (b *InMemoryBackend) ListCollaborationAnalysisTemplates(
 ) ([]*AnalysisTemplateSummary, string, error) {
 	b.mu.RLock("ListCollaborationAnalysisTemplates")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
-		b.analysisTemplates,
+		b.analysisTemplates.All(),
 		func(t *AnalysisTemplate) bool { return t.CollaborationIdentifier == collaborationID },
 		toAnalysisTemplateSummary,
 		func(a, c *AnalysisTemplateSummary) bool {
@@ -1714,23 +1706,19 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 ) ([]*AnalysisTemplate, []BatchError, error) {
 	b.mu.RLock("BatchGetCollaborationAnalysisTemplate")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, nil, ErrNotFound
 	}
+	all := b.analysisTemplates.All()
 	var results []*AnalysisTemplate
 	var errors []BatchError
 	for _, arnStr := range templateArns {
 		found := false
-		for _, tmpls := range b.analysisTemplates {
-			for _, t := range tmpls {
-				if t.CollaborationIdentifier == collaborationID && t.Arn == arnStr {
-					results = append(results, t)
-					found = true
+		for _, t := range all {
+			if t.CollaborationIdentifier == collaborationID && t.Arn == arnStr {
+				results = append(results, t)
+				found = true
 
-					break
-				}
-			}
-			if found {
 				break
 			}
 		}
@@ -1750,11 +1738,7 @@ func (b *InMemoryBackend) BatchGetCollaborationAnalysisTemplate(
 func (b *InMemoryBackend) GetSchema(collaborationID, name string) (*Schema, error) {
 	b.mu.RLock("GetSchema")
 	defer b.mu.RUnlock()
-	schemas, ok := b.schemas[collaborationID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	s, ok := schemas[name]
+	s, ok := b.schemas.Get(collaborationKey(collaborationID, name))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1767,11 +1751,11 @@ func (b *InMemoryBackend) ListSchemas(
 ) ([]*SchemaSummary, string, error) {
 	b.mu.RLock("ListSchemas")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listItems(
-		b.schemas[collaborationID],
+		b.schemasByCollaboration.Get(collaborationID),
 		func(s *Schema) bool { return schemaType == "" || s.Type == schemaType },
 		toSchemaSummary,
 		func(a, c *SchemaSummary) bool { return a.Name < c.Name },
@@ -1787,13 +1771,13 @@ func (b *InMemoryBackend) BatchGetSchema(
 ) ([]*Schema, []BatchError, error) {
 	b.mu.RLock("BatchGetSchema")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, nil, ErrNotFound
 	}
 	var results []*Schema
 	var errors []BatchError
 	for _, name := range names {
-		s, ok := b.schemas[collaborationID][name]
+		s, ok := b.schemas.Get(collaborationKey(collaborationID, name))
 		if ok {
 			results = append(results, s)
 		} else {
@@ -1809,15 +1793,7 @@ func (b *InMemoryBackend) GetSchemaAnalysisRule(
 ) (*SchemaAnalysisRule, error) {
 	b.mu.RLock("GetSchemaAnalysisRule")
 	defer b.mu.RUnlock()
-	collabRules, ok := b.schemaAnalysisRules[collaborationID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	schemaRules, ok := collabRules[name]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	rule, ok := schemaRules[ruleType]
+	rule, ok := b.schemaAnalysisRules.Get(schemaAnalysisRuleKey(collaborationID, name, ruleType))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1832,21 +1808,17 @@ func (b *InMemoryBackend) BatchGetSchemaAnalysisRule(
 ) ([]*SchemaAnalysisRule, []BatchError, error) {
 	b.mu.RLock("BatchGetSchemaAnalysisRule")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, nil, ErrNotFound
 	}
 	var results []*SchemaAnalysisRule
 	var errors []BatchError
 	for _, name := range names {
-		collabRules := b.schemaAnalysisRules[collaborationID]
-		if collabRules != nil {
-			if schemaRules, srOK := collabRules[name]; srOK {
-				if rule, ruleOK := schemaRules[ruleType]; ruleOK {
-					results = append(results, rule)
+		rule, ok := b.schemaAnalysisRules.Get(schemaAnalysisRuleKey(collaborationID, name, ruleType))
+		if ok {
+			results = append(results, rule)
 
-					continue
-				}
-			}
+			continue
 		}
 		errors = append(
 			errors,
@@ -1866,12 +1838,9 @@ func (b *InMemoryBackend) StartProtectedQuery(
 ) (*ProtectedQuery, error) {
 	b.mu.Lock("StartProtectedQuery")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
-	}
-	if b.protectedQueries[membershipID] == nil {
-		b.protectedQueries[membershipID] = make(map[string]*ProtectedQuery)
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -1890,7 +1859,7 @@ func (b *InMemoryBackend) StartProtectedQuery(
 		CreateTime:           ts,
 		MembershipID:         membershipID,
 	}
-	b.protectedQueries[membershipID][id] = q
+	b.protectedQueries.Put(q)
 
 	return q, nil
 }
@@ -1898,11 +1867,7 @@ func (b *InMemoryBackend) StartProtectedQuery(
 func (b *InMemoryBackend) GetProtectedQuery(membershipID, queryID string) (*ProtectedQuery, error) {
 	b.mu.RLock("GetProtectedQuery")
 	defer b.mu.RUnlock()
-	queries, ok := b.protectedQueries[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	q, ok := queries[queryID]
+	q, ok := b.protectedQueries.Get(membershipKey(membershipID, queryID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1915,11 +1880,11 @@ func (b *InMemoryBackend) ListProtectedQueries(
 ) ([]*ProtectedQuerySummary, string, error) {
 	b.mu.RLock("ListProtectedQueries")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	var items []*ProtectedQuerySummary
-	for _, q := range b.protectedQueries[membershipID] {
+	for _, q := range b.protectedQueriesByMembership.Get(membershipID) {
 		if status != "" && q.Status != status {
 			continue
 		}
@@ -1943,11 +1908,7 @@ func (b *InMemoryBackend) UpdateProtectedQuery(
 ) (*ProtectedQuery, error) {
 	b.mu.Lock("UpdateProtectedQuery")
 	defer b.mu.Unlock()
-	queries, ok := b.protectedQueries[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	q, ok := queries[queryID]
+	q, ok := b.protectedQueries.Get(membershipKey(membershipID, queryID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -1965,12 +1926,9 @@ func (b *InMemoryBackend) StartProtectedJob(
 ) (*ProtectedJob, error) {
 	b.mu.Lock("StartProtectedJob")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
-	}
-	if b.protectedJobs[membershipID] == nil {
-		b.protectedJobs[membershipID] = make(map[string]*ProtectedJob)
 	}
 	id := uuid.NewString()
 	j := &ProtectedJob{
@@ -1984,7 +1942,7 @@ func (b *InMemoryBackend) StartProtectedJob(
 		CreateTime:           b.now(),
 		MembershipID:         membershipID,
 	}
-	b.protectedJobs[membershipID][id] = j
+	b.protectedJobs.Put(j)
 
 	return j, nil
 }
@@ -1992,11 +1950,7 @@ func (b *InMemoryBackend) StartProtectedJob(
 func (b *InMemoryBackend) GetProtectedJob(membershipID, jobID string) (*ProtectedJob, error) {
 	b.mu.RLock("GetProtectedJob")
 	defer b.mu.RUnlock()
-	jobs, ok := b.protectedJobs[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	j, ok := jobs[jobID]
+	j, ok := b.protectedJobs.Get(membershipKey(membershipID, jobID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2009,11 +1963,11 @@ func (b *InMemoryBackend) ListProtectedJobs(
 ) ([]*ProtectedJobSummary, string, error) {
 	b.mu.RLock("ListProtectedJobs")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	var items []*ProtectedJobSummary
-	for _, j := range b.protectedJobs[membershipID] {
+	for _, j := range b.protectedJobsByMembership.Get(membershipID) {
 		if status != "" && j.Status != status {
 			continue
 		}
@@ -2038,11 +1992,7 @@ func (b *InMemoryBackend) UpdateProtectedJob(
 ) (*ProtectedJob, error) {
 	b.mu.Lock("UpdateProtectedJob")
 	defer b.mu.Unlock()
-	jobs, ok := b.protectedJobs[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	j, ok := jobs[jobID]
+	j, ok := b.protectedJobs.Get(membershipKey(membershipID, jobID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2060,16 +2010,13 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 ) (*PrivacyBudgetTemplate, error) {
 	b.mu.Lock("CreatePrivacyBudgetTemplate")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if b.privacyBudgetTemplates[membershipID] == nil {
-		b.privacyBudgetTemplates[membershipID] = make(map[string]*PrivacyBudgetTemplate)
-	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
+	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -2091,7 +2038,7 @@ func (b *InMemoryBackend) CreatePrivacyBudgetTemplate(
 		MembershipID:                    membershipID,
 		CollaborationID:                 mem.CollaborationIdentifier,
 	}
-	b.privacyBudgetTemplates[membershipID][id] = tmpl
+	b.privacyBudgetTemplates.Put(tmpl)
 	if len(tags) > 0 {
 		b.tagsByArn[tmpl.Arn] = maps.Clone(tags)
 	}
@@ -2104,11 +2051,7 @@ func (b *InMemoryBackend) GetPrivacyBudgetTemplate(
 ) (*PrivacyBudgetTemplate, error) {
 	b.mu.RLock("GetPrivacyBudgetTemplate")
 	defer b.mu.RUnlock()
-	tmpls, ok := b.privacyBudgetTemplates[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	tmpl, ok := tmpls[templateID]
+	tmpl, ok := b.privacyBudgetTemplates.Get(membershipKey(membershipID, templateID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2121,11 +2064,11 @@ func (b *InMemoryBackend) ListPrivacyBudgetTemplates(
 ) ([]*PrivacyBudgetTemplateSummary, string, error) {
 	b.mu.RLock("ListPrivacyBudgetTemplates")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listItems(
-		b.privacyBudgetTemplates[membershipID],
+		b.privacyBudgetTemplatesByMembership.Get(membershipID),
 		func(t *PrivacyBudgetTemplate) bool {
 			return privacyBudgetType == "" || t.PrivacyBudgetType == privacyBudgetType
 		},
@@ -2145,11 +2088,7 @@ func (b *InMemoryBackend) UpdatePrivacyBudgetTemplate(
 ) (*PrivacyBudgetTemplate, error) {
 	b.mu.Lock("UpdatePrivacyBudgetTemplate")
 	defer b.mu.Unlock()
-	tmpls, ok := b.privacyBudgetTemplates[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	tmpl, ok := tmpls[templateID]
+	tmpl, ok := b.privacyBudgetTemplates.Get(membershipKey(membershipID, templateID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2167,16 +2106,13 @@ func (b *InMemoryBackend) UpdatePrivacyBudgetTemplate(
 func (b *InMemoryBackend) DeletePrivacyBudgetTemplate(membershipID, templateID string) error {
 	b.mu.Lock("DeletePrivacyBudgetTemplate")
 	defer b.mu.Unlock()
-	tmpls, ok := b.privacyBudgetTemplates[membershipID]
-	if !ok {
-		return ErrNotFound
-	}
-	tmpl, ok := tmpls[templateID]
+	key := membershipKey(membershipID, templateID)
+	tmpl, ok := b.privacyBudgetTemplates.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, tmpl.Arn)
-	delete(tmpls, templateID)
+	b.privacyBudgetTemplates.Delete(key)
 
 	return nil
 }
@@ -2186,7 +2122,7 @@ func (b *InMemoryBackend) ListPrivacyBudgets(
 ) ([]*PrivacyBudget, string, error) {
 	b.mu.RLock("ListPrivacyBudgets")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 
@@ -2198,7 +2134,7 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgets(
 ) ([]*PrivacyBudget, string, error) {
 	b.mu.RLock("ListCollaborationPrivacyBudgets")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
 
@@ -2210,16 +2146,21 @@ func (b *InMemoryBackend) GetCollaborationPrivacyBudgetTemplate(
 ) (*PrivacyBudgetTemplate, error) {
 	b.mu.RLock("GetCollaborationPrivacyBudgetTemplate")
 	defer b.mu.RUnlock()
-	for _, tmpls := range b.privacyBudgetTemplates {
-		for _, t := range tmpls {
-			if t.CollaborationIdentifier == collaborationID &&
-				t.PrivacyBudgetTemplateIdentifier == templateID {
-				return t, nil
-			}
+	var found *PrivacyBudgetTemplate
+	b.privacyBudgetTemplates.Range(func(t *PrivacyBudgetTemplate) bool {
+		if t.CollaborationIdentifier == collaborationID && t.PrivacyBudgetTemplateIdentifier == templateID {
+			found = t
+
+			return false
 		}
+
+		return true
+	})
+	if found == nil {
+		return nil, ErrNotFound
 	}
 
-	return nil, ErrNotFound
+	return found, nil
 }
 
 func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
@@ -2227,11 +2168,11 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
 ) ([]*PrivacyBudgetTemplateSummary, string, error) {
 	b.mu.RLock("ListCollaborationPrivacyBudgetTemplates")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
-		b.privacyBudgetTemplates,
+		b.privacyBudgetTemplates.All(),
 		func(t *PrivacyBudgetTemplate) bool { return t.CollaborationIdentifier == collaborationID },
 		toPrivacyBudgetTemplateSummary,
 		func(a, c *PrivacyBudgetTemplateSummary) bool {
@@ -2249,7 +2190,7 @@ func (b *InMemoryBackend) PreviewPrivacyImpact(
 ) (map[string]any, error) {
 	b.mu.RLock("PreviewPrivacyImpact")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, ErrNotFound
 	}
 
@@ -2269,16 +2210,13 @@ func (b *InMemoryBackend) CreateIDMappingTable(
 	}
 	b.mu.Lock("CreateIDMappingTable")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if b.idMappingTables[membershipID] == nil {
-		b.idMappingTables[membershipID] = make(map[string]*IDMappingTable)
-	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
+	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -2301,7 +2239,7 @@ func (b *InMemoryBackend) CreateIDMappingTable(
 		MembershipID:             membershipID,
 		CollaborationID:          mem.CollaborationIdentifier,
 	}
-	b.idMappingTables[membershipID][id] = t
+	b.idMappingTables.Put(t)
 	if len(tags) > 0 {
 		b.tagsByArn[t.Arn] = maps.Clone(tags)
 	}
@@ -2312,11 +2250,7 @@ func (b *InMemoryBackend) CreateIDMappingTable(
 func (b *InMemoryBackend) GetIDMappingTable(membershipID, tableID string) (*IDMappingTable, error) {
 	b.mu.RLock("GetIDMappingTable")
 	defer b.mu.RUnlock()
-	tables, ok := b.idMappingTables[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	t, ok := tables[tableID]
+	t, ok := b.idMappingTables.Get(membershipKey(membershipID, tableID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2329,11 +2263,11 @@ func (b *InMemoryBackend) ListIDMappingTables(
 ) ([]*IDMappingTableSummary, string, error) {
 	b.mu.RLock("ListIDMappingTables")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listItems(
-		b.idMappingTables[membershipID],
+		b.idMappingTablesByMembership.Get(membershipID),
 		nil,
 		toIDMappingTableSummary,
 		func(a, c *IDMappingTableSummary) bool {
@@ -2350,11 +2284,7 @@ func (b *InMemoryBackend) UpdateIDMappingTable(
 ) (*IDMappingTable, error) {
 	b.mu.Lock("UpdateIDMappingTable")
 	defer b.mu.Unlock()
-	tables, ok := b.idMappingTables[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	t, ok := tables[tableID]
+	t, ok := b.idMappingTables.Get(membershipKey(membershipID, tableID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2372,16 +2302,13 @@ func (b *InMemoryBackend) UpdateIDMappingTable(
 func (b *InMemoryBackend) DeleteIDMappingTable(membershipID, tableID string) error {
 	b.mu.Lock("DeleteIDMappingTable")
 	defer b.mu.Unlock()
-	tables, ok := b.idMappingTables[membershipID]
-	if !ok {
-		return ErrNotFound
-	}
-	t, ok := tables[tableID]
+	key := membershipKey(membershipID, tableID)
+	t, ok := b.idMappingTables.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, t.Arn)
-	delete(tables, tableID)
+	b.idMappingTables.Delete(key)
 
 	return nil
 }
@@ -2391,10 +2318,7 @@ func (b *InMemoryBackend) PopulateIDMappingTable(
 ) (map[string]any, error) {
 	b.mu.RLock("PopulateIDMappingTable")
 	defer b.mu.RUnlock()
-	if _, ok := b.idMappingTables[membershipID]; !ok {
-		return nil, ErrNotFound
-	}
-	if _, ok := b.idMappingTables[membershipID][tableID]; !ok {
+	if _, ok := b.idMappingTables.Get(membershipKey(membershipID, tableID)); !ok {
 		return nil, ErrNotFound
 	}
 
@@ -2411,16 +2335,13 @@ func (b *InMemoryBackend) CreateIDNamespaceAssociation(
 ) (*IDNamespaceAssociation, error) {
 	b.mu.Lock("CreateIDNamespaceAssociation")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if b.idNamespaceAssociations[membershipID] == nil {
-		b.idNamespaceAssociations[membershipID] = make(map[string]*IDNamespaceAssociation)
-	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
+	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -2443,7 +2364,7 @@ func (b *InMemoryBackend) CreateIDNamespaceAssociation(
 		MembershipID:                     membershipID,
 		CollaborationID:                  mem.CollaborationIdentifier,
 	}
-	b.idNamespaceAssociations[membershipID][id] = assoc
+	b.idNamespaceAssociations.Put(assoc)
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
@@ -2456,11 +2377,7 @@ func (b *InMemoryBackend) GetIDNamespaceAssociation(
 ) (*IDNamespaceAssociation, error) {
 	b.mu.RLock("GetIDNamespaceAssociation")
 	defer b.mu.RUnlock()
-	assocs, ok := b.idNamespaceAssociations[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	assoc, ok := b.idNamespaceAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2473,11 +2390,11 @@ func (b *InMemoryBackend) ListIDNamespaceAssociations(
 ) ([]*IDNamespaceAssociationSummary, string, error) {
 	b.mu.RLock("ListIDNamespaceAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listItems(
-		b.idNamespaceAssociations[membershipID],
+		b.idNamespaceAssociationsByMembership.Get(membershipID),
 		nil,
 		toIDNamespaceAssociationSummary,
 		func(a, c *IDNamespaceAssociationSummary) bool {
@@ -2495,11 +2412,7 @@ func (b *InMemoryBackend) UpdateIDNamespaceAssociation(
 ) (*IDNamespaceAssociation, error) {
 	b.mu.Lock("UpdateIDNamespaceAssociation")
 	defer b.mu.Unlock()
-	assocs, ok := b.idNamespaceAssociations[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	assoc, ok := b.idNamespaceAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2517,16 +2430,13 @@ func (b *InMemoryBackend) UpdateIDNamespaceAssociation(
 func (b *InMemoryBackend) DeleteIDNamespaceAssociation(membershipID, assocID string) error {
 	b.mu.Lock("DeleteIDNamespaceAssociation")
 	defer b.mu.Unlock()
-	assocs, ok := b.idNamespaceAssociations[membershipID]
-	if !ok {
-		return ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	key := membershipKey(membershipID, assocID)
+	assoc, ok := b.idNamespaceAssociations.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, assoc.Arn)
-	delete(assocs, assocID)
+	b.idNamespaceAssociations.Delete(key)
 
 	return nil
 }
@@ -2536,16 +2446,21 @@ func (b *InMemoryBackend) GetCollaborationIDNamespaceAssociation(
 ) (*IDNamespaceAssociation, error) {
 	b.mu.RLock("GetCollaborationIDNamespaceAssociation")
 	defer b.mu.RUnlock()
-	for _, assocs := range b.idNamespaceAssociations {
-		for _, a := range assocs {
-			if a.CollaborationIdentifier == collaborationID &&
-				a.IDNamespaceAssociationIdentifier == assocID {
-				return a, nil
-			}
+	var found *IDNamespaceAssociation
+	b.idNamespaceAssociations.Range(func(a *IDNamespaceAssociation) bool {
+		if a.CollaborationIdentifier == collaborationID && a.IDNamespaceAssociationIdentifier == assocID {
+			found = a
+
+			return false
 		}
+
+		return true
+	})
+	if found == nil {
+		return nil, ErrNotFound
 	}
 
-	return nil, ErrNotFound
+	return found, nil
 }
 
 func (b *InMemoryBackend) ListCollaborationIDNamespaceAssociations(
@@ -2553,11 +2468,11 @@ func (b *InMemoryBackend) ListCollaborationIDNamespaceAssociations(
 ) ([]*IDNamespaceAssociationSummary, string, error) {
 	b.mu.RLock("ListCollaborationIDNamespaceAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
-		b.idNamespaceAssociations,
+		b.idNamespaceAssociations.All(),
 		func(a *IDNamespaceAssociation) bool { return a.CollaborationIdentifier == collaborationID },
 		toIDNamespaceAssociationSummary,
 		func(a, c *IDNamespaceAssociationSummary) bool {
@@ -2582,16 +2497,13 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 	}
 	b.mu.Lock("CreateConfiguredAudienceModelAssociation")
 	defer b.mu.Unlock()
-	mem, ok := b.memberships[membershipID]
+	mem, ok := b.memberships.Get(membershipID)
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if b.camaAssociations[membershipID] == nil {
-		b.camaAssociations[membershipID] = make(map[string]*ConfiguredAudienceModelAssociation)
-	}
 	id := uuid.NewString()
 	ts := b.now()
-	collab := b.collaborations[mem.CollaborationIdentifier]
+	collab, _ := b.collaborations.Get(mem.CollaborationIdentifier)
 	var collabArn string
 	if collab != nil {
 		collabArn = collab.Arn
@@ -2614,7 +2526,7 @@ func (b *InMemoryBackend) CreateConfiguredAudienceModelAssociation(
 		MembershipID:               membershipID,
 		CollaborationID:            mem.CollaborationIdentifier,
 	}
-	b.camaAssociations[membershipID][id] = assoc
+	b.camaAssociations.Put(assoc)
 	if len(tags) > 0 {
 		b.tagsByArn[assoc.Arn] = maps.Clone(tags)
 	}
@@ -2627,11 +2539,7 @@ func (b *InMemoryBackend) GetConfiguredAudienceModelAssociation(
 ) (*ConfiguredAudienceModelAssociation, error) {
 	b.mu.RLock("GetConfiguredAudienceModelAssociation")
 	defer b.mu.RUnlock()
-	assocs, ok := b.camaAssociations[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	assoc, ok := b.camaAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2644,11 +2552,11 @@ func (b *InMemoryBackend) ListConfiguredAudienceModelAssociations(
 ) ([]*ConfiguredAudienceModelAssociationSummary, string, error) {
 	b.mu.RLock("ListConfiguredAudienceModelAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.memberships[membershipID]; !ok {
+	if _, ok := b.memberships.Get(membershipID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listItems(
-		b.camaAssociations[membershipID],
+		b.camaAssociationsByMembership.Get(membershipID),
 		nil,
 		toConfiguredAudienceModelAssociationSummary,
 		func(a, c *ConfiguredAudienceModelAssociationSummary) bool {
@@ -2665,11 +2573,7 @@ func (b *InMemoryBackend) UpdateConfiguredAudienceModelAssociation(
 ) (*ConfiguredAudienceModelAssociation, error) {
 	b.mu.Lock("UpdateConfiguredAudienceModelAssociation")
 	defer b.mu.Unlock()
-	assocs, ok := b.camaAssociations[membershipID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	assoc, ok := b.camaAssociations.Get(membershipKey(membershipID, assocID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2689,16 +2593,13 @@ func (b *InMemoryBackend) DeleteConfiguredAudienceModelAssociation(
 ) error {
 	b.mu.Lock("DeleteConfiguredAudienceModelAssociation")
 	defer b.mu.Unlock()
-	assocs, ok := b.camaAssociations[membershipID]
-	if !ok {
-		return ErrNotFound
-	}
-	assoc, ok := assocs[assocID]
+	key := membershipKey(membershipID, assocID)
+	assoc, ok := b.camaAssociations.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
 	delete(b.tagsByArn, assoc.Arn)
-	delete(assocs, assocID)
+	b.camaAssociations.Delete(key)
 
 	return nil
 }
@@ -2708,16 +2609,21 @@ func (b *InMemoryBackend) GetCollaborationConfiguredAudienceModelAssociation(
 ) (*ConfiguredAudienceModelAssociation, error) {
 	b.mu.RLock("GetCollaborationConfiguredAudienceModelAssociation")
 	defer b.mu.RUnlock()
-	for _, assocs := range b.camaAssociations {
-		for _, a := range assocs {
-			if a.CollaborationIdentifier == collaborationID &&
-				a.ConfiguredAudienceModelAssociationIdentifier == assocID {
-				return a, nil
-			}
+	var found *ConfiguredAudienceModelAssociation
+	b.camaAssociations.Range(func(a *ConfiguredAudienceModelAssociation) bool {
+		if a.CollaborationIdentifier == collaborationID && a.ConfiguredAudienceModelAssociationIdentifier == assocID {
+			found = a
+
+			return false
 		}
+
+		return true
+	})
+	if found == nil {
+		return nil, ErrNotFound
 	}
 
-	return nil, ErrNotFound
+	return found, nil
 }
 
 func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
@@ -2725,11 +2631,11 @@ func (b *InMemoryBackend) ListCollaborationConfiguredAudienceModelAssociations(
 ) ([]*ConfiguredAudienceModelAssociationSummary, string, error) {
 	b.mu.RLock("ListCollaborationConfiguredAudienceModelAssociations")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
 	page, next := listNestedItems(
-		b.camaAssociations,
+		b.camaAssociations.All(),
 		func(a *ConfiguredAudienceModelAssociation) bool {
 			return a.CollaborationIdentifier == collaborationID
 		},
@@ -2751,12 +2657,9 @@ func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 ) (*CollaborationChangeRequest, error) {
 	b.mu.Lock("CreateCollaborationChangeRequest")
 	defer b.mu.Unlock()
-	collab, ok := b.collaborations[collaborationID]
+	collab, ok := b.collaborations.Get(collaborationID)
 	if !ok {
 		return nil, ErrNotFound
-	}
-	if b.changeRequests[collaborationID] == nil {
-		b.changeRequests[collaborationID] = make(map[string]*CollaborationChangeRequest)
 	}
 	id := uuid.NewString()
 	ts := b.now()
@@ -2770,7 +2673,7 @@ func (b *InMemoryBackend) CreateCollaborationChangeRequest(
 		CreateTime:              ts,
 		UpdateTime:              ts,
 	}
-	b.changeRequests[collaborationID][id] = req
+	b.changeRequests.Put(req)
 
 	return req, nil
 }
@@ -2780,11 +2683,7 @@ func (b *InMemoryBackend) GetCollaborationChangeRequest(
 ) (*CollaborationChangeRequest, error) {
 	b.mu.RLock("GetCollaborationChangeRequest")
 	defer b.mu.RUnlock()
-	reqs, ok := b.changeRequests[collaborationID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	req, ok := reqs[changeRequestID]
+	req, ok := b.changeRequests.Get(collaborationKey(collaborationID, changeRequestID))
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -2797,13 +2696,10 @@ func (b *InMemoryBackend) ListCollaborationChangeRequests(
 ) ([]*CollaborationChangeRequest, string, error) {
 	b.mu.RLock("ListCollaborationChangeRequests")
 	defer b.mu.RUnlock()
-	if _, ok := b.collaborations[collaborationID]; !ok {
+	if _, ok := b.collaborations.Get(collaborationID); !ok {
 		return nil, "", ErrNotFound
 	}
-	var items []*CollaborationChangeRequest
-	for _, r := range b.changeRequests[collaborationID] {
-		items = append(items, r)
-	}
+	items := slices.Clone(b.changeRequestsByCollaboration.Get(collaborationID))
 	sort.Slice(
 		items,
 		func(i, j int) bool { return items[i].ChangeRequestIdentifier < items[j].ChangeRequestIdentifier },
@@ -2818,11 +2714,7 @@ func (b *InMemoryBackend) UpdateCollaborationChangeRequest(
 ) (*CollaborationChangeRequest, error) {
 	b.mu.Lock("UpdateCollaborationChangeRequest")
 	defer b.mu.Unlock()
-	reqs, ok := b.changeRequests[collaborationID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	req, ok := reqs[changeRequestID]
+	req, ok := b.changeRequests.Get(collaborationKey(collaborationID, changeRequestID))
 	if !ok {
 		return nil, ErrNotFound
 	}

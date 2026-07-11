@@ -1,9 +1,9 @@
 package accessanalyzer
 
 import (
-	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -12,7 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -79,11 +79,19 @@ type Analyzer struct {
 }
 
 // ArchiveRule represents an archive rule for an analyzer.
+//
+// AnalyzerName identifies the owning analyzer. It is never part of the wire
+// response (archiveRuleToJSON in handler.go builds that by hand), so it is
+// tagged json:"-"; it exists purely so archiveRuleKeyFn (store_setup.go) can
+// derive the composite "analyzerName|ruleName" store.Table key from the
+// value alone, matching the primary key of the map[string]map[string]*ArchiveRule
+// this type used to live in.
 type ArchiveRule struct {
-	Filter    map[string]FilterCriterion `json:"filter"`
-	CreatedAt time.Time                  `json:"createdAt"`
-	UpdatedAt time.Time                  `json:"updatedAt"`
-	RuleName  string                     `json:"ruleName"`
+	Filter       map[string]FilterCriterion `json:"filter"`
+	CreatedAt    time.Time                  `json:"createdAt"`
+	UpdatedAt    time.Time                  `json:"updatedAt"`
+	RuleName     string                     `json:"ruleName"`
+	AnalyzerName string                     `json:"-"`
 }
 
 // Finding represents a single IAM Access Analyzer finding.
@@ -103,34 +111,65 @@ type Finding struct {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu                     *lockmetrics.RWMutex
-	analyzers              map[string]*Analyzer               // name → Analyzer
-	archiveRules           map[string]map[string]*ArchiveRule // analyzerName → ruleName → Rule
-	findings               map[string]map[string]*Finding     // analyzerName → findingID → Finding
-	tags                   map[string]map[string]string       // resourceARN → tags
-	policyGenerations      map[string]*PolicyGeneration       // jobID → PolicyGeneration
-	accessPreviews         map[string]*AccessPreview          // id → AccessPreview
-	analyzedResources      map[string]*AnalyzedResource       // analyzerArn|resourceArn → AnalyzedResource
-	findingRecommendations map[string]*FindingRecommendation  // findingID → FindingRecommendation
-	accountID              string
-	region                 string
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	analyzers *store.Table[Analyzer] // key: name
+
+	// archiveRules was previously nested (analyzerName -> ruleName ->
+	// *ArchiveRule); it is now one flat table keyed by the composite
+	// "analyzerName|ruleName" string (see archiveRuleKey in store_setup.go),
+	// with archiveRulesByAnalyzer grouping entries by analyzer for the "all
+	// archive rules of analyzer X" lookups the nested map used to answer
+	// directly. "Dirty" table (ArchiveRule.AnalyzerName is json:"-"): NOT on
+	// b.registry, persisted via a DTO in persistence.go.
+	archiveRules           *store.Table[ArchiveRule]
+	archiveRulesByAnalyzer *store.Index[ArchiveRule]
+
+	// findings was previously nested (analyzerName -> findingID -> *Finding).
+	// findingID (a UUID minted by AddFinding) is globally unique, so this is
+	// a flat table keyed directly by Finding.ID, with findingsByAnalyzer
+	// grouping entries by analyzer name -- derived from the already
+	// wire-visible AnalyzerArn field, see analyzerNameFromArn -- for the "all
+	// findings of analyzer X" lookups the nested map used to answer directly.
+	findings           *store.Table[Finding]
+	findingsByAnalyzer *store.Index[Finding]
+
+	// tags maps resourceARN -> tags; its value (map[string]string) has no
+	// identity of its own, so it is not a store.Table candidate and remains
+	// a plain persisted map.
+	tags map[string]map[string]string
+
+	policyGenerations *store.Table[PolicyGeneration] // key: jobID
+
+	accessPreviews *store.Table[AccessPreview] // key: id
+
+	// analyzedResources is keyed by the composite "analyzerArn|resourceArn"
+	// string (see analyzedResourceKey in store_setup.go) -- both halves are
+	// real, already wire-visible fields on AnalyzedResource, so no hidden
+	// field was needed; a resource can be observed by more than one
+	// analyzer, so ResourceArn alone is not a valid primary key.
+	analyzedResources *store.Table[AnalyzedResource]
+
+	findingRecommendations *store.Table[FindingRecommendation] // key: id (== findingID)
+
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                     lockmetrics.New("accessanalyzer"),
-		accountID:              accountID,
-		region:                 region,
-		analyzers:              make(map[string]*Analyzer),
-		archiveRules:           make(map[string]map[string]*ArchiveRule),
-		findings:               make(map[string]map[string]*Finding),
-		tags:                   make(map[string]map[string]string),
-		policyGenerations:      make(map[string]*PolicyGeneration),
-		accessPreviews:         make(map[string]*AccessPreview),
-		analyzedResources:      make(map[string]*AnalyzedResource),
-		findingRecommendations: make(map[string]*FindingRecommendation),
+	b := &InMemoryBackend{
+		mu:        lockmetrics.New("accessanalyzer"),
+		registry:  store.NewRegistry(),
+		accountID: accountID,
+		region:    region,
+		tags:      make(map[string]map[string]string),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // analyzerARN returns the ARN for an analyzer by name.
@@ -151,7 +190,7 @@ func (b *InMemoryBackend) CreateAnalyzer(
 	b.mu.Lock("CreateAnalyzer")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[name]; exists {
+	if b.analyzers.Has(name) {
 		return nil, ErrAnalyzerAlreadyExists
 	}
 
@@ -165,9 +204,7 @@ func (b *InMemoryBackend) CreateAnalyzer(
 		Tags:      cloneTags(tags),
 	}
 
-	b.analyzers[name] = a
-	b.archiveRules[name] = make(map[string]*ArchiveRule)
-	b.findings[name] = make(map[string]*Finding)
+	b.analyzers.Put(a)
 
 	return copyAnalyzer(a), nil
 }
@@ -177,7 +214,7 @@ func (b *InMemoryBackend) GetAnalyzer(name string) (*Analyzer, error) {
 	b.mu.RLock("GetAnalyzer")
 	defer b.mu.RUnlock()
 
-	a, exists := b.analyzers[name]
+	a, exists := b.analyzers.Get(name)
 	if !exists {
 		return nil, ErrAnalyzerNotFound
 	}
@@ -190,9 +227,10 @@ func (b *InMemoryBackend) ListAnalyzers(analyzerType string) ([]*Analyzer, error
 	b.mu.RLock("ListAnalyzers")
 	defer b.mu.RUnlock()
 
-	result := make([]*Analyzer, 0, len(b.analyzers))
+	all := b.analyzers.All()
+	result := make([]*Analyzer, 0, len(all))
 
-	for _, a := range b.analyzers {
+	for _, a := range all {
 		if analyzerType != "" && string(a.Type) != analyzerType {
 			continue
 		}
@@ -212,13 +250,19 @@ func (b *InMemoryBackend) DeleteAnalyzer(name string) error {
 	b.mu.Lock("DeleteAnalyzer")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[name]; !exists {
+	if !b.analyzers.Has(name) {
 		return ErrAnalyzerNotFound
 	}
 
-	delete(b.analyzers, name)
-	delete(b.archiveRules, name)
-	delete(b.findings, name)
+	b.analyzers.Delete(name)
+
+	for _, r := range slices.Clone(b.archiveRulesByAnalyzer.Get(name)) {
+		b.archiveRules.Delete(archiveRuleKey(r.AnalyzerName, r.RuleName))
+	}
+
+	for _, f := range slices.Clone(b.findingsByAnalyzer.Get(name)) {
+		b.findings.Delete(f.ID)
+	}
 
 	return nil
 }
@@ -232,27 +276,28 @@ func (b *InMemoryBackend) CreateArchiveRule(
 	b.mu.Lock("CreateArchiveRule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, ErrAnalyzerNotFound
 	}
 
-	rules := b.archiveRules[analyzerName]
+	key := archiveRuleKey(analyzerName, ruleName)
 
-	if _, exists := rules[ruleName]; exists {
+	if b.archiveRules.Has(key) {
 		return nil, ErrArchiveRuleAlreadyExists
 	}
 
 	now := time.Now().UTC()
 	rule := &ArchiveRule{
-		RuleName:  ruleName,
-		Filter:    cloneFilter(filter),
-		CreatedAt: now,
-		UpdatedAt: now,
+		AnalyzerName: analyzerName,
+		RuleName:     ruleName,
+		Filter:       cloneFilter(filter),
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
-	rules[ruleName] = rule
+	b.archiveRules.Put(rule)
 
-	for _, f := range b.findings[analyzerName] {
+	for _, f := range b.findingsByAnalyzer.Get(analyzerName) {
 		if f.Status == FindingStatusActive {
 			f.Status = FindingStatusArchived
 			f.UpdatedAt = now
@@ -267,11 +312,11 @@ func (b *InMemoryBackend) GetArchiveRule(analyzerName, ruleName string) (*Archiv
 	b.mu.RLock("GetArchiveRule")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, ErrAnalyzerNotFound
 	}
 
-	rule, exists := b.archiveRules[analyzerName][ruleName]
+	rule, exists := b.archiveRules.Get(archiveRuleKey(analyzerName, ruleName))
 	if !exists {
 		return nil, ErrArchiveRuleNotFound
 	}
@@ -284,11 +329,11 @@ func (b *InMemoryBackend) ListArchiveRules(analyzerName string) ([]*ArchiveRule,
 	b.mu.RLock("ListArchiveRules")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, ErrAnalyzerNotFound
 	}
 
-	rules := b.archiveRules[analyzerName]
+	rules := b.archiveRulesByAnalyzer.Get(analyzerName)
 	result := make([]*ArchiveRule, 0, len(rules))
 
 	for _, r := range rules {
@@ -307,15 +352,17 @@ func (b *InMemoryBackend) DeleteArchiveRule(analyzerName, ruleName string) error
 	b.mu.Lock("DeleteArchiveRule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return ErrAnalyzerNotFound
 	}
 
-	if _, exists := b.archiveRules[analyzerName][ruleName]; !exists {
+	key := archiveRuleKey(analyzerName, ruleName)
+
+	if !b.archiveRules.Has(key) {
 		return ErrArchiveRuleNotFound
 	}
 
-	delete(b.archiveRules[analyzerName], ruleName)
+	b.archiveRules.Delete(key)
 
 	return nil
 }
@@ -328,11 +375,11 @@ func (b *InMemoryBackend) UpdateArchiveRule(
 	b.mu.Lock("UpdateArchiveRule")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, ErrAnalyzerNotFound
 	}
 
-	rule, exists := b.archiveRules[analyzerName][ruleName]
+	rule, exists := b.archiveRules.Get(archiveRuleKey(analyzerName, ruleName))
 	if !exists {
 		return nil, ErrArchiveRuleNotFound
 	}
@@ -353,7 +400,7 @@ func (b *InMemoryBackend) AddFinding(
 	b.mu.Lock("AddFinding")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, ErrAnalyzerNotFound
 	}
 
@@ -372,7 +419,7 @@ func (b *InMemoryBackend) AddFinding(
 		CreatedAt:    now,
 	}
 
-	b.findings[analyzerName][f.ID] = f
+	b.findings.Put(f)
 
 	return copyFinding(f), nil
 }
@@ -382,12 +429,12 @@ func (b *InMemoryBackend) GetFinding(analyzerName, findingID string) (*Finding, 
 	b.mu.RLock("GetFinding")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, ErrAnalyzerNotFound
 	}
 
-	f, exists := b.findings[analyzerName][findingID]
-	if !exists {
+	f, exists := b.findings.Get(findingID)
+	if !exists || findingAnalyzerIndexKeyFn(f) != analyzerName {
 		return nil, ErrFindingNotFound
 	}
 
@@ -405,13 +452,14 @@ func (b *InMemoryBackend) ListFindings(
 	b.mu.RLock("ListFindings")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return nil, "", ErrAnalyzerNotFound
 	}
 
-	findings := make([]*Finding, 0, len(b.findings[analyzerName]))
+	group := b.findingsByAnalyzer.Get(analyzerName)
+	findings := make([]*Finding, 0, len(group))
 
-	for _, f := range b.findings[analyzerName] {
+	for _, f := range group {
 		if status != "" && string(f.Status) != status {
 			continue
 		}
@@ -454,14 +502,14 @@ func (b *InMemoryBackend) UpdateFindings(
 	b.mu.Lock("UpdateFindings")
 	defer b.mu.Unlock()
 
-	if _, exists := b.analyzers[analyzerName]; !exists {
+	if !b.analyzers.Has(analyzerName) {
 		return ErrAnalyzerNotFound
 	}
 
 	now := time.Now().UTC()
 
 	for _, id := range findingIDs {
-		if f, exists := b.findings[analyzerName][id]; exists {
+		if f, exists := b.findings.Get(id); exists && findingAnalyzerIndexKeyFn(f) == analyzerName {
 			f.Status = status
 			f.UpdatedAt = now
 		}
@@ -476,7 +524,7 @@ func (b *InMemoryBackend) StartResourceScan(analyzerARN string, _ string) error 
 	defer b.mu.RUnlock()
 
 	// Verify the analyzer exists by ARN.
-	for _, a := range b.analyzers {
+	for _, a := range b.analyzers.All() {
 		if a.Arn == analyzerARN {
 			return nil
 		}
@@ -524,14 +572,11 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.analyzers = make(map[string]*Analyzer)
-	b.archiveRules = make(map[string]map[string]*ArchiveRule)
-	b.findings = make(map[string]map[string]*Finding)
+	b.registry.ResetAll()
+	// archiveRules is a "dirty" table (see store_setup.go), so it is not on
+	// b.registry and needs its own Reset() call here.
+	b.archiveRules.Reset()
 	b.tags = make(map[string]map[string]string)
-	b.policyGenerations = make(map[string]*PolicyGeneration)
-	b.accessPreviews = make(map[string]*AccessPreview)
-	b.analyzedResources = make(map[string]*AnalyzedResource)
-	b.findingRecommendations = make(map[string]*FindingRecommendation)
 }
 
 // Region returns the backend's region.
@@ -540,66 +585,8 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the backend's account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
-// Snapshot serializes backend state to JSON.
-func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	b.mu.RLock("Snapshot")
-	defer b.mu.RUnlock()
-
-	type snap struct {
-		Analyzers    map[string]*Analyzer               `json:"analyzers"`
-		ArchiveRules map[string]map[string]*ArchiveRule `json:"archiveRules"`
-		Findings     map[string]map[string]*Finding     `json:"findings"`
-		Tags         map[string]map[string]string       `json:"tags"`
-	}
-
-	return persistence.MarshalSnapshot(ctx, "accessanalyzer", snap{
-		Analyzers:    b.analyzers,
-		ArchiveRules: b.archiveRules,
-		Findings:     b.findings,
-		Tags:         b.tags,
-	})
-}
-
-// Restore deserializes backend state from JSON.
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
-	b.mu.Lock("Restore")
-	defer b.mu.Unlock()
-
-	type snap struct {
-		Analyzers    map[string]*Analyzer               `json:"analyzers"`
-		ArchiveRules map[string]map[string]*ArchiveRule `json:"archiveRules"`
-		Findings     map[string]map[string]*Finding     `json:"findings"`
-		Tags         map[string]map[string]string       `json:"tags"`
-	}
-
-	var s snap
-	if err := persistence.UnmarshalSnapshot(ctx, "accessanalyzer", data, &s); err != nil {
-		return err
-	}
-
-	b.analyzers = s.Analyzers
-	b.archiveRules = s.ArchiveRules
-	b.findings = s.Findings
-	b.tags = s.Tags
-
-	if b.analyzers == nil {
-		b.analyzers = make(map[string]*Analyzer)
-	}
-
-	if b.archiveRules == nil {
-		b.archiveRules = make(map[string]map[string]*ArchiveRule)
-	}
-
-	if b.findings == nil {
-		b.findings = make(map[string]map[string]*Finding)
-	}
-
-	if b.tags == nil {
-		b.tags = make(map[string]map[string]string)
-	}
-
-	return nil
-}
+// Snapshot and Restore (persistence.Persistable) live in persistence.go,
+// alongside the archiveRules DTO their registry-table snapshot needs.
 
 // ---- helpers ----
 

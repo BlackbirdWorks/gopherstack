@@ -11,13 +11,13 @@ func FlushInstanceLifecycle(b *InMemoryBackend) {
 	b.mu.Lock("FlushInstanceLifecycle")
 	defer b.mu.Unlock()
 
-	for id, inst := range b.instances {
+	for _, inst := range b.instances.All() {
 		if inst.DBInstanceStatus == instanceStatusCreating || inst.DBInstanceStatus == instanceStatusModifying {
 			applyPendingModifications(inst)
 			inst.DBInstanceStatus = instanceStatusAvailable
 		}
 
-		delete(b.instanceReadyAt, id)
+		delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
 	}
 }
 
@@ -46,7 +46,7 @@ func InstanceCount(b *InMemoryBackend) int {
 	b.mu.RLock("InstanceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.instances)
+	return b.instances.Len()
 }
 
 // ClusterCount returns the number of DB clusters in the backend.
@@ -54,7 +54,7 @@ func ClusterCount(b *InMemoryBackend) int {
 	b.mu.RLock("ClusterCount")
 	defer b.mu.RUnlock()
 
-	return len(b.clusters)
+	return b.clusters.Len()
 }
 
 // SnapshotCount returns the number of DB snapshots in the backend.
@@ -62,7 +62,7 @@ func SnapshotCount(b *InMemoryBackend) int {
 	b.mu.RLock("SnapshotCount")
 	defer b.mu.RUnlock()
 
-	return len(b.snapshots)
+	return b.snapshots.Len()
 }
 
 // EventSubscriptionCount returns the number of event subscriptions in the backend.
@@ -70,7 +70,7 @@ func EventSubscriptionCount(b *InMemoryBackend) int {
 	b.mu.RLock("EventSubscriptionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.eventSubscriptions)
+	return b.eventSubscriptions.Len()
 }
 
 // EventMessagesForSource returns published event messages for a source identifier.
@@ -95,7 +95,7 @@ func SecurityGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("SecurityGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.dbSecurityGroups)
+	return b.dbSecurityGroups.Len()
 }
 
 // BlueGreenDeploymentCount returns the number of Blue/Green Deployments in the backend.
@@ -103,7 +103,7 @@ func BlueGreenDeploymentCount(b *InMemoryBackend) int {
 	b.mu.RLock("BlueGreenDeploymentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.blueGreenDeployments)
+	return b.blueGreenDeployments.Len()
 }
 
 // ClusterRoleCount returns the number of IAM roles associated with a cluster.
@@ -132,7 +132,7 @@ func RecommendationCount(b *InMemoryBackend) int {
 	b.mu.RLock("RecommendationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.recommendations)
+	return b.recommendations.Len()
 }
 
 // IntegrationCount returns the number of integrations in the backend.
@@ -140,7 +140,7 @@ func IntegrationCount(b *InMemoryBackend) int {
 	b.mu.RLock("IntegrationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.integrations)
+	return b.integrations.Len()
 }
 
 // ShardGroupCount returns the number of shard groups in the backend.
@@ -148,5 +148,5 @@ func ShardGroupCount(b *InMemoryBackend) int {
 	b.mu.RLock("ShardGroupCount")
 	defer b.mu.RUnlock()
 
-	return len(b.shardGroups)
+	return b.shardGroups.Len()
 }

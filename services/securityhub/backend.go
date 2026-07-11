@@ -2,6 +2,7 @@ package securityhub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,8 +12,22 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
+
+// securityhubSnapshotVersion identifies the shape of [snapshot], in
+// particular the "tables" field produced by b.registry.SnapshotAll(). It must
+// be bumped whenever a change to a converted resource type or snapshot itself
+// would make an older snapshot unsafe to decode as the current shape. Restore
+// compares this against the persisted value and discards (registry.ResetAll,
+// never a partial decode) any mismatch -- see Restore. Snapshots taken before
+// Phase 3.3 (the pkgs/store conversion) had no version field at all, so they
+// decode with Version == 0, which is guaranteed to mismatch
+// securityhubSnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const securityhubSnapshotVersion = 1
 
 const (
 	keyErrorCode    = "ErrorCode"
@@ -227,32 +242,38 @@ var knownStandards = []Standard{ //nolint:gochecknoglobals // read-only lookup d
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	configPolicyAssocs     map[string]*ConfigurationPolicyAssociation
+	// registry lets Reset/Snapshot/Restore collapse the lifecycle of every
+	// converted resource field below to one call each (registry.ResetAll(),
+	// registry.SnapshotAll(), registry.RestoreAll()) instead of hand-rolled
+	// per-map boilerplate. See store_setup.go for the full registration list
+	// and the fields deliberately left as plain maps.
+	registry               *store.Registry
+	configPolicyAssocs     *store.Table[ConfigurationPolicyAssociation]
 	orgConfig              *OrgConfig
 	tags                   map[string]map[string]string
-	automationRules        map[string]*AutomationRule
+	automationRules        *store.Table[AutomationRule]
 	hub                    *Hub
 	findings               map[string]map[string]any
-	insights               map[string]*Insight
+	insights               *store.Table[Insight]
 	controlParams          map[string]map[string]any
 	productSubscriptions   map[string]string
 	mu                     *lockmetrics.RWMutex
-	actionTargets          map[string]*ActionTarget
-	members                map[string]*Member
-	invitations            map[string]*Invitation
+	actionTargets          *store.Table[ActionTarget]
+	members                *store.Table[Member]
+	invitations            *store.Table[Invitation]
 	adminAccount           *AdminAccount
-	configPolicies         map[string]*ConfigurationPolicy
+	configPolicies         *store.Table[ConfigurationPolicy]
 	orgAdminAccounts       map[string]string
-	recommendedPoliciesV2  map[string]*RecommendedPolicyV2
-	findingAggregators     map[string]*FindingAggregator
-	controlOverrides       map[string]*StandardsControl
-	controlAssocOverrides  map[string]map[string]*StandardsControlAssociation // [standardsArn][securityControlID]
-	ticketsV2              map[string]*TicketV2
-	connectorsV2           map[string]*ConnectorV2
-	standardsSubscriptions map[string]*StandardsSubscription
+	recommendedPoliciesV2  *store.Table[RecommendedPolicyV2]
+	findingAggregators     *store.Table[FindingAggregator]
+	controlOverrides       *store.Table[StandardsControl]
+	controlAssocOverrides  *store.Table[StandardsControlAssociation] // composite key: standardsArn|securityControlID
+	ticketsV2              *store.Table[TicketV2]
+	connectorsV2           *store.Table[ConnectorV2]
+	standardsSubscriptions *store.Table[StandardsSubscription]
 	hubV2                  *HubV2
-	aggregatorsV2          map[string]*AggregatorV2
-	automationRulesV2      map[string]*AutomationRuleV2
+	aggregatorsV2          *store.Table[AggregatorV2]
+	automationRulesV2      *store.Table[AutomationRuleV2]
 	region                 string
 	accountID              string
 	aggregatorV2Seq        int
@@ -272,36 +293,21 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new in-memory backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		mu:                     lockmetrics.New("securityhub"),
-		accountID:              accountID,
-		region:                 region,
-		findings:               make(map[string]map[string]any),
-		insights:               make(map[string]*Insight),
-		standardsSubscriptions: make(map[string]*StandardsSubscription),
-		controlOverrides:       make(map[string]*StandardsControl),
-		controlAssocOverrides:  make(map[string]map[string]*StandardsControlAssociation),
-		actionTargets:          make(map[string]*ActionTarget),
-		productSubscriptions:   make(map[string]string),
-		controlParams:          make(map[string]map[string]any),
-		automationRules:        make(map[string]*AutomationRule),
-		tags:                   make(map[string]map[string]string),
-		// Members / Invitations / Admin
-		members:          make(map[string]*Member),
-		invitations:      make(map[string]*Invitation),
-		orgAdminAccounts: make(map[string]string),
-		// Finding Aggregator
-		findingAggregators: make(map[string]*FindingAggregator),
-		// Configuration Policy
-		configPolicies:     make(map[string]*ConfigurationPolicy),
-		configPolicyAssocs: make(map[string]*ConfigurationPolicyAssociation),
-		// V2 resources
-		aggregatorsV2:         make(map[string]*AggregatorV2),
-		automationRulesV2:     make(map[string]*AutomationRuleV2),
-		connectorsV2:          make(map[string]*ConnectorV2),
-		ticketsV2:             make(map[string]*TicketV2),
-		recommendedPoliciesV2: make(map[string]*RecommendedPolicyV2),
+	b := &InMemoryBackend{
+		registry:             store.NewRegistry(),
+		mu:                   lockmetrics.New("securityhub"),
+		accountID:            accountID,
+		region:               region,
+		findings:             make(map[string]map[string]any),
+		productSubscriptions: make(map[string]string),
+		controlParams:        make(map[string]map[string]any),
+		tags:                 make(map[string]map[string]string),
+		orgAdminAccounts:     make(map[string]string),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
@@ -338,147 +344,137 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	b.resetLocked()
+}
+
+// resetLocked returns every field to the state NewInMemoryBackend leaves it
+// in: every store.Table-backed resource field via one b.registry.ResetAll()
+// call, every raw map reallocated, every scalar/pointer/sequence field zeroed.
+// It backs both Reset() and Restore's incompatible-snapshot-version branch
+// (see Restore), which must discard to the exact same empty state Reset()
+// produces rather than leave stale pre-restore data behind. The caller MUST
+// hold b.mu for writing.
+func (b *InMemoryBackend) resetLocked() {
 	b.hubEnabled = false
 	b.hub = nil
 	b.findings = make(map[string]map[string]any)
-	b.insights = make(map[string]*Insight)
 	b.insightSeq = 0
-	b.standardsSubscriptions = make(map[string]*StandardsSubscription)
 	b.standardsSeq = 0
-	b.controlOverrides = make(map[string]*StandardsControl)
-	b.controlAssocOverrides = make(map[string]map[string]*StandardsControlAssociation)
-	b.actionTargets = make(map[string]*ActionTarget)
 	b.actionTargetSeq = 0
 	b.productSubscriptions = make(map[string]string)
 	b.controlParams = make(map[string]map[string]any)
-	b.automationRules = make(map[string]*AutomationRule)
 	b.automationRuleSeq = 0
 	b.tags = make(map[string]map[string]string)
 	// Members / Invitations / Admin
-	b.members = make(map[string]*Member)
-	b.invitations = make(map[string]*Invitation)
 	b.adminAccount = nil
 	b.orgConfig = nil
 	b.orgAdminAccounts = make(map[string]string)
 	b.memberSeq = 0
 	// Finding Aggregator
-	b.findingAggregators = make(map[string]*FindingAggregator)
 	b.findingAggregatorSeq = 0
 	// Configuration Policy
-	b.configPolicies = make(map[string]*ConfigurationPolicy)
-	b.configPolicyAssocs = make(map[string]*ConfigurationPolicyAssociation)
 	b.configPolicySeq = 0
 	// V2
 	b.hubV2Enabled = false
 	b.hubV2 = nil
-	b.aggregatorsV2 = make(map[string]*AggregatorV2)
 	b.aggregatorV2Seq = 0
-	b.automationRulesV2 = make(map[string]*AutomationRuleV2)
 	b.automationRuleV2Seq = 0
-	b.connectorsV2 = make(map[string]*ConnectorV2)
 	b.connectorV2Seq = 0
-	b.ticketsV2 = make(map[string]*TicketV2)
 	b.ticketV2Seq = 0
-	b.recommendedPoliciesV2 = make(map[string]*RecommendedPolicyV2)
+
+	// Every store.Table-backed resource field collapses to one call,
+	// replacing what was previously ~16 individual make(map[...]) resets.
+	b.registry.ResetAll()
 }
 
-// persistence structs for Snapshot/Restore.
+// snapshot is the top-level on-disk shape for the SecurityHub backend.
+//
+// Tables holds one JSON-encoded array per registered [store.Table] name,
+// produced by b.registry.SnapshotAll() -- see store_setup.go for the full
+// registration list. Version guards against decoding a snapshot from an
+// incompatible (older or newer) build of this backend as though it were the
+// current shape; see Restore.
 type snapshot struct {
-	ProductSubscriptions   map[string]string                 `json:"productSubscriptions"`
-	Hub                    *Hub                              `json:"hub"`
-	Findings               map[string]map[string]any         `json:"findings"`
-	Insights               map[string]*Insight               `json:"insights"`
-	Tags                   map[string]map[string]string      `json:"tags"`
-	StandardsSubscriptions map[string]*StandardsSubscription `json:"standardsSubscriptions"`
-	AutomationRules        map[string]*AutomationRule        `json:"automationRules"`
-	ControlOverrides       map[string]*StandardsControl      `json:"controlOverrides"`
-	ActionTargets          map[string]*ActionTarget          `json:"actionTargets"`
-	ControlParams          map[string]map[string]any         `json:"controlParams"`
+	ProductSubscriptions map[string]string            `json:"productSubscriptions"`
+	Hub                  *Hub                         `json:"hub"`
+	Findings             map[string]map[string]any    `json:"findings"`
+	Tags                 map[string]map[string]string `json:"tags"`
+	ControlParams        map[string]map[string]any    `json:"controlParams"`
 	// Members / Invitations / Admin
-	Members          map[string]*Member     `json:"members"`
-	Invitations      map[string]*Invitation `json:"invitations"`
-	AdminAccount     *AdminAccount          `json:"adminAccount"`
-	OrgConfig        *OrgConfig             `json:"orgConfig"`
-	OrgAdminAccounts map[string]string      `json:"orgAdminAccounts"`
-	// Finding Aggregator
-	FindingAggregators map[string]*FindingAggregator `json:"findingAggregators"`
-	// Configuration Policy
-	ConfigPolicies     map[string]*ConfigurationPolicy            `json:"configPolicies"`
-	ConfigPolicyAssocs map[string]*ConfigurationPolicyAssociation `json:"configPolicyAssocs"`
+	AdminAccount     *AdminAccount     `json:"adminAccount"`
+	OrgConfig        *OrgConfig        `json:"orgConfig"`
+	OrgAdminAccounts map[string]string `json:"orgAdminAccounts"`
 	// V2
-	HubV2                 *HubV2                          `json:"hubV2"`
-	AggregatorsV2         map[string]*AggregatorV2        `json:"aggregatorsV2"`
-	AutomationRulesV2     map[string]*AutomationRuleV2    `json:"automationRulesV2"`
-	ConnectorsV2          map[string]*ConnectorV2         `json:"connectorsV2"`
-	TicketsV2             map[string]*TicketV2            `json:"ticketsV2"`
-	RecommendedPoliciesV2 map[string]*RecommendedPolicyV2 `json:"recommendedPoliciesV2"`
-	StandardsSeq          int                             `json:"standardsSeq"`
-	ActionTargetSeq       int                             `json:"actionTargetSeq"`
-	AutomationRuleSeq     int                             `json:"automationRuleSeq"`
-	InsightSeq            int                             `json:"insightSeq"`
-	MemberSeq             int                             `json:"memberSeq"`
-	FindingAggregatorSeq  int                             `json:"findingAggregatorSeq"`
-	ConfigPolicySeq       int                             `json:"configPolicySeq"`
-	AggregatorV2Seq       int                             `json:"aggregatorV2Seq"`
-	AutomationRuleV2Seq   int                             `json:"automationRuleV2Seq"`
-	ConnectorV2Seq        int                             `json:"connectorV2Seq"`
-	TicketV2Seq           int                             `json:"ticketV2Seq"`
-	HubEnabled            bool                            `json:"hubEnabled"`
-	HubV2Enabled          bool                            `json:"hubV2Enabled"`
+	HubV2   *HubV2                     `json:"hubV2"`
+	Tables  map[string]json.RawMessage `json:"tables"`
+	Version int                        `json:"version"`
+
+	StandardsSeq         int  `json:"standardsSeq"`
+	ActionTargetSeq      int  `json:"actionTargetSeq"`
+	AutomationRuleSeq    int  `json:"automationRuleSeq"`
+	InsightSeq           int  `json:"insightSeq"`
+	MemberSeq            int  `json:"memberSeq"`
+	FindingAggregatorSeq int  `json:"findingAggregatorSeq"`
+	ConfigPolicySeq      int  `json:"configPolicySeq"`
+	AggregatorV2Seq      int  `json:"aggregatorV2Seq"`
+	AutomationRuleV2Seq  int  `json:"automationRuleV2Seq"`
+	ConnectorV2Seq       int  `json:"connectorV2Seq"`
+	TicketV2Seq          int  `json:"ticketV2Seq"`
+	HubEnabled           bool `json:"hubEnabled"`
+	HubV2Enabled         bool `json:"hubV2Enabled"`
 }
 
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables hold plain JSON-friendly structs, so a
+		// marshal failure here indicates a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the
+		// Manager).
+		logger.Load(ctx).WarnContext(ctx, "securityhub: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := snapshot{
-		HubEnabled:             b.hubEnabled,
-		Hub:                    b.hub,
-		Findings:               b.findings,
-		Insights:               b.insights,
-		InsightSeq:             b.insightSeq,
-		StandardsSubscriptions: b.standardsSubscriptions,
-		StandardsSeq:           b.standardsSeq,
-		ControlOverrides:       b.controlOverrides,
-		ActionTargets:          b.actionTargets,
-		ActionTargetSeq:        b.actionTargetSeq,
-		ProductSubscriptions:   b.productSubscriptions,
-		ControlParams:          b.controlParams,
-		AutomationRules:        b.automationRules,
-		AutomationRuleSeq:      b.automationRuleSeq,
-		Tags:                   b.tags,
+		Version:              securityhubSnapshotVersion,
+		Tables:               tables,
+		HubEnabled:           b.hubEnabled,
+		Hub:                  b.hub,
+		Findings:             b.findings,
+		InsightSeq:           b.insightSeq,
+		StandardsSeq:         b.standardsSeq,
+		ActionTargetSeq:      b.actionTargetSeq,
+		ProductSubscriptions: b.productSubscriptions,
+		ControlParams:        b.controlParams,
+		AutomationRuleSeq:    b.automationRuleSeq,
+		Tags:                 b.tags,
 		// Members / Invitations / Admin
-		Members:          b.members,
-		Invitations:      b.invitations,
 		AdminAccount:     b.adminAccount,
 		OrgConfig:        b.orgConfig,
 		OrgAdminAccounts: b.orgAdminAccounts,
 		MemberSeq:        b.memberSeq,
 		// Finding Aggregator
-		FindingAggregators:   b.findingAggregators,
 		FindingAggregatorSeq: b.findingAggregatorSeq,
 		// Configuration Policy
-		ConfigPolicies:     b.configPolicies,
-		ConfigPolicyAssocs: b.configPolicyAssocs,
-		ConfigPolicySeq:    b.configPolicySeq,
+		ConfigPolicySeq: b.configPolicySeq,
 		// V2
-		HubV2Enabled:          b.hubV2Enabled,
-		HubV2:                 b.hubV2,
-		AggregatorsV2:         b.aggregatorsV2,
-		AggregatorV2Seq:       b.aggregatorV2Seq,
-		AutomationRulesV2:     b.automationRulesV2,
-		AutomationRuleV2Seq:   b.automationRuleV2Seq,
-		ConnectorsV2:          b.connectorsV2,
-		ConnectorV2Seq:        b.connectorV2Seq,
-		TicketsV2:             b.ticketsV2,
-		TicketV2Seq:           b.ticketV2Seq,
-		RecommendedPoliciesV2: b.recommendedPoliciesV2,
+		HubV2Enabled:        b.hubV2Enabled,
+		HubV2:               b.hubV2,
+		AggregatorV2Seq:     b.aggregatorV2Seq,
+		AutomationRuleV2Seq: b.automationRuleV2Seq,
+		ConnectorV2Seq:      b.connectorV2Seq,
+		TicketV2Seq:         b.ticketV2Seq,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "securityhub", snap)
 }
 
-func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //nolint:funlen // existing issue.
+func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap snapshot
 	if err := persistence.UnmarshalSnapshot(ctx, "securityhub", data, &snap); err != nil {
 		return err
@@ -487,85 +483,76 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error { //no
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	if snap.Version != securityhubSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"securityhub: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", securityhubSnapshotVersion)
+
+		b.resetLocked()
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("securityhub: restore snapshot tables: %w", err)
+	}
+
 	b.hubEnabled = snap.HubEnabled
 	b.hub = snap.Hub
+
 	b.findings = snap.Findings
-	b.insights = snap.Insights
+	if b.findings == nil {
+		b.findings = make(map[string]map[string]any)
+	}
+
 	b.insightSeq = snap.InsightSeq
-	b.standardsSubscriptions = snap.StandardsSubscriptions
 	b.standardsSeq = snap.StandardsSeq
-	b.controlOverrides = snap.ControlOverrides
-	b.actionTargets = snap.ActionTargets
 	b.actionTargetSeq = snap.ActionTargetSeq
+
 	b.productSubscriptions = snap.ProductSubscriptions
+	if b.productSubscriptions == nil {
+		b.productSubscriptions = make(map[string]string)
+	}
+
 	b.controlParams = snap.ControlParams
-	b.automationRules = snap.AutomationRules
+	if b.controlParams == nil {
+		b.controlParams = make(map[string]map[string]any)
+	}
+
 	b.automationRuleSeq = snap.AutomationRuleSeq
+
 	b.tags = snap.Tags
+	if b.tags == nil {
+		b.tags = make(map[string]map[string]string)
+	}
+
 	// Members / Invitations / Admin
-	if snap.Members != nil {
-		b.members = snap.Members
-	}
-
-	if snap.Invitations != nil {
-		b.invitations = snap.Invitations
-	}
-
 	b.adminAccount = snap.AdminAccount
 	b.orgConfig = snap.OrgConfig
 
-	if snap.OrgAdminAccounts != nil {
-		b.orgAdminAccounts = snap.OrgAdminAccounts
+	b.orgAdminAccounts = snap.OrgAdminAccounts
+	if b.orgAdminAccounts == nil {
+		b.orgAdminAccounts = make(map[string]string)
 	}
 
 	b.memberSeq = snap.MemberSeq
 	// Finding Aggregator
-	if snap.FindingAggregators != nil {
-		b.findingAggregators = snap.FindingAggregators
-	}
-
 	b.findingAggregatorSeq = snap.FindingAggregatorSeq
 	// Configuration Policy
-	if snap.ConfigPolicies != nil {
-		b.configPolicies = snap.ConfigPolicies
-	}
-
-	if snap.ConfigPolicyAssocs != nil {
-		b.configPolicyAssocs = snap.ConfigPolicyAssocs
-	}
-
 	b.configPolicySeq = snap.ConfigPolicySeq
 	// V2
 	b.hubV2Enabled = snap.HubV2Enabled
 	b.hubV2 = snap.HubV2
-
-	if snap.AggregatorsV2 != nil {
-		b.aggregatorsV2 = snap.AggregatorsV2
-	}
-
 	b.aggregatorV2Seq = snap.AggregatorV2Seq
-
-	if snap.AutomationRulesV2 != nil {
-		b.automationRulesV2 = snap.AutomationRulesV2
-	}
-
 	b.automationRuleV2Seq = snap.AutomationRuleV2Seq
-
-	if snap.ConnectorsV2 != nil {
-		b.connectorsV2 = snap.ConnectorsV2
-	}
-
 	b.connectorV2Seq = snap.ConnectorV2Seq
-
-	if snap.TicketsV2 != nil {
-		b.ticketsV2 = snap.TicketsV2
-	}
-
 	b.ticketV2Seq = snap.TicketV2Seq
-
-	if snap.RecommendedPoliciesV2 != nil {
-		b.recommendedPoliciesV2 = snap.RecommendedPoliciesV2
-	}
 
 	return nil
 }
@@ -604,12 +591,12 @@ func (b *InMemoryBackend) EnableHub(enableDefaultStandards bool, tags map[string
 					b.accountID,
 					fmt.Sprintf("default-%d", i),
 				)
-				b.standardsSubscriptions[subArn] = &StandardsSubscription{
+				b.standardsSubscriptions.Put(&StandardsSubscription{
 					StandardsSubscriptionArn: subArn,
 					StandardsArn:             std.StandardsArn,
 					StandardsInput:           map[string]string{},
 					StandardsStatus:          "READY",
-				}
+				})
 			}
 		}
 	}
@@ -980,12 +967,12 @@ func (b *InMemoryBackend) CreateInsight(name, groupByAttribute string, filters m
 	b.insightSeq++
 	arn := b.insightARN(b.insightSeq)
 
-	b.insights[arn] = &Insight{
+	b.insights.Put(&Insight{
 		InsightArn:       arn,
 		Name:             name,
 		GroupByAttribute: groupByAttribute,
 		Filters:          filters,
-	}
+	})
 
 	return arn, nil
 }
@@ -1006,14 +993,12 @@ func (b *InMemoryBackend) GetInsights(
 
 	if len(insightArns) > 0 {
 		for _, arn := range insightArns {
-			if insight, ok := b.insights[arn]; ok {
+			if insight, ok := b.insights.Get(arn); ok {
 				results = append(results, insight)
 			}
 		}
 	} else {
-		for _, insight := range b.insights {
-			results = append(results, insight)
-		}
+		results = b.insights.All()
 	}
 
 	if maxResults <= 0 || maxResults > 100 {
@@ -1046,7 +1031,7 @@ func (b *InMemoryBackend) UpdateInsight(insightArn, name, groupByAttribute strin
 		return ErrHubNotEnabled
 	}
 
-	insight, ok := b.insights[insightArn]
+	insight, ok := b.insights.Get(insightArn)
 	if !ok {
 		return fmt.Errorf("%w: insight %s", ErrNotFound, insightArn)
 	}
@@ -1074,11 +1059,9 @@ func (b *InMemoryBackend) DeleteInsight(insightArn string) (string, error) {
 		return "", ErrHubNotEnabled
 	}
 
-	if _, ok := b.insights[insightArn]; !ok {
+	if !b.insights.Delete(insightArn) {
 		return "", fmt.Errorf("%w: insight %s", ErrNotFound, insightArn)
 	}
-
-	delete(b.insights, insightArn)
 
 	return insightArn, nil
 }
@@ -1091,7 +1074,7 @@ func (b *InMemoryBackend) GetInsightResults(insightArn string) (*InsightResults,
 		return nil, ErrHubNotEnabled
 	}
 
-	insight, ok := b.insights[insightArn]
+	insight, ok := b.insights.Get(insightArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: insight %s", ErrNotFound, insightArn)
 	}
@@ -1144,7 +1127,7 @@ func (b *InMemoryBackend) BatchEnableStandards(requests []map[string]any) ([]*St
 			}
 		}
 
-		b.standardsSubscriptions[subArn] = sub
+		b.standardsSubscriptions.Put(sub)
 		subscriptions = append(subscriptions, sub)
 	}
 
@@ -1169,7 +1152,7 @@ func (b *InMemoryBackend) BatchDisableStandards(
 	var failures []map[string]any
 
 	for _, arn := range subscriptionArns {
-		sub, ok := b.standardsSubscriptions[arn]
+		sub, ok := b.standardsSubscriptions.Get(arn)
 		if !ok {
 			failures = append(failures, map[string]any{
 				"StandardsSubscriptionArn": arn,
@@ -1182,7 +1165,7 @@ func (b *InMemoryBackend) BatchDisableStandards(
 
 		sub.StandardsStatus = "DELETING"
 		subscriptions = append(subscriptions, sub)
-		delete(b.standardsSubscriptions, arn)
+		b.standardsSubscriptions.Delete(arn)
 	}
 
 	if subscriptions == nil {
@@ -1247,7 +1230,7 @@ func (b *InMemoryBackend) DescribeStandardsControls(
 	b.mu.RLock("DescribeStandardsControls")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.standardsSubscriptions[subscriptionArn]; !ok {
+	if !b.standardsSubscriptions.Has(subscriptionArn) {
 		return []*StandardsControl{}, ""
 	}
 
@@ -1256,7 +1239,7 @@ func (b *InMemoryBackend) DescribeStandardsControls(
 
 	// Apply overrides
 	for i, c := range controls {
-		if override, ok := b.controlOverrides[c.StandardsControlArn]; ok {
+		if override, ok := b.controlOverrides.Get(c.StandardsControlArn); ok {
 			controls[i] = override
 		}
 	}
@@ -1317,7 +1300,7 @@ func (b *InMemoryBackend) UpdateStandardsControl(controlArn, controlStatus, disa
 	b.mu.Lock("UpdateStandardsControl")
 	defer b.mu.Unlock()
 
-	ctrl, exists := b.controlOverrides[controlArn]
+	ctrl, exists := b.controlOverrides.Get(controlArn)
 	if !exists {
 		// Create from defaults
 		ctrl = &StandardsControl{
@@ -1330,7 +1313,7 @@ func (b *InMemoryBackend) UpdateStandardsControl(controlArn, controlStatus, disa
 	ctrl.ControlStatus = controlStatus
 	ctrl.DisabledReason = disabledReason
 	ctrl.ControlStatusUpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	b.controlOverrides[controlArn] = ctrl
+	b.controlOverrides.Put(ctrl)
 
 	return nil
 }
@@ -1402,10 +1385,9 @@ func (b *InMemoryBackend) BatchGetStandardsControlAssociations(
 			UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
 		}
 
-		if stdMap, hasStd := b.controlAssocOverrides[stdArn]; hasStd {
-			if override, hasOverride := stdMap[secCtlID]; hasOverride {
-				assoc = override
-			}
+		overrideKey := controlAssocOverrideKey(stdArn, secCtlID)
+		if override, hasOverride := b.controlAssocOverrides.Get(overrideKey); hasOverride {
+			assoc = override
 		}
 
 		associations = append(associations, assoc)
@@ -1440,17 +1422,13 @@ func (b *InMemoryBackend) BatchUpdateStandardsControlAssociations(updates []map[
 		secCtlID, _ := u[keySecurityControlID].(string)
 		stdArn, _ := u[keyStandardsArn].(string)
 
-		if _, ok := b.controlAssocOverrides[stdArn]; !ok {
-			b.controlAssocOverrides[stdArn] = make(map[string]*StandardsControlAssociation)
-		}
-
-		b.controlAssocOverrides[stdArn][secCtlID] = &StandardsControlAssociation{
+		b.controlAssocOverrides.Put(&StandardsControlAssociation{
 			SecurityControlID: secCtlID,
 			StandardsArn:      stdArn,
 			AssociationStatus: status,
 			UpdatedReason:     reason,
 			UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
-		}
+		})
 	}
 
 	if unprocessed == nil {
@@ -1472,15 +1450,15 @@ func (b *InMemoryBackend) CreateActionTarget(name, description, id string) (stri
 
 	arn := b.actionTargetARN(id)
 
-	if _, exists := b.actionTargets[arn]; exists {
+	if b.actionTargets.Has(arn) {
 		return "", fmt.Errorf("%w: %s", ErrAlreadyExists, arn)
 	}
 
-	b.actionTargets[arn] = &ActionTarget{
+	b.actionTargets.Put(&ActionTarget{
 		ActionTargetArn: arn,
 		Name:            name,
 		Description:     description,
-	}
+	})
 
 	return arn, nil
 }
@@ -1501,7 +1479,7 @@ func (b *InMemoryBackend) UpdateActionTarget(actionTargetArn, name, description 
 	b.mu.Lock("UpdateActionTarget")
 	defer b.mu.Unlock()
 
-	at, ok := b.actionTargets[actionTargetArn]
+	at, ok := b.actionTargets.Get(actionTargetArn)
 	if !ok {
 		return fmt.Errorf("%w: action target %s", ErrNotFound, actionTargetArn)
 	}
@@ -1521,11 +1499,9 @@ func (b *InMemoryBackend) DeleteActionTarget(actionTargetArn string) (string, er
 	b.mu.Lock("DeleteActionTarget")
 	defer b.mu.Unlock()
 
-	if _, ok := b.actionTargets[actionTargetArn]; !ok {
+	if !b.actionTargets.Delete(actionTargetArn) {
 		return "", fmt.Errorf("%w: action target %s", ErrNotFound, actionTargetArn)
 	}
-
-	delete(b.actionTargets, actionTargetArn)
 
 	return actionTargetArn, nil
 }
@@ -1857,7 +1833,7 @@ func (b *InMemoryBackend) CreateAutomationRule(rule map[string]any) (string, str
 		ruleStatus = statusEnabled
 	}
 
-	b.automationRules[ruleArn] = &AutomationRule{
+	b.automationRules.Put(&AutomationRule{
 		RuleArn:     ruleArn,
 		RuleStatus:  ruleStatus,
 		RuleOrder:   ruleOrder,
@@ -1869,7 +1845,7 @@ func (b *InMemoryBackend) CreateAutomationRule(rule map[string]any) (string, str
 		CreatedBy:   b.accountID,
 		Criteria:    criteria,
 		Actions:     actionMaps,
-	}
+	})
 
 	return ruleArn, now
 }
@@ -1878,9 +1854,10 @@ func (b *InMemoryBackend) ListAutomationRules(nextToken string, maxResults int) 
 	b.mu.RLock("ListAutomationRules")
 	defer b.mu.RUnlock()
 
-	results := make([]*AutomationRuleMetadata, 0, len(b.automationRules))
+	all := b.automationRules.All()
+	results := make([]*AutomationRuleMetadata, 0, len(all))
 
-	for _, rule := range b.automationRules {
+	for _, rule := range all {
 		results = append(results, &AutomationRuleMetadata{
 			RuleArn:     rule.RuleArn,
 			RuleStatus:  rule.RuleStatus,
@@ -1924,7 +1901,7 @@ func (b *InMemoryBackend) BatchGetAutomationRules(automationRulesArns []string) 
 	var unprocessed []map[string]any
 
 	for _, arn := range automationRulesArns {
-		rule, ok := b.automationRules[arn]
+		rule, ok := b.automationRules.Get(arn)
 		if !ok {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
@@ -1957,7 +1934,7 @@ func (b *InMemoryBackend) BatchDeleteAutomationRules(automationRulesArns []strin
 	var unprocessed []map[string]any
 
 	for _, arn := range automationRulesArns {
-		if _, ok := b.automationRules[arn]; !ok {
+		if !b.automationRules.Delete(arn) {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
 				keyErrorCode:    errCodeInvalidInput,
@@ -1967,7 +1944,6 @@ func (b *InMemoryBackend) BatchDeleteAutomationRules(automationRulesArns []strin
 			continue
 		}
 
-		delete(b.automationRules, arn)
 		deleted = append(deleted, arn)
 	}
 
@@ -1993,7 +1969,7 @@ func (b *InMemoryBackend) BatchUpdateAutomationRules(updates []map[string]any) (
 	for _, u := range updates {
 		arn, _ := u[keyRuleArn].(string)
 
-		rule, exists := b.automationRules[arn]
+		rule, exists := b.automationRules.Get(arn)
 		if !exists {
 			unprocessed = append(unprocessed, map[string]any{
 				keyRuleArn:      arn,
@@ -2099,16 +2075,15 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 // --- Generic pagination helpers ---
 
 // filterOrAll returns values from m for the given arns, or all values if arns is empty.
-func filterOrAll[T any](arns []string, m map[string]T) []T {
-	var results []T
-	if len(arns) > 0 {
-		for _, arn := range arns {
-			if v, ok := m[arn]; ok {
-				results = append(results, v)
-			}
-		}
-	} else {
-		for _, v := range m {
+func filterOrAll[V any](arns []string, t *store.Table[V]) []*V {
+	if len(arns) == 0 {
+		return t.All()
+	}
+
+	var results []*V
+
+	for _, arn := range arns {
+		if v, ok := t.Get(arn); ok {
 			results = append(results, v)
 		}
 	}

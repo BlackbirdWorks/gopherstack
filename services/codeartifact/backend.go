@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -81,6 +82,10 @@ type PackageGroup struct {
 	Pattern     string     `json:"pattern"`
 	Description string     `json:"description,omitempty"`
 	ContactInfo string     `json:"contactInfo,omitempty"`
+	// region is the store.Table composite-key qualifier (see regionKey); it
+	// is never part of the wire API, so it carries no json tag and is
+	// round-tripped separately through a DTO in persistence.go.
+	region string
 }
 
 // Package represents an AWS CodeArtifact package (without versions).
@@ -91,6 +96,8 @@ type Package struct {
 	Format      string `json:"format"`
 	Namespace   string `json:"namespace,omitempty"`
 	Name        string `json:"name"`
+	// region is the store.Table composite-key qualifier (see regionKey).
+	region string
 }
 
 // PackageVersion represents a single version of an AWS CodeArtifact package.
@@ -104,6 +111,8 @@ type PackageVersion struct {
 	Version     string    `json:"version"`
 	Status      string    `json:"status"`
 	Revision    string    `json:"revision"`
+	// region is the store.Table composite-key qualifier (see regionKey).
+	region string
 }
 
 // ExternalConnection represents a connection of a repository to an external package source.
@@ -118,6 +127,13 @@ type RepositoryPermissionsPolicy struct {
 	Document    string `json:"document"`
 	Revision    string `json:"revision"`
 	ResourceARN string `json:"resourceArn"`
+	// region, domainName, and repoName are the store.Table composite-key
+	// qualifiers (see regionKey/repoKey); none is part of the wire API, so
+	// each carries no json tag and is round-tripped separately through a DTO
+	// in persistence.go.
+	region     string
+	domainName string
+	repoName   string
 }
 
 // DomainPermissionsPolicy represents a permissions policy attached to a domain.
@@ -125,110 +141,87 @@ type DomainPermissionsPolicy struct {
 	Document    string `json:"document"`
 	Revision    string `json:"revision"`
 	ResourceARN string `json:"resourceArn"`
+	// region and domainName are the store.Table composite-key qualifiers
+	// (see regionKey); see RepositoryPermissionsPolicy's comment above.
+	region     string
+	domainName string
 }
 
 // InMemoryBackend is the in-memory store for CodeArtifact resources.
-// All resource maps are nested by region (outer key = region) so that same-named
-// resources in different regions are fully isolated.
+//
+// domains and repositories already carry a real, wire-visible Region field,
+// so each registers directly on b.registry as a flat *store.Table keyed by
+// the composite "region|id" string (see regionKey), with a companion
+// *store.Index grouping entries by region for the per-region scans the old
+// region-nested maps used to answer directly -- the region-qualified-table
+// pattern services/emr uses.
+//
+// packageGroups, packages, and packageVersions have no wire-visible region
+// field, so each gained an unexported region field purely for this composite
+// key; they are "dirty" tables (store.New only, NOT store.Register-ed onto
+// b.registry -- see store_setup.go) round-tripped through a DTO wrapper in
+// persistence.go. repositoryPolicies and domainPolicies are also "dirty" for
+// the same reason (region, plus domainName/repoName -- neither type carries
+// any parent-identity field at all).
+//
+// externalConnections is deliberately NOT converted: its value,
+// []ExternalConnection, is a slice of plain structs with no identity of its
+// own, so there is nothing for store.Table to key on. It remains a plain
+// region-nested map, unchanged by this refactor.
 type InMemoryBackend struct {
-	domains             map[string]map[string]*Domain
-	repositories        map[string]map[string]*Repository                  // region → domainName/repoName
-	packageGroups       map[string]map[string]*PackageGroup                // region → domainName/pattern
-	packages            map[string]map[string]*Package                     // region → dom/repo/fmt/ns/name
-	packageVersions     map[string]map[string]*PackageVersion              // region → dom/repo/fmt/ns/name/version
-	externalConnections map[string]map[string][]ExternalConnection         // region → domainName/repoName
-	repositoryPolicies  map[string]map[string]*RepositoryPermissionsPolicy // region → domainName/repoName
-	domainPolicies      map[string]map[string]*DomainPermissionsPolicy     // region → domainName
-	mu                  *lockmetrics.RWMutex
-	accountID           string
-	region              string
+	registry                *store.Registry
+	domains                 *store.Table[Domain]
+	domainsByRegion         *store.Index[Domain]
+	repositories            *store.Table[Repository]
+	repositoriesByRegion    *store.Index[Repository]
+	packageGroups           *store.Table[PackageGroup]
+	packageGroupsByRegion   *store.Index[PackageGroup]
+	packages                *store.Table[Package]
+	packagesByRegion        *store.Index[Package]
+	packageVersions         *store.Table[PackageVersion]
+	packageVersionsByRegion *store.Index[PackageVersion]
+	repositoryPolicies      *store.Table[RepositoryPermissionsPolicy]
+	domainPolicies          *store.Table[DomainPermissionsPolicy]
+	externalConnections     map[string]map[string][]ExternalConnection // region → domainName/repoName
+	mu                      *lockmetrics.RWMutex
+	accountID               string
+	region                  string
 }
 
 // NewInMemoryBackend creates a new in-memory CodeArtifact backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		domains:             make(map[string]map[string]*Domain),
-		repositories:        make(map[string]map[string]*Repository),
-		packageGroups:       make(map[string]map[string]*PackageGroup),
-		packages:            make(map[string]map[string]*Package),
-		packageVersions:     make(map[string]map[string]*PackageVersion),
+	b := &InMemoryBackend{
+		registry:            store.NewRegistry(),
 		externalConnections: make(map[string]map[string][]ExternalConnection),
-		repositoryPolicies:  make(map[string]map[string]*RepositoryPermissionsPolicy),
-		domainPolicies:      make(map[string]map[string]*DomainPermissionsPolicy),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("codeartifact"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
 
-// The *Store helpers return the per-region inner map, lazily creating it.
-// Callers must hold b.mu.
+// regionKey builds the composite store.Table primary key ("region|id") shared
+// by every region-nested resource table (see store_setup.go's
+// registerAllTables).
+func regionKey(region, id string) string { return region + "|" + id }
 
-func (b *InMemoryBackend) domainsStore(region string) map[string]*Domain {
-	if b.domains[region] == nil {
-		b.domains[region] = make(map[string]*Domain)
-	}
-
-	return b.domains[region]
-}
-
-func (b *InMemoryBackend) repositoriesStore(region string) map[string]*Repository {
-	if b.repositories[region] == nil {
-		b.repositories[region] = make(map[string]*Repository)
-	}
-
-	return b.repositories[region]
-}
-
-func (b *InMemoryBackend) packageGroupsStore(region string) map[string]*PackageGroup {
-	if b.packageGroups[region] == nil {
-		b.packageGroups[region] = make(map[string]*PackageGroup)
-	}
-
-	return b.packageGroups[region]
-}
-
-func (b *InMemoryBackend) packagesStore(region string) map[string]*Package {
-	if b.packages[region] == nil {
-		b.packages[region] = make(map[string]*Package)
-	}
-
-	return b.packages[region]
-}
-
-func (b *InMemoryBackend) packageVersionsStore(region string) map[string]*PackageVersion {
-	if b.packageVersions[region] == nil {
-		b.packageVersions[region] = make(map[string]*PackageVersion)
-	}
-
-	return b.packageVersions[region]
-}
-
+// externalConnectionsStore returns the per-region inner map, lazily creating
+// it. Callers must hold b.mu. Unlike the store.Table-backed collections
+// above, externalConnections remains a plain region-nested map (see the
+// InMemoryBackend doc comment for why), so this helper is unchanged by the
+// Phase 3.3 conversion.
 func (b *InMemoryBackend) externalConnectionsStore(region string) map[string][]ExternalConnection {
 	if b.externalConnections[region] == nil {
 		b.externalConnections[region] = make(map[string][]ExternalConnection)
 	}
 
 	return b.externalConnections[region]
-}
-
-func (b *InMemoryBackend) repositoryPoliciesStore(region string) map[string]*RepositoryPermissionsPolicy {
-	if b.repositoryPolicies[region] == nil {
-		b.repositoryPolicies[region] = make(map[string]*RepositoryPermissionsPolicy)
-	}
-
-	return b.repositoryPolicies[region]
-}
-
-func (b *InMemoryBackend) domainPoliciesStore(region string) map[string]*DomainPermissionsPolicy {
-	if b.domainPolicies[region] == nil {
-		b.domainPolicies[region] = make(map[string]*DomainPermissionsPolicy)
-	}
-
-	return b.domainPolicies[region]
 }
 
 // CreateDomain creates a new CodeArtifact domain.
@@ -240,8 +233,7 @@ func (b *InMemoryBackend) CreateDomain(
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
-	domains := b.domainsStore(region)
-	if _, ok := domains[name]; ok {
+	if b.domains.Has(regionKey(region, name)) {
 		return nil, fmt.Errorf("%w: domain %s already exists", ErrAlreadyExists, name)
 	}
 
@@ -261,7 +253,7 @@ func (b *InMemoryBackend) CreateDomain(
 		CreatedTime:   time.Now().UTC(),
 		Tags:          t,
 	}
-	domains[name] = d
+	b.domains.Put(d)
 	cp := *d
 
 	return &cp, nil
@@ -274,7 +266,7 @@ func (b *InMemoryBackend) DescribeDomain(ctx context.Context, name string) (*Dom
 	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
-	d, ok := b.domainsStore(region)[name]
+	d, ok := b.domains.Get(regionKey(region, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, name)
 	}
@@ -290,9 +282,9 @@ func (b *InMemoryBackend) ListDomains(ctx context.Context) []*Domain {
 	b.mu.RLock("ListDomains")
 	defer b.mu.RUnlock()
 
-	domains := b.domainsStore(region)
-	list := make([]*Domain, 0, len(domains))
-	for _, d := range domains {
+	entries := b.domainsByRegion.Get(region)
+	list := make([]*Domain, 0, len(entries))
+	for _, d := range entries {
 		cp := *d
 		list = append(list, &cp)
 	}
@@ -311,43 +303,47 @@ func (b *InMemoryBackend) DeleteDomain(ctx context.Context, name string) (*Domai
 	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
 
-	domains := b.domainsStore(region)
-	d, ok := domains[name]
+	d, ok := b.domains.Get(regionKey(region, name))
 	if !ok {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, name)
 	}
 	cp := *d
 
-	repositories := b.repositoriesStore(region)
-	packages := b.packagesStore(region)
-	packageVersions := b.packageVersionsStore(region)
+	repos := slices.Clone(b.repositoriesByRegion.Get(region))
+	pkgs := slices.Clone(b.packagesByRegion.Get(region))
+	pvs := slices.Clone(b.packageVersionsByRegion.Get(region))
 	externalConnections := b.externalConnectionsStore(region)
-	repositoryPolicies := b.repositoryPoliciesStore(region)
 
 	// Cascade: delete all repositories in this domain plus their dependents.
-	for key, r := range repositories {
+	for _, r := range repos {
 		if r.DomainName != name {
 			continue
 		}
-		prefix := key + "/"
-		for k := range packages {
-			if strings.HasPrefix(k, prefix) {
-				delete(packages, k)
+
+		for _, p := range pkgs {
+			if p.DomainName == r.DomainName && p.Repository == r.Name {
+				b.packages.Delete(regionKey(region, packageKey(
+					p.DomainName, p.Repository, p.Format, p.Namespace, p.Name,
+				)))
 			}
 		}
-		for k := range packageVersions {
-			if strings.HasPrefix(k, prefix) {
-				delete(packageVersions, k)
+		for _, pv := range pvs {
+			if pv.DomainName == r.DomainName && pv.Repository == r.Name {
+				b.packageVersions.Delete(regionKey(region, packageVersionKey(
+					pv.DomainName, pv.Repository, pv.Format, pv.Namespace, pv.PackageName, pv.Version,
+				)))
 			}
 		}
+
+		key := repoKey(r.DomainName, r.Name)
 		delete(externalConnections, key)
-		delete(repositoryPolicies, key)
+		b.repositoryPolicies.Delete(regionKey(region, key))
 		r.Tags.Close()
-		delete(repositories, key)
+		b.repositories.Delete(regionKey(region, key))
 	}
 
-	delete(b.domainPoliciesStore(region), name)
-	delete(domains, name)
+	b.domainPolicies.Delete(regionKey(region, name))
+	b.domains.Delete(regionKey(region, name))
 	d.Tags.Close()
 
 	return &cp, nil
@@ -358,30 +354,26 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	for _, regionDomains := range b.domains {
-		for _, d := range regionDomains {
-			d.Tags.Close()
-		}
+	for _, d := range b.domains.All() {
+		d.Tags.Close()
 	}
-	for _, regionRepos := range b.repositories {
-		for _, r := range regionRepos {
-			r.Tags.Close()
-		}
+	for _, r := range b.repositories.All() {
+		r.Tags.Close()
 	}
-	for _, regionPGs := range b.packageGroups {
-		for _, pg := range regionPGs {
-			pg.Tags.Close()
-		}
+	for _, pg := range b.packageGroups.All() {
+		pg.Tags.Close()
 	}
 
-	b.domains = make(map[string]map[string]*Domain)
-	b.repositories = make(map[string]map[string]*Repository)
-	b.packageGroups = make(map[string]map[string]*PackageGroup)
-	b.packages = make(map[string]map[string]*Package)
-	b.packageVersions = make(map[string]map[string]*PackageVersion)
+	b.registry.ResetAll()
+	// "Dirty" tables (hidden region/domainName/repoName fields) are
+	// deliberately NOT on b.registry -- see store_setup.go's
+	// registerAllTables doc -- so each needs its own Reset() call here.
+	b.packageGroups.Reset()
+	b.packages.Reset()
+	b.packageVersions.Reset()
+	b.repositoryPolicies.Reset()
+	b.domainPolicies.Reset()
 	b.externalConnections = make(map[string]map[string][]ExternalConnection)
-	b.repositoryPolicies = make(map[string]map[string]*RepositoryPermissionsPolicy)
-	b.domainPolicies = make(map[string]map[string]*DomainPermissionsPolicy)
 }
 
 // repoKey returns the map key for a repository.
@@ -401,13 +393,12 @@ func (b *InMemoryBackend) CreateRepository(
 	b.mu.Lock("CreateRepository")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
 	key := repoKey(domainName, repoName)
-	repositories := b.repositoriesStore(region)
-	if _, ok := repositories[key]; ok {
+	if b.repositories.Has(regionKey(region, key)) {
 		return nil, fmt.Errorf("%w: repository %s already exists in domain %s", ErrAlreadyExists, repoName, domainName)
 	}
 
@@ -428,7 +419,7 @@ func (b *InMemoryBackend) CreateRepository(
 		Tags:                 t,
 		UpstreamRepositories: upstreams,
 	}
-	repositories[key] = r
+	b.repositories.Put(r)
 	cp := *r
 
 	return &cp, nil
@@ -441,7 +432,7 @@ func (b *InMemoryBackend) DescribeRepository(ctx context.Context, domainName, re
 	b.mu.RLock("DescribeRepository")
 	defer b.mu.RUnlock()
 
-	r, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]
+	r, ok := b.repositories.Get(regionKey(region, repoKey(domainName, repoName)))
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
@@ -458,13 +449,13 @@ func (b *InMemoryBackend) ListRepositoriesInDomain(ctx context.Context, domainNa
 	b.mu.RLock("ListRepositoriesInDomain")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	repositories := b.repositoriesStore(region)
-	list := make([]*Repository, 0, len(repositories))
-	for _, r := range repositories {
+	entries := b.repositoriesByRegion.Get(region)
+	list := make([]*Repository, 0, len(entries))
+	for _, r := range entries {
 		if r.DomainName == domainName {
 			cp := *r
 			list = append(list, &cp)
@@ -484,9 +475,9 @@ func (b *InMemoryBackend) ListRepositories(ctx context.Context) []*Repository {
 	b.mu.RLock("ListRepositories")
 	defer b.mu.RUnlock()
 
-	repositories := b.repositoriesStore(region)
-	list := make([]*Repository, 0, len(repositories))
-	for _, r := range repositories {
+	entries := b.repositoriesByRegion.Get(region)
+	list := make([]*Repository, 0, len(entries))
+	for _, r := range entries {
 		cp := *r
 		list = append(list, &cp)
 	}
@@ -506,29 +497,27 @@ func (b *InMemoryBackend) DeleteRepository(ctx context.Context, domainName, repo
 	defer b.mu.Unlock()
 
 	key := repoKey(domainName, repoName)
-	repositories := b.repositoriesStore(region)
-	r, ok := repositories[key]
+	r, ok := b.repositories.Get(regionKey(region, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 	cp := *r
 
-	packages := b.packagesStore(region)
-	packageVersions := b.packageVersionsStore(region)
-	prefix := key + "/"
-	for k := range packages {
-		if strings.HasPrefix(k, prefix) {
-			delete(packages, k)
+	for _, p := range slices.Clone(b.packagesByRegion.Get(region)) {
+		if p.DomainName == domainName && p.Repository == repoName {
+			b.packages.Delete(regionKey(region, packageKey(p.DomainName, p.Repository, p.Format, p.Namespace, p.Name)))
 		}
 	}
-	for k := range packageVersions {
-		if strings.HasPrefix(k, prefix) {
-			delete(packageVersions, k)
+	for _, pv := range slices.Clone(b.packageVersionsByRegion.Get(region)) {
+		if pv.DomainName == domainName && pv.Repository == repoName {
+			b.packageVersions.Delete(regionKey(region, packageVersionKey(
+				pv.DomainName, pv.Repository, pv.Format, pv.Namespace, pv.PackageName, pv.Version,
+			)))
 		}
 	}
 	delete(b.externalConnectionsStore(region), key)
-	delete(b.repositoryPoliciesStore(region), key)
-	delete(repositories, key)
+	b.repositoryPolicies.Delete(regionKey(region, key))
+	b.repositories.Delete(regionKey(region, key))
 	r.Tags.Close()
 
 	return &cp, nil
@@ -541,21 +530,21 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, k
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsByRegion.Get(region) {
 		if d.ARN == resourceARN {
 			d.Tags.Merge(kv)
 
 			return nil
 		}
 	}
-	for _, r := range b.repositoriesStore(region) {
+	for _, r := range b.repositoriesByRegion.Get(region) {
 		if r.ARN == resourceARN {
 			r.Tags.Merge(kv)
 
 			return nil
 		}
 	}
-	for _, pg := range b.packageGroupsStore(region) {
+	for _, pg := range b.packageGroupsByRegion.Get(region) {
 		if pg.ARN == resourceARN {
 			pg.Tags.Merge(kv)
 
@@ -573,21 +562,21 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsByRegion.Get(region) {
 		if d.ARN == resourceARN {
 			d.Tags.DeleteKeys(tagKeys)
 
 			return nil
 		}
 	}
-	for _, r := range b.repositoriesStore(region) {
+	for _, r := range b.repositoriesByRegion.Get(region) {
 		if r.ARN == resourceARN {
 			r.Tags.DeleteKeys(tagKeys)
 
 			return nil
 		}
 	}
-	for _, pg := range b.packageGroupsStore(region) {
+	for _, pg := range b.packageGroupsByRegion.Get(region) {
 		if pg.ARN == resourceARN {
 			pg.Tags.DeleteKeys(tagKeys)
 
@@ -605,17 +594,17 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, d := range b.domainsStore(region) {
+	for _, d := range b.domainsByRegion.Get(region) {
 		if d.ARN == resourceARN {
 			return d.Tags.Clone(), nil
 		}
 	}
-	for _, r := range b.repositoriesStore(region) {
+	for _, r := range b.repositoriesByRegion.Get(region) {
 		if r.ARN == resourceARN {
 			return r.Tags.Clone(), nil
 		}
 	}
-	for _, pg := range b.packageGroupsStore(region) {
+	for _, pg := range b.packageGroupsByRegion.Get(region) {
 		if pg.ARN == resourceARN {
 			return pg.Tags.Clone(), nil
 		}
@@ -642,13 +631,12 @@ func (b *InMemoryBackend) CreatePackageGroup(
 	b.mu.Lock("CreatePackageGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
 	key := packageGroupKey(domainName, pattern)
-	packageGroups := b.packageGroupsStore(region)
-	if _, ok := packageGroups[key]; ok {
+	if b.packageGroups.Has(regionKey(region, key)) {
 		return nil, fmt.Errorf(
 			"%w: package group %s already exists in domain %s",
 			ErrAlreadyExists,
@@ -671,8 +659,9 @@ func (b *InMemoryBackend) CreatePackageGroup(
 		ContactInfo: contactInfo,
 		CreatedTime: time.Now().UTC(),
 		Tags:        t,
+		region:      region,
 	}
-	packageGroups[key] = pg
+	b.packageGroups.Put(pg)
 	cp := *pg
 
 	return &cp, nil
@@ -685,7 +674,7 @@ func (b *InMemoryBackend) DescribePackageGroup(ctx context.Context, domainName, 
 	b.mu.RLock("DescribePackageGroup")
 	defer b.mu.RUnlock()
 
-	pg, ok := b.packageGroupsStore(region)[packageGroupKey(domainName, pattern)]
+	pg, ok := b.packageGroups.Get(regionKey(region, packageGroupKey(domainName, pattern)))
 	if !ok {
 		return nil, fmt.Errorf("%w: package group %s not found in domain %s", ErrNotFound, pattern, domainName)
 	}
@@ -702,13 +691,12 @@ func (b *InMemoryBackend) DeletePackageGroup(ctx context.Context, domainName, pa
 	defer b.mu.Unlock()
 
 	key := packageGroupKey(domainName, pattern)
-	packageGroups := b.packageGroupsStore(region)
-	pg, ok := packageGroups[key]
+	pg, ok := b.packageGroups.Get(regionKey(region, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: package group %s not found in domain %s", ErrNotFound, pattern, domainName)
 	}
 	cp := *pg
-	delete(packageGroups, key)
+	b.packageGroups.Delete(regionKey(region, key))
 	pg.Tags.Close()
 
 	return &cp, nil
@@ -733,13 +721,12 @@ func (b *InMemoryBackend) DescribePackage(
 	b.mu.Lock("DescribePackage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
 	key := packageKey(domainName, repoName, format, namespace, name)
-	packages := b.packagesStore(region)
-	pkg, ok := packages[key]
+	pkg, ok := b.packages.Get(regionKey(region, key))
 	if !ok {
 		// Auto-create a stub package entry.
 		pkg = &Package{
@@ -749,8 +736,9 @@ func (b *InMemoryBackend) DescribePackage(
 			Format:      format,
 			Namespace:   namespace,
 			Name:        name,
+			region:      region,
 		}
-		packages[key] = pkg
+		b.packages.Put(pkg)
 	}
 	cp := *pkg
 
@@ -766,25 +754,25 @@ func (b *InMemoryBackend) DeletePackage(
 	b.mu.Lock("DeletePackage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
 	key := packageKey(domainName, repoName, format, namespace, name)
-	packages := b.packagesStore(region)
-	pkg, ok := packages[key]
+	pkg, ok := b.packages.Get(regionKey(region, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: package %s not found", ErrNotFound, name)
 	}
 	cp := *pkg
-	delete(packages, key)
+	b.packages.Delete(regionKey(region, key))
 
 	// Remove all associated package versions.
-	packageVersions := b.packageVersionsStore(region)
-	prefix := key + "/"
-	for k := range packageVersions {
-		if strings.HasPrefix(k, prefix) {
-			delete(packageVersions, k)
+	for _, pv := range slices.Clone(b.packageVersionsByRegion.Get(region)) {
+		if pv.DomainName == domainName && pv.Repository == repoName && pv.Format == format &&
+			pv.Namespace == namespace && pv.PackageName == name {
+			b.packageVersions.Delete(regionKey(region, packageVersionKey(
+				pv.DomainName, pv.Repository, pv.Format, pv.Namespace, pv.PackageName, pv.Version,
+			)))
 		}
 	}
 
@@ -809,13 +797,12 @@ func (b *InMemoryBackend) DescribePackageVersion(
 	b.mu.Lock("DescribePackageVersion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
 	vKey := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	packageVersions := b.packageVersionsStore(region)
-	pv, ok := packageVersions[vKey]
+	pv, ok := b.packageVersions.Get(regionKey(region, vKey))
 	if !ok {
 		// Auto-create a stub version entry.
 		pv = &PackageVersion{
@@ -828,21 +815,22 @@ func (b *InMemoryBackend) DescribePackageVersion(
 			Status:      "Published",
 			PublishedAt: time.Now().UTC(),
 			Revision:    uuid.NewString()[:8],
+			region:      region,
 		}
-		packageVersions[vKey] = pv
+		b.packageVersions.Put(pv)
 
 		// Ensure the parent package record exists too.
 		pKey := packageKey(domainName, repoName, format, namespace, name)
-		packages := b.packagesStore(region)
-		if _, exists := packages[pKey]; !exists {
-			packages[pKey] = &Package{
+		if !b.packages.Has(regionKey(region, pKey)) {
+			b.packages.Put(&Package{
 				DomainName:  domainName,
 				DomainOwner: b.accountID,
 				Repository:  repoName,
 				Format:      format,
 				Namespace:   namespace,
 				Name:        name,
-			}
+				region:      region,
+			})
 		}
 	}
 	cp := *pv
@@ -862,20 +850,19 @@ func (b *InMemoryBackend) DeletePackageVersions(
 	b.mu.Lock("DeletePackageVersions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
-	packageVersions := b.packageVersionsStore(region)
 	failed := make(map[string]string)
 	for _, v := range versions {
 		vKey := packageVersionKey(domainName, repoName, format, namespace, name, v)
-		if _, ok := packageVersions[vKey]; !ok {
+		if !b.packageVersions.Has(regionKey(region, vKey)) {
 			failed[v] = "RESOURCE_NOT_FOUND"
 
 			continue
 		}
-		delete(packageVersions, vKey)
+		b.packageVersions.Delete(regionKey(region, vKey))
 	}
 
 	return failed, nil
@@ -893,45 +880,44 @@ func (b *InMemoryBackend) CopyPackageVersions(
 	b.mu.Lock("CopyPackageVersions")
 	defer b.mu.Unlock()
 
-	repositories := b.repositoriesStore(region)
-	if _, ok := repositories[repoKey(domainName, srcRepo)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, srcRepo))) {
 		return nil, fmt.Errorf("%w: source repository %s not found in domain %s", ErrNotFound, srcRepo, domainName)
 	}
-	if _, ok := repositories[repoKey(domainName, dstRepo)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, dstRepo))) {
 		return nil, fmt.Errorf("%w: destination repository %s not found in domain %s", ErrNotFound, dstRepo, domainName)
 	}
 
-	packageVersions := b.packageVersionsStore(region)
-	packages := b.packagesStore(region)
 	failed := make(map[string]string)
 	for _, v := range versions {
 		srcKey := packageVersionKey(domainName, srcRepo, format, namespace, name, v)
-		src, ok := packageVersions[srcKey]
+		src, ok := b.packageVersions.Get(regionKey(region, srcKey))
 		if !ok {
 			failed[v] = "RESOURCE_NOT_FOUND"
 
 			continue
 		}
 		dstKey := packageVersionKey(domainName, dstRepo, format, namespace, name, v)
-		if _, exists := packageVersions[dstKey]; exists {
+		if b.packageVersions.Has(regionKey(region, dstKey)) {
 			failed[v] = "ALREADY_EXISTS"
 
 			continue
 		}
 		copied := *src
 		copied.Repository = dstRepo
-		packageVersions[dstKey] = &copied
+		copied.region = region
+		b.packageVersions.Put(&copied)
 		// Ensure destination package record exists.
 		dstPkgKey := packageKey(domainName, dstRepo, format, namespace, name)
-		if _, exists := packages[dstPkgKey]; !exists {
-			packages[dstPkgKey] = &Package{
+		if !b.packages.Has(regionKey(region, dstPkgKey)) {
+			b.packages.Put(&Package{
 				DomainName:  domainName,
 				DomainOwner: b.accountID,
 				Repository:  dstRepo,
 				Format:      format,
 				Namespace:   namespace,
 				Name:        name,
-			}
+				region:      region,
+			})
 		}
 	}
 
@@ -969,7 +955,7 @@ func (b *InMemoryBackend) AssociateExternalConnection(
 	b.mu.Lock("AssociateExternalConnection")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]
+	r, ok := b.repositories.Get(regionKey(region, repoKey(domainName, repoName)))
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
@@ -1004,18 +990,17 @@ func (b *InMemoryBackend) DeleteRepositoryPermissionsPolicy(
 	b.mu.Lock("DeleteRepositoryPermissionsPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
 	key := repoKey(domainName, repoName)
-	repositoryPolicies := b.repositoryPoliciesStore(region)
-	pol, ok := repositoryPolicies[key]
+	pol, ok := b.repositoryPolicies.Get(regionKey(region, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: no permissions policy found for repository %s", ErrNotFound, repoName)
 	}
 	cp := *pol
-	delete(repositoryPolicies, key)
+	b.repositoryPolicies.Delete(regionKey(region, key))
 
 	return &cp, nil
 }
@@ -1030,18 +1015,20 @@ func (b *InMemoryBackend) PutRepositoryPermissionsPolicy(
 	b.mu.Lock("PutRepositoryPermissionsPolicy")
 	defer b.mu.Unlock()
 
-	r, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]
+	r, ok := b.repositories.Get(regionKey(region, repoKey(domainName, repoName)))
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
-	key := repoKey(domainName, repoName)
 	pol := &RepositoryPermissionsPolicy{
 		Document:    document,
 		Revision:    uuid.NewString()[:8],
 		ResourceARN: r.ARN,
+		region:      region,
+		domainName:  domainName,
+		repoName:    repoName,
 	}
-	b.repositoryPoliciesStore(region)[key] = pol
+	b.repositoryPolicies.Put(pol)
 	cp := *pol
 
 	return &cp, nil
@@ -1057,12 +1044,12 @@ func (b *InMemoryBackend) GetRepositoryPermissionsPolicy(
 	b.mu.RLock("GetRepositoryPermissionsPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.repositoriesStore(region)[repoKey(domainName, repoName)]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
 	}
 
 	key := repoKey(domainName, repoName)
-	pol, ok := b.repositoryPoliciesStore(region)[key]
+	pol, ok := b.repositoryPolicies.Get(regionKey(region, key))
 	if !ok {
 		return nil, fmt.Errorf("%w: no permissions policy found for repository %s", ErrNotFound, repoName)
 	}
@@ -1083,11 +1070,11 @@ func (b *InMemoryBackend) GetDomainPermissionsPolicy(
 	b.mu.RLock("GetDomainPermissionsPolicy")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	pol, ok := b.domainPoliciesStore(region)[domainName]
+	pol, ok := b.domainPolicies.Get(regionKey(region, domainName))
 	if !ok {
 		return nil, fmt.Errorf("%w: no permissions policy found for domain %s", ErrNotFound, domainName)
 	}
@@ -1105,7 +1092,7 @@ func (b *InMemoryBackend) PutDomainPermissionsPolicy(
 	b.mu.Lock("PutDomainPermissionsPolicy")
 	defer b.mu.Unlock()
 
-	d, ok := b.domainsStore(region)[domainName]
+	d, ok := b.domains.Get(regionKey(region, domainName))
 	if !ok {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
@@ -1114,8 +1101,10 @@ func (b *InMemoryBackend) PutDomainPermissionsPolicy(
 		Document:    document,
 		Revision:    uuid.NewString()[:8],
 		ResourceARN: d.ARN,
+		region:      region,
+		domainName:  domainName,
 	}
-	b.domainPoliciesStore(region)[domainName] = pol
+	b.domainPolicies.Put(pol)
 	cp := *pol
 
 	return &cp, nil
@@ -1131,17 +1120,16 @@ func (b *InMemoryBackend) DeleteDomainPermissionsPolicy(
 	b.mu.Lock("DeleteDomainPermissionsPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	domainPolicies := b.domainPoliciesStore(region)
-	pol, ok := domainPolicies[domainName]
+	pol, ok := b.domainPolicies.Get(regionKey(region, domainName))
 	if !ok {
 		return nil, fmt.Errorf("%w: no permissions policy found for domain %s", ErrNotFound, domainName)
 	}
 	cp := *pol
-	delete(domainPolicies, domainName)
+	b.domainPolicies.Delete(regionKey(region, domainName))
 
 	return &cp, nil
 }
@@ -1157,8 +1145,8 @@ func (b *InMemoryBackend) DisassociateExternalConnection(
 	defer b.mu.Unlock()
 
 	key := repoKey(domainName, repoName)
-	repositories := b.repositoriesStore(region)
-	if _, ok := repositories[key]; !ok {
+	r, ok := b.repositories.Get(regionKey(region, key))
+	if !ok {
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
@@ -1173,7 +1161,7 @@ func (b *InMemoryBackend) DisassociateExternalConnection(
 	}
 
 	externalConnections[key] = filtered
-	cp := *repositories[key]
+	cp := *r
 
 	return &cp, nil
 }
@@ -1189,12 +1177,11 @@ func (b *InMemoryBackend) DisposePackageVersions(
 	b.mu.Lock("DisposePackageVersions")
 	defer b.mu.Unlock()
 
-	packageVersions := b.packageVersionsStore(region)
 	results := make(map[string]string, len(versions))
 
 	for _, v := range versions {
 		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
-		if pv, ok := packageVersions[key]; ok {
+		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
 			pv.Status = "Disposed"
 			results[v] = "SUCCESS"
 		} else {
@@ -1215,7 +1202,7 @@ func (b *InMemoryBackend) GetAssociatedPackageGroup(
 	b.mu.RLock("GetAssociatedPackageGroup")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
@@ -1234,14 +1221,14 @@ func (b *InMemoryBackend) ListPackageGroups(ctx context.Context, domainName, pre
 	b.mu.RLock("ListPackageGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	packageGroups := b.packageGroupsStore(region)
-	result := make([]*PackageGroup, 0, len(packageGroups))
+	entries := b.packageGroupsByRegion.Get(region)
+	result := make([]*PackageGroup, 0, len(entries))
 
-	for _, pg := range packageGroups {
+	for _, pg := range entries {
 		if pg.DomainName != domainName {
 			continue
 		}
@@ -1271,16 +1258,16 @@ func (b *InMemoryBackend) ListSubPackageGroups(
 	b.mu.RLock("ListSubPackageGroups")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
-	packageGroups := b.packageGroupsStore(region)
-	result := make([]*PackageGroup, 0, len(packageGroups))
+	entries := b.packageGroupsByRegion.Get(region)
+	result := make([]*PackageGroup, 0, len(entries))
 
 	parentRoot := strings.TrimSuffix(pattern, "*")
 
-	for _, pg := range packageGroups {
+	for _, pg := range entries {
 		if pg.DomainName != domainName {
 			continue
 		}
@@ -1311,7 +1298,7 @@ func (b *InMemoryBackend) UpdatePackageGroup(
 	defer b.mu.Unlock()
 
 	key := packageGroupKey(domainName, pattern)
-	pg, ok := b.packageGroupsStore(region)[key]
+	pg, ok := b.packageGroups.Get(regionKey(region, key))
 
 	if !ok {
 		return nil, fmt.Errorf("%w: package group %s not found", ErrNotFound, pattern)
@@ -1341,7 +1328,7 @@ func (b *InMemoryBackend) UpdatePackageGroupOriginConfiguration(
 	defer b.mu.RUnlock()
 
 	key := packageGroupKey(domainName, pattern)
-	pg, ok := b.packageGroupsStore(region)[key]
+	pg, ok := b.packageGroups.Get(regionKey(region, key))
 
 	if !ok {
 		return nil, fmt.Errorf("%w: package group %s not found", ErrNotFound, pattern)
@@ -1362,7 +1349,7 @@ func (b *InMemoryBackend) ListAllowedRepositoriesForGroup(
 	b.mu.RLock("ListAllowedRepositoriesForGroup")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
@@ -1378,7 +1365,7 @@ func (b *InMemoryBackend) ListAssociatedPackages(ctx context.Context, domainName
 	b.mu.RLock("ListAssociatedPackages")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.domainsStore(region)[domainName]; !ok {
+	if !b.domains.Has(regionKey(region, domainName)) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, domainName)
 	}
 
@@ -1396,15 +1383,13 @@ func (b *InMemoryBackend) ListPackages(
 	b.mu.RLock("ListPackages")
 	defer b.mu.RUnlock()
 
-	key := repoKey(domainName, repoName)
-	if _, ok := b.repositoriesStore(region)[key]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
-	packages := b.packagesStore(region)
-	result := make([]*Package, 0, len(packages))
+	result := make([]*Package, 0)
 
-	for _, pv := range b.packageVersionsStore(region) {
+	for _, pv := range b.packageVersionsByRegion.Get(region) {
 		if pv.DomainName != domainName || pv.Repository != repoName {
 			continue
 		}
@@ -1457,15 +1442,14 @@ func (b *InMemoryBackend) ListPackageVersions(
 	b.mu.RLock("ListPackageVersions")
 	defer b.mu.RUnlock()
 
-	key := repoKey(domainName, repoName)
-	if _, ok := b.repositoriesStore(region)[key]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
-	packageVersions := b.packageVersionsStore(region)
-	result := make([]*PackageVersion, 0, len(packageVersions))
+	entries := b.packageVersionsByRegion.Get(region)
+	result := make([]*PackageVersion, 0, len(entries))
 
-	for _, pv := range packageVersions {
+	for _, pv := range entries {
 		if pv.DomainName != domainName || pv.Repository != repoName {
 			continue
 		}
@@ -1504,7 +1488,7 @@ func (b *InMemoryBackend) ListPackageVersionAssets(
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if _, ok := b.packageVersionsStore(region)[key]; !ok {
+	if !b.packageVersions.Has(regionKey(region, key)) {
 		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
@@ -1522,7 +1506,7 @@ func (b *InMemoryBackend) ListPackageVersionDependencies(
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if _, ok := b.packageVersionsStore(region)[key]; !ok {
+	if !b.packageVersions.Has(regionKey(region, key)) {
 		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
@@ -1540,7 +1524,7 @@ func (b *InMemoryBackend) GetPackageVersionAsset(
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if _, ok := b.packageVersionsStore(region)[key]; !ok {
+	if !b.packageVersions.Has(regionKey(region, key)) {
 		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
@@ -1560,7 +1544,7 @@ func (b *InMemoryBackend) GetPackageVersionReadme(
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if _, ok := b.packageVersionsStore(region)[key]; !ok {
+	if !b.packageVersions.Has(regionKey(region, key)) {
 		return "", fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
@@ -1579,8 +1563,7 @@ func (b *InMemoryBackend) PublishPackageVersion(
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
 
-	packageVersions := b.packageVersionsStore(region)
-	if existing, ok := packageVersions[key]; ok {
+	if existing, ok := b.packageVersions.Get(regionKey(region, key)); ok {
 		cp := *existing
 
 		return &cp, nil
@@ -1596,8 +1579,9 @@ func (b *InMemoryBackend) PublishPackageVersion(
 		Status:      "Published",
 		Revision:    uuid.NewString()[:8],
 		PublishedAt: time.Now().UTC(),
+		region:      region,
 	}
-	packageVersions[key] = pv
+	b.packageVersions.Put(pv)
 
 	cp := *pv
 
@@ -1615,12 +1599,11 @@ func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 	b.mu.Lock("UpdatePackageVersionsStatus")
 	defer b.mu.Unlock()
 
-	packageVersions := b.packageVersionsStore(region)
 	results := make(map[string]string, len(versions))
 
 	for _, v := range versions {
 		key := packageVersionKey(domainName, repoName, format, namespace, name, v)
-		if pv, ok := packageVersions[key]; ok {
+		if pv, ok := b.packageVersions.Get(regionKey(region, key)); ok {
 			pv.Status = targetStatus
 			results[v] = "SUCCESS"
 		} else {
@@ -1641,8 +1624,7 @@ func (b *InMemoryBackend) PutPackageOriginConfiguration(
 	b.mu.RLock("PutPackageOriginConfiguration")
 	defer b.mu.RUnlock()
 
-	key := repoKey(domainName, repoName)
-	if _, ok := b.repositoriesStore(region)[key]; !ok {
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
@@ -1665,8 +1647,7 @@ func (b *InMemoryBackend) UpdateRepository(
 	b.mu.Lock("UpdateRepository")
 	defer b.mu.Unlock()
 
-	key := repoKey(domainName, repoName)
-	repo, ok := b.repositoriesStore(region)[key]
+	repo, ok := b.repositories.Get(regionKey(region, repoKey(domainName, repoName)))
 
 	if !ok {
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
@@ -1695,7 +1676,7 @@ func (b *InMemoryBackend) CountRepositoriesInDomain(ctx context.Context, domainN
 	defer b.mu.RUnlock()
 
 	count := 0
-	for _, r := range b.repositoriesStore(region) {
+	for _, r := range b.repositoriesByRegion.Get(region) {
 		if r.DomainName == domainName {
 			count++
 		}

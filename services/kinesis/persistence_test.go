@@ -70,6 +70,55 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_OnDemandStreamCountLimit_SurvivesRestore verifies that
+// UpdateAccountSettings' OnDemandStreamCountLimit is part of the persisted
+// snapshot and not lost across a restart, and that a snapshot taken before
+// any UpdateAccountSettings call restores the AWS default limit.
+func TestInMemoryBackend_OnDemandStreamCountLimit_SurvivesRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		configure func(t *testing.T, b *kinesis.InMemoryBackend)
+		name      string
+		wantLimit int
+	}{
+		{
+			name: "custom_limit_persists",
+			configure: func(t *testing.T, b *kinesis.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.UpdateAccountSettings(context.Background(), &kinesis.UpdateAccountSettingsInput{
+					OnDemandStreamCountLimit: 25,
+				}))
+			},
+			wantLimit: 25,
+		},
+		{
+			name:      "default_limit_when_unset",
+			configure: func(_ *testing.T, _ *kinesis.InMemoryBackend) {},
+			wantLimit: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			tt.configure(t, original)
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			restored := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+			require.NoError(t, restored.Restore(t.Context(), snap))
+
+			out, err := restored.DescribeAccountSettings(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantLimit, out.OnDemandStreamCountLimit)
+		})
+	}
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 

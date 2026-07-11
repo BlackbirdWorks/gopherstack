@@ -3,19 +3,63 @@ package managedblockchain
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// managedblockchainSnapshotVersion identifies the shape of [backendSnapshot].
+// It must be bumped whenever a change to a DTO type, a registered table's
+// value type, or backendSnapshot itself would make an older snapshot unsafe
+// to decode as the current shape. Restore discards (resetLocked, not a
+// partial decode) any snapshot whose Version does not match -- including
+// one with no version field at all, which decodes as 0 -- rather than risk
+// misinterpreting fields. This is the first version: the pre-Phase-3.3
+// backend had no version guard at all, so any legacy snapshot is treated
+// the same as any other incompatible one.
+const managedblockchainSnapshotVersion = 1
+
+// proposalVoteDTO wraps a ProposalVote for JSON round-tripping through the
+// ephemeral persistence registry below. ProposalVote hides its proposalID
+// behind an unexported field (see models.go), so a plain json.Marshal of
+// the table's contents would silently drop it -- the same technique
+// services/workmail's permissionDTO uses for its own hidden composite-key
+// component.
+type proposalVoteDTO struct {
+	Value      *ProposalVote `json:"value"`
+	ProposalID string        `json:"proposalID"`
+}
+
+func proposalVoteDTOKeyFn(d *proposalVoteDTO) string {
+	return proposalVoteKey(d.ProposalID, d.Value.MemberID)
+}
+
+// buildProposalVoteDTORegistry constructs the ephemeral one-table DTO
+// registry used by both Snapshot and Restore for proposalVotes, the only
+// table NOT on b.registry (see store_setup.go). It is built fresh on every
+// call, mirroring services/workmail's buildPersistenceDTORegistry.
+func buildProposalVoteDTORegistry() (*store.Registry, *store.Table[proposalVoteDTO]) {
+	dtoReg := store.NewRegistry()
+	tbl := store.Register(dtoReg, "proposalVotes", store.New(proposalVoteDTOKeyFn))
+
+	return dtoReg, tbl
+}
+
+// backendSnapshot is the top-level on-disk shape for the Managed Blockchain
+// backend. Tables holds one JSON-encoded array per table name: "networks",
+// "members", "nodes", "accessors", "proposals", and "invitations" produced
+// directly by b.registry.SnapshotAll() (none of those hide any field from
+// JSON -- Member/Node/Proposal's composite keys are derived entirely from
+// already-exported, already-JSON-tagged fields), plus "proposalVotes" from
+// the DTO registry above. arnToResource is deliberately NOT persisted: it
+// is a derived reverse-lookup cache rebuilt from the tables above by
+// rebuildARNIndexLocked on Restore, exactly as it was before this refactor.
 type backendSnapshot struct {
-	Networks      map[string]*Network                    `json:"networks"`
-	Members       map[string]map[string]*Member          `json:"members"`
-	Nodes         map[string]map[string]map[string]*Node `json:"nodes"`
-	Accessors     map[string]*Accessor                   `json:"accessors"`
-	Proposals     map[string]map[string]*Proposal        `json:"proposals"`
-	ProposalVotes map[string][]*ProposalVote             `json:"proposalVotes"`
-	Invitations   map[string]*Invitation                 `json:"invitations"`
+	Tables  map[string]json.RawMessage `json:"tables"`
+	Version int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -23,24 +67,34 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Networks:      b.networks,
-		Members:       b.members,
-		Nodes:         b.nodes,
-		Accessors:     b.accessors,
-		Proposals:     b.proposals,
-		ProposalVotes: b.proposalVotes,
-		Invitations:   b.invitations,
-	}
-
-	data, err := json.Marshal(snap)
+	tables, err := b.registry.SnapshotAll()
 	if err != nil {
-		logger.Load(ctx).WarnContext(ctx, "managedblockchain: failed to marshal snapshot", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "managedblockchain: snapshot table marshal failed", "error", err)
 
 		return nil
 	}
 
-	return data
+	dtoReg, dtoTable := buildProposalVoteDTORegistry()
+
+	for _, v := range b.proposalVotes.Snapshot() {
+		dtoTable.Put(&proposalVoteDTO{Value: v, ProposalID: v.proposalID})
+	}
+
+	dtoTables, err := dtoReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "managedblockchain: snapshot DTO table marshal failed", "error", err)
+
+		return nil
+	}
+
+	maps.Copy(tables, dtoTables)
+
+	snap := backendSnapshot{
+		Version: managedblockchainSnapshotVersion,
+		Tables:  tables,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "managedblockchain", snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -51,78 +105,80 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	ensureNonNilMaps(&snap)
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.networks = snap.Networks
-	b.members = snap.Members
-	b.nodes = snap.Nodes
-	b.accessors = snap.Accessors
-	b.proposals = snap.Proposals
-	b.proposalVotes = snap.ProposalVotes
-	b.invitations = snap.Invitations
+	if snap.Version != managedblockchainSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"managedblockchain: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", managedblockchainSnapshotVersion)
+
+		b.resetLocked()
+
+		return nil
+	}
+
+	if err := b.restoreTablesLocked(snap.Tables); err != nil {
+		return err
+	}
 
 	b.rebuildARNIndexLocked()
 
 	return nil
 }
 
-// ensureNonNilMaps initialises any nil maps in the snapshot to empty maps.
-func ensureNonNilMaps(snap *backendSnapshot) {
-	if snap.Networks == nil {
-		snap.Networks = make(map[string]*Network)
+// restoreTablesLocked rebuilds every store.Table on b from tables' per-table
+// JSON, factored out of Restore to keep Restore's own cognitive complexity
+// low. Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage) error {
+	if err := b.registry.RestoreAll(tables); err != nil {
+		return fmt.Errorf("managedblockchain: restore tables: %w", err)
 	}
 
-	if snap.Members == nil {
-		snap.Members = make(map[string]map[string]*Member)
+	dtoReg, dtoTable := buildProposalVoteDTORegistry()
+	if err := dtoReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("managedblockchain: restore proposalVotes: %w", err)
 	}
 
-	if snap.Nodes == nil {
-		snap.Nodes = make(map[string]map[string]map[string]*Node)
+	items := make([]*ProposalVote, 0, dtoTable.Len())
+
+	for _, d := range dtoTable.All() {
+		if d.Value == nil {
+			continue
+		}
+
+		d.Value.proposalID = d.ProposalID
+		items = append(items, d.Value)
 	}
 
-	if snap.Accessors == nil {
-		snap.Accessors = make(map[string]*Accessor)
-	}
+	b.proposalVotes.Restore(items)
 
-	if snap.Proposals == nil {
-		snap.Proposals = make(map[string]map[string]*Proposal)
-	}
-
-	if snap.ProposalVotes == nil {
-		snap.ProposalVotes = make(map[string][]*ProposalVote)
-	}
-
-	if snap.Invitations == nil {
-		snap.Invitations = make(map[string]*Invitation)
-	}
+	return nil
 }
 
 // rebuildARNIndexLocked rebuilds arnToResource from the current state. Must be called with mu held.
 func (b *InMemoryBackend) rebuildARNIndexLocked() {
 	b.arnToResource = make(map[string]any)
 
-	for _, n := range b.networks {
+	for _, n := range b.networks.All() {
 		b.arnToResource[n.Arn] = n
 	}
 
-	for _, memberMap := range b.members {
-		for _, m := range memberMap {
-			b.arnToResource[m.Arn] = m
-		}
+	for _, m := range b.members.All() {
+		b.arnToResource[m.Arn] = m
 	}
 
-	for _, memberMap := range b.nodes {
-		for _, nodeMap := range memberMap {
-			for _, node := range nodeMap {
-				b.arnToResource[node.Arn] = node
-			}
-		}
+	for _, node := range b.nodes.All() {
+		b.arnToResource[node.Arn] = node
 	}
 
-	for _, a := range b.accessors {
+	for _, a := range b.accessors.All() {
 		b.arnToResource[a.Arn] = a
 	}
 }

@@ -43,7 +43,7 @@ func (b *InMemoryBackend) RegisterThing(input *RegisterThingInput) (*RegisterThi
 
 	arn := fmt.Sprintf("arn:aws:iot:%s:%s:thing/%s", b.region, b.accountID, thingName)
 
-	if t, exists := b.things[thingName]; exists {
+	if t, exists := b.things.Get(thingName); exists {
 		if t.Attributes == nil {
 			t.Attributes = make(map[string]string)
 		}
@@ -54,18 +54,18 @@ func (b *InMemoryBackend) RegisterThing(input *RegisterThingInput) (*RegisterThi
 		attrs := make(map[string]string, len(input.Parameters))
 		maps.Copy(attrs, input.Parameters)
 
-		b.things[thingName] = &Thing{
+		b.things.Put(&Thing{
 			ThingName:  thingName,
 			ThingID:    uuid.NewString(),
 			ARN:        arn,
 			Attributes: attrs,
 			Version:    1,
 			CreatedAt:  time.Now(),
-		}
+		})
 	}
 
 	cert := b.newCertificate(fakePEM, certStatusActive)
-	b.certificates[cert.CertificateID] = cert
+	b.certificates.Put(cert)
 	b.thingPrincipals[thingName] = append(b.thingPrincipals[thingName], cert.ARN)
 
 	return &RegisterThingOutput{
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) StartThingRegistrationTask(
 		LastModifiedDate: now,
 	}
 
-	b.registrationTasks[task.TaskID] = task
+	b.registrationTasks.Put(task)
 
 	return cloneRegistrationTask(task), nil
 }
@@ -131,7 +131,7 @@ func (b *InMemoryBackend) StopThingRegistrationTask(taskID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	task, ok := b.registrationTasks[taskID]
+	task, ok := b.registrationTasks.Get(taskID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrRegistrationTaskNotFound, taskID)
 	}
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) DescribeThingRegistrationTask(taskID string) (*ThingRe
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	task, ok := b.registrationTasks[taskID]
+	task, ok := b.registrationTasks.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRegistrationTaskNotFound, taskID)
 	}
@@ -161,11 +161,11 @@ func (b *InMemoryBackend) ListThingRegistrationTasks(status string) []*ThingRegi
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	keys := sortedKeys(b.registrationTasks)
-	out := make([]*ThingRegistrationTask, 0, len(keys))
+	items := b.registrationTasks.Snapshot()
+	out := make([]*ThingRegistrationTask, 0, len(items))
 
-	for _, k := range keys {
-		task := b.registrationTasks[k]
+	for _, v := range items {
+		task := v
 		if status != "" && task.Status != status {
 			continue
 		}
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) ListThingRegistrationTaskReports(taskID, reportType st
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	task, ok := b.registrationTasks[taskID]
+	task, ok := b.registrationTasks.Get(taskID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrRegistrationTaskNotFound, taskID)
 	}
@@ -214,7 +214,7 @@ func (b *InMemoryBackend) UpdateThingType(input *UpdateThingTypeInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	tt, ok := b.thingTypes[input.ThingTypeName]
+	tt, ok := b.thingTypes.Get(input.ThingTypeName)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
 	}
@@ -246,18 +246,18 @@ func (b *InMemoryBackend) UpdateThingGroupsForThing(input *UpdateThingGroupsForT
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, ok := b.things[input.ThingName]; !ok {
+	if !b.things.Has(input.ThingName) {
 		return fmt.Errorf("%w: %s", ErrThingNotFound, input.ThingName)
 	}
 
 	for _, g := range input.ThingGroupsToAdd {
-		if _, ok := b.thingGroups[g]; !ok {
+		if !b.thingGroups.Has(g) {
 			return fmt.Errorf("%w: %s", ErrThingGroupNotFound, g)
 		}
 	}
 
 	for _, g := range input.ThingGroupsToRemove {
-		if _, ok := b.thingGroups[g]; !ok {
+		if !b.thingGroups.Has(g) {
 			return fmt.Errorf("%w: %s", ErrThingGroupNotFound, g)
 		}
 	}
@@ -318,7 +318,7 @@ func (b *InMemoryBackend) ListThingPrincipalsV2(thingName string) ([]*ThingPrinc
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if _, ok := b.things[thingName]; !ok {
+	if !b.things.Has(thingName) {
 		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
 	}
 

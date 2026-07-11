@@ -8,12 +8,7 @@ func (b *InMemoryBackend) LoadBalancerCount() int {
 	b.mu.RLock("LoadBalancerCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionLBs := range b.lbs {
-		total += len(regionLBs)
-	}
-
-	return total
+	return b.lbs.Len()
 }
 
 // PolicyCount returns the total number of policies across all load balancers
@@ -22,12 +17,7 @@ func (b *InMemoryBackend) PolicyCount() int {
 	b.mu.RLock("PolicyCount")
 	defer b.mu.RUnlock()
 
-	total := 0
-	for _, regionPolicies := range b.policies {
-		total += len(regionPolicies)
-	}
-
-	return total
+	return b.policies.Len()
 }
 
 // RegionContextForTest returns a context carrying the given region under the

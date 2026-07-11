@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
 )
 
@@ -703,24 +705,36 @@ type WebAppCustomization struct {
 
 // InMemoryBackend is the in-memory store for Transfer resources.
 type InMemoryBackend struct {
-	servers              map[string]*Server
-	users                map[string]map[string]*User      // serverID -> userName -> User
-	accesses             map[string]map[string]*Access    // serverID -> externalID -> Access
-	agreements           map[string]map[string]*Agreement // serverID -> agreementID -> Agreement
-	connectors           map[string]*Connector
-	profiles             map[string]*Profile
-	webApps              map[string]*WebApp
-	webAppCustomizations map[string]*WebAppCustomization // webAppID -> customization
-	workflows            map[string]*Workflow
-	certificates         map[string]*Certificate
-	hostKeys             map[string]map[string]*HostKey                 // serverID -> hostKeyID -> HostKey
-	sshPublicKeys        map[string]map[string]map[string]*SSHPublicKey // serverID -> userName -> keyID -> SSHPublicKey
+	registry             *store.Registry
+	servers              *store.Table[Server]
+	users                *store.Table[User] // composite key: serverID + "\x00" + userName
+	usersByServer        *store.Index[User]
+	accesses             *store.Table[Access] // composite key: serverID + "\x00" + externalID
+	accessesByServer     *store.Index[Access]
+	agreements           *store.Table[Agreement] // composite key: serverID + "\x00" + agreementID
+	agreementsByServer   *store.Index[Agreement]
+	connectors           *store.Table[Connector]
+	profiles             *store.Table[Profile]
+	webApps              *store.Table[WebApp]
+	webAppCustomizations *store.Table[WebAppCustomization] // NOT persisted -- see store_setup.go
+	workflows            *store.Table[Workflow]
+	certificates         *store.Table[Certificate]
+	hostKeys             *store.Table[HostKey] // composite key: serverID + "\x00" + hostKeyID
+	hostKeysByServer     *store.Index[HostKey]
+	sshPublicKeys        *store.Table[SSHPublicKey] // composite key: serverID + "\x00" + userName + "\x00" + keyID
+	sshKeysByServer      *store.Index[SSHPublicKey]
+	sshKeysByServerUser  *store.Index[SSHPublicKey]
 	// sshKeyBodies indexes normalized SSH key bodies for O(1) duplicate detection.
-	sshKeyBodies    map[string]map[string]map[string]struct{} // serverID -> userName -> normalizedBody -> {}
-	executions      map[string]map[string]*Execution          // workflowID -> executionID -> Execution
-	tagsStore       map[string]map[string]string              // arn -> tags
-	transferRecords map[string]*FileTransferResult            // transferID -> FileTransferResult
-	asyncOperations map[string]*AsyncOperationRecord          // operationID -> AsyncOperationRecord
+	// Left as a plain map (not a store.Table): its values are sets
+	// (map[string]struct{}), not *T.
+	sshKeyBodies         map[string]map[string]map[string]struct{} // serverID -> userName -> normalizedBody -> {}
+	executions           *store.Table[Execution]                   // composite key: workflowID + "\x00" + executionID
+	executionsByWorkflow *store.Index[Execution]
+	// tagsStore is left as a plain map (not a store.Table): its values are
+	// map[string]string, not *T.
+	tagsStore       map[string]map[string]string // arn -> tags
+	transferRecords *store.Table[FileTransferResult]
+	asyncOperations *store.Table[AsyncOperationRecord]
 	mu              *lockmetrics.RWMutex
 	work            *worker.Group
 	accountID       string
@@ -729,29 +743,18 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		servers:              make(map[string]*Server),
-		users:                make(map[string]map[string]*User),
-		accesses:             make(map[string]map[string]*Access),
-		agreements:           make(map[string]map[string]*Agreement),
-		connectors:           make(map[string]*Connector),
-		profiles:             make(map[string]*Profile),
-		webApps:              make(map[string]*WebApp),
-		webAppCustomizations: make(map[string]*WebAppCustomization),
-		workflows:            make(map[string]*Workflow),
-		certificates:         make(map[string]*Certificate),
-		hostKeys:             make(map[string]map[string]*HostKey),
-		sshPublicKeys:        make(map[string]map[string]map[string]*SSHPublicKey),
-		sshKeyBodies:         make(map[string]map[string]map[string]struct{}),
-		executions:           make(map[string]map[string]*Execution),
-		tagsStore:            make(map[string]map[string]string),
-		transferRecords:      make(map[string]*FileTransferResult),
-		asyncOperations:      make(map[string]*AsyncOperationRecord),
-		accountID:            accountID,
-		region:               region,
-		mu:                   lockmetrics.New("transfer"),
-		work:                 worker.NewGroup(ctx, "transfer"),
+	b := &InMemoryBackend{
+		registry:     store.NewRegistry(),
+		sshKeyBodies: make(map[string]map[string]map[string]struct{}),
+		tagsStore:    make(map[string]map[string]string),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("transfer"),
+		work:         worker.NewGroup(ctx, "transfer"),
 	}
+	registerAllTables(b)
+
+	return b
 }
 
 // Close stops all scheduled server state-transition timers so none outlives the
@@ -936,8 +939,7 @@ func (b *InMemoryBackend) CreateServerFull(in *CreateServerInput) (*Server, erro
 		AccountID:                     b.accountID,
 		Region:                        b.region,
 	}
-	b.servers[serverID] = s
-	b.users[serverID] = make(map[string]*User)
+	b.servers.Put(s)
 	b.initTagsStore(serverARN(b.accountID, b.region, serverID), merged)
 
 	return cloneServer(s), nil
@@ -948,7 +950,7 @@ func (b *InMemoryBackend) DescribeServer(serverID string) (*Server, error) {
 	b.mu.RLock("DescribeServer")
 	defer b.mu.RUnlock()
 
-	s, ok := b.servers[serverID]
+	s, ok := b.servers.Get(serverID)
 	if !ok {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
@@ -962,7 +964,7 @@ func (b *InMemoryBackend) ServerUserCount(serverID string) int {
 	b.mu.RLock("ServerUserCount")
 	defer b.mu.RUnlock()
 
-	return len(b.users[serverID])
+	return len(b.usersByServer.Get(serverID))
 }
 
 // ListServers returns all servers sorted by ServerId (ascending, deterministic).
@@ -970,8 +972,10 @@ func (b *InMemoryBackend) ListServers() []Server {
 	b.mu.RLock("ListServers")
 	defer b.mu.RUnlock()
 
-	out := make([]Server, 0, len(b.servers))
-	for _, s := range b.servers {
+	all := b.servers.All()
+	out := make([]Server, 0, len(all))
+
+	for _, s := range all {
 		out = append(out, *cloneServer(s))
 	}
 
@@ -994,7 +998,7 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 	b.mu.Lock("DeleteServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.servers[serverID]
+	s, ok := b.servers.Get(serverID)
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
@@ -1005,13 +1009,29 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 		return fmt.Errorf("%w: server %s is in state %s", ErrServerOnline, serverID, s.State)
 	}
 
-	delete(b.servers, serverID)
-	delete(b.users, serverID)
-	delete(b.accesses, serverID)
-	delete(b.agreements, serverID)
-	delete(b.sshPublicKeys, serverID)
+	b.servers.Delete(serverID)
+
+	for _, u := range slices.Clone(b.usersByServer.Get(serverID)) {
+		b.users.Delete(userKey(u.ServerID, u.UserName))
+	}
+
+	for _, a := range slices.Clone(b.accessesByServer.Get(serverID)) {
+		b.accesses.Delete(accessKey(a.ServerID, a.ExternalID))
+	}
+
+	for _, ag := range slices.Clone(b.agreementsByServer.Get(serverID)) {
+		b.agreements.Delete(agreementKey(ag.ServerID, ag.AgreementID))
+	}
+
+	for _, k := range slices.Clone(b.sshKeysByServer.Get(serverID)) {
+		b.sshPublicKeys.Delete(sshPublicKeyKey(k.ServerID, k.UserName, k.SSHPublicKeyID))
+	}
+
 	delete(b.sshKeyBodies, serverID)
-	delete(b.hostKeys, serverID)
+
+	for _, hk := range slices.Clone(b.hostKeysByServer.Get(serverID)) {
+		b.hostKeys.Delete(hostKeyKey(hk.ServerID, hk.HostKeyID))
+	}
 
 	return nil
 }
@@ -1025,7 +1045,7 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 	b.mu.Lock("StartServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.servers[serverID]
+	s, ok := b.servers.Get(serverID)
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
@@ -1042,7 +1062,7 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 		b.mu.Lock("StartServer-async")
 		defer b.mu.Unlock()
 
-		if sv, found := b.servers[serverID]; found && sv.State == serverStatusStarting {
+		if sv, found := b.servers.Get(serverID); found && sv.State == serverStatusStarting {
 			sv.State = serverStatusOnline
 		}
 	})
@@ -1056,7 +1076,7 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.servers[serverID]
+	s, ok := b.servers.Get(serverID)
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
@@ -1073,7 +1093,7 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 		b.mu.Lock("StopServer-async")
 		defer b.mu.Unlock()
 
-		if sv, found := b.servers[serverID]; found && sv.State == serverStatusStopping {
+		if sv, found := b.servers.Get(serverID); found && sv.State == serverStatusStopping {
 			sv.State = serverStatusOffline
 		}
 	})
@@ -1194,7 +1214,7 @@ func (b *InMemoryBackend) UpdateServerFull(in *UpdateServerInput) (*Server, erro
 	b.mu.Lock("UpdateServer")
 	defer b.mu.Unlock()
 
-	s, ok := b.servers[in.ServerID]
+	s, ok := b.servers.Get(in.ServerID)
 	if !ok {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
@@ -1237,11 +1257,11 @@ func (b *InMemoryBackend) CreateUserFull(in *CreateUserInput) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[in.ServerID]; !ok {
+	if !b.servers.Has(in.ServerID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	if _, ok := b.users[in.ServerID][in.UserName]; ok {
+	if b.users.Has(userKey(in.ServerID, in.UserName)) {
 		return nil, fmt.Errorf(
 			"%w: user %s already exists on server %s",
 			ErrUserAlreadyExists,
@@ -1284,7 +1304,7 @@ func (b *InMemoryBackend) CreateUserFull(in *CreateUserInput) (*User, error) {
 		AccountID:             b.accountID,
 		Region:                b.region,
 	}
-	b.users[in.ServerID][in.UserName] = u
+	b.users.Put(u)
 
 	return cloneUser(u), nil
 }
@@ -1294,12 +1314,11 @@ func (b *InMemoryBackend) DescribeUser(serverID, userName string) (*User, error)
 	b.mu.RLock("DescribeUser")
 	defer b.mu.RUnlock()
 
-	users, ok := b.users[serverID]
-	if !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	u, ok := users[userName]
+	u, ok := b.users.Get(userKey(serverID, userName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user %s not found on server %s",
@@ -1317,12 +1336,13 @@ func (b *InMemoryBackend) ListUsers(serverID string) ([]User, error) {
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	users, ok := b.users[serverID]
-	if !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
+	users := b.usersByServer.Get(serverID)
 	out := make([]User, 0, len(users))
+
 	for _, u := range users {
 		out = append(out, *cloneUser(u))
 	}
@@ -1339,20 +1359,20 @@ func (b *InMemoryBackend) DeleteUser(serverID, userName string) error {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
-	users, ok := b.users[serverID]
-	if !ok {
+	if !b.servers.Has(serverID) {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	if _, exists := users[userName]; !exists {
+	uKey := userKey(serverID, userName)
+	if !b.users.Has(uKey) {
 		return fmt.Errorf("%w: user %s not found on server %s", ErrUserNotFound, userName, serverID)
 	}
 
-	delete(users, userName)
+	b.users.Delete(uKey)
 
 	// Delete all SSH public keys for this user.
-	if serverKeys, exists := b.sshPublicKeys[serverID]; exists {
-		delete(serverKeys, userName)
+	for _, k := range slices.Clone(b.sshKeysByServerUser.Get(serverUserKey(serverID, userName))) {
+		b.sshPublicKeys.Delete(sshPublicKeyKey(k.ServerID, k.UserName, k.SSHPublicKeyID))
 	}
 
 	if serverBodies, exists := b.sshKeyBodies[serverID]; exists {
@@ -1393,12 +1413,11 @@ func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
-	users, ok := b.users[in.ServerID]
-	if !ok {
+	if !b.servers.Has(in.ServerID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	u, ok := users[in.UserName]
+	u, ok := b.users.Get(userKey(in.ServerID, in.UserName))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user %s not found on server %s",
@@ -1455,15 +1474,7 @@ func (b *InMemoryBackend) ListSSHPublicKeys(serverID, userName string) []*SSHPub
 	b.mu.RLock("ListSSHPublicKeys")
 	defer b.mu.RUnlock()
 
-	userMap, ok := b.sshPublicKeys[serverID]
-	if !ok {
-		return nil
-	}
-
-	keyMap, ok := userMap[userName]
-	if !ok {
-		return nil
-	}
+	keyMap := b.sshKeysByServerUser.Get(serverUserKey(serverID, userName))
 
 	keys := make([]*SSHPublicKey, 0, len(keyMap))
 	for _, k := range keyMap {
@@ -1483,23 +1494,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.servers = make(map[string]*Server)
-	b.users = make(map[string]map[string]*User)
-	b.accesses = make(map[string]map[string]*Access)
-	b.agreements = make(map[string]map[string]*Agreement)
-	b.connectors = make(map[string]*Connector)
-	b.profiles = make(map[string]*Profile)
-	b.webApps = make(map[string]*WebApp)
-	b.webAppCustomizations = make(map[string]*WebAppCustomization)
-	b.workflows = make(map[string]*Workflow)
-	b.certificates = make(map[string]*Certificate)
-	b.hostKeys = make(map[string]map[string]*HostKey)
-	b.sshPublicKeys = make(map[string]map[string]map[string]*SSHPublicKey)
+	b.registry.ResetAll()
 	b.sshKeyBodies = make(map[string]map[string]map[string]struct{})
-	b.executions = make(map[string]map[string]*Execution)
 	b.tagsStore = make(map[string]map[string]string)
-	b.transferRecords = make(map[string]*FileTransferResult)
-	b.asyncOperations = make(map[string]*AsyncOperationRecord)
 }
 
 // CreateAccessInput holds all optional fields for CreateAccess.
@@ -1534,16 +1531,12 @@ func (b *InMemoryBackend) CreateAccessFull(in *CreateAccessInput) (*Access, erro
 	b.mu.Lock("CreateAccess")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[in.ServerID]; !ok {
+	if !b.servers.Has(in.ServerID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
 	}
 
-	if _, ok := b.accesses[in.ServerID]; !ok {
-		b.accesses[in.ServerID] = make(map[string]*Access)
-	}
-
 	// ExternalId must be unique per server.
-	if _, exists := b.accesses[in.ServerID][in.ExternalID]; exists {
+	if b.accesses.Has(accessKey(in.ServerID, in.ExternalID)) {
 		return nil, fmt.Errorf(
 			"%w: access with ExternalId %s already exists on server %s",
 			ErrAccessAlreadyExists,
@@ -1574,7 +1567,7 @@ func (b *InMemoryBackend) CreateAccessFull(in *CreateAccessInput) (*Access, erro
 		AccountID:             b.accountID,
 		Region:                b.region,
 	}
-	b.accesses[in.ServerID][in.ExternalID] = a
+	b.accesses.Put(a)
 
 	return cloneAccess(a), nil
 }
@@ -1584,12 +1577,12 @@ func (b *InMemoryBackend) DeleteAccess(serverID, externalID string) error {
 	b.mu.Lock("DeleteAccess")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	serverAccesses, ok := b.accesses[serverID]
-	if !ok {
+	key := accessKey(serverID, externalID)
+	if !b.accesses.Has(key) {
 		return fmt.Errorf(
 			"%w: access %s not found on server %s",
 			ErrAccessNotFound,
@@ -1598,16 +1591,7 @@ func (b *InMemoryBackend) DeleteAccess(serverID, externalID string) error {
 		)
 	}
 
-	if _, exists := serverAccesses[externalID]; !exists {
-		return fmt.Errorf(
-			"%w: access %s not found on server %s",
-			ErrAccessNotFound,
-			externalID,
-			serverID,
-		)
-	}
-
-	delete(serverAccesses, externalID)
+	b.accesses.Delete(key)
 
 	return nil
 }
@@ -1637,7 +1621,7 @@ func (b *InMemoryBackend) CreateAgreementFull(
 	b.mu.Lock("CreateAgreement")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
@@ -1655,10 +1639,6 @@ func (b *InMemoryBackend) CreateAgreementFull(
 			ErrValidation,
 			status,
 		)
-	}
-
-	if _, ok := b.agreements[serverID]; !ok {
-		b.agreements[serverID] = make(map[string]*Agreement)
 	}
 
 	agreementID := "a-" + uuid.NewString()[:20]
@@ -1680,7 +1660,7 @@ func (b *InMemoryBackend) CreateAgreementFull(
 		AccountID:        b.accountID,
 		Region:           b.region,
 	}
-	b.agreements[serverID][agreementID] = ag
+	b.agreements.Put(ag)
 
 	return cloneAgreement(ag), nil
 }
@@ -1690,12 +1670,12 @@ func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
 	b.mu.Lock("DeleteAgreement")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	serverAgreements, ok := b.agreements[serverID]
-	if !ok {
+	key := agreementKey(serverID, agreementID)
+	if !b.agreements.Has(key) {
 		return fmt.Errorf(
 			"%w: agreement %s not found on server %s",
 			ErrAgreementNotFound,
@@ -1704,16 +1684,7 @@ func (b *InMemoryBackend) DeleteAgreement(serverID, agreementID string) error {
 		)
 	}
 
-	if _, exists := serverAgreements[agreementID]; !exists {
-		return fmt.Errorf(
-			"%w: agreement %s not found on server %s",
-			ErrAgreementNotFound,
-			agreementID,
-			serverID,
-		)
-	}
-
-	delete(serverAgreements, agreementID)
+	b.agreements.Delete(key)
 
 	return nil
 }
@@ -1772,7 +1743,7 @@ func (b *InMemoryBackend) CreateConnectorFull(in *CreateConnectorInput) (*Connec
 		AccountID:          b.accountID,
 		Region:             b.region,
 	}
-	b.connectors[connectorID] = c
+	b.connectors.Put(c)
 	b.initTagsStore(arn.Build("transfer", b.region, b.accountID, "connector/"+connectorID), merged)
 
 	return cloneConnector(c), nil
@@ -1783,11 +1754,11 @@ func (b *InMemoryBackend) DeleteConnector(connectorID string) error {
 	b.mu.Lock("DeleteConnector")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connectors[connectorID]; !ok {
+	if !b.connectors.Has(connectorID) {
 		return fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, connectorID)
 	}
 
-	delete(b.connectors, connectorID)
+	b.connectors.Delete(connectorID)
 
 	return nil
 }
@@ -1825,7 +1796,7 @@ func (b *InMemoryBackend) CreateProfile(
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
-	b.profiles[profileID] = p
+	b.profiles.Put(p)
 
 	return cloneProfile(p), nil
 }
@@ -1847,7 +1818,7 @@ func (b *InMemoryBackend) CreateWebApp(tags map[string]string) (*WebApp, error) 
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
-	b.webApps[webAppID] = w
+	b.webApps.Put(w)
 
 	return cloneWebApp(w), nil
 }
@@ -1909,7 +1880,7 @@ func (b *InMemoryBackend) CreateWorkflow(
 		AccountID:        b.accountID,
 		Region:           b.region,
 	}
-	b.workflows[workflowID] = wf
+	b.workflows.Put(wf)
 	b.initTagsStore(arn.Build("transfer", b.region, b.accountID, "workflow/"+workflowID), merged)
 
 	return cloneWorkflow(wf), nil
@@ -1920,11 +1891,11 @@ func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
 	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.certificates[certificateID]; !ok {
+	if !b.certificates.Has(certificateID) {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertificateNotFound, certificateID)
 	}
 
-	delete(b.certificates, certificateID)
+	b.certificates.Delete(certificateID)
 
 	return nil
 }
@@ -1934,17 +1905,7 @@ func (b *InMemoryBackend) DescribeAccess(serverID, externalID string) (*Access, 
 	b.mu.RLock("DescribeAccess")
 	defer b.mu.RUnlock()
 
-	serverAccesses, ok := b.accesses[serverID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: access %s not found on server %s",
-			ErrAccessNotFound,
-			externalID,
-			serverID,
-		)
-	}
-
-	a, ok := serverAccesses[externalID]
+	a, ok := b.accesses.Get(accessKey(serverID, externalID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: access %s not found on server %s",
@@ -1962,14 +1923,14 @@ func (b *InMemoryBackend) ListAccesses(serverID string) ([]*Access, error) {
 	b.mu.RLock("ListAccesses")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	serverAccesses := b.accesses[serverID]
-	out := make([]*Access, 0, len(serverAccesses))
+	accesses := b.accessesByServer.Get(serverID)
+	out := make([]*Access, 0, len(accesses))
 
-	for _, a := range serverAccesses {
+	for _, a := range accesses {
 		out = append(out, cloneAccess(a))
 	}
 
@@ -1987,17 +1948,7 @@ func (b *InMemoryBackend) UpdateAccess(
 	b.mu.Lock("UpdateAccess")
 	defer b.mu.Unlock()
 
-	serverAccesses, ok := b.accesses[serverID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: access %s not found on server %s",
-			ErrAccessNotFound,
-			externalID,
-			serverID,
-		)
-	}
-
-	a, ok := serverAccesses[externalID]
+	a, ok := b.accesses.Get(accessKey(serverID, externalID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: access %s not found on server %s",
@@ -2023,17 +1974,7 @@ func (b *InMemoryBackend) DescribeAgreement(serverID, agreementID string) (*Agre
 	b.mu.RLock("DescribeAgreement")
 	defer b.mu.RUnlock()
 
-	serverAgreements, ok := b.agreements[serverID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: agreement %s not found on server %s",
-			ErrAgreementNotFound,
-			agreementID,
-			serverID,
-		)
-	}
-
-	ag, ok := serverAgreements[agreementID]
+	ag, ok := b.agreements.Get(agreementKey(serverID, agreementID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: agreement %s not found on server %s",
@@ -2051,14 +1992,14 @@ func (b *InMemoryBackend) ListAgreements(serverID string) ([]*Agreement, error) 
 	b.mu.RLock("ListAgreements")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	serverAgreements := b.agreements[serverID]
-	out := make([]*Agreement, 0, len(serverAgreements))
+	agreements := b.agreementsByServer.Get(serverID)
+	out := make([]*Agreement, 0, len(agreements))
 
-	for _, ag := range serverAgreements {
+	for _, ag := range agreements {
 		out = append(out, cloneAgreement(ag))
 	}
 
@@ -2076,17 +2017,7 @@ func (b *InMemoryBackend) UpdateAgreement(
 	b.mu.Lock("UpdateAgreement")
 	defer b.mu.Unlock()
 
-	serverAgreements, ok := b.agreements[serverID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: agreement %s not found on server %s",
-			ErrAgreementNotFound,
-			agreementID,
-			serverID,
-		)
-	}
-
-	ag, ok := serverAgreements[agreementID]
+	ag, ok := b.agreements.Get(agreementKey(serverID, agreementID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: agreement %s not found on server %s",
@@ -2123,7 +2054,7 @@ func (b *InMemoryBackend) DescribeConnector(connectorID string) (*Connector, err
 	b.mu.RLock("DescribeConnector")
 	defer b.mu.RUnlock()
 
-	c, ok := b.connectors[connectorID]
+	c, ok := b.connectors.Get(connectorID)
 	if !ok {
 		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, connectorID)
 	}
@@ -2136,9 +2067,10 @@ func (b *InMemoryBackend) ListConnectors() []*Connector {
 	b.mu.RLock("ListConnectors")
 	defer b.mu.RUnlock()
 
-	out := make([]*Connector, 0, len(b.connectors))
+	all := b.connectors.All()
+	out := make([]*Connector, 0, len(all))
 
-	for _, c := range b.connectors {
+	for _, c := range all {
 		out = append(out, cloneConnector(c))
 	}
 
@@ -2182,7 +2114,7 @@ func (b *InMemoryBackend) UpdateConnectorFull(in *UpdateConnectorInput) (*Connec
 	b.mu.Lock("UpdateConnector")
 	defer b.mu.Unlock()
 
-	c, ok := b.connectors[in.ConnectorID]
+	c, ok := b.connectors.Get(in.ConnectorID)
 	if !ok {
 		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, in.ConnectorID)
 	}
@@ -2219,11 +2151,11 @@ func (b *InMemoryBackend) DeleteProfile(profileID string) error {
 	b.mu.Lock("DeleteProfile")
 	defer b.mu.Unlock()
 
-	if _, ok := b.profiles[profileID]; !ok {
+	if !b.profiles.Has(profileID) {
 		return fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, profileID)
 	}
 
-	delete(b.profiles, profileID)
+	b.profiles.Delete(profileID)
 
 	return nil
 }
@@ -2233,7 +2165,7 @@ func (b *InMemoryBackend) DescribeProfile(profileID string) (*Profile, error) {
 	b.mu.RLock("DescribeProfile")
 	defer b.mu.RUnlock()
 
-	p, ok := b.profiles[profileID]
+	p, ok := b.profiles.Get(profileID)
 	if !ok {
 		return nil, fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, profileID)
 	}
@@ -2246,9 +2178,10 @@ func (b *InMemoryBackend) ListProfiles() []*Profile {
 	b.mu.RLock("ListProfiles")
 	defer b.mu.RUnlock()
 
-	out := make([]*Profile, 0, len(b.profiles))
+	all := b.profiles.All()
+	out := make([]*Profile, 0, len(all))
 
-	for _, p := range b.profiles {
+	for _, p := range all {
 		out = append(out, cloneProfile(p))
 	}
 
@@ -2277,7 +2210,7 @@ func (b *InMemoryBackend) UpdateProfileFull(in *UpdateProfileInput) (*Profile, e
 	b.mu.Lock("UpdateProfileFull")
 	defer b.mu.Unlock()
 
-	p, ok := b.profiles[in.ProfileID]
+	p, ok := b.profiles.Get(in.ProfileID)
 	if !ok {
 		return nil, fmt.Errorf("%w: profile %s not found", ErrProfileNotFound, in.ProfileID)
 	}
@@ -2304,11 +2237,11 @@ func (b *InMemoryBackend) DeleteWebApp(webAppID string) error {
 	b.mu.Lock("DeleteWebApp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.webApps[webAppID]; !ok {
+	if !b.webApps.Has(webAppID) {
 		return fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
 	}
 
-	delete(b.webApps, webAppID)
+	b.webApps.Delete(webAppID)
 
 	return nil
 }
@@ -2318,7 +2251,7 @@ func (b *InMemoryBackend) DescribeWebApp(webAppID string) (*WebApp, error) {
 	b.mu.RLock("DescribeWebApp")
 	defer b.mu.RUnlock()
 
-	w, ok := b.webApps[webAppID]
+	w, ok := b.webApps.Get(webAppID)
 	if !ok {
 		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
 	}
@@ -2331,9 +2264,10 @@ func (b *InMemoryBackend) ListWebApps() []*WebApp {
 	b.mu.RLock("ListWebApps")
 	defer b.mu.RUnlock()
 
-	out := make([]*WebApp, 0, len(b.webApps))
+	all := b.webApps.All()
+	out := make([]*WebApp, 0, len(all))
 
-	for _, w := range b.webApps {
+	for _, w := range all {
 		out = append(out, cloneWebApp(w))
 	}
 
@@ -2352,7 +2286,7 @@ func (b *InMemoryBackend) UpdateWebApp(
 	b.mu.Lock("UpdateWebApp")
 	defer b.mu.Unlock()
 
-	w, ok := b.webApps[webAppID]
+	w, ok := b.webApps.Get(webAppID)
 	if !ok {
 		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
 	}
@@ -2370,11 +2304,11 @@ func (b *InMemoryBackend) DescribeWebAppCustomization(webAppID string) (*WebAppC
 	b.mu.RLock("DescribeWebAppCustomization")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.webApps[webAppID]; !ok {
+	if !b.webApps.Has(webAppID) {
 		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
 	}
 
-	if c, ok := b.webAppCustomizations[webAppID]; ok {
+	if c, ok := b.webAppCustomizations.Get(webAppID); ok {
 		cp := *c
 
 		return &cp, nil
@@ -2390,7 +2324,7 @@ func (b *InMemoryBackend) UpdateWebAppCustomization(
 	b.mu.Lock("UpdateWebAppCustomization")
 	defer b.mu.Unlock()
 
-	if _, ok := b.webApps[webAppID]; !ok {
+	if !b.webApps.Has(webAppID) {
 		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
 	}
 
@@ -2400,7 +2334,7 @@ func (b *InMemoryBackend) UpdateWebAppCustomization(
 		LogoFile:    logoFile,
 		FaviconFile: faviconFile,
 	}
-	b.webAppCustomizations[webAppID] = c
+	b.webAppCustomizations.Put(c)
 
 	cp := *c
 
@@ -2412,11 +2346,11 @@ func (b *InMemoryBackend) DeleteWebAppCustomization(webAppID string) error {
 	b.mu.Lock("DeleteWebAppCustomization")
 	defer b.mu.Unlock()
 
-	if _, ok := b.webApps[webAppID]; !ok {
+	if !b.webApps.Has(webAppID) {
 		return fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, webAppID)
 	}
 
-	delete(b.webAppCustomizations, webAppID)
+	b.webAppCustomizations.Delete(webAppID)
 
 	return nil
 }
@@ -2426,11 +2360,11 @@ func (b *InMemoryBackend) DeleteWorkflow(workflowID string) error {
 	b.mu.Lock("DeleteWorkflow")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
 	}
 
-	delete(b.workflows, workflowID)
+	b.workflows.Delete(workflowID)
 
 	return nil
 }
@@ -2440,7 +2374,7 @@ func (b *InMemoryBackend) DescribeWorkflow(workflowID string) (*Workflow, error)
 	b.mu.RLock("DescribeWorkflow")
 	defer b.mu.RUnlock()
 
-	wf, ok := b.workflows[workflowID]
+	wf, ok := b.workflows.Get(workflowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
 	}
@@ -2453,9 +2387,10 @@ func (b *InMemoryBackend) ListWorkflows() []*Workflow {
 	b.mu.RLock("ListWorkflows")
 	defer b.mu.RUnlock()
 
-	out := make([]*Workflow, 0, len(b.workflows))
+	all := b.workflows.All()
+	out := make([]*Workflow, 0, len(all))
 
-	for _, wf := range b.workflows {
+	for _, wf := range all {
 		out = append(out, cloneWorkflow(wf))
 	}
 
@@ -2528,7 +2463,7 @@ func (b *InMemoryBackend) ImportCertificate(
 		AccountID:     b.accountID,
 		Region:        b.region,
 	}
-	b.certificates[certID] = c
+	b.certificates.Put(c)
 
 	cp := *c
 	cp.Tags = make(map[string]string, len(merged))
@@ -2544,13 +2479,13 @@ func (b *InMemoryBackend) StartFileFileTransferResult(connectorID string, files 
 
 	transferID := uuid.NewString()
 
-	b.transferRecords[transferID] = &FileTransferResult{
+	b.transferRecords.Put(&FileTransferResult{
 		TransferID:  transferID,
 		ConnectorID: connectorID,
 		Status:      "QUEUED",
 		Files:       files,
 		CreatedAt:   time.Now(),
-	}
+	})
 
 	return transferID
 }
@@ -2562,7 +2497,7 @@ func (b *InMemoryBackend) ListFileFileTransferResults(connectorID string) []*Fil
 
 	var out []*FileTransferResult
 
-	for _, r := range b.transferRecords {
+	for _, r := range b.transferRecords.All() {
 		if connectorID == "" || r.ConnectorID == connectorID {
 			cp := *r
 			out = append(out, &cp)
@@ -2583,13 +2518,13 @@ func (b *InMemoryBackend) StartAsyncOperationRecord(connectorID, opType string) 
 
 	opID := uuid.NewString()
 
-	b.asyncOperations[opID] = &AsyncOperationRecord{
+	b.asyncOperations.Put(&AsyncOperationRecord{
 		ID:          opID,
 		ConnectorID: connectorID,
 		Status:      "QUEUED",
 		Type:        opType,
 		CreatedAt:   time.Now(),
-	}
+	})
 
 	return opID
 }
@@ -2606,7 +2541,7 @@ func (b *InMemoryBackend) TestIdentityProvider(serverID, userName string) (int, 
 	b.mu.RLock("TestIdentityProvider")
 	defer b.mu.RUnlock()
 
-	s, found := b.servers[serverID]
+	s, found := b.servers.Get(serverID)
 	if !found {
 		return httpStatusBadRequest, "server not found"
 	}
@@ -2616,10 +2551,8 @@ func (b *InMemoryBackend) TestIdentityProvider(serverID, userName string) (int, 
 	}
 
 	// SERVICE_MANAGED: check if user exists.
-	if users, hasUsers := b.users[serverID]; hasUsers {
-		if _, hasUser := users[userName]; hasUser {
-			return httpStatusOK, ""
-		}
+	if b.users.Has(userKey(serverID, userName)) {
+		return httpStatusOK, ""
 	}
 
 	return httpStatusUnauthorized, "user not found"
@@ -2643,12 +2576,11 @@ func (b *InMemoryBackend) SendWorkflowStepStateRecord(workflowID, executionID, t
 	b.mu.Lock("SendWorkflowStepState")
 	defer b.mu.Unlock()
 
-	execs, ok := b.executions[workflowID]
-	if !ok {
+	if len(b.executionsByWorkflow.Get(workflowID)) == 0 {
 		return fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
 	}
 
-	e, ok := execs[executionID]
+	e, ok := b.executions.Get(executionKey(workflowID, executionID))
 	if !ok {
 		return fmt.Errorf("%w: execution %s not found", ErrWorkflowNotFound, executionID)
 	}
@@ -2675,7 +2607,7 @@ func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificat
 	b.mu.RLock("DescribeCertificate")
 	defer b.mu.RUnlock()
 
-	c, ok := b.certificates[certificateID]
+	c, ok := b.certificates.Get(certificateID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: certificate %s not found",
@@ -2696,9 +2628,10 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
-	out := make([]*Certificate, 0, len(b.certificates))
+	all := b.certificates.All()
+	out := make([]*Certificate, 0, len(all))
 
-	for _, c := range b.certificates {
+	for _, c := range all {
 		cp := *c
 		cp.Tags = make(map[string]string, len(c.Tags))
 		maps.Copy(cp.Tags, c.Tags)
@@ -2719,7 +2652,7 @@ func (b *InMemoryBackend) UpdateCertificate(
 	b.mu.Lock("UpdateCertificate")
 	defer b.mu.Unlock()
 
-	c, ok := b.certificates[certificateID]
+	c, ok := b.certificates.Get(certificateID)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: certificate %s not found",
@@ -2747,12 +2680,8 @@ func (b *InMemoryBackend) ImportHostKey(
 	b.mu.Lock("ImportHostKey")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
-	}
-
-	if _, ok := b.hostKeys[serverID]; !ok {
-		b.hostKeys[serverID] = make(map[string]*HostKey)
 	}
 
 	hostKeyID := "hostkey-" + uuid.NewString()[:8]
@@ -2774,7 +2703,7 @@ func (b *InMemoryBackend) ImportHostKey(
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
-	b.hostKeys[serverID][hostKeyID] = hk
+	b.hostKeys.Put(hk)
 
 	return cloneHostKey(hk), nil
 }
@@ -2784,8 +2713,8 @@ func (b *InMemoryBackend) DeleteHostKey(serverID, hostKeyID string) error {
 	b.mu.Lock("DeleteHostKey")
 	defer b.mu.Unlock()
 
-	serverKeys, ok := b.hostKeys[serverID]
-	if !ok {
+	key := hostKeyKey(serverID, hostKeyID)
+	if !b.hostKeys.Has(key) {
 		return fmt.Errorf(
 			"%w: host key %s not found on server %s",
 			ErrHostKeyNotFound,
@@ -2794,16 +2723,7 @@ func (b *InMemoryBackend) DeleteHostKey(serverID, hostKeyID string) error {
 		)
 	}
 
-	if _, exists := serverKeys[hostKeyID]; !exists {
-		return fmt.Errorf(
-			"%w: host key %s not found on server %s",
-			ErrHostKeyNotFound,
-			hostKeyID,
-			serverID,
-		)
-	}
-
-	delete(serverKeys, hostKeyID)
+	b.hostKeys.Delete(key)
 
 	return nil
 }
@@ -2813,17 +2733,7 @@ func (b *InMemoryBackend) DescribeHostKey(serverID, hostKeyID string) (*HostKey,
 	b.mu.RLock("DescribeHostKey")
 	defer b.mu.RUnlock()
 
-	serverKeys, ok := b.hostKeys[serverID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: host key %s not found on server %s",
-			ErrHostKeyNotFound,
-			hostKeyID,
-			serverID,
-		)
-	}
-
-	hk, ok := serverKeys[hostKeyID]
+	hk, ok := b.hostKeys.Get(hostKeyKey(serverID, hostKeyID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: host key %s not found on server %s",
@@ -2841,11 +2751,11 @@ func (b *InMemoryBackend) ListHostKeys(serverID string) ([]*HostKey, error) {
 	b.mu.RLock("ListHostKeys")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	serverKeys := b.hostKeys[serverID]
+	serverKeys := b.hostKeysByServer.Get(serverID)
 	out := make([]*HostKey, 0, len(serverKeys))
 
 	for _, hk := range serverKeys {
@@ -2864,17 +2774,7 @@ func (b *InMemoryBackend) UpdateHostKey(serverID, hostKeyID, description string)
 	b.mu.Lock("UpdateHostKey")
 	defer b.mu.Unlock()
 
-	serverKeys, ok := b.hostKeys[serverID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: host key %s not found on server %s",
-			ErrHostKeyNotFound,
-			hostKeyID,
-			serverID,
-		)
-	}
-
-	hk, ok := serverKeys[hostKeyID]
+	hk, ok := b.hostKeys.Get(hostKeyKey(serverID, hostKeyID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: host key %s not found on server %s",
@@ -2901,16 +2801,8 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 	b.mu.Lock("ImportSshPublicKey")
 	defer b.mu.Unlock()
 
-	if _, ok := b.servers[serverID]; !ok {
+	if !b.servers.Has(serverID) {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
-	}
-
-	if _, ok := b.sshPublicKeys[serverID]; !ok {
-		b.sshPublicKeys[serverID] = make(map[string]map[string]*SSHPublicKey)
-	}
-
-	if _, ok := b.sshPublicKeys[serverID][userName]; !ok {
-		b.sshPublicKeys[serverID][userName] = make(map[string]*SSHPublicKey)
 	}
 
 	// Lazily initialize the body index for this server/user.
@@ -2924,7 +2816,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 
 	// AWS limits each user to 50 SSH public keys.
 	const maxSSHPublicKeysPerUser = 50
-	if len(b.sshPublicKeys[serverID][userName]) >= maxSSHPublicKeysPerUser {
+	if len(b.sshKeysByServerUser.Get(serverUserKey(serverID, userName))) >= maxSSHPublicKeysPerUser {
 		return nil, fmt.Errorf(
 			"%w: user %s on server %s has reached the maximum of %d SSH public keys",
 			ErrValidation,
@@ -2957,7 +2849,7 @@ func (b *InMemoryBackend) ImportSSHPublicKey(
 		ServerID:         serverID,
 		DateImported:     time.Now(),
 	}
-	b.sshPublicKeys[serverID][userName][keyID] = k
+	b.sshPublicKeys.Put(k)
 	b.sshKeyBodies[serverID][userName][normalizedBody] = struct{}{}
 
 	return &SSHPublicKey{
@@ -2976,18 +2868,10 @@ func (b *InMemoryBackend) DeleteSSHPublicKey(serverID, userName, sshPublicKeyID 
 	b.mu.Lock("DeleteSshPublicKey")
 	defer b.mu.Unlock()
 
-	serverKeys, ok := b.sshPublicKeys[serverID]
-	if !ok {
-		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
-	}
+	key := sshPublicKeyKey(serverID, userName, sshPublicKeyID)
 
-	userKeys, ok := serverKeys[userName]
+	k, ok := b.sshPublicKeys.Get(key)
 	if !ok {
-		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
-	}
-
-	k, exists := userKeys[sshPublicKeyID]
-	if !exists {
 		return fmt.Errorf("%w: SSH key %s not found", ErrSSHPublicKeyNotFound, sshPublicKeyID)
 	}
 
@@ -2995,7 +2879,7 @@ func (b *InMemoryBackend) DeleteSSHPublicKey(serverID, userName, sshPublicKeyID 
 		delete(bodyIndex, strings.TrimSpace(k.SSHPublicKeyBody))
 	}
 
-	delete(userKeys, sshPublicKeyID)
+	b.sshPublicKeys.Delete(key)
 
 	return nil
 }
@@ -3049,13 +2933,13 @@ func (b *InMemoryBackend) AddCertificateInternal(certID string) {
 	b.mu.Lock("AddCertificateInternal")
 	defer b.mu.Unlock()
 
-	b.certificates[certID] = &Certificate{
+	b.certificates.Put(&Certificate{
 		CertificateID: certID,
 		CreatedAt:     time.Now(),
 		Tags:          make(map[string]string),
 		AccountID:     b.accountID,
 		Region:        b.region,
-	}
+	})
 }
 
 // AddServerInternal seeds a server for testing purposes.
@@ -3063,7 +2947,7 @@ func (b *InMemoryBackend) AddServerInternal(serverID string) {
 	b.mu.Lock("AddServerInternal")
 	defer b.mu.Unlock()
 
-	b.servers[serverID] = &Server{
+	b.servers.Put(&Server{
 		ServerID:  serverID,
 		State:     serverStatusOnline,
 		Protocols: []string{protocolSFTP},
@@ -3073,8 +2957,7 @@ func (b *InMemoryBackend) AddServerInternal(serverID string) {
 		Tags:      make(map[string]string),
 		AccountID: b.accountID,
 		Region:    b.region,
-	}
-	b.users[serverID] = make(map[string]*User)
+	})
 }
 
 // AddConnectorInternal seeds a connector for testing purposes.
@@ -3082,14 +2965,14 @@ func (b *InMemoryBackend) AddConnectorInternal(connectorID, url string) {
 	b.mu.Lock("AddConnectorInternal")
 	defer b.mu.Unlock()
 
-	b.connectors[connectorID] = &Connector{
+	b.connectors.Put(&Connector{
 		ConnectorID: connectorID,
 		URL:         url,
 		CreatedAt:   time.Now(),
 		Tags:        make(map[string]string),
 		AccountID:   b.accountID,
 		Region:      b.region,
-	}
+	})
 }
 
 // AddProfileInternal seeds a profile for testing purposes.
@@ -3097,14 +2980,14 @@ func (b *InMemoryBackend) AddProfileInternal(profileID, profileType string) {
 	b.mu.Lock("AddProfileInternal")
 	defer b.mu.Unlock()
 
-	b.profiles[profileID] = &Profile{
+	b.profiles.Put(&Profile{
 		ProfileID:   profileID,
 		ProfileType: profileType,
 		CreatedAt:   time.Now(),
 		Tags:        make(map[string]string),
 		AccountID:   b.accountID,
 		Region:      b.region,
-	}
+	})
 }
 
 // AddWebAppInternal seeds a web app for testing purposes.
@@ -3112,13 +2995,13 @@ func (b *InMemoryBackend) AddWebAppInternal(webAppID string) {
 	b.mu.Lock("AddWebAppInternal")
 	defer b.mu.Unlock()
 
-	b.webApps[webAppID] = &WebApp{
+	b.webApps.Put(&WebApp{
 		WebAppID:  webAppID,
 		CreatedAt: time.Now(),
 		Tags:      make(map[string]string),
 		AccountID: b.accountID,
 		Region:    b.region,
-	}
+	})
 }
 
 // AddWorkflowInternal seeds a workflow for testing purposes.
@@ -3126,13 +3009,13 @@ func (b *InMemoryBackend) AddWorkflowInternal(workflowID string) {
 	b.mu.Lock("AddWorkflowInternal")
 	defer b.mu.Unlock()
 
-	b.workflows[workflowID] = &Workflow{
+	b.workflows.Put(&Workflow{
 		WorkflowID: workflowID,
 		CreatedAt:  time.Now(),
 		Tags:       make(map[string]string),
 		AccountID:  b.accountID,
 		Region:     b.region,
-	}
+	})
 }
 
 // CreateExecution creates a new execution for a workflow.
@@ -3140,12 +3023,8 @@ func (b *InMemoryBackend) CreateExecution(workflowID string) (*Execution, error)
 	b.mu.Lock("CreateExecution")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
-	}
-
-	if _, ok := b.executions[workflowID]; !ok {
-		b.executions[workflowID] = make(map[string]*Execution)
 	}
 
 	executionID := "exec-" + uuid.NewString()[:8]
@@ -3156,7 +3035,7 @@ func (b *InMemoryBackend) CreateExecution(workflowID string) (*Execution, error)
 		Status:      "IN_PROGRESS",
 		CreatedAt:   time.Now(),
 	}
-	b.executions[workflowID][executionID] = e
+	b.executions.Put(e)
 
 	cp := *e
 
@@ -3168,17 +3047,7 @@ func (b *InMemoryBackend) DescribeExecution(workflowID, executionID string) (*Ex
 	b.mu.RLock("DescribeExecution")
 	defer b.mu.RUnlock()
 
-	workflowExecs, ok := b.executions[workflowID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: execution %s not found for workflow %s",
-			ErrWorkflowNotFound,
-			executionID,
-			workflowID,
-		)
-	}
-
-	e, ok := workflowExecs[executionID]
+	e, ok := b.executions.Get(executionKey(workflowID, executionID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: execution %s not found for workflow %s",
@@ -3198,11 +3067,11 @@ func (b *InMemoryBackend) ListExecutions(workflowID string) ([]*Execution, error
 	b.mu.RLock("ListExecutions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.workflows[workflowID]; !ok {
+	if !b.workflows.Has(workflowID) {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrWorkflowNotFound, workflowID)
 	}
 
-	workflowExecs := b.executions[workflowID]
+	workflowExecs := b.executionsByWorkflow.Get(workflowID)
 	out := make([]*Execution, 0, len(workflowExecs))
 
 	for _, e := range workflowExecs {
@@ -3274,11 +3143,7 @@ func (b *InMemoryBackend) CountUserSSHPublicKeys(serverID, userName string) int 
 	b.mu.RLock("CountUserSSHPublicKeys")
 	defer b.mu.RUnlock()
 
-	if serverKeys, ok := b.sshPublicKeys[serverID]; ok {
-		return len(serverKeys[userName])
-	}
-
-	return 0
+	return len(b.sshKeysByServerUser.Get(serverUserKey(serverID, userName)))
 }
 
 // UpdateAccessInput holds all mutable fields for UpdateAccessFull.
@@ -3302,15 +3167,7 @@ func (b *InMemoryBackend) UpdateAccessFull(in *UpdateAccessInput) (*Access, erro
 	b.mu.Lock("UpdateAccessFull")
 	defer b.mu.Unlock()
 
-	serverAccesses, ok := b.accesses[in.ServerID]
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: access %s not found on server %s",
-			ErrAccessNotFound, in.ExternalID, in.ServerID,
-		)
-	}
-
-	a, ok := serverAccesses[in.ExternalID]
+	a, ok := b.accesses.Get(accessKey(in.ServerID, in.ExternalID))
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: access %s not found on server %s",

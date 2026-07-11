@@ -28,6 +28,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -112,12 +113,34 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	buckets     map[string]map[string]*StoredBucket
-	bucketIndex map[string]string // name → region for O(1) cross-region lookup
-	tags        map[string][]types.Tag
-	uploads     map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
-	mu          *lockmetrics.RWMutex
-	compressor  Compressor
+	// registry lets Reset/Snapshot/Restore collapse the buckets/uploads
+	// lifecycle to one call each (registry.ResetAll/SnapshotAll/RestoreAll)
+	// instead of hand-rolled per-map wiring. See pkgs/store's package doc and
+	// the services/sqs pilot (commit 0f09d77c) for the pattern this follows.
+	registry *store.Registry
+	// buckets is keyed by bucket name (globally unique — see StoredBucket.Region's
+	// doc comment). This replaces the old region->name->*StoredBucket nesting plus
+	// the separate bucketIndex name->region map: Table.Get(name) alone now answers
+	// both "does it exist" and "give me the bucket", and StoredBucket.Region
+	// carries what bucketIndex used to.
+	buckets *store.Table[StoredBucket]
+	// uploads is keyed by UploadID (a random 32-hex-char string — see
+	// newObjectVersionID — so it is unique across all buckets). uploadsByBucket
+	// is a secondary index replacing the old bucket->uploadID->*StoredMultipartUpload
+	// nesting for the "all uploads in bucket X" access pattern (ListMultipartUploads,
+	// janitor cleanup, DeleteBucket cleanup). A caller-supplied uploadID is only
+	// valid for the bucket it was issued against — see getUpload, which enforces
+	// that the same way the old b.uploads[bucketName][uploadID] nesting did.
+	uploads         *store.Table[StoredMultipartUpload]
+	uploadsByBucket *store.Index[StoredMultipartUpload]
+	// tags is intentionally left as a plain map (not a store.Table): its key is
+	// a composite "bucket/key/versionID" string that is not a pure function of
+	// the stored value (a bare []types.Tag has no identity field of its own) —
+	// the same reason services/ec2's store_setup.go leaves e.g.
+	// vpcPeeringOptions/instanceIMDSOptions unconverted.
+	tags       map[string][]types.Tag
+	mu         *lockmetrics.RWMutex
+	compressor Compressor
 	// serviceCtx is the long-lived context for background work (replication).
 	// Initialised in NewInMemoryBackend so it is always non-nil; overridden by
 	// SetServiceContext when the handler wires in the real service context.
@@ -178,17 +201,36 @@ func (b *InMemoryBackend) replicationContext(reqCtx context.Context) context.Con
 	return logger.Save(base, logger.Load(reqCtx))
 }
 
+// bucketTableKey is the [store.Table] key function for b.buckets: bucket
+// names are globally unique (CreateBucket enforces this), so the name alone
+// is the bucket's identity regardless of region.
+func bucketTableKey(bucket *StoredBucket) string { return bucket.Name }
+
+// uploadTableKey is the [store.Table] key function for b.uploads: a
+// multipart upload's own UploadID is already its unique identity.
+func uploadTableKey(u *StoredMultipartUpload) string { return u.UploadID }
+
+// uploadBucketIndexKey is the [store.Index] key function grouping uploads by
+// their owning bucket, replacing the old bucket->uploadID->*StoredMultipartUpload
+// map nesting for bucket-scoped scans (ListMultipartUploads, janitor cleanup).
+func uploadBucketIndexKey(u *StoredMultipartUpload) string { return u.Bucket }
+
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	registry := store.NewRegistry()
+	uploads := store.Register(registry, "uploads", store.New(uploadTableKey))
+
 	return &InMemoryBackend{
-		buckets:       make(map[string]map[string]*StoredBucket),
-		bucketIndex:   make(map[string]string),
-		compressor:    compressor,
-		defaultRegion: defaultRegionName,
-		mu:            lockmetrics.New("s3"),
-		serviceCtx:    ctx,
-		serviceCancel: cancel,
+		registry:        registry,
+		buckets:         store.Register(registry, "buckets", store.New(bucketTableKey)),
+		uploads:         uploads,
+		uploadsByBucket: uploads.AddIndex("bucket", uploadBucketIndexKey),
+		compressor:      compressor,
+		defaultRegion:   defaultRegionName,
+		mu:              lockmetrics.New("s3"),
+		serviceCtx:      ctx,
+		serviceCancel:   cancel,
 	}
 }
 
@@ -220,15 +262,10 @@ func (b *InMemoryBackend) WithCompressionMinBytes(n int) *InMemoryBackend {
 
 // getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
 // bucket does not exist or is pending async deletion. The caller must hold at least b.mu.RLock.
-// bucketIndex provides O(1) name→region resolution, so no region scan is needed.
+// b.buckets is keyed by name, so a single Table.Get resolves it in O(1).
 func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
-	region, ok := b.bucketIndex[name]
-	if !ok {
-		return nil, ErrNoSuchBucket
-	}
-
-	bucket := b.buckets[region][name]
-	if bucket == nil || bucket.DeletePending {
+	bucket, ok := b.buckets.Get(name)
+	if !ok || bucket.DeletePending {
 		return nil, ErrNoSuchBucket
 	}
 
@@ -241,7 +278,12 @@ func (b *InMemoryBackend) BucketRegion(name string) string {
 	b.mu.RLock("BucketRegion")
 	defer b.mu.RUnlock()
 
-	return b.bucketIndex[name]
+	bucket, ok := b.buckets.Get(name)
+	if !ok {
+		return ""
+	}
+
+	return bucket.Region
 }
 
 // SetDefaultRegion sets the default region for this backend.
@@ -270,22 +312,18 @@ func (b *InMemoryBackend) CreateBucket(
 
 	bucketName := *input.Bucket
 
-	// Use bucketIndex for O(1) global-uniqueness check. Since this is a
+	// Use b.buckets for O(1) global-uniqueness check. Since this is a
 	// single-tenant mock, a pre-existing bucket is always owned by the
 	// caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
-	// Pending-delete buckets remain in the index and still block re-creation,
+	// Pending-delete buckets remain in the table and still block re-creation,
 	// matching real S3 behaviour (you must wait for deletion to complete).
-	if _, exists := b.bucketIndex[bucketName]; exists {
+	if b.buckets.Has(bucketName) {
 		return nil, ErrBucketAlreadyOwnedByYou
 	}
 
-	// Initialize region map if it doesn't exist
-	if _, exists := b.buckets[region]; !exists {
-		b.buckets[region] = make(map[string]*StoredBucket)
-	}
-
-	b.buckets[region][bucketName] = &StoredBucket{
+	b.buckets.Put(&StoredBucket{
 		Name:         bucketName,
+		Region:       region,
 		CreationDate: time.Now().UTC(),
 		Objects:      make(map[string]*StoredObject),
 		// Versioning is intentionally not set: new buckets have never had versioning
@@ -299,8 +337,7 @@ func (b *InMemoryBackend) CreateBucket(
 		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
 		// correctly partition general-purpose vs. directory buckets.
 		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
-	}
-	b.bucketIndex[bucketName] = region
+	})
 
 	return &s3.CreateBucketOutput{
 		Location: aws.String("/" + bucketName),
@@ -316,15 +353,10 @@ func (b *InMemoryBackend) DeleteBucket(
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
-	// Use bucketIndex for O(1) lookup. Pending buckets remain in the index
-	// so that idempotent deletes can be detected without a region scan.
-	region, ok := b.bucketIndex[bucketName]
+	// Use b.buckets for O(1) lookup. Pending buckets remain in the table so
+	// that idempotent deletes can be detected without a region scan.
+	bucket, ok := b.buckets.Get(bucketName)
 	if !ok {
-		return nil, ErrNoSuchBucket
-	}
-
-	bucket := b.buckets[region][bucketName]
-	if bucket == nil {
 		return nil, ErrNoSuchBucket
 	}
 
@@ -357,19 +389,18 @@ func (b *InMemoryBackend) ListBuckets(
 	_ context.Context,
 	_ *s3.ListBucketsInput,
 ) (*s3.ListBucketsOutput, error) {
-	// Snapshot bucket data under lock across all regions, release immediately
+	// Snapshot bucket data under lock, release immediately.
 	b.mu.RLock("ListBuckets")
-	buckets := make([]types.Bucket, 0, len(b.buckets))
-	for _, regionBuckets := range b.buckets {
-		for _, bucket := range regionBuckets {
-			if bucket.DeletePending || bucket.IsDirectoryBucket {
-				continue
-			}
-			buckets = append(buckets, types.Bucket{
-				Name:         aws.String(bucket.Name),
-				CreationDate: aws.Time(bucket.CreationDate),
-			})
+	all := b.buckets.All()
+	buckets := make([]types.Bucket, 0, len(all))
+	for _, bucket := range all {
+		if bucket.DeletePending || bucket.IsDirectoryBucket {
+			continue
 		}
+		buckets = append(buckets, types.Bucket{
+			Name:         aws.String(bucket.Name),
+			CreationDate: aws.Time(bucket.CreationDate),
+		})
 	}
 	b.mu.RUnlock()
 
@@ -395,17 +426,15 @@ func (b *InMemoryBackend) ListDirectoryBuckets(_ context.Context) ([]types.Bucke
 	b.mu.RLock("ListDirectoryBuckets")
 	buckets := make([]types.Bucket, 0)
 
-	for _, regionBuckets := range b.buckets {
-		for _, bucket := range regionBuckets {
-			if bucket.DeletePending || !bucket.IsDirectoryBucket {
-				continue
-			}
-
-			buckets = append(buckets, types.Bucket{
-				Name:         aws.String(bucket.Name),
-				CreationDate: aws.Time(bucket.CreationDate),
-			})
+	for _, bucket := range b.buckets.All() {
+		if bucket.DeletePending || !bucket.IsDirectoryBucket {
+			continue
 		}
+
+		buckets = append(buckets, types.Bucket{
+			Name:         aws.String(bucket.Name),
+			CreationDate: aws.Time(bucket.CreationDate),
+		})
 	}
 	b.mu.RUnlock()
 
@@ -421,16 +450,20 @@ func (b *InMemoryBackend) Regions() []string {
 	b.mu.RLock("Regions")
 	defer b.mu.RUnlock()
 
+	seen := make(map[string]struct{})
 	var regions []string
 
-	for region, regionBuckets := range b.buckets {
-		for _, bucket := range regionBuckets {
-			if !bucket.DeletePending {
-				regions = append(regions, region)
-
-				break
-			}
+	for _, bucket := range b.buckets.All() {
+		if bucket.DeletePending {
+			continue
 		}
+
+		if _, ok := seen[bucket.Region]; ok {
+			continue
+		}
+
+		seen[bucket.Region] = struct{}{}
+		regions = append(regions, bucket.Region)
 	}
 
 	sort.Strings(regions)
@@ -446,21 +479,19 @@ func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
 
 	var buckets []types.Bucket
 
-	for r, regionBuckets := range b.buckets {
-		if region != "" && r != region {
+	for _, bucket := range b.buckets.All() {
+		if region != "" && bucket.Region != region {
 			continue
 		}
 
-		for _, bucket := range regionBuckets {
-			if bucket.DeletePending {
-				continue
-			}
-
-			buckets = append(buckets, types.Bucket{
-				Name:         aws.String(bucket.Name),
-				CreationDate: aws.Time(bucket.CreationDate),
-			})
+		if bucket.DeletePending {
+			continue
 		}
+
+		buckets = append(buckets, types.Bucket{
+			Name:         aws.String(bucket.Name),
+			CreationDate: aws.Time(bucket.CreationDate),
+		})
 	}
 
 	sort.Slice(buckets, func(i, j int) bool {
@@ -2003,6 +2034,20 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 
 // Multipart
 
+// getUpload returns the multipart upload for uploadID, but only if it belongs
+// to bucketName — mirroring the old b.uploads[bucketName][uploadID] nested-map
+// lookup, which returned nil both when the uploadID was absent and when it
+// existed but under a different bucket. The caller must hold at least
+// b.mu.RLock.
+func (b *InMemoryBackend) getUpload(bucketName, uploadID string) *StoredMultipartUpload {
+	upload, ok := b.uploads.Get(uploadID)
+	if !ok || upload.Bucket != bucketName {
+		return nil
+	}
+
+	return upload
+}
+
 func (b *InMemoryBackend) CreateMultipartUpload(
 	ctx context.Context,
 	input *s3.CreateMultipartUploadInput,
@@ -2040,15 +2085,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	}
 
 	b.mu.Lock("CreateMultipartUpload")
-	if b.uploads == nil {
-		b.uploads = make(map[string]map[string]*StoredMultipartUpload)
-	}
-
-	if b.uploads[bucketName] == nil {
-		b.uploads[bucketName] = make(map[string]*StoredMultipartUpload)
-	}
-
-	b.uploads[bucketName][uploadID] = &StoredMultipartUpload{
+	b.uploads.Put(&StoredMultipartUpload{
 		UploadID:  uploadID,
 		Bucket:    bucketName,
 		Key:       key,
@@ -2057,7 +2094,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Tagging:   tagging,
 		SSE:       sse,
 		mu:        lockmetrics.New("s3.upload"),
-	}
+	})
 	b.mu.Unlock()
 
 	return &s3.CreateMultipartUploadOutput{
@@ -2159,7 +2196,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	// the upload yet, since assembly may fail (e.g. ErrInvalidPart) and the
 	// caller should still be able to retry or abort.
 	b.mu.RLock(opCompleteMultipartUpload)
-	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
+	upload := b.getUpload(bucketName, uploadID)
 	b.mu.RUnlock()
 
 	if upload == nil {
@@ -2214,7 +2251,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) error {
 	b.mu.Lock("CompleteMultipartUpload.claim")
 
-	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
+	upload := b.getUpload(bucketName, uploadID)
 	if upload == nil {
 		b.mu.Unlock()
 
@@ -2227,7 +2264,7 @@ func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) erro
 	upload.closed = true
 	upload.mu.Unlock()
 
-	delete(b.uploads[bucketName], uploadID)
+	b.uploads.Delete(uploadID)
 	b.mu.Unlock()
 
 	return nil
@@ -2454,7 +2491,7 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 
 	b.mu.Lock("AbortMultipartUpload")
 
-	upload := b.uploads[bucketName][uploadID]
+	upload := b.getUpload(bucketName, uploadID)
 	if upload == nil {
 		b.mu.Unlock()
 
@@ -2467,7 +2504,7 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	upload.closed = true
 	upload.mu.Unlock()
 
-	delete(b.uploads[bucketName], uploadID)
+	b.uploads.Delete(uploadID)
 	b.mu.Unlock()
 
 	return &s3.AbortMultipartUploadOutput{}, nil
@@ -2522,7 +2559,7 @@ func (b *InMemoryBackend) ListMultipartUploads(
 func (b *InMemoryBackend) collectAndSortUploads(bucketName, prefix string) []types.MultipartUpload {
 	var uploads []types.MultipartUpload
 
-	for _, u := range b.uploads[bucketName] {
+	for _, u := range b.uploadsByBucket.Get(bucketName) {
 		if prefix != "" && !strings.HasPrefix(u.Key, prefix) {
 			continue
 		}
@@ -2623,7 +2660,7 @@ func (b *InMemoryBackend) ListParts(
 	bucketName := aws.ToString(input.Bucket)
 
 	b.mu.RLock("ListParts")
-	upload := b.uploads[bucketName][uploadID] // reading nil map returns nil safely
+	upload := b.getUpload(bucketName, uploadID)
 	b.mu.RUnlock()
 
 	if upload == nil {
@@ -4166,21 +4203,32 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 	return sessionXML, nil
 }
 
+// purgeUploadsForBucketLocked removes every multipart upload belonging to
+// bucketName from b.uploads. Caller must hold b.mu. The uploadsByBucket group
+// slice is owned by the index (see [store.Index.Get]'s doc), so upload IDs
+// are copied out before any Delete call mutates that group.
+func (b *InMemoryBackend) purgeUploadsForBucketLocked(bucketName string) {
+	grouped := b.uploadsByBucket.Get(bucketName)
+	uploadIDs := make([]string, len(grouped))
+	for i, u := range grouped {
+		uploadIDs[i] = u.UploadID
+	}
+
+	for _, id := range uploadIDs {
+		b.uploads.Delete(id)
+	}
+}
+
 // purgeBucketLocked removes a single bucket and its associated data from the
 // backend. Caller must hold b.mu.
-func (b *InMemoryBackend) purgeBucketLocked(
-	regionBuckets map[string]*StoredBucket,
-	bucketName string,
-	bucket *StoredBucket,
-) {
+func (b *InMemoryBackend) purgeBucketLocked(bucketName string, bucket *StoredBucket) {
 	// Close per-object mutexes to avoid Prometheus metric leaks.
 	for _, obj := range bucket.Objects {
 		obj.mu.Close()
 	}
 
 	bucket.mu.Close()
-	delete(regionBuckets, bucketName)
-	delete(b.bucketIndex, bucketName)
+	b.buckets.Delete(bucketName)
 
 	for tagKey := range b.tags {
 		if strings.HasPrefix(tagKey, bucketName+"/") {
@@ -4188,7 +4236,7 @@ func (b *InMemoryBackend) purgeBucketLocked(
 		}
 	}
 
-	delete(b.uploads, bucketName)
+	b.purgeUploadsForBucketLocked(bucketName)
 }
 
 // Purge removes all buckets created before the given cutoff time.
@@ -4200,15 +4248,13 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
-	for _, regionBuckets := range b.buckets {
-		for bucketName, bucket := range regionBuckets {
-			if ctx.Err() != nil {
-				return
-			}
+	for _, bucket := range b.buckets.All() {
+		if ctx.Err() != nil {
+			return
+		}
 
-			if bucket.CreationDate.Before(cutoff) {
-				b.purgeBucketLocked(regionBuckets, bucketName, bucket)
-			}
+		if bucket.CreationDate.Before(cutoff) {
+			b.purgeBucketLocked(bucket.Name, bucket)
 		}
 	}
 }
@@ -4220,19 +4266,15 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	// Close all bucket and object mutexes to prevent Prometheus metric leaks.
-	for _, regionBuckets := range b.buckets {
-		for _, bucket := range regionBuckets {
-			for _, obj := range bucket.Objects {
-				obj.mu.Close()
-			}
-			bucket.mu.Close()
+	for _, bucket := range b.buckets.All() {
+		for _, obj := range bucket.Objects {
+			obj.mu.Close()
 		}
+		bucket.mu.Close()
 	}
 
-	b.buckets = make(map[string]map[string]*StoredBucket)
-	b.bucketIndex = make(map[string]string)
+	b.registry.ResetAll()
 	b.tags = make(map[string][]types.Tag)
-	b.uploads = make(map[string]map[string]*StoredMultipartUpload)
 }
 
 func (b *InMemoryBackend) GetBucketMetadata(
@@ -4240,16 +4282,16 @@ func (b *InMemoryBackend) GetBucketMetadata(
 	bucketName string,
 ) (string, string, []types.Tag, error) {
 	b.mu.RLock("GetBucketMetadata")
-	region, ok := b.bucketIndex[bucketName]
+	bucket, ok := b.buckets.Get(bucketName)
 	if !ok {
 		b.mu.RUnlock()
 
 		return "", "", nil, ErrNoSuchBucket
 	}
-	bucket := b.buckets[region][bucketName]
 	b.mu.RUnlock()
 
 	bucket.mu.RLock("GetBucketMetadata")
+	region := bucket.Region
 	lcXML := bucket.LifecycleConfig
 	tags := slices.Clone(bucket.Tags)
 	bucket.mu.RUnlock()
@@ -4322,14 +4364,10 @@ func (b *InMemoryBackend) storePart(
 	part *StoredPart,
 ) error {
 	b.mu.RLock("storePart")
-	bucketUploads, ok := b.uploads[bucketName]
-	var upload *StoredMultipartUpload
-	if ok {
-		upload, ok = bucketUploads[uploadID]
-	}
+	upload := b.getUpload(bucketName, uploadID)
 	b.mu.RUnlock()
 
-	if !ok {
+	if upload == nil {
 		return ErrNoSuchUpload
 	}
 

@@ -118,11 +118,31 @@ const defaultBufferSize = 100
 //nolint:gochecknoglobals // required for shared state across middleware and console handlers
 var GlobalRingBuffer = NewRequestRingBuffer(defaultBufferSize)
 
+// redactedHeaderValue replaces the value of any sensitive request header
+// captured for the console/log so secrets never appear in clear text.
+const redactedHeaderValue = "[REDACTED]"
+
 // APIConsoleMiddleware captures incoming API requests and stores them in the ring buffer.
 // It should be injected after standard loggers but before request processing.
 //
 //nolint:gocognit // middleware performs explicit filtering, capture, and enrichment in one path.
 func APIConsoleMiddleware() echo.MiddlewareFunc {
+	// sensitiveHeaders is the set of request headers whose values are secrets
+	// (authorization tokens, SigV4 credentials/signatures, session cookies, API
+	// keys) and must never be stored in the console ring buffer or logged. Keys
+	// are in http.Header canonical form (as produced by Go's HTTP server).
+	// Allocated once per middleware construction (i.e. once at setup).
+	sensitiveHeaders := map[string]struct{}{
+		"Authorization":        {},
+		"Proxy-Authorization":  {},
+		"Cookie":               {},
+		"Set-Cookie":           {},
+		"X-Api-Key":            {},
+		"X-Amz-Security-Token": {},
+		"X-Amz-Credential":     {},
+		"X-Amz-Signature":      {},
+	}
+
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			start := time.Now()
@@ -135,11 +155,18 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 				return next(c)
 			}
 
-			// Capture headers
+			// Capture headers. Values of sensitive headers (auth tokens,
+			// SigV4 credentials/signatures, cookies, API keys) are redacted so
+			// secrets are never stored in the console ring buffer or logged in
+			// clear text (see sensitiveHeaders).
 			headers := make(map[string]string)
 			for k, v := range req.Header {
 				if len(v) > 0 {
-					headers[k] = v[0]
+					if _, secret := sensitiveHeaders[k]; secret {
+						headers[k] = redactedHeaderValue
+					} else {
+						headers[k] = v[0]
+					}
 				}
 			}
 

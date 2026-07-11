@@ -78,11 +78,11 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.mu.Lock("ServerlessHandler.Reset")
 	defer h.Backend.mu.Unlock()
 
-	h.Backend.slNamespaces = make(map[string]*Namespace)
-	h.Backend.slWorkgroups = make(map[string]*Workgroup)
-	h.Backend.slSnapshots = make(map[string]*ServerlessSnapshot)
-	h.Backend.slUsageLimits = make(map[string]*ServerlessUsageLimit)
-	h.Backend.slScheduledActions = make(map[string]*ServerlessScheduledAction)
+	h.Backend.slNamespaces.Reset()
+	h.Backend.slWorkgroups.Reset()
+	h.Backend.slSnapshots.Reset()
+	h.Backend.slUsageLimits.Reset()
+	h.Backend.slScheduledActions.Reset()
 }
 
 const (

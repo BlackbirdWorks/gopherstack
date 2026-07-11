@@ -2584,6 +2584,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(byName["SNS"], byName["SQS"])
 
+	// Wire SNS→Lambda and SNS→Firehose subscription delivery, plus the SQS sender
+	// used for Lambda/Firehose subscription DLQ redelivery.
+	wireSNSToLambdaFirehose(byName["SNS"], byName["Lambda"], byName["Firehose"], byName["SQS"])
+
 	// Wire SQS → CloudWatch metric emission for NumberOfMessagesSent/Received/Deleted.
 	wireSQSMetrics(byName["SQS"], byName["CloudWatch"])
 
@@ -3145,6 +3149,54 @@ func wireSNSToSQS(snsReg, sqsReg service.Registerable) {
 	sqsBk.SubscribeToSNS(emitter)
 }
 
+// wireSNSToLambdaFirehose connects the SNS backend to Lambda and Firehose so that
+// Lambda- and Firehose-protocol subscriptions actually receive published messages,
+// and wires an SQS sender so failed Lambda/Firehose deliveries with a RedrivePolicy
+// land in the subscription's dead-letter queue. This is independent of wireSNSToSQS:
+// that function wires the SNS→SQS *subscription* delivery path via a publish emitter,
+// while the SQS sender wired here only serves DLQ redelivery on failed Lambda/Firehose
+// invocations (SNS backend's sqsSender field), so there is no overlap or double-wiring.
+func wireSNSToLambdaFirehose(snsReg, lambdaReg, firehoseReg, sqsReg service.Registerable) {
+	snsH, ok := snsReg.(*snsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	snsBk, ok := snsH.Backend.(*snsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+			snsBk.SetLambdaBackend(lambdaBk)
+		}
+	}
+
+	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
+		if firehoseBk, bkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); bkOk {
+			snsBk.SetFirehoseBackend(&snsFirehosePutterAdapter{backend: firehoseBk})
+		}
+	}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
+			snsBk.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
+		}
+	}
+}
+
+// snsFirehosePutterAdapter adapts the Firehose backend to the sns.FirehosePutter
+// interface, which omits the context parameter that the Firehose backend's
+// PutRecordBatch requires.
+type snsFirehosePutterAdapter struct {
+	backend *firehosebackend.InMemoryBackend
+}
+
+func (a *snsFirehosePutterAdapter) PutRecordBatch(streamName string, records [][]byte) (int, error) {
+	return a.backend.PutRecordBatch(context.Background(), streamName, records)
+}
+
 // wireSQSMetrics wires the CloudWatch metric emitter into the SQS backend so that
 // SendMessage, ReceiveMessage, and DeleteMessage operations emit CloudWatch metrics.
 func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
@@ -3165,7 +3217,7 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 	sqsBk.SetMetricEmitter(
 		sqsbackend.MetricEmitterFunc(
 			func(namespace, name string, value float64, unit string) error {
-				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+				err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
 					{
 						MetricName: name,
 						Value:      value,
@@ -3309,7 +3361,10 @@ func (a *s3EventBridgeAdapter) PublishS3Event(
 	ctx context.Context,
 	source, detailType, detail string,
 ) {
-	a.backend.PutEvents(ctx, []ebbackend.EventEntry{
+	// Best-effort S3 -> EventBridge forwarding: PublishS3Event has no error
+	// channel (s3.EventBridgePublisher is fire-and-forget), so the PutEvents
+	// error (added by the Phase 3.3 store conversion) is explicitly discarded.
+	_, _ = a.backend.PutEvents(ctx, []ebbackend.EventEntry{
 		{Source: source, DetailType: detailType, Detail: detail},
 	})
 }
@@ -4204,7 +4259,7 @@ func wireCWLogsMetricEmitter(cwlogsReg, cwReg service.Registerable) {
 	cwlogsBk.SetMetricEmitter(
 		cwlogsbackend.MetricEmitterFunc(
 			func(namespace, name string, value float64, unit string) error {
-				_, err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
+				err := cwBk.PutMetricData(namespace, []cwbackend.MetricDatum{
 					{
 						MetricName: name,
 						Namespace:  namespace,

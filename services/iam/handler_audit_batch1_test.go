@@ -273,7 +273,9 @@ func TestHandler_PolicyVersion_CRUD(t *testing.T) {
 	rec3 := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req3, rec3)))
 	assert.Equal(t, http.StatusOK, rec3.Code)
-	assert.Contains(t, rec3.Body.String(), "s3:*")
+	// Real AWS IAM returns PolicyVersion.Document URL-encoded (RFC 3986); "s3:*"
+	// becomes "s3%3A%2A" on the wire.
+	assert.Contains(t, rec3.Body.String(), "s3%3A%2A")
 
 	// SetDefaultPolicyVersion.
 	req4 := iamRequest("SetDefaultPolicyVersion", map[string]string{
@@ -331,7 +333,8 @@ func TestHandler_PolicyVersion_LimitExceeded(t *testing.T) {
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	// Real AWS IAM returns 409 for LimitExceeded, not 400.
+	assert.Equal(t, http.StatusConflict, rec.Code)
 
 	var errResp iam.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -410,7 +413,8 @@ func TestHandler_AccessKey_MaxTwoLimit_Via_Handler(t *testing.T) {
 	req := iamRequest("CreateAccessKey", map[string]string{"UserName": "alice"})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code, "third key must fail")
+	// Real AWS IAM returns 409 for LimitExceeded, not 400.
+	assert.Equal(t, http.StatusConflict, rec.Code, "third key must fail")
 
 	var errResp iam.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -710,7 +714,8 @@ func TestHandler_InstanceProfile_OneRoleLimit(t *testing.T) {
 	})
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code, "second role must fail")
+	// Real AWS IAM returns 409 for LimitExceeded, not 400.
+	assert.Equal(t, http.StatusConflict, rec.Code, "second role must fail")
 
 	var errResp iam.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -1177,7 +1182,7 @@ func TestHandler_UpdateUser(t *testing.T) {
 	req2 := iamRequest("GetUser", map[string]string{"UserName": "alice"})
 	rec2 := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req2, rec2)))
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Equal(t, http.StatusNotFound, rec2.Code)
 
 	// New name should exist.
 	req3 := iamRequest("GetUser", map[string]string{"UserName": "alicia"})

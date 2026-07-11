@@ -15,7 +15,7 @@ func InsightCount(b *InMemoryBackend) int {
 	b.mu.RLock("InsightCount")
 	defer b.mu.RUnlock()
 
-	return len(b.insights)
+	return b.insights.Len()
 }
 
 // StandardsSubscriptionCount returns the number of enabled standards subscriptions.
@@ -23,7 +23,7 @@ func StandardsSubscriptionCount(b *InMemoryBackend) int {
 	b.mu.RLock("StandardsSubscriptionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.standardsSubscriptions)
+	return b.standardsSubscriptions.Len()
 }
 
 // ActionTargetCount returns the number of action targets.
@@ -31,7 +31,7 @@ func ActionTargetCount(b *InMemoryBackend) int {
 	b.mu.RLock("ActionTargetCount")
 	defer b.mu.RUnlock()
 
-	return len(b.actionTargets)
+	return b.actionTargets.Len()
 }
 
 // AutomationRuleCount returns the number of automation rules.
@@ -39,7 +39,7 @@ func AutomationRuleCount(b *InMemoryBackend) int {
 	b.mu.RLock("AutomationRuleCount")
 	defer b.mu.RUnlock()
 
-	return len(b.automationRules)
+	return b.automationRules.Len()
 }
 
 // IsHubEnabled returns whether the hub is enabled.

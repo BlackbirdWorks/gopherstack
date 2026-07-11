@@ -3,19 +3,41 @@ package kinesis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-// backendSnapshot is the persisted form of the backend. Streams and
-// ResourcePolicies are nested by region (outer key = region) to match the
-// region-isolated in-memory layout.
+// kinesisSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to the persisted Stream shape or backendSnapshot
+// itself would make an older snapshot unsafe to decode as the current shape.
+// Restore discards (rather than partially decodes) any mismatch -- see
+// Restore below. This is version 1: the first snapshot format built on top of
+// pkgs/store's Table/Registry (the prior format persisted a bare
+// region-nested map with no version field at all, so it always decodes as
+// Version 0 and is treated as incompatible).
+const kinesisSnapshotVersion = 1
+
+// backendSnapshot is the persisted form of the backend.
+//
+// Tables holds one JSON-encoded array per table registered on b.registry --
+// currently just "streams" ([]*Stream), produced by
+// [github.com/blackbirdworks/gopherstack/pkgs/store.Registry.SnapshotAll].
+// Stream is persisted directly (no DTO) because every field is already
+// JSON-round-trippable except the unexported mu, which json.Marshal skips
+// automatically and [initializeStreamRuntime] rebuilds on restore.
+//
+// ResourcePolicies remains a plain nested map: its value type (a bare string)
+// carries no identity of its own to hand a store.Table keyFn, so it is
+// persisted the same way it always was.
 type backendSnapshot struct {
-	Streams          map[string]map[string]*Stream `json:"streams"`
-	ResourcePolicies map[string]map[string]string  `json:"resourcePolicies,omitempty"`
-	AccountID        string                        `json:"accountID"`
-	Region           string                        `json:"region"`
+	Tables                   map[string]json.RawMessage   `json:"tables"`
+	ResourcePolicies         map[string]map[string]string `json:"resourcePolicies,omitempty"`
+	AccountID                string                       `json:"accountID"`
+	Region                   string                       `json:"region"`
+	OnDemandStreamCountLimit int                          `json:"onDemandStreamCountLimit,omitempty"`
+	Version                  int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -25,11 +47,20 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "kinesis: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Streams:          b.streams,
-		ResourcePolicies: b.resourcePolicies,
-		AccountID:        b.accountID,
-		Region:           b.region,
+		Version:                  kinesisSnapshotVersion,
+		Tables:                   tables,
+		ResourcePolicies:         b.resourcePolicies,
+		AccountID:                b.accountID,
+		Region:                   b.region,
+		OnDemandStreamCountLimit: b.onDemandStreamCountLimit,
 	}
 
 	data, err := json.Marshal(snap)
@@ -54,33 +85,44 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Streams == nil {
-		snap.Streams = make(map[string]map[string]*Stream)
+	if snap.Version != kinesisSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields (e.g. the pre-store nested-map format this
+		// version replaced). Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition, not
+		// data corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"kinesis: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", kinesisSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.resourcePolicies = make(map[string]map[string]string)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("kinesis: restore snapshot tables: %w", err)
+	}
+
+	for _, stream := range b.streams.All() {
+		initializeStreamRuntime(stream, stream.Name)
 	}
 
 	if snap.ResourcePolicies == nil {
 		snap.ResourcePolicies = make(map[string]map[string]string)
 	}
 
-	for region, regionStreams := range snap.Streams {
-		for name, stream := range regionStreams {
-			if stream == nil {
-				delete(regionStreams, name)
-
-				continue
-			}
-			initializeStreamRuntime(stream, name)
-		}
-
-		if len(regionStreams) == 0 {
-			delete(snap.Streams, region)
-		}
-	}
-
-	b.streams = snap.Streams
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.resourcePolicies = snap.ResourcePolicies
+
+	if snap.OnDemandStreamCountLimit > 0 {
+		b.onDemandStreamCountLimit = snap.OnDemandStreamCountLimit
+	} else {
+		b.onDemandStreamCountLimit = defaultOnDemandStreamCountLimit
+	}
 
 	return nil
 }

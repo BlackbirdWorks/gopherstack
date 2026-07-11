@@ -172,13 +172,13 @@ func (b *InMemoryBackend) CreateIpGroup( //nolint:revive,staticcheck // existing
 	rules := make([]ipRuleItem, len(userRules))
 	copy(rules, userRules)
 
-	b.ipGroups[id] = &storedIpGroup{
+	b.ipGroups.Put(&storedIpGroup{
 		GroupID:   id,
 		GroupName: groupName,
 		GroupDesc: groupDesc,
 		UserRules: rules,
 		Tags:      cloneTags(tags),
-	}
+	})
 
 	return id, nil
 }
@@ -193,7 +193,7 @@ func (b *InMemoryBackend) DescribeIpGroups( //nolint:revive,staticcheck // exist
 	filter := buildFilter(groupIDs)
 	var result []*storedIpGroup
 
-	for _, g := range b.ipGroups {
+	for _, g := range b.ipGroups.All() {
 		if !matchesFilter(filter, g.GroupID) {
 			continue
 		}
@@ -218,11 +218,11 @@ func (b *InMemoryBackend) DeleteIPGroup(
 	b.mu.Lock("DeleteIpGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipGroups[groupID]; !ok {
+	if !b.ipGroups.Has(groupID) {
 		return errIpGroupNotFound
 	}
 
-	delete(b.ipGroups, groupID)
+	b.ipGroups.Delete(groupID)
 
 	return nil
 }
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) AuthorizeIpRules( //nolint:revive,staticcheck // exist
 	b.mu.Lock("AuthorizeIpRules")
 	defer b.mu.Unlock()
 
-	g, ok := b.ipGroups[groupID]
+	g, ok := b.ipGroups.Get(groupID)
 	if !ok {
 		return errIpGroupNotFound
 	}
@@ -253,7 +253,7 @@ func (b *InMemoryBackend) RevokeIpRules( //nolint:revive,staticcheck // existing
 	b.mu.Lock("RevokeIpRules")
 	defer b.mu.Unlock()
 
-	g, ok := b.ipGroups[groupID]
+	g, ok := b.ipGroups.Get(groupID)
 	if !ok {
 		return errIpGroupNotFound
 	}
@@ -280,7 +280,7 @@ func (b *InMemoryBackend) UpdateRulesOfIpGroup( //nolint:revive,staticcheck // e
 	b.mu.Lock("UpdateRulesOfIpGroup")
 	defer b.mu.Unlock()
 
-	g, ok := b.ipGroups[groupID]
+	g, ok := b.ipGroups.Get(groupID)
 	if !ok {
 		return errIpGroupNotFound
 	}
@@ -338,13 +338,13 @@ func (b *InMemoryBackend) CreateConnectionAlias(
 	defer b.mu.Unlock()
 
 	id := b.nextID("wsca-")
-	b.connAliases[id] = &storedConnAlias{
+	b.connAliases.Put(&storedConnAlias{
 		AliasID:          id,
 		ConnectionString: connectionString,
 		State:            "CREATED",
 		OwnerAccountID:   b.accountID,
 		Tags:             cloneTags(tags),
-	}
+	})
 
 	return id, nil
 }
@@ -359,7 +359,7 @@ func (b *InMemoryBackend) DescribeConnectionAliases(
 	filter := buildFilter(aliasIDs)
 	var result []*storedConnAlias
 
-	for _, a := range b.connAliases {
+	for _, a := range b.connAliases.All() {
 		if !matchesFilter(filter, a.AliasID) {
 			continue
 		}
@@ -384,11 +384,11 @@ func (b *InMemoryBackend) DeleteConnectionAlias(aliasID string) error {
 	b.mu.Lock("DeleteConnectionAlias")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connAliases[aliasID]; !ok {
+	if !b.connAliases.Has(aliasID) {
 		return errConnAliasNotFound
 	}
 
-	delete(b.connAliases, aliasID)
+	b.connAliases.Delete(aliasID)
 
 	return nil
 }
@@ -398,7 +398,7 @@ func (b *InMemoryBackend) AssociateConnectionAlias(aliasID, resourceID string) (
 	b.mu.Lock("AssociateConnectionAlias")
 	defer b.mu.Unlock()
 
-	a, ok := b.connAliases[aliasID]
+	a, ok := b.connAliases.Get(aliasID)
 	if !ok {
 		return "", errConnAliasNotFound
 	}
@@ -414,7 +414,7 @@ func (b *InMemoryBackend) DisassociateConnectionAlias(aliasID string) error {
 	b.mu.Lock("DisassociateConnectionAlias")
 	defer b.mu.Unlock()
 
-	a, ok := b.connAliases[aliasID]
+	a, ok := b.connAliases.Get(aliasID)
 	if !ok {
 		return errConnAliasNotFound
 	}
@@ -432,7 +432,7 @@ func (b *InMemoryBackend) DescribeConnectionAliasPermissions(
 	b.mu.RLock("DescribeConnectionAliasPermissions")
 	defer b.mu.RUnlock()
 
-	a, ok := b.connAliases[aliasID]
+	a, ok := b.connAliases.Get(aliasID)
 	if !ok {
 		return "", nil, "", errConnAliasNotFound
 	}
@@ -450,7 +450,7 @@ func (b *InMemoryBackend) UpdateConnectionAliasPermission(
 	b.mu.Lock("UpdateConnectionAliasPermission")
 	defer b.mu.Unlock()
 
-	a, ok := b.connAliases[aliasID]
+	a, ok := b.connAliases.Get(aliasID)
 	if !ok {
 		return errConnAliasNotFound
 	}
@@ -492,7 +492,7 @@ func (b *InMemoryBackend) CreateWorkspaceBundle(
 		ComputeType: computeType,
 		Tags:        cloneTags(tags),
 	}
-	b.customBundles[id] = bun
+	b.customBundles.Put(bun)
 
 	return bun, nil
 }
@@ -502,11 +502,11 @@ func (b *InMemoryBackend) DeleteWorkspaceBundle(bundleID string) error {
 	b.mu.Lock("DeleteWorkspaceBundle")
 	defer b.mu.Unlock()
 
-	if _, ok := b.customBundles[bundleID]; !ok {
+	if !b.customBundles.Has(bundleID) {
 		return errBundleNotFound
 	}
 
-	delete(b.customBundles, bundleID)
+	b.customBundles.Delete(bundleID)
 
 	return nil
 }
@@ -516,7 +516,7 @@ func (b *InMemoryBackend) UpdateWorkspaceBundle(bundleID, imageID string) error 
 	b.mu.Lock("UpdateWorkspaceBundle")
 	defer b.mu.Unlock()
 
-	bun, ok := b.customBundles[bundleID]
+	bun, ok := b.customBundles.Get(bundleID)
 	if !ok {
 		return errBundleNotFound
 	}
@@ -544,7 +544,7 @@ func (b *InMemoryBackend) createImageLocked(
 		Created:       time.Now().UTC(),
 		Tags:          cloneTags(tags),
 	}
-	b.images[id] = img
+	b.images.Put(img)
 
 	return img
 }
@@ -580,11 +580,11 @@ func (b *InMemoryBackend) DeleteWorkspaceImage(imageID string) error {
 	b.mu.Lock("DeleteWorkspaceImage")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageID]; !ok {
+	if !b.images.Has(imageID) {
 		return errImageNotFound
 	}
 
-	delete(b.images, imageID)
+	b.images.Delete(imageID)
 	delete(b.imagePermissions, imageID)
 
 	return nil
@@ -636,7 +636,7 @@ func (b *InMemoryBackend) DescribeWorkspaceImages(
 	filter := buildFilter(imageIDs)
 	var result []*storedImage
 
-	for _, img := range b.images {
+	for _, img := range b.images.All() {
 		if !matchesFilter(filter, img.ImageID) {
 			continue
 		}
@@ -659,7 +659,7 @@ func (b *InMemoryBackend) DescribeWorkspaceImagePermissions(
 	b.mu.RLock("DescribeWorkspaceImagePermissions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.images[imageID]; !ok {
+	if !b.images.Has(imageID) {
 		return "", nil, errImageNotFound
 	}
 
@@ -676,7 +676,7 @@ func (b *InMemoryBackend) UpdateWorkspaceImagePermission(
 	b.mu.Lock("UpdateWorkspaceImagePermission")
 	defer b.mu.Unlock()
 
-	if _, ok := b.images[imageID]; !ok {
+	if !b.images.Has(imageID) {
 		return errImageNotFound
 	}
 
@@ -694,7 +694,7 @@ func (b *InMemoryBackend) DescribeCustomWorkspaceImageImport(imageID string) (*s
 	b.mu.RLock("DescribeCustomWorkspaceImageImport")
 	defer b.mu.RUnlock()
 
-	img, ok := b.images[imageID]
+	img, ok := b.images.Get(imageID)
 	if !ok {
 		return nil, errImageNotFound
 	}
@@ -733,7 +733,7 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 		CreatedAt:   time.Now().UTC(),
 		Tags:        cloneTags(tags),
 	}
-	b.pools[id] = pool
+	b.pools.Put(pool)
 
 	return pool, nil
 }
@@ -748,7 +748,7 @@ func (b *InMemoryBackend) DescribeWorkspacesPools(
 	filter := buildFilter(poolIDs)
 	var result []*storedPool
 
-	for _, p := range b.pools {
+	for _, p := range b.pools.All() {
 		if !matchesFilter(filter, p.PoolID) {
 			continue
 		}
@@ -769,7 +769,7 @@ func (b *InMemoryBackend) StartWorkspacesPool(poolID string) error {
 	b.mu.Lock("StartWorkspacesPool")
 	defer b.mu.Unlock()
 
-	p, ok := b.pools[poolID]
+	p, ok := b.pools.Get(poolID)
 	if !ok {
 		return errPoolNotFound
 	}
@@ -784,7 +784,7 @@ func (b *InMemoryBackend) StopWorkspacesPool(poolID string) error {
 	b.mu.Lock("StopWorkspacesPool")
 	defer b.mu.Unlock()
 
-	p, ok := b.pools[poolID]
+	p, ok := b.pools.Get(poolID)
 	if !ok {
 		return errPoolNotFound
 	}
@@ -799,11 +799,11 @@ func (b *InMemoryBackend) TerminateWorkspacesPool(poolID string) error {
 	b.mu.Lock("TerminateWorkspacesPool")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools[poolID]; !ok {
+	if !b.pools.Has(poolID) {
 		return errPoolNotFound
 	}
 
-	delete(b.pools, poolID)
+	b.pools.Delete(poolID)
 
 	return nil
 }
@@ -815,7 +815,7 @@ func (b *InMemoryBackend) UpdateWorkspacesPool(
 	b.mu.Lock("UpdateWorkspacesPool")
 	defer b.mu.Unlock()
 
-	p, ok := b.pools[poolID]
+	p, ok := b.pools.Get(poolID)
 	if !ok {
 		return nil, errPoolNotFound
 	}
@@ -846,7 +846,7 @@ func (b *InMemoryBackend) DescribeWorkspacesPoolSessions(
 
 	var result []*storedPoolSession
 
-	for _, s := range b.poolSessions {
+	for _, s := range b.poolSessions.All() {
 		if s.PoolID != poolID {
 			continue
 		}
@@ -867,11 +867,11 @@ func (b *InMemoryBackend) TerminateWorkspacesPoolSession(sessionID string) error
 	b.mu.Lock("TerminateWorkspacesPoolSession")
 	defer b.mu.Unlock()
 
-	if _, ok := b.poolSessions[sessionID]; !ok {
+	if !b.poolSessions.Has(sessionID) {
 		return errPoolSessionNotFound
 	}
 
-	delete(b.poolSessions, sessionID)
+	b.poolSessions.Delete(sessionID)
 
 	return nil
 }
@@ -885,17 +885,13 @@ func (b *InMemoryBackend) RegisterWorkspaceDirectory(directoryID string, subnetI
 	b.mu.Lock("RegisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
-	if b.dirSettings[directoryID] == nil {
-		b.dirSettings[directoryID] = &storedDirSettings{
-			DirectoryID: directoryID,
-			Properties:  make(map[string]string),
-		}
-	}
+	b.ensureDirSettings(directoryID)
 
-	b.dirSettings[directoryID].Properties["State"] = stateRegistered
+	ds, _ := b.dirSettings.Get(directoryID)
+	ds.Properties["State"] = stateRegistered
 
 	if len(subnetIDs) > 0 {
-		b.dirSettings[directoryID].Properties["SubnetIds"] = strings.Join(subnetIDs, ",")
+		ds.Properties["SubnetIds"] = strings.Join(subnetIDs, ",")
 	}
 
 	return nil
@@ -906,7 +902,7 @@ func (b *InMemoryBackend) DeregisterWorkspaceDirectory(directoryID string) error
 	b.mu.Lock("DeregisterWorkspaceDirectory")
 	defer b.mu.Unlock()
 
-	delete(b.dirSettings, directoryID)
+	b.dirSettings.Delete(directoryID)
 
 	return nil
 }
@@ -952,18 +948,20 @@ func (b *InMemoryBackend) ModifyEndpointEncryptionMode(directoryID, mode string)
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
-	b.dirSettings[directoryID].Properties["EndpointEncryptionMode"] = mode
+
+	ds, _ := b.dirSettings.Get(directoryID)
+	ds.Properties["EndpointEncryptionMode"] = mode
 
 	return nil
 }
 
 // ensureDirSettings ensures a storedDirSettings exists for a directory (must hold lock).
 func (b *InMemoryBackend) ensureDirSettings(directoryID string) {
-	if b.dirSettings[directoryID] == nil {
-		b.dirSettings[directoryID] = &storedDirSettings{
+	if !b.dirSettings.Has(directoryID) {
+		b.dirSettings.Put(&storedDirSettings{
 			DirectoryID: directoryID,
 			Properties:  make(map[string]string),
-		}
+		})
 	}
 }
 
@@ -977,12 +975,12 @@ func (b *InMemoryBackend) CreateConnectClientAddIn(name, resourceID, url string)
 	defer b.mu.Unlock()
 
 	id := b.nextID("wscai-")
-	b.connectAddIns[id] = &storedConnectAddIn{
+	b.connectAddIns.Put(&storedConnectAddIn{
 		AddInID:    id,
 		Name:       name,
 		ResourceID: resourceID,
 		URL:        url,
-	}
+	})
 
 	return id, nil
 }
@@ -992,11 +990,11 @@ func (b *InMemoryBackend) DeleteConnectClientAddIn(addInID, _ /*resourceId*/ str
 	b.mu.Lock("DeleteConnectClientAddIn")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connectAddIns[addInID]; !ok {
+	if !b.connectAddIns.Has(addInID) {
 		return errAddInNotFound
 	}
 
-	delete(b.connectAddIns, addInID)
+	b.connectAddIns.Delete(addInID)
 
 	return nil
 }
@@ -1010,7 +1008,7 @@ func (b *InMemoryBackend) DescribeConnectClientAddIns(
 
 	var result []*storedConnectAddIn
 
-	for _, a := range b.connectAddIns {
+	for _, a := range b.connectAddIns.All() {
 		if a.ResourceID != resourceID {
 			continue
 		}
@@ -1033,7 +1031,7 @@ func (b *InMemoryBackend) UpdateConnectClientAddIn(
 	b.mu.Lock("UpdateConnectClientAddIn")
 	defer b.mu.Unlock()
 
-	a, ok := b.connectAddIns[addInID]
+	a, ok := b.connectAddIns.Get(addInID)
 	if !ok {
 		return errAddInNotFound
 	}
@@ -1060,14 +1058,16 @@ func (b *InMemoryBackend) ImportClientBranding(
 	b.mu.Lock("ImportClientBranding")
 	defer b.mu.Unlock()
 
-	if b.clientBranding[resourceID] == nil {
-		b.clientBranding[resourceID] = &storedClientBranding{
+	cb, ok := b.clientBranding.Get(resourceID)
+	if !ok {
+		cb = &storedClientBranding{
 			ResourceID: resourceID,
 			Platforms:  make(map[string]map[string]any),
 		}
+		b.clientBranding.Put(cb)
 	}
 
-	maps.Copy(b.clientBranding[resourceID].Platforms, platforms)
+	maps.Copy(cb.Platforms, platforms)
 
 	return nil
 }
@@ -1079,8 +1079,8 @@ func (b *InMemoryBackend) DescribeClientBranding(
 	b.mu.RLock("DescribeClientBranding")
 	defer b.mu.RUnlock()
 
-	cb := b.clientBranding[resourceID]
-	if cb == nil {
+	cb, ok := b.clientBranding.Get(resourceID)
+	if !ok {
 		return map[string]map[string]any{}, nil
 	}
 
@@ -1095,8 +1095,8 @@ func (b *InMemoryBackend) DeleteClientBranding(resourceID string, platforms []st
 	b.mu.Lock("DeleteClientBranding")
 	defer b.mu.Unlock()
 
-	cb := b.clientBranding[resourceID]
-	if cb == nil {
+	cb, ok := b.clientBranding.Get(resourceID)
+	if !ok {
 		return nil
 	}
 
@@ -1149,8 +1149,10 @@ func (b *InMemoryBackend) ModifyCertificateBasedAuthProperties(
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
+
+	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
-		b.dirSettings[directoryID].Properties["CertAuth_"+k] = v
+		ds.Properties["CertAuth_"+k] = v
 	}
 
 	return nil
@@ -1162,8 +1164,10 @@ func (b *InMemoryBackend) ModifySamlProperties(directoryID string, props map[str
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
+
+	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
-		b.dirSettings[directoryID].Properties["Saml_"+k] = v
+		ds.Properties["Saml_"+k] = v
 	}
 
 	return nil
@@ -1178,8 +1182,10 @@ func (b *InMemoryBackend) ModifySelfservicePermissions(
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
+
+	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
-		b.dirSettings[directoryID].Properties["SelfSvc_"+k] = v
+		ds.Properties["SelfSvc_"+k] = v
 	}
 
 	return nil
@@ -1194,8 +1200,10 @@ func (b *InMemoryBackend) ModifyStreamingProperties(
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
+
+	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
-		b.dirSettings[directoryID].Properties["Streaming_"+k] = v
+		ds.Properties["Streaming_"+k] = v
 	}
 
 	return nil
@@ -1210,8 +1218,10 @@ func (b *InMemoryBackend) ModifyWorkspaceAccessProperties(
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
+
+	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
-		b.dirSettings[directoryID].Properties["Access_"+k] = v
+		ds.Properties["Access_"+k] = v
 	}
 
 	return nil
@@ -1226,8 +1236,10 @@ func (b *InMemoryBackend) ModifyWorkspaceCreationProperties(
 	defer b.mu.Unlock()
 
 	b.ensureDirSettings(directoryID)
+
+	ds, _ := b.dirSettings.Get(directoryID)
 	for k, v := range props {
-		b.dirSettings[directoryID].Properties["Creation_"+k] = v
+		ds.Properties["Creation_"+k] = v
 	}
 
 	return nil
@@ -1251,7 +1263,7 @@ func (b *InMemoryBackend) CreateAccountLinkInvitation(
 		SourceAccountID: b.accountID,
 		TargetAccountID: targetAccountID,
 	}
-	b.accountLinks[id] = link
+	b.accountLinks.Put(link)
 
 	cp := *link
 
@@ -1263,7 +1275,7 @@ func (b *InMemoryBackend) AcceptAccountLinkInvitation(linkID string) (*storedAcc
 	b.mu.Lock("AcceptAccountLinkInvitation")
 	defer b.mu.Unlock()
 
-	link, ok := b.accountLinks[linkID]
+	link, ok := b.accountLinks.Get(linkID)
 	if !ok {
 		return nil, errAccountLinkNotFound
 	}
@@ -1279,7 +1291,7 @@ func (b *InMemoryBackend) RejectAccountLinkInvitation(linkID string) (*storedAcc
 	b.mu.Lock("RejectAccountLinkInvitation")
 	defer b.mu.Unlock()
 
-	link, ok := b.accountLinks[linkID]
+	link, ok := b.accountLinks.Get(linkID)
 	if !ok {
 		return nil, errAccountLinkNotFound
 	}
@@ -1295,14 +1307,14 @@ func (b *InMemoryBackend) DeleteAccountLinkInvitation(linkID string) (*storedAcc
 	b.mu.Lock("DeleteAccountLinkInvitation")
 	defer b.mu.Unlock()
 
-	link, ok := b.accountLinks[linkID]
+	link, ok := b.accountLinks.Get(linkID)
 	if !ok {
 		return nil, errAccountLinkNotFound
 	}
 
 	link.Status = "DELETED"
 	cp := *link
-	delete(b.accountLinks, linkID)
+	b.accountLinks.Delete(linkID)
 
 	return &cp, nil
 }
@@ -1312,7 +1324,7 @@ func (b *InMemoryBackend) GetAccountLink(linkID string) (*storedAccountLink, err
 	b.mu.RLock("GetAccountLink")
 	defer b.mu.RUnlock()
 
-	link, ok := b.accountLinks[linkID]
+	link, ok := b.accountLinks.Get(linkID)
 	if !ok {
 		return nil, errAccountLinkNotFound
 	}
@@ -1333,7 +1345,7 @@ func (b *InMemoryBackend) ListAccountLinks(
 
 	var result []*storedAccountLink
 
-	for _, link := range b.accountLinks {
+	for _, link := range b.accountLinks.All() {
 		if statusFilter != "" && link.Status != statusFilter {
 			continue
 		}
@@ -1450,7 +1462,7 @@ func (b *InMemoryBackend) DescribeApplications(
 	filter := buildFilter(appIDs)
 	var result []*storedApplication
 
-	for _, app := range b.applications {
+	for _, app := range b.applications.All() {
 		if !matchesFilter(filter, app.AppID) {
 			continue
 		}
@@ -1477,7 +1489,7 @@ func (b *InMemoryBackend) MigrateWorkspace( //nolint:nonamedreturns // existing 
 	b.mu.Lock("MigrateWorkspace")
 	defer b.mu.Unlock()
 
-	src, ok := b.workspaces[sourceWorkspaceID]
+	src, ok := b.workspaces.Get(sourceWorkspaceID)
 	if !ok {
 		return "", "", ErrWorkspaceNotFound
 	}
@@ -1493,10 +1505,10 @@ func (b *InMemoryBackend) MigrateWorkspace( //nolint:nonamedreturns // existing 
 		State:       stateAvailable,
 		Tags:        cloneTags(src.Tags),
 	}
-	b.workspaces[newID] = newWs
+	b.workspaces.Put(newWs)
 
 	// Terminate old
-	delete(b.workspaces, sourceWorkspaceID)
+	b.workspaces.Delete(sourceWorkspaceID)
 	delete(b.tags, sourceWorkspaceID)
 
 	return sourceWorkspaceID, newID, nil
@@ -1528,7 +1540,7 @@ func (b *InMemoryBackend) CreateStandbyWorkspaces(
 			State:       statePending,
 			Tags:        make(map[string]string),
 		}
-		b.workspaces[id] = w
+		b.workspaces.Put(w)
 
 		pending = append(pending, map[string]string{
 			"WorkspaceId": id,

@@ -552,6 +552,48 @@ func TestSweepESMs_MarksDegradedESM(t *testing.T) {
 	}
 }
 
+// TestSweepESMs_QualifiedFunctionARN_NotMarkedDegraded proves the
+// parity-sweep-3 fix to esmFunctionName/functionNameFromARN: an ESM created
+// against a qualified function ARN (a common real pattern — point the
+// trigger at a specific published version/alias rather than $LATEST) must
+// not be treated as pointing at a missing function.
+//
+// Before the fix, esmFunctionName took only the LAST colon-separated ARN
+// segment, so "arn:...:function:qual-esm-fn:1" was stored as
+// FunctionARN=".../function:1" — the qualifier "1" mistaken for the function
+// name. The janitor's existence check then looked up a nonexistent function
+// literally named "1" and permanently marked the mapping "PROBLEM".
+func TestSweepESMs_QualifiedFunctionARN_NotMarkedDegraded(t *testing.T) {
+	t.Parallel()
+
+	bk := newParityBackend(t)
+	require.NoError(t, bk.CreateFunction(makeMinimalFunction("qual-esm-fn")))
+
+	_, err := bk.PublishVersion("qual-esm-fn", "")
+	require.NoError(t, err)
+
+	esm, err := bk.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:sqs:us-east-1:123456789012:test-queue",
+		FunctionName:   "arn:aws:lambda:us-east-1:123456789012:function:qual-esm-fn:1",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:qual-esm-fn:1", esm.FunctionARN,
+		"FunctionARN must preserve the name:qualifier suffix, matching real Lambda's echo")
+
+	name, qualifier := lambda.FunctionNameAndQualifierFromARN(esm.FunctionARN)
+	assert.Equal(t, "qual-esm-fn", name)
+	assert.Equal(t, "1", qualifier)
+
+	j := lambda.NewJanitor(bk, lambda.DefaultSettings())
+	lambda.SweepESMsForTest(context.Background(), j)
+
+	got, err := bk.GetEventSourceMapping(esm.UUID)
+	require.NoError(t, err)
+	assert.NotEqual(t, "PROBLEM", got.LastProcessingResult,
+		"a qualified-ARN ESM's function must resolve correctly, not be treated as missing")
+}
+
 func TestSweepESMs_SkipsDisabledESMs(t *testing.T) {
 	t.Parallel()
 

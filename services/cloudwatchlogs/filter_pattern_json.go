@@ -34,6 +34,51 @@ func compileJSONFilterPattern(pattern string) func(string) bool {
 	}
 }
 
+// compileJSONFilterPatternExtract returns a field extractor for a JSON selector pattern.
+// fieldRef is a selector path with its leading "$" already stripped by the caller (e.g.
+// ".bytes" for a MetricValue of "$.bytes"); parseSelectorPath tolerates the remaining
+// leading "." itself. Returns the leaf's string form, or false if message isn't valid
+// JSON, the path resolves to nothing, or the leaf is a non-scalar (array/object).
+func compileJSONFilterPatternExtract(_ string) func(message, fieldRef string) (string, bool) {
+	return func(message, fieldRef string) (string, bool) {
+		var root any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &root); err != nil {
+			return "", false
+		}
+
+		leaves := resolveJSONSelector(root, parseSelectorPath(fieldRef))
+		if len(leaves) == 0 {
+			return "", false
+		}
+
+		switch leaves[0].(type) {
+		case string, float64, bool:
+			return jsonLeafString(leaves[0]), true
+		default:
+			return "", false
+		}
+	}
+}
+
+// jsonPatternSelectors returns the distinct "$.path" selector tokens referenced anywhere
+// in a JSON selector pattern, in first-seen order.
+func jsonPatternSelectors(pattern string) []string {
+	body := strings.TrimSpace(pattern)
+	body = strings.TrimPrefix(body, "{")
+	body = strings.TrimSuffix(body, "}")
+
+	seen := make(map[string]bool)
+	var out []string
+	for _, t := range lexJSONPattern(body) {
+		if t.kind == jtSelector && !seen[t.text] {
+			seen[t.text] = true
+			out = append(out, t.text)
+		}
+	}
+
+	return out
+}
+
 // jtKind enumerates JSON-pattern token kinds.
 type jtKind int
 

@@ -163,11 +163,12 @@ func TestServerCertificate_HandlerRoundtrip(t *testing.T) {
 	})
 	assert.Equal(t, 200, rec.Code)
 
-	// Get after delete — NoSuchEntity returns 400 per AWS IAM semantics.
+	// Get after delete — NoSuchEntity returns 404 per real AWS IAM (see e.g.
+	// https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetServerCertificate.html#API_GetServerCertificate_Errors).
 	rec = callIAM(t, h, "GetServerCertificate", map[string]string{
 		"ServerCertificateName": "handler-cert",
 	})
-	assert.Equal(t, 400, rec.Code)
+	assert.Equal(t, 404, rec.Code)
 	assert.Contains(t, rec.Body.String(), "NoSuchEntity")
 }
 

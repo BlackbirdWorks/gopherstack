@@ -143,7 +143,7 @@ func (b *InMemoryBackend) CreateFlow(
 		Status:      flowStatusNotPrepared,
 		Tags:        tagsCopy,
 	}
-	b.flows[id] = f
+	b.flows.Put(f)
 	b.flowsByName[name] = id
 	cp := *f
 
@@ -155,7 +155,7 @@ func (b *InMemoryBackend) GetFlow(flowID string) (*Flow, error) {
 	b.mu.RLock("GetFlow")
 	defer b.mu.RUnlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -170,8 +170,8 @@ func (b *InMemoryBackend) ListFlows(maxResults int, nextToken string) ([]*Flow, 
 	b.mu.RLock("ListFlows")
 	defer b.mu.RUnlock()
 
-	list := make([]*Flow, 0, len(b.flows))
-	for _, f := range b.flows {
+	list := make([]*Flow, 0, b.flows.Len())
+	for _, f := range b.flows.All() {
 		cp := *f
 		list = append(list, &cp)
 	}
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) UpdateFlow(flowID, name, description string) (*Flow, e
 	b.mu.Lock("UpdateFlow")
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -212,13 +212,13 @@ func (b *InMemoryBackend) DeleteFlow(flowID string) error {
 	b.mu.Lock("DeleteFlow")
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
 	delete(b.flowsByName, f.Name)
-	delete(b.flows, flowID)
+	b.flows.Delete(flowID)
 
 	return nil
 }
@@ -228,7 +228,7 @@ func (b *InMemoryBackend) PrepareFlow(flowID string) (*Flow, error) {
 	b.mu.Lock("PrepareFlow")
 	defer b.mu.Unlock()
 
-	f, ok := b.flows[flowID]
+	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
@@ -251,7 +251,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 	b.mu.Lock("CreateFlowAlias")
 	defer b.mu.Unlock()
 
-	if _, ok := b.flows[flowID]; !ok {
+	if _, ok := b.flows.Get(flowID); !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 		Name:         name,
 		Description:  description,
 	}
-	b.flowAliases[flowAliasKey(flowID, aliasID)] = fa
+	b.flowAliases.Put(fa)
 	cp := *fa
 
 	return &cp, nil
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) GetFlowAlias(flowID, aliasID string) (*FlowAlias, erro
 	b.mu.RLock("GetFlowAlias")
 	defer b.mu.RUnlock()
 
-	fa, ok := b.flowAliases[flowAliasKey(flowID, aliasID)]
+	fa, ok := b.flowAliases.Get(flowAliasKey(flowID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
@@ -305,10 +305,9 @@ func (b *InMemoryBackend) ListFlowAliases(
 	defer b.mu.RUnlock()
 
 	list := make([]*FlowAlias, 0)
-	prefix := flowID + "/"
 
-	for k, fa := range b.flowAliases {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, fa := range b.flowAliases.All() {
+		if fa.FlowID == flowID {
 			cp := *fa
 			list = append(list, &cp)
 		}
@@ -326,7 +325,7 @@ func (b *InMemoryBackend) UpdateFlowAlias(
 	b.mu.Lock("UpdateFlowAlias")
 	defer b.mu.Unlock()
 
-	fa, ok := b.flowAliases[flowAliasKey(flowID, aliasID)]
+	fa, ok := b.flowAliases.Get(flowAliasKey(flowID, aliasID))
 	if !ok {
 		return nil, fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
@@ -352,11 +351,11 @@ func (b *InMemoryBackend) DeleteFlowAlias(flowID, aliasID string) error {
 
 	key := flowAliasKey(flowID, aliasID)
 
-	if _, ok := b.flowAliases[key]; !ok {
+	if _, ok := b.flowAliases.Get(key); !ok {
 		return fmt.Errorf("%w: flow alias %q not found", ErrNotFound, aliasID)
 	}
 
-	delete(b.flowAliases, key)
+	b.flowAliases.Delete(key)
 
 	return nil
 }
@@ -370,7 +369,7 @@ func (b *InMemoryBackend) CreateFlowVersion(flowID string) (*FlowVersion, error)
 	b.mu.Lock("CreateFlowVersion")
 	defer b.mu.Unlock()
 
-	if _, ok := b.flows[flowID]; !ok {
+	if _, ok := b.flows.Get(flowID); !ok {
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
@@ -384,11 +383,7 @@ func (b *InMemoryBackend) CreateFlowVersion(flowID string) (*FlowVersion, error)
 		Status:    flowStatusPrepared,
 	}
 
-	if b.flowVersions[flowID] == nil {
-		b.flowVersions[flowID] = make(map[string]*FlowVersion)
-	}
-
-	b.flowVersions[flowID][ver] = fv
+	b.flowVersionsStore(flowID).Put(fv)
 	cp := *fv
 
 	return &cp, nil
@@ -404,7 +399,7 @@ func (b *InMemoryBackend) GetFlowVersion(flowID, version string) (*FlowVersion, 
 		return nil, fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
-	fv, verOK := versions[version]
+	fv, verOK := versions.Get(version)
 	if !verOK {
 		return nil, fmt.Errorf(
 			"%w: flow version %q not found for flow %q",
@@ -429,11 +424,13 @@ func (b *InMemoryBackend) ListFlowVersions(
 	defer b.mu.RUnlock()
 
 	versions := b.flowVersions[flowID]
-	list := make([]*FlowVersion, 0, len(versions))
+	list := make([]*FlowVersion, 0)
 
-	for _, fv := range versions {
-		cp := *fv
-		list = append(list, &cp)
+	if versions != nil {
+		for _, fv := range versions.All() {
+			cp := *fv
+			list = append(list, &cp)
+		}
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Version < list[j].Version })
@@ -451,7 +448,7 @@ func (b *InMemoryBackend) DeleteFlowVersion(flowID, version string) error {
 		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
 	}
 
-	if _, verOK := versions[version]; !verOK {
+	if !versions.Has(version) {
 		return fmt.Errorf(
 			"%w: flow version %q not found for flow %q",
 			ErrNotFound,
@@ -460,7 +457,7 @@ func (b *InMemoryBackend) DeleteFlowVersion(flowID, version string) error {
 		)
 	}
 
-	delete(versions, version)
+	versions.Delete(version)
 
 	return nil
 }
@@ -503,7 +500,7 @@ func (b *InMemoryBackend) CreatePrompt(
 		Description: description,
 		Tags:        tagsCopy,
 	}
-	b.prompts[id] = p
+	b.prompts.Put(p)
 	b.promptsByName[name] = id
 	cp := *p
 
@@ -515,7 +512,7 @@ func (b *InMemoryBackend) GetPrompt(promptID string) (*Prompt, error) {
 	b.mu.RLock("GetPrompt")
 	defer b.mu.RUnlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
@@ -530,8 +527,8 @@ func (b *InMemoryBackend) ListPrompts(maxResults int, nextToken string) ([]*Prom
 	b.mu.RLock("ListPrompts")
 	defer b.mu.RUnlock()
 
-	list := make([]*Prompt, 0, len(b.prompts))
-	for _, p := range b.prompts {
+	list := make([]*Prompt, 0, b.prompts.Len())
+	for _, p := range b.prompts.All() {
 		cp := *p
 		list = append(list, &cp)
 	}
@@ -546,7 +543,7 @@ func (b *InMemoryBackend) UpdatePrompt(promptID, name, description string) (*Pro
 	b.mu.Lock("UpdatePrompt")
 	defer b.mu.Unlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
@@ -572,13 +569,13 @@ func (b *InMemoryBackend) DeletePrompt(promptID string) error {
 	b.mu.Lock("DeletePrompt")
 	defer b.mu.Unlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
 	delete(b.promptsByName, p.Name)
-	delete(b.prompts, promptID)
+	b.prompts.Delete(promptID)
 
 	return nil
 }
@@ -592,7 +589,7 @@ func (b *InMemoryBackend) CreatePromptVersion(promptID string) (*PromptVersion, 
 	b.mu.Lock("CreatePromptVersion")
 	defer b.mu.Unlock()
 
-	p, ok := b.prompts[promptID]
+	p, ok := b.prompts.Get(promptID)
 	if !ok {
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
@@ -607,11 +604,7 @@ func (b *InMemoryBackend) CreatePromptVersion(promptID string) (*PromptVersion, 
 		Name:      p.Name,
 	}
 
-	if b.promptVersions[promptID] == nil {
-		b.promptVersions[promptID] = make(map[string]*PromptVersion)
-	}
-
-	b.promptVersions[promptID][ver] = pv
+	b.promptVersionsStore(promptID).Put(pv)
 	cp := *pv
 
 	return &cp, nil
@@ -627,7 +620,7 @@ func (b *InMemoryBackend) GetPromptVersion(promptID, version string) (*PromptVer
 		return nil, fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
-	pv, verOK := versions[version]
+	pv, verOK := versions.Get(version)
 	if !verOK {
 		return nil, fmt.Errorf(
 			"%w: prompt version %q not found for prompt %q",
@@ -652,11 +645,13 @@ func (b *InMemoryBackend) ListPromptVersions(
 	defer b.mu.RUnlock()
 
 	versions := b.promptVersions[promptID]
-	list := make([]*PromptVersion, 0, len(versions))
+	list := make([]*PromptVersion, 0)
 
-	for _, pv := range versions {
-		cp := *pv
-		list = append(list, &cp)
+	if versions != nil {
+		for _, pv := range versions.All() {
+			cp := *pv
+			list = append(list, &cp)
+		}
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].Version < list[j].Version })
@@ -674,7 +669,7 @@ func (b *InMemoryBackend) DeletePromptVersion(promptID, version string) error {
 		return fmt.Errorf("%w: prompt %q not found", ErrNotFound, promptID)
 	}
 
-	if _, verOK := versions[version]; !verOK {
+	if !versions.Has(version) {
 		return fmt.Errorf(
 			"%w: prompt version %q not found for prompt %q",
 			ErrNotFound,
@@ -683,7 +678,7 @@ func (b *InMemoryBackend) DeletePromptVersion(promptID, version string) error {
 		)
 	}
 
-	delete(versions, version)
+	versions.Delete(version)
 
 	return nil
 }
@@ -697,7 +692,7 @@ func (b *InMemoryBackend) CreateAgentVersion(agentID string) (*AgentVersion, err
 	b.mu.Lock("CreateAgentVersion")
 	defer b.mu.Unlock()
 
-	ag, ok := b.agents[agentID]
+	ag, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
@@ -712,11 +707,7 @@ func (b *InMemoryBackend) CreateAgentVersion(agentID string) (*AgentVersion, err
 		AgentStatus:  ag.AgentStatus,
 	}
 
-	if b.agentVersions[agentID] == nil {
-		b.agentVersions[agentID] = make(map[string]*AgentVersion)
-	}
-
-	b.agentVersions[agentID][ver] = av
+	b.agentVersionsStore(agentID).Put(av)
 	cp := *av
 
 	return &cp, nil
@@ -732,7 +723,7 @@ func (b *InMemoryBackend) GetAgentVersion(agentID, version string) (*AgentVersio
 		return nil, fmt.Errorf("%w: agent %q has no versions", ErrNotFound, agentID)
 	}
 
-	av, verOK := versions[version]
+	av, verOK := versions.Get(version)
 	if !verOK {
 		return nil, fmt.Errorf(
 			"%w: agent version %q not found for agent %q",
@@ -757,11 +748,13 @@ func (b *InMemoryBackend) ListAgentVersions(
 	defer b.mu.RUnlock()
 
 	versions := b.agentVersions[agentID]
-	list := make([]*AgentVersion, 0, len(versions))
+	list := make([]*AgentVersion, 0)
 
-	for _, av := range versions {
-		cp := *av
-		list = append(list, &cp)
+	if versions != nil {
+		for _, av := range versions.All() {
+			cp := *av
+			list = append(list, &cp)
+		}
 	}
 
 	sort.Slice(list, func(i, j int) bool { return list[i].AgentVersion < list[j].AgentVersion })
@@ -779,7 +772,7 @@ func (b *InMemoryBackend) DeleteAgentVersion(agentID, version string) error {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
-	if _, verOK := versions[version]; !verOK {
+	if !versions.Has(version) {
 		return fmt.Errorf(
 			"%w: agent version %q not found for agent %q",
 			ErrNotFound,
@@ -788,7 +781,7 @@ func (b *InMemoryBackend) DeleteAgentVersion(agentID, version string) error {
 		)
 	}
 
-	delete(versions, version)
+	versions.Delete(version)
 
 	return nil
 }
@@ -804,7 +797,7 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 	b.mu.Lock("AssociateAgentCollaborator")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if _, ok := b.agents.Get(agentID); !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
@@ -820,11 +813,7 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 		RelayConversation: relayConversation,
 	}
 
-	if b.agentCollaborators[agentID] == nil {
-		b.agentCollaborators[agentID] = make(map[string]*AgentCollaborator)
-	}
-
-	b.agentCollaborators[agentID][collabID] = ac
+	b.agentCollaboratorsStore(agentID).Put(ac)
 	cp := *ac
 
 	return &cp, nil
@@ -839,7 +828,15 @@ func (b *InMemoryBackend) GetAgentCollaborator(
 
 	collabs := b.agentCollaborators[agentID]
 
-	ac, ok := collabs[collaboratorID]
+	var (
+		ac *AgentCollaborator
+		ok bool
+	)
+
+	if collabs != nil {
+		ac, ok = collabs.Get(collaboratorID)
+	}
+
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: collaborator %q not found for agent %q",
@@ -864,11 +861,13 @@ func (b *InMemoryBackend) ListAgentCollaborators(
 	defer b.mu.RUnlock()
 
 	collabs := b.agentCollaborators[agentID]
-	list := make([]*AgentCollaborator, 0, len(collabs))
+	list := make([]*AgentCollaborator, 0)
 
-	for _, ac := range collabs {
-		cp := *ac
-		list = append(list, &cp)
+	if collabs != nil {
+		for _, ac := range collabs.All() {
+			cp := *ac
+			list = append(list, &cp)
+		}
 	}
 
 	sort.Slice(
@@ -888,7 +887,15 @@ func (b *InMemoryBackend) UpdateAgentCollaborator(
 
 	collabs := b.agentCollaborators[agentID]
 
-	ac, ok := collabs[collaboratorID]
+	var (
+		ac *AgentCollaborator
+		ok bool
+	)
+
+	if collabs != nil {
+		ac, ok = collabs.Get(collaboratorID)
+	}
+
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: collaborator %q not found for agent %q",
@@ -914,7 +921,7 @@ func (b *InMemoryBackend) DisassociateAgentCollaborator(agentID, collaboratorID 
 
 	collabs := b.agentCollaborators[agentID]
 
-	if _, ok := collabs[collaboratorID]; !ok {
+	if collabs == nil || !collabs.Has(collaboratorID) {
 		return fmt.Errorf(
 			"%w: collaborator %q not found for agent %q",
 			ErrNotFound,
@@ -923,7 +930,7 @@ func (b *InMemoryBackend) DisassociateAgentCollaborator(agentID, collaboratorID 
 		)
 	}
 
-	delete(collabs, collaboratorID)
+	collabs.Delete(collaboratorID)
 
 	return nil
 }
@@ -940,11 +947,11 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 	b.mu.Lock("IngestKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
 
-	if _, ok := b.knowledgeBases[kbID]; !ok {
+	if _, ok := b.knowledgeBases.Get(kbID); !ok {
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
-	if _, ok := b.dataSources[kbID+"/"+dsID]; !ok {
+	if _, ok := b.dataSources.Get(kbID + "/" + dsID); !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
@@ -957,7 +964,7 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 			DocumentID:      docID,
 			Status:          docStatusActive,
 		}
-		b.kbDocuments[kbDocKey(kbID, dsID, docID)] = doc
+		b.kbDocuments.Put(doc)
 		cp := *doc
 		docs = append(docs, &cp)
 	}
@@ -974,11 +981,10 @@ func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 	b.mu.RLock("ListKnowledgeBaseDocuments")
 	defer b.mu.RUnlock()
 
-	prefix := kbID + "/" + dsID + "/"
 	list := make([]*KnowledgeBaseDocument, 0)
 
-	for k, doc := range b.kbDocuments {
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+	for _, doc := range b.kbDocuments.All() {
+		if doc.KnowledgeBaseID == kbID && doc.DataSourceID == dsID {
 			cp := *doc
 			list = append(list, &cp)
 		}
@@ -997,13 +1003,13 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 	b.mu.RLock("GetKnowledgeBaseDocuments")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.dataSources[kbID+"/"+dsID]; !ok {
+	if _, ok := b.dataSources.Get(kbID + "/" + dsID); !ok {
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
 	docs := make([]*KnowledgeBaseDocument, 0, len(documentIDs))
 	for _, documentID := range documentIDs {
-		doc, ok := b.kbDocuments[kbDocKey(kbID, dsID, documentID)]
+		doc, ok := b.kbDocuments.Get(kbDocKey(kbID, dsID, documentID))
 		if !ok {
 			continue
 		}
@@ -1023,7 +1029,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 	defer b.mu.Unlock()
 
 	for _, docID := range documentIDs {
-		delete(b.kbDocuments, kbDocKey(kbID, dsID, docID))
+		b.kbDocuments.Delete(kbDocKey(kbID, dsID, docID))
 	}
 
 	return nil
@@ -1041,7 +1047,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBaseDocuments(
 
 	for _, docID := range documentIDs {
 		key := kbDocKey(kbID, dsID, docID)
-		doc, ok := b.kbDocuments[key]
+		doc, ok := b.kbDocuments.Get(key)
 
 		if !ok {
 			doc = &KnowledgeBaseDocument{
@@ -1050,7 +1056,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBaseDocuments(
 				DocumentID:      docID,
 				Status:          docStatusActive,
 			}
-			b.kbDocuments[key] = doc
+			b.kbDocuments.Put(doc)
 		}
 
 		cp := *doc
@@ -1070,7 +1076,7 @@ func (b *InMemoryBackend) StopIngestionJob(kbID, dsID, jobID string) (*Ingestion
 	b.mu.Lock("StopIngestionJob")
 	defer b.mu.Unlock()
 
-	job, ok := b.ingestionJobs[ingestionJobKey(kbID, dsID, jobID)]
+	job, ok := b.ingestionJobs.Get(ingestionJobKey(kbID, dsID, jobID))
 	if !ok {
 		return nil, fmt.Errorf("%w: ingestion job %q not found", ErrNotFound, jobID)
 	}
@@ -1161,7 +1167,7 @@ func (b *InMemoryBackend) DeleteAgentMemory(agentID, sessionID string) error {
 	b.mu.Lock("DeleteAgentMemory")
 	defer b.mu.Unlock()
 
-	if _, ok := b.agents[agentID]; !ok {
+	if _, ok := b.agents.Get(agentID); !ok {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 

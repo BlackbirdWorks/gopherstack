@@ -365,11 +365,15 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 	tags := parseTags(vals, "Tags.member")
 	terminationPolicies := parseMembers(vals, "TerminationPolicies.member")
 	lt := parseLaunchTemplate(vals, "LaunchTemplate")
+	mip := parseMixedInstancesPolicy(vals)
+	hooks := parseLifecycleHookSpecifications(vals)
+	trafficSources := parseTrafficSources(vals)
 
 	input := CreateAutoScalingGroupInput{
 		AutoScalingGroupName:             name,
 		LaunchConfigurationName:          lcName,
 		LaunchTemplate:                   lt,
+		MixedInstancesPolicy:             mip,
 		VPCZoneIdentifier:                vals.Get("VPCZoneIdentifier"),
 		PlacementGroup:                   vals.Get("PlacementGroup"),
 		Context:                          vals.Get("Context"),
@@ -387,8 +391,10 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		AvailabilityZones:                azs,
 		LoadBalancerNames:                lbNames,
 		TargetGroupARNs:                  targetGroupARNs,
+		TrafficSources:                   trafficSources,
 		Tags:                             tags,
 		TerminationPolicies:              terminationPolicies,
+		LifecycleHookSpecificationList:   hooks,
 	}
 
 	_, createErr := h.Backend.CreateAutoScalingGroup(input)
@@ -480,6 +486,7 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 		AvailabilityZones:       parseMembers(vals, "AvailabilityZones.member"),
 		TerminationPolicies:     parseMembers(vals, "TerminationPolicies.member"),
 		LaunchTemplate:          parseLaunchTemplate(vals, "LaunchTemplate"),
+		MixedInstancesPolicy:    parseMixedInstancesPolicy(vals),
 	}
 
 	if v := vals.Get("MinSize"); v != "" {
@@ -897,6 +904,7 @@ func (h *Handler) handlePutLifecycleHook(vals url.Values) (any, error) {
 		LifecycleTransition:   vals.Get("LifecycleTransition"),
 		DefaultResult:         vals.Get("DefaultResult"),
 		NotificationTargetARN: vals.Get("NotificationTargetARN"),
+		NotificationMetadata:  vals.Get("NotificationMetadata"),
 		RoleARN:               vals.Get("RoleARN"),
 	}
 
@@ -1139,6 +1147,24 @@ func parseIntVal(s string) (int32, error) {
 	return int32(n), nil
 }
 
+// parseTimeVal parses an AWS query-protocol DateTime value (ISO8601, e.g.
+// "2024-01-02T15:04:05Z"). Returns the zero time (and no error) for an empty or
+// unparseable string; scheduled-action times are optional AWS request fields, and
+// silently dropping an unparseable one matches the historical "omit if invalid"
+// behavior of the rest of this handler's optional-field parsing.
+func parseTimeVal(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
+}
+
 // parseMembers extracts indexed form values with the given prefix (e.g. "AvailabilityZones.member").
 func parseMembers(vals url.Values, prefix string) []string {
 	result := make([]string, 0)
@@ -1255,11 +1281,14 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup { //nolint:funlen // XM
 		}
 	}
 
+	xmlMIP := toXMLMixedInstancesPolicy(g.MixedInstancesPolicy)
+
 	return xmlAutoScalingGroup{
 		AutoScalingGroupName:             g.AutoScalingGroupName,
 		AutoScalingGroupARN:              g.AutoScalingGroupARN,
 		LaunchConfigurationName:          g.LaunchConfigurationName,
 		LaunchTemplate:                   xmlLT,
+		MixedInstancesPolicy:             xmlMIP,
 		VPCZoneIdentifier:                g.VPCZoneIdentifier,
 		PlacementGroup:                   g.PlacementGroup,
 		Context:                          g.Context,
@@ -1289,6 +1318,53 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup { //nolint:funlen // XM
 			"arn:aws:iam::%s:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",
 			config.DefaultAccountID,
 		),
+	}
+}
+
+// toXMLMixedInstancesPolicy converts a MixedInstancesPolicy to its XML response
+// projection, or nil when policy is nil (matches AWS: the element is entirely absent
+// for ASGs that don't use a mixed instances policy).
+func toXMLMixedInstancesPolicy(policy *MixedInstancesPolicy) *xmlMixedInstancesPolicy {
+	if policy == nil {
+		return nil
+	}
+
+	overrides := make([]xmlLaunchTemplateOverride, 0, len(policy.LaunchTemplate.Overrides))
+
+	for _, o := range policy.LaunchTemplate.Overrides {
+		xo := xmlLaunchTemplateOverride{
+			InstanceType:     o.InstanceType,
+			WeightedCapacity: o.WeightedCapacity,
+		}
+
+		if o.LaunchTemplateSpecification != nil {
+			xo.LaunchTemplateSpecification = &xmlLaunchTemplateSpecification{
+				LaunchTemplateID:   o.LaunchTemplateSpecification.LaunchTemplateID,
+				LaunchTemplateName: o.LaunchTemplateSpecification.LaunchTemplateName,
+				Version:            o.LaunchTemplateSpecification.Version,
+			}
+		}
+
+		overrides = append(overrides, xo)
+	}
+
+	return &xmlMixedInstancesPolicy{
+		LaunchTemplate: xmlMixedInstancesLaunchTemplate{
+			LaunchTemplateSpecification: xmlLaunchTemplateSpecification{
+				LaunchTemplateID:   policy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateID,
+				LaunchTemplateName: policy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateName,
+				Version:            policy.LaunchTemplate.LaunchTemplateSpecification.Version,
+			},
+			Overrides: xmlLaunchTemplateOverrideList{Members: overrides},
+		},
+		InstancesDistribution: xmlInstancesDistribution{
+			OnDemandAllocationStrategy:          policy.InstancesDistribution.OnDemandAllocationStrategy,
+			SpotAllocationStrategy:              policy.InstancesDistribution.SpotAllocationStrategy,
+			SpotMaxPrice:                        policy.InstancesDistribution.SpotMaxPrice,
+			OnDemandBaseCapacity:                policy.InstancesDistribution.OnDemandBaseCapacity,
+			OnDemandPercentageAboveBaseCapacity: policy.InstancesDistribution.OnDemandPercentageAboveBaseCapacity,
+			SpotInstancePools:                   policy.InstancesDistribution.SpotInstancePools,
+		},
 	}
 }
 
@@ -1465,6 +1541,35 @@ type xmlLaunchTemplateSpecification struct {
 	Version            string `xml:"Version,omitempty"`
 }
 
+type xmlLaunchTemplateOverride struct {
+	LaunchTemplateSpecification *xmlLaunchTemplateSpecification `xml:"LaunchTemplateSpecification,omitempty"`
+	InstanceType                string                          `xml:"InstanceType,omitempty"`
+	WeightedCapacity            string                          `xml:"WeightedCapacity,omitempty"`
+}
+
+type xmlLaunchTemplateOverrideList struct {
+	Members []xmlLaunchTemplateOverride `xml:"member"`
+}
+
+type xmlMixedInstancesLaunchTemplate struct {
+	LaunchTemplateSpecification xmlLaunchTemplateSpecification `xml:"LaunchTemplateSpecification"`
+	Overrides                   xmlLaunchTemplateOverrideList  `xml:"Overrides,omitempty"`
+}
+
+type xmlInstancesDistribution struct {
+	OnDemandAllocationStrategy          string `xml:"OnDemandAllocationStrategy,omitempty"`
+	SpotAllocationStrategy              string `xml:"SpotAllocationStrategy,omitempty"`
+	SpotMaxPrice                        string `xml:"SpotMaxPrice,omitempty"`
+	OnDemandBaseCapacity                int32  `xml:"OnDemandBaseCapacity,omitempty"`
+	OnDemandPercentageAboveBaseCapacity int32  `xml:"OnDemandPercentageAboveBaseCapacity,omitempty"`
+	SpotInstancePools                   int32  `xml:"SpotInstancePools,omitempty"`
+}
+
+type xmlMixedInstancesPolicy struct {
+	LaunchTemplate        xmlMixedInstancesLaunchTemplate `xml:"LaunchTemplate"`
+	InstancesDistribution xmlInstancesDistribution        `xml:"InstancesDistribution"`
+}
+
 type xmlTrafficSource struct {
 	Identifier string `xml:"Identifier"`
 	Type       string `xml:"Type,omitempty"`
@@ -1480,6 +1585,7 @@ type xmlTerminationPoliciesList struct {
 
 type xmlAutoScalingGroup struct {
 	LaunchTemplate                   *xmlLaunchTemplateSpecification `xml:"LaunchTemplate,omitempty"`
+	MixedInstancesPolicy             *xmlMixedInstancesPolicy        `xml:"MixedInstancesPolicy,omitempty"`
 	AutoScalingGroupARN              string                          `xml:"AutoScalingGroupARN"`
 	Status                           string                          `xml:"Status,omitempty"`
 	CreatedTime                      string                          `xml:"CreatedTime"`
@@ -1649,6 +1755,138 @@ func parseLaunchTemplate(vals url.Values, prefix string) *LaunchTemplateSpecific
 	}
 }
 
+// parseMixedInstancesPolicy parses a MixedInstancesPolicy from form values using the
+// standard AWS query-protocol flattening: MixedInstancesPolicy.LaunchTemplate.*,
+// MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.*, and
+// MixedInstancesPolicy.InstancesDistribution.*. Returns nil if neither a launch
+// template nor an instances distribution was specified.
+func parseMixedInstancesPolicy(vals url.Values) *MixedInstancesPolicy {
+	const prefix = "MixedInstancesPolicy"
+
+	lt := parseLaunchTemplate(vals, prefix+".LaunchTemplate.LaunchTemplateSpecification")
+	overrides := parseLaunchTemplateOverrides(vals, prefix+".LaunchTemplate.Overrides.member")
+	dist, hasDist := parseInstancesDistribution(vals, prefix+".InstancesDistribution.")
+
+	if lt == nil && len(overrides) == 0 && !hasDist {
+		return nil
+	}
+
+	policy := &MixedInstancesPolicy{InstancesDistribution: dist}
+	if lt != nil {
+		policy.LaunchTemplate.LaunchTemplateSpecification = *lt
+	}
+
+	policy.LaunchTemplate.Overrides = overrides
+
+	return policy
+}
+
+// parseLaunchTemplateOverrides parses the LaunchTemplate.Overrides.member.N.* form
+// values within a MixedInstancesPolicy.
+func parseLaunchTemplateOverrides(vals url.Values, memberPrefix string) []LaunchTemplateOverride {
+	var overrides []LaunchTemplateOverride
+
+	for i := 1; ; i++ {
+		op := fmt.Sprintf("%s.%d.", memberPrefix, i)
+		instanceType := vals.Get(op + "InstanceType")
+		weighted := vals.Get(op + "WeightedCapacity")
+		olt := parseLaunchTemplate(vals, op+"LaunchTemplateSpecification")
+
+		if instanceType == "" && weighted == "" && olt == nil {
+			break
+		}
+
+		overrides = append(overrides, LaunchTemplateOverride{
+			InstanceType:                instanceType,
+			WeightedCapacity:            weighted,
+			LaunchTemplateSpecification: olt,
+		})
+	}
+
+	return overrides
+}
+
+// parseInstancesDistribution parses the InstancesDistribution.* form values within a
+// MixedInstancesPolicy. The second return value reports whether any field was set.
+func parseInstancesDistribution(vals url.Values, distPrefix string) (InstancesDistribution, bool) {
+	dist := InstancesDistribution{}
+	hasDist := false
+
+	if v := vals.Get(distPrefix + "OnDemandAllocationStrategy"); v != "" {
+		dist.OnDemandAllocationStrategy = v
+		hasDist = true
+	}
+
+	if v := vals.Get(distPrefix + "OnDemandBaseCapacity"); v != "" {
+		if n, err := parseIntVal(v); err == nil {
+			dist.OnDemandBaseCapacity = n
+			hasDist = true
+		}
+	}
+
+	if v := vals.Get(distPrefix + "OnDemandPercentageAboveBaseCapacity"); v != "" {
+		if n, err := parseIntVal(v); err == nil {
+			dist.OnDemandPercentageAboveBaseCapacity = n
+			hasDist = true
+		}
+	}
+
+	if v := vals.Get(distPrefix + "SpotAllocationStrategy"); v != "" {
+		dist.SpotAllocationStrategy = v
+		hasDist = true
+	}
+
+	if v := vals.Get(distPrefix + "SpotInstancePools"); v != "" {
+		if n, err := parseIntVal(v); err == nil {
+			dist.SpotInstancePools = n
+			hasDist = true
+		}
+	}
+
+	if v := vals.Get(distPrefix + "SpotMaxPrice"); v != "" {
+		dist.SpotMaxPrice = v
+		hasDist = true
+	}
+
+	return dist, hasDist
+}
+
+// parseLifecycleHookSpecifications parses the LifecycleHookSpecificationList form
+// values used by CreateAutoScalingGroup to register hooks atomically with the group.
+func parseLifecycleHookSpecifications(vals url.Values) []LifecycleHook {
+	var result []LifecycleHook
+
+	const prefix = "LifecycleHookSpecificationList.member"
+
+	for i := 1; ; i++ {
+		p := fmt.Sprintf("%s.%d.", prefix, i)
+		name := vals.Get(p + "LifecycleHookName")
+
+		if name == "" {
+			break
+		}
+
+		hook := LifecycleHook{
+			LifecycleHookName:     name,
+			LifecycleTransition:   vals.Get(p + "LifecycleTransition"),
+			DefaultResult:         vals.Get(p + "DefaultResult"),
+			NotificationTargetARN: vals.Get(p + "NotificationTargetARN"),
+			NotificationMetadata:  vals.Get(p + "NotificationMetadata"),
+			RoleARN:               vals.Get(p + "RoleARN"),
+		}
+
+		if v := vals.Get(p + "HeartbeatTimeout"); v != "" {
+			if n, err := parseIntVal(v); err == nil {
+				hook.HeartbeatTimeout = n
+			}
+		}
+
+		result = append(result, hook)
+	}
+
+	return result
+}
+
 // parseBlockDeviceMappings parses BlockDeviceMappings from form values.
 //
 //nolint:gocognit,nestif // Too complex to refactor given time constraints
@@ -1783,6 +2021,8 @@ func parseBatchScheduledActions(vals url.Values) []ScheduledUpdateGroupAction {
 			ScheduledActionName: name,
 			Recurrence:          vals.Get(fmt.Sprintf("%s.%d.Recurrence", prefix, i)),
 			TimeZone:            vals.Get(fmt.Sprintf("%s.%d.TimeZone", prefix, i)),
+			StartTime:           parseTimeVal(vals.Get(fmt.Sprintf("%s.%d.StartTime", prefix, i))),
+			EndTime:             parseTimeVal(vals.Get(fmt.Sprintf("%s.%d.EndTime", prefix, i))),
 		}
 
 		if v := vals.Get(fmt.Sprintf("%s.%d.DesiredCapacity", prefix, i)); v != "" {
@@ -2619,6 +2859,24 @@ func (h *Handler) handleExecutePolicy(vals url.Values) (any, error) {
 		HonorCooldown:        vals.Get("HonorCooldown") == formValueTrue,
 	}
 
+	if v := vals.Get("MetricValue"); v != "" {
+		f, parseErr := strconv.ParseFloat(v, 64)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid MetricValue", ErrInvalidParameter)
+		}
+
+		input.MetricValue = &f
+	}
+
+	if v := vals.Get("BreachThreshold"); v != "" {
+		f, parseErr := strconv.ParseFloat(v, 64)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid BreachThreshold", ErrInvalidParameter)
+		}
+
+		input.BreachThreshold = &f
+	}
+
 	if err := h.Backend.ExecutePolicy(input); err != nil {
 		return nil, err
 	}
@@ -2631,15 +2889,19 @@ func (h *Handler) handleExecutePolicy(vals url.Values) (any, error) {
 
 func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
+	clientToken := vals.Get("ClientToken")
 
-	desiredCapacity, err := parseIntVal(vals.Get("DesiredCapacity"))
+	// The real API field is RequestedCapacity, not DesiredCapacity (LaunchInstances
+	// does not affect the group's DesiredCapacity setting the way SetDesiredCapacity
+	// does; it launches an explicit, additional count of instances).
+	requestedCapacity, err := parseIntVal(vals.Get("RequestedCapacity"))
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: invalid RequestedCapacity", ErrInvalidParameter)
 	}
 
 	count := int32(1)
-	if desiredCapacity > 0 {
-		count = desiredCapacity
+	if requestedCapacity > 0 {
+		count = requestedCapacity
 	}
 
 	instances, launchErr := h.Backend.LaunchInstances(groupName, count)
@@ -2647,25 +2909,60 @@ func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
 		return nil, launchErr
 	}
 
-	members := make([]xmlInstance, 0, len(instances))
-	for _, inst := range instances {
-		members = append(members, xmlInstance{
-			InstanceID:              inst.InstanceID,
-			AvailabilityZone:        inst.AvailabilityZone,
-			LifecycleState:          inst.LifecycleState,
-			HealthStatus:            inst.HealthStatus,
-			LaunchConfigurationName: inst.LaunchConfigurationName,
-		})
-	}
-
 	return &launchInstancesResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: launchInstancesResult{
-			Instances: xmlInstanceList{Members: members},
+			AutoScalingGroupName: groupName,
+			ClientToken:          clientToken,
+			Instances:            toXMLInstanceCollections(instances),
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-launch-instances"},
 	}, nil
 }
+
+// toXMLInstanceCollections groups launched instances by (AvailabilityZone,
+// InstanceType) into the InstanceCollection shape LaunchInstancesOutput actually
+// returns (a flat per-instance list with LifecycleState/HealthStatus belongs to
+// DescribeAutoScalingGroups/DescribeAutoScalingInstances, not this operation).
+func toXMLInstanceCollections(instances []Instance) xmlInstanceCollectionList {
+	type collectionKey struct{ az, instanceType string }
+
+	order := make([]collectionKey, 0, len(instances))
+	grouped := make(map[collectionKey][]string, len(instances))
+
+	for _, inst := range instances {
+		key := collectionKey{az: inst.AvailabilityZone, instanceType: inst.InstanceType}
+		if _, ok := grouped[key]; !ok {
+			order = append(order, key)
+		}
+
+		grouped[key] = append(grouped[key], inst.InstanceID)
+	}
+
+	members := make([]xmlInstanceCollection, 0, len(order))
+
+	for _, key := range order {
+		ids := make([]xmlStringValue, 0, len(grouped[key]))
+		for _, id := range grouped[key] {
+			ids = append(ids, xmlStringValue{Value: id})
+		}
+
+		members = append(members, xmlInstanceCollection{
+			AvailabilityZone: key.az,
+			InstanceType:     key.instanceType,
+			InstanceIDs:      xmlStringValueList{Members: ids},
+		})
+	}
+
+	return xmlInstanceCollectionList{Members: members}
+}
+
+// forecastHorizonHours and forecastIntervalHours bound the synthetic forecast series
+// generated below: AWS forecasts up to 2 days ahead in hourly points.
+const (
+	forecastHorizonHours  = 48
+	forecastIntervalHours = 1
+)
 
 func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
@@ -2674,10 +2971,40 @@ func (h *Handler) handleGetPredictiveScalingForecast(vals url.Values) (any, erro
 		return nil, err
 	}
 
+	// AWS's actual forecast is produced by a statistical model trained on CloudWatch
+	// history, which this emulator has no equivalent of. Rather than return an
+	// all-empty (and required-field-violating) response, project a flat series at the
+	// group's current DesiredCapacity so callers get well-shaped, non-empty,
+	// real-derived data. See PARITY.md for the documented simplification.
+	groups, err := h.Backend.DescribeAutoScalingGroups([]string{groupName})
+	if err != nil {
+		return nil, err
+	}
+
+	desired := groups[0].DesiredCapacity
+	now := time.Now().UTC()
+
+	timestamps := make([]xmlStringValue, 0, forecastHorizonHours)
+	values := make([]xmlStringValue, 0, forecastHorizonHours)
+
+	for i := range forecastHorizonHours {
+		timestamps = append(timestamps, xmlStringValue{
+			Value: now.Add(time.Duration(i*forecastIntervalHours) * time.Hour).Format(time.RFC3339),
+		})
+		values = append(values, xmlStringValue{Value: strconv.FormatInt(int64(desired), 10)})
+	}
+
+	series := xmlLoadForecast{
+		Timestamps: xmlStringValueList{Members: timestamps},
+		Values:     xmlStringValueList{Members: values},
+	}
+
 	return &getPredictiveScalingForecastResponse{
 		Xmlns: autoscalingXMLNS,
 		Result: getPredictiveScalingForecastResult{
-			CapacityForecast: xmlCapacityForecast{},
+			LoadForecast:     xmlLoadForecastList{Members: []xmlLoadForecast{series}},
+			CapacityForecast: xmlCapacityForecast(series),
+			UpdateTime:       now.Format(time.RFC3339),
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "autoscaling-get-predictive-scaling-forecast"},
 	}, nil
@@ -2816,6 +3143,7 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		PolicyName:             vals.Get("PolicyName"),
 		PolicyType:             vals.Get("PolicyType"),
 		AdjustmentType:         vals.Get("AdjustmentType"),
+		MetricAggregationType:  vals.Get("MetricAggregationType"),
 		ScalingAdjustment:      scalingAdjustment,
 		MinAdjustmentStep:      minAdjustmentStep,
 		MinAdjustmentMagnitude: minAdjustmentMagnitude,
@@ -2872,7 +3200,9 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 			AutoScalingGroupName:   p.AutoScalingGroupName,
 			PolicyType:             p.PolicyType,
 			AdjustmentType:         p.AdjustmentType,
+			MetricAggregationType:  p.MetricAggregationType,
 			ScalingAdjustment:      p.ScalingAdjustment,
+			MinAdjustmentStep:      p.MinAdjustmentStep,
 			MinAdjustmentMagnitude: p.MinAdjustmentMagnitude,
 			Cooldown:               p.Cooldown,
 		}
@@ -2921,6 +3251,8 @@ func (h *Handler) handlePutScheduledUpdateGroupAction(vals url.Values) (any, err
 		ScheduledActionName: vals.Get("ScheduledActionName"),
 		Recurrence:          vals.Get("Recurrence"),
 		TimeZone:            vals.Get("TimeZone"),
+		StartTime:           parseTimeVal(vals.Get("StartTime")),
+		EndTime:             parseTimeVal(vals.Get("EndTime")),
 	}
 
 	if v := vals.Get("DesiredCapacity"); v != "" {
@@ -3368,8 +3700,24 @@ type executePolicyResponse struct {
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// xmlInstanceCollection mirrors the real LaunchInstancesOutput.Instances shape: AWS
+// groups newly-launched instances by (AvailabilityZone, InstanceType, ...) and
+// reports their IDs together, NOT as a flat per-instance list with lifecycle/health
+// fields (that shape belongs to DescribeAutoScalingGroups/DescribeAutoScalingInstances).
+type xmlInstanceCollection struct {
+	AvailabilityZone string             `xml:"AvailabilityZone,omitempty"`
+	InstanceType     string             `xml:"InstanceType,omitempty"`
+	InstanceIDs      xmlStringValueList `xml:"InstanceIds,omitempty"`
+}
+
+type xmlInstanceCollectionList struct {
+	Members []xmlInstanceCollection `xml:"member"`
+}
+
 type launchInstancesResult struct {
-	Instances xmlInstanceList `xml:"Instances"`
+	AutoScalingGroupName string                    `xml:"AutoScalingGroupName,omitempty"`
+	ClientToken          string                    `xml:"ClientToken,omitempty"`
+	Instances            xmlInstanceCollectionList `xml:"Instances"`
 }
 
 type launchInstancesResponse struct {
@@ -3384,9 +3732,22 @@ type xmlCapacityForecast struct {
 	Values     xmlStringValueList `xml:"Values"`
 }
 
+// xmlLoadForecast mirrors the Timestamps/Values pair shared by CapacityForecast and
+// each entry of LoadForecast. A full MetricSpecification projection is out of scope
+// (see PARITY.md); the Timestamps/Values series is real, derived data.
+type xmlLoadForecast struct {
+	Timestamps xmlStringValueList `xml:"Timestamps"`
+	Values     xmlStringValueList `xml:"Values"`
+}
+
+type xmlLoadForecastList struct {
+	Members []xmlLoadForecast `xml:"member"`
+}
+
 type getPredictiveScalingForecastResult struct {
-	LoadForecast     []string            `xml:"LoadForecast"`
+	UpdateTime       string              `xml:"UpdateTime"`
 	CapacityForecast xmlCapacityForecast `xml:"CapacityForecast"`
+	LoadForecast     xmlLoadForecastList `xml:"LoadForecast"`
 }
 
 type getPredictiveScalingForecastResponse struct {
@@ -3476,7 +3837,9 @@ type xmlScalingPolicy struct {
 	AutoScalingGroupName        string                          `xml:"AutoScalingGroupName"`
 	PolicyType                  string                          `xml:"PolicyType,omitempty"`
 	AdjustmentType              string                          `xml:"AdjustmentType,omitempty"`
+	MetricAggregationType       string                          `xml:"MetricAggregationType,omitempty"`
 	ScalingAdjustment           int32                           `xml:"ScalingAdjustment,omitempty"`
+	MinAdjustmentStep           int32                           `xml:"MinAdjustmentStep,omitempty"`
 	MinAdjustmentMagnitude      int32                           `xml:"MinAdjustmentMagnitude,omitempty"`
 	Cooldown                    int32                           `xml:"Cooldown,omitempty"`
 }

@@ -24,7 +24,7 @@ func (b *InMemoryBackend) UploadsForBucket(bucket string) int {
 	b.mu.RLock("UploadsForBucket")
 	defer b.mu.RUnlock()
 
-	return len(b.uploads[bucket])
+	return len(b.uploadsByBucket.Get(bucket))
 }
 
 // TagsForBucket returns the number of tag entries for the given bucket.
@@ -71,13 +71,8 @@ func PeekStoredBytes(b *InMemoryBackend, bucketName, key string) []byte {
 	b.mu.RLock("PeekStoredBytes")
 	defer b.mu.RUnlock()
 
-	region, ok := b.bucketIndex[bucketName]
+	bucket, ok := b.buckets.Get(bucketName)
 	if !ok {
-		return nil
-	}
-
-	bucket := b.buckets[region][bucketName]
-	if bucket == nil {
 		return nil
 	}
 
@@ -114,16 +109,10 @@ func (h *S3Handler) PendingObjectLambdaRequestsCount() int {
 // Used in lifecycle transition tests to simulate aged objects.
 func BackdateObjectForTest(b *InMemoryBackend, bucketName, key string, t time.Time) {
 	b.mu.RLock("BackdateObjectForTest")
-	region, ok := b.bucketIndex[bucketName]
-	if !ok {
-		b.mu.RUnlock()
-
-		return
-	}
-	bucket := b.buckets[region][bucketName]
+	bucket, ok := b.buckets.Get(bucketName)
 	b.mu.RUnlock()
 
-	if bucket == nil {
+	if !ok {
 		return
 	}
 
@@ -150,7 +139,7 @@ func BackdateUploadForTest(b *InMemoryBackend, bucket string, uploadID *string, 
 	}
 
 	b.mu.RLock("BackdateUploadForTest")
-	upload := b.uploads[bucket][*uploadID]
+	upload := b.getUpload(bucket, *uploadID)
 	b.mu.RUnlock()
 
 	if upload == nil {
@@ -159,7 +148,7 @@ func BackdateUploadForTest(b *InMemoryBackend, bucket string, uploadID *string, 
 
 	// Mutate directly — Initiated has no per-upload lock.
 	b.mu.Lock("BackdateUploadForTest.write")
-	if u := b.uploads[bucket][*uploadID]; u != nil {
+	if u := b.getUpload(bucket, *uploadID); u != nil {
 		u.Initiated = t
 	}
 	b.mu.Unlock()
@@ -172,16 +161,10 @@ func StorageClassTransitionsForObject(
 	bucketName, key string,
 ) []StorageClassTransition {
 	b.mu.RLock("StorageClassTransitionsForObject")
-	region, ok := b.bucketIndex[bucketName]
-	if !ok {
-		b.mu.RUnlock()
-
-		return nil
-	}
-	bucket := b.buckets[region][bucketName]
+	bucket, ok := b.buckets.Get(bucketName)
 	b.mu.RUnlock()
 
-	if bucket == nil {
+	if !ok {
 		return nil
 	}
 

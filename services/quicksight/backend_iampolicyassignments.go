@@ -4,7 +4,6 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -83,12 +82,12 @@ func (b *InMemoryBackend) CreateIAMPolicyAssignment(
 	b.mu.Lock("CreateIAMPolicyAssignment")
 	defer b.mu.Unlock()
 
-	if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+	if !b.namespaces.Has(nsKey(accountID, namespace)) {
 		return nil, ErrNamespaceNotFound
 	}
 
 	key := iamPolicyAssignmentKey(accountID, namespace, assignmentName)
-	if _, exists := b.iamPolicyAssignments[key]; exists {
+	if b.iamPolicyAssignments.Has(key) {
 		return nil, ErrIAMPolicyAssignmentAlreadyExists
 	}
 
@@ -100,7 +99,7 @@ func (b *InMemoryBackend) CreateIAMPolicyAssignment(
 		Namespace:        namespace,
 		Identities:       maps.Clone(identities),
 	}
-	b.iamPolicyAssignments[key] = a
+	b.iamPolicyAssignments.Put(a)
 
 	return a.toIAMPolicyAssignment(), nil
 }
@@ -111,7 +110,7 @@ func (b *InMemoryBackend) DescribeIAMPolicyAssignment(
 	b.mu.RLock("DescribeIAMPolicyAssignment")
 	defer b.mu.RUnlock()
 
-	a, ok := b.iamPolicyAssignments[iamPolicyAssignmentKey(accountID, namespace, assignmentName)]
+	a, ok := b.iamPolicyAssignments.Get(iamPolicyAssignmentKey(accountID, namespace, assignmentName))
 	if !ok {
 		return nil, ErrIAMPolicyAssignmentNotFound
 	}
@@ -131,7 +130,7 @@ func (b *InMemoryBackend) UpdateIAMPolicyAssignment(
 	defer b.mu.Unlock()
 
 	key := iamPolicyAssignmentKey(accountID, namespace, assignmentName)
-	a, ok := b.iamPolicyAssignments[key]
+	a, ok := b.iamPolicyAssignments.Get(key)
 	if !ok {
 		return nil, ErrIAMPolicyAssignmentNotFound
 	}
@@ -154,19 +153,17 @@ func (b *InMemoryBackend) DeleteIAMPolicyAssignment(accountID, namespace, assign
 	defer b.mu.Unlock()
 
 	key := iamPolicyAssignmentKey(accountID, namespace, assignmentName)
-	if _, ok := b.iamPolicyAssignments[key]; !ok {
+	if !b.iamPolicyAssignments.Delete(key) {
 		return ErrIAMPolicyAssignmentNotFound
 	}
-	delete(b.iamPolicyAssignments, key)
 
 	return nil
 }
 
-func (b *InMemoryBackend) allIAMPolicyAssignmentsLocked(accountID, namespace string) []*storedIAMPolicyAssignment {
-	prefix := accountID + "/" + namespace + "/"
-	all := make([]*storedIAMPolicyAssignment, 0, len(b.iamPolicyAssignments))
-	for k, a := range b.iamPolicyAssignments {
-		if strings.HasPrefix(k, prefix) {
+func (b *InMemoryBackend) allIAMPolicyAssignmentsLocked(_, namespace string) []*storedIAMPolicyAssignment {
+	var all []*storedIAMPolicyAssignment
+	for _, a := range b.iamPolicyAssignments.All() {
+		if a.Namespace == namespace {
 			all = append(all, a)
 		}
 	}

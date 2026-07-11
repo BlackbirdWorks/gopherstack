@@ -68,14 +68,14 @@ func (b *InMemoryBackend) executeSQL(query string, ctx QueryExecutionContext) *s
 
 	b.mu.RLock("executeSQL")
 	rawRows := b.tableData[key]
-	meta := b.tables[catalog+"/"+database]
+	tm, _ := b.tables.Get(tableMetadataKey(catalog, database, table))
 	b.mu.RUnlock()
 
 	if rawRows == nil {
 		return &sqlResult{}
 	}
 
-	colMeta := deriveColMeta(meta, table, rawRows)
+	colMeta := deriveColMeta(tm, rawRows)
 	selected := resolveSelectedColumns(selectClause, colMeta)
 	pred := parsePredicate(whereClause)
 
@@ -114,13 +114,11 @@ func parseFromClause(rest string) (string, string, int) {
 }
 
 // deriveColMeta returns column metadata for a table, falling back to first-row keys.
-func deriveColMeta(meta map[string]*TableMetadata, table string, rawRows []map[string]any) []Column {
+func deriveColMeta(tm *TableMetadata, rawRows []map[string]any) []Column {
 	var colMeta []Column
 
-	if meta != nil {
-		if tm, ok := meta[table]; ok {
-			colMeta = tm.Columns
-		}
+	if tm != nil {
+		colMeta = tm.Columns
 	}
 
 	if len(colMeta) == 0 && len(rawRows) > 0 {

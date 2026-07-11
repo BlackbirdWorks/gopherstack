@@ -2,24 +2,42 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// backupSnapshotVersion identifies the shape of [backendSnapshot]. It must be
+// bumped whenever a change to backendSnapshot (or the shape of any table
+// registered on b.registry) would make an older snapshot unsafe to decode as
+// the current shape. Restore compares this against the persisted value and
+// discards (ResetAll, not a partial decode) any mismatch -- see Restore. The
+// pre-Phase-3.3 snapshot format had no version field at all, so an old
+// snapshot decodes with Version == 0, which is guaranteed to mismatch
+// backupSnapshotVersion and is discarded the same way any other incompatible
+// snapshot is.
+const backupSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the Backup backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// [store.Registry.SnapshotAll] on b.registry -- vaults, plans, jobs,
+// selections, frameworks, legalHolds, reportPlans, restoreAccessVaults,
+// restoreTestingPlans, and restoreTestingSelections (see store_setup.go).
+// The VOLATILE tables (recoveryPoints, copyJobs, vaultAccessPolicies,
+// vaultLockConfigs, vaultNotifications, restoreJobs, reportJobs, scanJobs,
+// tieringConfigs, protectedResources) were never part of a snapshot before
+// this refactor and are deliberately not registered on b.registry, so they
+// remain unpersisted here too -- see store_setup.go's file doc comment.
 type backendSnapshot struct {
-	Vaults                   map[string]*Vault                              `json:"vaults"`
-	Plans                    map[string]*Plan                               `json:"plans"`
-	Jobs                     map[string]*Job                                `json:"jobs"`
-	Selections               map[string]map[string]*Selection               `json:"selections,omitempty"`
-	Frameworks               map[string]*Framework                          `json:"frameworks,omitempty"`
-	LegalHolds               map[string]*LegalHold                          `json:"legalHolds,omitempty"`
-	ReportPlans              map[string]*ReportPlan                         `json:"reportPlans,omitempty"`
-	RestoreAccessVaults      map[string]*RestoreAccessVault                 `json:"restoreAccessVaults,omitempty"`
-	RestoreTestingPlans      map[string]*RestoreTestingPlan                 `json:"restoreTestingPlans,omitempty"`
-	RestoreTestingSelections map[string]map[string]*RestoreTestingSelection `json:"restoreTestingSelections,omitempty"`
-	MpaApprovals             map[string]string                              `json:"mpaApprovals,omitempty"`
-	AccountID                string                                         `json:"accountID"`
-	Region                   string                                         `json:"region"`
+	Tables       map[string]json.RawMessage `json:"tables"`
+	MpaApprovals map[string]string          `json:"mpaApprovals,omitempty"`
+	AccountID    string                     `json:"accountID"`
+	Region       string                     `json:"region"`
+	Version      int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -28,20 +46,26 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "backup: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
+	mpa := make(map[string]string, len(b.mpaApprovals))
+	maps.Copy(mpa, b.mpaApprovals)
+
 	snap := backendSnapshot{
-		Vaults:                   b.vaults,
-		Plans:                    b.plans,
-		Jobs:                     b.jobs,
-		Selections:               b.selections,
-		Frameworks:               b.frameworks,
-		LegalHolds:               b.legalHolds,
-		ReportPlans:              b.reportPlans,
-		RestoreAccessVaults:      b.restoreAccessVaults,
-		RestoreTestingPlans:      b.restoreTestingPlans,
-		RestoreTestingSelections: b.restoreTestingSelections,
-		MpaApprovals:             b.mpaApprovals,
-		AccountID:                b.accountID,
-		Region:                   b.region,
+		Version:      backupSnapshotVersion,
+		Tables:       tables,
+		MpaApprovals: mpa,
+		AccountID:    b.accountID,
+		Region:       b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "backup", snap)
@@ -56,102 +80,74 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	snap.ensureNonNil()
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.applySnapshot(snap)
+	if snap.Version != backupSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"backup: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", backupSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.mpaApprovals = make(map[string]string)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("backup: restore snapshot tables: %w", err)
+	}
+
+	if snap.MpaApprovals == nil {
+		snap.MpaApprovals = make(map[string]string)
+	}
+
+	b.mpaApprovals = snap.MpaApprovals
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
 	b.rebuildARNIndexes()
 
 	return nil
 }
 
-// ensureNonNil initialises any nil map fields to empty maps so callers never
-// need to handle nil maps after a partial or legacy snapshot.
-func (s *backendSnapshot) ensureNonNil() {
-	if s.Vaults == nil {
-		s.Vaults = make(map[string]*Vault)
-	}
-	if s.Plans == nil {
-		s.Plans = make(map[string]*Plan)
-	}
-	if s.Jobs == nil {
-		s.Jobs = make(map[string]*Job)
-	}
-	if s.Selections == nil {
-		s.Selections = make(map[string]map[string]*Selection)
-	}
-	if s.Frameworks == nil {
-		s.Frameworks = make(map[string]*Framework)
-	}
-	if s.LegalHolds == nil {
-		s.LegalHolds = make(map[string]*LegalHold)
-	}
-	if s.ReportPlans == nil {
-		s.ReportPlans = make(map[string]*ReportPlan)
-	}
-	if s.RestoreAccessVaults == nil {
-		s.RestoreAccessVaults = make(map[string]*RestoreAccessVault)
-	}
-	if s.RestoreTestingPlans == nil {
-		s.RestoreTestingPlans = make(map[string]*RestoreTestingPlan)
-	}
-	if s.RestoreTestingSelections == nil {
-		s.RestoreTestingSelections = make(map[string]map[string]*RestoreTestingSelection)
-	}
-	if s.MpaApprovals == nil {
-		s.MpaApprovals = make(map[string]string)
-	}
-}
-
-// applySnapshot writes snapshot data into the backend. Must be called with mu held.
-func (b *InMemoryBackend) applySnapshot(snap backendSnapshot) {
-	b.vaults = snap.Vaults
-	b.plans = snap.Plans
-	b.jobs = snap.Jobs
-	b.selections = snap.Selections
-	b.frameworks = snap.Frameworks
-	b.legalHolds = snap.LegalHolds
-	b.reportPlans = snap.ReportPlans
-	b.restoreAccessVaults = snap.RestoreAccessVaults
-	b.restoreTestingPlans = snap.RestoreTestingPlans
-	b.restoreTestingSelections = snap.RestoreTestingSelections
-	b.mpaApprovals = snap.MpaApprovals
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-}
-
-// rebuildARNIndexes reconstructs all O(1) lookup indexes from the current maps.
-// Must be called with mu held.
+// rebuildARNIndexes reconstructs all O(1) lookup indexes from the current
+// tables. Must be called with mu held.
 func (b *InMemoryBackend) rebuildARNIndexes() {
-	b.vaultARNIndex = make(map[string]string, len(b.vaults))
-	for name, v := range b.vaults {
-		b.vaultARNIndex[v.BackupVaultArn] = name
+	vaults := b.vaults.All()
+	b.vaultARNIndex = make(map[string]string, len(vaults))
+
+	for _, v := range vaults {
+		b.vaultARNIndex[v.BackupVaultArn] = v.BackupVaultName
 	}
 
-	b.planARNIndex = make(map[string]string, len(b.plans))
-	b.planIDIndex = make(map[string]string, len(b.plans))
-	for name, p := range b.plans {
-		b.planARNIndex[p.BackupPlanArn] = name
-		b.planIDIndex[p.BackupPlanID] = name
+	plans := b.plans.All()
+	b.planARNIndex = make(map[string]string, len(plans))
+	b.planIDIndex = make(map[string]string, len(plans))
+
+	for _, p := range plans {
+		b.planARNIndex[p.BackupPlanArn] = p.BackupPlanName
+		b.planIDIndex[p.BackupPlanID] = p.BackupPlanName
 	}
 
-	b.frameworkARNIndex = make(map[string]string, len(b.frameworks))
-	for name, f := range b.frameworks {
-		b.frameworkARNIndex[f.FrameworkArn] = name
+	frameworks := b.frameworks.All()
+	b.frameworkARNIndex = make(map[string]string, len(frameworks))
+
+	for _, f := range frameworks {
+		b.frameworkARNIndex[f.FrameworkArn] = f.FrameworkName
 	}
 
-	b.reportPlanARNIndex = make(map[string]string, len(b.reportPlans))
-	for name, rp := range b.reportPlans {
-		b.reportPlanARNIndex[rp.ReportPlanArn] = name
-	}
+	reportPlans := b.reportPlans.All()
+	b.reportPlanARNIndex = make(map[string]string, len(reportPlans))
 
-	// Ensure each RestoreTestingPlan has a corresponding selection map.
-	for name := range b.restoreTestingPlans {
-		if b.restoreTestingSelections[name] == nil {
-			b.restoreTestingSelections[name] = make(map[string]*RestoreTestingSelection)
-		}
+	for _, rp := range reportPlans {
+		b.reportPlanARNIndex[rp.ReportPlanArn] = rp.ReportPlanName
 	}
 }
 

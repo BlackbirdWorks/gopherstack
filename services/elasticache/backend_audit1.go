@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -124,12 +125,16 @@ type LogDeliveryConfig struct {
 
 // ReplicationGroupCreateOpts carries all fields for full replication-group creation.
 type ReplicationGroupCreateOpts struct {
-	Tags                      map[string]string
-	Engine                    string
-	EngineVersion             string
-	ID                        string
-	Description               string
-	ParameterGroupName        string
+	Tags               map[string]string
+	Engine             string
+	EngineVersion      string
+	ID                 string
+	Description        string
+	ParameterGroupName string
+	// SnapshotName, when set, restores the new replication group from an
+	// existing snapshot: the snapshot must exist, and its engine/node type
+	// become defaults for any field the caller didn't explicitly set.
+	SnapshotName              string
 	MaintenanceWindow         string
 	TransitEncryptionMode     string
 	AuthToken                 string
@@ -293,13 +298,34 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(
 	region := getRegion(ctx, b.region)
 	rgStore := b.replicationGroupsStore(region)
 
-	if _, exists := rgStore[opts.ID]; exists {
+	if _, exists := rgStore.Get(opts.ID); exists {
 		return nil, ErrReplicationGroupAlreadyExists
 	}
 
 	if opts.ParameterGroupName != "" {
-		if _, ok := b.parameterGroupsStore(region)[opts.ParameterGroupName]; !ok {
+		if _, ok := b.parameterGroupsStore(region).Get(opts.ParameterGroupName); !ok {
 			return nil, ErrParameterGroupNotFound
+		}
+	}
+
+	if opts.SnapshotName != "" {
+		snap, ok := b.snapshotsStore(region).Get(opts.SnapshotName)
+		if !ok || isReaped(b.now(), snap.PendingStatus, snap.AvailableAt) {
+			return nil, ErrSnapshotNotFound
+		}
+
+		// Restoring from a snapshot inherits its engine/version/node type for
+		// any field the caller didn't explicitly override.
+		if opts.Engine == "" {
+			opts.Engine = snap.Engine
+		}
+
+		if opts.EngineVersion == "" {
+			opts.EngineVersion = snap.EngineVersion
+		}
+
+		if opts.CacheNodeType == "" {
+			opts.CacheNodeType = snap.NodeType
 		}
 	}
 
@@ -309,7 +335,7 @@ func (b *InMemoryBackend) CreateReplicationGroupFull(
 
 	rg := b.buildReplicationGroupFromCreateOpts(region, opts)
 	b.markCreatingLocked(&rg.PendingStatus, &rg.AvailableAt)
-	rgStore[opts.ID] = rg
+	rgStore.Put(rg)
 	b.appendEventLocked(opts.ID, "replication-group", "replication group created")
 
 	return b.replicationGroupView(rg), nil
@@ -408,15 +434,19 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, exists := b.replicationGroupsStore(region)[id]
+	rg, exists := b.replicationGroupsStore(region).Get(id)
 	if !exists {
 		return nil, ErrReplicationGroupNotFound
 	}
 
 	if opts.ParameterGroupName != "" {
-		if _, ok := b.parameterGroupsStore(region)[opts.ParameterGroupName]; !ok {
+		if _, ok := b.parameterGroupsStore(region).Get(opts.ParameterGroupName); !ok {
 			return nil, ErrParameterGroupNotFound
 		}
+	}
+
+	if err := validateTransitEncryptionModify(rg, opts); err != nil {
+		return nil, err
 	}
 
 	b.applyModifyOptsLocked(rg, opts)
@@ -550,6 +580,35 @@ func applyAuthTokenModify(rg *ReplicationGroup, token, strategy string) {
 	}
 }
 
+// validateTransitEncryptionModify rejects switching TransitEncryptionMode to
+// "required" when the replication group will end up without an auth token,
+// matching AWS's rule that required-mode transit encryption needs an auth
+// token enabled (either already present or set in the same request).
+func validateTransitEncryptionModify(rg *ReplicationGroup, opts ReplicationGroupModifyOpts) error {
+	if opts.TransitEncryptionMode != transitEncryptionModeRequired {
+		return nil
+	}
+
+	authTokenWillBeEnabled := rg.AuthTokenEnabled
+
+	switch opts.AuthTokenUpdateStrategy {
+	case "SET", "ROTATE":
+		authTokenWillBeEnabled = true
+	case "DELETE":
+		authTokenWillBeEnabled = false
+	}
+
+	if opts.AuthToken != "" {
+		authTokenWillBeEnabled = true
+	}
+
+	if !authTokenWillBeEnabled {
+		return ErrTransitEncryptionModeInvalid
+	}
+
+	return nil
+}
+
 // applyTransitEncryptionModify applies transit encryption mode change (gap #13).
 func applyTransitEncryptionModify(rg *ReplicationGroup, mode string) {
 	if mode == "" {
@@ -612,19 +671,19 @@ func (b *InMemoryBackend) TriggerAutoSnapshot(ctx context.Context, replicationGr
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	rg, ok := b.replicationGroupsStore(region)[replicationGroupID]
+	rg, ok := b.replicationGroupsStore(region).Get(replicationGroupID)
 	if !ok {
 		return nil, ErrReplicationGroupNotFound
 	}
 
 	snapStore := b.snapshotsStore(region)
 	snapName := buildAutoSnapshotName(replicationGroupID)
-	if _, exists := snapStore[snapName]; exists {
+	if _, exists := snapStore.Get(snapName); exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
 
 	snap := buildAutoSnapshot(b, region, snapName, rg)
-	snapStore[snapName] = snap
+	snapStore.Put(snap)
 
 	b.appendEventLocked(replicationGroupID, "replication-group", "automated snapshot created: "+snapName)
 	pruneExpiredSnapshots(b, snapStore, replicationGroupID, rg.SnapshotRetentionLimit)
@@ -675,7 +734,7 @@ func sortAutoSnapshots(snaps []CacheSnapshot) {
 // pruneExpiredSnapshots removes automated snapshots beyond the retention limit (gap #14).
 func pruneExpiredSnapshots(
 	_ *InMemoryBackend,
-	store map[string]*CacheSnapshot,
+	tbl *store.Table[CacheSnapshot],
 	replicationGroupID string,
 	retentionLimit int,
 ) {
@@ -684,7 +743,7 @@ func pruneExpiredSnapshots(
 	}
 
 	var autoSnaps []CacheSnapshot
-	for _, s := range store {
+	for _, s := range tbl.All() {
 		if s.ReplicationGroupID == replicationGroupID && s.SnapshotSource == "automated" {
 			autoSnaps = append(autoSnaps, *s)
 		}
@@ -700,9 +759,9 @@ func pruneExpiredSnapshots(
 	excess := len(autoSnaps) - retentionLimit
 	for i := range excess {
 		snap := autoSnaps[i]
-		if s, ok := store[snap.SnapshotName]; ok {
+		if s, ok := tbl.Get(snap.SnapshotName); ok {
 			s.Tags.Close()
-			delete(store, snap.SnapshotName)
+			tbl.Delete(snap.SnapshotName)
 		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -127,7 +126,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 	b.mu.Lock("CreateDBProxy")
 	defer b.mu.Unlock()
 
-	if _, exists := b.proxies[name]; exists {
+	if _, exists := b.proxies.Get(name); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBProxyAlreadyExists, name)
 	}
 
@@ -149,7 +148,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 		},
 	}
 
-	b.proxies[name] = proxy
+	b.proxies.Put(proxy)
 
 	// Auto-create default target group
 	tg := &DBProxyTargetGroup{
@@ -162,7 +161,7 @@ func (b *InMemoryBackend) CreateDBProxy(name, engineFamily, roleARN string, auth
 		UpdatedDate:          time.Now(),
 		ConnectionPoolConfig: proxy.ConnectionPoolConfig,
 	}
-	b.proxyTargetGroups[name+"/"+proxyDefaultTargetGroupName] = tg
+	b.proxyTargetGroups.Put(tg)
 
 	return proxy, nil
 }
@@ -172,23 +171,23 @@ func (b *InMemoryBackend) DeleteDBProxy(name string) (*DBProxy, error) {
 	b.mu.Lock("DeleteDBProxy")
 	defer b.mu.Unlock()
 
-	proxy, exists := b.proxies[name]
+	proxy, exists := b.proxies.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, name)
 	}
 
-	delete(b.proxies, name)
+	b.proxies.Delete(name)
 
 	// Clean up associated target groups and targets
-	for key := range b.proxyTargetGroups {
-		if strings.HasPrefix(key, name+"/") {
-			delete(b.proxyTargetGroups, key)
+	for _, tg := range b.proxyTargetGroups.All() {
+		if tg.DBProxyName == name {
+			b.proxyTargetGroups.Delete(proxyTargetGroupsKeyFn(tg))
 		}
 	}
 	delete(b.proxyTargets, name)
-	for key := range b.proxyEndpoints {
-		if b.proxyEndpoints[key].DBProxyName == name {
-			delete(b.proxyEndpoints, key)
+	for _, ep := range b.proxyEndpoints.All() {
+		if ep.DBProxyName == name {
+			b.proxyEndpoints.Delete(proxyEndpointsKeyFn(ep))
 		}
 	}
 
@@ -200,8 +199,8 @@ func (b *InMemoryBackend) DescribeDBProxies(name string) ([]DBProxy, error) {
 	b.mu.RLock("DescribeDBProxies")
 	defer b.mu.RUnlock()
 
-	result := make([]DBProxy, 0, len(b.proxies))
-	for _, p := range b.proxies {
+	result := make([]DBProxy, 0, b.proxies.Len())
+	for _, p := range b.proxies.All() {
 		if name != "" && p.DBProxyName != name {
 			continue
 		}
@@ -225,7 +224,7 @@ func (b *InMemoryBackend) ModifyDBProxy(
 	b.mu.Lock("ModifyDBProxy")
 	defer b.mu.Unlock()
 
-	proxy, exists := b.proxies[name]
+	proxy, exists := b.proxies.Get(name)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, name)
 	}
@@ -255,7 +254,7 @@ func (b *InMemoryBackend) RegisterDBProxyTargets(
 	b.mu.Lock("RegisterDBProxyTargets")
 	defer b.mu.Unlock()
 
-	if _, exists := b.proxies[proxyName]; !exists {
+	if _, exists := b.proxies.Get(proxyName); !exists {
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
 	}
 
@@ -305,7 +304,7 @@ func (b *InMemoryBackend) DeregisterDBProxyTargets(
 	b.mu.Lock("DeregisterDBProxyTargets")
 	defer b.mu.Unlock()
 
-	if _, exists := b.proxies[proxyName]; !exists {
+	if _, exists := b.proxies.Get(proxyName); !exists {
 		return fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
 	}
 
@@ -334,7 +333,7 @@ func (b *InMemoryBackend) DescribeDBProxyTargets(proxyName, _ string) ([]DBProxy
 	b.mu.RLock("DescribeDBProxyTargets")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.proxies[proxyName]; !exists {
+	if _, exists := b.proxies.Get(proxyName); !exists {
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
 	}
 
@@ -351,13 +350,13 @@ func (b *InMemoryBackend) DescribeDBProxyTargetGroups(proxyName, targetGroupName
 	b.mu.RLock("DescribeDBProxyTargetGroups")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.proxies[proxyName]; !exists {
+	if _, exists := b.proxies.Get(proxyName); !exists {
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
 	}
 
-	result := make([]DBProxyTargetGroup, 0, len(b.proxyTargetGroups))
-	for key, tg := range b.proxyTargetGroups {
-		if !strings.HasPrefix(key, proxyName+"/") {
+	result := make([]DBProxyTargetGroup, 0, b.proxyTargetGroups.Len())
+	for _, tg := range b.proxyTargetGroups.All() {
+		if tg.DBProxyName != proxyName {
 			continue
 		}
 		if targetGroupName != "" && tg.TargetGroupName != targetGroupName {
@@ -378,7 +377,7 @@ func (b *InMemoryBackend) ModifyDBProxyTargetGroup(
 	defer b.mu.Unlock()
 
 	key := proxyName + "/" + targetGroupName
-	tg, exists := b.proxyTargetGroups[key]
+	tg, exists := b.proxyTargetGroups.Get(key)
 	if !exists {
 		return nil, fmt.Errorf(
 			"%w: target group %s for proxy %s not found",
@@ -404,10 +403,10 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 	b.mu.Lock("CreateDBProxyEndpoint")
 	defer b.mu.Unlock()
 
-	if _, exists := b.proxies[proxyName]; !exists {
+	if _, exists := b.proxies.Get(proxyName); !exists {
 		return nil, fmt.Errorf("%w: DBProxy %s not found", ErrInvalidParameter, proxyName)
 	}
-	if _, exists := b.proxyEndpoints[endpointName]; exists {
+	if _, exists := b.proxyEndpoints.Get(endpointName); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBProxyEndpointAlreadyExists, endpointName)
 	}
 
@@ -431,7 +430,7 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 		CreatedDate:         time.Now(),
 	}
 
-	b.proxyEndpoints[endpointName] = ep
+	b.proxyEndpoints.Put(ep)
 
 	return ep, nil
 }
@@ -441,14 +440,14 @@ func (b *InMemoryBackend) DeleteDBProxyEndpoint(endpointName string) (*DBProxyEn
 	b.mu.Lock("DeleteDBProxyEndpoint")
 	defer b.mu.Unlock()
 
-	ep, exists := b.proxyEndpoints[endpointName]
+	ep, exists := b.proxyEndpoints.Get(endpointName)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrInvalidParameter, endpointName)
 	}
 	if ep.IsDefault {
 		return nil, ErrCannotDeleteDefaultProxyEndpoint
 	}
-	delete(b.proxyEndpoints, endpointName)
+	b.proxyEndpoints.Delete(endpointName)
 
 	return ep, nil
 }
@@ -458,8 +457,8 @@ func (b *InMemoryBackend) DescribeDBProxyEndpoints(proxyName, endpointName strin
 	b.mu.RLock("DescribeDBProxyEndpoints")
 	defer b.mu.RUnlock()
 
-	result := make([]DBProxyEndpoint, 0, len(b.proxyEndpoints))
-	for _, ep := range b.proxyEndpoints {
+	result := make([]DBProxyEndpoint, 0, b.proxyEndpoints.Len())
+	for _, ep := range b.proxyEndpoints.All() {
 		if proxyName != "" && ep.DBProxyName != proxyName {
 			continue
 		}
@@ -481,7 +480,7 @@ func (b *InMemoryBackend) ModifyDBProxyEndpoint(endpointName string, vpcSGIDs []
 	b.mu.Lock("ModifyDBProxyEndpoint")
 	defer b.mu.Unlock()
 
-	ep, exists := b.proxyEndpoints[endpointName]
+	ep, exists := b.proxyEndpoints.Get(endpointName)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBProxyEndpoint %s not found", ErrInvalidParameter, endpointName)
 	}
@@ -499,7 +498,7 @@ func (b *InMemoryBackend) StartActivityStream(clusterID, kmsKeyID, mode string) 
 	b.mu.Lock("StartActivityStream")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBCluster %s not found", ErrInvalidParameter, clusterID)
 	}
@@ -528,7 +527,7 @@ func (b *InMemoryBackend) StopActivityStream(clusterID string) (*DBCluster, erro
 	b.mu.Lock("StopActivityStream")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBCluster %s not found", ErrInvalidParameter, clusterID)
 	}
@@ -554,7 +553,7 @@ func (b *InMemoryBackend) ModifyActivityStream(clusterID string, auditPolicy str
 	b.mu.Lock("ModifyActivityStream")
 	defer b.mu.Unlock()
 
-	cluster, exists := b.clusters[clusterID]
+	cluster, exists := b.clusters.Get(clusterID)
 	if !exists {
 		return nil, fmt.Errorf("%w: DBCluster %s not found", ErrInvalidParameter, clusterID)
 	}

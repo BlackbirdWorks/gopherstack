@@ -415,6 +415,13 @@ func TestBatchWriteItem_DeleteRequest_MissingPK_Rejected(t *testing.T) {
 }
 
 // Regression: valid batch write still succeeds after adding validation.
+//
+// Note: the Delete key is deliberately distinct from both Put keys. AWS
+// DynamoDB rejects a BatchWriteItem whose per-table request list targets the
+// same primary key more than once (e.g. Put(k1) + Delete(k1) together) with
+// "ValidationException: Provided list of item keys contains duplicates" — this
+// test previously (incorrectly) exercised exactly that duplicate-key shape and
+// asserted it should succeed, which does not match real AWS behaviour.
 func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 	t.Parallel()
 	d := b2NewDB(t)
@@ -441,7 +448,7 @@ func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 				{
 					DeleteRequest: &types.DeleteRequest{
 						Key: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "k1"},
+							"pk": &types.AttributeValueMemberS{Value: "k3"},
 						},
 					},
 				},
@@ -451,6 +458,38 @@ func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid batch write should succeed: %v", err)
 	}
+}
+
+// TestBatchWriteItem_DuplicateKey_PutAndDelete_Rejected verifies that AWS's
+// "one action per item per BatchWriteItem" rule is enforced across request
+// kinds, not just within a single Put or Delete list: targeting the same
+// primary key with both a Put and a Delete in one call is rejected.
+func TestBatchWriteItem_DuplicateKey_PutAndDelete_Rejected(t *testing.T) {
+	t.Parallel()
+	d := b2NewDB(t)
+	b2CreateTable(t, d)
+
+	_, err := d.BatchWriteItem(context.Background(), &dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]types.WriteRequest{
+			"tbl": {
+				{
+					PutRequest: &types.PutRequest{
+						Item: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "k1"},
+						},
+					},
+				},
+				{
+					DeleteRequest: &types.DeleteRequest{
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "k1"},
+						},
+					},
+				},
+			},
+		},
+	})
+	b2AssertValidationErr(t, err)
 }
 
 // Regression: valid batch get with no projection still returns all attributes.

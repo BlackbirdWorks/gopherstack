@@ -75,3 +75,119 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore(t.Context(), []byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+// TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip exercises a full
+// Snapshot->Restore round trip covering every resource kind the Phase 3.3
+// pkgs/store conversion touches: the store.Table-backed keys/aliases/grants/
+// customKeyStores, and the plain region-nested policies/keyMaterials/
+// keyMaterialHistory maps left raw (no store.Table identity field). Crypto
+// key material -- both a symmetric key's current AND rotated-out historical
+// material, and an asymmetric key's material -- must round-trip byte-for-byte
+// since a mismatch would silently break Decrypt/Verify on restored backends.
+func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	orig := kms.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	// Symmetric key: encrypt before rotation, rotate on demand (populates
+	// keyMaterialHistory with the pre-rotation material), then confirm the
+	// pre-rotation ciphertext still decrypts via history.
+	symOut, err := orig.CreateKey(ctx, &kms.CreateKeyInput{Description: "sym"})
+	require.NoError(t, err)
+	symKeyID := symOut.KeyMetadata.KeyID
+
+	encOut, err := orig.Encrypt(ctx, &kms.EncryptInput{KeyID: symKeyID, Plaintext: []byte("top secret")})
+	require.NoError(t, err)
+
+	_, err = orig.RotateKeyOnDemand(ctx, &kms.RotateKeyOnDemandInput{KeyID: symKeyID})
+	require.NoError(t, err)
+	require.Equal(t, 1, orig.KeyMaterialHistoryLenForTest(symKeyID))
+
+	_, err = orig.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.NoError(t, err, "pre-rotation ciphertext must still decrypt via keyMaterialHistory")
+
+	// Alias.
+	require.NoError(t, orig.CreateAlias(ctx, &kms.CreateAliasInput{
+		AliasName: "alias/full-state", TargetKeyID: symKeyID,
+	}))
+
+	// Grant.
+	grantOut, err := orig.CreateGrant(ctx, &kms.CreateGrantInput{
+		KeyID:            symKeyID,
+		GranteePrincipal: "arn:aws:iam::000000000000:role/test",
+		Operations:       []string{"Encrypt", "Decrypt"},
+	})
+	require.NoError(t, err)
+
+	// Key policy (plain region-nested map, no store.Table identity field).
+	policy := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Principal":"*","Action":"kms:*","Resource":"*"}]}`
+	require.NoError(t, orig.PutKeyPolicy(ctx, &kms.PutKeyPolicyInput{KeyID: symKeyID, Policy: policy}))
+
+	// Custom key store.
+	cksOut, err := orig.CreateCustomKeyStore(ctx, &kms.CreateCustomKeyStoreInput{CustomKeyStoreName: "my-cks"})
+	require.NoError(t, err)
+
+	// Asymmetric key material round trip (RSA sign/verify).
+	asymOut, err := orig.CreateKey(ctx, &kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify, KeySpec: "RSA_2048"})
+	require.NoError(t, err)
+	asymKeyID := asymOut.KeyMetadata.KeyID
+
+	sigOut, err := orig.Sign(ctx, &kms.SignInput{
+		KeyID: asymKeyID, Message: []byte("msg"), SigningAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256",
+	})
+	require.NoError(t, err)
+
+	snap := orig.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	fresh := kms.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(ctx, snap))
+
+	// Symmetric key's CURRENT material persisted: a fresh encrypt/decrypt works.
+	freshEnc, err := fresh.Encrypt(ctx, &kms.EncryptInput{KeyID: symKeyID, Plaintext: []byte("after restore")})
+	require.NoError(t, err)
+	freshDec, err := fresh.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: freshEnc.CiphertextBlob})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("after restore"), freshDec.Plaintext)
+
+	// keyMaterialHistory persisted: the pre-rotation ciphertext still decrypts.
+	assert.Equal(t, 1, fresh.KeyMaterialHistoryLenForTest(symKeyID))
+	decOut, err := fresh.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.NoError(t, err, "pre-rotation ciphertext must still decrypt after restore")
+	assert.Equal(t, []byte("top secret"), decOut.Plaintext)
+
+	// Alias persisted and resolves.
+	aliasOut, err := fresh.ListAliases(ctx, &kms.ListAliasesInput{KeyID: symKeyID})
+	require.NoError(t, err)
+	require.Len(t, aliasOut.Aliases, 1)
+	assert.Equal(t, "alias/full-state", aliasOut.Aliases[0].AliasName)
+
+	// Grant persisted: the grant token still authorizes via the rebuilt indexes.
+	_, err = fresh.Encrypt(ctx, &kms.EncryptInput{
+		KeyID: symKeyID, Plaintext: []byte("via grant"), GrantTokens: []string{grantOut.GrantToken},
+	})
+	require.NoError(t, err)
+
+	// Key policy persisted.
+	polOut, err := fresh.GetKeyPolicy(ctx, &kms.GetKeyPolicyInput{KeyID: symKeyID})
+	require.NoError(t, err)
+	assert.Equal(t, policy, polOut.Policy)
+
+	// Custom key store persisted.
+	cksListOut, err := fresh.DescribeCustomKeyStores(
+		ctx, &kms.DescribeCustomKeyStoresInput{CustomKeyStoreID: cksOut.CustomKeyStoreID},
+	)
+	require.NoError(t, err)
+	require.Len(t, cksListOut.CustomKeyStores, 1)
+	assert.Equal(t, "my-cks", cksListOut.CustomKeyStores[0].CustomKeyStoreName)
+
+	// Asymmetric key material persisted: the original signature still verifies.
+	verOut, err := fresh.Verify(ctx, &kms.VerifyInput{
+		KeyID: asymKeyID, Message: []byte("msg"), Signature: sigOut.Signature,
+		SigningAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256",
+	})
+	require.NoError(t, err)
+	assert.True(t, verOut.SignatureValid)
+}

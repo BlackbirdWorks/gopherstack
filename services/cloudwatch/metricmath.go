@@ -830,13 +830,20 @@ func collectRawBuckets(all []MetricDatum, startTime, endTime time.Time, period i
 	return buckets
 }
 
-// expandDatumValues reconstructs an approximate sample distribution for a metric
-// datum. A plain datum contributes its single Value. A StatisticValues datum
-// (SampleCount/Sum/Min/Max) is expanded into SampleCount synthetic samples: one at
-// Min, one at Max, and the remainder at the residual mean so that the reconstructed
-// set preserves the datum's count, sum, minimum, and maximum exactly. The sample
-// count is capped at maxStatSetExpand to bound memory.
+// expandDatumValues reconstructs a sample distribution for a metric datum. A
+// plain datum contributes its single Value. A Values/Counts datum is expanded
+// exactly (each value repeated its count times, proportionally scaled down
+// under maxStatSetExpand) since the real per-value distribution is known. A
+// StatisticValues datum (SampleCount/Sum/Min/Max) is expanded into SampleCount
+// synthetic samples: one at Min, one at Max, and the remainder at the residual
+// mean so that the reconstructed set preserves the datum's count, sum,
+// minimum, and maximum exactly. The sample count is capped at maxStatSetExpand
+// to bound memory.
 func expandDatumValues(d MetricDatum) []float64 {
+	if d.HasValuesArray {
+		return expandValuesCounts(d.Values, d.Counts)
+	}
+
 	if !d.HasStatisticSet {
 		return []float64{d.Value}
 	}
@@ -867,6 +874,46 @@ func expandDatumValues(d MetricDatum) []float64 {
 		vals = append(vals, mid)
 	}
 	vals = append(vals, d.Max)
+
+	return vals
+}
+
+// expandValuesCounts reconstructs raw samples from a PutMetricData Values/Counts
+// array pair: each values[i] occurred counts[i] times. When the total
+// occurrence count is within maxStatSetExpand, expansion is exact. Otherwise
+// each value's count is scaled down proportionally (rounded, minimum 1 for any
+// value with a positive original count) so the relative frequencies — and
+// therefore percentiles computed over the result — are preserved.
+func expandValuesCounts(values, counts []float64) []float64 {
+	total := 0.0
+	for _, c := range counts {
+		total += c
+	}
+
+	if total <= 0 {
+		return nil
+	}
+
+	scale := 1.0
+	capacity := int(total)
+
+	if total > maxStatSetExpand {
+		scale = float64(maxStatSetExpand) / total
+		capacity = maxStatSetExpand
+	}
+
+	vals := make([]float64, 0, capacity)
+
+	for i, v := range values {
+		n := int(math.Round(counts[i] * scale))
+		if n < 1 && counts[i] > 0 {
+			n = 1
+		}
+
+		for range n {
+			vals = append(vals, v)
+		}
+	}
 
 	return vals
 }

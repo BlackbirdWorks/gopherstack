@@ -43,7 +43,8 @@ func (b *InMemoryBackend) PutResourcePolicy(policyName, policyDocument string) (
 		PolicyDocument: policyDocument,
 		LastUpdated:    time.Now().UTC(),
 	}
-	b.resourcePolicies[policyName] = p
+	stored := p
+	b.resourcePolicies.Put(&stored)
 
 	return &p, nil
 }
@@ -53,9 +54,9 @@ func (b *InMemoryBackend) DescribeResourcePolicies() []ResourcePolicy {
 	b.mu.RLock("DescribeResourcePolicies")
 	defer b.mu.RUnlock()
 
-	out := make([]ResourcePolicy, 0, len(b.resourcePolicies))
-	for _, p := range b.resourcePolicies {
-		out = append(out, p)
+	out := make([]ResourcePolicy, 0, b.resourcePolicies.Len())
+	for _, p := range b.resourcePolicies.All() {
+		out = append(out, *p)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].PolicyName < out[j].PolicyName })
@@ -68,11 +69,9 @@ func (b *InMemoryBackend) DeleteResourcePolicy(policyName string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourcePolicies[policyName]; !ok {
+	if !b.resourcePolicies.Delete(policyName) {
 		return fmt.Errorf("%w: resource policy %q not found", ErrResourcePolicyNotFound, policyName)
 	}
-
-	delete(b.resourcePolicies, policyName)
 
 	return nil
 }
@@ -102,16 +101,16 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 	b.mu.Lock("PutDeliveryDestination")
 	defer b.mu.Unlock()
 
-	existing, exists := b.deliveryDestinations[name]
+	existing, exists := b.deliveryDestinations.Get(name)
 	if exists {
 		existing.TargetArn = targetArn
 		existing.OutputFormat = outputFormat
 		if tags != nil {
 			existing.Tags = tags
 		}
-		b.deliveryDestinations[name] = existing
+		cp := *existing
 
-		return &existing, nil
+		return &cp, nil
 	}
 
 	dest := DeliveryDestination{
@@ -122,7 +121,8 @@ func (b *InMemoryBackend) PutDeliveryDestination(
 		Tags:         tags,
 		CreatedAt:    time.Now().UTC(),
 	}
-	b.deliveryDestinations[name] = dest
+	stored := dest
+	b.deliveryDestinations.Put(&stored)
 
 	return &dest, nil
 }
@@ -132,12 +132,13 @@ func (b *InMemoryBackend) GetDeliveryDestination(name string) (*DeliveryDestinat
 	b.mu.RLock("GetDeliveryDestination")
 	defer b.mu.RUnlock()
 
-	dest, ok := b.deliveryDestinations[name]
+	dest, ok := b.deliveryDestinations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: delivery destination %q not found", ErrDeliveryDestinationNotFound, name)
 	}
+	cp := *dest
 
-	return &dest, nil
+	return &cp, nil
 }
 
 // DescribeDeliveryDestinations returns all delivery destinations sorted by name.
@@ -145,9 +146,9 @@ func (b *InMemoryBackend) DescribeDeliveryDestinations() []DeliveryDestination {
 	b.mu.RLock("DescribeDeliveryDestinations")
 	defer b.mu.RUnlock()
 
-	out := make([]DeliveryDestination, 0, len(b.deliveryDestinations))
-	for _, d := range b.deliveryDestinations {
-		out = append(out, d)
+	out := make([]DeliveryDestination, 0, b.deliveryDestinations.Len())
+	for _, d := range b.deliveryDestinations.All() {
+		out = append(out, *d)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -160,11 +161,9 @@ func (b *InMemoryBackend) DeleteDeliveryDestination(name string) error {
 	b.mu.Lock("DeleteDeliveryDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deliveryDestinations[name]; !ok {
+	if !b.deliveryDestinations.Delete(name) {
 		return fmt.Errorf("%w: delivery destination %q not found", ErrDeliveryDestinationNotFound, name)
 	}
-
-	delete(b.deliveryDestinations, name)
 
 	return nil
 }
@@ -174,13 +173,12 @@ func (b *InMemoryBackend) PutDeliveryDestinationPolicy(name, policy string) erro
 	b.mu.Lock("PutDeliveryDestinationPolicy")
 	defer b.mu.Unlock()
 
-	dest, ok := b.deliveryDestinations[name]
+	dest, ok := b.deliveryDestinations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: delivery destination %q not found", ErrDeliveryDestinationNotFound, name)
 	}
 
 	dest.Policy = policy
-	b.deliveryDestinations[name] = dest
 
 	return nil
 }
@@ -190,7 +188,7 @@ func (b *InMemoryBackend) GetDeliveryDestinationPolicy(name string) (string, err
 	b.mu.RLock("GetDeliveryDestinationPolicy")
 	defer b.mu.RUnlock()
 
-	dest, ok := b.deliveryDestinations[name]
+	dest, ok := b.deliveryDestinations.Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: delivery destination %q not found", ErrDeliveryDestinationNotFound, name)
 	}
@@ -203,13 +201,12 @@ func (b *InMemoryBackend) DeleteDeliveryDestinationPolicy(name string) error {
 	b.mu.Lock("DeleteDeliveryDestinationPolicy")
 	defer b.mu.Unlock()
 
-	dest, ok := b.deliveryDestinations[name]
+	dest, ok := b.deliveryDestinations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: delivery destination %q not found", ErrDeliveryDestinationNotFound, name)
 	}
 
 	dest.Policy = ""
-	b.deliveryDestinations[name] = dest
 
 	return nil
 }
@@ -239,16 +236,16 @@ func (b *InMemoryBackend) PutDeliverySource(
 	b.mu.Lock("PutDeliverySource")
 	defer b.mu.Unlock()
 
-	existing, exists := b.deliverySources[name]
+	existing, exists := b.deliverySources.Get(name)
 	if exists {
 		existing.LogType = logType
 		existing.ResourceArns = resourceArns
 		if tags != nil {
 			existing.Tags = tags
 		}
-		b.deliverySources[name] = existing
+		cp := *existing
 
-		return &existing, nil
+		return &cp, nil
 	}
 
 	src := DeliverySource{
@@ -259,7 +256,8 @@ func (b *InMemoryBackend) PutDeliverySource(
 		Tags:         tags,
 		CreatedAt:    time.Now().UTC(),
 	}
-	b.deliverySources[name] = src
+	stored := src
+	b.deliverySources.Put(&stored)
 
 	return &src, nil
 }
@@ -269,12 +267,13 @@ func (b *InMemoryBackend) GetDeliverySource(name string) (*DeliverySource, error
 	b.mu.RLock("GetDeliverySource")
 	defer b.mu.RUnlock()
 
-	src, ok := b.deliverySources[name]
+	src, ok := b.deliverySources.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: delivery source %q not found", ErrDeliverySourceNotFound, name)
 	}
+	cp := *src
 
-	return &src, nil
+	return &cp, nil
 }
 
 // DescribeDeliverySources returns all delivery sources sorted by name.
@@ -282,9 +281,9 @@ func (b *InMemoryBackend) DescribeDeliverySources() []DeliverySource {
 	b.mu.RLock("DescribeDeliverySources")
 	defer b.mu.RUnlock()
 
-	out := make([]DeliverySource, 0, len(b.deliverySources))
-	for _, s := range b.deliverySources {
-		out = append(out, s)
+	out := make([]DeliverySource, 0, b.deliverySources.Len())
+	for _, s := range b.deliverySources.All() {
+		out = append(out, *s)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -297,11 +296,9 @@ func (b *InMemoryBackend) DeleteDeliverySource(name string) error {
 	b.mu.Lock("DeleteDeliverySource")
 	defer b.mu.Unlock()
 
-	if _, ok := b.deliverySources[name]; !ok {
+	if !b.deliverySources.Delete(name) {
 		return fmt.Errorf("%w: delivery source %q not found", ErrDeliverySourceNotFound, name)
 	}
-
-	delete(b.deliverySources, name)
 
 	return nil
 }
@@ -327,13 +324,13 @@ func (b *InMemoryBackend) PutDestination(name, targetArn, roleArn string) (*CWLD
 	b.mu.Lock("PutDestination")
 	defer b.mu.Unlock()
 
-	existing, exists := b.destinations[name]
+	existing, exists := b.destinations.Get(name)
 	if exists {
 		existing.TargetArn = targetArn
 		existing.RoleArn = roleArn
-		b.destinations[name] = existing
+		cp := *existing
 
-		return &existing, nil
+		return &cp, nil
 	}
 
 	dest := CWLDestination{
@@ -343,7 +340,8 @@ func (b *InMemoryBackend) PutDestination(name, targetArn, roleArn string) (*CWLD
 		Arn:             "arn:aws:logs:" + b.region + ":" + b.accountID + ":destination:" + name,
 		CreatedAt:       time.Now().UTC(),
 	}
-	b.destinations[name] = dest
+	stored := dest
+	b.destinations.Put(&stored)
 
 	return &dest, nil
 }
@@ -353,13 +351,12 @@ func (b *InMemoryBackend) PutDestinationPolicy(name, policy string) error {
 	b.mu.Lock("PutDestinationPolicy")
 	defer b.mu.Unlock()
 
-	dest, ok := b.destinations[name]
+	dest, ok := b.destinations.Get(name)
 	if !ok {
 		return fmt.Errorf("%w: destination %q not found", ErrDestinationNotFound, name)
 	}
 
 	dest.AccessPolicy = policy
-	b.destinations[name] = dest
 
 	return nil
 }
@@ -369,11 +366,11 @@ func (b *InMemoryBackend) DescribeDestinations(namePrefix string) []CWLDestinati
 	b.mu.RLock("DescribeDestinations")
 	defer b.mu.RUnlock()
 
-	out := make([]CWLDestination, 0, len(b.destinations))
+	out := make([]CWLDestination, 0, b.destinations.Len())
 
-	for _, d := range b.destinations {
+	for _, d := range b.destinations.All() {
 		if namePrefix == "" || strings.HasPrefix(d.DestinationName, namePrefix) {
-			out = append(out, d)
+			out = append(out, *d)
 		}
 	}
 
@@ -387,11 +384,9 @@ func (b *InMemoryBackend) DeleteDestination(name string) error {
 	b.mu.Lock("DeleteDestination")
 	defer b.mu.Unlock()
 
-	if _, ok := b.destinations[name]; !ok {
+	if !b.destinations.Delete(name) {
 		return fmt.Errorf("%w: destination %q not found", ErrDestinationNotFound, name)
 	}
-
-	delete(b.destinations, name)
 
 	return nil
 }
@@ -419,7 +414,8 @@ func (b *InMemoryBackend) PutIndexPolicy(logGroupIdentifier, policyDocument stri
 		PolicyDocument:     policyDocument,
 		LastUpdated:        time.Now().UTC(),
 	}
-	b.indexPolicies[logGroupIdentifier] = p
+	stored := p
+	b.indexPolicies.Put(&stored)
 
 	return &p, nil
 }
@@ -429,9 +425,9 @@ func (b *InMemoryBackend) DescribeIndexPolicies() []IndexPolicy {
 	b.mu.RLock("DescribeIndexPolicies")
 	defer b.mu.RUnlock()
 
-	out := make([]IndexPolicy, 0, len(b.indexPolicies))
-	for _, p := range b.indexPolicies {
-		out = append(out, p)
+	out := make([]IndexPolicy, 0, b.indexPolicies.Len())
+	for _, p := range b.indexPolicies.All() {
+		out = append(out, *p)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].LogGroupIdentifier < out[j].LogGroupIdentifier })
@@ -444,11 +440,9 @@ func (b *InMemoryBackend) DeleteIndexPolicy(logGroupIdentifier string) error {
 	b.mu.Lock("DeleteIndexPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.indexPolicies[logGroupIdentifier]; !ok {
+	if !b.indexPolicies.Delete(logGroupIdentifier) {
 		return fmt.Errorf("%w: index policy for %q not found", ErrIndexPolicyNotFound, logGroupIdentifier)
 	}
-
-	delete(b.indexPolicies, logGroupIdentifier)
 
 	return nil
 }
@@ -471,11 +465,11 @@ func (b *InMemoryBackend) PutTransformer(logGroupIdentifier string, processors [
 	b.mu.Lock("PutTransformer")
 	defer b.mu.Unlock()
 
-	b.transformers[logGroupIdentifier] = Transformer{
+	b.transformers.Put(&Transformer{
 		LogGroupIdentifier: logGroupIdentifier,
 		Processors:         processors,
 		CreatedAt:          time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -485,12 +479,13 @@ func (b *InMemoryBackend) GetTransformer(logGroupIdentifier string) (*Transforme
 	b.mu.RLock("GetTransformer")
 	defer b.mu.RUnlock()
 
-	t, ok := b.transformers[logGroupIdentifier]
+	t, ok := b.transformers.Get(logGroupIdentifier)
 	if !ok {
 		return nil, fmt.Errorf("%w: transformer for %q not found", ErrTransformerNotFound, logGroupIdentifier)
 	}
+	cp := *t
 
-	return &t, nil
+	return &cp, nil
 }
 
 // DeleteTransformer removes the transformer for a log group.
@@ -498,11 +493,9 @@ func (b *InMemoryBackend) DeleteTransformer(logGroupIdentifier string) error {
 	b.mu.Lock("DeleteTransformer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.transformers[logGroupIdentifier]; !ok {
+	if !b.transformers.Delete(logGroupIdentifier) {
 		return fmt.Errorf("%w: transformer for %q not found", ErrTransformerNotFound, logGroupIdentifier)
 	}
-
-	delete(b.transformers, logGroupIdentifier)
 
 	return nil
 }
@@ -532,7 +525,8 @@ func (b *InMemoryBackend) PutIntegration(name, integrationType string) (*CWLInte
 		Status:    completenessStatusActive,
 		CreatedAt: time.Now().UTC(),
 	}
-	b.integrations[name] = ig
+	stored := ig
+	b.integrations.Put(&stored)
 
 	return &ig, nil
 }
@@ -542,12 +536,13 @@ func (b *InMemoryBackend) GetIntegration(name string) (*CWLIntegration, error) {
 	b.mu.RLock("GetIntegration")
 	defer b.mu.RUnlock()
 
-	ig, ok := b.integrations[name]
+	ig, ok := b.integrations.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: integration %q not found", ErrIntegrationNotFound, name)
 	}
+	cp := *ig
 
-	return &ig, nil
+	return &cp, nil
 }
 
 // ListIntegrations returns all integrations sorted by name.
@@ -555,9 +550,9 @@ func (b *InMemoryBackend) ListIntegrations() []CWLIntegration {
 	b.mu.RLock("ListIntegrations")
 	defer b.mu.RUnlock()
 
-	out := make([]CWLIntegration, 0, len(b.integrations))
-	for _, ig := range b.integrations {
-		out = append(out, ig)
+	out := make([]CWLIntegration, 0, b.integrations.Len())
+	for _, ig := range b.integrations.All() {
+		out = append(out, *ig)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -570,11 +565,9 @@ func (b *InMemoryBackend) DeleteIntegration(name string) error {
 	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.integrations[name]; !ok {
+	if !b.integrations.Delete(name) {
 		return fmt.Errorf("%w: integration %q not found", ErrIntegrationNotFound, name)
 	}
-
-	delete(b.integrations, name)
 
 	return nil
 }
@@ -590,7 +583,10 @@ func (b *InMemoryBackend) SetLogGroupDeletionProtection(logGroupIdentifier strin
 	b.mu.Lock("SetLogGroupDeletionProtection")
 	defer b.mu.Unlock()
 
-	b.deletionProtected[logGroupIdentifier] = protected
+	b.deletionProtected.Put(&deletionProtectionEntry{
+		LogGroupIdentifier: logGroupIdentifier,
+		Protected:          protected,
+	})
 
 	return nil
 }
@@ -600,7 +596,9 @@ func (b *InMemoryBackend) IsLogGroupDeletionProtected(logGroupIdentifier string)
 	b.mu.RLock("IsLogGroupDeletionProtected")
 	defer b.mu.RUnlock()
 
-	return b.deletionProtected[logGroupIdentifier]
+	entry, ok := b.deletionProtected.Get(logGroupIdentifier)
+
+	return ok && entry.Protected
 }
 
 // ---- UpdateDeliveryConfiguration ----
@@ -610,7 +608,7 @@ func (b *InMemoryBackend) UpdateDeliveryConfiguration(id, fieldDelimiter string,
 	b.mu.Lock("UpdateDeliveryConfiguration")
 	defer b.mu.Unlock()
 
-	delivery, ok := b.deliveries[id]
+	delivery, ok := b.deliveries.Get(id)
 	if !ok {
 		return fmt.Errorf("%w: delivery %q not found", ErrDeliveryNotFound, id)
 	}
@@ -622,8 +620,6 @@ func (b *InMemoryBackend) UpdateDeliveryConfiguration(id, fieldDelimiter string,
 	if len(recordFields) > 0 {
 		delivery.RecordFields = recordFields
 	}
-
-	b.deliveries[id] = delivery
 
 	return nil
 }
@@ -648,7 +644,7 @@ func (b *InMemoryBackend) DiscoverLogFields(
 	b.mu.RLock("DiscoverLogFields")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.groupsStore(region)[logGroupName]; !exists {
+	if !b.groupHas(region, logGroupName) {
 		return nil, fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, logGroupName)
 	}
 
@@ -659,8 +655,8 @@ func (b *InMemoryBackend) DiscoverLogFields(
 		keyLogStream:     {},
 	}
 
-	for _, streams := range b.eventsStore(region)[logGroupName] {
-		for _, ev := range streams {
+	for _, stream := range b.streamsInGroup(region, logGroupName) {
+		for _, ev := range stream.events {
 			for _, name := range jsonMessageFields(ev.Message) {
 				fieldSet[name] = struct{}{}
 			}
@@ -719,18 +715,17 @@ func (b *InMemoryBackend) ListAggregateLogGroupSummaries(
 	b.mu.RLock("ListAggregateLogGroupSummaries")
 	defer b.mu.RUnlock()
 
-	groups := b.groupsStore(region)
-	events := b.eventsStore(region)
+	groups := b.groupsInRegion(region)
 
 	summaries := make([]AggregateLogGroupSummary, 0, len(groups))
-	for name, group := range groups {
+	for _, group := range groups {
 		var count int64
-		for _, streams := range events[name] {
-			count += int64(len(streams))
+		for _, stream := range b.streamsInGroup(region, group.LogGroupName) {
+			count += int64(len(stream.events))
 		}
 
 		summaries = append(summaries, AggregateLogGroupSummary{
-			LogGroupName:  name,
+			LogGroupName:  group.LogGroupName,
 			LogGroupArn:   group.Arn,
 			LogGroupClass: group.LogGroupClass,
 			StoredBytes:   group.StoredBytes,
@@ -765,10 +760,9 @@ func (b *InMemoryBackend) ValidateLiveTailLogGroups(
 	b.mu.RLock("ValidateLiveTailLogGroups")
 	defer b.mu.RUnlock()
 
-	groups := b.groupsStore(region)
 	for _, id := range logGroupIdentifiers {
 		name := normalizeLogGroupIdentifier(id)
-		if _, exists := groups[name]; !exists {
+		if !b.groupHas(region, name) {
 			return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, name)
 		}
 	}

@@ -2,6 +2,7 @@ package athena
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -176,11 +177,8 @@ func (b *InMemoryBackend) execCreateDatabase(query string, ctx QueryExecutionCon
 	b.mu.Lock("execCreateDatabase")
 	defer b.mu.Unlock()
 
-	if b.databases[catalog] == nil {
-		b.databases[catalog] = make(map[string]*Database)
-	}
-
-	if _, exists := b.databases[catalog][database]; exists {
+	key := databaseKey(catalog, database)
+	if b.databases.Has(key) {
 		if ifNotExists {
 			return stmtOK()
 		}
@@ -188,7 +186,7 @@ func (b *InMemoryBackend) execCreateDatabase(query string, ctx QueryExecutionCon
 		return stmtFail(athenaErrTypeEntityFound, "Database %s already exists", database)
 	}
 
-	b.databases[catalog][database] = &Database{Name: database}
+	b.databases.Put(&Database{Catalog: catalog, Name: database})
 
 	return stmtOK()
 }
@@ -204,7 +202,8 @@ func (b *InMemoryBackend) execDropDatabase(query string, ctx QueryExecutionConte
 	b.mu.Lock("execDropDatabase")
 	defer b.mu.Unlock()
 
-	if _, exists := b.databases[catalog][database]; !exists {
+	key := databaseKey(catalog, database)
+	if !b.databases.Has(key) {
 		if ifExists {
 			return stmtOK()
 		}
@@ -212,14 +211,20 @@ func (b *InMemoryBackend) execDropDatabase(query string, ctx QueryExecutionConte
 		return stmtFail(athenaErrTypeEntityMiss, "Database does not exist: %s", database)
 	}
 
-	delete(b.databases[catalog], database)
-	// Drop the database's tables and their data.
-	prefix := catalog + "/" + database
-	delete(b.tables, prefix)
+	b.databases.Delete(key)
 
-	for key := range b.tableData {
-		if strings.HasPrefix(key, prefix+"/") {
-			delete(b.tableData, key)
+	// Drop the database's tables and their data. tablesByDatabase.Get returns
+	// a slice owned by the index that Table.Delete mutates in place, so it
+	// must be cloned before iterating and deleting from it.
+	for _, tm := range slices.Clone(b.tablesByDatabase.Get(key)) {
+		b.tables.Delete(tableMetadataKeyFn(tm))
+	}
+
+	prefix := catalog + "/" + database
+
+	for tdKey := range b.tableData {
+		if strings.HasPrefix(tdKey, prefix+"/") {
+			delete(b.tableData, tdKey)
 		}
 	}
 
@@ -239,9 +244,9 @@ func (b *InMemoryBackend) execCreateTable(query string, ctx QueryExecutionContex
 	b.mu.Lock("execCreateTable")
 	defer b.mu.Unlock()
 
-	tblKey := catalog + "/" + database
+	key := tableMetadataKey(catalog, database, table)
 
-	if _, exists := b.tables[tblKey][table]; exists {
+	if b.tables.Has(key) {
 		if ifNotExists {
 			return stmtOK()
 		}
@@ -251,15 +256,13 @@ func (b *InMemoryBackend) execCreateTable(query string, ctx QueryExecutionContex
 
 	b.ensureDatabaseLocked(catalog, database)
 
-	if b.tables[tblKey] == nil {
-		b.tables[tblKey] = make(map[string]*TableMetadata)
-	}
-
-	b.tables[tblKey][table] = &TableMetadata{
+	b.tables.Put(&TableMetadata{
+		Catalog:   catalog,
+		Database:  database,
 		Name:      table,
 		TableType: tableTypeExternal,
 		Columns:   cols,
-	}
+	})
 
 	return stmtOK()
 }
@@ -275,9 +278,9 @@ func (b *InMemoryBackend) execDropTable(query string, ctx QueryExecutionContext)
 	b.mu.Lock("execDropTable")
 	defer b.mu.Unlock()
 
-	tblKey := catalog + "/" + database
+	key := tableMetadataKey(catalog, database, table)
 
-	if _, exists := b.tables[tblKey][table]; !exists {
+	if !b.tables.Has(key) {
 		if ifExists {
 			return stmtOK()
 		}
@@ -285,7 +288,7 @@ func (b *InMemoryBackend) execDropTable(query string, ctx QueryExecutionContext)
 		return stmtFail(athenaErrTypeEntityMiss, "Table does not exist: %s", table)
 	}
 
-	delete(b.tables[tblKey], table)
+	b.tables.Delete(key)
 	delete(b.tableData, catalog+"/"+database+"/"+table)
 
 	return stmtOK()
@@ -308,16 +311,12 @@ func (b *InMemoryBackend) execCTAS(query string, ctx QueryExecutionContext) (*sq
 	b.mu.Lock("execCTAS")
 	defer b.mu.Unlock()
 
-	tblKey := catalog + "/" + database
-	if _, exists := b.tables[tblKey][table]; exists {
+	key := tableMetadataKey(catalog, database, table)
+	if b.tables.Has(key) {
 		return nil, stmtFail(athenaErrTypeEntityFound, "Table %s already exists", table)
 	}
 
 	b.ensureDatabaseLocked(catalog, database)
-
-	if b.tables[tblKey] == nil {
-		b.tables[tblKey] = make(map[string]*TableMetadata)
-	}
 
 	cols := make([]Column, 0, len(selected.columns))
 	for _, c := range selected.columns {
@@ -329,11 +328,13 @@ func (b *InMemoryBackend) execCTAS(query string, ctx QueryExecutionContext) (*sq
 		cols = append(cols, Column{Name: c.name, Type: typ})
 	}
 
-	b.tables[tblKey][table] = &TableMetadata{
+	b.tables.Put(&TableMetadata{
+		Catalog:   catalog,
+		Database:  database,
 		Name:      table,
 		TableType: tableTypeExternal,
 		Columns:   cols,
-	}
+	})
 
 	// Materialise the SELECT rows into the new table's data so a subsequent
 	// SELECT observes them.
@@ -363,7 +364,7 @@ func (b *InMemoryBackend) execInsert(query string, ctx QueryExecutionContext) (*
 
 	catalog, database, table := resolveTableRef(target, ctx)
 	dataKey := catalog + "/" + database + "/" + table
-	tblKey := catalog + "/" + database
+	key := tableMetadataKey(catalog, database, table)
 
 	// Source rows as positional string values, from either VALUES or SELECT.
 	var srcRows [][]string
@@ -382,7 +383,7 @@ func (b *InMemoryBackend) execInsert(query string, ctx QueryExecutionContext) (*
 	b.mu.Lock("execInsert")
 	defer b.mu.Unlock()
 
-	tm, exists := b.tables[tblKey][table]
+	tm, exists := b.tables.Get(key)
 	if !exists {
 		return nil, stmtFail(athenaErrTypeEntityMiss, "Table does not exist: %s", table)
 	}
@@ -416,11 +417,8 @@ func (b *InMemoryBackend) execInsert(query string, ctx QueryExecutionContext) (*
 // ensureDatabaseLocked creates the database entry if it does not yet exist.
 // Callers must hold b.mu.
 func (b *InMemoryBackend) ensureDatabaseLocked(catalog, database string) {
-	if b.databases[catalog] == nil {
-		b.databases[catalog] = make(map[string]*Database)
-	}
-
-	if _, ok := b.databases[catalog][database]; !ok {
-		b.databases[catalog][database] = &Database{Name: database}
+	key := databaseKey(catalog, database)
+	if !b.databases.Has(key) {
+		b.databases.Put(&Database{Catalog: catalog, Name: database})
 	}
 }

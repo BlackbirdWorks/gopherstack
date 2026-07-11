@@ -26,6 +26,10 @@ const presignedDateFormat = "20060102T150405Z"
 // presignedAlgorithm is the only supported pre-signed URL signing algorithm.
 const presignedAlgorithm = "AWS4-HMAC-SHA256"
 
+// maxPresignExpirySeconds is the maximum lifetime AWS accepts for a presigned
+// URL: 7 days expressed in seconds.
+const maxPresignExpirySeconds int64 = 604800
+
 // minPresignCredentialParts is the minimum number of slash-delimited parts in
 // a valid X-Amz-Credential value: AKID/date/region/service/aws4_request.
 const minPresignCredentialParts = 5
@@ -120,6 +124,18 @@ func (h *S3Handler) validatePresignedRequest(
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    errAuthQueryParams,
 			Message: "X-Amz-Expires must be a positive integer.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	// AWS caps presigned-URL lifetimes at 7 days (604800 s); anything larger is
+	// rejected with 400 AuthorizationQueryParametersError.
+	if expires > maxPresignExpirySeconds {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code: errAuthQueryParams,
+			Message: "X-Amz-Expires must be less than a week (in seconds); that is, the given " +
+				"X-Amz-Expires must be less than 604800 seconds.",
 		}, http.StatusBadRequest)
 
 		return false

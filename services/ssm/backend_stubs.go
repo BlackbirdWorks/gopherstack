@@ -957,14 +957,13 @@ func (b *InMemoryBackend) DeleteActivation(
 	defer b.mu.Unlock()
 
 	activations := b.activationsStore(region)
-	if _, exists := activations[input.ActivationID]; !exists {
+	if !activations.Has(input.ActivationID) {
 		return nil, ErrActivationNotFound
 	}
 
-	delete(activations, input.ActivationID)
+	activations.Delete(input.ActivationID)
 	delete(b.miscResourceTagsStore(region), input.ActivationID)
 
-	cleanupEmptyInnerMap(b.activations, region)
 	cleanupEmptyInnerMap(b.miscResourceTags, region)
 
 	return &DeleteActivationOutput{}, nil
@@ -980,11 +979,11 @@ func (b *InMemoryBackend) DeleteAssociation(
 	defer b.mu.Unlock()
 
 	associations := b.associationsStore(region)
-	if _, exists := associations[input.AssociationID]; !exists {
+	if !associations.Has(input.AssociationID) {
 		return nil, ErrAssociationNotFound
 	}
 
-	delete(associations, input.AssociationID)
+	associations.Delete(input.AssociationID)
 
 	// Evict the association's execution records and their per-execution targets
 	// so deleted associations do not leak execution state.
@@ -996,7 +995,6 @@ func (b *InMemoryBackend) DeleteAssociation(
 		delete(execs, input.AssociationID)
 	}
 
-	cleanupEmptyInnerMap(b.associations, region)
 	cleanupEmptyInnerMap(b.associationExecutions, region)
 	cleanupEmptyInnerMap(b.associationExecTargets, region)
 
@@ -1030,13 +1028,11 @@ func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
 	defer b.mu.Unlock()
 
 	targets := b.maintenanceWindowTargetsStore(region)
-	if _, exists := targets[input.WindowTargetID]; !exists {
+	if !targets.Has(input.WindowTargetID) {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	delete(targets, input.WindowTargetID)
-
-	cleanupEmptyInnerMap(b.maintenanceWindowTargets, region)
+	targets.Delete(input.WindowTargetID)
 
 	return &DeregisterTargetFromMaintenanceWindowOutput{
 		WindowID:       input.WindowID,
@@ -1054,13 +1050,11 @@ func (b *InMemoryBackend) DeregisterTaskFromMaintenanceWindow(
 	defer b.mu.Unlock()
 
 	tasks := b.maintenanceWindowTasksStore(region)
-	if _, exists := tasks[input.WindowTaskID]; !exists {
+	if !tasks.Has(input.WindowTaskID) {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	delete(tasks, input.WindowTaskID)
-
-	cleanupEmptyInnerMap(b.maintenanceWindowTasks, region)
+	tasks.Delete(input.WindowTaskID)
 
 	return &DeregisterTaskFromMaintenanceWindowOutput{
 		WindowID:     input.WindowID,
@@ -1078,9 +1072,9 @@ func (b *InMemoryBackend) DescribeActivations(
 	defer b.mu.RUnlock()
 
 	activations := b.activationsStore(region)
-	list := make([]Activation, 0, len(activations))
-	for _, a := range activations {
-		list = append(list, a)
+	list := make([]Activation, 0, activations.Len())
+	for _, a := range activations.All() {
+		list = append(list, *a)
 	}
 
 	return &DescribeActivationsOutput{ActivationList: list}, nil
@@ -1095,7 +1089,8 @@ func (b *InMemoryBackend) DescribeAssociation(
 	b.mu.RLock("DescribeAssociation")
 	defer b.mu.RUnlock()
 
-	for _, assoc := range b.associationsStore(region) {
+	for _, assocPtr := range b.associationsStore(region).All() {
+		assoc := *assocPtr
 		if (input.AssociationID != "" && assoc.AssociationID == input.AssociationID) ||
 			(input.Name != "" && assoc.Name == input.Name && (input.InstanceID == "" || assoc.InstanceID == input.InstanceID)) {
 			return &DescribeAssociationOutput{AssociationDescription: assoc}, nil
@@ -1132,9 +1127,9 @@ func (b *InMemoryBackend) DescribeInstancePatchStatesForPatchGroup(
 	b.mu.RLock("DescribeInstancePatchStatesForPatchGroup")
 	defer b.mu.RUnlock()
 
-	store := b.instancePatchStates[region]
+	patchStates := b.instancePatchStatesStore(region)
 	states := make([]InstancePatchState, 0)
-	for _, s := range store {
+	for _, s := range patchStates.All() {
 		if s.PatchGroup == input.PatchGroup {
 			states = append(states, *s)
 		}
@@ -1179,16 +1174,17 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 	b.mu.RLock("DescribeInstanceProperties")
 	defer b.mu.RUnlock()
 
-	store := b.instanceProperties[region]
-	props := make([]InstanceProperty, 0, len(store)+len(b.activationsStore(region)))
-	seen := make(map[string]struct{}, len(store))
+	instancePropsTable := b.instancePropertiesStore(region)
+	activationsTable := b.activationsStore(region)
+	props := make([]InstanceProperty, 0, instancePropsTable.Len()+activationsTable.Len())
+	seen := make(map[string]struct{}, instancePropsTable.Len())
 
-	for _, p := range store {
+	for _, p := range instancePropsTable.All() {
 		props = append(props, *p)
 		seen[p.InstanceID] = struct{}{}
 	}
 
-	for _, act := range b.activationsStore(region) {
+	for _, act := range activationsTable.All() {
 		if _, ok := seen[act.ActivationID]; ok {
 			continue
 		}
@@ -1218,9 +1214,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTargets(
 	defer b.mu.RUnlock()
 
 	var targets []MaintenanceWindowTarget
-	for _, t := range b.maintenanceWindowTargetsStore(region) {
+	for _, t := range b.maintenanceWindowTargetsStore(region).All() {
 		if t.WindowID == input.WindowID {
-			targets = append(targets, t)
+			targets = append(targets, *t)
 		}
 	}
 
@@ -1241,9 +1237,9 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTasks(
 	defer b.mu.RUnlock()
 
 	var tasks []MaintenanceWindowTask
-	for _, t := range b.maintenanceWindowTasksStore(region) {
+	for _, t := range b.maintenanceWindowTasksStore(region).All() {
 		if t.WindowID == input.WindowID {
-			tasks = append(tasks, t)
+			tasks = append(tasks, *t)
 		}
 	}
 
@@ -1264,8 +1260,8 @@ func (b *InMemoryBackend) DescribeMaintenanceWindows(
 	defer b.mu.RUnlock()
 
 	mws := b.maintenanceWindowsStore(region)
-	all := make([]MaintenanceWindowIdentity, 0, len(mws))
-	for _, mw := range mws {
+	all := make([]MaintenanceWindowIdentity, 0, mws.Len())
+	for _, mw := range mws.All() {
 		all = append(all, MaintenanceWindowIdentity{
 			WindowID:    mw.WindowID,
 			Name:        mw.Name,
@@ -1342,8 +1338,9 @@ func (b *InMemoryBackend) DescribeOpsItems(
 	defer b.mu.RUnlock()
 
 	items := b.opsItemsStore(region)
-	all := make([]OpsItemSummary, 0, len(items))
-	for _, item := range items {
+	all := make([]OpsItemSummary, 0, items.Len())
+	for _, itemPtr := range items.All() {
+		item := *itemPtr
 		if !opsItemMatchesFilters(item, input.OpsItemFilters) {
 			continue
 		}
@@ -1423,8 +1420,9 @@ func (b *InMemoryBackend) DescribePatchBaselines(
 	defer b.mu.RUnlock()
 
 	baselines := b.patchBaselinesStore(region)
-	all := make([]PatchBaselineIdentity, 0, len(baselines))
-	for _, bl := range baselines {
+	all := make([]PatchBaselineIdentity, 0, baselines.Len())
+	for _, blPtr := range baselines.All() {
+		bl := *blPtr
 		if !patchBaselineMatchesFilters(bl, input.Filters) {
 			continue
 		}
@@ -1475,12 +1473,12 @@ func (b *InMemoryBackend) GetMaintenanceWindow(
 	b.mu.RLock("GetMaintenanceWindow")
 	defer b.mu.RUnlock()
 
-	mw, exists := b.maintenanceWindowsStore(region)[input.WindowID]
+	mw, exists := b.maintenanceWindowsStore(region).Get(input.WindowID)
 	if !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
-	return &GetMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
+	return &GetMaintenanceWindowOutput{MaintenanceWindow: *mw}, nil
 }
 
 // GetOpsItem retrieves an OpsItem by ID.
@@ -1492,12 +1490,12 @@ func (b *InMemoryBackend) GetOpsItem(
 	b.mu.RLock("GetOpsItem")
 	defer b.mu.RUnlock()
 
-	item, exists := b.opsItemsStore(region)[input.OpsItemID]
+	item, exists := b.opsItemsStore(region).Get(input.OpsItemID)
 	if !exists {
 		return nil, ErrOpsItemNotFound
 	}
 
-	return &GetOpsItemOutput{OpsItem: item}, nil
+	return &GetOpsItemOutput{OpsItem: *item}, nil
 }
 
 // GetOpsMetadata retrieves OpsMetadata by ARN.
@@ -1509,12 +1507,12 @@ func (b *InMemoryBackend) GetOpsMetadata(
 	b.mu.RLock("GetOpsMetadata")
 	defer b.mu.RUnlock()
 
-	meta, exists := b.opsMetadataStore(region)[input.OpsMetadataArn]
+	meta, exists := b.opsMetadataStore(region).Get(input.OpsMetadataArn)
 	if !exists {
 		return nil, ErrOpsMetadataNotFound
 	}
 
-	return &GetOpsMetadataOutput{OpsMetadata: meta}, nil
+	return &GetOpsMetadataOutput{OpsMetadata: *meta}, nil
 }
 
 // GetPatchBaseline retrieves a patch baseline by ID.
@@ -1526,12 +1524,12 @@ func (b *InMemoryBackend) GetPatchBaseline(
 	b.mu.RLock("GetPatchBaseline")
 	defer b.mu.RUnlock()
 
-	bl, exists := b.patchBaselinesStore(region)[input.BaselineID]
+	bl, exists := b.patchBaselinesStore(region).Get(input.BaselineID)
 	if !exists {
 		return nil, ErrPatchBaselineNotFound
 	}
 
-	return &GetPatchBaselineOutput{PatchBaseline: bl}, nil
+	return &GetPatchBaselineOutput{PatchBaseline: *bl}, nil
 }
 
 // ListAssociations lists all stored associations.
@@ -1544,9 +1542,9 @@ func (b *InMemoryBackend) ListAssociations(
 	defer b.mu.RUnlock()
 
 	associations := b.associationsStore(region)
-	list := make([]Association, 0, len(associations))
-	for _, a := range associations {
-		list = append(list, a)
+	list := make([]Association, 0, associations.Len())
+	for _, a := range associations.All() {
+		list = append(list, *a)
 	}
 
 	return &ListAssociationsOutput{Associations: list}, nil
@@ -1561,7 +1559,7 @@ func (b *InMemoryBackend) RegisterPatchBaselineForPatchGroup(
 	b.mu.Lock("RegisterPatchBaselineForPatchGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.patchBaselinesStore(region)[input.BaselineID]; !exists {
+	if !b.patchBaselinesStore(region).Has(input.BaselineID) {
 		return nil, ErrPatchBaselineNotFound
 	}
 
@@ -1585,7 +1583,7 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 	b.mu.Lock("RegisterTargetWithMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindowsStore(region)[input.WindowID]; !exists {
+	if !b.maintenanceWindowsStore(region).Has(input.WindowID) {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
@@ -1600,10 +1598,7 @@ func (b *InMemoryBackend) RegisterTargetWithMaintenanceWindow(
 		Name:           input.Name,
 	}
 
-	if b.maintenanceWindowTargets[region] == nil {
-		b.maintenanceWindowTargets[region] = make(map[string]MaintenanceWindowTarget)
-	}
-	b.maintenanceWindowTargetsStore(region)[targetID] = target
+	b.maintenanceWindowTargetsStore(region).Put(&target)
 
 	return &RegisterTargetWithMaintenanceWindowOutput{WindowTargetID: targetID}, nil
 }
@@ -1617,7 +1612,7 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 	b.mu.Lock("RegisterTaskWithMaintenanceWindow")
 	defer b.mu.Unlock()
 
-	if _, exists := b.maintenanceWindowsStore(region)[input.WindowID]; !exists {
+	if !b.maintenanceWindowsStore(region).Has(input.WindowID) {
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
@@ -1635,10 +1630,7 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		MaxErrors:      input.MaxErrors,
 	}
 
-	if b.maintenanceWindowTasks[region] == nil {
-		b.maintenanceWindowTasks[region] = make(map[string]MaintenanceWindowTask)
-	}
-	b.maintenanceWindowTasksStore(region)[taskID] = task
+	b.maintenanceWindowTasksStore(region).Put(&task)
 
 	return &RegisterTaskWithMaintenanceWindowOutput{WindowTaskID: taskID}, nil
 }
@@ -1675,10 +1667,7 @@ func (b *InMemoryBackend) StartSession(
 		}
 	}
 
-	if b.sessions[region] == nil {
-		b.sessions[region] = make(map[string]Session)
-	}
-	b.sessionsStore(region)[sessionID] = sess
+	b.sessionsStore(region).Put(&sess)
 
 	return &StartSessionOutput{
 		SessionID:  sessionID,
@@ -1697,14 +1686,15 @@ func (b *InMemoryBackend) TerminateSession(
 	defer b.mu.Unlock()
 
 	sessions := b.sessionsStore(region)
-	sess, exists := sessions[input.SessionID]
+	sessPtr, exists := sessions.Get(input.SessionID)
 	if !exists {
 		return &TerminateSessionOutput{SessionID: input.SessionID}, nil
 	}
 
+	sess := *sessPtr
 	sess.Status = sessionStatusTerminated
 	sess.EndDate = UnixTimeFloat(timeNow())
-	sessions[input.SessionID] = sess
+	sessions.Put(&sess)
 
 	// Bound retained terminated (history) sessions so the store cannot grow
 	// without limit under repeated Start/Terminate cycles.
@@ -1719,10 +1709,10 @@ func (b *InMemoryBackend) TerminateSession(
 func (b *InMemoryBackend) evictExcessTerminatedSessionsLocked(region string) {
 	sessions := b.sessionsStore(region)
 
-	terminated := make([]Session, 0, len(sessions))
-	for _, s := range sessions {
+	terminated := make([]Session, 0, sessions.Len())
+	for _, s := range sessions.All() {
 		if s.Status == sessionStatusTerminated {
-			terminated = append(terminated, s)
+			terminated = append(terminated, *s)
 		}
 	}
 
@@ -1744,10 +1734,8 @@ func (b *InMemoryBackend) evictExcessTerminatedSessionsLocked(region string) {
 	})
 
 	for _, s := range terminated[:len(terminated)-maxTerminatedSessionsPerRegion] {
-		delete(sessions, s.SessionID)
+		sessions.Delete(s.SessionID)
 	}
-
-	cleanupEmptyInnerMap(b.sessions, region)
 }
 
 // UpdateAssociation updates an existing association.
@@ -1760,10 +1748,12 @@ func (b *InMemoryBackend) UpdateAssociation(
 	defer b.mu.Unlock()
 
 	associations := b.associationsStore(region)
-	assoc, exists := associations[input.AssociationID]
+	assocPtr, exists := associations.Get(input.AssociationID)
 	if !exists {
 		return nil, ErrAssociationNotFound
 	}
+
+	assoc := *assocPtr
 
 	if input.AssociationName != "" {
 		assoc.AssociationName = input.AssociationName
@@ -1782,7 +1772,7 @@ func (b *InMemoryBackend) UpdateAssociation(
 	}
 
 	assoc.LastUpdateAssociationDate = UnixTimeFloat(timeNow())
-	associations[input.AssociationID] = assoc
+	associations.Put(&assoc)
 
 	return &UpdateAssociationOutput{AssociationDescription: assoc}, nil
 }
@@ -1797,10 +1787,12 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	defer b.mu.Unlock()
 
 	windows := b.maintenanceWindowsStore(region)
-	mw, exists := windows[input.WindowID]
+	mwPtr, exists := windows.Get(input.WindowID)
 	if !exists {
 		return nil, ErrMaintenanceWindowNotFound
 	}
+
+	mw := *mwPtr
 
 	if input.Name != "" {
 		mw.Name = input.Name
@@ -1827,7 +1819,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 	}
 
 	mw.ModifiedDate = UnixTimeFloat(timeNow())
-	windows[input.WindowID] = mw
+	windows.Put(&mw)
 
 	return &UpdateMaintenanceWindowOutput{MaintenanceWindow: mw}, nil
 }
@@ -1842,10 +1834,12 @@ func (b *InMemoryBackend) UpdateOpsItem(
 	defer b.mu.Unlock()
 
 	items := b.opsItemsStore(region)
-	item, exists := items[input.OpsItemID]
+	itemPtr, exists := items.Get(input.OpsItemID)
 	if !exists {
 		return nil, ErrOpsItemNotFound
 	}
+
+	item := *itemPtr
 
 	if input.Title != "" {
 		item.Title = input.Title
@@ -1876,7 +1870,7 @@ func (b *InMemoryBackend) UpdateOpsItem(
 	}
 
 	item.LastModifiedTime = UnixTimeFloat(timeNow())
-	items[input.OpsItemID] = item
+	items.Put(&item)
 
 	// Record an event for the update.
 	b.opsItemEvents[region] = append(b.opsItemEvents[region], OpsItemEventSummary{
@@ -1897,10 +1891,12 @@ func (b *InMemoryBackend) UpdateOpsMetadata(
 	defer b.mu.Unlock()
 
 	opsMetadata := b.opsMetadataStore(region)
-	meta, exists := opsMetadata[input.OpsMetadataArn]
+	metaPtr, exists := opsMetadata.Get(input.OpsMetadataArn)
 	if !exists {
 		return nil, ErrOpsMetadataNotFound
 	}
+
+	meta := *metaPtr
 
 	if input.Metadata != nil {
 		if meta.Metadata == nil {
@@ -1911,7 +1907,7 @@ func (b *InMemoryBackend) UpdateOpsMetadata(
 	}
 
 	meta.LastModifiedDate = UnixTimeFloat(timeNow())
-	opsMetadata[input.OpsMetadataArn] = meta
+	opsMetadata.Put(&meta)
 
 	return &UpdateOpsMetadataOutput{OpsMetadataArn: input.OpsMetadataArn}, nil
 }
@@ -1926,10 +1922,12 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 	defer b.mu.Unlock()
 
 	baselines := b.patchBaselinesStore(region)
-	bl, exists := baselines[input.BaselineID]
+	blPtr, exists := baselines.Get(input.BaselineID)
 	if !exists {
 		return nil, ErrPatchBaselineNotFound
 	}
+
+	bl := *blPtr
 
 	if input.Name != "" {
 		bl.Name = input.Name
@@ -1952,7 +1950,7 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 	}
 
 	bl.ModifiedDate = UnixTimeFloat(timeNow())
-	baselines[input.BaselineID] = bl
+	baselines.Put(&bl)
 
 	return &UpdatePatchBaselineOutput{PatchBaseline: bl}, nil
 }

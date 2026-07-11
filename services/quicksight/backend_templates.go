@@ -5,7 +5,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -89,7 +88,7 @@ func (b *InMemoryBackend) CreateTemplate(
 	defer b.mu.Unlock()
 
 	key := templateKey(accountID, templateID)
-	if _, exists := b.templates[key]; exists {
+	if b.templates.Has(key) {
 		return nil, ErrTemplateAlreadyExists
 	}
 
@@ -114,7 +113,7 @@ func (b *InMemoryBackend) CreateTemplate(
 		Aliases:       map[string]int64{templateAliasLatest: 1},
 		Permissions:   clonePermissions(permissions),
 	}
-	b.templates[key] = t
+	b.templates.Put(t)
 
 	if len(tags) > 0 {
 		b.tags[arn] = maps.Clone(tags)
@@ -129,7 +128,7 @@ func (b *InMemoryBackend) DescribeTemplate(accountID, templateID string, version
 	b.mu.RLock("DescribeTemplate")
 	defer b.mu.RUnlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, ErrTemplateNotFound
 	}
@@ -150,7 +149,7 @@ func (b *InMemoryBackend) UpdateTemplate(
 	defer b.mu.Unlock()
 
 	key := templateKey(accountID, templateID)
-	t, ok := b.templates[key]
+	t, ok := b.templates.Get(key)
 	if !ok {
 		return nil, ErrTemplateNotFound
 	}
@@ -190,14 +189,14 @@ func (b *InMemoryBackend) DeleteTemplate(accountID, templateID string, versionNu
 	defer b.mu.Unlock()
 
 	key := templateKey(accountID, templateID)
-	t, ok := b.templates[key]
+	t, ok := b.templates.Get(key)
 	if !ok {
 		return ErrTemplateNotFound
 	}
 
 	if versionNumber == 0 {
 		delete(b.tags, t.Arn)
-		delete(b.templates, key)
+		b.templates.Delete(key)
 
 		return nil
 	}
@@ -209,7 +208,7 @@ func (b *InMemoryBackend) DeleteTemplate(accountID, templateID string, versionNu
 
 	if len(t.Versions) == 0 {
 		delete(b.tags, t.Arn)
-		delete(b.templates, key)
+		b.templates.Delete(key)
 
 		return nil
 	}
@@ -228,14 +227,8 @@ func (b *InMemoryBackend) DeleteTemplate(accountID, templateID string, versionNu
 	return nil
 }
 
-func (b *InMemoryBackend) allTemplatesLocked(accountID string) []*storedTemplate {
-	prefix := accountID + "/"
-	all := make([]*storedTemplate, 0, len(b.templates))
-	for k, t := range b.templates {
-		if strings.HasPrefix(k, prefix) {
-			all = append(all, t)
-		}
-	}
+func (b *InMemoryBackend) allTemplatesLocked(_ string) []*storedTemplate {
+	all := b.templates.All()
 	sort.Slice(all, func(i, j int) bool { return all[i].TemplateID < all[j].TemplateID })
 
 	return all
@@ -287,7 +280,7 @@ func (b *InMemoryBackend) ListTemplateVersions(
 	b.mu.RLock("ListTemplateVersions")
 	defer b.mu.RUnlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, "", ErrTemplateNotFound
 	}
@@ -339,7 +332,7 @@ func (b *InMemoryBackend) DescribeTemplatePermissions(
 	b.mu.RLock("DescribeTemplatePermissions")
 	defer b.mu.RUnlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, nil, ErrTemplateNotFound
 	}
@@ -356,7 +349,7 @@ func (b *InMemoryBackend) UpdateTemplatePermissions(
 	b.mu.Lock("UpdateTemplatePermissions")
 	defer b.mu.Unlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, nil, ErrTemplateNotFound
 	}
@@ -382,7 +375,7 @@ func (b *InMemoryBackend) CreateTemplateAlias(
 	b.mu.Lock("CreateTemplateAlias")
 	defer b.mu.Unlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, ErrTemplateNotFound
 	}
@@ -408,7 +401,7 @@ func (b *InMemoryBackend) DescribeTemplateAlias(accountID, templateID, aliasName
 	b.mu.RLock("DescribeTemplateAlias")
 	defer b.mu.RUnlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, ErrTemplateNotFound
 	}
@@ -432,7 +425,7 @@ func (b *InMemoryBackend) UpdateTemplateAlias(
 	b.mu.Lock("UpdateTemplateAlias")
 	defer b.mu.Unlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, ErrTemplateNotFound
 	}
@@ -458,7 +451,7 @@ func (b *InMemoryBackend) DeleteTemplateAlias(accountID, templateID, aliasName s
 	b.mu.Lock("DeleteTemplateAlias")
 	defer b.mu.Unlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return ErrTemplateNotFound
 	}
@@ -481,7 +474,7 @@ func (b *InMemoryBackend) ListTemplateAliases(
 	b.mu.RLock("ListTemplateAliases")
 	defer b.mu.RUnlock()
 
-	t, ok := b.templates[templateKey(accountID, templateID)]
+	t, ok := b.templates.Get(templateKey(accountID, templateID))
 	if !ok {
 		return nil, "", ErrTemplateNotFound
 	}

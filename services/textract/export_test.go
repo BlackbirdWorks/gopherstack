@@ -24,22 +24,12 @@ func SetBackendAsyncDelay(b *InMemoryBackend, d time.Duration) {
 	b.asyncJobDelay = d
 }
 
-func sumNested[V any](m map[string]map[string]V) int {
-	total := 0
-
-	for _, inner := range m {
-		total += len(inner)
-	}
-
-	return total
-}
-
 // JobCount returns the number of document jobs stored in the backend (for testing).
 func JobCount(b *InMemoryBackend) int {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.jobs)
+	return b.jobs.Len()
 }
 
 // ExpenseJobCount returns the number of expense jobs stored in the backend (for testing).
@@ -47,7 +37,7 @@ func ExpenseJobCount(b *InMemoryBackend) int {
 	b.mu.RLock("GetExpenseAnalysis")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.expenseJobs)
+	return b.expenseJobs.Len()
 }
 
 // LendingJobCount returns the number of lending jobs stored in the backend (for testing).
@@ -55,7 +45,7 @@ func LendingJobCount(b *InMemoryBackend) int {
 	b.mu.RLock("GetLendingAnalysis")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.lendingJobs)
+	return b.lendingJobs.Len()
 }
 
 // AdapterCount returns the number of adapters stored in the backend (for testing).
@@ -63,7 +53,7 @@ func AdapterCount(b *InMemoryBackend) int {
 	b.mu.RLock("GetAdapter")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.adapters)
+	return b.adapters.Len()
 }
 
 // AdapterVersionCount returns the number of adapter versions stored in the backend (for testing).
@@ -71,7 +61,7 @@ func AdapterVersionCount(b *InMemoryBackend) int {
 	b.mu.RLock("GetAdapterVersion")
 	defer b.mu.RUnlock()
 
-	return sumNested(b.adapterVersions)
+	return b.adapterVersions.Len()
 }
 
 // HandlerOpsLen returns the number of operations in the handler's dispatch table.
@@ -79,13 +69,16 @@ func HandlerOpsLen(h *Handler) int {
 	return len(h.ops)
 }
 
-// AddAdapterInternal adds an adapter directly to the backend for test seeding.
+// AddAdapterInternal adds an adapter directly to the backend for test seeding,
+// always into the backend's default region (matching the pre-Phase-3.3
+// behavior of always seeding via b.region).
 func AddAdapterInternal(b *InMemoryBackend, a *Adapter) {
 	b.mu.Lock("CreateAdapter")
 	defer b.mu.Unlock()
 
-	store := b.adaptersStore(b.region)
-	store[a.AdapterID] = cloneAdapter(a)
+	cp := cloneAdapter(a)
+	cp.Region = b.region
+	b.adapters.Put(cp)
 }
 
 // AddAdapterVersionInternal adds an adapter version directly to the backend for test seeding.
@@ -93,8 +86,9 @@ func AddAdapterVersionInternal(b *InMemoryBackend, av *AdapterVersion) {
 	b.mu.Lock("CreateAdapterVersion")
 	defer b.mu.Unlock()
 
-	store := b.adapterVersionsStore(b.region)
-	store[adapterVersionKey(av.AdapterID, av.AdapterVersion)] = cloneAdapterVersion(av)
+	cp := cloneAdapterVersion(av)
+	cp.Region = b.region
+	b.adapterVersions.Put(cp)
 }
 
 // AddExpenseJobInternal adds an expense job directly to the backend for test seeding.
@@ -102,8 +96,9 @@ func AddExpenseJobInternal(b *InMemoryBackend, j *ExpenseJob) {
 	b.mu.Lock("StartExpenseAnalysis")
 	defer b.mu.Unlock()
 
-	store := b.expenseJobsStore(b.region)
-	store[j.JobID] = cloneExpenseJob(j)
+	cp := cloneExpenseJob(j)
+	cp.Region = b.region
+	b.expenseJobs.Put(cp)
 }
 
 // AddLendingJobInternal adds a lending job directly to the backend for test seeding.
@@ -111,6 +106,7 @@ func AddLendingJobInternal(b *InMemoryBackend, j *LendingJob) {
 	b.mu.Lock("StartLendingAnalysis")
 	defer b.mu.Unlock()
 
-	store := b.lendingJobsStore(b.region)
-	store[j.JobID] = cloneLendingJob(j)
+	cp := cloneLendingJob(j)
+	cp.Region = b.region
+	b.lendingJobs.Put(cp)
 }

@@ -2,7 +2,6 @@ package quicksight
 
 import (
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -33,6 +32,13 @@ type storedSelfUpgradeRequest struct {
 	RequestStatus           string    `json:"requestStatus"`
 	RequestedRole           string    `json:"requestedRole"`
 	UpgradeRequestID        string    `json:"upgradeRequestId"`
+	// Namespace is not part of the real SelfUpgradeRequestDetail API shape
+	// (namespace is a request path parameter, not response data); it is
+	// carried here purely as this backend's store.Table key material, since
+	// requests are keyed by (accountID, namespace, upgradeRequestID) but a
+	// single account can have multiple namespaces each issuing their own
+	// upgrade request IDs. See store_setup.go's selfUpgradeRequests keyFn.
+	Namespace string `json:"namespace"`
 }
 
 func (r *storedSelfUpgradeRequest) toSelfUpgradeRequestDetail() *SelfUpgradeRequestDetail {
@@ -68,7 +74,7 @@ func selfUpgradeRequestKey(accountID, namespace, upgradeRequestID string) string
 // (real) AWS API. Exported for tests only (via export_test.go's
 // SeedSelfUpgradeRequest) since QuickSight has no CreateSelfUpgradeRequest
 // operation.
-func (b *InMemoryBackend) seedSelfUpgradeRequest(accountID, namespace string, r *SelfUpgradeRequestDetail) {
+func (b *InMemoryBackend) seedSelfUpgradeRequest(_, namespace string, r *SelfUpgradeRequestDetail) {
 	b.mu.Lock("seedSelfUpgradeRequest")
 	defer b.mu.Unlock()
 
@@ -77,7 +83,7 @@ func (b *InMemoryBackend) seedSelfUpgradeRequest(accountID, namespace string, r 
 		lastAttempt = time.Unix(r.LastUpdateAttemptTime, 0).UTC()
 	}
 
-	b.selfUpgradeRequests[selfUpgradeRequestKey(accountID, namespace, r.UpgradeRequestID)] = &storedSelfUpgradeRequest{
+	b.selfUpgradeRequests.Put(&storedSelfUpgradeRequest{
 		CreationTime:            time.Unix(r.CreationTime, 0).UTC(),
 		LastUpdateAttemptTime:   lastAttempt,
 		LastUpdateFailureReason: r.LastUpdateFailureReason,
@@ -86,7 +92,8 @@ func (b *InMemoryBackend) seedSelfUpgradeRequest(accountID, namespace string, r 
 		RequestStatus:           r.RequestStatus,
 		RequestedRole:           r.RequestedRole,
 		UpgradeRequestID:        r.UpgradeRequestID,
-	}
+		Namespace:               namespace,
+	})
 }
 
 // ---- Self-upgrade configuration ----
@@ -99,7 +106,7 @@ func (b *InMemoryBackend) DescribeSelfUpgradeConfiguration(accountID, namespace 
 	b.mu.RLock("DescribeSelfUpgradeConfiguration")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+	if !b.namespaces.Has(nsKey(accountID, namespace)) {
 		return "", ErrNamespaceNotFound
 	}
 
@@ -128,7 +135,7 @@ func (b *InMemoryBackend) UpdateSelfUpgradeConfiguration(accountID, namespace, s
 	b.mu.Lock("UpdateSelfUpgradeConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+	if !b.namespaces.Has(nsKey(accountID, namespace)) {
 		return "", ErrNamespaceNotFound
 	}
 
@@ -147,14 +154,13 @@ func (b *InMemoryBackend) ListSelfUpgrades(
 	b.mu.RLock("ListSelfUpgrades")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+	if !b.namespaces.Has(nsKey(accountID, namespace)) {
 		return nil, "", ErrNamespaceNotFound
 	}
 
-	prefix := accountID + "/" + namespace + "/"
 	var all []*storedSelfUpgradeRequest
-	for k, r := range b.selfUpgradeRequests {
-		if strings.HasPrefix(k, prefix) {
+	for _, r := range b.selfUpgradeRequests.All() {
+		if r.Namespace == namespace {
 			all = append(all, r)
 		}
 	}
@@ -215,11 +221,11 @@ func (b *InMemoryBackend) UpdateSelfUpgrade(
 	b.mu.Lock("UpdateSelfUpgrade")
 	defer b.mu.Unlock()
 
-	if _, ok := b.namespaces[nsKey(accountID, namespace)]; !ok {
+	if !b.namespaces.Has(nsKey(accountID, namespace)) {
 		return nil, ErrNamespaceNotFound
 	}
 
-	r, ok := b.selfUpgradeRequests[selfUpgradeRequestKey(accountID, namespace, upgradeRequestID)]
+	r, ok := b.selfUpgradeRequests.Get(selfUpgradeRequestKey(accountID, namespace, upgradeRequestID))
 	if !ok {
 		return nil, ErrSelfUpgradeRequestNotFound
 	}

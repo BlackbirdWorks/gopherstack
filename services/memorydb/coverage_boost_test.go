@@ -1967,27 +1967,57 @@ func TestHandler_Persistence_SnapshotRestoreWithNilTags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// A minimal snapshot with resource entries that have nil tags.
-			// Clusters, acls, subnetGroups, users, parameterGroups, snapshots,
-			// reservedNodes, and arnToResource are now region-keyed (map[region]map[name]*T).
-			// Events is also region-keyed (map[region][]*Event).
+			// A minimal Phase-3.3-shaped snapshot with resource entries that have
+			// nil tags. Clusters, acls, subnetGroups, users, parameterGroups,
+			// snapshots, and reservedNodes are region-keyed slices
+			// (map[region][]*T), matching store.Table.Snapshot's deterministic
+			// output. multiRegionClusters, multiRegionParameterGroups, and
+			// serviceUpdates are partition-scoped (not region-nested) and live
+			// inside the registry-backed "tables" blob instead.
 			snapJSON := `{
-				"clusters": {"us-east-1": {"cl": {"Name": "cl", "ARN": "arn:cl", "Tags": null}}},
-				"acls": {"us-east-1": {"acl": {"Name": "acl", "ARN": "arn:acl", "Tags": null}}},
-				"subnetGroups": {"us-east-1": {"sg": {"Name": "sg", "ARN": "arn:sg", "Tags": null}}},
-				"users": {"us-east-1": {"u": {"Name": "u", "ARN": "arn:u", "Tags": null}}},
-				"parameterGroups": {"us-east-1": {"pg": {"Name": "pg", "ARN": "arn:pg", "Tags": null, "Parameters": null}}},
-				"snapshots": {"us-east-1": {"sn": {"Name": "sn", "ARN": "arn:sn", "Tags": null}}},
-				"multiRegionClusters": {"mrc": {"MultiRegionClusterName": "mrc", "Tags": null}},
-				"multiRegionParameterGroups": {"mrpg": {"Name": "mrpg", "Tags": null, "Parameters": null}},
+				"version": 1,
+				"tables": {
+					"multiRegionClusters": [{"MultiRegionClusterName": "mrc", "Tags": null}],
+					"multiRegionParameterGroups": [{"Name": "mrpg", "Tags": null, "Parameters": null}],
+					"serviceUpdates": []
+				},
+				"clusters": {"us-east-1": [{"Name": "cl", "ARN": "arn:cl", "Tags": null}]},
+				"acls": {"us-east-1": [{"Name": "acl", "ARN": "arn:acl", "Tags": null}]},
+				"subnetGroups": {"us-east-1": [{"Name": "sg", "ARN": "arn:sg", "Tags": null}]},
+				"users": {"us-east-1": [{"Name": "u", "ARN": "arn:u", "Tags": null}]},
+				"parameterGroups": {"us-east-1": [{"Name": "pg", "ARN": "arn:pg", "Tags": null, "Parameters": null}]},
+				"snapshots": {"us-east-1": [{"Name": "sn", "ARN": "arn:sn", "Tags": null}]},
 				"reservedNodes": {},
 				"arnToResource": {},
-				"events": {}
+				"events": {},
+				"accountID": "123456789012",
+				"defaultRegion": "us-east-1"
 			}`
 
-			h := newTestHandler(t)
+			b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
+			h := memorydb.NewHandler(b)
+			h.AccountID = testAccountID
+			h.DefaultRegion = testRegion
+
 			err := h.Restore(t.Context(), []byte(snapJSON))
 			require.NoError(t, err)
+
+			clusters, err := b.DescribeClusters(t.Context(), "cl")
+			require.NoError(t, err)
+			require.Len(t, clusters, 1)
+			assert.NotNil(t, clusters[0].Tags)
+
+			pgs, err := b.DescribeParameterGroups(t.Context(), "pg")
+			require.NoError(t, err)
+			require.Len(t, pgs, 1)
+			assert.NotNil(t, pgs[0].Tags)
+			assert.NotNil(t, pgs[0].Parameters)
+
+			mrpgs, err := b.DescribeMultiRegionParameterGroups(t.Context(), "mrpg")
+			require.NoError(t, err)
+			require.Len(t, mrpgs, 1)
+			assert.NotNil(t, mrpgs[0].Tags)
+			assert.NotNil(t, mrpgs[0].Parameters)
 		})
 	}
 }

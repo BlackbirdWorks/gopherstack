@@ -177,7 +177,7 @@ func (h *Handler) exportAndCertActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			gr, err := h.Backend.PutGatewayResponse(input)
+			gr, err := h.Backend.UpdateGatewayResponse(input)
 			if err != nil {
 				return 0, nil, err
 			}

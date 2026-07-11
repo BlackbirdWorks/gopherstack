@@ -13,13 +13,14 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -110,6 +111,10 @@ var (
 
 	// ErrExpiredToken is returned when a web-identity JWT has expired.
 	ErrExpiredToken = errors.New("token has expired")
+
+	// ErrExpiredTradeInToken is returned when GetDelegatedAccessToken's TradeInToken
+	// has passed its "exp" claim (maps to the real AWS ExpiredTradeInTokenException).
+	ErrExpiredTradeInToken = errors.New("trade-in token has expired")
 
 	// ErrInvalidIdentityToken is returned when a web-identity JWT is structurally invalid or its claims are wrong.
 	ErrInvalidIdentityToken = errors.New("invalid identity token")
@@ -226,13 +231,21 @@ func isSessionExpired(s *SessionInfo) bool {
 // enough that the O(n) sweep amortizes cheaply.
 const sessionEvictThreshold = 256
 
-// evictExpiredSessionsLocked removes all expired sessions from the map.
+// evictExpiredSessionsLocked removes all expired sessions from the table.
 // The caller must hold b.mu.
 func (b *InMemoryBackend) evictExpiredSessionsLocked() {
-	for id, session := range b.sessions {
+	var expired []string
+
+	b.sessions.Range(func(session *SessionInfo) bool {
 		if isSessionExpired(session) {
-			delete(b.sessions, id)
+			expired = append(expired, session.AccessKeyID)
 		}
+
+		return true
+	})
+
+	for _, id := range expired {
+		b.sessions.Delete(id)
 	}
 }
 
@@ -241,8 +254,8 @@ func (b *InMemoryBackend) evictExpiredSessionsLocked() {
 // critical section from storeSession so that session creation (O(1) map insert)
 // is never blocked by an O(n) sweep.
 func (b *InMemoryBackend) maybeEvictExpiredSessions() {
-	b.mu.Lock()
-	if len(b.sessions) >= sessionEvictThreshold {
+	b.mu.Lock("EvictExpiredSessions")
+	if b.sessions.Len() >= sessionEvictThreshold {
 		b.evictExpiredSessionsLocked()
 	}
 	b.mu.Unlock()
@@ -252,9 +265,9 @@ func (b *InMemoryBackend) maybeEvictExpiredSessions() {
 // the lifetime counter. The store is a fast O(1) operation; opportunistic
 // eviction of expired sessions is deferred to a separate lock acquisition so
 // that the 11 credential-issuing operations do not serialize on O(n) sweeps.
-func (b *InMemoryBackend) storeSession(accessKeyID string, session *SessionInfo) {
-	b.mu.Lock()
-	b.sessions[accessKeyID] = session
+func (b *InMemoryBackend) storeSession(session *SessionInfo) {
+	b.mu.Lock("StoreSession")
+	b.sessions.Put(session)
 	b.totalSessionsCreated.Add(1)
 	b.mu.Unlock()
 
@@ -334,9 +347,12 @@ func validateFederationTokenName(name string) error {
 }
 
 // isValidWebIdentitySigningAlgorithm reports whether the given signing algorithm is supported.
+// Per the real AWS STS GetWebIdentityToken API, only RS256 (RSA with SHA-256) and
+// ES384 (ECDSA using the P-384 curve with SHA-384) are valid; any other value
+// (including other JOSE algorithms such as ES256 or PS256) is rejected.
 func isValidWebIdentitySigningAlgorithm(alg string) bool {
 	switch alg {
-	case "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512":
+	case "RS256", "ES384":
 		return true
 	}
 
@@ -385,19 +401,15 @@ const authMsgSep = '|'
 type InMemoryBackend struct {
 	roleLookup RoleLookup
 	oidcLookup OIDCLookup
-	sessions   map[string]*SessionInfo
+	sessions   *store.Table[SessionInfo]
+	registry   *store.Registry
+	mu         *lockmetrics.RWMutex
 	accountID  string
-	mu         sync.Mutex
-
-	// authMsgSigningKey is a random key used to HMAC-sign encoded authorization messages.
-	// Only messages signed with this key are accepted by DecodeAuthorizationMessage,
-	// matching AWS behaviour where only STS-issued encoded messages can be decoded.
-	authMsgSigningKey [authMsgHMACSize]byte
 
 	// Operation call counters — incremented atomically.
+	cntAssumeRoleWithWebIdentity atomic.Int64
 	cntAssumeRole                atomic.Int64
 	cntAssumeRoleWithSAML        atomic.Int64
-	cntAssumeRoleWithWebIdentity atomic.Int64
 	cntAssumeRoot                atomic.Int64
 	cntGetCallerIdentity         atomic.Int64
 	cntGetDelegatedAccessToken   atomic.Int64
@@ -409,6 +421,11 @@ type InMemoryBackend struct {
 
 	// totalSessionsCreated is the lifetime count of sessions issued.
 	totalSessionsCreated atomic.Int64
+
+	// authMsgSigningKey is a random key used to HMAC-sign encoded authorization messages.
+	// Only messages signed with this key are accepted by DecodeAuthorizationMessage,
+	// matching AWS behaviour where only STS-issued encoded messages can be decoded.
+	authMsgSigningKey [authMsgHMACSize]byte
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default account ID.
@@ -423,17 +440,27 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		panic("sts: failed to generate authorization message signing key: " + err.Error())
 	}
 
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		accountID:         accountID,
-		sessions:          make(map[string]*SessionInfo),
+		registry:          store.NewRegistry(),
 		authMsgSigningKey: key,
+		mu:                lockmetrics.New("sts"),
 	}
+	b.sessions = store.Register(b.registry, "sessions", store.New(sessionTableKey))
+
+	return b
+}
+
+// sessionTableKey is the [store.Table] key function for the sessions table:
+// sessions are looked up by the AccessKeyID of the credentials that were issued.
+func sessionTableKey(s *SessionInfo) string {
+	return s.AccessKeyID
 }
 
 // SetRoleLookup wires an optional role-lookup implementation (e.g. the IAM backend)
 // so that AssumeRole can validate ExternalId and enforce MaxSessionDuration.
 func (b *InMemoryBackend) SetRoleLookup(rl RoleLookup) {
-	b.mu.Lock()
+	b.mu.Lock("SetRoleLookup")
 	defer b.mu.Unlock()
 
 	b.roleLookup = rl
@@ -442,7 +469,7 @@ func (b *InMemoryBackend) SetRoleLookup(rl RoleLookup) {
 // SetOIDCLookup wires an optional OIDC-lookup implementation (e.g. the IAM backend)
 // so that AssumeRoleWithWebIdentity can validate that the OIDC provider exists.
 func (b *InMemoryBackend) SetOIDCLookup(ol OIDCLookup) {
-	b.mu.Lock()
+	b.mu.Lock("SetOIDCLookup")
 	defer b.mu.Unlock()
 
 	b.oidcLookup = ol
@@ -450,8 +477,8 @@ func (b *InMemoryBackend) SetOIDCLookup(ol OIDCLookup) {
 
 // AccountID returns the AWS account ID configured for this backend.
 func (b *InMemoryBackend) AccountID() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock("AccountID")
+	defer b.mu.RUnlock()
 
 	return b.accountID
 }
@@ -552,9 +579,9 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 func (b *InMemoryBackend) getEffectiveMaxDuration(roleArn string) int32 {
 	effectiveMax := int32(MaxDurationSeconds)
 
-	b.mu.Lock()
+	b.mu.RLock("GetEffectiveMaxDuration")
 	rl := b.roleLookup
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	if rl == nil {
 		return effectiveMax
@@ -591,9 +618,9 @@ func (b *InMemoryBackend) validateAndGetMaxDuration(input *AssumeRoleInput) (int
 // and validates ExternalId. Returns MaxDurationSeconds when no lookup is configured or the
 // role is not found.
 func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32, error) {
-	b.mu.Lock()
+	b.mu.RLock("RoleDerivedMaxDuration")
 	rl := b.roleLookup
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	if rl == nil {
 		return int32(MaxDurationSeconds), nil
@@ -620,9 +647,9 @@ func (b *InMemoryBackend) roleDerivedMaxDuration(input *AssumeRoleInput) (int32,
 // returns an error: a missing role or lookup means the emulator falls back to
 // permissive behaviour for trust evaluation.
 func (b *InMemoryBackend) lookupRoleMeta(roleArn string) *RoleMeta {
-	b.mu.Lock()
+	b.mu.RLock("LookupRoleMeta")
 	rl := b.roleLookup
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	if rl == nil {
 		return nil
@@ -757,7 +784,7 @@ func (b *InMemoryBackend) issueCredentials(
 		Expiration:        expiration,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	result := AssumeRoleResult{
 		AssumedRoleUser: AssumedRoleUser{
@@ -788,10 +815,10 @@ func (b *InMemoryBackend) LookupSession(accessKeyID, sessionToken string) *Sessi
 		return nil
 	}
 
-	b.mu.Lock()
-	session, ok := b.sessions[accessKeyID]
+	b.mu.Lock("LookupSession")
+	session, ok := b.sessions.Get(accessKeyID)
 	if ok && isSessionExpired(session) {
-		delete(b.sessions, accessKeyID)
+		b.sessions.Delete(accessKeyID)
 		ok = false
 	}
 	b.mu.Unlock()
@@ -819,12 +846,12 @@ func (b *InMemoryBackend) GetCallerIdentity(
 		return b.rootCallerIdentity(), nil
 	}
 
-	b.mu.Lock()
-	session, ok := b.sessions[accessKeyID]
+	b.mu.Lock("GetCallerIdentity")
+	session, ok := b.sessions.Get(accessKeyID)
 	wasExpired := false
 
 	if ok && isSessionExpired(session) {
-		delete(b.sessions, accessKeyID)
+		b.sessions.Delete(accessKeyID)
 		ok = false
 		wasExpired = true
 	}
@@ -895,11 +922,11 @@ func (b *InMemoryBackend) rootCallerIdentity() *GetCallerIdentityResponse {
 func (b *InMemoryBackend) ValidateSessionCredential(
 	accessKeyID, sessionToken string,
 ) (*SessionInfo, error) {
-	b.mu.Lock()
-	session, ok := b.sessions[accessKeyID]
+	b.mu.Lock("ValidateSessionCredential")
+	session, ok := b.sessions.Get(accessKeyID)
 
 	if ok && isSessionExpired(session) {
-		delete(b.sessions, accessKeyID)
+		b.sessions.Delete(accessKeyID)
 		ok = false
 	}
 
@@ -970,7 +997,7 @@ func (b *InMemoryBackend) GetSessionToken(
 		AssumedRoleID:   MockUserID,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &GetSessionTokenResponse{
 		Xmlns: STSNamespace,
@@ -1054,7 +1081,7 @@ func (b *InMemoryBackend) GetFederationToken(
 		Tags:            input.Tags,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &GetFederationTokenResponse{
 		Xmlns: STSNamespace,
@@ -1172,9 +1199,9 @@ func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
 // corresponds to an existing OIDC provider in the IAM backend.
 // When no OIDCLookup is configured the check is skipped (permissive mock behaviour).
 func (b *InMemoryBackend) validateOIDCProvider(token, providerID string) error {
-	b.mu.Lock()
+	b.mu.RLock("ValidateOIDCProvider")
 	ol := b.oidcLookup
-	b.mu.Unlock()
+	b.mu.RUnlock()
 
 	if ol == nil {
 		return nil
@@ -1235,7 +1262,7 @@ func (b *InMemoryBackend) buildWebIdentityResponse(
 		SourceIdentity:  input.SourceIdentity,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &AssumeRoleWithWebIdentityResponse{
 		Xmlns: STSNamespace,
@@ -1417,7 +1444,7 @@ func (b *InMemoryBackend) buildSAMLResponse(
 		Tags:            input.Tags,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	issuerParts := strings.Split(input.PrincipalArn, "/")
 	issuer := issuerParts[len(issuerParts)-1]
@@ -1502,7 +1529,7 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 		AssumedRoleID:   account + ":" + rootSessionName,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &AssumeRootResponse{
 		Xmlns: STSNamespace,
@@ -1519,7 +1546,11 @@ func (b *InMemoryBackend) AssumeRoot(input *AssumeRootInput) (*AssumeRootRespons
 }
 
 // GetDelegatedAccessToken exchanges a trade-in token for temporary AWS credentials.
-// In this mock, the TradeInToken is accepted as-is without validation.
+// The TradeInToken's cryptographic signature is not verified (the external issuer's
+// keys are unavailable to the emulator), but a JWT-shaped token's self-consistent
+// "exp" claim is checked so an already-expired token is rejected with
+// ErrExpiredTradeInToken (AWS ExpiredTradeInTokenException), matching real STS
+// behaviour instead of accepting any non-empty string indefinitely.
 func (b *InMemoryBackend) GetDelegatedAccessToken(
 	input *GetDelegatedAccessTokenInput,
 ) (*GetDelegatedAccessTokenResponse, error) {
@@ -1527,6 +1558,10 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 
 	if input.TradeInToken == "" {
 		return nil, ErrMissingTradeInToken
+	}
+
+	if err := validateTradeInTokenExpiry(input.TradeInToken); err != nil {
+		return nil, err
 	}
 
 	duration := input.DurationSeconds
@@ -1560,7 +1595,7 @@ func (b *InMemoryBackend) GetDelegatedAccessToken(
 		AssumedRoleID:   b.accountID + ":" + delegatedSessionName,
 	}
 
-	b.storeSession(creds.AccessKeyID, session)
+	b.storeSession(session)
 
 	return &GetDelegatedAccessTokenResponse{
 		Xmlns: STSNamespace,
@@ -2073,8 +2108,8 @@ func (b *InMemoryBackend) VerifyEncodedAuthorizationMessage(encoded string) (str
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 // Operation counters and totalSessionsCreated are also reset to zero.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
-	b.sessions = make(map[string]*SessionInfo)
+	b.mu.Lock("Reset")
+	b.registry.ResetAll()
 	b.mu.Unlock()
 
 	b.cntAssumeRole.Store(0)
@@ -2093,23 +2128,23 @@ func (b *InMemoryBackend) Reset() {
 
 // SessionCounts returns active and expired session counts at the time of invocation.
 func (b *InMemoryBackend) SessionCounts() (int, int) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock("SessionCounts")
+	defer b.mu.RUnlock()
 
 	now := time.Now().UTC()
 	active := 0
 	expired := 0
 
-	for _, session := range b.sessions {
+	b.sessions.Range(func(session *SessionInfo) bool {
 		// A zero expiration is treated as non-expiring in-memory session state.
 		if !session.Expiration.IsZero() && !now.Before(session.Expiration) {
 			expired++
-
-			continue
+		} else {
+			active++
 		}
 
-		active++
-	}
+		return true
+	})
 
 	return active, expired
 }

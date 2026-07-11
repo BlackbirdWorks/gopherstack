@@ -16,7 +16,7 @@ func (b *InMemoryBackend) StateMachineCount() int {
 	b.mu.RLock("StateMachineCount")
 	defer b.mu.RUnlock()
 
-	return len(b.stateMachines)
+	return b.stateMachines.Len()
 }
 
 // ExecutionCount returns the number of executions stored in the backend.
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) ExecutionCount() int {
 	b.mu.RLock("ExecutionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.executions)
+	return b.executions.Len()
 }
 
 // ActivityCount returns the number of activities stored in the backend.
@@ -32,7 +32,7 @@ func (b *InMemoryBackend) ActivityCount() int {
 	b.mu.RLock("ActivityCount")
 	defer b.mu.RUnlock()
 
-	return len(b.activities)
+	return b.activities.Len()
 }
 
 // HandlerOpsLen returns the number of operations returned by GetSupportedOperations.
@@ -46,9 +46,14 @@ func (b *InMemoryBackend) FillHistoryForTest(execARN string, count int) {
 	b.mu.Lock("FillHistoryForTest")
 	defer b.mu.Unlock()
 
-	for len(b.history[execARN]) < count {
-		id := int64(len(b.history[execARN]) + 1)
-		b.history[execARN] = append(b.history[execARN], &HistoryEvent{
+	exec, ok := b.executions.Get(execARN)
+	if !ok {
+		return
+	}
+
+	for len(exec.history) < count {
+		id := int64(len(exec.history) + 1)
+		exec.history = append(exec.history, &HistoryEvent{
 			Timestamp: 0,
 			Type:      "PassStateEntered",
 			ID:        id,
@@ -61,7 +66,12 @@ func (b *InMemoryBackend) HistoryLenForTest(execARN string) int {
 	b.mu.RLock("HistoryLenForTest")
 	defer b.mu.RUnlock()
 
-	return len(b.history[execARN])
+	exec, ok := b.executions.Get(execARN)
+	if !ok {
+		return 0
+	}
+
+	return len(exec.history)
 }
 
 // HasTombstoneForTest reports whether an execution has been tombstoned.
@@ -111,7 +121,7 @@ func (b *InMemoryBackend) SetExecutionStopDateForTest(execARN string, stopDate f
 	b.mu.Lock("SetExecutionStopDateForTest")
 	defer b.mu.Unlock()
 
-	if exec, ok := b.executions[execARN]; ok {
+	if exec, ok := b.executions.Get(execARN); ok {
 		exec.StopDate = &stopDate
 		exec.Status = statusSucceeded
 	}
@@ -157,7 +167,7 @@ func (b *InMemoryBackend) MapRunCountForTest(execARN string) int {
 	b.mu.RLock("MapRunCountForTest")
 	defer b.mu.RUnlock()
 
-	return len(b.execMapRuns[execARN])
+	return len(b.mapRunsByExecution.Get(execARN))
 }
 
 // SMExecsByStatusCountForTest returns the number of executions in a given status bucket.

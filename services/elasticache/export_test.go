@@ -7,7 +7,7 @@ func CacheSecurityGroupCount(b *InMemoryBackend) int {
 
 	total := 0
 	for _, regionStore := range b.cacheSecurityGroups {
-		total += len(regionStore)
+		total += regionStore.Len()
 	}
 
 	return total
@@ -28,7 +28,7 @@ func ServerlessCacheCount(b *InMemoryBackend) int {
 
 	total := 0
 	for _, regionStore := range b.serverlessCaches {
-		total += len(regionStore)
+		total += regionStore.Len()
 	}
 
 	return total
@@ -41,7 +41,7 @@ func ServerlessCacheSnapshotCount(b *InMemoryBackend) int {
 
 	total := 0
 	for _, regionStore := range b.serverlessCacheSnapshots {
-		total += len(regionStore)
+		total += regionStore.Len()
 	}
 
 	return total
@@ -54,7 +54,7 @@ func UserCount(b *InMemoryBackend) int {
 
 	total := 0
 	for _, regionStore := range b.users {
-		total += len(regionStore)
+		total += regionStore.Len()
 	}
 
 	return total
@@ -67,7 +67,7 @@ func UserGroupCount(b *InMemoryBackend) int {
 
 	total := 0
 	for _, regionStore := range b.userGroups {
-		total += len(regionStore)
+		total += regionStore.Len()
 	}
 
 	return total
@@ -80,7 +80,7 @@ func ReservedCacheNodeCount(b *InMemoryBackend) int {
 
 	total := 0
 	for _, regionStore := range b.reservedCacheNodes {
-		total += len(regionStore)
+		total += regionStore.Len()
 	}
 
 	return total
@@ -99,7 +99,7 @@ func AddClusterInRGInternal(b *InMemoryBackend, clusterID, replicationGroupID st
 	b.mu.Lock("AddClusterInRGInternal")
 	defer b.mu.Unlock()
 
-	b.clustersStore(b.region)[clusterID] = &Cluster{
+	b.clustersStore(b.region).Put(&Cluster{
 		ClusterID:          clusterID,
 		ReplicationGroupID: replicationGroupID,
 		Engine:             engineRedis,
@@ -108,7 +108,7 @@ func AddClusterInRGInternal(b *InMemoryBackend, clusterID, replicationGroupID st
 		NodeType:           nodeTypeT3Micro,
 		Region:             b.region,
 		ARN:                b.clusterARN(b.region, clusterID),
-	}
+	})
 }
 
 // AddSnapshotInternal seeds an automated snapshot for a given replication group (uses default region).
@@ -116,11 +116,11 @@ func AddSnapshotInternal(b *InMemoryBackend, snapshotName, replicationGroupID, s
 	b.mu.Lock("AddSnapshotInternal")
 	defer b.mu.Unlock()
 
-	b.snapshotsStore(b.region)[snapshotName] = &CacheSnapshot{
+	b.snapshotsStore(b.region).Put(&CacheSnapshot{
 		SnapshotName:       snapshotName,
 		ReplicationGroupID: replicationGroupID,
 		SnapshotSource:     snapshotSource,
 		Status:             statusAvailable,
 		ARN:                b.snapshotARN(b.region, snapshotName),
-	}
+	})
 }

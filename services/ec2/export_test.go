@@ -64,7 +64,7 @@ func (b *InMemoryBackend) SetInstanceTerminatedAtForTest(id string, t time.Time)
 	b.mu.Lock("SetInstanceTerminatedAtForTest")
 	defer b.mu.Unlock()
 
-	if inst, ok := b.instances[id]; ok {
+	if inst, ok := b.instances.Get(id); ok {
 		inst.TerminatedAt = t
 	}
 }
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) SetSpotRequestCancelledAtForTest(id string, t time.Tim
 	b.mu.Lock("SetSpotRequestCancelledAtForTest")
 	defer b.mu.Unlock()
 
-	if req, ok := b.spotRequests[id]; ok {
+	if req, ok := b.spotRequests.Get(id); ok {
 		req.CancelledAt = t
 	}
 }
@@ -86,8 +86,7 @@ func (b *InMemoryBackend) SetSpotRequestCancelledAtForTest(id string, t time.Tim
 func (b *InMemoryBackend) InjectOrphanedENIForTest(eni *NetworkInterface) {
 	b.mu.Lock("InjectOrphanedENIForTest")
 	defer b.mu.Unlock()
-
-	b.networkInterfaces[eni.ID] = eni
+	b.networkInterfaces.Put(eni)
 }
 
 // ---- count helpers for new resource types ----
@@ -105,7 +104,7 @@ func (b *InMemoryBackend) CapacityReservationCount() int {
 	b.mu.RLock("CapacityReservationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.capacityReservations)
+	return b.capacityReservations.Len()
 }
 
 // ReservedInstancesExchangeCount returns the number of reserved instances exchanges.
@@ -113,7 +112,7 @@ func (b *InMemoryBackend) ReservedInstancesExchangeCount() int {
 	b.mu.RLock("ReservedInstancesExchangeCount")
 	defer b.mu.RUnlock()
 
-	return len(b.reservedInstancesExchanges)
+	return b.reservedInstancesExchanges.Len()
 }
 
 // TGWMulticastDomainAssociationCount returns the number of TGW multicast domain associations.
@@ -121,7 +120,7 @@ func (b *InMemoryBackend) TGWMulticastDomainAssociationCount() int {
 	b.mu.RLock("TGWMulticastDomainAssociationCount")
 	defer b.mu.RUnlock()
 
-	return len(b.tgwMulticastDomainAssociations)
+	return b.tgwMulticastDomainAssociations.Len()
 }
 
 // TGWPeeringAttachmentCount returns the number of TGW peering attachments.
@@ -129,7 +128,7 @@ func (b *InMemoryBackend) TGWPeeringAttachmentCount() int {
 	b.mu.RLock("TGWPeeringAttachmentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.tgwPeeringAttachments)
+	return b.tgwPeeringAttachments.Len()
 }
 
 // TGWVpcAttachmentCount returns the number of TGW VPC attachments.
@@ -137,7 +136,7 @@ func (b *InMemoryBackend) TGWVpcAttachmentCount() int {
 	b.mu.RLock("TGWVpcAttachmentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.tgwVpcAttachments)
+	return b.tgwVpcAttachments.Len()
 }
 
 // VpcEndpointConnectionCount returns the number of VPC endpoint connections.
@@ -145,7 +144,7 @@ func (b *InMemoryBackend) VpcEndpointConnectionCount() int {
 	b.mu.RLock("VpcEndpointConnectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.vpcEndpointConnections)
+	return b.vpcEndpointConnections.Len()
 }
 
 // VpcPeeringConnectionCount returns the number of VPC peering connections.
@@ -153,7 +152,7 @@ func (b *InMemoryBackend) VpcPeeringConnectionCount() int {
 	b.mu.RLock("VpcPeeringConnectionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.vpcPeeringConnections)
+	return b.vpcPeeringConnections.Len()
 }
 
 // ByoipCidrCount returns the number of BYOIP CIDRs in the backend.
@@ -161,7 +160,7 @@ func (b *InMemoryBackend) ByoipCidrCount() int {
 	b.mu.RLock("ByoipCidrCount")
 	defer b.mu.RUnlock()
 
-	return len(b.byoipCidrs)
+	return b.byoipCidrs.Len()
 }
 
 // SeedReservedInstancesOffering inserts a reserved instances offering directly (for tests).
@@ -172,8 +171,7 @@ func (b *InMemoryBackend) SeedReservedInstancesOffering(
 ) {
 	b.mu.Lock("SeedReservedInstancesOffering")
 	defer b.mu.Unlock()
-
-	b.reservedInstancesOfferings[offeringID] = &ReservedInstancesOffering{
+	b.reservedInstancesOfferings.Put(&ReservedInstancesOffering{
 		ReservedInstancesOfferingID: offeringID,
 		InstanceType:                instanceType,
 		AvailabilityZone:            az,
@@ -182,7 +180,7 @@ func (b *InMemoryBackend) SeedReservedInstancesOffering(
 		Duration:                    duration,
 		FixedPrice:                  fixedPrice,
 		UsagePrice:                  usagePrice,
-	}
+	})
 }
 
 // DedicatedHostCount returns the number of dedicated hosts in the backend.
@@ -190,7 +188,7 @@ func (b *InMemoryBackend) DedicatedHostCount() int {
 	b.mu.RLock("DedicatedHostCount")
 	defer b.mu.RUnlock()
 
-	return len(b.dedicatedHosts)
+	return b.dedicatedHosts.Len()
 }
 
 // HandlerOpsLen returns the number of operations registered in the handler's dispatch table.
@@ -203,8 +201,7 @@ func (h *Handler) HandlerOpsLen() int {
 func (b *InMemoryBackend) AddImageForTest(img AMIStub) {
 	b.mu.Lock("AddImageForTest")
 	defer b.mu.Unlock()
-
-	b.images[img.ImageID] = &img
+	b.images.Put(&img)
 }
 
 // ExportDispatch calls the handler's dispatch method and returns the XML response as a string.

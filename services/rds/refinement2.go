@@ -33,14 +33,14 @@ func (b *InMemoryBackend) CreateDBSecurityGroup(name, description string) (*DBSe
 	}
 	b.mu.Lock("CreateDBSecurityGroup")
 	defer b.mu.Unlock()
-	if _, exists := b.dbSecurityGroups[name]; exists {
+	if _, exists := b.dbSecurityGroups.Get(name); exists {
 		return nil, fmt.Errorf("%w: %s", ErrDBSecurityGroupAlreadyExists, name)
 	}
 	sg := &DBSecurityGroup{
 		DBSecurityGroupName:        name,
 		DBSecurityGroupDescription: description,
 	}
-	b.dbSecurityGroups[name] = sg
+	b.dbSecurityGroups.Put(sg)
 	cp := *sg
 
 	return &cp, nil
@@ -50,7 +50,7 @@ func (b *InMemoryBackend) CreateDBSecurityGroup(name, description string) (*DBSe
 func (b *InMemoryBackend) RemoveFromGlobalCluster(globalClusterID, dbClusterARN string) (*GlobalCluster, error) {
 	b.mu.Lock("RemoveFromGlobalCluster")
 	defer b.mu.Unlock()
-	gc, ok := b.globalClusters[globalClusterID]
+	gc, ok := b.globalClusters.Get(globalClusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrGlobalClusterNotFound, globalClusterID)
 	}
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 ) (*GlobalCluster, error) {
 	b.mu.Lock("FailoverGlobalCluster")
 	defer b.mu.Unlock()
-	gc, ok := b.globalClusters[globalClusterID]
+	gc, ok := b.globalClusters.Get(globalClusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrGlobalClusterNotFound, globalClusterID)
 	}
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 ) (*GlobalCluster, error) {
 	b.mu.Lock("SwitchoverGlobalCluster")
 	defer b.mu.Unlock()
-	gc, ok := b.globalClusters[globalClusterID]
+	gc, ok := b.globalClusters.Get(globalClusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrGlobalClusterNotFound, globalClusterID)
 	}
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 func (b *InMemoryBackend) SwitchoverReadReplica(instanceID string) (*DBInstance, error) {
 	b.mu.Lock("SwitchoverReadReplica")
 	defer b.mu.Unlock()
-	inst, ok := b.instances[instanceID]
+	inst, ok := b.instances.Get(instanceID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) SwitchoverReadReplica(instanceID string) (*DBInstance,
 func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBCluster, error) {
 	b.mu.Lock("PromoteReadReplicaDBCluster")
 	defer b.mu.Unlock()
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
@@ -129,13 +129,13 @@ func (b *InMemoryBackend) DescribeAccountAttributes() []AccountAttribute {
 
 	return []AccountAttribute{
 		{AttributeName: "AllocatedStorage", Used: 0, Max: quotaMaxAllocatedStorage},
-		{AttributeName: "DBInstances", Used: len(b.instances), Max: quotaMaxDBInstances},
-		{AttributeName: "DBClusters", Used: len(b.clusters), Max: quotaMaxDBClusters},
-		{AttributeName: "DBParameterGroups", Used: len(b.parameterGroups), Max: quotaMaxDBParameterGroups},
-		{AttributeName: "DBSubnetGroups", Used: len(b.subnetGroups), Max: quotaMaxDBSubnetGroups},
-		{AttributeName: "DBSnapshots", Used: len(b.snapshots), Max: quotaMaxDBSnapshots},
-		{AttributeName: "OptionGroups", Used: len(b.optionGroups), Max: quotaMaxOptionGroups},
-		{AttributeName: "ReservedDBInstances", Used: len(b.reservedInstances), Max: quotaMaxReservedInstances},
+		{AttributeName: "DBInstances", Used: b.instances.Len(), Max: quotaMaxDBInstances},
+		{AttributeName: "DBClusters", Used: b.clusters.Len(), Max: quotaMaxDBClusters},
+		{AttributeName: "DBParameterGroups", Used: b.parameterGroups.Len(), Max: quotaMaxDBParameterGroups},
+		{AttributeName: "DBSubnetGroups", Used: b.subnetGroups.Len(), Max: quotaMaxDBSubnetGroups},
+		{AttributeName: "DBSnapshots", Used: b.snapshots.Len(), Max: quotaMaxDBSnapshots},
+		{AttributeName: "OptionGroups", Used: b.optionGroups.Len(), Max: quotaMaxOptionGroups},
+		{AttributeName: "ReservedDBInstances", Used: b.reservedInstances.Len(), Max: quotaMaxReservedInstances},
 	}
 }
 
@@ -241,10 +241,10 @@ func (b *InMemoryBackend) DescribeEngineDefaultClusterParameters(_ string) []DBP
 func (b *InMemoryBackend) DescribeDBSnapshotAttributes(snapshotID string) (*DBSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.snapshots[snapshotID]; !ok {
+	if _, ok := b.snapshots.Get(snapshotID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if attrs, ok := b.snapshotAttributes[snapshotID]; ok {
+	if attrs, ok := b.snapshotAttributes.Get(snapshotID); ok {
 		cp := *attrs
 
 		return &cp, nil
@@ -262,7 +262,7 @@ func (b *InMemoryBackend) DescribeDBSnapshotAttributes(snapshotID string) (*DBSn
 func (b *InMemoryBackend) ModifyDBSnapshot(snapshotID, optionGroupName, engineVersion string) (*DBSnapshot, error) {
 	b.mu.Lock("ModifyDBSnapshot")
 	defer b.mu.Unlock()
-	snap, ok := b.snapshots[snapshotID]
+	snap, ok := b.snapshots.Get(snapshotID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
@@ -284,16 +284,17 @@ func (b *InMemoryBackend) ModifyDBSnapshotAttribute(
 ) (*DBSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.snapshots[snapshotID]; !ok {
+	if _, ok := b.snapshots.Get(snapshotID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if b.snapshotAttributes[snapshotID] == nil {
-		b.snapshotAttributes[snapshotID] = &DBSnapshotAttributesResult{
+	result, ok := b.snapshotAttributes.Get(snapshotID)
+	if !ok {
+		result = &DBSnapshotAttributesResult{
 			DBSnapshotIdentifier: snapshotID,
 			DBSnapshotAttributes: []DBSnapshotAttribute{},
 		}
+		b.snapshotAttributes.Put(result)
 	}
-	result := b.snapshotAttributes[snapshotID]
 	applySnapshotAttributeChange(&result.DBSnapshotAttributes, attributeName, valuesToAdd, valuesToRemove)
 	cp := *result
 
@@ -306,10 +307,10 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshotAttributes(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBClusterSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusterSnapshots[snapshotID]; !ok {
+	if _, ok := b.clusterSnapshots.Get(snapshotID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if attrs, ok := b.clusterSnapshotAttributes[snapshotID]; ok {
+	if attrs, ok := b.clusterSnapshotAttributes.Get(snapshotID); ok {
 		cp := *attrs
 
 		return &cp, nil
@@ -330,16 +331,17 @@ func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
 ) (*DBClusterSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.clusterSnapshots[snapshotID]; !ok {
+	if _, ok := b.clusterSnapshots.Get(snapshotID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
-	if b.clusterSnapshotAttributes[snapshotID] == nil {
-		b.clusterSnapshotAttributes[snapshotID] = &DBClusterSnapshotAttributesResult{
+	result, ok := b.clusterSnapshotAttributes.Get(snapshotID)
+	if !ok {
+		result = &DBClusterSnapshotAttributesResult{
 			DBClusterSnapshotIdentifier: snapshotID,
 			DBClusterSnapshotAttributes: []DBSnapshotAttribute{},
 		}
+		b.clusterSnapshotAttributes.Put(result)
 	}
-	result := b.clusterSnapshotAttributes[snapshotID]
 	applySnapshotAttributeChange(&result.DBClusterSnapshotAttributes, attributeName, valuesToAdd, valuesToRemove)
 	cp := *result
 
@@ -378,7 +380,7 @@ func applySnapshotAttributeChange(
 func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClusterBacktrack, error) {
 	b.mu.RLock("DescribeDBClusterBacktracks")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusters[clusterID]; !ok {
+	if _, ok := b.clusters.Get(clusterID); !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
 
@@ -389,7 +391,7 @@ func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClu
 func (b *InMemoryBackend) EnableHTTPEndpoint(resourceARN string) error {
 	b.mu.Lock("EnableHTTPEndpoint")
 	defer b.mu.Unlock()
-	for _, cluster := range b.clusters {
+	for _, cluster := range b.clusters.All() {
 		if cluster.DBClusterIdentifier == resourceARN ||
 			b.rdsARN("cluster", cluster.DBClusterIdentifier) == resourceARN {
 			cluster.HTTPEndpointEnabled = true
@@ -405,7 +407,7 @@ func (b *InMemoryBackend) EnableHTTPEndpoint(resourceARN string) error {
 func (b *InMemoryBackend) DisableHTTPEndpoint(resourceARN string) error {
 	b.mu.Lock("DisableHTTPEndpoint")
 	defer b.mu.Unlock()
-	for _, cluster := range b.clusters {
+	for _, cluster := range b.clusters.All() {
 		if cluster.DBClusterIdentifier == resourceARN ||
 			b.rdsARN("cluster", cluster.DBClusterIdentifier) == resourceARN {
 			cluster.HTTPEndpointEnabled = false
@@ -421,7 +423,7 @@ func (b *InMemoryBackend) DisableHTTPEndpoint(resourceARN string) error {
 func (b *InMemoryBackend) ModifyCurrentDBClusterCapacity(clusterID string, capacity int) (*DBCluster, error) {
 	b.mu.Lock("ModifyCurrentDBClusterCapacity")
 	defer b.mu.Unlock()
-	cluster, ok := b.clusters[clusterID]
+	cluster, ok := b.clusters.Get(clusterID)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
@@ -441,7 +443,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s
 	}
 	b.mu.Lock("RestoreDBInstanceFromS3")
 	defer b.mu.Unlock()
-	if _, exists := b.instances[id]; exists {
+	if _, exists := b.instances.Get(id); exists {
 		return nil, fmt.Errorf("%w: %s", ErrInstanceAlreadyExists, id)
 	}
 	inst := &DBInstance{
@@ -452,7 +454,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(id, engine, dbInstanceClass, s
 		AllocatedStorage:     defaultAllocatedStorage,
 		StorageType:          "gp2",
 	}
-	b.instances[id] = inst
+	b.instances.Put(inst)
 	b.instanceReadyAt[id] = time.Now().Add(instanceReadyDelaySeconds * time.Second)
 	b.scheduleReconcilerLocked()
 	cp := *inst
@@ -470,7 +472,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(id, engine, masterUsername, s3B
 	}
 	b.mu.Lock("RestoreDBClusterFromS3")
 	defer b.mu.Unlock()
-	if _, exists := b.clusters[id]; exists {
+	if _, exists := b.clusters.Get(id); exists {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
 	cluster := &DBCluster{
@@ -479,7 +481,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(id, engine, masterUsername, s3B
 		MasterUsername:      masterUsername,
 		Status:              "creating",
 	}
-	b.clusters[id] = cluster
+	b.clusters.Put(cluster)
 	cp := *cluster
 
 	return &cp, nil
@@ -489,7 +491,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(id, engine, masterUsername, s3B
 func (b *InMemoryBackend) ModifyDBRecommendation(recID, status string) (*DBRecommendation, error) {
 	b.mu.Lock("ModifyDBRecommendation")
 	defer b.mu.Unlock()
-	rec, ok := b.recommendations[recID]
+	rec, ok := b.recommendations.Get(recID)
 	if !ok {
 		return nil, fmt.Errorf("%w: recommendation %s not found", ErrInvalidParameter, recID)
 	}
@@ -503,8 +505,8 @@ func (b *InMemoryBackend) ModifyDBRecommendation(recID, status string) (*DBRecom
 func (b *InMemoryBackend) DescribeDBRecommendations(recID, status string) []DBRecommendation {
 	b.mu.RLock("DescribeDBRecommendations")
 	defer b.mu.RUnlock()
-	result := make([]DBRecommendation, 0, len(b.recommendations))
-	for _, rec := range b.recommendations {
+	result := make([]DBRecommendation, 0, b.recommendations.Len())
+	for _, rec := range b.recommendations.All() {
 		if recID != "" && rec.RecommendationID != recID {
 			continue
 		}
@@ -552,7 +554,7 @@ func (b *InMemoryBackend) PurchaseReservedDBInstancesOffering(
 	}
 	b.mu.Lock("PurchaseReservedDBInstancesOffering")
 	defer b.mu.Unlock()
-	if _, exists := b.reservedInstances[reservedDBInstanceID]; exists {
+	if _, exists := b.reservedInstances.Get(reservedDBInstanceID); exists {
 		return nil, fmt.Errorf("%w: reserved instance %s already exists", ErrInvalidParameter, reservedDBInstanceID)
 	}
 	ri := &ReservedDBInstance{
@@ -570,7 +572,7 @@ func (b *InMemoryBackend) PurchaseReservedDBInstancesOffering(
 		State:                         subscriptionStatusActive,
 		CurrencyCode:                  offering.CurrencyCode,
 	}
-	b.reservedInstances[reservedDBInstanceID] = ri
+	b.reservedInstances.Put(ri)
 	cp := *ri
 
 	return &cp, nil
@@ -582,8 +584,8 @@ func (b *InMemoryBackend) DescribeReservedDBInstances(
 ) []ReservedDBInstance {
 	b.mu.RLock("DescribeReservedDBInstances")
 	defer b.mu.RUnlock()
-	result := make([]ReservedDBInstance, 0, len(b.reservedInstances))
-	for _, ri := range b.reservedInstances {
+	result := make([]ReservedDBInstance, 0, b.reservedInstances.Len())
+	for _, ri := range b.reservedInstances.All() {
 		if reservedDBInstanceID != "" && ri.ReservedDBInstanceID != reservedDBInstanceID {
 			continue
 		}

@@ -64,6 +64,9 @@ func TestParity_PutBucketReplication_RequiresRoleAndRules(t *testing.T) {
 
 			handler, backend := newTestHandler(t)
 			mustCreateBucket(t, backend, "src-bucket")
+			// Real S3 requires versioning enabled before a replication config
+			// can be applied.
+			enableVersioning(t, handler, "src-bucket")
 
 			req := httptest.NewRequest(
 				http.MethodPut,
@@ -93,6 +96,9 @@ func TestParity_PutBucketReplication_ExistingConfigIsOverwritten(t *testing.T) {
 
 	handler, backend := newTestHandler(t)
 	mustCreateBucket(t, backend, "rep-bucket")
+	// Real S3 requires versioning enabled before a replication config can be
+	// applied.
+	enableVersioning(t, handler, "rep-bucket")
 
 	cfg1 := `<ReplicationConfiguration>` +
 		`<Role>arn:aws:iam::000000000000:role/R1</Role>` +

@@ -13,7 +13,12 @@ func TransactionCount(b *InMemoryBackend) int {
 	b.mu.RLock("TransactionCount")
 	defer b.mu.RUnlock()
 
-	return len(b.transactions[b.defaultRegion])
+	tbl := b.transactions[b.defaultRegion]
+	if tbl == nil {
+		return 0
+	}
+
+	return tbl.Len()
 }
 
 // HandlerOpsLen returns the number of operations in GetSupportedOperations.

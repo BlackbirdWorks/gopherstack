@@ -73,16 +73,17 @@ func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {
 
 	var swept []string
 
-	// Clusters are region-nested (outer key = region); sweep every region.
-	for region, clusters := range j.Backend.clusters {
-		for id, c := range clusters {
-			terminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
-			if terminal && !c.TerminatedAt.IsZero() && c.TerminatedAt.Before(cutoff) {
-				swept = append(swept, id)
-				delete(clusters, id)
-				if arnIndex := j.Backend.arnIndex[region]; arnIndex != nil {
-					delete(arnIndex, c.ARN)
-				}
+	// Clusters live in a single flat store.Table keyed by "region|id" (see
+	// regionKey in backend.go). store.Table.Snapshot allocates a fresh slice
+	// on every call, so deleting entries while ranging over it here is safe
+	// -- unlike store.Index.Get, whose slice is owned by the index itself.
+	for _, c := range j.Backend.clusters.Snapshot() {
+		terminal := c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors
+		if terminal && !c.TerminatedAt.IsZero() && c.TerminatedAt.Before(cutoff) {
+			swept = append(swept, c.ID)
+			j.Backend.clusterDelete(c.region, c.ID)
+			if arnIndex := j.Backend.arnIndex[c.region]; arnIndex != nil {
+				delete(arnIndex, c.ARN)
 			}
 		}
 	}

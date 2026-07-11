@@ -190,6 +190,20 @@ type Statement struct {
 }
 
 // regionStore holds per-region statement storage and its ring buffer.
+//
+// Phase 3.3 datalayer audit: statements stays a raw map[string]*Statement
+// rather than a [github.com/blackbirdworks/gopherstack/pkgs/store.Table] for
+// two independent reasons. (1) ringBuf/ringLen/ringHead implement FIFO
+// insertion-order tracking for the per-region maxStatementHistory eviction
+// cap; store.Index groups explicitly do not preserve insertion order across
+// deletions (swap-and-truncate removal), so replacing this hand-rolled ring
+// buffer with an Index would silently corrupt eviction order -- exactly the
+// "leave raw" case the rollout calls out for order-sensitive statement
+// history. (2) regionStore instances are created lazily per-region by
+// storeFor() rather than known at backend-construction time, so there is no
+// fixed set of tables to register once with a store.Registry the way every
+// other Phase 3.3 conversion does. This was already persisted before this
+// rollout (see persistence.go) and remains persisted, unchanged, after it.
 type regionStore struct {
 	statements map[string]*Statement
 	// ring buffer for ordered eviction – head points to the oldest slot.

@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -98,6 +99,12 @@ const (
 // regionContextKey) partitions state: containers created in one region are
 // invisible to every other region.
 type StorageBackend interface {
+	// Snapshot and Restore implement persistence.Persistable. Handler
+	// delegates to them (see persistence.go) so cli.go's generic
+	// setupPersistence picks MediaStore up.
+	Snapshot(ctx context.Context) []byte
+	Restore(ctx context.Context, data []byte) error
+
 	CreateContainer(ctx context.Context, accountID, name string, tags map[string]string) (*Container, error)
 	DeleteContainer(ctx context.Context, name string) error
 	DescribeContainer(ctx context.Context, name string) (*Container, error)
@@ -123,10 +130,11 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 //
-// State is partitioned by region: containers[region][name] gives the container
-// stored under name within that region.
+// State is partitioned by region: containers[region] gives the store.Table of
+// containers stored within that region (see store_setup.go for why this is a
+// per-region map rather than a single flat table).
 type InMemoryBackend struct {
-	containers       map[string]map[string]*Container
+	containers       map[string]*store.Table[Container]
 	mu               *lockmetrics.RWMutex
 	paginationSecret string
 }
@@ -134,7 +142,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		containers:       make(map[string]map[string]*Container),
+		containers:       make(map[string]*store.Table[Container]),
 		paginationSecret: uuid.NewString(),
 		mu:               lockmetrics.New("mediastore"),
 	}
@@ -150,16 +158,37 @@ func regionFromContext(ctx context.Context) string {
 	return config.DefaultRegion
 }
 
-// containerStore returns the per-region container map for region, creating it
-// on first use. Callers must already hold b.mu (write lock).
-func (b *InMemoryBackend) containerStore(region string) map[string]*Container {
-	store, ok := b.containers[region]
-	if !ok {
-		store = make(map[string]*Container)
-		b.containers[region] = store
+// containersStore returns the per-region container [store.Table] for region,
+// creating it on first use. Because creation mutates b.containers, callers
+// must already hold b.mu for writing (Lock) -- read paths that only need to
+// look up an already-existing region must use [InMemoryBackend.containerRegion]
+// instead so a lazy allocation never races under a shared RLock.
+func (b *InMemoryBackend) containersStore(region string) *store.Table[Container] {
+	if b.containers[region] == nil {
+		b.containers[region] = store.New(containerKeyFn)
 	}
 
-	return store
+	return b.containers[region]
+}
+
+// containerRegion returns the per-region container [store.Table] for region
+// without creating it, or nil if region has no containers yet. Safe to call
+// under either b.mu.RLock or b.mu.Lock.
+func (b *InMemoryBackend) containerRegion(region string) *store.Table[Container] {
+	return b.containers[region]
+}
+
+// getContainer looks up the container stored under name in region without
+// creating the region's table. Safe to call under either b.mu.RLock or
+// b.mu.Lock -- used by every read/mutate-in-place accessor below that only
+// ever needs an already-existing container, never to create one.
+func (b *InMemoryBackend) getContainer(region, name string) (*Container, bool) {
+	tbl := b.containerRegion(region)
+	if tbl == nil {
+		return nil, false
+	}
+
+	return tbl.Get(name)
 }
 
 // validateContainerName returns an error if the container name is invalid.
@@ -207,9 +236,9 @@ func (b *InMemoryBackend) CreateContainer(
 	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
-	store := b.containerStore(region)
+	tbl := b.containersStore(region)
 
-	if _, exists := store[name]; exists {
+	if tbl.Has(name) {
 		return nil, ErrContainerAlreadyExists
 	}
 
@@ -227,7 +256,7 @@ func (b *InMemoryBackend) CreateContainer(
 		Tags:         t,
 	}
 
-	store[name] = c
+	tbl.Put(c)
 
 	return copyContainer(c), nil
 }
@@ -239,13 +268,13 @@ func (b *InMemoryBackend) DeleteContainer(ctx context.Context, name string) erro
 	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
-	store := b.containerStore(region)
+	tbl := b.containerRegion(region)
 
-	if _, exists := store[name]; !exists {
+	if tbl == nil || !tbl.Has(name) {
 		return ErrContainerNotFound
 	}
 
-	delete(store, name)
+	tbl.Delete(name)
 
 	return nil
 }
@@ -257,7 +286,7 @@ func (b *InMemoryBackend) DescribeContainer(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeContainer")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return nil, ErrContainerNotFound
 	}
@@ -276,12 +305,16 @@ func (b *InMemoryBackend) ListContainers(
 	b.mu.RLock("ListContainers")
 	defer b.mu.RUnlock()
 
-	store := b.containers[region]
+	tbl := b.containerRegion(region)
 
-	all := make([]*Container, 0, len(store))
+	var all []*Container
+	if tbl != nil {
+		items := tbl.All()
+		all = make([]*Container, 0, len(items))
 
-	for _, c := range store {
-		all = append(all, copyContainer(c))
+		for _, c := range items {
+			all = append(all, copyContainer(c))
+		}
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -304,7 +337,7 @@ func (b *InMemoryBackend) PutContainerPolicy(ctx context.Context, name, policy s
 	b.mu.Lock("PutContainerPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -321,7 +354,7 @@ func (b *InMemoryBackend) GetContainerPolicy(ctx context.Context, name string) (
 	b.mu.RLock("GetContainerPolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return "", ErrContainerNotFound
 	}
@@ -340,7 +373,7 @@ func (b *InMemoryBackend) DeleteContainerPolicy(ctx context.Context, name string
 	b.mu.Lock("DeleteContainerPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -367,7 +400,7 @@ func (b *InMemoryBackend) PutCorsPolicy(ctx context.Context, name string, rules 
 	b.mu.Lock("PutCorsPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -390,7 +423,7 @@ func (b *InMemoryBackend) GetCorsPolicy(ctx context.Context, name string) ([]Cor
 	b.mu.RLock("GetCorsPolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return nil, ErrContainerNotFound
 	}
@@ -414,7 +447,7 @@ func (b *InMemoryBackend) DeleteCorsPolicy(ctx context.Context, name string) err
 	b.mu.Lock("DeleteCorsPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -439,7 +472,7 @@ func (b *InMemoryBackend) PutLifecyclePolicy(ctx context.Context, name, policy s
 	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -456,7 +489,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(ctx context.Context, name string) (
 	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return "", ErrContainerNotFound
 	}
@@ -475,7 +508,7 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(ctx context.Context, name string
 	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -504,7 +537,7 @@ func (b *InMemoryBackend) PutMetricPolicy(ctx context.Context, name string, poli
 	b.mu.Lock("PutMetricPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -522,7 +555,7 @@ func (b *InMemoryBackend) GetMetricPolicy(ctx context.Context, name string) (Met
 	b.mu.RLock("GetMetricPolicy")
 	defer b.mu.RUnlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return MetricPolicy{}, ErrContainerNotFound
 	}
@@ -541,7 +574,7 @@ func (b *InMemoryBackend) DeleteMetricPolicy(ctx context.Context, name string) e
 	b.mu.Lock("DeleteMetricPolicy")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -562,7 +595,7 @@ func (b *InMemoryBackend) StartAccessLogging(ctx context.Context, name string) e
 	b.mu.Lock("StartAccessLogging")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -579,7 +612,7 @@ func (b *InMemoryBackend) StopAccessLogging(ctx context.Context, name string) er
 	b.mu.Lock("StopAccessLogging")
 	defer b.mu.Unlock()
 
-	c, exists := b.containers[region][name]
+	c, exists := b.getContainer(region, name)
 	if !exists {
 		return ErrContainerNotFound
 	}
@@ -603,7 +636,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 	defer b.mu.Unlock()
 
 	name := containerNameFromARN(resourceARN)
-	c, ok := b.containers[region][name]
+	c, ok := b.getContainer(region, name)
 	if !ok {
 		return ErrContainerNotFound
 	}
@@ -625,7 +658,7 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	defer b.mu.Unlock()
 
 	name := containerNameFromARN(resourceARN)
-	c, ok := b.containers[region][name]
+	c, ok := b.getContainer(region, name)
 	if !ok {
 		return ErrContainerNotFound
 	}
@@ -648,7 +681,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 	defer b.mu.RUnlock()
 
 	name := containerNameFromARN(resourceARN)
-	c, ok := b.containers[region][name]
+	c, ok := b.getContainer(region, name)
 	if !ok {
 		return nil, ErrContainerNotFound
 	}

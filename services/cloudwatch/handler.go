@@ -86,6 +86,9 @@ const (
 
 const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 
+// errCodeInternalFailure is the AWS error code for an unclassified server-side failure.
+const errCodeInternalFailure = "InternalFailure"
+
 // formFalse is the string value "false" as submitted in form-encoded CloudWatch requests.
 const formFalse = "false"
 
@@ -634,8 +637,11 @@ func writeXML(c *echo.Context, v any) error {
 }
 
 // parseMetricDataFromForm parses MetricData.member.N.* form values.
-// Supports both the Value field and the StatisticSet (pre-aggregated) path.
-// Also parses Dimensions and StorageResolution.
+// Supports the Value field, the StatisticSet (pre-aggregated) path, and the
+// Values/Counts array path. Also parses Dimensions and StorageResolution.
+// Each datum's Has* flags record which shape (if any) was present on the wire;
+// validateMetricDatum uses those flags to reject ambiguous combinations rather
+// than guessing from zero values.
 func parseMetricDataFromForm(form url.Values) []MetricDatum {
 	var data []MetricDatum
 	for i := 1; ; i++ {
@@ -644,61 +650,117 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 		if name == "" {
 			return data
 		}
-		unit := form.Get(prefix + "Unit")
 
-		// Parse optional Timestamp (fall back to now).
-		ts := time.Now().UTC()
-		if tsStr := form.Get(prefix + "Timestamp"); tsStr != "" {
-			if t, err := time.Parse(time.RFC3339, tsStr); err == nil {
-				ts = t.UTC()
-			}
+		datum := parseMetricDatumBaseFields(form, prefix, name)
+		applyMetricDatumShape(form, prefix, &datum)
+		data = append(data, datum)
+	}
+}
+
+// parseMetricDatumBaseFields parses the shape-independent fields of a single
+// MetricData.member.N entry: MetricName, Unit, Timestamp, StorageResolution,
+// and Dimensions.
+func parseMetricDatumBaseFields(form url.Values, prefix, name string) MetricDatum {
+	unit := form.Get(prefix + "Unit")
+
+	// Parse optional Timestamp (fall back to now).
+	ts := time.Now().UTC()
+	if tsStr := form.Get(prefix + "Timestamp"); tsStr != "" {
+		if t, err := time.Parse(time.RFC3339, tsStr); err == nil {
+			ts = t.UTC()
+		}
+	}
+
+	storageRes, _ := strconv.ParseInt(form.Get(prefix+"StorageResolution"), 10, 32)
+	dims := parseDimensionsFromForm(form, prefix+"Dimensions.")
+
+	return MetricDatum{
+		MetricName:        name,
+		Unit:              unit,
+		Timestamp:         ts,
+		Dimensions:        dims,
+		StorageResolution: int32(storageRes),
+	}
+}
+
+// applyMetricDatumShape parses whichever of the three mutually-exclusive
+// PutMetricData input shapes (Values/Counts, StatisticValues, or Value) is
+// present in the form for this entry and populates datum accordingly.
+func applyMetricDatumShape(form url.Values, prefix string, datum *MetricDatum) {
+	if values, hasValues := parseFloatMemberList(form, prefix+"Values."); hasValues {
+		applyValuesArrayShape(form, prefix, datum, values)
+
+		return
+	}
+
+	if ssCount := form.Get(prefix + "StatisticValues.SampleCount"); ssCount != "" {
+		applyStatisticSetShape(form, prefix, datum, ssCount)
+
+		return
+	}
+
+	rawValue := form.Get(prefix + "Value")
+	val, _ := strconv.ParseFloat(rawValue, 64)
+	datum.HasValue = rawValue != ""
+	datum.Value = val
+	datum.Count = 1
+	datum.Sum = val
+	datum.Min = val
+	datum.Max = val
+}
+
+// applyValuesArrayShape populates datum from a Values/Counts array pair,
+// defaulting Counts to all-1s when the caller omits it. The backend
+// (storeDatum) derives Sum/SampleCount/Min/Max from Values/Counts at store
+// time, so this only needs to carry the raw arrays through.
+func applyValuesArrayShape(form url.Values, prefix string, datum *MetricDatum, values []float64) {
+	counts, hasCounts := parseFloatMemberList(form, prefix+"Counts.")
+	if !hasCounts {
+		counts = make([]float64, len(values))
+		for j := range counts {
+			counts[j] = 1
+		}
+	}
+
+	datum.HasValuesArray = true
+	datum.Values = values
+	datum.Counts = counts
+}
+
+// applyStatisticSetShape populates datum from a StatisticValues input. A
+// caller may also (invalidly) supply Value alongside it; that is preserved so
+// validateMetricDatum can reject the combination.
+func applyStatisticSetShape(form url.Values, prefix string, datum *MetricDatum, ssCount string) {
+	count, _ := strconv.ParseFloat(ssCount, 64)
+	sum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Sum"), 64)
+	minimum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Minimum"), 64)
+	maximum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Maximum"), 64)
+	datum.HasStatisticSet = true
+	datum.Count = count
+	datum.Sum = sum
+	datum.Min = minimum
+	datum.Max = maximum
+
+	if rawValue := form.Get(prefix + "Value"); rawValue != "" {
+		datum.HasValue = true
+		datum.Value, _ = strconv.ParseFloat(rawValue, 64)
+	}
+}
+
+// parseFloatMemberList parses a "Prefix.member.N" list of floats (e.g.
+// "MetricData.member.1.Values.member.1"). Returns ok=false when no members are
+// present so callers can distinguish an absent list from an explicit empty one.
+func parseFloatMemberList(form url.Values, prefix string) ([]float64, bool) {
+	var vals []float64
+
+	for i := 1; ; i++ {
+		raw := form.Get(fmt.Sprintf("%smember.%d", prefix, i))
+		if raw == "" {
+			return vals, len(vals) > 0
 		}
 
-		storageRes, _ := strconv.ParseInt(form.Get(prefix+"StorageResolution"), 10, 32)
-		dims := parseDimensionsFromForm(form, prefix+"Dimensions.")
-
-		// StatisticSet takes precedence over Value when present.
-		ssCount := form.Get(prefix + "StatisticValues.SampleCount")
-		if ssCount != "" {
-			count, _ := strconv.ParseFloat(ssCount, 64)
-			sum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Sum"), 64)
-			minimum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Minimum"), 64)
-			maximum, _ := strconv.ParseFloat(form.Get(prefix+"StatisticValues.Maximum"), 64)
-			// Check if caller also supplied a Value (mutual exclusion with StatisticSet).
-			rawValue := form.Get(prefix + "Value")
-			// Preserve the Value if caller sent both; validateMetricDatum rejects it.
-			rawVal, _ := strconv.ParseFloat(rawValue, 64)
-			data = append(data, MetricDatum{
-				MetricName:        name,
-				Unit:              unit,
-				Timestamp:         ts,
-				Count:             count,
-				Sum:               sum,
-				Min:               minimum,
-				Max:               maximum,
-				Dimensions:        dims,
-				StorageResolution: int32(storageRes),
-				// Mark as StatisticSet so the backend can enforce mutual exclusion.
-				HasStatisticSet: true,
-				Value:           rawVal,
-			})
-
-			continue
-		}
-
-		val, _ := strconv.ParseFloat(form.Get(prefix+"Value"), 64)
-		data = append(data, MetricDatum{
-			MetricName:        name,
-			Value:             val,
-			Unit:              unit,
-			Timestamp:         ts,
-			Count:             1,
-			Sum:               val,
-			Min:               val,
-			Max:               val,
-			Dimensions:        dims,
-			StorageResolution: int32(storageRes),
-		})
+		f, _ := strconv.ParseFloat(raw, 64)
+		vals = append(vals, f)
 	}
 }
 
@@ -822,29 +884,48 @@ func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
 		)
 	}
 	data := parseMetricDataFromForm(form)
-	unprocessed, err := h.Backend.PutMetricData(namespace, data)
-	if err != nil {
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	if err := h.Backend.PutMetricData(namespace, data); err != nil {
+		return h.xmlError(c, putMetricDataErrorStatus(err), putMetricDataErrorCode(err), err.Error())
 	}
 
-	type unprocessedXML struct {
-		MetricName   string `xml:"MetricName"`
-		ErrorCode    string `xml:"ErrorCode"`
-		ErrorMessage string `xml:"ErrorMessage,omitempty"`
-	}
+	// PutMetricDataOutput has no members besides the request ID: CloudWatch has
+	// no partial-success concept for this operation, so a 200 always means every
+	// datum in the request was accepted.
 	type response struct {
-		XMLName            xml.Name         `xml:"PutMetricDataResponse"`
-		Xmlns              string           `xml:"xmlns,attr"`
-		RequestID          string           `xml:"ResponseMetadata>RequestId"`
-		UnprocessedMetrics []unprocessedXML `xml:"PutMetricDataResult>UnprocessedMetricData>member,omitempty"`
+		XMLName   xml.Name `xml:"PutMetricDataResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
-	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
-	for _, u := range unprocessed {
-		resp.UnprocessedMetrics = append(resp.UnprocessedMetrics, unprocessedXML(u))
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+// putMetricDataErrorCode maps a PutMetricData validation error to its AWS error
+// code. Order matters: more specific sentinels must be checked before the
+// generic ErrValidation they may also match via errors.Is chains.
+func putMetricDataErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrValueAndStatisticSet):
+		return "InvalidParameterCombination"
+	case errors.Is(err, ErrMetricSeriesLimitExceeded):
+		return "LimitExceeded"
+	case errors.Is(err, ErrValuesCountsLengthMismatch),
+		errors.Is(err, ErrTooManyValues),
+		errors.Is(err, ErrInvalidMetricValue),
+		errors.Is(err, ErrValidation):
+		return "InvalidParameterValue"
+	default:
+		return errCodeInternalFailure
+	}
+}
+
+// putMetricDataErrorStatus maps a PutMetricData validation error to its HTTP status.
+func putMetricDataErrorStatus(err error) int {
+	if putMetricDataErrorCode(err) == errCodeInternalFailure {
+		return http.StatusInternalServerError
 	}
 
-	return writeXML(c, resp)
+	return http.StatusBadRequest
 }
 
 func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) error {
@@ -940,12 +1021,17 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 	namespace := form.Get("Namespace")
 	metricName := form.Get("MetricName")
 	nextToken := form.Get("NextToken")
+	recentlyActive := form.Get("RecentlyActive")
 	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
 	dimensions := parseDimensionsFromForm(form, "Dimensions.")
 
-	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, nextToken, maxResults)
+	p, err := h.Backend.ListMetrics(namespace, metricName, dimensions, recentlyActive, nextToken, maxResults)
 	if err != nil {
-		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+		if errors.Is(err, ErrValidation) {
+			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
+		}
+
+		return h.xmlError(c, http.StatusInternalServerError, errCodeInternalFailure, err.Error())
 	}
 
 	type dimXML struct {
@@ -2836,7 +2922,7 @@ func (h *Handler) handlePutManagedInsightRules(form url.Values, c *echo.Context)
 		}); err != nil {
 			failures = append(failures, failureXML{
 				RuleName:           ruleName,
-				FailureCode:        "InternalFailure",
+				FailureCode:        errCodeInternalFailure,
 				FailureDescription: err.Error(),
 			})
 		}

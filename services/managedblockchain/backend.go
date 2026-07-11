@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 var (
@@ -145,16 +147,27 @@ type StorageBackend interface {
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
+//
+// networks, members, nodes, accessors, proposals, proposalVotes, and
+// invitations are all *store.Table (Phase 3.3 of the datalayer refactor);
+// see store_setup.go for their key functions, indexes, and registration.
+// arnToResource remains a plain map -- see store_setup.go's doc comment for
+// why it cannot become a store.Table.
 type InMemoryBackend struct {
-	networks      map[string]*Network
-	members       map[string]map[string]*Member          // networkID → memberID → Member
-	nodes         map[string]map[string]map[string]*Node // networkID → memberID → nodeID → Node
-	arnToResource map[string]any                         // ARN → *Network, *Member, *Node, or *Accessor
-	accessors     map[string]*Accessor                   // accessorID → Accessor
-	proposals     map[string]map[string]*Proposal        // networkID → proposalID → Proposal
-	proposalVotes map[string][]*ProposalVote             // proposalID → votes
-	invitations   map[string]*Invitation                 // invitationID → Invitation
-	mu            *lockmetrics.RWMutex
+	registry                *store.Registry
+	networks                *store.Table[Network]
+	members                 *store.Table[Member]
+	membersByNetwork        *store.Index[Member]
+	nodes                   *store.Table[Node]
+	nodesByMember           *store.Index[Node]
+	arnToResource           map[string]any // ARN → *Network, *Member, *Node, or *Accessor
+	accessors               *store.Table[Accessor]
+	proposals               *store.Table[Proposal]
+	proposalsByNetwork      *store.Index[Proposal]
+	proposalVotes           *store.Table[ProposalVote]
+	proposalVotesByProposal *store.Index[ProposalVote]
+	invitations             *store.Table[Invitation]
+	mu                      *lockmetrics.RWMutex
 }
 
 // var _ assertion ensures InMemoryBackend implements StorageBackend at compile time.
@@ -162,17 +175,15 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // NewInMemoryBackend creates a new in-memory Managed Blockchain backend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
-		networks:      make(map[string]*Network),
-		members:       make(map[string]map[string]*Member),
-		nodes:         make(map[string]map[string]map[string]*Node),
+	b := &InMemoryBackend{
 		arnToResource: make(map[string]any),
-		accessors:     make(map[string]*Accessor),
-		proposals:     make(map[string]map[string]*Proposal),
-		proposalVotes: make(map[string][]*ProposalVote),
-		invitations:   make(map[string]*Invitation),
+		registry:      store.NewRegistry(),
 		mu:            lockmetrics.New("managedblockchain"),
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // networkARN builds the ARN for a Managed Blockchain network.
@@ -215,7 +226,7 @@ func (b *InMemoryBackend) CreateNetwork(
 	b.mu.Lock("CreateNetwork")
 	defer b.mu.Unlock()
 
-	for _, n := range b.networks {
+	for _, n := range b.networks.All() {
 		if n.Name == name {
 			return nil, nil, ErrNetworkAlreadyExists
 		}
@@ -251,8 +262,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		VotingPolicy:     cloneVotingPolicy(votingPolicy),
 	}
 
-	b.networks[networkID] = network
-	b.members[networkID] = make(map[string]*Member)
+	b.networks.Put(network)
 	b.arnToResource[network.Arn] = network
 
 	member := &Member{
@@ -267,7 +277,7 @@ func (b *InMemoryBackend) CreateNetwork(
 		IsOwned:      true,
 	}
 
-	b.members[networkID][memberID] = member
+	b.members.Put(member)
 	b.arnToResource[member.Arn] = member
 
 	return cloneNetwork(network), cloneMember(member), nil
@@ -311,7 +321,7 @@ func (b *InMemoryBackend) GetNetwork(networkID string) (*Network, error) {
 	b.mu.RLock("GetNetwork")
 	defer b.mu.RUnlock()
 
-	network, exists := b.networks[networkID]
+	network, exists := b.networks.Get(networkID)
 	if !exists {
 		return nil, ErrNetworkNotFound
 	}
@@ -324,9 +334,9 @@ func (b *InMemoryBackend) ListNetworks(filter ListNetworksFilter) ([]*Network, e
 	b.mu.RLock("ListNetworks")
 	defer b.mu.RUnlock()
 
-	all := make([]*Network, 0, len(b.networks))
+	all := make([]*Network, 0, b.networks.Len())
 
-	for _, n := range b.networks {
+	for _, n := range b.networks.All() {
 		if filter.Name != "" && n.Name != filter.Name {
 			continue
 		}
@@ -357,7 +367,7 @@ func (b *InMemoryBackend) CreateMember(
 	b.mu.Lock("CreateMember")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
@@ -379,11 +389,7 @@ func (b *InMemoryBackend) CreateMember(
 		IsOwned:      true,
 	}
 
-	if b.members[networkID] == nil {
-		b.members[networkID] = make(map[string]*Member)
-	}
-
-	b.members[networkID][memberID] = member
+	b.members.Put(member)
 	b.arnToResource[member.Arn] = member
 
 	return cloneMember(member), nil
@@ -394,16 +400,11 @@ func (b *InMemoryBackend) GetMember(networkID, memberID string) (*Member, error)
 	b.mu.RLock("GetMember")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	members, ok := b.members[networkID]
-	if !ok {
-		return nil, ErrMemberNotFound
-	}
-
-	member, exists := members[memberID]
+	member, exists := b.members.Get(memberKey(networkID, memberID))
 	if !exists {
 		return nil, ErrMemberNotFound
 	}
@@ -416,11 +417,11 @@ func (b *InMemoryBackend) ListMembers(networkID string, filter ListMembersFilter
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	members := b.members[networkID]
+	members := b.membersByNetwork.Get(networkID)
 	all := make([]*Member, 0, len(members))
 
 	for _, m := range members {
@@ -451,29 +452,35 @@ func (b *InMemoryBackend) DeleteMember(networkID, memberID string) error {
 	b.mu.Lock("DeleteMember")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return ErrNetworkNotFound
 	}
 
-	members, ok := b.members[networkID]
-	if !ok || members[memberID] == nil {
+	m, exists := b.members.Get(memberKey(networkID, memberID))
+	if !exists {
 		return ErrMemberNotFound
 	}
 
-	m := members[memberID]
 	delete(b.arnToResource, m.Arn)
-	delete(members, memberID)
+	b.members.Delete(memberKey(networkID, memberID))
 
-	// Cascade-delete all nodes that belong to this member.
-	if b.nodes[networkID] != nil {
-		for _, node := range b.nodes[networkID][memberID] {
-			delete(b.arnToResource, node.Arn)
-		}
-
-		delete(b.nodes[networkID], memberID)
-	}
+	b.deleteNodesForMemberLocked(networkID, memberID)
 
 	return nil
+}
+
+// deleteNodesForMemberLocked cascade-deletes every node belonging to
+// (networkID, memberID) from both the nodes table and the ARN index. The
+// index's result slice is cloned before the delete loop since Table.Delete
+// mutates the very index group being ranged over. Must be called with mu
+// held.
+func (b *InMemoryBackend) deleteNodesForMemberLocked(networkID, memberID string) {
+	nodes := slices.Clone(b.nodesByMember.Get(nodeMemberKey(networkID, memberID)))
+
+	for _, node := range nodes {
+		delete(b.arnToResource, node.Arn)
+		b.nodes.Delete(nodeKey(node.NetworkID, node.MemberID, node.ID))
+	}
 }
 
 // ListTagsForResource returns tags for a resource identified by ARN.
@@ -605,14 +612,16 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.networks = make(map[string]*Network)
-	b.members = make(map[string]map[string]*Member)
-	b.nodes = make(map[string]map[string]map[string]*Node)
+	b.resetLocked()
+}
+
+// resetLocked clears every registered table, the un-registered
+// proposalVotes table, and the ARN index, returning the backend to the
+// state NewInMemoryBackend leaves it in. Must be called with mu held.
+func (b *InMemoryBackend) resetLocked() {
+	b.registry.ResetAll()
+	b.proposalVotes.Reset()
 	b.arnToResource = make(map[string]any)
-	b.accessors = make(map[string]*Accessor)
-	b.proposals = make(map[string]map[string]*Proposal)
-	b.proposalVotes = make(map[string][]*ProposalVote)
-	b.invitations = make(map[string]*Invitation)
 }
 
 // cloneNode returns a deep copy of n with the Tags map cloned.
@@ -631,15 +640,11 @@ func (b *InMemoryBackend) CreateNode(
 	b.mu.Lock("CreateNode")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	if _, ok := b.members[networkID]; !ok {
-		return nil, ErrMemberNotFound
-	}
-
-	if _, ok := b.members[networkID][memberID]; !ok {
+	if _, exists := b.members.Get(memberKey(networkID, memberID)); !exists {
 		return nil, ErrMemberNotFound
 	}
 
@@ -661,15 +666,7 @@ func (b *InMemoryBackend) CreateNode(
 		Tags:             t,
 	}
 
-	if b.nodes[networkID] == nil {
-		b.nodes[networkID] = make(map[string]map[string]*Node)
-	}
-
-	if b.nodes[networkID][memberID] == nil {
-		b.nodes[networkID][memberID] = make(map[string]*Node)
-	}
-
-	b.nodes[networkID][memberID][nodeID] = node
+	b.nodes.Put(node)
 	b.arnToResource[node.Arn] = node
 
 	return cloneNode(node), nil
@@ -680,16 +677,12 @@ func (b *InMemoryBackend) GetNode(networkID, memberID, nodeID string) (*Node, er
 	b.mu.RLock("GetNode")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
-		return nil, ErrNodeNotFound
-	}
-
-	node, ok := b.nodes[networkID][memberID][nodeID]
-	if !ok {
+	node, exists := b.nodes.Get(nodeKey(networkID, memberID, nodeID))
+	if !exists {
 		return nil, ErrNodeNotFound
 	}
 
@@ -701,17 +694,14 @@ func (b *InMemoryBackend) ListNodes(networkID, memberID string, filter ListNodes
 	b.mu.RLock("ListNodes")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
-		return []*Node{}, nil
-	}
+	nodes := b.nodesByMember.Get(nodeMemberKey(networkID, memberID))
+	all := make([]*Node, 0, len(nodes))
 
-	all := make([]*Node, 0, len(b.nodes[networkID][memberID]))
-
-	for _, n := range b.nodes[networkID][memberID] {
+	for _, n := range nodes {
 		if filter.Status != "" && n.Status != filter.Status {
 			continue
 		}
@@ -731,21 +721,17 @@ func (b *InMemoryBackend) DeleteNode(networkID, memberID, nodeID string) error {
 	b.mu.Lock("DeleteNode")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return ErrNetworkNotFound
 	}
 
-	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
-		return ErrNodeNotFound
-	}
-
-	node, ok := b.nodes[networkID][memberID][nodeID]
-	if !ok {
+	node, exists := b.nodes.Get(nodeKey(networkID, memberID, nodeID))
+	if !exists {
 		return ErrNodeNotFound
 	}
 
 	delete(b.arnToResource, node.Arn)
-	delete(b.nodes[networkID][memberID], nodeID)
+	b.nodes.Delete(nodeKey(networkID, memberID, nodeID))
 
 	return nil
 }
@@ -789,7 +775,7 @@ func (b *InMemoryBackend) CreateAccessor(
 		Tags:         t,
 	}
 
-	b.accessors[accessorID] = accessor
+	b.accessors.Put(accessor)
 	b.arnToResource[accessor.Arn] = accessor
 
 	return cloneAccessor(accessor), nil
@@ -800,8 +786,8 @@ func (b *InMemoryBackend) GetAccessor(accessorID string) (*Accessor, error) {
 	b.mu.RLock("GetAccessor")
 	defer b.mu.RUnlock()
 
-	accessor, ok := b.accessors[accessorID]
-	if !ok {
+	accessor, exists := b.accessors.Get(accessorID)
+	if !exists {
 		return nil, ErrAccessorNotFound
 	}
 
@@ -813,13 +799,13 @@ func (b *InMemoryBackend) DeleteAccessor(accessorID string) error {
 	b.mu.Lock("DeleteAccessor")
 	defer b.mu.Unlock()
 
-	accessor, ok := b.accessors[accessorID]
-	if !ok {
+	accessor, exists := b.accessors.Get(accessorID)
+	if !exists {
 		return ErrAccessorNotFound
 	}
 
 	delete(b.arnToResource, accessor.Arn)
-	delete(b.accessors, accessorID)
+	b.accessors.Delete(accessorID)
 
 	return nil
 }
@@ -829,9 +815,9 @@ func (b *InMemoryBackend) ListAccessors(filter ListAccessorsFilter) ([]*Accessor
 	b.mu.RLock("ListAccessors")
 	defer b.mu.RUnlock()
 
-	all := make([]*Accessor, 0, len(b.accessors))
+	all := make([]*Accessor, 0, b.accessors.Len())
 
-	for _, a := range b.accessors {
+	for _, a := range b.accessors.All() {
 		if filter.NetworkType != "" && a.NetworkType != filter.NetworkType {
 			continue
 		}
@@ -885,17 +871,12 @@ func (b *InMemoryBackend) CreateProposal(
 	b.mu.Lock("CreateProposal")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	members, ok := b.members[networkID]
-	if !ok {
-		return nil, ErrMemberNotFound
-	}
-
-	member, ok := members[memberID]
-	if !ok {
+	member, exists := b.members.Get(memberKey(networkID, memberID))
+	if !exists {
 		return nil, ErrMemberNotFound
 	}
 
@@ -906,7 +887,7 @@ func (b *InMemoryBackend) CreateProposal(
 	t := make(map[string]string)
 	maps.Copy(t, tags)
 
-	memberCount := len(members)
+	memberCount := len(b.membersByNetwork.Get(networkID))
 	outstandingVotes := memberCount
 
 	proposal := &Proposal{
@@ -924,12 +905,7 @@ func (b *InMemoryBackend) CreateProposal(
 		OutstandingVoteCount: outstandingVotes,
 	}
 
-	if b.proposals[networkID] == nil {
-		b.proposals[networkID] = make(map[string]*Proposal)
-	}
-
-	b.proposals[networkID][proposalID] = proposal
-	b.proposalVotes[proposalID] = []*ProposalVote{}
+	b.proposals.Put(proposal)
 
 	return cloneProposal(proposal), nil
 }
@@ -939,17 +915,12 @@ func (b *InMemoryBackend) GetProposal(networkID, proposalID string) (*Proposal, 
 	b.mu.RLock("GetProposal")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	proposals, ok := b.proposals[networkID]
-	if !ok {
-		return nil, ErrProposalNotFound
-	}
-
-	proposal, ok := proposals[proposalID]
-	if !ok {
+	proposal, exists := b.proposals.Get(proposalKey(networkID, proposalID))
+	if !exists {
 		return nil, ErrProposalNotFound
 	}
 
@@ -962,11 +933,11 @@ func (b *InMemoryBackend) ListProposals(networkID, statusFilter string) ([]*Prop
 	b.mu.RLock("ListProposals")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	proposals := b.proposals[networkID]
+	proposals := b.proposalsByNetwork.Get(networkID)
 	all := make([]*Proposal, 0, len(proposals))
 
 	for _, p := range proposals {
@@ -989,20 +960,15 @@ func (b *InMemoryBackend) ListProposalVotes(networkID, proposalID string) ([]*Pr
 	b.mu.RLock("ListProposalVotes")
 	defer b.mu.RUnlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	proposals, found := b.proposals[networkID]
-	if !found {
+	if _, exists := b.proposals.Get(proposalKey(networkID, proposalID)); !exists {
 		return nil, ErrProposalNotFound
 	}
 
-	if _, found = proposals[proposalID]; !found {
-		return nil, ErrProposalNotFound
-	}
-
-	votes := b.proposalVotes[proposalID]
+	votes := b.proposalVotesByProposal.Get(proposalID)
 	result := make([]*ProposalVote, len(votes))
 
 	for i, v := range votes {
@@ -1030,9 +996,9 @@ func (b *InMemoryBackend) ListInvitations() ([]*Invitation, error) {
 	b.mu.RLock("ListInvitations")
 	defer b.mu.RUnlock()
 
-	all := make([]*Invitation, 0, len(b.invitations))
+	all := make([]*Invitation, 0, b.invitations.Len())
 
-	for _, inv := range b.invitations {
+	for _, inv := range b.invitations.All() {
 		all = append(all, cloneInvitation(inv))
 	}
 
@@ -1048,8 +1014,8 @@ func (b *InMemoryBackend) RejectInvitation(invitationID string) error {
 	b.mu.Lock("RejectInvitation")
 	defer b.mu.Unlock()
 
-	inv, ok := b.invitations[invitationID]
-	if !ok {
+	inv, exists := b.invitations.Get(invitationID)
+	if !exists {
 		return ErrInvitationNotFound
 	}
 
@@ -1068,7 +1034,7 @@ func (b *InMemoryBackend) AddInvitationInternal(region, accountID, networkID, ne
 
 	var netSummary *InvitationNetworkSummary
 
-	if n, ok := b.networks[networkID]; ok {
+	if n, exists := b.networks.Get(networkID); exists {
 		netSummary = &InvitationNetworkSummary{
 			ID:               n.ID,
 			Arn:              n.Arn,
@@ -1096,7 +1062,7 @@ func (b *InMemoryBackend) AddInvitationInternal(region, accountID, networkID, ne
 		NetworkSummary: netSummary,
 	}
 
-	b.invitations[invitationID] = inv
+	b.invitations.Put(inv)
 
 	return cloneInvitation(inv)
 }
@@ -1120,8 +1086,7 @@ func (b *InMemoryBackend) AddNetworkInternal(region, accountID, name string) *Ne
 		Tags:             make(map[string]string),
 	}
 
-	b.networks[networkID] = network
-	b.members[networkID] = make(map[string]*Member)
+	b.networks.Put(network)
 	b.arnToResource[network.Arn] = network
 
 	return cloneNetwork(network)
@@ -1147,11 +1112,7 @@ func (b *InMemoryBackend) AddMemberInternal(region, accountID, networkID, name s
 		IsOwned:      true,
 	}
 
-	if b.members[networkID] == nil {
-		b.members[networkID] = make(map[string]*Member)
-	}
-
-	b.members[networkID][memberID] = member
+	b.members.Put(member)
 	b.arnToResource[member.Arn] = member
 
 	return cloneMember(member)
@@ -1177,15 +1138,7 @@ func (b *InMemoryBackend) AddNodeInternal(region, accountID, networkID, memberID
 		Tags:         make(map[string]string),
 	}
 
-	if b.nodes[networkID] == nil {
-		b.nodes[networkID] = make(map[string]map[string]*Node)
-	}
-
-	if b.nodes[networkID][memberID] == nil {
-		b.nodes[networkID][memberID] = make(map[string]*Node)
-	}
-
-	b.nodes[networkID][memberID][nodeID] = node
+	b.nodes.Put(node)
 	b.arnToResource[node.Arn] = node
 
 	return cloneNode(node)
@@ -1211,7 +1164,7 @@ func (b *InMemoryBackend) AddAccessorInternal(region, accountID, accessorType, n
 		Tags:         make(map[string]string),
 	}
 
-	b.accessors[accessorID] = accessor
+	b.accessors.Put(accessor)
 	b.arnToResource[accessor.Arn] = accessor
 
 	return cloneAccessor(accessor)
@@ -1229,14 +1182,10 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 
 	var memberName string
 
-	var memberCount int
+	memberCount := len(b.membersByNetwork.Get(networkID))
 
-	if members, ok := b.members[networkID]; ok {
-		memberCount = len(members)
-
-		if m, exists := members[memberID]; exists {
-			memberName = m.Name
-		}
+	if m, exists := b.members.Get(memberKey(networkID, memberID)); exists {
+		memberName = m.Name
 	}
 
 	proposal := &Proposal{
@@ -1253,12 +1202,7 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 		OutstandingVoteCount: memberCount,
 	}
 
-	if b.proposals[networkID] == nil {
-		b.proposals[networkID] = make(map[string]*Proposal)
-	}
-
-	b.proposals[networkID][proposalID] = proposal
-	b.proposalVotes[proposalID] = []*ProposalVote{}
+	b.proposals.Put(proposal)
 
 	return cloneProposal(proposal)
 }
@@ -1271,16 +1215,14 @@ func (b *InMemoryBackend) UpdateMember(
 	b.mu.Lock("UpdateMember")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	members, ok := b.members[networkID]
-	if !ok || members[memberID] == nil {
+	m, exists := b.members.Get(memberKey(networkID, memberID))
+	if !exists {
 		return nil, ErrMemberNotFound
 	}
-
-	m := members[memberID]
 
 	if logConfig != nil {
 		m.LogPublishingConfiguration = cloneMemberLogConfig(logConfig)
@@ -1335,16 +1277,12 @@ func (b *InMemoryBackend) UpdateNode(
 	b.mu.Lock("UpdateNode")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
 	}
 
-	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
-		return nil, ErrNodeNotFound
-	}
-
-	node, ok := b.nodes[networkID][memberID][nodeID]
-	if !ok {
+	node, exists := b.nodes.Get(nodeKey(networkID, memberID, nodeID))
+	if !exists {
 		return nil, ErrNodeNotFound
 	}
 
@@ -1385,17 +1323,12 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	b.mu.Lock("VoteOnProposal")
 	defer b.mu.Unlock()
 
-	if _, exists := b.networks[networkID]; !exists {
+	if _, exists := b.networks.Get(networkID); !exists {
 		return ErrNetworkNotFound
 	}
 
-	proposals, found := b.proposals[networkID]
-	if !found {
-		return ErrProposalNotFound
-	}
-
-	proposal, found := proposals[proposalID]
-	if !found {
+	proposal, exists := b.proposals.Get(proposalKey(networkID, proposalID))
+	if !exists {
 		return ErrProposalNotFound
 	}
 
@@ -1403,7 +1336,8 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 		return ErrValidation
 	}
 
-	if _, ok := b.members[networkID][memberID]; !ok {
+	member, exists := b.members.Get(memberKey(networkID, memberID))
+	if !exists {
 		return ErrMemberNotFound
 	}
 
@@ -1412,17 +1346,18 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	}
 
 	// Check for duplicate vote.
-	for _, v := range b.proposalVotes[proposalID] {
+	for _, v := range b.proposalVotesByProposal.Get(proposalID) {
 		if v.MemberID == memberID {
 			return ErrValidation
 		}
 	}
 
-	memberName := b.members[networkID][memberID].Name
-	b.proposalVotes[proposalID] = append(b.proposalVotes[proposalID], &ProposalVote{
+	memberName := member.Name
+	b.proposalVotes.Put(&ProposalVote{
 		MemberID:   memberID,
 		MemberName: memberName,
 		Vote:       vote,
+		proposalID: proposalID,
 	})
 
 	if vote == "YES" {
@@ -1432,11 +1367,11 @@ func (b *InMemoryBackend) VoteOnProposal(networkID, proposalID, memberID, vote s
 	}
 
 	// Recalculate outstanding votes.
-	totalMembers := len(b.members[networkID])
+	totalMembers := len(b.membersByNetwork.Get(networkID))
 	proposal.OutstandingVoteCount = totalMembers - proposal.YesVoteCount - proposal.NoVoteCount
 
 	// Apply threshold policy if network has one.
-	network := b.networks[networkID]
+	network, _ := b.networks.Get(networkID)
 	b.applyVoteThresholdLocked(network, proposal, totalMembers)
 
 	return nil
@@ -1547,25 +1482,17 @@ func (b *InMemoryBackend) executeProposalActionsLocked(network *Network, proposa
 		}
 
 		_ = accountID
-		b.invitations[invitationID] = invitation
+		b.invitations.Put(invitation)
 	}
 
 	for _, rem := range proposal.Actions.Removals {
 		memberID := rem.MemberID
 
-		if members, ok := b.members[network.ID]; ok {
-			if m, exists := members[memberID]; exists {
-				delete(b.arnToResource, m.Arn)
-				delete(members, memberID)
+		if m, exists := b.members.Get(memberKey(network.ID, memberID)); exists {
+			delete(b.arnToResource, m.Arn)
+			b.members.Delete(memberKey(network.ID, memberID))
 
-				if b.nodes[network.ID] != nil {
-					for _, node := range b.nodes[network.ID][memberID] {
-						delete(b.arnToResource, node.Arn)
-					}
-
-					delete(b.nodes[network.ID], memberID)
-				}
-			}
+			b.deleteNodesForMemberLocked(network.ID, memberID)
 		}
 	}
 }

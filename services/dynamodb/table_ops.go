@@ -168,11 +168,7 @@ func (db *InMemoryDB) CreateTable(
 	// Minimal critical section: check for duplicate, then insert into the shared maps.
 	db.mu.Lock("CreateTable")
 
-	if _, exists := db.Tables[region]; !exists {
-		db.Tables[region] = make(map[string]*Table)
-	}
-
-	if _, exists := db.Tables[region][tableName]; exists {
+	if _, exists := db.tables.Get(tableKey(region, tableName)); exists {
 		db.mu.Unlock()
 		// Release resources we allocated before discovering the duplicate.
 		stopTableTimers(newTable)
@@ -181,11 +177,11 @@ func (db *InMemoryDB) CreateTable(
 		return nil, NewResourceInUseException("table already exists: " + tableName)
 	}
 
-	db.Tables[region][tableName] = newTable
+	db.tables.Put(newTable)
 	newTable.kinesisEmitter = db.kinesisEmitter
 
 	if newTable.StreamARN != "" {
-		db.streamARNIndex[newTable.StreamARN] = newTable
+		db.streamARNIndex.Put(newTable)
 	}
 
 	db.mu.Unlock()
@@ -390,12 +386,7 @@ func (db *InMemoryDB) DeleteTable(
 	db.mu.Lock("DeleteTable")
 	defer db.mu.Unlock()
 
-	regionTables, regionExists := db.Tables[region]
-	if !regionExists {
-		return nil, NewResourceNotFoundException("table not found: " + tableName)
-	}
-
-	table, tableExists := regionTables[tableName]
+	table, tableExists := db.tables.Get(tableKey(region, tableName))
 	if !tableExists {
 		return nil, NewResourceNotFoundException("table not found: " + tableName)
 	}
@@ -417,11 +408,8 @@ func (db *InMemoryDB) DeleteTable(
 	// this is benign; the janitor will clean it up regardless.
 	stopTableTimers(table)
 
-	delete(db.Tables[region], tableName)
-	if _, deletingExists := db.deletingTables[region]; !deletingExists {
-		db.deletingTables[region] = make(map[string]*Table)
-	}
-	db.deletingTables[region][tableName] = table
+	db.tables.Delete(tableKey(region, tableName))
+	db.deletingTables.Put(table)
 	db.throttler.DeleteTable(throttleKey(region, tableName))
 
 	// Remove the deleted table's region from its global table's ReplicationGroup.
@@ -432,7 +420,7 @@ func (db *InMemoryDB) DeleteTable(
 
 	// Remove from stream ARN reverse index.
 	if table.StreamARN != "" {
-		delete(db.streamARNIndex, table.StreamARN)
+		db.streamARNIndex.Delete(table.StreamARN)
 	}
 
 	// Capture state for return
@@ -480,7 +468,7 @@ func (db *InMemoryDB) DeleteTable(
 // If no replicas remain after removal, the global table entry itself is deleted.
 // Must be called with db.mu held for writing.
 func (db *InMemoryDB) removeGlobalTableReplicaLocked(globalTableName, region string) {
-	gt, gtExists := db.GlobalTables[globalTableName]
+	gt, gtExists := db.globalTables.Get(globalTableName)
 	if !gtExists {
 		return
 	}
@@ -493,7 +481,7 @@ func (db *InMemoryDB) removeGlobalTableReplicaLocked(globalTableName, region str
 	}
 
 	if len(remaining) == 0 {
-		delete(db.GlobalTables, globalTableName)
+		db.globalTables.Delete(globalTableName)
 	} else {
 		gt.ReplicationGroup = remaining
 	}
@@ -561,13 +549,7 @@ func (db *InMemoryDB) DescribeTable(
 	region := getRegionFromContext(ctx, db)
 
 	db.mu.RLock("DescribeTable")
-	regionTables, exists := db.Tables[region]
-	if !exists {
-		db.mu.RUnlock()
-
-		return nil, NewResourceNotFoundException("table not found: " + tableName)
-	}
-	table, exists := regionTables[tableName]
+	table, exists := db.tables.Get(tableKey(region, tableName))
 	db.mu.RUnlock()
 
 	if !exists {
@@ -836,10 +818,10 @@ func (db *InMemoryDB) UpdateTable(
 	if oldStreamARN != newStreamARN {
 		db.mu.Lock("UpdateTable.streamARNIndex")
 		if oldStreamARN != "" {
-			delete(db.streamARNIndex, oldStreamARN)
+			db.streamARNIndex.Delete(oldStreamARN)
 		}
 		if newStreamARN != "" {
-			db.streamARNIndex[newStreamARN] = table
+			db.streamARNIndex.Put(table)
 		}
 		db.mu.Unlock()
 	}
@@ -1009,11 +991,7 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 			return
 		}
 
-		if _, ok := db.Tables[regionName]; !ok {
-			db.Tables[regionName] = make(map[string]*Table)
-		}
-
-		if _, exists := db.Tables[regionName][tableName]; !exists {
+		if existing, exists := db.tables.Get(tableKey(regionName, tableName)); !exists {
 			replica := cloneTableSchema(source, tableName, regionName, db.accountID)
 			replica.GlobalTableName = tableName
 
@@ -1031,9 +1009,9 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 				replica.rebuildIndexes()
 			}
 
-			db.Tables[regionName][tableName] = replica
+			db.tables.Put(replica)
 		} else {
-			db.Tables[regionName][tableName].GlobalTableName = tableName
+			existing.GlobalTableName = tableName
 		}
 
 	case update.Delete != nil:
@@ -1042,9 +1020,7 @@ func (db *InMemoryDB) applyOneReplicaTableEntry(
 			return
 		}
 
-		if regionTables, ok := db.Tables[regionName]; ok {
-			delete(regionTables, tableName)
-		}
+		db.tables.Delete(tableKey(regionName, tableName))
 	}
 }
 
@@ -1581,12 +1557,10 @@ func (db *InMemoryDB) ListTables(
 
 	// Snapshot table names under lock, then release immediately
 	db.mu.RLock("ListTables")
-	regionTables, exists := db.Tables[region]
+	regionTables := db.tablesByRegion.Get(region)
 	names := make([]string, 0, len(regionTables))
-	if exists {
-		for name := range regionTables {
-			names = append(names, name)
-		}
+	for _, t := range regionTables {
+		names = append(names, t.Name)
 	}
 	db.mu.RUnlock()
 

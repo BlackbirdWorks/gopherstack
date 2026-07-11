@@ -78,7 +78,7 @@ func (b *InMemoryBackend) stepTaskLifecycle(now time.Time) {
 			continue
 		}
 
-		task := b.lookupTaskLocked(lc.clusterName, arn)
+		task := b.lookupTaskLocked(arn)
 		if task == nil {
 			// Task was deleted (e.g. janitor swept it or cluster removed).
 			delete(b.lifecycle, arn)
@@ -100,14 +100,12 @@ func (b *InMemoryBackend) stepTaskLifecycle(now time.Time) {
 	}
 }
 
-// lookupTaskLocked returns the task pointer for a cluster/ARN pair, or nil.
-// Must be called with at least the read lock held.
-func (b *InMemoryBackend) lookupTaskLocked(clusterName, taskArn string) *Task {
-	if tasks, ok := b.tasks[clusterName]; ok {
-		return tasks[taskArn]
-	}
+// lookupTaskLocked returns the task pointer for taskArn, or nil. Must be
+// called with at least the read lock held.
+func (b *InMemoryBackend) lookupTaskLocked(taskArn string) *Task {
+	t, _ := b.tasks.Get(taskArn)
 
-	return nil
+	return t
 }
 
 // advanceLifecycleLocked moves a single task to its next observable state and
@@ -173,7 +171,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 	}
 
 	b.unindexTaskFromInstance(lc.clusterName, task.ContainerInstanceArn, task.TaskArn)
-	delete(b.taskProtections, task.TaskArn)
+	b.taskProtections.Delete(task.TaskArn)
 
 	return true
 }
@@ -192,7 +190,7 @@ func (b *InMemoryBackend) advanceStartLocked(task *Task, lc *taskLifecycle, now 
 		task.LastStatus = statusRunning
 		syncContainerStatuses(task, nil)
 
-		if c := b.clusters[lc.clusterName]; c != nil {
+		if c, _ := b.clusters.Get(lc.clusterName); c != nil {
 			c.PendingTasksCount--
 			c.RunningTasksCount++
 		}

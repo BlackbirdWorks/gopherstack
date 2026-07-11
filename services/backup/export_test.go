@@ -14,7 +14,7 @@ func (b *InMemoryBackend) JobCount() int {
 	b.mu.RLock("JobCount")
 	defer b.mu.RUnlock()
 
-	return len(b.jobs)
+	return b.jobs.Len()
 }
 
 // SetJobState overrides the state and completion time of a backup job.
@@ -23,7 +23,7 @@ func (b *InMemoryBackend) SetJobState(jobID, state string, completionTime *time.
 	b.mu.Lock("SetJobState")
 	defer b.mu.Unlock()
 
-	if j, ok := b.jobs[jobID]; ok {
+	if j, ok := b.jobs.Get(jobID); ok {
 		j.State = state
 		j.CompletionTime = completionTime
 	}

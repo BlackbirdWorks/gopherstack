@@ -6,7 +6,7 @@ func (b *InMemoryBackend) ThingCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.things)
+	return b.things.Len()
 }
 
 // PolicyCount returns the number of Policies in the backend.
@@ -15,7 +15,7 @@ func (b *InMemoryBackend) PolicyCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.policies)
+	return b.policies.Len()
 }
 
 // RuleCount returns the number of TopicRules in the backend.
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) RuleCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	return len(b.rules)
+	return b.rules.Len()
 }
 
 // CertTransferCount returns the number of certificate transfer records.
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) TopicRuleDestConfirmationToken(arn string) string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	dest, ok := b.topicRuleDestinations[arn]
+	dest, ok := b.topicRuleDestinations.Get(arn)
 	if !ok {
 		return ""
 	}

@@ -3,85 +3,50 @@ package s3
 import (
 	"context"
 	"encoding/json"
-	"maps"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// s3SnapshotVersion identifies the shape of backendSnapshot's Tables blob
+// (i.e. the set/shape of resources registered on b.registry -- see
+// NewInMemoryBackend in backend_memory.go). It must be bumped whenever a
+// change there would make an older snapshot unsafe to decode as the current
+// shape. Restore compares this against the persisted value and discards
+// (rather than attempts to partially decode) any mismatch -- see Restore
+// below. This mirrors services/ec2 (commit 12e611a4) and the services/sqs
+// pilot (commit 0f09d77c) that introduced the same pattern.
+//
+// Bumping to 1 here (from the previous versionless shape) is a deliberate,
+// one-time break: the old {"buckets": {region: {name: ...}}, "uploads": {bucket:
+// {uploadID: ...}}} shape (and its legacy flat-uploads variant, see the removed
+// migrateUploads) is superseded by the registry's {"tables": {"buckets": [...],
+// "uploads": [...]}} shape. Any snapshot written before this change decodes
+// with Version == 0, fails the guard below, and is discarded cleanly rather
+// than silently misinterpreted -- the same tradeoff services/ec2 and
+// services/sqs made for their own Phase 3.x conversions.
+const s3SnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the S3 backend.
+//
+// Tables holds one JSON-encoded array per registered table, produced by
+// [store.Registry.SnapshotAll] -- currently "buckets" ([]*StoredBucket) and
+// "uploads" ([]*StoredMultipartUpload). Both value types serialise directly
+// (no DTO layer): StoredBucket's and StoredMultipartUpload's only
+// non-serialisable fields (mu, and StoredMultipartUpload.closed) are
+// unexported, so encoding/json already skips them -- the same reason
+// services/ec2's conversion needed zero DTOs. Restore re-initialises those
+// skipped fields via reinitBucketMutexes/reinitUploadMutexes below, exactly as
+// the pre-conversion code did.
 type backendSnapshot struct {
-	Buckets       map[string]map[string]*StoredBucket          `json:"buckets"`
-	Tags          map[string][]types.Tag                       `json:"tags"`
-	Uploads       map[string]map[string]*StoredMultipartUpload `json:"uploads"`
-	DefaultRegion string                                       `json:"defaultRegion"`
-}
-
-// UnmarshalJSON implements [json.Unmarshaler] so that backendSnapshot can decode
-// both the current nested uploads format introduced in issue #620 and the
-// legacy flat format used by older snapshots:
-//
-//	legacy:  {"uploads": {"<uploadID>": {uploadID, bucket, key, …}}}
-//	current: {"uploads": {"<bucket>":   {"<uploadID>": {…}}}}
-//
-// Detection: if a top-level uploads value has a non-empty "uploadID" field it
-// is a StoredMultipartUpload (legacy); otherwise it is a bucket-level map.
-func (s *backendSnapshot) UnmarshalJSON(data []byte) error {
-	type snapshotRaw struct {
-		Buckets       map[string]map[string]*StoredBucket `json:"buckets"`
-		Tags          map[string][]types.Tag              `json:"tags"`
-		Uploads       map[string]json.RawMessage          `json:"uploads"`
-		DefaultRegion string                              `json:"defaultRegion"`
-	}
-
-	var raw snapshotRaw
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	s.Buckets = raw.Buckets
-	s.Tags = raw.Tags
-	s.DefaultRegion = raw.DefaultRegion
-	s.Uploads = migrateUploads(raw.Uploads)
-
-	return nil
-}
-
-// migrateUploads converts the raw uploads JSON into the nested
-// map[bucket]map[uploadID]*StoredMultipartUpload format, transparently
-// upgrading the legacy flat map[uploadID]*StoredMultipartUpload shape.
-func migrateUploads(raw map[string]json.RawMessage) map[string]map[string]*StoredMultipartUpload {
-	nested := make(map[string]map[string]*StoredMultipartUpload, len(raw))
-
-	for topKey, value := range raw {
-		// Probe: does this value look like a StoredMultipartUpload (legacy flat entry)?
-		var probe struct {
-			UploadID string `json:"uploadID"`
-		}
-
-		if err := json.Unmarshal(value, &probe); err == nil && probe.UploadID != "" {
-			// Legacy flat format — top key is the upload ID.
-			var upload StoredMultipartUpload
-			if unmarshalErr := json.Unmarshal(value, &upload); unmarshalErr == nil {
-				bkt := upload.Bucket
-				if nested[bkt] == nil {
-					nested[bkt] = make(map[string]*StoredMultipartUpload)
-				}
-				nested[bkt][upload.UploadID] = &upload
-			}
-
-			continue
-		}
-
-		// Current nested format — top key is the bucket name.
-		var bucketUploads map[string]*StoredMultipartUpload
-		if err := json.Unmarshal(value, &bucketUploads); err == nil {
-			nested[topKey] = bucketUploads
-		}
-	}
-
-	return nested
+	Tables        map[string]json.RawMessage `json:"tables"`
+	Tags          map[string][]types.Tag     `json:"tags"`
+	DefaultRegion string                     `json:"defaultRegion"`
+	Version       int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -90,10 +55,21 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "s3: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Buckets:       b.buckets,
+		Version:       s3SnapshotVersion,
+		Tables:        tables,
 		Tags:          b.tags,
-		Uploads:       b.uploads,
 		DefaultRegion: b.defaultRegion,
 	}
 
@@ -112,41 +88,48 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	normalizeSnapshot(&snap)
-	reinitBucketMutexes(snap.Buckets)
-	reinitUploadMutexes(snap.Uploads)
+	if snap.Version != s3SnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/ec2 and services/sqs pilots.
+		logger.Load(ctx).WarnContext(ctx,
+			"s3: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", s3SnapshotVersion)
 
-	b.buckets = snap.Buckets
-	b.tags = snap.Tags
-	b.uploads = snap.Uploads
+		b.registry.ResetAll()
+		b.tags = make(map[string][]types.Tag)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("s3: restore snapshot tables: %w", err)
+	}
+
+	reinitBucketMutexes(b.buckets.All())
+	reinitUploadMutexes(b.uploads.All())
+
+	if snap.Tags != nil {
+		b.tags = snap.Tags
+	} else {
+		b.tags = make(map[string][]types.Tag)
+	}
+
 	b.defaultRegion = snap.DefaultRegion
-	b.bucketIndex = buildBucketIndex(snap.Buckets)
 
 	return nil
 }
 
-// normalizeSnapshot ensures nil maps in the snapshot are replaced with empty maps.
-func normalizeSnapshot(snap *backendSnapshot) {
-	if snap.Buckets == nil {
-		snap.Buckets = make(map[string]map[string]*StoredBucket)
-	}
-
-	if snap.Tags == nil {
-		snap.Tags = make(map[string][]types.Tag)
-	}
-
-	if snap.Uploads == nil {
-		snap.Uploads = make(map[string]map[string]*StoredMultipartUpload)
-	}
-}
-
 // reinitBucketMutexes reinitialises per-bucket and per-object mutexes after
-// deserialisation, since [sync.Mutex] values cannot be serialised.
-func reinitBucketMutexes(buckets map[string]map[string]*StoredBucket) {
-	for _, regionBuckets := range buckets {
-		for _, bucket := range regionBuckets {
-			reinitSingleBucket(bucket)
-		}
+// deserialisation, since [lockmetrics.RWMutex] values (held via unexported
+// pointer fields, and therefore skipped by encoding/json) cannot be
+// serialised.
+func reinitBucketMutexes(buckets []*StoredBucket) {
+	for _, bucket := range buckets {
+		reinitSingleBucket(bucket)
 	}
 }
 
@@ -184,47 +167,12 @@ func reinitSingleBucket(bucket *StoredBucket) {
 }
 
 // reinitUploadMutexes reinitialises per-upload mutexes after deserialisation.
-func reinitUploadMutexes(uploads map[string]map[string]*StoredMultipartUpload) {
-	for _, bucketUploads := range uploads {
-		for _, u := range bucketUploads {
-			if u.mu == nil {
-				u.mu = lockmetrics.New("s3.upload")
-			}
+func reinitUploadMutexes(uploads []*StoredMultipartUpload) {
+	for _, u := range uploads {
+		if u.mu == nil {
+			u.mu = lockmetrics.New("s3.upload")
 		}
 	}
-}
-
-// buildBucketIndex constructs the name→region index from the bucket map.
-// Active (non-pending) buckets take precedence over pending-delete entries
-// to ensure getBucket resolves to the live bucket after a Restore. Pending
-// buckets are included only when no active entry exists for that name, so
-// that idempotent DeleteBucket calls still work after a Restore.
-func buildBucketIndex(buckets map[string]map[string]*StoredBucket) map[string]string {
-	index := make(map[string]string)
-
-	// Two-pass approach: first register active buckets, then fill in any
-	// pending-only names. This makes the result deterministic regardless of
-	// map iteration order.
-	pendingOnly := make(map[string]string)
-
-	for region, regionBuckets := range buckets {
-		for bucketName, bucket := range regionBuckets {
-			if bucket.DeletePending {
-				// Record as pending-only candidate; active entry wins.
-				if _, activeExists := index[bucketName]; !activeExists {
-					pendingOnly[bucketName] = region
-				}
-			} else {
-				index[bucketName] = region
-				// Remove any pending-only candidate now that active is known.
-				delete(pendingOnly, bucketName)
-			}
-		}
-	}
-
-	maps.Copy(index, pendingOnly)
-
-	return index
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

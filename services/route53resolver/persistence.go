@@ -3,38 +3,32 @@ package route53resolver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// Type aliases for long region-nested map types — keeps struct field lines within 120 chars.
-type (
-	frgAssocsByRegion = map[string]map[string]*FirewallRuleGroupAssociation
-	qlcAssocsByRegion = map[string]map[string]*ResolverQueryLogConfigAssociation
-)
+// route53resolverSnapshotVersion identifies the shape of backendSnapshot's
+// Tables blob (i.e. the set/shape of resources registered on b.registry --
+// see registerAllTables in store_setup.go). It must be bumped whenever a
+// change there would make an older snapshot unsafe to decode as the current
+// shape. Restore compares this against the persisted value and discards
+// (rather than attempts to partially decode) any mismatch -- see Restore
+// below. This mirrors the services/ec2 (commit 12e611a4) and services/sqs
+// (commit 0f09d77c) pilots.
+const route53resolverSnapshotVersion = 1
 
 type backendSnapshot struct {
-	Endpoints                     map[string]map[string]*ResolverEndpoint        `json:"endpoints"`
-	Rules                         map[string]map[string]*ResolverRule            `json:"rules"`
-	Tags                          map[string]map[string][]svcTags.KV             `json:"tags"`
-	FirewallRuleGroups            map[string]map[string]*FirewallRuleGroup       `json:"firewallRuleGroups"`
-	FirewallRuleGroupAssociations frgAssocsByRegion                              `json:"firewallRuleGroupAssociations"`
-	FirewallDomainLists           map[string]map[string]*FirewallDomainList      `json:"firewallDomainLists"`
-	FirewallRules                 map[string]map[string]*FirewallRule            `json:"firewallRules"`
-	OutpostResolvers              map[string]map[string]*OutpostResolver         `json:"outpostResolvers"`
-	QueryLogConfigs               map[string]map[string]*ResolverQueryLogConfig  `json:"queryLogConfigs"`
-	QueryLogConfigAssociations    qlcAssocsByRegion                              `json:"queryLogConfigAssociations"`
-	RuleAssociations              map[string]map[string]*ResolverRuleAssociation `json:"ruleAssociations"`
-	FirewallConfigs               map[string]map[string]*FirewallConfig          `json:"firewallConfigs"`
-	ResolverConfigs               map[string]map[string]*ResolverConfig          `json:"resolverConfigs"`
-	ResolverDnssecConfigs         map[string]map[string]*ResolverDnssecConfig    `json:"resolverDnssecConfigs"`
-	FirewallRuleGroupPolicies     map[string]map[string]string                   `json:"firewallRuleGroupPolicies"`
-	QueryLogConfigPolicies        map[string]map[string]string                   `json:"queryLogConfigPolicies"`
-	ResolverRulePolicies          map[string]map[string]string                   `json:"resolverRulePolicies"`
-	AccountID                     string                                         `json:"accountID"`
-	Region                        string                                         `json:"region"`
+	Tables                    map[string]json.RawMessage         `json:"tables"`
+	Tags                      map[string]map[string][]svcTags.KV `json:"tags"`
+	FirewallRuleGroupPolicies map[string]map[string]string       `json:"firewallRuleGroupPolicies"`
+	QueryLogConfigPolicies    map[string]map[string]string       `json:"queryLogConfigPolicies"`
+	ResolverRulePolicies      map[string]map[string]string       `json:"resolverRulePolicies"`
+	AccountID                 string                             `json:"accountID"`
+	Region                    string                             `json:"region"`
+	Version                   int                                `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -43,26 +37,26 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are plain JSON-friendly structs, so a marshal
+		// failure here would indicate a programming error rather than bad
+		// input data. Log and skip the snapshot rather than panic, matching
+		// the persistence.Persistable contract (nil is skipped by the Manager).
+		logger.Load(ctx).WarnContext(ctx, "route53resolver: snapshot table marshal failed", "error", err)
+
+		return nil
+	}
+
 	snap := backendSnapshot{
-		Endpoints:                     b.endpoints,
-		Rules:                         b.rules,
-		Tags:                          b.tags,
-		FirewallRuleGroups:            b.firewallRuleGroups,
-		FirewallRuleGroupAssociations: b.firewallRuleGroupAssociations,
-		FirewallDomainLists:           b.firewallDomainLists,
-		FirewallRules:                 b.firewallRules,
-		OutpostResolvers:              b.outpostResolvers,
-		QueryLogConfigs:               b.queryLogConfigs,
-		QueryLogConfigAssociations:    b.queryLogConfigAssociations,
-		RuleAssociations:              b.ruleAssociations,
-		FirewallConfigs:               b.firewallConfigs,
-		ResolverConfigs:               b.resolverConfigs,
-		ResolverDnssecConfigs:         b.resolverDnssecConfigs,
-		FirewallRuleGroupPolicies:     b.firewallRuleGroupPolicies,
-		QueryLogConfigPolicies:        b.queryLogConfigPolicies,
-		ResolverRulePolicies:          b.resolverRulePolicies,
-		AccountID:                     b.accountID,
-		Region:                        b.region,
+		Version:                   route53resolverSnapshotVersion,
+		Tables:                    tables,
+		Tags:                      b.tags,
+		FirewallRuleGroupPolicies: b.firewallRuleGroupPolicies,
+		QueryLogConfigPolicies:    b.queryLogConfigPolicies,
+		ResolverRulePolicies:      b.resolverRulePolicies,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -87,22 +81,33 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	if snap.Version != route53resolverSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption. Mirrors the services/ec2 and services/sqs pilots.
+		logger.Load(ctx).WarnContext(ctx,
+			"route53resolver: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", route53resolverSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.tags = make(map[string]map[string][]svcTags.KV)
+		b.firewallRuleGroupPolicies = make(map[string]map[string]string)
+		b.queryLogConfigPolicies = make(map[string]map[string]string)
+		b.resolverRulePolicies = make(map[string]map[string]string)
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("route53resolver: restore snapshot tables: %w", err)
+	}
+
 	ensureNonNilMaps(&snap)
 
-	b.endpoints = snap.Endpoints
-	b.rules = snap.Rules
 	b.tags = snap.Tags
-	b.firewallRuleGroups = snap.FirewallRuleGroups
-	b.firewallRuleGroupAssociations = snap.FirewallRuleGroupAssociations
-	b.firewallDomainLists = snap.FirewallDomainLists
-	b.firewallRules = snap.FirewallRules
-	b.outpostResolvers = snap.OutpostResolvers
-	b.queryLogConfigs = snap.QueryLogConfigs
-	b.queryLogConfigAssociations = snap.QueryLogConfigAssociations
-	b.ruleAssociations = snap.RuleAssociations
-	b.firewallConfigs = snap.FirewallConfigs
-	b.resolverConfigs = snap.ResolverConfigs
-	b.resolverDnssecConfigs = snap.ResolverDnssecConfigs
 	b.firewallRuleGroupPolicies = snap.FirewallRuleGroupPolicies
 	b.queryLogConfigPolicies = snap.QueryLogConfigPolicies
 	b.resolverRulePolicies = snap.ResolverRulePolicies
@@ -113,60 +118,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 }
 
 func ensureNonNilMaps(snap *backendSnapshot) {
-	ensureNonNilCoreMaps(snap)
-	ensureNonNilFirewallMaps(snap)
-	ensureNonNilPolicyMaps(snap)
-}
-
-func ensureNonNilCoreMaps(snap *backendSnapshot) {
-	if snap.Endpoints == nil {
-		snap.Endpoints = make(map[string]map[string]*ResolverEndpoint)
-	}
-	if snap.Rules == nil {
-		snap.Rules = make(map[string]map[string]*ResolverRule)
-	}
 	if snap.Tags == nil {
 		snap.Tags = make(map[string]map[string][]svcTags.KV)
 	}
-	if snap.RuleAssociations == nil {
-		snap.RuleAssociations = make(map[string]map[string]*ResolverRuleAssociation)
-	}
-	if snap.QueryLogConfigs == nil {
-		snap.QueryLogConfigs = make(map[string]map[string]*ResolverQueryLogConfig)
-	}
-	if snap.QueryLogConfigAssociations == nil {
-		snap.QueryLogConfigAssociations = make(map[string]map[string]*ResolverQueryLogConfigAssociation)
-	}
-}
-
-func ensureNonNilFirewallMaps(snap *backendSnapshot) {
-	if snap.FirewallRuleGroups == nil {
-		snap.FirewallRuleGroups = make(map[string]map[string]*FirewallRuleGroup)
-	}
-	if snap.FirewallRuleGroupAssociations == nil {
-		snap.FirewallRuleGroupAssociations = make(map[string]map[string]*FirewallRuleGroupAssociation)
-	}
-	if snap.FirewallDomainLists == nil {
-		snap.FirewallDomainLists = make(map[string]map[string]*FirewallDomainList)
-	}
-	if snap.FirewallRules == nil {
-		snap.FirewallRules = make(map[string]map[string]*FirewallRule)
-	}
-	if snap.OutpostResolvers == nil {
-		snap.OutpostResolvers = make(map[string]map[string]*OutpostResolver)
-	}
-	if snap.FirewallConfigs == nil {
-		snap.FirewallConfigs = make(map[string]map[string]*FirewallConfig)
-	}
-	if snap.ResolverConfigs == nil {
-		snap.ResolverConfigs = make(map[string]map[string]*ResolverConfig)
-	}
-	if snap.ResolverDnssecConfigs == nil {
-		snap.ResolverDnssecConfigs = make(map[string]map[string]*ResolverDnssecConfig)
-	}
-}
-
-func ensureNonNilPolicyMaps(snap *backendSnapshot) {
 	if snap.FirewallRuleGroupPolicies == nil {
 		snap.FirewallRuleGroupPolicies = make(map[string]map[string]string)
 	}

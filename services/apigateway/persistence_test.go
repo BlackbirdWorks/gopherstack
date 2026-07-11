@@ -71,6 +71,191 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_SnapshotRestore_FullState exercises every resource
+// family touched by the Phase 3.3 pkgs/store conversion, in particular the
+// ones whose composite key (restAPIID#childID / usagePlanID#keyID) depends on
+// a field tagged json:"-" on the live type (Resource, Deployment, Stage,
+// Authorizer, RequestValidator, DocumentationPart, DocumentationVersion,
+// Model, UsagePlanKey -- see store_setup.go and persistence.go). If the
+// DTO-registry snapshot/restore path in persistence.go ever dropped that
+// field, every one of these lookups would fail post-restore even though the
+// resource "exists" in the restored table under the wrong (unprefixed) key.
+// This is a single sequential lifecycle (create everything once, snapshot,
+// restore, verify everything), not a table of independent cases, so it does
+// not need t.Run subtests.
+func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+
+	api, err := b.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "full-api", Description: "full"})
+	require.NoError(t, err)
+
+	resource, err := b.CreateResource(api.ID, api.RootResourceID, "widgets")
+	require.NoError(t, err)
+
+	deployment, err := b.CreateDeployment(api.ID, "prod", "initial")
+	require.NoError(t, err)
+
+	stage, err := b.GetStage(api.ID, "prod")
+	require.NoError(t, err)
+	assert.Equal(t, deployment.ID, stage.DeploymentID)
+
+	authorizer, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+		Name: "auth1", Type: "TOKEN", AuthorizerURI: "arn:aws:lambda:us-east-1:1:function:f/invocations",
+	})
+	require.NoError(t, err)
+
+	validator, err := b.CreateRequestValidator(api.ID, apigateway.CreateRequestValidatorInput{
+		Name: "validator1", ValidateRequestBody: true,
+	})
+	require.NoError(t, err)
+
+	docPart, err := b.CreateDocumentationPart(apigateway.CreateDocumentationPartInput{
+		RestAPIID:  api.ID,
+		Location:   apigateway.DocumentationLocation{Type: "API"},
+		Properties: `{"description":"d"}`,
+	})
+	require.NoError(t, err)
+
+	docVersion, err := b.CreateDocumentationVersion(apigateway.CreateDocumentationVersionInput{
+		RestAPIID: api.ID, Version: "v1",
+	})
+	require.NoError(t, err)
+
+	model, err := b.CreateModel(apigateway.CreateModelInput{
+		RestAPIID: api.ID, Name: "Widget", ContentType: "application/json", Schema: `{"type":"object"}`,
+	})
+	require.NoError(t, err)
+
+	apiKey, err := b.CreateAPIKey(apigateway.CreateAPIKeyInput{Name: "key1", Enabled: true})
+	require.NoError(t, err)
+
+	domainName, err := b.CreateDomainName(apigateway.CreateDomainNameInput{DomainName: "api.example.com"})
+	require.NoError(t, err)
+
+	basePathMapping, err := b.CreateBasePathMapping(apigateway.CreateBasePathMappingInput{
+		DomainName: domainName.DomainNameValue, BasePath: "v1", RestAPIID: api.ID, Stage: "prod",
+	})
+	require.NoError(t, err)
+
+	domainAssoc, err := b.CreateDomainNameAccessAssociation(apigateway.CreateDomainNameAccessAssociationInput{
+		DomainNameARN:               "arn:aws:apigateway:us-east-1::/domainnames/api.example.com",
+		AccessAssociationSource:     "vpce-123",
+		AccessAssociationSourceType: "VPCE",
+	})
+	require.NoError(t, err)
+
+	usagePlan, err := b.CreateUsagePlan(apigateway.CreateUsagePlanInput{Name: "plan1"})
+	require.NoError(t, err)
+
+	usagePlanKey, err := b.CreateUsagePlanKey(apigateway.CreateUsagePlanKeyInput{
+		UsagePlanID: usagePlan.ID, KeyID: apiKey.ID, KeyType: "API_KEY",
+	})
+	require.NoError(t, err)
+
+	gatewayResponse, err := b.PutGatewayResponse(apigateway.PutGatewayResponseInput{
+		RestAPIID: api.ID, ResponseType: "UNAUTHORIZED", StatusCode: "401",
+	})
+	require.NoError(t, err)
+
+	clientCert, err := b.GenerateClientCertificate(apigateway.GenerateClientCertificateInput{Description: "cert1"})
+	require.NoError(t, err)
+
+	vpcLink, err := b.CreateVpcLink(apigateway.CreateVpcLinkInput{Name: "link1"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := apigateway.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	gotAPI, err := fresh.GetRestAPI(api.ID)
+	require.NoError(t, err)
+	assert.Equal(t, api.Name, gotAPI.Name)
+
+	gotResource, err := fresh.GetResource(api.ID, resource.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "widgets", gotResource.PathPart)
+
+	gotDeployment, err := fresh.GetDeployment(api.ID, deployment.ID)
+	require.NoError(t, err)
+	assert.Equal(t, deployment.Description, gotDeployment.Description)
+
+	gotStage, err := fresh.GetStage(api.ID, "prod")
+	require.NoError(t, err)
+	assert.Equal(t, stage.DeploymentID, gotStage.DeploymentID)
+
+	gotAuthorizer, err := fresh.GetAuthorizer(api.ID, authorizer.ID)
+	require.NoError(t, err)
+	assert.Equal(t, authorizer.Name, gotAuthorizer.Name)
+
+	gotValidator, err := fresh.GetRequestValidator(api.ID, validator.ID)
+	require.NoError(t, err)
+	assert.Equal(t, validator.Name, gotValidator.Name)
+
+	gotDocPart, err := fresh.GetDocumentationPart(api.ID, docPart.ID)
+	require.NoError(t, err)
+	assert.Equal(t, docPart.Properties, gotDocPart.Properties)
+
+	gotDocVersion, err := fresh.GetDocumentationVersion(api.ID, docVersion.Version)
+	require.NoError(t, err)
+	assert.Equal(t, docVersion.Version, gotDocVersion.Version)
+
+	gotModel, err := fresh.GetModel(api.ID, model.Name)
+	require.NoError(t, err)
+	assert.Equal(t, model.Schema, gotModel.Schema)
+
+	gotAPIKey, err := fresh.GetAPIKey(apiKey.ID)
+	require.NoError(t, err)
+	assert.Equal(t, apiKey.Value, gotAPIKey.Value)
+
+	// apiKeysByValue is a pre-existing gap carried over unchanged from before the
+	// Phase 3.3 pkgs/store conversion: it was never part of the old backendSnapshot
+	// either (compare git show HEAD:services/apigateway/persistence.go), so it was
+	// already not rebuilt across a Restore. GetAPIKeyByValue is expected to miss
+	// here -- this documents the existing limitation rather than "fixing" it as
+	// part of a storage-layer-only swap.
+	_, err = fresh.GetAPIKeyByValue(apiKey.Value)
+	require.Error(t, err)
+
+	gotDomainName, err := fresh.GetDomainName(domainName.DomainNameValue)
+	require.NoError(t, err)
+	assert.Equal(t, domainName.DomainNameValue, gotDomainName.DomainNameValue)
+
+	gotBasePathMapping, err := fresh.GetBasePathMapping(basePathMapping.DomainName, basePathMapping.BasePath)
+	require.NoError(t, err)
+	assert.Equal(t, api.ID, gotBasePathMapping.RestAPIID)
+
+	gotDomainAssocs, err := fresh.GetDomainNameAccessAssociations("SELF")
+	require.NoError(t, err)
+	if assert.Len(t, gotDomainAssocs, 1) {
+		assert.Equal(t, domainAssoc.DomainNameAccessAssociationARN, gotDomainAssocs[0].DomainNameAccessAssociationARN)
+	}
+
+	gotUsagePlan, err := fresh.GetUsagePlan(usagePlan.ID)
+	require.NoError(t, err)
+	assert.Equal(t, usagePlan.Name, gotUsagePlan.Name)
+
+	gotUsagePlanKey, err := fresh.GetUsagePlanKey(usagePlan.ID, usagePlanKey.ID)
+	require.NoError(t, err)
+	assert.Equal(t, usagePlanKey.Value, gotUsagePlanKey.Value)
+
+	gotGatewayResponse, err := fresh.GetGatewayResponse(api.ID, "UNAUTHORIZED")
+	require.NoError(t, err)
+	assert.Equal(t, gatewayResponse.StatusCode, gotGatewayResponse.StatusCode)
+	assert.False(t, gotGatewayResponse.DefaultResponse)
+
+	gotClientCert, err := fresh.GetClientCertificate(clientCert.ClientCertificateID)
+	require.NoError(t, err)
+	assert.Equal(t, clientCert.Description, gotClientCert.Description)
+
+	gotVpcLink, err := fresh.GetVpcLink(vpcLink.ID)
+	require.NoError(t, err)
+	assert.Equal(t, vpcLink.Name, gotVpcLink.Name)
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 

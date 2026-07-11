@@ -2,106 +2,39 @@ package codebuild
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// codebuildSnapshotVersion identifies the shape of [backendSnapshot]. It must
+// be bumped whenever a change to backendSnapshot (or a value type held by one
+// of the registered tables) would make an older snapshot unsafe to decode as
+// the current shape. Restore compares this against the persisted value and
+// discards (ResetAll, not a partial decode) any mismatch -- see Restore. The
+// pre-Phase-3.3 snapshot format had no version field at all, so an old
+// snapshot decodes with Version == 0, which is guaranteed to mismatch
+// codebuildSnapshotVersion and is discarded the same way any other
+// incompatible snapshot is.
+const codebuildSnapshotVersion = 1
+
+// backendSnapshot is the top-level on-disk shape for the CodeBuild backend.
+//
+// Tables holds one JSON-encoded array per registered table name, produced by
+// b.registry.SnapshotAll() -- every store.Table-backed resource field is a
+// "clean" table (see store_setup.go's file doc comment), so no ephemeral DTO
+// registry is needed here. ResourcePolicies is the one map left un-converted
+// (its values are plain strings, not *T). Version guards against decoding a
+// snapshot from an incompatible (older or newer) build of this backend as
+// though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Projects            map[string]*Project            `json:"projects"`
-	Builds              map[string]*Build              `json:"builds"`
-	BuildsByProject     map[string]map[string]struct{} `json:"buildsByProject"`
-	ProjectARNIndex     map[string]string              `json:"projectArnIndex"`
-	BuildARNIndex       map[string]string              `json:"buildArnIndex"`
-	Fleets              map[string]*Fleet              `json:"fleets"`
-	FleetARNIndex       map[string]string              `json:"fleetArnIndex"`
-	ReportGroups        map[string]*ReportGroup        `json:"reportGroups"`
-	ReportGroupARNIndex map[string]string              `json:"reportGroupArnIndex"`
-	Reports             map[string]*Report             `json:"reports"`
-	BuildBatches        map[string]*BuildBatch         `json:"buildBatches"`
-	CommandExecutions   map[string]*CommandExecution   `json:"commandExecutions"`
-	Sandboxes           map[string]*Sandbox            `json:"sandboxes"`
-	Webhooks            map[string]*Webhook            `json:"webhooks"`
-	ResourcePolicies    map[string]string              `json:"resourcePolicies"`
-	SourceCredentials   map[string]*SourceCredentials  `json:"sourceCredentials"`
-	SandboxesByProject  map[string]map[string]struct{} `json:"sandboxesByProject"`
-	BatchesByProject    map[string]map[string]struct{} `json:"batchesByProject"`
-	CommandsBySandbox   map[string]map[string]struct{} `json:"commandsBySandbox"`
-	ReportsByGroup      map[string]map[string]struct{} `json:"reportsByGroup"`
-	AccountID           string                         `json:"accountID"`
-	Region              string                         `json:"region"`
-}
-
-// ensureNonNil replaces nil maps in the snapshot with empty initialized maps
-// so callers don't need to guard against nil after a Restore.
-func (s *backendSnapshot) ensureNonNil() {
-	s.ensureNonNilCore()
-	s.ensureNonNilExt()
-}
-
-func (s *backendSnapshot) ensureNonNilCore() {
-	if s.Projects == nil {
-		s.Projects = make(map[string]*Project)
-	}
-	if s.Builds == nil {
-		s.Builds = make(map[string]*Build)
-	}
-	if s.BuildsByProject == nil {
-		s.BuildsByProject = make(map[string]map[string]struct{})
-	}
-	if s.ProjectARNIndex == nil {
-		s.ProjectARNIndex = make(map[string]string)
-	}
-	if s.BuildARNIndex == nil {
-		s.BuildARNIndex = make(map[string]string)
-	}
-	if s.Fleets == nil {
-		s.Fleets = make(map[string]*Fleet)
-	}
-	if s.FleetARNIndex == nil {
-		s.FleetARNIndex = make(map[string]string)
-	}
-	if s.ReportGroups == nil {
-		s.ReportGroups = make(map[string]*ReportGroup)
-	}
-	if s.ReportGroupARNIndex == nil {
-		s.ReportGroupARNIndex = make(map[string]string)
-	}
-	if s.Reports == nil {
-		s.Reports = make(map[string]*Report)
-	}
-}
-
-func (s *backendSnapshot) ensureNonNilExt() {
-	if s.BuildBatches == nil {
-		s.BuildBatches = make(map[string]*BuildBatch)
-	}
-	if s.CommandExecutions == nil {
-		s.CommandExecutions = make(map[string]*CommandExecution)
-	}
-	if s.Sandboxes == nil {
-		s.Sandboxes = make(map[string]*Sandbox)
-	}
-	if s.Webhooks == nil {
-		s.Webhooks = make(map[string]*Webhook)
-	}
-	if s.ResourcePolicies == nil {
-		s.ResourcePolicies = make(map[string]string)
-	}
-	if s.SourceCredentials == nil {
-		s.SourceCredentials = make(map[string]*SourceCredentials)
-	}
-	if s.SandboxesByProject == nil {
-		s.SandboxesByProject = make(map[string]map[string]struct{})
-	}
-	if s.BatchesByProject == nil {
-		s.BatchesByProject = make(map[string]map[string]struct{})
-	}
-	if s.CommandsBySandbox == nil {
-		s.CommandsBySandbox = make(map[string]map[string]struct{})
-	}
-	if s.ReportsByGroup == nil {
-		s.ReportsByGroup = make(map[string]map[string]struct{})
-	}
+	Tables           map[string]json.RawMessage `json:"tables"`
+	ResourcePolicies map[string]string          `json:"resourcePolicies"`
+	AccountID        string                     `json:"accountID"`
+	Region           string                     `json:"region"`
+	Version          int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -109,32 +42,27 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{
-		Projects:            b.projects,
-		Builds:              b.builds,
-		BuildsByProject:     b.buildsByProject,
-		ProjectARNIndex:     b.projectARNIndex,
-		BuildARNIndex:       b.buildARNIndex,
-		Fleets:              b.fleets,
-		FleetARNIndex:       b.fleetARNIndex,
-		ReportGroups:        b.reportGroups,
-		ReportGroupARNIndex: b.reportGroupARNIndex,
-		Reports:             b.reports,
-		BuildBatches:        b.buildBatches,
-		CommandExecutions:   b.commandExecutions,
-		Sandboxes:           b.sandboxes,
-		Webhooks:            b.webhooks,
-		ResourcePolicies:    b.resourcePolicies,
-		SourceCredentials:   b.sourceCredentials,
-		SandboxesByProject:  b.sandboxesByProject,
-		BatchesByProject:    b.batchesByProject,
-		CommandsBySandbox:   b.commandsBySandbox,
-		ReportsByGroup:      b.reportsByGroup,
-		AccountID:           b.accountID,
-		Region:              b.region,
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		// The registered tables are all plain JSON-friendly structs, so a
+		// marshal failure here would indicate a programming error rather
+		// than bad input data. Log and skip the snapshot rather than panic,
+		// matching the persistence.Persistable contract (nil is skipped by
+		// the Manager).
+		logger.Load(ctx).WarnContext(ctx, "codebuild: snapshot table marshal failed", "error", err)
+
+		return nil
 	}
 
-	return persistence.MarshalSnapshot(ctx, "codebuild", snap)
+	snap := backendSnapshot{
+		Version:          codebuildSnapshotVersion,
+		Tables:           tables,
+		ResourcePolicies: b.resourcePolicies,
+		AccountID:        b.accountID,
+		Region:           b.region,
+	}
+
+	return persistence.MarshalSnapshot(ctx, "codebuild", &snap)
 }
 
 // Restore loads backend state from a JSON snapshot.
@@ -145,31 +73,37 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	snap.ensureNonNil()
-
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	b.projects = snap.Projects
-	b.builds = snap.Builds
-	b.buildsByProject = snap.BuildsByProject
-	b.projectARNIndex = snap.ProjectARNIndex
-	b.buildARNIndex = snap.BuildARNIndex
-	b.fleets = snap.Fleets
-	b.fleetARNIndex = snap.FleetARNIndex
-	b.reportGroups = snap.ReportGroups
-	b.reportGroupARNIndex = snap.ReportGroupARNIndex
-	b.reports = snap.Reports
-	b.buildBatches = snap.BuildBatches
-	b.commandExecutions = snap.CommandExecutions
-	b.sandboxes = snap.Sandboxes
-	b.webhooks = snap.Webhooks
+	if snap.Version != codebuildSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not data
+		// corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"codebuild: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", codebuildSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.resourcePolicies = make(map[string]string)
+		b.accountID = snap.AccountID
+		b.region = snap.Region
+
+		return nil
+	}
+
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("codebuild: restore snapshot tables: %w", err)
+	}
+
+	if snap.ResourcePolicies == nil {
+		snap.ResourcePolicies = make(map[string]string)
+	}
+
 	b.resourcePolicies = snap.ResourcePolicies
-	b.sourceCredentials = snap.SourceCredentials
-	b.sandboxesByProject = snap.SandboxesByProject
-	b.batchesByProject = snap.BatchesByProject
-	b.commandsBySandbox = snap.CommandsBySandbox
-	b.reportsByGroup = snap.ReportsByGroup
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

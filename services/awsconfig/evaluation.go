@@ -26,12 +26,19 @@ const (
 // resourceTypeS3Bucket is the AWS Config resource type for S3 buckets.
 const resourceTypeS3Bucket = "AWS::S3::Bucket"
 
-// StoredEvaluation is a single per-(rule, resource) evaluation outcome.
+// StoredEvaluation is a single per-(rule, resource) evaluation outcome. It is
+// purely internal bookkeeping -- never serialized directly to an AWS API
+// response (DetailedEvaluationResult is the wire type built from it) -- so
+// RuleName was added here (Phase 3.3 store.Table conversion) purely to give
+// the flattened ruleResourceEvals table a composite primary key
+// ("<ruleName>|<resourceType>\x1f<resourceID>", see store_setup.go's
+// storedEvaluationKeyFn) without affecting any wire shape.
 type StoredEvaluation struct {
 	ComplianceType     string
 	ResourceType       string
 	ResourceID         string
 	Annotation         string
+	RuleName           string
 	OrderingTimestamp  float64
 	ResultRecordedTime float64
 }
@@ -378,6 +385,27 @@ func (b *InMemoryBackend) evaluateRuleLocked(rule *ConfigRule, now float64) {
 	}
 }
 
+// distinctResourceTypesLocked returns every distinct ResourceType currently
+// present in b.resourceConfigs. store.Index has no key-enumeration method (by
+// design -- see pkgs/store/index.go), so unlike the old
+// map[string]map[string]*ResourceConfigItem this walks the flat table once
+// and dedupes via ResourceConfigItem's own ResourceType field instead of
+// ranging over outer map keys.
+func (b *InMemoryBackend) distinctResourceTypesLocked() []string {
+	seen := make(map[string]struct{})
+
+	for _, item := range b.resourceConfigs.All() {
+		seen[item.ResourceType] = struct{}{}
+	}
+
+	types := make([]string, 0, len(seen))
+	for rt := range seen {
+		types = append(types, rt)
+	}
+
+	return types
+}
+
 // evaluateManagedRuleLocked evaluates a modelable managed rule against stored
 // resource configuration items and records per-resource results.
 func (b *InMemoryBackend) evaluateManagedRuleLocked(rule *ConfigRule, evaluator managedRuleEvaluator, now float64) {
@@ -390,15 +418,20 @@ func (b *InMemoryBackend) evaluateManagedRuleLocked(rule *ConfigRule, evaluator 
 
 	if len(types) == 0 {
 		// Rule applies to all resource types (e.g. REQUIRED_TAGS without scope).
-		for rt := range b.resourceConfigs {
-			types = append(types, rt)
-		}
+		types = b.distinctResourceTypesLocked()
 	}
 
-	evals := make(map[string]*StoredEvaluation)
+	// The prior map assignment (b.ruleResourceEvals[rule.ConfigRuleName] =
+	// evals) atomically replaced the rule's whole evaluation set. The
+	// flattened table has no equivalent bulk-replace, so drop this rule's
+	// existing entries first (snapshot via slices.Clone since Delete mutates
+	// the very index slice AddIndex/Get returns) then insert the fresh set.
+	for _, old := range slices.Clone(b.ruleResourceEvalsByRule.Get(rule.ConfigRuleName)) {
+		b.ruleResourceEvals.Delete(storedEvaluationKeyFn(old))
+	}
 
 	for _, rt := range types {
-		for id, item := range b.resourceConfigs[rt] {
+		for _, item := range b.resourceConfigsByType.Get(rt) {
 			if !scopeMatches(rule.Scope, item) {
 				continue
 			}
@@ -408,30 +441,30 @@ func (b *InMemoryBackend) evaluateManagedRuleLocked(rule *ConfigRule, evaluator 
 				continue
 			}
 
-			evals[resourceEvalKey(rt, id)] = &StoredEvaluation{
+			b.ruleResourceEvals.Put(&StoredEvaluation{
 				ComplianceType:     compliance,
 				ResourceType:       rt,
-				ResourceID:         id,
+				ResourceID:         item.ResourceID,
 				Annotation:         annotation,
+				RuleName:           rule.ConfigRuleName,
 				OrderingTimestamp:  now,
 				ResultRecordedTime: now,
-			}
+			})
 		}
 	}
 
-	b.ruleResourceEvals[rule.ConfigRuleName] = evals
 	b.recomputeRollupLocked(rule.ConfigRuleName)
 }
 
 // recomputeRollupLocked recomputes the rule-level rollup compliance from the
 // stored per-resource evaluations.
 func (b *InMemoryBackend) recomputeRollupLocked(ruleName string) {
-	b.ruleEvaluations[ruleName] = rollupCompliance(b.ruleResourceEvals[ruleName])
+	b.ruleEvaluations[ruleName] = rollupCompliance(b.ruleResourceEvalsByRule.Get(ruleName))
 }
 
 // rollupCompliance derives a single rule-level compliance type from per-resource
 // evaluations: any NON_COMPLIANT wins, then COMPLIANT, else INSUFFICIENT_DATA.
-func rollupCompliance(evals map[string]*StoredEvaluation) string {
+func rollupCompliance(evals []*StoredEvaluation) string {
 	if len(evals) == 0 {
 		return complianceInsufficientData
 	}
@@ -460,20 +493,15 @@ func (b *InMemoryBackend) recordEvaluationLocked(
 	ruleName, resourceType, resourceID, compliance, annotation string,
 	now float64,
 ) {
-	evals := b.ruleResourceEvals[ruleName]
-	if evals == nil {
-		evals = make(map[string]*StoredEvaluation)
-		b.ruleResourceEvals[ruleName] = evals
-	}
-
-	evals[resourceEvalKey(resourceType, resourceID)] = &StoredEvaluation{
+	b.ruleResourceEvals.Put(&StoredEvaluation{
 		ComplianceType:     compliance,
 		ResourceType:       resourceType,
 		ResourceID:         resourceID,
 		Annotation:         annotation,
+		RuleName:           ruleName,
 		OrderingTimestamp:  now,
 		ResultRecordedTime: now,
-	}
+	})
 
 	b.recomputeRollupLocked(ruleName)
 }
@@ -493,16 +521,18 @@ func (b *InMemoryBackend) StartConfigRulesEvaluationFor(names []string) error {
 
 	targets := names
 	if len(targets) == 0 {
-		targets = make([]string, 0, len(b.configRules))
-		for name := range b.configRules {
-			targets = append(targets, name)
+		all := b.configRules.All()
+		targets = make([]string, 0, len(all))
+
+		for _, rule := range all {
+			targets = append(targets, rule.ConfigRuleName)
 		}
 	}
 
 	now := float64(time.Now().Unix())
 
 	for _, name := range targets {
-		rule, ok := b.configRules[name]
+		rule, ok := b.configRules.Get(name)
 		if !ok {
 			continue
 		}
@@ -513,11 +543,11 @@ func (b *InMemoryBackend) StartConfigRulesEvaluationFor(names []string) error {
 	return nil
 }
 
-// buildDetailedResults converts a per-resource evaluation map into sorted,
+// buildDetailedResults converts a per-resource evaluation slice into sorted,
 // compliance-filtered detailed evaluation results.
 func buildDetailedResults(
 	ruleName string,
-	evals map[string]*StoredEvaluation,
+	evals []*StoredEvaluation,
 	complianceTypes []string,
 ) []DetailedEvaluationResult {
 	out := make([]DetailedEvaluationResult, 0, len(evals))
@@ -566,7 +596,7 @@ func (b *InMemoryBackend) GetComplianceDetailsByConfigRule(
 	b.mu.RLock("GetComplianceDetailsByConfigRule")
 	defer b.mu.RUnlock()
 
-	return buildDetailedResults(ruleName, b.ruleResourceEvals[ruleName], complianceTypes)
+	return buildDetailedResults(ruleName, b.ruleResourceEvalsByRule.Get(ruleName), complianceTypes)
 }
 
 // GetComplianceDetailsByResource returns per-rule evaluation results recorded for
@@ -581,12 +611,7 @@ func (b *InMemoryBackend) GetComplianceDetailsByResource(
 	key := resourceEvalKey(resourceType, resourceID)
 	out := make([]DetailedEvaluationResult, 0)
 
-	for ruleName, evals := range b.ruleResourceEvals {
-		e, ok := evals[key]
-		if !ok {
-			continue
-		}
-
+	for _, e := range b.ruleResourceEvalsByResource.Get(key) {
 		if len(complianceTypes) > 0 && !slices.Contains(complianceTypes, e.ComplianceType) {
 			continue
 		}
@@ -594,7 +619,7 @@ func (b *InMemoryBackend) GetComplianceDetailsByResource(
 		out = append(out, DetailedEvaluationResult{
 			EvaluationResultIdentifier: EvaluationResultIdentifier{
 				EvaluationResultQualifier: EvaluationResultQualifier{
-					ConfigRuleName: ruleName,
+					ConfigRuleName: e.RuleName,
 					ResourceType:   e.ResourceType,
 					ResourceID:     e.ResourceID,
 				},
@@ -641,7 +666,7 @@ func (b *InMemoryBackend) StartResourceEvaluation(
 		compliance = complianceCompliant
 	}
 
-	b.resourceEvaluations[id] = &ResourceEvaluation{
+	b.resourceEvaluations.Put(&ResourceEvaluation{
 		ResourceEvaluationID: id,
 		ResourceType:         resourceType,
 		ResourceID:           resourceID,
@@ -650,7 +675,7 @@ func (b *InMemoryBackend) StartResourceEvaluation(
 		Compliance:           compliance,
 		Configuration:        configuration,
 		StartTime:            float64(time.Now().Unix()),
-	}
+	})
 
 	return id
 }
@@ -661,7 +686,7 @@ func (b *InMemoryBackend) GetResourceEvaluationSummaryByID(id string) *ResourceE
 	b.mu.RLock("GetResourceEvaluationSummaryByID")
 	defer b.mu.RUnlock()
 
-	re, ok := b.resourceEvaluations[id]
+	re, ok := b.resourceEvaluations.Get(id)
 	if !ok {
 		return nil
 	}
@@ -677,8 +702,10 @@ func (b *InMemoryBackend) ListResourceEvaluationSummaries() []ResourceEvaluation
 	b.mu.RLock("ListResourceEvaluationSummaries")
 	defer b.mu.RUnlock()
 
-	out := make([]ResourceEvaluation, 0, len(b.resourceEvaluations))
-	for _, re := range b.resourceEvaluations {
+	all := b.resourceEvaluations.All()
+	out := make([]ResourceEvaluation, 0, len(all))
+
+	for _, re := range all {
 		out = append(out, *re)
 	}
 

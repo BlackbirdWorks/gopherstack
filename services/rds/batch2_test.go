@@ -1885,13 +1885,29 @@ func TestBatch2_Persistence_JSONContainsBatch1Keys(t *testing.T) {
 	var raw map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(snap, &raw))
 
+	// As of the Phase 3.3 pkgs/store conversion, resource collections backed by
+	// a store.Table are serialized under the nested "tables" blob (produced by
+	// store.Registry.SnapshotAll) rather than as top-level snapshot keys.
+	require.Contains(t, raw, "tables")
+
+	var tables map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw["tables"], &tables))
+
 	for _, key := range []string{
 		"customEngineVersions",
-		"automatedBackups",
 		"shardGroups",
 		"integrations",
 		"tenantDatabases",
 		"clusterAutomatedBackups",
+	} {
+		assert.Contains(t, tables, key, "snapshot tables JSON missing key: %s", key)
+	}
+
+	// automatedBackups and snapshotTenantDatabases remain plain maps (not
+	// store.Table-backed -- see registerAllTables's exclusion comment in
+	// store_setup.go) and so still serialize as top-level snapshot keys.
+	for _, key := range []string{
+		"automatedBackups",
 		"snapshotTenantDatabases",
 	} {
 		assert.Contains(t, raw, key, "snapshot JSON missing key: %s", key)

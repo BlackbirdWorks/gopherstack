@@ -152,8 +152,9 @@ func TestCreateStack_IntrinsicErrorPropagation(t *testing.T) {
 			}
 
 			if tt.wantEvent != "" {
-				events, evErr := b.DescribeStackEvents(tt.name)
+				evtPage, evErr := b.DescribeStackEvents(tt.name, "")
 				require.NoError(t, evErr)
+				events := evtPage.Data
 				statuses := make([]string, len(events))
 				for i, e := range events {
 					statuses[i] = e.ResourceStatus

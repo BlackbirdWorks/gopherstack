@@ -15,9 +15,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -72,7 +72,7 @@ func (db *InMemoryDB) CreateGlobalTable(
 	db.mu.Lock("CreateGlobalTable")
 	defer db.mu.Unlock()
 
-	if _, exists := db.GlobalTables[name]; exists {
+	if _, exists := db.globalTables.Get(name); exists {
 		return nil, &Error{
 			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableAlreadyExistsException",
 			Message: fmt.Sprintf("Global table with name %s already exists", name),
@@ -88,12 +88,12 @@ func (db *InMemoryDB) CreateGlobalTable(
 
 	db.ensureReplicaTablesLocked(name, regions, source, allReplicas, now)
 
-	db.GlobalTables[name] = &StoredGlobalTable{
+	db.globalTables.Put(&StoredGlobalTable{
 		GlobalTableName:  name,
 		GlobalTableArn:   globalTableARN,
 		CreationDateTime: now,
 		ReplicationGroup: regions,
-	}
+	})
 
 	sdkReplicas := buildSDKReplicaDescriptions(regions)
 
@@ -125,12 +125,7 @@ func collectValidRegions(group []types.Replica) []string {
 // Must be called with db.mu held (at least read).
 func (db *InMemoryDB) findSourceTable(name string, regions []string) *Table {
 	for _, region := range regions {
-		regionTables, regionExists := db.Tables[region]
-		if !regionExists {
-			continue
-		}
-
-		if tbl, tableExists := regionTables[name]; tableExists {
+		if tbl, tableExists := db.tables.Get(tableKey(region, name)); tableExists {
 			return tbl
 		}
 	}
@@ -162,21 +157,19 @@ func (db *InMemoryDB) ensureReplicaTablesLocked(
 	now time.Time,
 ) {
 	for _, region := range regions {
-		if _, ok := db.Tables[region]; !ok {
-			db.Tables[region] = make(map[string]*Table)
-		}
-
-		if _, exists := db.Tables[region][name]; !exists {
+		if existing, exists := db.tables.Get(tableKey(region, name)); !exists {
 			replica := db.buildReplicaTable(name, region, source, now)
 			replica.GlobalTableName = name
-			db.Tables[region][name] = replica
+			db.tables.Put(replica)
 		} else {
-			db.Tables[region][name].GlobalTableName = name
+			existing.GlobalTableName = name
 		}
 	}
 
 	for _, region := range regions {
-		db.Tables[region][name].Replicas = buildReplicasExcluding(allReplicas, region)
+		if t, ok := db.tables.Get(tableKey(region, name)); ok {
+			t.Replicas = buildReplicasExcluding(allReplicas, region)
+		}
 	}
 }
 
@@ -229,7 +222,7 @@ func (db *InMemoryDB) DescribeGlobalTable(
 	name := *input.GlobalTableName
 
 	db.mu.RLock("DescribeGlobalTable")
-	gt, exists := db.GlobalTables[name]
+	gt, exists := db.globalTables.Get(name)
 	db.mu.RUnlock()
 
 	if !exists {
@@ -272,7 +265,7 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 	name := *input.GlobalTableName
 
 	db.mu.RLock("DescribeGlobalTableSettings")
-	gt, exists := db.GlobalTables[name]
+	gt, exists := db.globalTables.Get(name)
 	db.mu.RUnlock()
 
 	if !exists {
@@ -289,11 +282,7 @@ func (db *InMemoryDB) DescribeGlobalTableSettings(
 
 		// Look up the actual table in that region to get real provisioned throughput.
 		db.mu.RLock("DescribeGlobalTableSettings.table")
-		regionTables := db.Tables[region]
-		var tbl *Table
-		if regionTables != nil {
-			tbl = regionTables[name]
-		}
+		tbl, _ := db.tables.Get(tableKey(region, name))
 		db.mu.RUnlock()
 		if tbl != nil {
 			tbl.mu.RLock("DescribeGlobalTableSettings.throughput")
@@ -569,8 +558,8 @@ func (db *InMemoryDB) ListGlobalTables(
 	regionFilter := ptrconv.String(input.RegionName)
 	startName := ptrconv.String(input.ExclusiveStartGlobalTableName)
 
-	names := sortedGlobalTableNames(db.GlobalTables, startName)
-	filtered := filterGlobalTables(db.GlobalTables, names, regionFilter)
+	names := sortedGlobalTableNames(db.globalTables, startName)
+	filtered := filterGlobalTables(db.globalTables, names, regionFilter)
 	filtered, lastEvaluated := applyGlobalTableLimit(filtered, input.Limit)
 
 	return &dynamodb.ListGlobalTablesOutput{
@@ -601,7 +590,7 @@ func (db *InMemoryDB) UpdateGlobalTable(
 	db.mu.Lock("UpdateGlobalTable")
 	defer db.mu.Unlock()
 
-	gt, exists := db.GlobalTables[name]
+	gt, exists := db.globalTables.Get(name)
 	if !exists {
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
@@ -637,12 +626,7 @@ func (db *InMemoryDB) UpdateGlobalTable(
 // Must be called with db.mu held for reading.
 func (db *InMemoryDB) findSourceTableLocked(name string, regions []string) *Table {
 	for _, region := range regions {
-		regionTables, ok := db.Tables[region]
-		if !ok {
-			continue
-		}
-
-		if t, tableExists := regionTables[name]; tableExists {
+		if t, tableExists := db.tables.Get(tableKey(region, name)); tableExists {
 			return t
 		}
 	}
@@ -689,16 +673,12 @@ func (db *InMemoryDB) applyGlobalTableReplicaCreate(
 		gt.ReplicationGroup = append(gt.ReplicationGroup, regionName)
 	}
 
-	if _, ok := db.Tables[regionName]; !ok {
-		db.Tables[regionName] = make(map[string]*Table)
-	}
-
-	if _, tableExists := db.Tables[regionName][name]; !tableExists {
+	if existing, tableExists := db.tables.Get(tableKey(regionName, name)); !tableExists {
 		replica := db.buildReplicaTableLocked(name, regionName, source)
 		replica.GlobalTableName = name
-		db.Tables[regionName][name] = replica
+		db.tables.Put(replica)
 	} else {
-		db.Tables[regionName][name].GlobalTableName = name
+		existing.GlobalTableName = name
 	}
 
 	return nil
@@ -724,9 +704,7 @@ func (db *InMemoryDB) applyGlobalTableReplicaDelete(
 
 	gt.ReplicationGroup = remaining
 
-	if regionTables, ok := db.Tables[regionName]; ok {
-		delete(regionTables, name)
-	}
+	db.tables.Delete(tableKey(regionName, name))
 
 	return nil
 }
@@ -736,12 +714,7 @@ func (db *InMemoryDB) applyGlobalTableReplicaDelete(
 func (db *InMemoryDB) rebuildGlobalTableReplicasLocked(name string, regions []string) {
 	allReplicas := buildAllReplicas(regions)
 	for _, region := range regions {
-		regionTables, ok := db.Tables[region]
-		if !ok {
-			continue
-		}
-
-		if t, tableExists := regionTables[name]; tableExists {
+		if t, tableExists := db.tables.Get(tableKey(region, name)); tableExists {
 			t.Replicas = buildReplicasExcluding(allReplicas, region)
 		}
 	}
@@ -769,8 +742,13 @@ func (db *InMemoryDB) buildReplicaTableLocked(name, region string, source *Table
 }
 
 // sortedGlobalTableNames returns sorted global table names starting after startName.
-func sortedGlobalTableNames(tables map[string]*StoredGlobalTable, startName string) []string {
-	names := collections.SortedKeys(tables)
+func sortedGlobalTableNames(tables *store.Table[StoredGlobalTable], startName string) []string {
+	all := tables.All()
+	names := make([]string, 0, len(all))
+	for _, gt := range all {
+		names = append(names, gt.GlobalTableName)
+	}
+	sort.Strings(names)
 
 	if startName == "" {
 		return names
@@ -787,14 +765,17 @@ func sortedGlobalTableNames(tables map[string]*StoredGlobalTable, startName stri
 
 // filterGlobalTables converts stored global tables to SDK types, applying an optional region filter.
 func filterGlobalTables(
-	tables map[string]*StoredGlobalTable,
+	tables *store.Table[StoredGlobalTable],
 	names []string,
 	regionFilter string,
 ) []types.GlobalTable {
 	filtered := make([]types.GlobalTable, 0, len(names))
 
 	for _, name := range names {
-		gt := tables[name]
+		gt, ok := tables.Get(name)
+		if !ok {
+			continue
+		}
 
 		if regionFilter != "" && !slices.Contains(gt.ReplicationGroup, regionFilter) {
 			continue
@@ -924,7 +905,7 @@ func (db *InMemoryDB) getTableByARN(resourceARN string) *Table {
 	db.mu.RLock("getTableByARN")
 	defer db.mu.RUnlock()
 
-	for _, table := range db.Tables[region] {
+	for _, table := range db.tablesByRegion.Get(region) {
 		if table.TableArn == resourceARN {
 			return table
 		}
@@ -979,7 +960,7 @@ func (db *InMemoryDB) ListContributorInsights(
 
 	var summaries []types.ContributorInsightsSummary
 
-	for name, t := range db.Tables[region] {
+	for _, t := range db.tablesByRegion.Get(region) {
 		t.mu.RLock("ListContributorInsights")
 		enabled := t.ContributorInsightsEnabled
 		t.mu.RUnlock()
@@ -988,7 +969,7 @@ func (db *InMemoryDB) ListContributorInsights(
 			continue
 		}
 
-		tableName := name
+		tableName := t.Name
 		summaries = append(summaries, types.ContributorInsightsSummary{
 			TableName:                 &tableName,
 			ContributorInsightsStatus: types.ContributorInsightsStatusEnabled,
@@ -1057,7 +1038,7 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 	name := *input.GlobalTableName
 
 	db.mu.Lock("UpdateGlobalTableSettings")
-	gt, exists := db.GlobalTables[name]
+	gt, exists := db.globalTables.Get(name)
 
 	if !exists {
 		db.mu.Unlock()
@@ -1425,15 +1406,16 @@ func (db *InMemoryDB) captureExecTxnSnapshots(
 	snapshots := make(map[string]tableStateSnapshot, len(tableNames))
 
 	db.mu.RLock("ExecuteTransaction.snapshot")
-	regionTables := db.Tables[region]
+	tables := make(map[string]*Table, len(tableNames))
+	for _, name := range tableNames {
+		if t, ok := db.tables.Get(tableKey(region, name)); ok {
+			tables[name] = t
+		}
+	}
 	db.mu.RUnlock()
 
 	for _, name := range tableNames {
-		if regionTables == nil {
-			continue
-		}
-
-		t, ok := regionTables[name]
+		t, ok := tables[name]
 		if !ok {
 			continue
 		}
@@ -1471,7 +1453,12 @@ func (db *InMemoryDB) restoreExecTxnSnapshots(
 	region := getRegionFromContext(ctx, db)
 
 	db.mu.RLock("ExecuteTransaction.restore")
-	regionTables := db.Tables[region]
+	tables := make(map[string]*Table, len(tableNames))
+	for _, name := range tableNames {
+		if t, ok := db.tables.Get(tableKey(region, name)); ok {
+			tables[name] = t
+		}
+	}
 	db.mu.RUnlock()
 
 	for _, name := range tableNames {
@@ -1480,11 +1467,7 @@ func (db *InMemoryDB) restoreExecTxnSnapshots(
 			continue
 		}
 
-		if regionTables == nil {
-			continue
-		}
-
-		t, tableOK := regionTables[name]
+		t, tableOK := tables[name]
 		if !tableOK {
 			continue
 		}
@@ -1877,7 +1860,7 @@ func (db *InMemoryDB) replicateItemMutation(
 ) {
 	// Look up global table metadata under read lock.
 	db.mu.RLock("replicateItemMutation-gt")
-	gt, exists := db.GlobalTables[globalTableName]
+	gt, exists := db.globalTables.Get(globalTableName)
 	db.mu.RUnlock()
 
 	if !exists {
@@ -1903,13 +1886,7 @@ func (db *InMemoryDB) applyMutationToReplica(
 ) {
 	// Look up the replica table under a short read lock.
 	db.mu.RLock("applyMutationToReplica-lookup")
-	regionTables := db.Tables[region]
-
-	var replica *Table
-	if regionTables != nil {
-		replica = regionTables[tableName]
-	}
-
+	replica, _ := db.tables.Get(tableKey(region, tableName))
 	db.mu.RUnlock()
 
 	if replica == nil {

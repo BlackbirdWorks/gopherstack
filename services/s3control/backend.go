@@ -2,12 +2,12 @@ package s3control
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 const (
@@ -45,8 +45,21 @@ var (
 )
 
 // PublicAccessBlock represents the S3 Control public access block configuration.
+//
+// This type backs two distinct store.Table instances (see store_setup.go):
+// the account-level "configs" table (keyed by AccountID alone) and the
+// per-access-point "accessPointPABs" table (keyed by AccountID+APName).
 type PublicAccessBlock struct {
-	AccountID             string `json:"accountID"`
+	AccountID string `json:"accountID"`
+	// APName is the access point name this value is keyed by in the
+	// accessPointPABs Table (see store_setup.go); it is always empty for
+	// entries in the account-level configs Table. Tagged json:"-" because
+	// accessPointPABs is a "dirty" table -- persistence.go round-trips it
+	// through a dedicated DTO that carries APName as a real JSON field, so
+	// it survives the round trip despite being excluded here. It must never
+	// change after the value is created (store.Table's keyFn purity
+	// requirement).
+	APName                string `json:"-"`
 	BlockPublicAcls       bool   `json:"blockPublicAcls"`
 	IgnorePublicAcls      bool   `json:"ignorePublicAcls"`
 	BlockPublicPolicy     bool   `json:"blockPublicPolicy"`
@@ -136,7 +149,16 @@ type BatchJob struct {
 
 // MultiRegionAccessPointRequest represents an MRAP async request.
 type MultiRegionAccessPointRequest struct {
-	AccountID       string `json:"accountID"`
+	AccountID string `json:"accountID"`
+	// Token is the bare request token this value is keyed by in the
+	// mrapRequests Table (see store_setup.go); RequestTokenARN embeds it but
+	// as a full ARN, not a value store.Table's keyFn can use directly.
+	// Tagged json:"-" because mrapRequests is a "dirty" table --
+	// persistence.go round-trips it through a dedicated DTO that carries
+	// Token as a real JSON field, so it survives the round trip despite
+	// being excluded here. It must never change after the value is created
+	// (store.Table's keyFn purity requirement).
+	Token           string `json:"-"`
 	RequestTokenARN string `json:"requestTokenARN"`
 	Name            string `json:"name"`
 }
@@ -162,20 +184,37 @@ type StorageLensGroup struct {
 }
 
 // InMemoryBackend is the in-memory store for S3 Control resources.
+//
+// Phase 3.3 datalayer refactor: every map[string]*T resource field is backed
+// by a *store.Table[T] (see pkgs/store and store_setup.go). "Clean" tables
+// key off fields the value type already carries and are registered on
+// registry, so Reset/Snapshot/Restore collapse to one registry call each.
+// "Dirty" tables (mrapRequests, accessPointPABs) key off a field with no
+// natural home on the value type and are NOT registered on registry --
+// persistence.go instead round-trips them through an ephemeral DTO
+// store.Registry. See store_setup.go's file doc comment for the full
+// breakdown.
 type InMemoryBackend struct {
-	outpostsBuckets          map[string]*OutpostsBucket
-	mu                       *lockmetrics.RWMutex
-	accessGrants             map[string]*AccessGrant
-	accessGrantsLocations    map[string]*AccessGrantsLocation
-	accessPoints             map[string]*AccessPoint
-	accessPointPolicies      map[string]string
-	objectLambdaAccessPoints map[string]*ObjectLambdaAccessPoint
-	mrapRequests             map[string]*MultiRegionAccessPointRequest
-	mraps                    map[string]*MultiRegionAccessPoint
-	batchJobs                map[string]*BatchJob
-	accessGrantsInstances    map[string]*AccessGrantsInstance
-	storageLensGroups        map[string]*StorageLensGroup
-	configs                  map[string]*PublicAccessBlock
+	mu       *lockmetrics.RWMutex
+	registry *store.Registry
+
+	outpostsBuckets          *store.Table[OutpostsBucket]
+	accessGrants             *store.Table[AccessGrant]
+	accessGrantsLocations    *store.Table[AccessGrantsLocation]
+	accessPoints             *store.Table[AccessPoint]
+	objectLambdaAccessPoints *store.Table[ObjectLambdaAccessPoint]
+	mraps                    *store.Table[MultiRegionAccessPoint]
+	batchJobs                *store.Table[BatchJob]
+	accessGrantsInstances    *store.Table[AccessGrantsInstance]
+	storageLensGroups        *store.Table[StorageLensGroup]
+	configs                  *store.Table[PublicAccessBlock]
+
+	// mrapRequests and accessPointPABs are "dirty" tables -- see the type
+	// doc comment above and store_setup.go.
+	mrapRequests    *store.Table[MultiRegionAccessPointRequest]
+	accessPointPABs *store.Table[PublicAccessBlock]
+
+	accessPointPolicies map[string]string
 	// batch1 additions
 	jobTags                      map[string]TagSet
 	accessGrantsInstancePolicies map[string]string
@@ -194,10 +233,9 @@ type InMemoryBackend struct {
 	storageLensConfigTags map[string]TagSet            // accountID:configName → tags
 	resourceTags          map[string]map[string]string // ARN → tag key → tag value
 	// batch3 additions
-	accessPointPABs map[string]*PublicAccessBlock // accountID:apName → per-AP public access block
-	accountID       string
-	region          string
-	nextID          int64
+	accountID string
+	region    string
+	nextID    int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default config values.
@@ -207,19 +245,9 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with explicit config values.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
-		configs:                      make(map[string]*PublicAccessBlock),
-		accessGrantsInstances:        make(map[string]*AccessGrantsInstance),
-		accessGrants:                 make(map[string]*AccessGrant),
-		accessGrantsLocations:        make(map[string]*AccessGrantsLocation),
-		accessPoints:                 make(map[string]*AccessPoint),
+	b := &InMemoryBackend{
+		registry:                     store.NewRegistry(),
 		accessPointPolicies:          make(map[string]string),
-		objectLambdaAccessPoints:     make(map[string]*ObjectLambdaAccessPoint),
-		outpostsBuckets:              make(map[string]*OutpostsBucket),
-		batchJobs:                    make(map[string]*BatchJob),
-		mrapRequests:                 make(map[string]*MultiRegionAccessPointRequest),
-		mraps:                        make(map[string]*MultiRegionAccessPoint),
-		storageLensGroups:            make(map[string]*StorageLensGroup),
 		jobTags:                      make(map[string]TagSet),
 		accessGrantsInstancePolicies: make(map[string]string),
 		accessPointScopes:            make(map[string]string),
@@ -235,11 +263,14 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		storageLensConfigs:           make(map[string]string),
 		storageLensConfigTags:        make(map[string]TagSet),
 		resourceTags:                 make(map[string]map[string]string),
-		accessPointPABs:              make(map[string]*PublicAccessBlock),
 		mu:                           lockmetrics.New("s3control"),
 		accountID:                    accountID,
 		region:                       region,
 	}
+
+	registerAllTables(b)
+
+	return b
 }
 
 // AccountID returns the AWS account ID configured for this backend.
@@ -253,18 +284,9 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.configs = make(map[string]*PublicAccessBlock)
-	b.accessGrantsInstances = make(map[string]*AccessGrantsInstance)
-	b.accessGrants = make(map[string]*AccessGrant)
-	b.accessGrantsLocations = make(map[string]*AccessGrantsLocation)
-	b.accessPoints = make(map[string]*AccessPoint)
+	b.resetTablesLocked()
+
 	b.accessPointPolicies = make(map[string]string)
-	b.objectLambdaAccessPoints = make(map[string]*ObjectLambdaAccessPoint)
-	b.outpostsBuckets = make(map[string]*OutpostsBucket)
-	b.batchJobs = make(map[string]*BatchJob)
-	b.mrapRequests = make(map[string]*MultiRegionAccessPointRequest)
-	b.mraps = make(map[string]*MultiRegionAccessPoint)
-	b.storageLensGroups = make(map[string]*StorageLensGroup)
 	b.jobTags = make(map[string]TagSet)
 	b.accessGrantsInstancePolicies = make(map[string]string)
 	b.accessPointScopes = make(map[string]string)
@@ -280,8 +302,17 @@ func (b *InMemoryBackend) Reset() {
 	b.storageLensConfigs = make(map[string]string)
 	b.storageLensConfigTags = make(map[string]TagSet)
 	b.resourceTags = make(map[string]map[string]string)
-	b.accessPointPABs = make(map[string]*PublicAccessBlock)
 	b.nextID = 0
+}
+
+// resetTablesLocked clears every store.Table-backed resource field --
+// both the "clean" tables on b.registry and the "dirty" tables held outside
+// it (mrapRequests, accessPointPABs; see the InMemoryBackend doc comment).
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) resetTablesLocked() {
+	b.registry.ResetAll()
+	b.mrapRequests.Reset()
+	b.accessPointPABs.Reset()
 }
 
 // newID generates a new unique ID string using an internal counter (must be called under lock).
@@ -297,7 +328,7 @@ func (b *InMemoryBackend) PutPublicAccessBlock(cfg PublicAccessBlock) {
 	defer b.mu.Unlock()
 
 	cp := cfg
-	b.configs[cfg.AccountID] = &cp
+	b.configs.Put(&cp)
 }
 
 // GetPublicAccessBlock retrieves the public access block configuration for an account.
@@ -305,7 +336,7 @@ func (b *InMemoryBackend) GetPublicAccessBlock(accountID string) (*PublicAccessB
 	b.mu.RLock("GetPublicAccessBlock")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.configs[accountID]
+	cfg, ok := b.configs.Get(accountID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -320,8 +351,10 @@ func (b *InMemoryBackend) ListAll() []PublicAccessBlock {
 	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
-	out := make([]PublicAccessBlock, 0, len(b.configs))
-	for _, cfg := range b.configs {
+	all := b.configs.All()
+	out := make([]PublicAccessBlock, 0, len(all))
+
+	for _, cfg := range all {
 		out = append(out, *cfg)
 	}
 
@@ -333,11 +366,9 @@ func (b *InMemoryBackend) DeletePublicAccessBlock(accountID string) error {
 	b.mu.Lock("DeletePublicAccessBlock")
 	defer b.mu.Unlock()
 
-	if _, ok := b.configs[accountID]; !ok {
+	if !b.configs.Delete(accountID) {
 		return ErrNotFound
 	}
-
-	delete(b.configs, accountID)
 
 	return nil
 }
@@ -347,7 +378,7 @@ func (b *InMemoryBackend) AssociateAccessGrantsIdentityCenter(accountID, identit
 	b.mu.Lock("AssociateAccessGrantsIdentityCenter")
 	defer b.mu.Unlock()
 
-	inst, ok := b.accessGrantsInstances[accountID]
+	inst, ok := b.accessGrantsInstances.Get(accountID)
 	if !ok {
 		inst = &AccessGrantsInstance{
 			AccountID:               accountID,
@@ -355,7 +386,7 @@ func (b *InMemoryBackend) AssociateAccessGrantsIdentityCenter(accountID, identit
 			AccessGrantsInstanceArn: fmt.Sprintf(arnFmtAccessGrantsInstance, b.region, accountID),
 			CreatedAt:               nowRFC3339(),
 		}
-		b.accessGrantsInstances[accountID] = inst
+		b.accessGrantsInstances.Put(inst)
 	}
 
 	inst.IdentityCenterArn = identityCenterArn
@@ -375,7 +406,7 @@ func (b *InMemoryBackend) CreateAccessGrantsInstance(accountID, identityCenterAr
 		IdentityCenterInstanceArn: identityCenterArn,
 		CreatedAt:                 nowRFC3339(),
 	}
-	b.accessGrantsInstances[accountID] = inst
+	b.accessGrantsInstances.Put(inst)
 
 	cp := *inst
 
@@ -409,7 +440,7 @@ func (b *InMemoryBackend) CreateAccessGrant(
 		ApplicationArn:         applicationArn,
 		CreatedAt:              nowRFC3339(),
 	}
-	b.accessGrants[accountID+":"+id] = grant
+	b.accessGrants.Put(grant)
 
 	cp := *grant
 
@@ -434,7 +465,7 @@ func (b *InMemoryBackend) CreateAccessGrantsLocation(
 		IAMRoleArn:              iamRoleArn,
 		CreatedAt:               nowRFC3339(),
 	}
-	b.accessGrantsLocations[accountID+":"+id] = loc
+	b.accessGrantsLocations.Put(loc)
 
 	cp := *loc
 
@@ -465,7 +496,7 @@ func (b *InMemoryBackend) CreateAccessPoint(accountID, name, bucket string) *Acc
 		NetworkOrigin:  "Internet",
 		CreationDate:   nowRFC3339(),
 	}
-	b.accessPoints[accountID+":"+name] = ap
+	b.accessPoints.Put(ap)
 
 	cp := *ap
 
@@ -479,7 +510,7 @@ func (b *InMemoryBackend) SetAccessPointVpcConfig(accountID, name, vpcID, bucket
 	b.mu.Lock("SetAccessPointVpcConfig")
 	defer b.mu.Unlock()
 
-	ap, ok := b.accessPoints[accountID+":"+name]
+	ap, ok := b.accessPoints.Get(accountID + ":" + name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -502,7 +533,7 @@ func (b *InMemoryBackend) GetAccessPoint(accountID, name string) (*AccessPoint, 
 	b.mu.RLock("GetAccessPoint")
 	defer b.mu.RUnlock()
 
-	ap, ok := b.accessPoints[accountID+":"+name]
+	ap, ok := b.accessPoints.Get(accountID + ":" + name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -518,11 +549,10 @@ func (b *InMemoryBackend) DeleteAccessPoint(accountID, name string) error {
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Delete(key) {
 		return ErrNotFound
 	}
 
-	delete(b.accessPoints, key)
 	delete(b.accessPointPolicies, key)
 
 	return nil
@@ -533,11 +563,10 @@ func (b *InMemoryBackend) ListAccessPoints(accountID string) []*AccessPoint {
 	b.mu.RLock("ListAccessPoints")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + ":"
 	var out []*AccessPoint
 
-	for k, v := range b.accessPoints {
-		if strings.HasPrefix(k, prefix) {
+	for _, v := range b.accessPoints.All() {
+		if v.AccountID == accountID {
 			cp := *v
 			out = append(out, &cp)
 		}
@@ -552,7 +581,7 @@ func (b *InMemoryBackend) PutAccessPointPolicy(accountID, name, policy string) e
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return ErrNotFound
 	}
 
@@ -567,7 +596,7 @@ func (b *InMemoryBackend) GetAccessPointPolicy(accountID, name string) (string, 
 	defer b.mu.RUnlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return "", ErrNotFound
 	}
 
@@ -585,7 +614,7 @@ func (b *InMemoryBackend) DeleteAccessPointPolicy(accountID, name string) error 
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.accessPoints[key]; !ok {
+	if !b.accessPoints.Has(key) {
 		return ErrNotFound
 	}
 
@@ -606,7 +635,7 @@ func (b *InMemoryBackend) CreateAccessPointForObjectLambda(accountID, name strin
 		Name:                       name,
 		ObjectLambdaAccessPointArn: arn,
 	}
-	b.objectLambdaAccessPoints[accountID+":"+name] = ap
+	b.objectLambdaAccessPoints.Put(ap)
 
 	cp := *ap
 
@@ -626,7 +655,7 @@ func (b *InMemoryBackend) CreateBucket(accountID, bucketName string) *OutpostsBu
 		BucketArn: arn,
 		Location:  "/" + bucketName,
 	}
-	b.outpostsBuckets[accountID+":"+bucketName] = bkt
+	b.outpostsBuckets.Put(bkt)
 
 	cp := *bkt
 
@@ -662,7 +691,7 @@ func (b *InMemoryBackend) CreateJob(accountID, roleArn string, priority int32) (
 		Status:       jobStatusNew,
 		CreationTime: nowRFC3339(),
 	}
-	b.batchJobs[accountID+":"+id] = job
+	b.batchJobs.Put(job)
 
 	cp := *job
 
@@ -677,7 +706,7 @@ func (b *InMemoryBackend) UpdateJobDetails(
 	b.mu.Lock("UpdateJobDetails")
 	defer b.mu.Unlock()
 
-	job, ok := b.batchJobs[accountID+":"+jobID]
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
 		return ErrNotFound
 	}
@@ -703,10 +732,11 @@ func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 
 	req := &MultiRegionAccessPointRequest{
 		AccountID:       accountID,
+		Token:           token,
 		RequestTokenARN: tokenARN,
 		Name:            name,
 	}
-	b.mrapRequests[accountID+":"+token] = req
+	b.mrapRequests.Put(req)
 
 	// Also store the real MRAP object so GetMultiRegionAccessPoint can retrieve it.
 	alias := fmt.Sprintf("%s.mrap.accesspoint.s3-global.amazonaws.com", name)
@@ -717,7 +747,7 @@ func (b *InMemoryBackend) CreateMultiRegionAccessPoint(
 		Status:    "READY",
 		CreatedAt: nowRFC3339(),
 	}
-	b.mraps[accountID+":"+name] = mrap
+	b.mraps.Put(mrap)
 
 	cp := *req
 
@@ -729,7 +759,7 @@ func (b *InMemoryBackend) SetMRAPRegions(accountID, name string, regions []strin
 	b.mu.Lock("SetMRAPRegions")
 	defer b.mu.Unlock()
 
-	mrap, ok := b.mraps[accountID+":"+name]
+	mrap, ok := b.mraps.Get(accountID + ":" + name)
 	if !ok {
 		return ErrNotFound
 	}
@@ -746,7 +776,7 @@ func (b *InMemoryBackend) GetJob(accountID, jobID string) (*BatchJob, error) {
 	b.mu.RLock("GetJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.batchJobs[accountID+":"+jobID]
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -761,11 +791,10 @@ func (b *InMemoryBackend) ListJobs(accountID string) []*BatchJob {
 	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + ":"
 	var out []*BatchJob
 
-	for k, v := range b.batchJobs {
-		if strings.HasPrefix(k, prefix) {
+	for _, v := range b.batchJobs.All() {
+		if v.AccountID == accountID {
 			cp := *v
 			out = append(out, &cp)
 		}
@@ -779,7 +808,7 @@ func (b *InMemoryBackend) UpdateJobPriority(accountID, jobID string, priority in
 	b.mu.Lock("UpdateJobPriority")
 	defer b.mu.Unlock()
 
-	job, ok := b.batchJobs[accountID+":"+jobID]
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -795,7 +824,7 @@ func (b *InMemoryBackend) UpdateJobStatus(accountID, jobID, status string) (*Bat
 	b.mu.Lock("UpdateJobStatus")
 	defer b.mu.Unlock()
 
-	job, ok := b.batchJobs[accountID+":"+jobID]
+	job, ok := b.batchJobs.Get(accountID + ":" + jobID)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -811,7 +840,7 @@ func (b *InMemoryBackend) GetMultiRegionAccessPoint(accountID, name string) (*Mu
 	b.mu.RLock("GetMultiRegionAccessPoint")
 	defer b.mu.RUnlock()
 
-	mrap, ok := b.mraps[accountID+":"+name]
+	mrap, ok := b.mraps.Get(accountID + ":" + name)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -827,11 +856,9 @@ func (b *InMemoryBackend) DeleteMultiRegionAccessPoint(accountID, name string) e
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.mraps[key]; !ok {
+	if !b.mraps.Has(key) {
 		return ErrNotFound
 	}
-
-	delete(b.mraps, key)
 
 	return nil
 }
@@ -841,11 +868,10 @@ func (b *InMemoryBackend) ListMultiRegionAccessPoints(accountID string) []*Multi
 	b.mu.RLock("ListMultiRegionAccessPoints")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + ":"
 	var out []*MultiRegionAccessPoint
 
-	for k, v := range b.mraps {
-		if strings.HasPrefix(k, prefix) {
+	for _, v := range b.mraps.All() {
+		if v.AccountID == accountID {
 			cp := *v
 			out = append(out, &cp)
 		}
@@ -860,7 +886,7 @@ func (b *InMemoryBackend) PutMultiRegionAccessPointPolicy(accountID, name, polic
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	mrap, ok := b.mraps[key]
+	mrap, ok := b.mraps.Get(key)
 	if !ok {
 		return ErrNotFound
 	}
@@ -883,7 +909,7 @@ func (b *InMemoryBackend) CreateStorageLensGroup(accountID, name string) *Storag
 		StorageLensGroupArn: arn,
 		CreatedAt:           nowRFC3339(),
 	}
-	b.storageLensGroups[accountID+":"+name] = grp
+	b.storageLensGroups.Put(grp)
 
 	cp := *grp
 
@@ -895,7 +921,7 @@ func (b *InMemoryBackend) UpdateStorageLensGroupFilter(accountID, name, filter s
 	b.mu.Lock("UpdateStorageLensGroupFilter")
 	defer b.mu.Unlock()
 
-	grp, ok := b.storageLensGroups[accountID+":"+name]
+	grp, ok := b.storageLensGroups.Get(accountID + ":" + name)
 	if !ok {
 		return errStorageLensGroupNotFound
 	}
@@ -918,7 +944,8 @@ func (b *InMemoryBackend) AddPublicAccessBlockInternal(accountID string, block *
 	defer b.mu.Unlock()
 
 	cp := *block
-	b.configs[accountID] = &cp
+	cp.AccountID = accountID
+	b.configs.Put(&cp)
 }
 
 // AddAccessGrantsInstanceInternal creates an access grants instance directly, for seeding test data.

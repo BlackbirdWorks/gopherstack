@@ -60,19 +60,19 @@ const SessionEvictThreshold = sessionEvictThreshold
 // SessionCount returns the number of sessions currently stored in the backend.
 // Used in tests to verify janitor eviction.
 func (b *InMemoryBackend) SessionCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock("SessionCount")
+	defer b.mu.RUnlock()
 
-	return len(b.sessions)
+	return b.sessions.Len()
 }
 
 // SetSessionExpiration overrides the expiration of the session identified by
 // accessKeyID. Used in tests to fast-forward session expiry without waiting.
 func (b *InMemoryBackend) SetSessionExpiration(accessKeyID string, exp time.Time) {
-	b.mu.Lock()
+	b.mu.Lock("SetSessionExpiration")
 	defer b.mu.Unlock()
 
-	if s, ok := b.sessions[accessKeyID]; ok {
+	if s, ok := b.sessions.Get(accessKeyID); ok {
 		s.Expiration = exp
 	}
 }
@@ -101,8 +101,8 @@ func (h *Handler) HandlerOpsLen() int {
 
 // AddSessionInternal inserts a session directly into the backend for test seeding.
 func (b *InMemoryBackend) AddSessionInternal(session *SessionInfo) {
-	b.mu.Lock()
+	b.mu.Lock("AddSessionInternal")
 	defer b.mu.Unlock()
 
-	b.sessions[session.AccessKeyID] = session
+	b.sessions.Put(session)
 }

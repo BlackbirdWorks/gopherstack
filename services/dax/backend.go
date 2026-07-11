@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // Sentinel errors for the DAX backend.
@@ -121,10 +122,19 @@ var maintenanceWindowDays = []string{
 }
 
 // InMemoryBackend is the in-memory DAX backend.
+//
+// clusters, paramGroups, and subnetGroups are *store.Table[T] (see
+// store_setup.go). Each keys off a real, non-json:"-" identity field the
+// value type already carries, so all three register directly on registry --
+// no DTO indirection and no secondary store.Index are needed (arnExists and
+// clusterByARN parse the resource name back out of the ARN string and look it
+// up directly, so there is no ARN-keyed reverse-lookup map to replace). tags
+// and events are left as plain fields; see store_setup.go's file doc comment.
 type InMemoryBackend struct {
-	clusters     map[string]*Cluster
-	paramGroups  map[string]*ParameterGroup
-	subnetGroups map[string]*SubnetGroup
+	clusters     *store.Table[Cluster]
+	paramGroups  *store.Table[ParameterGroup]
+	subnetGroups *store.Table[SubnetGroup]
+	registry     *store.Registry
 	tags         map[string]map[string]string
 	mu           *lockmetrics.RWMutex
 	AccountID    string
@@ -135,16 +145,15 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new DAX backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		clusters:     make(map[string]*Cluster),
-		paramGroups:  make(map[string]*ParameterGroup),
-		subnetGroups: make(map[string]*SubnetGroup),
-		tags:         make(map[string]map[string]string),
-		events:       make([]*Event, 0),
-		mu:           lockmetrics.New("dax"),
-		AccountID:    accountID,
-		Region:       region,
+		registry:  store.NewRegistry(),
+		tags:      make(map[string]map[string]string),
+		events:    make([]*Event, 0),
+		mu:        lockmetrics.New("dax"),
+		AccountID: accountID,
+		Region:    region,
 	}
 
+	registerAllTables(b)
 	b.seedDefaults()
 
 	return b
@@ -155,18 +164,18 @@ func (b *InMemoryBackend) seedDefaults() {
 	params := make(map[string]string, len(defaultParameterValues))
 	maps.Copy(params, defaultParameterValues)
 
-	b.paramGroups[DefaultParameterGroupName] = &ParameterGroup{
+	b.paramGroups.Put(&ParameterGroup{
 		ParameterGroupName: DefaultParameterGroupName,
 		Description:        "Default parameter group for DAX 1.0",
 		Parameters:         params,
-	}
+	})
 
-	b.subnetGroups[DefaultSubnetGroupName] = &SubnetGroup{
+	b.subnetGroups.Put(&SubnetGroup{
 		SubnetGroupName: DefaultSubnetGroupName,
 		Description:     "Default subnet group",
 		VpcID:           "vpc-default",
 		Subnets:         []SubnetEntry{{SubnetID: "subnet-default", AvailabilityZone: b.Region + "a"}},
-	}
+	})
 }
 
 // clusterARN builds a DAX cluster ARN.
@@ -383,15 +392,15 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if _, exists := b.clusters[input.ClusterName]; exists {
+	if b.clusters.Has(input.ClusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, input.ClusterName)
 	}
 
-	if _, exists := b.subnetGroups[input.SubnetGroupName]; !exists {
+	if !b.subnetGroups.Has(input.SubnetGroupName) {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, input.SubnetGroupName)
 	}
 
-	if _, exists := b.paramGroups[input.ParameterGroupName]; !exists {
+	if !b.paramGroups.Has(input.ParameterGroupName) {
 		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
 	}
 
@@ -423,7 +432,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 	maps.Copy(cluster.Tags, input.Tags)
 
-	b.clusters[input.ClusterName] = cluster
+	b.clusters.Put(cluster)
 
 	if len(input.Tags) > 0 {
 		b.tags[clusterARN] = make(map[string]string)
@@ -440,7 +449,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 			time.Sleep(time.Second)
 			b.mu.Lock("CreateCluster:async")
 			defer b.mu.Unlock()
-			if c, ok := b.clusters[cName]; ok && c.Status == StatusCreating {
+			if c, ok := b.clusters.Get(cName); ok && c.Status == StatusCreating {
 				c.Status = StatusAvailable
 			}
 		}(input.ClusterName)
@@ -497,23 +506,18 @@ func (b *InMemoryBackend) initCluster(
 // Must be called with b.mu held for reading.
 func (b *InMemoryBackend) collectClustersLocked(clusterNames []string) ([]*Cluster, error) {
 	if len(clusterNames) == 0 {
-		all := make([]*Cluster, 0, len(b.clusters))
-		for _, c := range b.clusters {
-			all = append(all, c)
-		}
-
-		return all, nil
+		return b.clusters.All(), nil
 	}
 
 	for _, name := range clusterNames {
-		if _, ok := b.clusters[name]; !ok {
+		if !b.clusters.Has(name) {
 			return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, name)
 		}
 	}
 
 	all := make([]*Cluster, 0, len(clusterNames))
 	for _, name := range clusterNames {
-		if c, ok := b.clusters[name]; ok {
+		if c, ok := b.clusters.Get(name); ok {
 			all = append(all, c)
 		}
 	}
@@ -641,7 +645,7 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[input.ClusterName]
+	cluster, ok := b.clusters.Get(input.ClusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
 	}
@@ -667,7 +671,7 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 	}
 
 	if input.ParameterGroupName != "" {
-		if _, exists := b.paramGroups[input.ParameterGroupName]; !exists {
+		if !b.paramGroups.Has(input.ParameterGroupName) {
 			return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
 		}
 
@@ -702,7 +706,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterName]
+	cluster, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
@@ -719,15 +723,15 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		fmt.Sprintf("Cluster %s is being deleted.", clusterName))
 
 	if os.Getenv("DAX_TEST_SYNC") == "1" {
-		delete(b.clusters, clusterName)
+		b.clusters.Delete(clusterName)
 		delete(b.tags, cluster.ClusterArn)
 	} else {
 		go func(cName string, cArn string) {
 			time.Sleep(time.Second)
 			b.mu.Lock("DeleteCluster:async")
 			defer b.mu.Unlock()
-			if c, exists := b.clusters[cName]; exists && c.Status == StatusDeleting {
-				delete(b.clusters, cName)
+			if c, exists := b.clusters.Get(cName); exists && c.Status == StatusDeleting {
+				b.clusters.Delete(cName)
 				delete(b.tags, cArn)
 				b.emitEventLocked(cName, EventSourceTypeCluster,
 					fmt.Sprintf("Cluster %s has been deleted.", cName))
@@ -756,7 +760,7 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 	b.mu.Lock("IncreaseReplicationFactor")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[input.ClusterName]
+	cluster, ok := b.clusters.Get(input.ClusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
 	}
@@ -819,7 +823,7 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 		time.Sleep(time.Second)
 		b.mu.Lock("IncreaseReplicationFactor:async")
 		defer b.mu.Unlock()
-		if c, exists := b.clusters[cName]; exists && c.Status == StatusModifying {
+		if c, exists := b.clusters.Get(cName); exists && c.Status == StatusModifying {
 			c.Status = StatusAvailable
 		}
 	}(input.ClusterName)
@@ -845,7 +849,7 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 	b.mu.Lock("DecreaseReplicationFactor")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[input.ClusterName]
+	cluster, ok := b.clusters.Get(input.ClusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.ClusterName)
 	}
@@ -893,7 +897,7 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 		time.Sleep(time.Second)
 		b.mu.Lock("DecreaseReplicationFactor:async")
 		defer b.mu.Unlock()
-		if c, exists := b.clusters[cName]; exists && c.Status == StatusModifying {
+		if c, exists := b.clusters.Get(cName); exists && c.Status == StatusModifying {
 			c.Status = StatusAvailable
 		}
 	}(input.ClusterName)
@@ -914,7 +918,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 	b.mu.Lock("RebootNode")
 	defer b.mu.Unlock()
 
-	cluster, ok := b.clusters[clusterName]
+	cluster, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
@@ -950,7 +954,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 		time.Sleep(time.Second)
 		b.mu.Lock("RebootNode:recovery")
 		defer b.mu.Unlock()
-		c, exists := b.clusters[clusterName]
+		c, exists := b.clusters.Get(clusterName)
 		if !exists {
 			return
 		}
@@ -1103,7 +1107,7 @@ func (b *InMemoryBackend) CreateParameterGroup(name, description string) (*Param
 	b.mu.Lock("CreateParameterGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.paramGroups[name]; exists {
+	if b.paramGroups.Has(name) {
 		return nil, fmt.Errorf("%w: %s", ErrParameterGroupAlreadyExists, name)
 	}
 
@@ -1116,7 +1120,7 @@ func (b *InMemoryBackend) CreateParameterGroup(name, description string) (*Param
 		Parameters:         params,
 	}
 
-	b.paramGroups[name] = pg
+	b.paramGroups.Put(pg)
 
 	b.emitEventLocked(name, EventSourceTypeParameterGroup,
 		fmt.Sprintf("Parameter group %s created.", name))
@@ -1147,7 +1151,7 @@ func (b *InMemoryBackend) DescribeParameterGroups(
 // pagination" pattern: a named lookup returns all matches unpaginated (erroring
 // on any missing name), while an unfiltered request returns one paginated page.
 func describeNamedGroups[T any](
-	store map[string]*T,
+	tbl *store.Table[T],
 	names []string,
 	maxResults int,
 	nextToken string,
@@ -1159,11 +1163,10 @@ func describeNamedGroups[T any](
 		maxResults = maxPageSizeDefault
 	}
 
-	all := make([]*T, 0, len(store))
-
 	if len(names) > 0 {
+		all := make([]*T, 0, len(names))
 		for _, name := range names {
-			item, ok := store[name]
+			item, ok := tbl.Get(name)
 			if !ok {
 				return nil, "", fmt.Errorf("%w: %s", notFound, name)
 			}
@@ -1178,11 +1181,7 @@ func describeNamedGroups[T any](
 		return result, "", nil
 	}
 
-	for _, item := range store {
-		all = append(all, item)
-	}
-
-	result, newNextToken := paginateList(all, maxResults, nextToken, nameOf, copyFn)
+	result, newNextToken := paginateList(tbl.All(), maxResults, nextToken, nameOf, copyFn)
 
 	return result, newNextToken, nil
 }
@@ -1196,7 +1195,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 	b.mu.Lock("UpdateParameterGroup")
 	defer b.mu.Unlock()
 
-	pg, ok := b.paramGroups[input.ParameterGroupName]
+	pg, ok := b.paramGroups.Get(input.ParameterGroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
 	}
@@ -1230,7 +1229,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 		pg.Parameters[pv.ParameterName] = pv.ParameterValue
 	}
 
-	for _, cluster := range b.clusters {
+	for _, cluster := range b.clusters.All() {
 		if cluster.ParameterGroup.ParameterGroupName != input.ParameterGroupName {
 			continue
 		}
@@ -1257,18 +1256,18 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) error {
 	b.mu.Lock("DeleteParameterGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.paramGroups[name]; !ok {
+	if !b.paramGroups.Has(name) {
 		return fmt.Errorf("%w: %s", ErrParameterGroupNotFound, name)
 	}
 
-	for _, cluster := range b.clusters {
+	for _, cluster := range b.clusters.All() {
 		if cluster.ParameterGroup.ParameterGroupName == name {
 			return fmt.Errorf("%w: parameter group %s is in use by cluster %s",
 				ErrParameterGroupInUse, name, cluster.ClusterName)
 		}
 	}
 
-	delete(b.paramGroups, name)
+	b.paramGroups.Delete(name)
 
 	return nil
 }
@@ -1330,7 +1329,7 @@ func (b *InMemoryBackend) DescribeParameters(
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
 
-	pg, ok := b.paramGroups[paramGroupName]
+	pg, ok := b.paramGroups.Get(paramGroupName)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: %s", ErrParameterGroupNotFound, paramGroupName)
 	}
@@ -1385,7 +1384,7 @@ func (b *InMemoryBackend) ResetParameterGroup(name string, parameterNames []stri
 	b.mu.Lock("ResetParameterGroup")
 	defer b.mu.Unlock()
 
-	pg, ok := b.paramGroups[name]
+	pg, ok := b.paramGroups.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, name)
 	}
@@ -1423,7 +1422,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 	b.mu.Lock("CreateSubnetGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subnetGroups[name]; exists {
+	if b.subnetGroups.Has(name) {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetGroupAlreadyExists, name)
 	}
 
@@ -1437,7 +1436,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(
 		Subnets:         subnets,
 	}
 
-	b.subnetGroups[name] = sg
+	b.subnetGroups.Put(sg)
 
 	b.emitEventLocked(name, EventSourceTypeSubnetGroup,
 		fmt.Sprintf("Subnet group %s created.", name))
@@ -1475,7 +1474,7 @@ func (b *InMemoryBackend) UpdateSubnetGroup(input UpdateSubnetGroupInput) (*Subn
 	b.mu.Lock("UpdateSubnetGroup")
 	defer b.mu.Unlock()
 
-	sg, ok := b.subnetGroups[input.SubnetGroupName]
+	sg, ok := b.subnetGroups.Get(input.SubnetGroupName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, input.SubnetGroupName)
 	}
@@ -1504,18 +1503,18 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 	b.mu.Lock("DeleteSubnetGroup")
 	defer b.mu.Unlock()
 
-	if _, ok := b.subnetGroups[name]; !ok {
+	if !b.subnetGroups.Has(name) {
 		return fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, name)
 	}
 
-	for _, cluster := range b.clusters {
+	for _, cluster := range b.clusters.All() {
 		if cluster.SubnetGroupName == name {
 			return fmt.Errorf("%w: subnet group %s is in use by cluster %s",
 				ErrSubnetGroupInUse, name, cluster.ClusterName)
 		}
 	}
 
-	delete(b.subnetGroups, name)
+	b.subnetGroups.Delete(name)
 
 	return nil
 }
@@ -1599,10 +1598,8 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	b.clusters = make(map[string]*Cluster)
+	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
-	b.paramGroups = make(map[string]*ParameterGroup)
-	b.subnetGroups = make(map[string]*SubnetGroup)
 	b.events = make([]*Event, 0)
 
 	b.seedDefaults()
@@ -1629,23 +1626,17 @@ func (b *InMemoryBackend) emitEventLocked(sourceName, sourceType, message string
 func (b *InMemoryBackend) arnExists(arnStr string) bool {
 	clusterPrefix := arn.Build("dax", b.Region, b.AccountID, "cache/")
 	if name, ok := strings.CutPrefix(arnStr, clusterPrefix); ok {
-		_, exists := b.clusters[name]
-
-		return exists
+		return b.clusters.Has(name)
 	}
 
 	paramPrefix := arn.Build("dax", b.Region, b.AccountID, "parametergroup/")
 	if name, ok := strings.CutPrefix(arnStr, paramPrefix); ok {
-		_, exists := b.paramGroups[name]
-
-		return exists
+		return b.paramGroups.Has(name)
 	}
 
 	subnetPrefix := arn.Build("dax", b.Region, b.AccountID, "subnetgroup/")
 	if name, ok := strings.CutPrefix(arnStr, subnetPrefix); ok {
-		_, exists := b.subnetGroups[name]
-
-		return exists
+		return b.subnetGroups.Has(name)
 	}
 
 	return false
@@ -1656,7 +1647,9 @@ func (b *InMemoryBackend) arnExists(arnStr string) bool {
 func (b *InMemoryBackend) clusterByARN(arnStr string) *Cluster {
 	prefix := arn.Build("dax", b.Region, b.AccountID, "cache/")
 	if name, ok := strings.CutPrefix(arnStr, prefix); ok {
-		return b.clusters[name]
+		c, _ := b.clusters.Get(name)
+
+		return c
 	}
 
 	return nil
@@ -1796,11 +1789,11 @@ func (b *InMemoryBackend) GetDefaultTTL() (time.Duration, time.Duration) {
 	recordTTL := defaultTTL
 	queryTTL := defaultTTL
 
-	for _, c := range b.clusters {
+	b.clusters.Range(func(c *Cluster) bool {
 		pgName := c.ParameterGroup.ParameterGroupName
-		pg, ok := b.paramGroups[pgName]
+		pg, ok := b.paramGroups.Get(pgName)
 		if !ok {
-			break
+			return false
 		}
 
 		if val, has := pg.Parameters[paramRecordTTL]; has {
@@ -1814,8 +1807,8 @@ func (b *InMemoryBackend) GetDefaultTTL() (time.Duration, time.Duration) {
 			}
 		}
 
-		break // just use the first cluster's param group
-	}
+		return false // just use the first cluster's param group
+	})
 
 	return recordTTL, queryTTL
 }

@@ -10,7 +10,7 @@ func (b *InMemoryBackend) CapacityProviderCount() int {
 	b.mu.RLock("CapacityProviderCount")
 	defer b.mu.RUnlock()
 
-	return len(b.capacityProviders)
+	return b.capacityProviders.Len()
 }
 
 // ServiceDeploymentCount returns the number of service deployments (test helper).
@@ -18,7 +18,7 @@ func (b *InMemoryBackend) ServiceDeploymentCount() int {
 	b.mu.RLock("ServiceDeploymentCount")
 	defer b.mu.RUnlock()
 
-	return len(b.serviceDeployments)
+	return b.serviceDeployments.Len()
 }
 
 // AccountSettingCount returns the number of account settings (test helper).
@@ -26,7 +26,7 @@ func (b *InMemoryBackend) AccountSettingCount() int {
 	b.mu.RLock("AccountSettingCount")
 	defer b.mu.RUnlock()
 
-	return len(b.accountSettings)
+	return b.accountSettings.Len()
 }
 
 // AttributeCount returns the number of attributes for a cluster (test helper).
@@ -42,7 +42,7 @@ func (b *InMemoryBackend) ExpressGatewayServiceCount() int {
 	b.mu.RLock("ExpressGatewayServiceCount")
 	defer b.mu.RUnlock()
 
-	return len(b.expressGatewayServices)
+	return b.expressGatewayServices.Len()
 }
 
 // GetServicesForReconcilerForTest exposes getServicesForReconciler for tests.

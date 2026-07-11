@@ -174,7 +174,7 @@ func (b *InMemoryBackend) GetStorageLensGroup(accountID, name string) (*StorageL
 	b.mu.RLock("GetStorageLensGroup")
 	defer b.mu.RUnlock()
 
-	grp, ok := b.storageLensGroups[accountID+":"+name]
+	grp, ok := b.storageLensGroups.Get(accountID + ":" + name)
 	if !ok {
 		return nil, errStorageLensGroupNotFound
 	}
@@ -189,7 +189,7 @@ func (b *InMemoryBackend) UpdateStorageLensGroup(accountID, name string) (*Stora
 	b.mu.Lock("UpdateStorageLensGroup")
 	defer b.mu.Unlock()
 
-	grp, ok := b.storageLensGroups[accountID+":"+name]
+	grp, ok := b.storageLensGroups.Get(accountID + ":" + name)
 	if !ok {
 		return nil, errStorageLensGroupNotFound
 	}
@@ -205,11 +205,9 @@ func (b *InMemoryBackend) DeleteStorageLensGroup(accountID, name string) error {
 	defer b.mu.Unlock()
 
 	key := accountID + ":" + name
-	if _, ok := b.storageLensGroups[key]; !ok {
+	if !b.storageLensGroups.Delete(key) {
 		return errStorageLensGroupNotFound
 	}
-
-	delete(b.storageLensGroups, key)
 
 	return nil
 }
@@ -219,11 +217,10 @@ func (b *InMemoryBackend) ListStorageLensGroups(accountID string) []*StorageLens
 	b.mu.RLock("ListStorageLensGroups")
 	defer b.mu.RUnlock()
 
-	prefix := accountID + ":"
 	var out []*StorageLensGroup
 
-	for k, v := range b.storageLensGroups {
-		if strings.HasPrefix(k, prefix) {
+	for _, v := range b.storageLensGroups.All() {
+		if v.AccountID == accountID {
 			cp := *v
 			out = append(out, &cp)
 		}

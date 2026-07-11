@@ -3,14 +3,35 @@ package kinesisanalytics
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// kinesisanalyticsSnapshotVersion identifies the shape of [backendSnapshot].
+// It must be bumped whenever a change to the persisted Application shape or
+// backendSnapshot itself would make an older snapshot unsafe to decode as
+// the current shape. Restore discards (rather than partially decodes) any
+// mismatch -- see Restore below. This is version 1: the first snapshot
+// format built on top of pkgs/store's Table/Registry (the prior format
+// persisted a bare region-nested map with no version field at all, so it
+// always decodes as Version 0 and is treated as incompatible).
+const kinesisanalyticsSnapshotVersion = 1
+
+// backendSnapshot is the persisted form of the backend.
+//
+// Tables holds one JSON-encoded array per table registered on b.registry --
+// currently just "apps" ([]*Application), produced by
+// [github.com/blackbirdworks/gopherstack/pkgs/store.Registry.SnapshotAll].
+// Application is persisted directly (no DTO) because every field, including
+// the additive Region, already round-trips through encoding/json.
 type backendSnapshot struct {
-	Apps   map[string]map[string]*Application `json:"apps"`
-	NextID int64                              `json:"next_id"`
+	Tables    map[string]json.RawMessage `json:"tables"`
+	AccountID string                     `json:"accountID"`
+	Region    string                     `json:"region"`
+	NextID    int64                      `json:"next_id"`
+	Version   int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,19 +40,19 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	appsCopy := make(map[string]map[string]*Application, len(b.apps))
+	tables, err := b.registry.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "kinesisanalytics: snapshot table marshal failed", "error", err)
 
-	for region, regionApps := range b.apps {
-		appsCopy[region] = make(map[string]*Application, len(regionApps))
-
-		for k, v := range regionApps {
-			appsCopy[region][k] = appCopy(v)
-		}
+		return nil
 	}
 
 	snap := backendSnapshot{
-		Apps:   appsCopy,
-		NextID: b.nextID,
+		Version:   kinesisanalyticsSnapshotVersion,
+		Tables:    tables,
+		AccountID: b.accountID,
+		Region:    b.defaultRegion,
+		NextID:    b.nextID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -56,25 +77,30 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if snap.Apps == nil {
-		snap.Apps = make(map[string]map[string]*Application)
+	if snap.Version != kinesisanalyticsSnapshotVersion {
+		// An incompatible (older/newer/absent) snapshot version must never be
+		// partially decoded as the current shape -- that risks silently
+		// misinterpreting fields (e.g. the pre-store region-nested map format
+		// this version replaced). Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition, not
+		// data corruption.
+		logger.Load(ctx).WarnContext(ctx,
+			"kinesisanalytics: discarding incompatible snapshot version, starting empty",
+			"gotVersion", snap.Version, "wantVersion", kinesisanalyticsSnapshotVersion)
+
+		b.registry.ResetAll()
+		b.nextID = 0
+
+		return nil
 	}
 
-	b.apps = snap.Apps
+	if err := b.registry.RestoreAll(snap.Tables); err != nil {
+		return fmt.Errorf("kinesisanalytics: restore snapshot tables: %w", err)
+	}
+
+	b.accountID = snap.AccountID
+	b.defaultRegion = snap.Region
 	b.nextID = snap.NextID
-
-	// Rebuild ARN index from restored applications.
-	b.appsByARN = make(map[string]map[string]*Application, len(b.apps))
-
-	for region, regionApps := range b.apps {
-		for _, app := range regionApps {
-			if b.appsByARN[region] == nil {
-				b.appsByARN[region] = make(map[string]*Application)
-			}
-
-			b.appsByARN[region][app.ApplicationARN] = app
-		}
-	}
 
 	return nil
 }

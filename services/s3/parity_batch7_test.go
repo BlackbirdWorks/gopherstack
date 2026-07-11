@@ -40,6 +40,9 @@ func TestS3BucketReplication_PutObjectReplicates(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, "create bucket %s", b)
 	}
 
+	// Real S3 requires versioning enabled on the source before replication.
+	enableVersioning(t, handler, src)
+
 	cfgXML := fmt.Sprintf(`<ReplicationConfiguration>
 <Role>arn:aws:iam::123456789012:role/repl</Role>
 <Rule>
@@ -88,6 +91,9 @@ func TestS3BucketReplication_PrefixFilter(t *testing.T) {
 		serveS3Handler(handler, rec, req)
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
+
+	// Real S3 requires versioning enabled on the source before replication.
+	enableVersioning(t, handler, src)
 
 	cfgXML := fmt.Sprintf(`<ReplicationConfiguration>
 <Role>arn:aws:iam::123456789012:role/repl</Role>

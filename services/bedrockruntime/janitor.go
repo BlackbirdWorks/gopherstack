@@ -42,7 +42,7 @@ func (b *InMemoryBackend) advanceAsyncInvokes(ctx context.Context) {
 	now := time.Now()
 	advancedCount := 0
 
-	for _, inv := range b.asyncInvokes {
+	for _, inv := range b.asyncInvokes.All() {
 		if inv.Status != AsyncInvokeStatusInProgress {
 			continue
 		}
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) sweepOldInvocations(ctx context.Context) {
 	cutoff := now.Add(-defaultAsyncInvokeRetention)
 	removedCount := 0
 
-	for arn, inv := range b.asyncInvokes {
+	for _, inv := range b.asyncInvokes.All() {
 		// Only remove if it's finished (Completed/Failed) and old,
 		// or if it's been in progress for a suspiciously long time (e.g. 48h).
 		shouldRemove := false
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) sweepOldInvocations(ctx context.Context) {
 			if inv.ClientRequestToken != nil {
 				delete(b.tokenIndex, *inv.ClientRequestToken)
 			}
-			delete(b.asyncInvokes, arn)
+			b.asyncInvokes.Delete(inv.InvocationArn)
 			removedCount++
 		}
 	}

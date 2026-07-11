@@ -2,6 +2,7 @@ package inspector2
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
 
 // --- sentinel errors ---
@@ -223,51 +223,14 @@ type AccountPermission struct {
 }
 
 // --- InMemoryBackend extension: appendix A fields ---
-// Fields are added to InMemoryBackend by extending the Snapshot/Restore cycle
-// and the Reset method via init-time patching isn't possible in Go;
-// instead we embed the appendix state in a separate struct and store a pointer.
-
-// appendixAState holds all appendix A data.
-type appendixAState struct {
-	CodeSecurityIntegrations map[string]*CodeSecurityIntegration                    `json:"codeSecurityIntegrations"`
-	CisScanConfigs           map[string]*CisScanConfiguration                       `json:"cisScanConfigs"`
-	CisScans                 map[string]*CisScan                                    `json:"cisScans"`
-	SbomExports              map[string]*SbomExport                                 `json:"sbomExports"`
-	FindingsReports          map[string]*FindingsReport                             `json:"findingsReports"`
-	CodeSecurityScans        map[string]map[string]any                              `json:"codeSecurityScans"`
-	MemberEc2Status          map[string]*MemberEc2DeepInspectionStatus              `json:"memberEc2Status"`
-	DelegatedAdmins          map[string]*DelegatedAdminAccount                      `json:"delegatedAdmins"`
-	CodeSecurityScanConfigs  map[string]*CodeSecurityScanConfiguration              `json:"codeSecurityScanConfigs"`
-	EncryptionKeys           map[string]*EncryptionKey                              `json:"encryptionKeys"`
-	Members                  map[string]*Member                                     `json:"members"`
-	CisSessions              map[string]*CisSession                                 `json:"cisSessions"`
-	ScanConfigAssociations   map[string][]*CodeSecurityScanConfigurationAssociation `json:"scanConfigAssociations"`
-	Ec2DeepConfig            Ec2DeepInspectionConfig                                `json:"ec2DeepConfig"`
-	OrgEc2Config             OrgEc2DeepInspectionConfig                             `json:"orgEc2Config"`
-	OrgConfig                OrgConfiguration                                       `json:"orgConfig"`
-}
-
-func newAppendixAState() *appendixAState {
-	return &appendixAState{
-		Members:                  make(map[string]*Member),
-		DelegatedAdmins:          make(map[string]*DelegatedAdminAccount),
-		MemberEc2Status:          make(map[string]*MemberEc2DeepInspectionStatus),
-		EncryptionKeys:           make(map[string]*EncryptionKey),
-		CisScanConfigs:           make(map[string]*CisScanConfiguration),
-		CisScans:                 make(map[string]*CisScan),
-		CisSessions:              make(map[string]*CisSession),
-		CodeSecurityIntegrations: make(map[string]*CodeSecurityIntegration),
-		CodeSecurityScanConfigs:  make(map[string]*CodeSecurityScanConfiguration),
-		ScanConfigAssociations:   make(map[string][]*CodeSecurityScanConfigurationAssociation),
-		CodeSecurityScans:        make(map[string]map[string]any),
-		FindingsReports:          make(map[string]*FindingsReport),
-		SbomExports:              make(map[string]*SbomExport),
-		Ec2DeepConfig: Ec2DeepInspectionConfig{
-			Status:       statusDisabled,
-			PackagePaths: []string{},
-		},
-	}
-}
+// The appendix A resource collections (members, delegated admins, CIS scan
+// configs/scans/sessions, code security integrations/scan configs, findings
+// reports, SBOM exports, encryption keys, scan config associations) are
+// store.Table/store.Index fields declared directly on InMemoryBackend (see
+// backend.go's struct and store_setup.go's registerAllTables) rather than
+// grouped behind a separate appendixAState pointer -- that indirection was a
+// historical artifact of incremental development predating Phase 3.3's
+// datalayer refactor, not a structural requirement.
 
 // --- ARN builders ---
 
@@ -302,12 +265,12 @@ func (b *InMemoryBackend) AssociateMember(accountID string) error {
 		return fmt.Errorf("%w: accountId is required", ErrValidation)
 	}
 
-	b.ax.Members[accountID] = &Member{
+	b.members.Put(&Member{
 		AccountID:               accountID,
 		DelegatedAdminAccountID: b.accountID,
 		RelationshipStatus:      "ENABLED", //nolint:goconst // existing issue.
 		UpdatedAt:               time.Now().UTC(),
-	}
+	})
 
 	return nil
 }
@@ -317,11 +280,9 @@ func (b *InMemoryBackend) DisassociateMember(accountID string) error {
 	b.mu.Lock("DisassociateMember")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.Members[accountID]; !ok {
+	if !b.members.Delete(accountID) {
 		return ErrMemberNotFound
 	}
-
-	delete(b.ax.Members, accountID)
 
 	return nil
 }
@@ -331,7 +292,7 @@ func (b *InMemoryBackend) GetMember(accountID string) (*Member, error) {
 	b.mu.RLock("GetMember")
 	defer b.mu.RUnlock()
 
-	m, ok := b.ax.Members[accountID]
+	m, ok := b.members.Get(accountID)
 	if !ok {
 		return nil, ErrMemberNotFound
 	}
@@ -346,12 +307,9 @@ func (b *InMemoryBackend) ListMembers(onlyAssociated bool) ([]*Member, error) {
 	b.mu.RLock("ListMembers")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.ax.Members)
+	result := make([]*Member, 0, b.members.Len())
 
-	result := make([]*Member, 0, len(ids))
-
-	for _, id := range ids {
-		m := b.ax.Members[id]
+	for _, m := range b.members.Snapshot() {
 		if onlyAssociated && m.RelationshipStatus != "ENABLED" {
 			continue
 		}
@@ -374,14 +332,14 @@ func (b *InMemoryBackend) EnableDelegatedAdminAccount(accountID string) error {
 		return fmt.Errorf("%w: accountId is required", ErrValidation)
 	}
 
-	if existing, ok := b.ax.DelegatedAdmins[accountID]; ok && existing.Status == "ENABLED" {
+	if existing, ok := b.delegatedAdmins.Get(accountID); ok && existing.Status == "ENABLED" {
 		return ErrDelegatedAdminAlreadyExists
 	}
 
-	b.ax.DelegatedAdmins[accountID] = &DelegatedAdminAccount{
+	b.delegatedAdmins.Put(&DelegatedAdminAccount{
 		AccountID: accountID,
 		Status:    "ENABLED",
-	}
+	})
 
 	return nil
 }
@@ -391,11 +349,9 @@ func (b *InMemoryBackend) DisableDelegatedAdminAccount(accountID string) error {
 	b.mu.Lock("DisableDelegatedAdminAccount")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.DelegatedAdmins[accountID]; !ok {
+	if !b.delegatedAdmins.Delete(accountID) {
 		return ErrDelegatedAdminNotFound
 	}
-
-	delete(b.ax.DelegatedAdmins, accountID)
 
 	return nil
 }
@@ -405,7 +361,7 @@ func (b *InMemoryBackend) GetDelegatedAdminAccount() (*DelegatedAdminAccount, er
 	b.mu.RLock("GetDelegatedAdminAccount")
 	defer b.mu.RUnlock()
 
-	for _, d := range b.ax.DelegatedAdmins {
+	for _, d := range b.delegatedAdmins.Snapshot() {
 		cp := *d
 
 		return &cp, nil
@@ -419,12 +375,10 @@ func (b *InMemoryBackend) ListDelegatedAdminAccounts() ([]*DelegatedAdminAccount
 	b.mu.RLock("ListDelegatedAdminAccounts")
 	defer b.mu.RUnlock()
 
-	ids := collections.SortedKeys(b.ax.DelegatedAdmins)
+	result := make([]*DelegatedAdminAccount, 0, b.delegatedAdmins.Len())
 
-	result := make([]*DelegatedAdminAccount, 0, len(ids))
-
-	for _, id := range ids {
-		cp := *b.ax.DelegatedAdmins[id]
+	for _, d := range b.delegatedAdmins.Snapshot() {
+		cp := *d
 		result = append(result, &cp)
 	}
 
@@ -438,7 +392,7 @@ func (b *InMemoryBackend) DescribeOrganizationConfiguration() OrgConfiguration {
 	b.mu.RLock("DescribeOrganizationConfiguration")
 	defer b.mu.RUnlock()
 
-	return b.ax.OrgConfig
+	return b.orgConfig
 }
 
 // UpdateOrganizationConfiguration updates org-level Inspector2 configuration.
@@ -446,7 +400,7 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(cfg OrgConfiguration) 
 	b.mu.Lock("UpdateOrganizationConfiguration")
 	defer b.mu.Unlock()
 
-	b.ax.OrgConfig = cfg
+	b.orgConfig = cfg
 
 	return nil
 }
@@ -458,8 +412,8 @@ func (b *InMemoryBackend) GetEc2DeepInspectionConfiguration() Ec2DeepInspectionC
 	b.mu.RLock("GetEc2DeepInspectionConfiguration")
 	defer b.mu.RUnlock()
 
-	cp := b.ax.Ec2DeepConfig
-	cp.PackagePaths = append([]string(nil), b.ax.Ec2DeepConfig.PackagePaths...)
+	cp := b.ec2DeepConfig
+	cp.PackagePaths = append([]string(nil), b.ec2DeepConfig.PackagePaths...)
 
 	return cp
 }
@@ -469,8 +423,8 @@ func (b *InMemoryBackend) UpdateEc2DeepInspectionConfiguration(paths []string) e
 	b.mu.Lock("UpdateEc2DeepInspectionConfiguration")
 	defer b.mu.Unlock()
 
-	b.ax.Ec2DeepConfig.PackagePaths = append([]string(nil), paths...)
-	b.ax.Ec2DeepConfig.Status = statusEnabled
+	b.ec2DeepConfig.PackagePaths = append([]string(nil), paths...)
+	b.ec2DeepConfig.Status = statusEnabled
 
 	return nil
 }
@@ -480,7 +434,7 @@ func (b *InMemoryBackend) UpdateOrgEc2DeepInspectionConfiguration(paths []string
 	b.mu.Lock("UpdateOrgEc2DeepInspectionConfiguration")
 	defer b.mu.Unlock()
 
-	b.ax.OrgEc2Config.CustomPaths = append([]string(nil), paths...)
+	b.orgEc2Config.CustomPaths = append([]string(nil), paths...)
 
 	return nil
 }
@@ -493,7 +447,7 @@ func (b *InMemoryBackend) BatchGetMemberEc2DeepInspectionStatus(accountIDs []str
 	result := make([]*MemberEc2DeepInspectionStatus, 0, len(accountIDs))
 
 	for _, id := range accountIDs {
-		if s, ok := b.ax.MemberEc2Status[id]; ok {
+		if s, ok := b.memberEc2Status.Get(id); ok {
 			cp := *s
 			result = append(result, &cp)
 		} else {
@@ -524,7 +478,7 @@ func (b *InMemoryBackend) BatchUpdateMemberEc2DeepInspectionStatus(
 			PackagePaths: paths,
 			Status:       statusEnabled,
 		}
-		b.ax.MemberEc2Status[u.AccountID] = s
+		b.memberEc2Status.Put(s)
 		cp := *s
 		result = append(result, &cp)
 	}
@@ -540,7 +494,7 @@ func (b *InMemoryBackend) GetEncryptionKey(resourceType, scanType string) (*Encr
 	defer b.mu.RUnlock()
 
 	key := resourceType + "/" + scanType
-	if k, ok := b.ax.EncryptionKeys[key]; ok {
+	if k, ok := b.encryptionKeys.Get(key); ok {
 		cp := *k
 
 		return &cp, nil
@@ -560,7 +514,7 @@ func (b *InMemoryBackend) ResetEncryptionKey(resourceType, scanType string) erro
 	defer b.mu.Unlock()
 
 	key := resourceType + "/" + scanType
-	delete(b.ax.EncryptionKeys, key)
+	b.encryptionKeys.Delete(key)
 
 	return nil
 }
@@ -574,12 +528,11 @@ func (b *InMemoryBackend) UpdateEncryptionKey(kmsKeyID, resourceType, scanType s
 		return fmt.Errorf("%w: kmsKeyId, resourceType, and scanType are required", ErrValidation)
 	}
 
-	key := resourceType + "/" + scanType
-	b.ax.EncryptionKeys[key] = &EncryptionKey{
+	b.encryptionKeys.Put(&EncryptionKey{
 		KmsKeyID:     kmsKeyID,
 		ResourceType: resourceType,
 		ScanType:     scanType,
-	}
+	})
 
 	return nil
 }
@@ -613,14 +566,14 @@ func (b *InMemoryBackend) CreateCisScanConfiguration(
 		ScheduleV2: schedule,
 		Targets:    targets,
 	}
-	b.ax.CisScanConfigs[cfgARN] = cfg
+	b.cisScanConfigs.Put(cfg)
 
 	// Materialize a completed scan run for the config so the result/report/
 	// aggregation operations reflect real configuration state instead of canned
 	// data. Real AWS runs scans asynchronously on the configured schedule; we
 	// model the steady-state outcome at creation time.
 	scan := b.buildCisScanForConfig(cfg)
-	b.ax.CisScans[scan.ScanArn] = scan
+	b.cisScans.Put(scan)
 
 	return cfg, nil
 }
@@ -722,18 +675,16 @@ func (b *InMemoryBackend) DeleteCisScanConfiguration(configARN string) error {
 	b.mu.Lock("DeleteCisScanConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.CisScanConfigs[configARN]; !ok {
+	if !b.cisScanConfigs.Delete(configARN) {
 		return ErrCisScanConfigNotFound
 	}
 
-	delete(b.ax.CisScanConfigs, configARN)
-
 	// Drop any scans materialized from this configuration so list/result
-	// operations stop reporting them.
-	for scanARN, s := range b.ax.CisScans {
-		if s.ScanConfigurationArn == configARN {
-			delete(b.ax.CisScans, scanARN)
-		}
+	// operations stop reporting them. slices.Clone is required here: the
+	// index's returned slice mutates in place as each Delete below removes an
+	// entry from it.
+	for _, s := range slices.Clone(b.cisScansByConfig.Get(configARN)) {
+		b.cisScans.Delete(s.ScanArn)
 	}
 
 	return nil
@@ -749,7 +700,7 @@ func (b *InMemoryBackend) UpdateCisScanConfiguration(
 	b.mu.Lock("UpdateCisScanConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.ax.CisScanConfigs[configARN]
+	cfg, ok := b.cisScanConfigs.Get(configARN)
 	if !ok {
 		return nil, ErrCisScanConfigNotFound
 	}
@@ -774,12 +725,10 @@ func (b *InMemoryBackend) ListCisScanConfigurations() ([]*CisScanConfiguration, 
 	b.mu.RLock("ListCisScanConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.ax.CisScanConfigs)
+	result := make([]*CisScanConfiguration, 0, b.cisScanConfigs.Len())
 
-	result := make([]*CisScanConfiguration, 0, len(arns))
-
-	for _, a := range arns {
-		cp := *b.ax.CisScanConfigs[a]
+	for _, cfg := range b.cisScanConfigs.Snapshot() {
+		cp := *cfg
 		result = append(result, &cp)
 	}
 
@@ -803,7 +752,7 @@ func (b *InMemoryBackend) StartCisSession(scanJobID, sessionToken string) (*CisS
 		Status:       "ACTIVE", //nolint:goconst // existing issue.
 		StartedAt:    time.Now().UTC(),
 	}
-	b.ax.CisSessions[scanJobID] = sess
+	b.cisSessions.Put(sess)
 
 	return sess, nil
 }
@@ -813,7 +762,7 @@ func (b *InMemoryBackend) StopCisSession(scanJobID string) error {
 	b.mu.Lock("StopCisSession")
 	defer b.mu.Unlock()
 
-	sess, ok := b.ax.CisSessions[scanJobID]
+	sess, ok := b.cisSessions.Get(scanJobID)
 	if !ok {
 		return ErrCisSessionNotFound
 	}
@@ -836,14 +785,12 @@ func (b *InMemoryBackend) SendCisSessionTelemetry(_ string, _ map[string]any) er
 // findCisScan returns the stored scan for either its scan ARN or the ARN of the
 // configuration that produced it. Caller must hold at least an RLock.
 func (b *InMemoryBackend) findCisScan(scanOrConfigARN string) *CisScan {
-	if s, ok := b.ax.CisScans[scanOrConfigARN]; ok {
+	if s, ok := b.cisScans.Get(scanOrConfigARN); ok {
 		return s
 	}
 
-	for _, s := range b.ax.CisScans {
-		if s.ScanConfigurationArn == scanOrConfigARN {
-			return s
-		}
+	if matches := b.cisScansByConfig.Get(scanOrConfigARN); len(matches) > 0 {
+		return matches[0]
 	}
 
 	return nil
@@ -915,12 +862,9 @@ func (b *InMemoryBackend) ListCisScans() ([]map[string]any, error) {
 	b.mu.RLock("ListCisScans")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.ax.CisScans)
+	result := make([]map[string]any, 0, b.cisScans.Len())
 
-	result := make([]map[string]any, 0, len(arns))
-
-	for _, a := range arns {
-		s := b.ax.CisScans[a]
+	for _, s := range b.cisScans.Snapshot() {
 		result = append(result, map[string]any{
 			keyScanArn:              s.ScanArn,
 			keyScanConfigurationArn: s.ScanConfigurationArn,
@@ -1097,7 +1041,7 @@ func (b *InMemoryBackend) CreateCodeSecurityIntegration(
 		UpdatedAt:      now,
 	}
 	_ = details
-	b.ax.CodeSecurityIntegrations[integARN] = integ
+	b.codeSecurityIntegrations.Put(integ)
 
 	return integ, nil
 }
@@ -1107,11 +1051,9 @@ func (b *InMemoryBackend) DeleteCodeSecurityIntegration(integrationARN string) e
 	b.mu.Lock("DeleteCodeSecurityIntegration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.CodeSecurityIntegrations[integrationARN]; !ok {
+	if !b.codeSecurityIntegrations.Delete(integrationARN) {
 		return ErrCodeSecurityIntegrationNotFound
 	}
-
-	delete(b.ax.CodeSecurityIntegrations, integrationARN)
 
 	return nil
 }
@@ -1121,7 +1063,7 @@ func (b *InMemoryBackend) GetCodeSecurityIntegration(integrationARN string) (*Co
 	b.mu.RLock("GetCodeSecurityIntegration")
 	defer b.mu.RUnlock()
 
-	integ, ok := b.ax.CodeSecurityIntegrations[integrationARN]
+	integ, ok := b.codeSecurityIntegrations.Get(integrationARN)
 	if !ok {
 		return nil, ErrCodeSecurityIntegrationNotFound
 	}
@@ -1139,7 +1081,7 @@ func (b *InMemoryBackend) UpdateCodeSecurityIntegration(
 	b.mu.Lock("UpdateCodeSecurityIntegration")
 	defer b.mu.Unlock()
 
-	integ, ok := b.ax.CodeSecurityIntegrations[integrationARN]
+	integ, ok := b.codeSecurityIntegrations.Get(integrationARN)
 	if !ok {
 		return nil, ErrCodeSecurityIntegrationNotFound
 	}
@@ -1157,12 +1099,10 @@ func (b *InMemoryBackend) ListCodeSecurityIntegrations() ([]*CodeSecurityIntegra
 	b.mu.RLock("ListCodeSecurityIntegrations")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.ax.CodeSecurityIntegrations)
+	result := make([]*CodeSecurityIntegration, 0, b.codeSecurityIntegrations.Len())
 
-	result := make([]*CodeSecurityIntegration, 0, len(arns))
-
-	for _, a := range arns {
-		cp := *b.ax.CodeSecurityIntegrations[a]
+	for _, integ := range b.codeSecurityIntegrations.Snapshot() {
+		cp := *integ
 		result = append(result, &cp)
 	}
 
@@ -1201,7 +1141,7 @@ func (b *InMemoryBackend) CreateCodeSecurityScanConfiguration(
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	b.ax.CodeSecurityScanConfigs[cfgARN] = cfg
+	b.codeSecurityScanConfigs.Put(cfg)
 
 	return cfg, nil
 }
@@ -1211,12 +1151,15 @@ func (b *InMemoryBackend) DeleteCodeSecurityScanConfiguration(scanConfigARN stri
 	b.mu.Lock("DeleteCodeSecurityScanConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.CodeSecurityScanConfigs[scanConfigARN]; !ok {
+	if !b.codeSecurityScanConfigs.Delete(scanConfigARN) {
 		return ErrCodeSecurityScanConfigNotFound
 	}
 
-	delete(b.ax.CodeSecurityScanConfigs, scanConfigARN)
-	delete(b.ax.ScanConfigAssociations, scanConfigARN)
+	// slices.Clone is required here: the index's returned slice mutates in
+	// place as each Delete below removes an entry from it.
+	for _, assoc := range slices.Clone(b.scanConfigAssociationsByConfig.Get(scanConfigARN)) {
+		b.scanConfigAssociations.Delete(scanConfigAssociationKeyFn(assoc))
+	}
 
 	return nil
 }
@@ -1228,7 +1171,7 @@ func (b *InMemoryBackend) GetCodeSecurityScanConfiguration(
 	b.mu.RLock("GetCodeSecurityScanConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.ax.CodeSecurityScanConfigs[scanConfigARN]
+	cfg, ok := b.codeSecurityScanConfigs.Get(scanConfigARN)
 	if !ok {
 		return nil, ErrCodeSecurityScanConfigNotFound
 	}
@@ -1247,7 +1190,7 @@ func (b *InMemoryBackend) UpdateCodeSecurityScanConfiguration(
 	b.mu.Lock("UpdateCodeSecurityScanConfiguration")
 	defer b.mu.Unlock()
 
-	cfg, ok := b.ax.CodeSecurityScanConfigs[scanConfigARN]
+	cfg, ok := b.codeSecurityScanConfigs.Get(scanConfigARN)
 	if !ok {
 		return nil, ErrCodeSecurityScanConfigNotFound
 	}
@@ -1271,12 +1214,10 @@ func (b *InMemoryBackend) ListCodeSecurityScanConfigurations() ([]*CodeSecurityS
 	b.mu.RLock("ListCodeSecurityScanConfigurations")
 	defer b.mu.RUnlock()
 
-	arns := collections.SortedKeys(b.ax.CodeSecurityScanConfigs)
+	result := make([]*CodeSecurityScanConfiguration, 0, b.codeSecurityScanConfigs.Len())
 
-	result := make([]*CodeSecurityScanConfiguration, 0, len(arns))
-
-	for _, a := range arns {
-		cp := *b.ax.CodeSecurityScanConfigs[a]
+	for _, cfg := range b.codeSecurityScanConfigs.Snapshot() {
+		cp := *cfg
 		result = append(result, &cp)
 	}
 
@@ -1291,19 +1232,16 @@ func (b *InMemoryBackend) BatchAssociateCodeSecurityScanConfiguration(
 	b.mu.Lock("BatchAssociateCodeSecurityScanConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.CodeSecurityScanConfigs[scanConfigARN]; !ok {
+	if !b.codeSecurityScanConfigs.Has(scanConfigARN) {
 		return nil, ErrCodeSecurityScanConfigNotFound
 	}
 
 	for _, resource := range resources {
-		b.ax.ScanConfigAssociations[scanConfigARN] = append(
-			b.ax.ScanConfigAssociations[scanConfigARN],
-			&CodeSecurityScanConfigurationAssociation{
-				ScanConfigurationArn: scanConfigARN,
-				Resource:             resource,
-				Status:               "ASSOCIATED",
-			},
-		)
+		b.scanConfigAssociations.Put(&CodeSecurityScanConfigurationAssociation{
+			ScanConfigurationArn: scanConfigARN,
+			Resource:             resource,
+			Status:               "ASSOCIATED",
+		})
 	}
 
 	return []map[string]any{}, nil
@@ -1317,25 +1255,13 @@ func (b *InMemoryBackend) BatchDisassociateCodeSecurityScanConfiguration(
 	b.mu.Lock("BatchDisassociateCodeSecurityScanConfiguration")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.CodeSecurityScanConfigs[scanConfigARN]; !ok {
+	if !b.codeSecurityScanConfigs.Has(scanConfigARN) {
 		return nil, ErrCodeSecurityScanConfigNotFound
 	}
 
-	removeSet := make(map[string]bool, len(resources))
-	for _, r := range resources {
-		removeSet[r] = true
+	for _, resource := range resources {
+		b.scanConfigAssociations.Delete(scanConfigARN + "/" + resource)
 	}
-
-	existing := b.ax.ScanConfigAssociations[scanConfigARN]
-	filtered := existing[:0]
-
-	for _, assoc := range existing {
-		if !removeSet[assoc.Resource] {
-			filtered = append(filtered, assoc)
-		}
-	}
-
-	b.ax.ScanConfigAssociations[scanConfigARN] = filtered
 
 	return []map[string]any{}, nil
 }
@@ -1347,9 +1273,10 @@ func (b *InMemoryBackend) ListCodeSecurityScanConfigurationAssociations(
 	b.mu.RLock("ListCodeSecurityScanConfigurationAssociations")
 	defer b.mu.RUnlock()
 
-	result := make([]*CodeSecurityScanConfigurationAssociation, 0, len(b.ax.ScanConfigAssociations[scanConfigARN]))
+	assocs := b.scanConfigAssociationsByConfig.Get(scanConfigARN)
+	result := make([]*CodeSecurityScanConfigurationAssociation, 0, len(assocs))
 
-	for _, assoc := range b.ax.ScanConfigAssociations[scanConfigARN] {
+	for _, assoc := range assocs {
 		cp := *assoc
 		result = append(result, &cp)
 	}
@@ -1368,7 +1295,7 @@ func (b *InMemoryBackend) StartCodeSecurityScan(resourceID string) (map[string]a
 		"resourceId": resourceID,
 		keyStatus:    "IN_PROGRESS",
 	}
-	b.ax.CodeSecurityScans[scanID] = scan
+	b.codeSecurityScans[scanID] = scan
 
 	return map[string]any{"scanId": scanID}, nil
 }
@@ -1378,7 +1305,7 @@ func (b *InMemoryBackend) GetCodeSecurityScan(scanID string) (map[string]any, er
 	b.mu.RLock("GetCodeSecurityScan")
 	defer b.mu.RUnlock()
 
-	scan, ok := b.ax.CodeSecurityScans[scanID]
+	scan, ok := b.codeSecurityScans[scanID]
 	if !ok {
 		return nil, fmt.Errorf("%w: scanId %q not found", ErrReportNotFound, scanID)
 	}
@@ -1400,7 +1327,7 @@ func (b *InMemoryBackend) CreateFindingsReport(destination map[string]any) (*Fin
 		Destination: destination,
 		CreatedAt:   time.Now().UTC(),
 	}
-	b.ax.FindingsReports[reportID] = report
+	b.findingsReports.Put(report)
 
 	return report, nil
 }
@@ -1410,11 +1337,12 @@ func (b *InMemoryBackend) CancelFindingsReport(reportID string) error {
 	b.mu.Lock("CancelFindingsReport")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.FindingsReports[reportID]; !ok {
+	r, ok := b.findingsReports.Get(reportID)
+	if !ok {
 		return ErrReportNotFound
 	}
 
-	b.ax.FindingsReports[reportID].Status = "CANCELLED"
+	r.Status = "CANCELLED"
 
 	return nil
 }
@@ -1426,7 +1354,7 @@ func (b *InMemoryBackend) GetFindingsReportStatus(reportID string) (*FindingsRep
 
 	if reportID == "" {
 		// Return the most recent report if no ID given.
-		for _, r := range b.ax.FindingsReports {
+		for _, r := range b.findingsReports.Snapshot() {
 			cp := *r
 
 			return &cp, nil
@@ -1435,7 +1363,7 @@ func (b *InMemoryBackend) GetFindingsReportStatus(reportID string) (*FindingsRep
 		return nil, ErrReportNotFound
 	}
 
-	r, ok := b.ax.FindingsReports[reportID]
+	r, ok := b.findingsReports.Get(reportID)
 	if !ok {
 		return nil, ErrReportNotFound
 	}
@@ -1459,7 +1387,7 @@ func (b *InMemoryBackend) CreateSbomExport(destination map[string]any) (*SbomExp
 		Destination: destination,
 		CreatedAt:   time.Now().UTC(),
 	}
-	b.ax.SbomExports[reportID] = export
+	b.sbomExports.Put(export)
 
 	return export, nil
 }
@@ -1469,11 +1397,12 @@ func (b *InMemoryBackend) CancelSbomExport(reportID string) error {
 	b.mu.Lock("CancelSbomExport")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ax.SbomExports[reportID]; !ok {
+	e, ok := b.sbomExports.Get(reportID)
+	if !ok {
 		return ErrSbomExportNotFound
 	}
 
-	b.ax.SbomExports[reportID].Status = "CANCELLED"
+	e.Status = "CANCELLED"
 
 	return nil
 }
@@ -1483,7 +1412,7 @@ func (b *InMemoryBackend) GetSbomExport(reportID string) (*SbomExport, error) {
 	b.mu.RLock("GetSbomExport")
 	defer b.mu.RUnlock()
 
-	e, ok := b.ax.SbomExports[reportID]
+	e, ok := b.sbomExports.Get(reportID)
 	if !ok {
 		return nil, ErrSbomExportNotFound
 	}

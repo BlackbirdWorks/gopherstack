@@ -125,8 +125,7 @@ func (b *InMemoryBackend) injectKinesisRecord(region, streamName string, data []
 	b.mu.Lock("injectKinesisRecord")
 	defer b.mu.Unlock()
 
-	streams := b.regionStore(region)
-	s, ok := streams[streamName]
+	s, ok := b.streams.Get(regionKey(region, streamName))
 	if !ok {
 		return fmt.Errorf("%w: stream %s not found in region %s", ErrNotFound, streamName, region)
 	}
