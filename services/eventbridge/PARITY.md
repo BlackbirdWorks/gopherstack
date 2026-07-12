@@ -1,8 +1,8 @@
 ---
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.45.21
-last_audit_commit: 9f336807
-last_audit_date: 2026-07-05
+last_audit_commit: f615e2f8
+last_audit_date: 2026-07-11
 overall: A
 ops:
   CreateEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "name length/prefix validation, 200-per-account custom-bus limit enforced across regions"}
@@ -79,7 +79,23 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 
 ## Notes
 
-Freeform findings from this sweep (gopherstack-b84), for the next auditor.
+### Re-audit sweep (parity-4, 2026-07-11) -- no drift, no bugs found
+
+`git diff ce30166a..f615e2f8 -- services/eventbridge/` is empty: zero files under this
+service changed since the prior sweep's baseline commit. `aws-sdk-go-v2/service/eventbridge`
+is still pinned at v1.45.21 (go.mod unchanged) -- same SDK surface as last audited.
+Independently re-derived the SDK's real operation set from
+`aws-sdk-go-v2/service/eventbridge@v1.45.21`'s `api_op_*.go` files (57 ops) and diffed
+against `Handler.GetSupportedOperations()`: all 57 are present (plus the two non-SDK
+helpers `GetEventBusPolicy`/`PutEventBusPolicy` and the separate-control-plane Pipes/Schema
+Registry ops already noted below) -- no missing or newly-added AWS op this sweep. Per the
+re-audit protocol, all unchanged `ok` rows above were trusted as-is; additionally
+spot-re-checked `PutPermission`/`RemovePermission` (backend.go) since the prior sweep had
+marked that pair "spot-checked only" -- both still validate the event bus exists, require
+`StatementId` for the non-raw-`Policy` path, and correctly no-op `RemovePermission` when no
+matching statement/policy exists (matches AWS's idempotent-remove semantics). All gates
+(`go build`, `go vet`, `go test -race`, `go fix -diff`, `golangci-lint run`, all scoped to
+`services/eventbridge/...`) pass clean with zero findings. No code changes made this sweep.
 
 ### Fixed this sweep (severe/high-value first)
 
