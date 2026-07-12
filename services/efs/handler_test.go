@@ -245,6 +245,28 @@ func TestMountTargetCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
+		{
+			// AWS EFS's SecurityGroupLimitExceeded error has httpStatusCode 400 in the
+			// service model (botocore efs/service-2.json), not 409 -- it's a client
+			// input-validation error (too many security groups), not a resource conflict.
+			name: "create_mount_target_too_many_security_groups_returns_400",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "sg-limit-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
+					"FileSystemId":   fsID,
+					"SubnetId":       "subnet-abc",
+					"SecurityGroups": []string{"sg-1", "sg-2", "sg-3", "sg-4", "sg-5", "sg-6"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec2.Code)
+				assert.Equal(t, "SecurityGroupLimitExceeded", parseResp(t, rec2)["ErrorCode"])
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -360,14 +382,15 @@ func TestTagOperations(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 				fsID := parseResp(t, rec)["FileSystemId"].(string)
 
-				// Tag the resource.
-				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+fsID, map[string]any{
+				// Tag the resource. Real aws-sdk-go-v2 sends TagResource to
+				// "/2015-02-01/resource-tags/{ResourceId}", not "/2015-02-01/tags/...".
+				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/resource-tags/"+fsID, map[string]any{
 					"Tags": []map[string]string{{"Key": "Env", "Value": "prod"}},
 				})
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				// List tags.
-				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+fsID, nil)
+				rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/resource-tags/"+fsID, nil)
 				assert.Equal(t, http.StatusOK, rec3.Code)
 				resp := parseResp(t, rec3)
 				tagsList := resp["Tags"].([]any)
@@ -378,7 +401,7 @@ func TestTagOperations(t *testing.T) {
 			name: "list_tags_non_existent_returns_404",
 			ops: func(t *testing.T, h *efs.Handler) {
 				t.Helper()
-				rec := doREST(t, h, http.MethodGet, "/2015-02-01/tags/fs-notexist", nil)
+				rec := doREST(t, h, http.MethodGet, "/2015-02-01/resource-tags/fs-notexist", nil)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
@@ -386,7 +409,7 @@ func TestTagOperations(t *testing.T) {
 			name: "tag_non_existent_returns_404",
 			ops: func(t *testing.T, h *efs.Handler) {
 				t.Helper()
-				rec := doREST(t, h, http.MethodPost, "/2015-02-01/tags/fs-notexist", map[string]any{
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/resource-tags/fs-notexist", map[string]any{
 					"Tags": []map[string]string{{"Key": "k", "Value": "v"}},
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -546,9 +569,15 @@ func TestHandlerRouteMatching(t *testing.T) {
 			wantMatch:     true,
 		},
 		{
+			// Real aws-sdk-go-v2 sends TagResource/UntagResource/ListTagsForResource
+			// to "/2015-02-01/resource-tags/{ResourceId}" (see serializers.go in
+			// aws-sdk-go-v2/service/efs), NOT "/2015-02-01/tags/{id}" -- that path is
+			// reserved for the deprecated, GET-only DescribeTags op. Routing these
+			// under "/2015-02-01/tags/" (as this handler previously did) makes them
+			// unreachable by real SDK clients.
 			name:          "tag_resource",
 			method:        http.MethodPost,
-			path:          "/2015-02-01/tags/fs-12345678",
+			path:          "/2015-02-01/resource-tags/fs-12345678",
 			wantOperation: "TagResource",
 			wantResource:  "fs-12345678",
 			wantMatch:     true,
@@ -556,9 +585,34 @@ func TestHandlerRouteMatching(t *testing.T) {
 		{
 			name:          "list_tags",
 			method:        http.MethodGet,
-			path:          "/2015-02-01/tags/fs-12345678",
+			path:          "/2015-02-01/resource-tags/fs-12345678",
 			wantOperation: "ListTagsForResource",
 			wantResource:  "fs-12345678",
+			wantMatch:     true,
+		},
+		{
+			name:          "untag_resource",
+			method:        http.MethodDelete,
+			path:          "/2015-02-01/resource-tags/fs-12345678",
+			wantOperation: "UntagResource",
+			wantResource:  "fs-12345678",
+			wantMatch:     true,
+		},
+		{
+			// The legacy DescribeTags op is GET-only on "/2015-02-01/tags/{FileSystemId}".
+			name:          "describe_tags_legacy",
+			method:        http.MethodGet,
+			path:          "/2015-02-01/tags/fs-12345678",
+			wantOperation: "DescribeTags",
+			wantResource:  "fs-12345678",
+			wantMatch:     true,
+		},
+		{
+			// POST is not bound to any op at the legacy DescribeTags path.
+			name:          "tags_legacy_path_post_unmatched_operation",
+			method:        http.MethodPost,
+			path:          "/2015-02-01/tags/fs-12345678",
+			wantOperation: "Unknown",
 			wantMatch:     true,
 		},
 		{
@@ -654,13 +708,13 @@ func TestTagResourceByARN(t *testing.T) {
 	require.NotEmpty(t, fsARN)
 
 	// Tag via ARN.
-	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+fsARN, map[string]any{
+	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/resource-tags/"+fsARN, map[string]any{
 		"Tags": []map[string]string{{"Key": "tagged", "Value": "true"}},
 	})
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	// List tags via ARN.
-	rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+fsARN, nil)
+	rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/resource-tags/"+fsARN, nil)
 	assert.Equal(t, http.StatusOK, rec3.Code)
 }
 
@@ -741,7 +795,7 @@ func TestTagAccessPointByARN(t *testing.T) {
 	require.NotEmpty(t, apARN)
 
 	// Tag via ARN.
-	rec3 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+apARN, map[string]any{
+	rec3 := doREST(t, h, http.MethodPost, "/2015-02-01/resource-tags/"+apARN, map[string]any{
 		"Tags": []map[string]string{{"Key": "k", "Value": "v"}},
 	})
 	assert.Equal(t, http.StatusOK, rec3.Code)
@@ -764,13 +818,13 @@ func TestTagResourceByPercentEncodedARN(t *testing.T) {
 
 	// Tag via percent-encoded ARN in path (simulating SDK/Terraform behaviour).
 	encodedARN := url.PathEscape(fsARN)
-	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+encodedARN, map[string]any{
+	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/resource-tags/"+encodedARN, map[string]any{
 		"Tags": []map[string]string{{"Key": "env", "Value": "test"}},
 	})
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	// List tags via percent-encoded ARN.
-	rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+encodedARN, nil)
+	rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/resource-tags/"+encodedARN, nil)
 	assert.Equal(t, http.StatusOK, rec3.Code)
 	tagsResp := parseResp(t, rec3)
 	tagsRaw, ok := tagsResp["Tags"].([]any)
@@ -801,13 +855,13 @@ func TestListTagsForAccessPointByARN(t *testing.T) {
 	require.NotEmpty(t, apARN)
 
 	// Tag the access point via its ARN.
-	rec3 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+apARN, map[string]any{
+	rec3 := doREST(t, h, http.MethodPost, "/2015-02-01/resource-tags/"+apARN, map[string]any{
 		"Tags": []map[string]string{{"Key": "purpose", "Value": "e2e"}},
 	})
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	// List tags for the access point via ARN.
-	rec4 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+apARN, nil)
+	rec4 := doREST(t, h, http.MethodGet, "/2015-02-01/resource-tags/"+apARN, nil)
 	assert.Equal(t, http.StatusOK, rec4.Code)
 	tagsResp := parseResp(t, rec4)
 	tagsRaw, ok := tagsResp["Tags"].([]any)
@@ -1156,7 +1210,7 @@ func TestFileSystemPolicy(t *testing.T) {
 
 				rec2 := doREST(t, h, http.MethodGet,
 					"/2015-02-01/file-systems/"+fsID+"/policy", nil)
-				assert.Equal(t, http.StatusBadRequest, rec2.Code)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
 				assert.Equal(t, "PolicyNotFound", parseResp(t, rec2)["ErrorCode"])
 			},
 		},
@@ -1318,6 +1372,34 @@ func TestDescribeMountTargetSecurityGroups(t *testing.T) {
 				rec := doREST(t, h, http.MethodGet,
 					"/2015-02-01/mount-targets/fsmt-notexist/security-groups", nil)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			// Same httpStatusCode=400 rule as CreateMountTarget: SecurityGroupLimitExceeded
+			// is a 400, not a 409.
+			name: "modify_too_many_security_groups_returns_400",
+			ops: func(t *testing.T, h *efs.Handler) {
+				t.Helper()
+
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "sg-modify-limit-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+				fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+				rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/mount-targets", map[string]any{
+					"FileSystemId": fsID,
+					"SubnetId":     "subnet-sg-modify-test",
+				})
+				require.Equal(t, http.StatusOK, rec2.Code)
+				mtID := parseResp(t, rec2)["MountTargetId"].(string)
+
+				rec3 := doREST(t, h, http.MethodPut,
+					"/2015-02-01/mount-targets/"+mtID+"/security-groups", map[string]any{
+						"SecurityGroups": []string{"sg-1", "sg-2", "sg-3", "sg-4", "sg-5", "sg-6"},
+					})
+				assert.Equal(t, http.StatusBadRequest, rec3.Code)
+				assert.Equal(t, "SecurityGroupLimitExceeded", parseResp(t, rec3)["ErrorCode"])
 			},
 		},
 	}

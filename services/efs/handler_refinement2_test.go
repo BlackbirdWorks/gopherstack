@@ -484,9 +484,11 @@ func TestRefinement2_MountTargetSecurityGroups(t *testing.T) {
 			wantHTTPStatus: http.StatusOK,
 		},
 		{
+			// SecurityGroupLimitExceeded has httpStatusCode 400 in the AWS EFS service
+			// model (botocore efs/service-2.json), not 409.
 			name:           "six_security_groups_rejected",
 			securityGroups: []string{"sg-1", "sg-2", "sg-3", "sg-4", "sg-5", "sg-6"},
-			wantHTTPStatus: http.StatusConflict,
+			wantHTTPStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -533,9 +535,11 @@ func TestRefinement2_ModifyMountTargetSecurityGroups_MaxQuota(t *testing.T) {
 			wantHTTPStatus: http.StatusNoContent,
 		},
 		{
+			// SecurityGroupLimitExceeded has httpStatusCode 400 in the AWS EFS service
+			// model (botocore efs/service-2.json), not 409.
 			name:           "six_rejected",
 			securityGroups: []string{"sg-1", "sg-2", "sg-3", "sg-4", "sg-5", "sg-6"},
-			wantHTTPStatus: http.StatusConflict,
+			wantHTTPStatus: http.StatusBadRequest,
 		},
 	}
 

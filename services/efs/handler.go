@@ -71,7 +71,15 @@ const (
 	pathFileSystems  = "/2015-02-01/file-systems"
 	pathMountTargets = "/2015-02-01/mount-targets"
 	pathAccessPoints = "/2015-02-01/access-points"
+	// pathTags is the legacy DescribeTags path ("/2015-02-01/tags/{FileSystemId}",
+	// GET only). It is distinct from pathResourceTags: real aws-sdk-go-v2 sends
+	// TagResource/UntagResource/ListTagsForResource to "/2015-02-01/resource-tags/{ResourceId}"
+	// (see serializers.go in aws-sdk-go-v2/service/efs), not under pathTags. Routing
+	// those three ops under pathTags -- as this handler previously did -- makes them
+	// unreachable by real SDK clients, since the RouteMatcher never sees a request
+	// land on "/2015-02-01/tags/...".
 	pathTags         = "/2015-02-01/tags"
+	pathResourceTags = "/2015-02-01/resource-tags"
 	pathCreateTags   = "/2015-02-01/create-tags"
 	pathDeleteTags   = "/2015-02-01/delete-tags"
 	pathAccountPrefs = "/2015-02-01/account-preferences"
@@ -171,6 +179,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, pathMountTargets+"/") ||
 			path == pathAccessPoints ||
 			strings.HasPrefix(path, pathAccessPoints+"/") ||
+			strings.HasPrefix(path, pathResourceTags+"/") ||
 			strings.HasPrefix(path, pathTags+"/") ||
 			strings.HasPrefix(path, pathCreateTags+"/") ||
 			strings.HasPrefix(path, pathDeleteTags+"/") ||
@@ -198,8 +207,10 @@ func parseEFSPath(method, rawPath string) efsRoute {
 		return parseMountTargetRoute(method, strings.TrimPrefix(path, pathMountTargets))
 	case strings.HasPrefix(path, pathAccessPoints):
 		return parseAccessPointRoute(method, strings.TrimPrefix(path, pathAccessPoints))
+	case strings.HasPrefix(path, pathResourceTags+"/"):
+		return parseResourceTagsRoute(method, strings.TrimPrefix(path, pathResourceTags+"/"))
 	case strings.HasPrefix(path, pathTags+"/"):
-		return parseTagsRoute(method, strings.TrimPrefix(path, pathTags+"/"))
+		return parseLegacyTagsRoute(method, strings.TrimPrefix(path, pathTags+"/"))
 	case strings.HasPrefix(path, pathCreateTags+"/"):
 		return parseCreateTagsRoute(method, strings.TrimPrefix(path, pathCreateTags+"/"))
 	case strings.HasPrefix(path, pathDeleteTags+"/"):
@@ -365,7 +376,10 @@ func parseAccessPointRoute(method, suffix string) efsRoute {
 	return efsRoute{operation: opUnknown}
 }
 
-func parseTagsRoute(method, resourceID string) efsRoute {
+// parseResourceTagsRoute maps requests under pathResourceTags
+// ("/2015-02-01/resource-tags/{ResourceId}") to TagResource / ListTagsForResource /
+// UntagResource, matching the real aws-sdk-go-v2 REST bindings for those three ops.
+func parseResourceTagsRoute(method, resourceID string) efsRoute {
 	switch method {
 	case http.MethodPost:
 		return efsRoute{operation: opTagResource, resource: resourceID}
@@ -373,6 +387,17 @@ func parseTagsRoute(method, resourceID string) efsRoute {
 		return efsRoute{operation: opListTagsForResource, resource: resourceID}
 	case http.MethodDelete:
 		return efsRoute{operation: opUntagResource, resource: resourceID}
+	}
+
+	return efsRoute{operation: opUnknown}
+}
+
+// parseLegacyTagsRoute maps requests under pathTags ("/2015-02-01/tags/{FileSystemId}")
+// to the deprecated DescribeTags op. It is GET-only on the real API; POST/DELETE at
+// this path are not bound to any operation.
+func parseLegacyTagsRoute(method, fileSystemID string) efsRoute {
+	if method == http.MethodGet {
+		return efsRoute{operation: opDescribeTags, resource: fileSystemID}
 	}
 
 	return efsRoute{operation: opUnknown}
@@ -581,7 +606,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrSecurityGroupLimitExceeded):
 		c.Response().Header().Set("x-amzn-ErrorType", "SecurityGroupLimitExceeded")
 
-		return c.JSON(http.StatusConflict, errResp("SecurityGroupLimitExceeded", err.Error()))
+		return c.JSON(http.StatusBadRequest, errResp("SecurityGroupLimitExceeded", err.Error()))
 	case errors.Is(err, ErrNotFound):
 		c.Response().Header().Set("x-amzn-ErrorType", "FileSystemNotFound")
 
@@ -601,7 +626,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrPolicyNotFound):
 		c.Response().Header().Set("x-amzn-ErrorType", "PolicyNotFound")
 
-		return c.JSON(http.StatusBadRequest, errResp("PolicyNotFound", err.Error()))
+		return c.JSON(http.StatusNotFound, errResp("PolicyNotFound", err.Error()))
 	default:
 		c.Response().Header().Set("x-amzn-ErrorType", "InternalServerError")
 

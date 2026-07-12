@@ -361,7 +361,9 @@ func TestParity_LifecyclePolicy_InvalidTransitionRejected(t *testing.T) {
 }
 
 // TestParity_MountTarget_SecurityGroupLimitEnforced verifies that CreateMountTarget returns
-// a conflict error when more than 5 security groups are specified. Real AWS enforces this limit.
+// SecurityGroupLimitExceeded (HTTP 400 per the AWS EFS service model -- botocore
+// efs/service-2.json lists httpStatusCode 400 for this error, not 409) when more than 5
+// security groups are specified. Real AWS enforces this limit.
 func TestParity_MountTarget_SecurityGroupLimitEnforced(t *testing.T) {
 	t.Parallel()
 
@@ -385,8 +387,8 @@ func TestParity_MountTarget_SecurityGroupLimitEnforced(t *testing.T) {
 		},
 	})
 
-	assert.Equal(t, http.StatusConflict, rec.Code,
-		"CreateMountTarget with >5 security groups must return 409; body: %s", rec.Body.String())
+	assert.Equal(t, http.StatusBadRequest, rec.Code,
+		"CreateMountTarget with >5 security groups must return 400; body: %s", rec.Body.String())
 }
 
 // TestParity_MountTarget_DuplicateSubnetRejected verifies that creating two mount targets for

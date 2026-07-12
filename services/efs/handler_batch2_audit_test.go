@@ -135,8 +135,10 @@ func TestBatch2_DescribeFileSystems_CreationTokenFilter_Backend(t *testing.T) {
 }
 
 // TestBatch2_DescribeFileSystemPolicy_PolicyNotFound verifies that DescribeFileSystemPolicy
-// returns PolicyNotFound (HTTP 400) when the file system exists but has no policy configured,
-// matching AWS EFS behaviour. Previously returned FileSystemNotFound (404).
+// returns PolicyNotFound (HTTP 404) when the file system exists but has no policy configured,
+// matching the real AWS EFS service model (PolicyNotFound has httpStatusCode 404 -- see
+// botocore's efs/service-2.json). Previously returned FileSystemNotFound (404) via the
+// wrong error, then briefly 400 via the right error but wrong status code.
 func TestBatch2_DescribeFileSystemPolicy_PolicyNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -147,7 +149,7 @@ func TestBatch2_DescribeFileSystemPolicy_PolicyNotFound(t *testing.T) {
 	}{
 		{
 			name:       "no_policy_returns_policy_not_found",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 			wantErr:    "PolicyNotFound",
 		},
 	}
