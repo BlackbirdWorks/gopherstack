@@ -315,8 +315,9 @@ func TestParity_ListRunsInBatchReturnsAssociatedRuns(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, runRec.Code)
 
-	// List runs in the batch — should include our run.
-	listRec := doRequest(t, h, http.MethodPost, "/runBatch/"+batchID+"/run", nil)
+	// List runs in the batch — should include our run. Real AWS ListRunsInBatch
+	// is a GET request.
+	listRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID+"/run", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
@@ -364,8 +365,9 @@ func TestParity_ListRunsInBatchEmptyForOtherBatch(t *testing.T) {
 		"runBatchId": batchID1,
 	})
 
-	// List runs in batch 2 — must be empty.
-	listRec := doRequest(t, h, http.MethodPost, "/runBatch/"+batchID2+"/run", nil)
+	// List runs in batch 2 — must be empty. Real AWS ListRunsInBatch is a GET
+	// request.
+	listRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID2+"/run", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any

@@ -47,6 +47,12 @@ const (
 
 	stubTaskCPUs   = 2
 	stubTaskMemory = 4096
+
+	// pollCountRunningToCompleted is the poll count at which a Run/RunTask
+	// that has already reached RUNNING advances to COMPLETED (one poll to
+	// enter RUNNING, one more to finish) -- see advanceRunStatus and
+	// GetRunTask.
+	pollCountRunningToCompleted = 2
 )
 
 var (
@@ -1523,19 +1529,45 @@ func (b *InMemoryBackend) DeleteRun(id string) error {
 	return nil
 }
 
-// GetRun retrieves a run.
+// GetRun retrieves a run, advancing PENDING→RUNNING→COMPLETED across polls
+// (real RunRunningWaiter/RunCompletedWaiter clients poll GetRun until Status
+// reaches RUNNING / COMPLETED respectively).
 func (b *InMemoryBackend) GetRun(id string) (*Run, error) {
-	b.mu.RLock("GetRun")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetRun")
+	defer b.mu.Unlock()
 
 	run, ok := b.runs.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: run %s not found", ErrNotFound, id)
 	}
 
+	advanceRunStatus(run)
+
 	result := *run
 
 	return &result, nil
+}
+
+// advanceRunStatus advances a run's status by one step per poll:
+// PENDING → RUNNING on the first poll, RUNNING → COMPLETED on the next.
+// Terminal states (COMPLETED/FAILED/CANCELLED) are left untouched.
+func advanceRunStatus(run *Run) {
+	switch run.Status {
+	case statusPending:
+		run.pollCount++
+		if run.pollCount >= 1 {
+			run.Status = statusRunning
+			now := time.Now().UTC()
+			run.StartTime = &now
+		}
+	case statusRunning:
+		run.pollCount++
+		if run.pollCount >= pollCountRunningToCompleted {
+			run.Status = statusCompleted
+			now := time.Now().UTC()
+			run.StopTime = &now
+		}
+	}
 }
 
 // ListRuns lists runs.
@@ -1555,10 +1587,12 @@ func (b *InMemoryBackend) ListRuns(maxResults int, nextToken string) ([]*Run, st
 	return result, outToken, nil
 }
 
-// GetRunTask retrieves a task within a run.
+// GetRunTask retrieves a task within a run, advancing PENDING→RUNNING→
+// COMPLETED across polls (real TaskRunningWaiter/TaskCompletedWaiter clients
+// poll GetRunTask until Status reaches RUNNING / COMPLETED respectively).
 func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
-	b.mu.RLock("GetRunTask")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetRunTask")
+	defer b.mu.Unlock()
 
 	if !b.runs.Has(runID) {
 		return nil, fmt.Errorf("%w: run %s not found", ErrNotFound, runID)
@@ -1567,6 +1601,23 @@ func (b *InMemoryBackend) GetRunTask(runID, taskID string) (*RunTask, error) {
 	task, ok := b.runTasks.Get(parentKey(runID, taskID))
 	if !ok {
 		return nil, fmt.Errorf("%w: task %s not found", ErrNotFound, taskID)
+	}
+
+	switch task.Status {
+	case statusPending:
+		task.pollCount++
+		if task.pollCount >= 1 {
+			task.Status = statusRunning
+			now := time.Now().UTC()
+			task.StartTime = &now
+		}
+	case statusRunning:
+		task.pollCount++
+		if task.pollCount >= pollCountRunningToCompleted {
+			task.Status = statusCompleted
+			now := time.Now().UTC()
+			task.StopTime = &now
+		}
 	}
 
 	result := *task
@@ -1661,14 +1712,22 @@ func (b *InMemoryBackend) DeleteWorkflow(id string) error {
 	return nil
 }
 
-// GetWorkflow retrieves a workflow.
+// GetWorkflow retrieves a workflow, advancing CREATING→ACTIVE on first poll
+// (real WorkflowActiveWaiter clients poll GetWorkflow until Status == ACTIVE).
 func (b *InMemoryBackend) GetWorkflow(id string) (*Workflow, error) {
-	b.mu.RLock("GetWorkflow")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetWorkflow")
+	defer b.mu.Unlock()
 
 	wf, ok := b.workflows.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, id)
+	}
+
+	if wf.Status == statusCreating {
+		wf.pollCount++
+		if wf.pollCount >= 1 {
+			wf.Status = statusActive
+		}
 	}
 
 	result := *wf
@@ -1790,12 +1849,14 @@ func (b *InMemoryBackend) DeleteWorkflowVersion(workflowID, versionName string) 
 	return nil
 }
 
-// GetWorkflowVersion retrieves a workflow version.
+// GetWorkflowVersion retrieves a workflow version, advancing CREATING→ACTIVE
+// on first poll (real WorkflowVersionActiveWaiter clients poll until Status
+// == ACTIVE).
 func (b *InMemoryBackend) GetWorkflowVersion(
 	workflowID, versionName string,
 ) (*WorkflowVersion, error) {
-	b.mu.RLock("GetWorkflowVersion")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetWorkflowVersion")
+	defer b.mu.Unlock()
 
 	if !b.workflows.Has(workflowID) {
 		return nil, fmt.Errorf("%w: workflow %s not found", ErrNotFound, workflowID)
@@ -1804,6 +1865,13 @@ func (b *InMemoryBackend) GetWorkflowVersion(
 	wv, ok := b.workflowVersions.Get(parentKey(workflowID, versionName))
 	if !ok {
 		return nil, fmt.Errorf("%w: workflow version %s not found", ErrNotFound, versionName)
+	}
+
+	if wv.Status == statusCreating {
+		wv.pollCount++
+		if wv.pollCount >= 1 {
+			wv.Status = statusActive
+		}
 	}
 
 	result := *wv
@@ -1928,14 +1996,23 @@ func (b *InMemoryBackend) DeleteAnnotationStore(name string) (*AnnotationStore, 
 	return &result, nil
 }
 
-// GetAnnotationStore retrieves an annotation store.
+// GetAnnotationStore retrieves an annotation store, advancing CREATING→ACTIVE
+// on first poll (real AnnotationStoreCreatedWaiter clients poll until Status
+// == ACTIVE).
 func (b *InMemoryBackend) GetAnnotationStore(name string) (*AnnotationStore, error) {
-	b.mu.RLock("GetAnnotationStore")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetAnnotationStore")
+	defer b.mu.Unlock()
 
 	as, ok := b.annotationStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: annotation store %s not found", ErrNotFound, name)
+	}
+
+	if as.Status == statusCreating {
+		as.pollCount++
+		if as.pollCount >= 1 {
+			as.Status = statusActive
+		}
 	}
 
 	result := *as
@@ -2294,14 +2371,23 @@ func (b *InMemoryBackend) DeleteVariantStore(name string) (*VariantStore, error)
 	return &result, nil
 }
 
-// GetVariantStore retrieves a variant store.
+// GetVariantStore retrieves a variant store, advancing CREATING→ACTIVE on
+// first poll (real VariantStoreCreatedWaiter clients poll until Status ==
+// ACTIVE).
 func (b *InMemoryBackend) GetVariantStore(name string) (*VariantStore, error) {
-	b.mu.RLock("GetVariantStore")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetVariantStore")
+	defer b.mu.Unlock()
 
 	vs, ok := b.variantStores.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: variant store %s not found", ErrNotFound, name)
+	}
+
+	if vs.Status == statusCreating {
+		vs.pollCount++
+		if vs.pollCount >= 1 {
+			vs.Status = statusActive
+		}
 	}
 
 	result := *vs
@@ -2744,30 +2830,33 @@ func (b *InMemoryBackend) ListRunBatches(
 	return result, outToken, nil
 }
 
-// DeleteRunBatches deletes multiple run batches.
-func (b *InMemoryBackend) DeleteRunBatches(ids []string) ([]RunBatchDeleteError, error) {
-	b.mu.Lock("DeleteRunBatches")
+// DeleteRunsInBatch deletes the individual workflow runs that belong to a run
+// batch (real DeleteRunBatch semantics: POST /runBatch/delete with a single
+// batchId in the body). The run batch resource itself is left intact; use
+// DeleteRunBatch (DELETE /runBatch/{batchId}, real DeleteBatch semantics) to
+// remove the batch metadata afterward.
+func (b *InMemoryBackend) DeleteRunsInBatch(batchID string) error {
+	b.mu.Lock("DeleteRunsInBatch")
 	defer b.mu.Unlock()
 
-	var errs []RunBatchDeleteError
+	if !b.runBatches.Has(batchID) {
+		return fmt.Errorf("%w: run batch %s not found", ErrNotFound, batchID)
+	}
 
-	for _, id := range ids {
-		rb, ok := b.runBatches.Get(id)
-		if !ok {
-			errs = append(errs, RunBatchDeleteError{
-				ID:      id,
-				Code:    errResourceNotFound,
-				Message: fmt.Sprintf("run batch %s not found", id),
-			})
-
+	for _, r := range b.runs.All() {
+		if r.RunBatchID != batchID {
 			continue
 		}
 
-		delete(b.tags, rb.Arn)
-		b.runBatches.Delete(id)
+		delete(b.tags, r.Arn)
+		b.runs.Delete(r.ID)
+
+		for _, t := range slices.Clone(b.runTasksByRun.Get(r.ID)) {
+			b.runTasks.Delete(parentKey(r.ID, t.TaskID))
+		}
 	}
 
-	return errs, nil
+	return nil
 }
 
 // ListRunsInBatch lists runs that belong to a run batch.

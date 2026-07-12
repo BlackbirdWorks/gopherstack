@@ -224,7 +224,7 @@ type StorageBackend interface {
 	DeleteRunBatch(id string) error
 	GetRunBatch(id string) (*RunBatch, error)
 	ListRunBatches(maxResults int, nextToken string) ([]*RunBatch, string, error)
-	DeleteRunBatches(ids []string) ([]RunBatchDeleteError, error)
+	DeleteRunsInBatch(batchID string) error
 	ListRunsInBatch(batchID string, maxResults int, nextToken string) ([]*Run, string, error)
 
 	// Configuration
@@ -473,6 +473,7 @@ type Run struct {
 	RoleARN      string            `json:"roleArn"`
 	RunBatchID   string            `json:"runBatchId,omitempty"`
 	Status       string            `json:"status"`
+	pollCount    int               // tracks PENDING→RUNNING→COMPLETED progression; not serialized
 }
 
 // RunTask represents a task within a workflow run.
@@ -486,6 +487,7 @@ type RunTask struct {
 	Status       string     `json:"status"`
 	CPUs         int        `json:"cpus"`
 	Memory       int        `json:"memory"`
+	pollCount    int        // tracks PENDING→RUNNING→COMPLETED progression; not serialized
 }
 
 // Workflow represents an HealthOmics workflow.
@@ -499,6 +501,7 @@ type Workflow struct {
 	Engine       string            `json:"engine"`
 	Type         string            `json:"type,omitempty"`
 	Status       string            `json:"status"`
+	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // WorkflowVersion represents a version of a workflow.
@@ -512,6 +515,7 @@ type WorkflowVersion struct {
 	Engine       string            `json:"engine,omitempty"`
 	Type         string            `json:"type,omitempty"`
 	Status       string            `json:"status"`
+	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // AnnotationStore represents an HealthOmics annotation store.
@@ -528,6 +532,7 @@ type AnnotationStore struct {
 	Description  string            `json:"description"`
 	StoreFormat  string            `json:"storeFormat"`
 	Status       string            `json:"status"`
+	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // AnnotationStoreVersion represents a version of an annotation store.
@@ -577,6 +582,7 @@ type VariantStore struct {
 	Name         string            `json:"name"`
 	Description  string            `json:"description"`
 	Status       string            `json:"status"`
+	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
 }
 
 // VariantImportItem is a source item for a variant import job.
@@ -628,13 +634,6 @@ type RunBatch struct {
 	WorkflowID   string            `json:"workflowId"`
 	RoleARN      string            `json:"roleArn"`
 	Status       string            `json:"status"`
-}
-
-// RunBatchDeleteError is an error item from a batch delete run batch operation.
-type RunBatchDeleteError struct {
-	ID      string `json:"id"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
 }
 
 // Configuration represents an HealthOmics configuration.

@@ -616,14 +616,14 @@ func (h *Handler) handleREST(
 		return h.handleStartRunBatch(c)
 	case opCancelRunBatch:
 		return h.handleCancelRunBatch(c)
-	case opDeleteRunBatch:
-		return h.handleDeleteRunBatch(c, extractID(path, "/runBatch/"))
+	case opDeleteBatch:
+		return h.handleDeleteBatch(c, extractID(path, "/runBatch/"))
 	case opGetRunBatch:
 		return h.handleGetRunBatch(c, extractID(path, "/runBatch/"))
 	case opListRunBatches:
 		return h.handleListRunBatches(c)
-	case opDeleteBatch:
-		return h.handleDeleteBatch(c)
+	case opDeleteRunBatch:
+		return h.handleDeleteRunBatch(c)
 	case opListRunsInBatch:
 		return h.handleListRunsInBatch(c, extractID(path, "/runBatch/"))
 
@@ -741,7 +741,10 @@ func classifyPOST(path string) string { //nolint:cyclop,funlen,gocognit,gocyclo 
 	case pathRunBatch + "/cancel":
 		return opCancelRunBatch
 	case pathRunBatch + "/delete":
-		return opDeleteBatch
+		// Real AWS: POST /runBatch/delete is DeleteRunBatch (deletes the runs
+		// within a batch, single batchId in body); DELETE /runBatch/{id} is
+		// DeleteBatch (deletes the batch resource itself, id in the URI).
+		return opDeleteRunBatch
 	case pathWorkflow:
 		return opCreateWorkflow
 	case "/annotationStore":
@@ -781,11 +784,6 @@ func classifyPOST(path string) string { //nolint:cyclop,funlen,gocognit,gocyclo 
 	// /runCache/{id} → UpdateRunCache
 	if matchPattern(path, pathRunCache+"/", "") {
 		return opUpdateRunCache
-	}
-
-	// /runBatch/{batchId}/run
-	if strings.HasPrefix(path, pathRunBatch+"/") && strings.HasSuffix(path, "/run") {
-		return opListRunsInBatch
 	}
 
 	// /workflow/{id} → UpdateWorkflow (POST with id but no subpath)
@@ -898,6 +896,11 @@ func classifyGET(path string) string { //nolint:cyclop,funlen,gocognit,gocyclo /
 		return opListWorkflows
 	case pathConfiguration:
 		return opListConfigurations
+	}
+
+	// /runBatch/{batchId}/run — real AWS ListRunsInBatch is GET, not POST.
+	if strings.HasPrefix(path, pathRunBatch+"/") && strings.HasSuffix(path, "/run") {
+		return opListRunsInBatch
 	}
 
 	// /runBatch/{batchId}
@@ -1064,9 +1067,10 @@ func classifyDELETE(path string) string { //nolint:cyclop // large routing table
 	// /runCache/{id}
 	case matchPattern(path, pathRunCache+"/", ""):
 		return opDeleteRunCache
-	// /runBatch/{batchId}
+	// /runBatch/{batchId} — real AWS DeleteBatch (see classifyPOST for the
+	// DeleteRunBatch/DeleteBatch wire-shape note).
 	case matchPattern(path, pathRunBatch+"/", ""):
-		return opDeleteRunBatch
+		return opDeleteBatch
 	// /workflow/{workflowId}/version/{versionName}
 	case strings.HasPrefix(path, pathWorkflow+"/") && strings.Contains(path, "/version/"):
 		return opDeleteWorkflowVersion
@@ -1210,16 +1214,16 @@ func (h *Handler) handleGetReferenceStore(c *echo.Context, id string) error {
 
 func (h *Handler) handleListReferenceStores(c *echo.Context) error {
 	var req struct {
-		Filter     *ReferenceStoreFilter `json:"filter"`
-		NextToken  string                `json:"nextToken"`
-		MaxResults int                   `json:"maxResults"`
+		Filter *ReferenceStoreFilter `json:"filter"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	stores, next, err := h.Backend.ListReferenceStores(req.Filter, req.MaxResults, req.NextToken)
+	maxResults, nextToken := listQueryParams(c)
+
+	stores, next, err := h.Backend.ListReferenceStores(req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1258,16 +1262,16 @@ func (h *Handler) handleGetReferenceMetadata(c *echo.Context, storeID, id string
 
 func (h *Handler) handleListReferences(c *echo.Context, storeID string) error {
 	var req struct {
-		Filter     *ReferenceFilter `json:"filter"`
-		NextToken  string           `json:"nextToken"`
-		MaxResults int              `json:"maxResults"`
+		Filter *ReferenceFilter `json:"filter"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	refs, next, err := h.Backend.ListReferences(storeID, req.Filter, req.MaxResults, req.NextToken)
+	maxResults, nextToken := listQueryParams(c)
+
+	refs, next, err := h.Backend.ListReferences(storeID, req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1306,16 +1310,9 @@ func (h *Handler) handleGetReferenceImportJob(c *echo.Context, storeID, jobID st
 }
 
 func (h *Handler) handleListReferenceImportJobs(c *echo.Context, storeID string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	jobs, next, err := h.Backend.ListReferenceImportJobs(storeID, req.MaxResults, req.NextToken)
+	jobs, next, err := h.Backend.ListReferenceImportJobs(storeID, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1364,16 +1361,16 @@ func (h *Handler) handleGetSequenceStore(c *echo.Context, id string) error {
 
 func (h *Handler) handleListSequenceStores(c *echo.Context) error {
 	var req struct {
-		Filter     *SequenceStoreFilter `json:"filter"`
-		NextToken  string               `json:"nextToken"`
-		MaxResults int                  `json:"maxResults"`
+		Filter *SequenceStoreFilter `json:"filter"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	stores, next, err := h.Backend.ListSequenceStores(req.Filter, req.MaxResults, req.NextToken)
+	maxResults, nextToken := listQueryParams(c)
+
+	stores, next, err := h.Backend.ListSequenceStores(req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1439,20 +1436,20 @@ func (h *Handler) handleGetReadSetMetadata(c *echo.Context, storeID, id string) 
 
 func (h *Handler) handleListReadSets(c *echo.Context, storeID string) error {
 	var req struct {
-		Filter     *ReadSetFilter `json:"filter"`
-		NextToken  string         `json:"nextToken"`
-		MaxResults int            `json:"maxResults"`
+		Filter *ReadSetFilter `json:"filter"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
+	maxResults, nextToken := listQueryParams(c)
+
 	readSets, next, err := h.Backend.ListReadSets(
 		storeID,
 		req.Filter,
-		req.MaxResults,
-		req.NextToken,
+		maxResults,
+		nextToken,
 	)
 	if err != nil {
 		return h.mapError(c, err)
@@ -1491,16 +1488,9 @@ func (h *Handler) handleGetReadSetActivationJob(c *echo.Context, storeID, jobID 
 }
 
 func (h *Handler) handleListReadSetActivationJobs(c *echo.Context, storeID string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	jobs, next, err := h.Backend.ListReadSetActivationJobs(storeID, req.MaxResults, req.NextToken)
+	jobs, next, err := h.Backend.ListReadSetActivationJobs(storeID, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1536,16 +1526,9 @@ func (h *Handler) handleGetReadSetExportJob(c *echo.Context, storeID, jobID stri
 }
 
 func (h *Handler) handleListReadSetExportJobs(c *echo.Context, storeID string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	jobs, next, err := h.Backend.ListReadSetExportJobs(storeID, req.MaxResults, req.NextToken)
+	jobs, next, err := h.Backend.ListReadSetExportJobs(storeID, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1581,16 +1564,9 @@ func (h *Handler) handleGetReadSetImportJob(c *echo.Context, storeID, jobID stri
 }
 
 func (h *Handler) handleListReadSetImportJobs(c *echo.Context, storeID string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	jobs, next, err := h.Backend.ListReadSetImportJobs(storeID, req.MaxResults, req.NextToken)
+	jobs, next, err := h.Backend.ListReadSetImportJobs(storeID, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -1646,19 +1622,12 @@ func (h *Handler) handleCompleteMultipartReadSetUpload(
 }
 
 func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
-
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
+	maxResults, nextToken := listQueryParams(c)
 
 	uploads, next, err := h.Backend.ListMultipartReadSetUploads(
 		storeID,
-		req.MaxResults,
-		req.NextToken,
+		maxResults,
+		nextToken,
 	)
 	if err != nil {
 		return h.mapError(c, err)
@@ -1668,20 +1637,13 @@ func (h *Handler) handleListMultipartReadSetUploads(c *echo.Context, storeID str
 }
 
 func (h *Handler) handleListReadSetUploadParts(c *echo.Context, storeID, uploadID string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
-
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
+	maxResults, nextToken := listQueryParams(c)
 
 	parts, next, err := h.Backend.ListReadSetUploadParts(
 		storeID,
 		uploadID,
-		req.MaxResults,
-		req.NextToken,
+		maxResults,
+		nextToken,
 	)
 	if err != nil {
 		return h.mapError(c, err)
@@ -2095,16 +2057,9 @@ func (h *Handler) handleGetAnnotationStore(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListAnnotationStores(c *echo.Context) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	stores, next, err := h.Backend.ListAnnotationStores(req.MaxResults, req.NextToken)
+	stores, next, err := h.Backend.ListAnnotationStores(maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2158,16 +2113,9 @@ func (h *Handler) handleGetAnnotationImportJob(c *echo.Context, jobID string) er
 }
 
 func (h *Handler) handleListAnnotationImportJobs(c *echo.Context) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	jobs, next, err := h.Backend.ListAnnotationImportJobs(req.MaxResults, req.NextToken)
+	jobs, next, err := h.Backend.ListAnnotationImportJobs(maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2234,19 +2182,12 @@ func (h *Handler) handleGetAnnotationStoreVersion(c *echo.Context, name, version
 }
 
 func (h *Handler) handleListAnnotationStoreVersions(c *echo.Context, name string) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
-
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
+	maxResults, nextToken := listQueryParams(c)
 
 	versions, next, err := h.Backend.ListAnnotationStoreVersions(
 		name,
-		req.MaxResults,
-		req.NextToken,
+		maxResults,
+		nextToken,
 	)
 	if err != nil {
 		return h.mapError(c, err)
@@ -2316,16 +2257,9 @@ func (h *Handler) handleGetVariantStore(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListVariantStores(c *echo.Context) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	stores, next, err := h.Backend.ListVariantStores(req.MaxResults, req.NextToken)
+	stores, next, err := h.Backend.ListVariantStores(maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2379,16 +2313,9 @@ func (h *Handler) handleGetVariantImportJob(c *echo.Context, jobID string) error
 }
 
 func (h *Handler) handleListVariantImportJobs(c *echo.Context) error {
-	var req struct {
-		NextToken  string `json:"nextToken"`
-		MaxResults int    `json:"maxResults"`
-	}
+	maxResults, nextToken := listQueryParams(c)
 
-	if err := readJSON(c, &req); err != nil {
-		return err
-	}
-
-	jobs, next, err := h.Backend.ListVariantImportJobs(req.MaxResults, req.NextToken)
+	jobs, next, err := h.Backend.ListVariantImportJobs(maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2453,15 +2380,15 @@ func (h *Handler) handleGetShare(c *echo.Context, shareID string) error {
 func (h *Handler) handleListShares(c *echo.Context) error {
 	var req struct {
 		ResourceOwner string `json:"resourceOwner"`
-		NextToken     string `json:"nextToken"`
-		MaxResults    int    `json:"maxResults"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	shares, next, err := h.Backend.ListShares(req.ResourceOwner, req.MaxResults, req.NextToken)
+	maxResults, nextToken := listQueryParams(c)
+
+	shares, next, err := h.Backend.ListShares(req.ResourceOwner, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}
@@ -2568,7 +2495,10 @@ func (h *Handler) handleCancelRunBatch(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleDeleteRunBatch(c *echo.Context, id string) error {
+// handleDeleteBatch implements real AWS DeleteBatch: DELETE /runBatch/{batchId}
+// deletes the run batch resource and its metadata (the individual runs must
+// already be deleted via DeleteRunBatch — see handleDeleteRunBatch below).
+func (h *Handler) handleDeleteBatch(c *echo.Context, id string) error {
 	if err := h.Backend.DeleteRunBatch(id); err != nil {
 		return h.mapError(c, err)
 	}
@@ -2586,7 +2516,7 @@ func (h *Handler) handleGetRunBatch(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleListRunBatches(c *echo.Context) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken := batchQueryParams(c)
 	batches, next, err := h.Backend.ListRunBatches(maxResults, nextToken)
 
 	if err != nil {
@@ -2596,25 +2526,28 @@ func (h *Handler) handleListRunBatches(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"runBatches": batches, keyNextToken: next})
 }
 
-func (h *Handler) handleDeleteBatch(c *echo.Context) error {
+// handleDeleteRunBatch implements real AWS DeleteRunBatch: POST /runBatch/delete
+// with a single batchId in the JSON body deletes the individual workflow runs
+// belonging to that batch (the batch resource itself is left intact; use
+// DeleteBatch — DELETE /runBatch/{batchId} — to remove it afterward).
+func (h *Handler) handleDeleteRunBatch(c *echo.Context) error {
 	var req struct {
-		BatchIDs []string `json:"batchIds"`
+		BatchID string `json:"batchId"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	errs, err := h.Backend.DeleteRunBatches(req.BatchIDs)
-	if err != nil {
+	if err := h.Backend.DeleteRunsInBatch(req.BatchID); err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyErrors: errs})
+	return c.JSON(http.StatusOK, map[string]any{})
 }
 
 func (h *Handler) handleListRunsInBatch(c *echo.Context, batchID string) error {
-	maxResults, nextToken := paginationQueryParams(c)
+	maxResults, nextToken := batchQueryParams(c)
 	runs, next, err := h.Backend.ListRunsInBatch(batchID, maxResults, nextToken)
 
 	if err != nil {
@@ -2791,6 +2724,40 @@ func paginationQueryParams(c *echo.Context) (int, string) {
 	var maxResults int
 
 	if s := q.Get("maxResults"); s != "" {
+		_, _ = fmt.Sscanf(s, "%d", &maxResults)
+	}
+
+	return maxResults, nextToken
+}
+
+// listQueryParams extracts maxResults/nextToken pagination params from the
+// query string for List* operations whose real AWS wire shape places these
+// in the query string (with only a JSON body "filter", e.g. ListReferenceStores,
+// ListReadSets, ListAnnotationStores, ListVariantStores, ListShares, ...) rather
+// than the request body.
+func listQueryParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+
+	var maxResults int
+
+	if s := q.Get("maxResults"); s != "" {
+		_, _ = fmt.Sscanf(s, "%d", &maxResults)
+	}
+
+	return maxResults, nextToken
+}
+
+// batchQueryParams extracts maxItems/startingToken pagination params from the
+// query string for the RunBatch family (ListBatch, ListRunsInBatch), whose
+// real AWS wire shape uses "maxItems" rather than "maxResults".
+func batchQueryParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("startingToken")
+
+	var maxResults int
+
+	if s := q.Get("maxItems"); s != "" {
 		_, _ = fmt.Sscanf(s, "%d", &maxResults)
 	}
 
