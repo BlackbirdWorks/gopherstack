@@ -87,6 +87,20 @@ func (h *Handler) Name() string { return "DirectoryService" }
 // Reset resets the backend.
 func (h *Handler) Reset() { h.Backend.Reset() }
 
+// Snapshot returns a JSON snapshot of the backend state for persistence.
+// Delegating this (and Restore below) is what makes the Handler satisfy the
+// unexported persistence.Persistable-shaped interface cli.go's
+// setupPersistence type-asserts services against; without it the backend's
+// otherwise-complete BackendSnapshot/Restore implementation is never
+// registered with the persistence manager and directoryservice state
+// silently fails to survive a snapshot/restore cycle.
+func (h *Handler) Snapshot(_ context.Context) []byte { return h.Backend.BackendSnapshot() }
+
+// Restore restores the backend state from a snapshot.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
+
 // GetSupportedOperations returns the list of supported operations.
 func (h *Handler) GetSupportedOperations() []string {
 	base := []string{ //nolint:prealloc // existing issue.
