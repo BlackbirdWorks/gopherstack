@@ -115,6 +115,10 @@ type Stage struct {
 	// only for WebSocket APIs.
 	ClientCertificateID string `json:"clientCertificateId,omitempty"`
 	AutoDeploy          bool   `json:"autoDeploy"`
+	// APIGatewayManaged is true for the $default stage auto-provisioned by
+	// CreateApi's quick-create shortcut (routeKey+target); such a stage cannot
+	// be modified via UpdateStage. False for stages a caller created directly.
+	APIGatewayManaged bool `json:"apiGatewayManaged"`
 }
 
 // Route represents a route in an HTTP API.
@@ -131,6 +135,10 @@ type Route struct {
 	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
 	AuthorizationScopes      []string                          `json:"authorizationScopes"`
 	APIKeyRequired           bool                              `json:"apiKeyRequired"`
+	// APIGatewayManaged is true for the $default route auto-provisioned by
+	// CreateApi's quick-create shortcut (routeKey+target); its route key
+	// cannot be modified. False for routes a caller created directly.
+	APIGatewayManaged bool `json:"apiGatewayManaged"`
 }
 
 // Integration represents a backend integration for a route.
@@ -151,6 +159,11 @@ type Integration struct {
 	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
+	// APIGatewayManaged is true for the integration auto-provisioned by
+	// CreateApi's quick-create shortcut (routeKey+target). Unlike managed
+	// routes/stages, a managed integration can still be updated -- just not
+	// deleted. False for integrations a caller created directly.
+	APIGatewayManaged bool `json:"apiGatewayManaged"`
 }
 
 // Deployment represents an API deployment.
@@ -188,8 +201,14 @@ type CreateAPIInput struct {
 	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`
 	Version                   string             `json:"version,omitempty"`
 	APIKeySelectionExpression string             `json:"apiKeySelectionExpression,omitempty"`
-	DisableSchemaValidation   bool               `json:"disableSchemaValidation,omitempty"`
-	DisableExecuteAPIEndpoint bool               `json:"disableExecuteApiEndpoint,omitempty"`
+	// RouteKey and Target together drive CreateApi's "quick create" shortcut
+	// (HTTP APIs only): when both are set, the backend auto-provisions a
+	// $default route, an integration targeting Target, and an auto-deployed
+	// $default stage, all marked apiGatewayManaged.
+	RouteKey                  string `json:"routeKey,omitempty"`
+	Target                    string `json:"target,omitempty"`
+	DisableSchemaValidation   bool   `json:"disableSchemaValidation,omitempty"`
+	DisableExecuteAPIEndpoint bool   `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
 // UpdateAPIInput is the input for UpdateAPI (PATCH).
@@ -203,6 +222,12 @@ type UpdateAPIInput struct {
 	RouteSelectionExpression  string             `json:"routeSelectionExpression,omitempty"`
 	Version                   string             `json:"version,omitempty"`
 	APIKeySelectionExpression string             `json:"apiKeySelectionExpression,omitempty"`
+	// RouteKey and Target are part of quick create: if set, they replace the
+	// route key / integration target of the API's existing quick-create
+	// route and integration (each is independently optional; either requires
+	// the API to already have a quick-create route/integration).
+	RouteKey string `json:"routeKey,omitempty"`
+	Target   string `json:"target,omitempty"`
 }
 
 // CreateStageInput is the input for CreateStage.

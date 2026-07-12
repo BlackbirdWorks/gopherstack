@@ -1,16 +1,23 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.33.7
-last_audit_commit: 0b1194b6
-last_audit_date: 2026-07-05
-overall: A            # genuine fixes found and applied this pass (see gaps/notes); most of the
-                       # ~18.5k LOC surface (3 prior parity sweeps: #398/#511, #963, #1404, #1627,
-                       # #2060/#2197, #2333/#2339/#2342, #2381) was already accurate op-by-op.
+last_audit_commit: d6fae6df
+last_audit_date: 2026-07-11
+overall: A            # re-audit pass: zero local drift since the prior sweep (ce30166a, the
+                       # commit that actually authored this ledger -- the previously recorded
+                       # last_audit_commit 0b1194b6 was not an ancestor of this branch, so per
+                       # protocol ce30166a was used as the diff baseline instead), same pinned SDK
+                       # version, so the changed/new-surface scan was empty. Auditing the ledger's
+                       # non-ok CreateApi/UpdateApi rows (they were marked "ok" but the CreateApi
+                       # quick-create shortcut turned out to be entirely unimplemented -- see
+                       # notes) turned up one real, previously-missed bug class; fixed it. The
+                       # RoutingRule wire:partial rows and the two low-severity gaps were
+                       # re-confirmed as still accurate/deliberately deferred, not re-touched.
 ops:
-  CreateApi: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "routeKey+target quick-create shortcut was entirely unimplemented -- CreateAPIInput had no such fields at all, so real quick-create requests silently created a bare API with no route/integration/stage. Fixed: see Notes."}
   GetApi: {wire: ok, errors: ok, state: ok, persist: ok}
   GetApis: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateApi: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "routeKey/target (\"part of quick create\" per SDK doc comments) were also entirely absent from UpdateAPIInput; fixed alongside CreateApi -- see Notes."}
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok}
   ImportApi: {wire: ok, errors: ok, state: ok, persist: ok}
   ReimportApi: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -88,9 +95,18 @@ families:
   Portal/PortalProduct/ProductPage/ProductRestEndpointPage/RoutingRule (preview APIGW "portals" feature): {status: ok, note: "out of this pass's declared scope (task enumerated the classic Apis/Routes/Integrations/Stages/Deployments/Authorizers/ApiMappings/DomainNames/VpcLinks/ExportApi/models/tags surface); spot-checked, wire shapes look reasonable, not deep-audited"}
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps:
-  - Integration ApiGatewayManaged / Stage ApiGatewayManaged not tracked for quick-create flows (bd: gopherstack-2tx)
   - authorizerCache not purged on DeleteAPI; self-heals via TTL, low severity (bd: gopherstack-wmh)
   - RoutingRule Actions/Conditions untyped passthrough instead of AWS union shapes (bd: gopherstack-e81)
+  - "Quick-create route/stage immutability not enforced: AWS docs state the $default route
+    key can't be modified and the $default stage can't be modified once quick-created, but
+    this pass only added the apiGatewayManaged flag + the Create/UpdateApi provisioning
+    behavior itself (gopherstack-2tx's original scope) -- it does NOT block
+    UpdateRoute/DeleteRoute/UpdateStage/DeleteStage on a managed route/stage, or
+    DeleteIntegration on a managed integration. Deliberately deferred: the exact AWS error
+    code/message for these rejections isn't verifiable from the Go SDK alone (it's
+    server-side business logic, not encoded in serializers.go), and guessing at unverified
+    error shapes would itself violate the wire-verification principle. Needs a bd issue
+    (not yet filed by this pass)."
 deferred:
   - Portal / PortalProduct / ProductPage / ProductRestEndpointPage families (newer preview feature, not in this pass's declared op list)
   - RoutingRule typed action/condition validation (see gaps)
@@ -147,6 +163,51 @@ Genuine bugs found and fixed this pass (all confirmed against `aws-sdk-go-v2/ser
    emulator has no S3 truststore object to validate — this matches the "no warnings" case for
    a well-formed request; it does not represent unvalidated input.
 
+6. **CreateApi's `routeKey`+`target` "quick create" shortcut was entirely unimplemented** (this
+   pass's re-audit, commit range ce30166a..d6fae6df — the ledger's prior gap description
+   ("Integration ApiGatewayManaged / Stage ApiGatewayManaged not tracked", bd gopherstack-2tx)
+   understated the actual severity: the SDK's `CreateApiInput` carries `RouteKey *string` and
+   `Target *string` ("The route target must always be prefixed with `integrations/`..."; "For
+   Lambda integrations, specify a function ARN. The type of the integration will be HTTP_PROXY
+   or AWS_PROXY, respectively"), but gopherstack's `CreateAPIInput` had no such fields at all —
+   `encoding/json` silently dropped them on decode, so a real quick-create request (e.g. `aws
+   apigatewayv2 create-api --target ...`, one of the most common ways to stand up an HTTP API)
+   succeeded but produced an API with *no* route, integration, or stage whatsoever. Fixed:
+   - Added `RouteKey`/`Target` to `CreateAPIInput` (wire keys `routeKey`/`target`, confirmed
+     against `serializers.go`).
+   - Added `ApiGatewayManaged` → **`APIGatewayManaged`** (Go naming, `revive` var-naming) bool
+     field, wire key `apiGatewayManaged`, to `Route`, `Stage`, and `Integration` (confirmed
+     present on all four AWS types — `API`, `Integration`, `Route`, `Stage` — in `types.go`;
+     `API.ApiGatewayManaged` was deliberately NOT added since nothing in this emulator ever
+     marks an *API* itself managed — that flag covers a different mechanism, CloudFormation/SAM
+     tooling-created APIs, not quick create).
+   - `CreateAPI` now validates routeKey/target (HTTP-only, both-or-neither, valid HTTP route key
+     format) and, when both are set, calls new `quickCreateLocked` to auto-provision: an
+     integration (`HTTP_PROXY` for a URL target, `AWS_PROXY` for a Lambda ARN target, detected
+     by `isLambdaFunctionARN`), a `$default` route targeting `integrations/{id}`, and an
+     auto-deployed `$default` stage — all three marked `apiGatewayManaged: true`. Extracted
+     `CreateIntegration`'s validation/defaulting body into `buildIntegration` so quick-create
+     reuses the exact same AWS-realistic defaults (payload format version, passthrough
+     behavior, connection type, protocol-aware timeout ceiling) instead of a second,
+     drift-prone copy.
+   - `UpdateApi` also carries `RouteKey`/`Target` in the real SDK ("This property is part of
+     quick create... you can update a quick-created target, but you can't remove it from an
+     API"), also entirely absent from `UpdateAPIInput`. Fixed the same way: each field
+     independently updates the API's existing managed route/integration (found via
+     `APIGatewayManaged`, since AWS doesn't expose an explicit back-reference and there is at
+     most one of each per quick-created API), and returns `ErrBadRequest` if the API has no
+     managed route/integration to update (rather than silently no-opping).
+   - Added `APIGatewayManaged` to the `stageSnapshot`/`routeSnapshot`/`integrationSnapshot`
+     persistence DTOs (`persistence.go`) — additive field, snapshot version not bumped (see the
+     version-bump criterion in that file's doc comment: only breaking shape changes need a
+     bump).
+   - Deliberately NOT implemented this pass (see `gaps`): enforcing that a managed
+     route/stage/integration actually rejects mutation/deletion the way real AWS does. The SDK
+     doc comments describe the restriction in prose but the exact error code/HTTP status isn't
+     derivable from `serializers.go`/`deserializers.go` (it's server-side validation, not part
+     of the wire format), and guessing at it would be the same "fabricated behavior" failure
+     mode `parity-principles.md` warns against for stubs.
+
 Traps for the next auditor (don't re-flag):
 
 - `arnResourceType` (single `type/id` suffix) intentionally does NOT handle Stage ARNs — Stage
@@ -160,3 +221,18 @@ Traps for the next auditor (don't re-flag):
 - `Portal`/`PortalProduct`/routing-rule-adjacent code is a newer, separate APIGWv2 "portals"
   preview feature; it was spot-checked but is intentionally out of this pass's declared scope
   (the task's op list is the classic HTTP/WebSocket control plane).
+- The `RoutingRule` `wire: partial` rows (CreateRoutingRule/GetRoutingRule/ListRoutingRules/
+  PutRoutingRule) were re-examined this pass, not just trusted at face value: the untyped
+  `[]map[string]any` passthrough actually round-trips real client bytes *more* faithfully than
+  a hand-typed union reimplementation would (since it echoes back exactly what the client sent,
+  keyed identically), so it is not itself a wire bug — the real gap is the total absence of
+  AWS's structural validation (required-field, exactly-one-of-union enforcement, priority range/
+  uniqueness). Client-side `aws-sdk-go-v2` already rejects the two Actions/Conditions-are-
+  `required` violations locally via smithy validation before ever sending a request, which
+  lowers the real-world blast radius for the SDK-shaped clients this emulator targets. Still
+  correctly tracked as `gopherstack-e81`; not re-touched.
+- `quickCreateLocked`'s auto-created `$default` stage name reuses the existing `routeKeyDefault`
+  constant (`proxy.go`) for its literal value rather than a new stage-specific constant — same
+  string (`"$default"`), and introducing a second constant with the identical value would have
+  tripped `goconst`. The name is a slight misnomer when read at the stage call site; this is
+  intentional, not an oversight.
