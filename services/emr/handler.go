@@ -300,6 +300,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// handleError maps backend errors to EMR's wire error shape. EMR's modeled
+// error surface (aws-sdk-go-v2/service/emr/types/errors.go) has exactly two
+// exception types -- InvalidRequestException (client fault, 400) and
+// InternalServerException (server fault, 500); the SDK's deserializeError
+// dispatch matches the "__type" value against those two strings verbatim
+// (case-insensitively) and falls back to a generic, untyped error for
+// anything else, so "ValidationException"/"InternalFailure" (neither of
+// which EMR defines) would silently fail errors.As(*types.InvalidRequestException)
+// / errors.As(*types.InternalServerException) checks in a real client.
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
@@ -307,16 +316,27 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
 	case errors.Is(err, errUnknownAction):
 		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", err.Error()))
 	}
 }
 
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// epochSecondsToTime converts a wire-format epoch-seconds JSON number (the
+// awsjson1.1 Timestamp format the real EMR SDK serializer uses for
+// CreatedAfter/CreatedBefore -- see smithytime.FormatEpochSeconds) into a
+// time.Time, preserving sub-second precision carried in the fractional part.
+func epochSecondsToTime(sec float64) time.Time {
+	whole := int64(sec)
+	frac := sec - float64(whole)
+
+	return time.Unix(whole, int64(frac*float64(time.Second))).UTC()
 }
 
 // --- RunJobFlow ---
@@ -422,12 +442,12 @@ func (h *Handler) handleListClusters(ctx context.Context, in *listClustersInput)
 	}
 
 	if in.CreatedAfter != nil {
-		t := time.UnixMilli(int64(*in.CreatedAfter))
+		t := epochSecondsToTime(*in.CreatedAfter)
 		params.CreatedAfter = &t
 	}
 
 	if in.CreatedBefore != nil {
-		t := time.UnixMilli(int64(*in.CreatedBefore))
+		t := epochSecondsToTime(*in.CreatedBefore)
 		params.CreatedBefore = &t
 	}
 
@@ -794,8 +814,11 @@ type createSecurityConfigurationInput struct {
 }
 
 type createSecurityConfigurationOutput struct {
-	CreationDateTime string `json:"CreationDateTime"`
-	Name             string `json:"Name"`
+	Name string `json:"Name"`
+	// CreationDateTime is epoch seconds (float64) -- the EMR awsjson1.1 wire
+	// format; the real SDK deserializer parses it with
+	// smithytime.ParseEpochSeconds and rejects RFC3339 strings.
+	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
 func (h *Handler) handleCreateSecurityConfiguration(
@@ -809,7 +832,7 @@ func (h *Handler) handleCreateSecurityConfiguration(
 
 	return &createSecurityConfigurationOutput{
 		Name:             sc.Name,
-		CreationDateTime: sc.CreationDateTime.UTC().Format("2006-01-02T15:04:05Z"),
+		CreationDateTime: sc.CreationDateTime,
 	}, nil
 }
 
@@ -947,9 +970,11 @@ type describeSecurityConfigurationInput struct {
 }
 
 type describeSecurityConfigurationOutput struct {
-	CreationDateTime      string `json:"CreationDateTime"`
 	Name                  string `json:"Name"`
 	SecurityConfiguration string `json:"SecurityConfiguration"`
+	// CreationDateTime is epoch seconds (float64); see
+	// createSecurityConfigurationOutput for why.
+	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
 func (h *Handler) handleDescribeSecurityConfiguration(
@@ -964,6 +989,6 @@ func (h *Handler) handleDescribeSecurityConfiguration(
 	return &describeSecurityConfigurationOutput{
 		Name:                  sc.Name,
 		SecurityConfiguration: sc.SecurityConfig,
-		CreationDateTime:      sc.CreationDateTime.UTC().Format("2006-01-02T15:04:05Z"),
+		CreationDateTime:      sc.CreationDateTime,
 	}, nil
 }

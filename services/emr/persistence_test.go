@@ -195,7 +195,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// blockPublicAccess / blockPublicAccessMeta tables.
 	cfg, meta := fresh.GetBlockPublicAccessConfiguration(t.Context())
 	assert.True(t, cfg.BlockPublicSecurityGroupRules)
-	assert.False(t, meta.CreationDateTime.IsZero())
+	assert.NotZero(t, meta.CreationDateTime)
 }
 
 // TestInMemoryBackend_SnapshotRestore_EmptyState verifies an empty backend

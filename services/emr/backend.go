@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -68,6 +69,12 @@ const (
 	StepStateCompleted = "COMPLETED"
 	StepStateCancelled = "CANCELLED"
 
+	// cancelStepsStatusSubmitted/Failed are the only two values of the real
+	// CancelStepsRequestStatus enum (SUBMITTED | FAILED) -- not the ad hoc
+	// "SUCCESS"/"QUEUED" strings this backend used to return.
+	cancelStepsStatusSubmitted = "SUBMITTED"
+	cancelStepsStatusFailed    = "FAILED"
+
 	defaultReleaseLabel    = "emr-7.3.0"
 	defaultStepConcurrency = 1
 
@@ -78,7 +85,16 @@ const (
 	maxStepConcurrency = 256
 
 	timelineKeyCreation = "CreationDateTime"
+	timelineKeyReady    = "ReadyDateTime"
 	timelineKeyEnd      = "EndDateTime"
+
+	// stepCompletionDelay is how long a step stays PENDING before gopherstack
+	// promotes it to COMPLETED on read. AWS steps run asynchronously and may
+	// stay PENDING/RUNNING for as long as the underlying Hadoop job takes;
+	// gopherstack has no real workload to run, so it simulates near-instant
+	// completion instead of leaving steps parked in PENDING forever, which
+	// would hang a real client's StepComplete waiter (min poll interval 30s).
+	stepCompletionDelay = 3 * time.Second
 
 	listClustersPageSize         = 50
 	listSecConfigsPageSize       = 50
@@ -260,10 +276,37 @@ type StepStatus struct {
 	Timeline StepTimeline `json:"Timeline"`
 }
 
+// effectiveStepStatus derives a step's live status, promoting a still-PENDING
+// step to COMPLETED once stepCompletionDelay has elapsed since creation. AWS
+// steps execute asynchronously against a real Hadoop job; gopherstack has no
+// workload to run, so it simulates near-instant completion here rather than
+// leaving every step parked in PENDING forever -- which would hang a real
+// client's StepComplete waiter (DescribeStep/ListSteps are the only two read
+// paths for step state, so both call this before returning). CANCELLED steps
+// and steps already promoted are returned unchanged.
+func effectiveStepStatus(s StepStatus) StepStatus {
+	if s.State != StepStatePending {
+		return s
+	}
+
+	created := time.Unix(0, int64(s.Timeline.CreationDateTime*float64(time.Second)))
+	if time.Since(created) < stepCompletionDelay {
+		return s
+	}
+
+	cp := s
+	cp.State = StepStateCompleted
+	cp.Timeline.StartDateTime = s.Timeline.CreationDateTime
+	cp.Timeline.EndDateTime = awstime.Epoch(created.Add(stepCompletionDelay))
+
+	return cp
+}
+
 // CancelStepsInfo represents the result of cancelling a single step.
 type CancelStepsInfo struct {
 	StepID string `json:"StepId"`
 	Status string `json:"Status"`
+	Reason string `json:"Reason,omitempty"`
 }
 
 // Step represents an EMR step attached to a cluster.
@@ -315,11 +358,13 @@ type BlockPublicAccessConfiguration struct {
 }
 
 // blockPublicAccessMeta holds metadata for the block-public-access configuration.
+// CreationDateTime is epoch seconds (float64); see SecurityConfiguration for
+// why (EMR's awsjson1.1 unixTimestamp wire format).
 type blockPublicAccessMeta struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	CreatedByArn     string    `json:"CreatedByArn,omitempty"`
+	CreatedByArn string `json:"CreatedByArn,omitempty"`
 	// region is the store.Table primary key (one meta record per region).
-	region string
+	region           string
+	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
 // AutoScalingConstraints defines capacity bounds for an auto-scaling policy.
@@ -433,17 +478,23 @@ const (
 )
 
 // NotebookExecution represents an EMR Studio notebook execution.
+//
+// StartTime/EndTime are epoch seconds (float64), matching the EMR awsjson1.1
+// wire format -- the real SDK deserializer parses these with
+// smithytime.ParseEpochSeconds and rejects RFC3339 strings. A zero value
+// (unset) is omitted via omitempty, matching the "not yet ended" case where
+// AWS omits EndTime entirely.
 type NotebookExecution struct {
-	StartTime             time.Time `json:"StartTime,omitzero"`
-	EndTime               time.Time `json:"EndTime,omitzero"`
-	NotebookExecutionID   string    `json:"NotebookExecutionId"`
-	EditorID              string    `json:"EditorId,omitempty"`
-	NotebookExecutionName string    `json:"NotebookExecutionName,omitempty"`
-	NotebookParams        string    `json:"NotebookParams,omitempty"`
-	ExecutionEngineID     string    `json:"ExecutionEngineId,omitempty"`
-	Status                string    `json:"Status"`
+	NotebookExecutionID   string `json:"NotebookExecutionId"`
+	EditorID              string `json:"EditorId,omitempty"`
+	NotebookExecutionName string `json:"NotebookExecutionName,omitempty"`
+	NotebookParams        string `json:"NotebookParams,omitempty"`
+	ExecutionEngineID     string `json:"ExecutionEngineId,omitempty"`
+	Status                string `json:"Status"`
 	region                string
-	Tags                  []Tag `json:"Tags"`
+	Tags                  []Tag   `json:"Tags"`
+	StartTime             float64 `json:"StartTime,omitempty"`
+	EndTime               float64 `json:"EndTime,omitempty"`
 }
 
 // InstanceGroupStatus is the status of an EMR instance group.
@@ -569,63 +620,73 @@ type InstanceFleetSpec struct {
 }
 
 // SecurityConfiguration stores an EMR security configuration.
+//
+// CreationDateTime is epoch seconds (float64), matching the EMR awsjson1.1
+// wire format -- the real SDK deserializer parses CreationDateTime fields
+// with smithytime.ParseEpochSeconds and rejects RFC3339 strings.
 type SecurityConfiguration struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	Name             string    `json:"Name"`
-	SecurityConfig   string    `json:"SecurityConfiguration"`
+	Name           string `json:"Name"`
+	SecurityConfig string `json:"SecurityConfiguration"`
 	// region is the store.Table composite-key qualifier (see regionKey).
-	region string
+	region           string
+	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
 // Studio represents an EMR Studio.
+//
+// CreationTime is epoch seconds (float64), matching the EMR awsjson1.1 wire
+// format -- the real SDK deserializer parses CreationTime with
+// smithytime.ParseEpochSeconds and rejects RFC3339 strings.
 type Studio struct {
-	CreationTime                      time.Time `json:"CreationTime,omitzero"`
-	EngineSecurityGroupID             string    `json:"EngineSecurityGroupId"`
-	VpcID                             string    `json:"VpcId"`
-	StudioID                          string    `json:"StudioId"`
-	EncryptionKeyArn                  string    `json:"EncryptionKeyArn,omitempty"`
-	Name                              string    `json:"Name"`
-	Description                       string    `json:"Description,omitempty"`
-	AuthMode                          string    `json:"AuthMode"`
-	DefaultS3Location                 string    `json:"DefaultS3Location"`
-	ServiceRole                       string    `json:"ServiceRole"`
-	IdcInstanceArn                    string    `json:"IdcInstanceArn,omitempty"`
-	URL                               string    `json:"Url"`
-	WorkspaceSecurityGroupID          string    `json:"WorkspaceSecurityGroupId"`
-	StudioArn                         string    `json:"StudioArn"`
-	UserRole                          string    `json:"UserRole,omitempty"`
-	IdpAuthURL                        string    `json:"IdpAuthUrl,omitempty"`
-	IdpRelayStateParameterName        string    `json:"IdpRelayStateParameterName,omitempty"`
+	EngineSecurityGroupID             string `json:"EngineSecurityGroupId"`
+	VpcID                             string `json:"VpcId"`
+	StudioID                          string `json:"StudioId"`
+	EncryptionKeyArn                  string `json:"EncryptionKeyArn,omitempty"`
+	Name                              string `json:"Name"`
+	Description                       string `json:"Description,omitempty"`
+	AuthMode                          string `json:"AuthMode"`
+	DefaultS3Location                 string `json:"DefaultS3Location"`
+	ServiceRole                       string `json:"ServiceRole"`
+	IdcInstanceArn                    string `json:"IdcInstanceArn,omitempty"`
+	URL                               string `json:"Url"`
+	WorkspaceSecurityGroupID          string `json:"WorkspaceSecurityGroupId"`
+	StudioArn                         string `json:"StudioArn"`
+	UserRole                          string `json:"UserRole,omitempty"`
+	IdpAuthURL                        string `json:"IdpAuthUrl,omitempty"`
+	IdpRelayStateParameterName        string `json:"IdpRelayStateParameterName,omitempty"`
 	region                            string
 	Tags                              []Tag    `json:"Tags"`
 	SubnetIDs                         []string `json:"SubnetIds"`
+	CreationTime                      float64  `json:"CreationTime,omitempty"`
 	TrustedIdentityPropagationEnabled bool     `json:"TrustedIdentityPropagationEnabled"`
 }
 
 // StudioSummary is a trimmed view of Studio for ListStudios.
+// CreationTime is epoch seconds (float64); see Studio for why.
 type StudioSummary struct {
-	StudioID          string    `json:"StudioId"`
-	StudioArn         string    `json:"StudioArn"`
-	Name              string    `json:"Name"`
-	VpcID             string    `json:"VpcId"`
-	DefaultS3Location string    `json:"DefaultS3Location"`
-	AuthMode          string    `json:"AuthMode"`
-	URL               string    `json:"Url"`
-	CreationTime      time.Time `json:"CreationTime,omitzero"`
-	Description       string    `json:"Description,omitempty"`
+	StudioID          string  `json:"StudioId"`
+	StudioArn         string  `json:"StudioArn"`
+	Name              string  `json:"Name"`
+	VpcID             string  `json:"VpcId"`
+	DefaultS3Location string  `json:"DefaultS3Location"`
+	AuthMode          string  `json:"AuthMode"`
+	URL               string  `json:"Url"`
+	Description       string  `json:"Description,omitempty"`
+	CreationTime      float64 `json:"CreationTime,omitempty"`
 }
 
 // StudioSessionMapping maps a user or group to an EMR Studio.
+// CreationTime/LastModifiedTime are epoch seconds (float64); see Studio for why.
 type StudioSessionMapping struct {
-	LastModifiedTime time.Time `json:"LastModifiedTime,omitzero"`
-	CreationTime     time.Time `json:"CreationTime,omitzero"`
-	StudioID         string    `json:"StudioId"`
-	IdentityType     string    `json:"IdentityType"`
-	IdentityID       string    `json:"IdentityId,omitempty"`
-	IdentityName     string    `json:"IdentityName,omitempty"`
-	SessionPolicyArn string    `json:"SessionPolicyArn"`
+	StudioID         string `json:"StudioId"`
+	IdentityType     string `json:"IdentityType"`
+	IdentityID       string `json:"IdentityId,omitempty"`
+	IdentityName     string `json:"IdentityName,omitempty"`
+	SessionPolicyArn string `json:"SessionPolicyArn"`
 	// region is the store.Table composite-key qualifier (see regionKey).
-	region string
+	region           string
+	LastModifiedTime float64 `json:"LastModifiedTime,omitempty"`
+	CreationTime     float64 `json:"CreationTime,omitempty"`
 }
 
 // PersistentAppUI represents an EMR persistent application user interface.
@@ -961,7 +1022,7 @@ func cloneConfiguration(c Configuration) Configuration {
 // buildInitialSteps converts input StepSpec records into Step records.
 func (b *InMemoryBackend) buildInitialSteps(specs []StepSpec) []Step {
 	steps := make([]Step, 0, len(specs))
-	now := float64(time.Now().UnixMilli())
+	now := awstime.Epoch(time.Now())
 
 	for _, spec := range specs {
 		actionOnFailure := spec.ActionOnFailure
@@ -1049,6 +1110,11 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 	groups := b.buildInstanceGroups(params.Instances.InstanceGroups)
 	steps := b.buildInitialSteps(params.Steps)
 
+	// Clusters are created directly in WAITING state (no simulated
+	// STARTING/BOOTSTRAPPING/RUNNING transition), so the cluster is
+	// immediately ready to run steps -- ReadyDateTime equals CreationDateTime.
+	nowEpoch := awstime.Epoch(time.Now())
+
 	cluster := &Cluster{
 		ID:                    id,
 		Name:                  params.Name,
@@ -1059,7 +1125,10 @@ func (b *InMemoryBackend) RunJobFlow(ctx context.Context, params RunJobFlowParam
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
-			Timeline:          map[string]any{timelineKeyCreation: time.Now().UnixMilli()},
+			Timeline: map[string]any{
+				timelineKeyCreation: nowEpoch,
+				timelineKeyReady:    nowEpoch,
+			},
 		},
 		Tags:                        tagsCopy,
 		Applications:                apps,
@@ -1166,8 +1235,8 @@ func (b *InMemoryBackend) ListClusters(ctx context.Context, params ListClustersP
 	list := b.gatherClusterSummaries(region, stateSet, params)
 
 	sort.Slice(list, func(i, j int) bool {
-		ti := clusterCreationMillis(list[i])
-		tj := clusterCreationMillis(list[j])
+		ti := clusterCreationSeconds(list[i])
+		tj := clusterCreationSeconds(list[j])
 		if ti != tj {
 			return ti > tj
 		}
@@ -1212,6 +1281,10 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 		status := ClusterStatus{
 			State:             c.Status.State,
 			StateChangeReason: c.Status.StateChangeReason,
+			// Timeline must be carried through: ListClusters' real response
+			// includes Status.Timeline per cluster, and the sort below relies
+			// on reading CreationDateTime back out of this same field.
+			Timeline: c.Status.Timeline,
 		}
 		list = append(list, ClusterSummary{
 			ID:           c.ID,
@@ -1237,15 +1310,15 @@ func clusterMatchesFilter(c *Cluster, stateSet map[string]bool, params ListClust
 		}
 	}
 
-	creationMillis := clusterCreationMillisFromCluster(c)
+	creationSeconds := clusterCreationSecondsFromCluster(c)
 	if params.CreatedAfter != nil {
-		if creationMillis < params.CreatedAfter.UnixMilli() {
+		if creationSeconds < awstime.Epoch(*params.CreatedAfter) {
 			return false
 		}
 	}
 
 	if params.CreatedBefore != nil {
-		if creationMillis > params.CreatedBefore.UnixMilli() {
+		if creationSeconds > awstime.Epoch(*params.CreatedBefore) {
 			return false
 		}
 	}
@@ -1253,20 +1326,23 @@ func clusterMatchesFilter(c *Cluster, stateSet map[string]bool, params ListClust
 	return true
 }
 
-func clusterCreationMillis(cs ClusterSummary) int64 {
-	return timelineMillis(cs.Status.Timeline, timelineKeyCreation)
+func clusterCreationSeconds(cs ClusterSummary) float64 {
+	return timelineSeconds(cs.Status.Timeline, timelineKeyCreation)
 }
 
-func clusterCreationMillisFromCluster(c *Cluster) int64 {
-	return timelineMillis(c.Status.Timeline, timelineKeyCreation)
+func clusterCreationSecondsFromCluster(c *Cluster) float64 {
+	return timelineSeconds(c.Status.Timeline, timelineKeyCreation)
 }
 
-func timelineMillis(timeline map[string]any, key string) int64 {
+// timelineSeconds reads an epoch-seconds value out of a Timeline map. Values
+// written by this backend are always float64 (see awstime.Epoch), but int64
+// is also accepted defensively (e.g. a hand-built map from a caller/test).
+func timelineSeconds(timeline map[string]any, key string) float64 {
 	switch v := timeline[key].(type) {
-	case int64:
-		return v
 	case float64:
-		return int64(v)
+		return v
+	case int64:
+		return float64(v)
 	default:
 		return 0
 	}
@@ -1310,7 +1386,7 @@ func terminateSingle(cluster *Cluster, id string) error {
 		"Code":    "USER_REQUEST",
 		"Message": "Terminated by user request",
 	}
-	cluster.Status.Timeline[timelineKeyEnd] = now.UnixMilli()
+	cluster.Status.Timeline[timelineKeyEnd] = awstime.Epoch(now)
 	cluster.TerminatedAt = now
 
 	return nil
@@ -1543,7 +1619,7 @@ func (b *InMemoryBackend) AddJobFlowSteps(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, jobFlowID)
 	}
 
-	now := float64(time.Now().UnixMilli())
+	now := awstime.Epoch(time.Now())
 	ids := make([]string, 0, len(specs))
 
 	for _, spec := range specs {
@@ -1591,7 +1667,13 @@ func (b *InMemoryBackend) ListSteps(
 	stateSet := buildStateSet(stepStates)
 	idSet := buildStringSet(stepIDs)
 
-	filtered := filterSteps(cluster.steps, stateSet, idSet)
+	steps := make([]Step, len(cluster.steps))
+	for i, s := range cluster.steps {
+		steps[i] = s
+		steps[i].Status = effectiveStepStatus(s.Status)
+	}
+
+	filtered := filterSteps(steps, stateSet, idSet)
 
 	// AWS returns most recently added first.
 	for i, j := 0, len(filtered)-1; i < j; i, j = i+1, j-1 {
@@ -1678,6 +1760,7 @@ func (b *InMemoryBackend) DescribeStep(ctx context.Context, clusterID, stepID st
 	for _, s := range cluster.steps {
 		if s.ID == stepID {
 			cp := s
+			cp.Status = effectiveStepStatus(s.Status)
 
 			return &cp, nil
 		}
@@ -1708,20 +1791,31 @@ func (b *InMemoryBackend) CancelSteps(
 	for i := range cluster.steps {
 		s := &cluster.steps[i]
 		if idSet == nil || idSet[s.ID] {
-			status := "SUCCESS"
-			if s.Status.State != StepStatePending {
-				status = "QUEUED"
-			} else {
-				s.Status.State = StepStateCancelled
-			}
-			results = append(results, &CancelStepsInfo{
-				StepID: s.ID,
-				Status: status,
-			})
+			results = append(results, cancelStep(s))
 		}
 	}
 
 	return results, nil
+}
+
+// cancelStep cancels a single step in place if it is still (effectively)
+// PENDING, and reports the outcome using the real CancelStepsRequestStatus
+// enum -- SUBMITTED (the cancellation was accepted) or FAILED (the step is
+// no longer cancellable, e.g. already COMPLETED or CANCELLED). AWS's actual
+// enum has only these two values; this backend previously returned the
+// non-existent "SUCCESS"/"QUEUED" strings.
+func cancelStep(s *Step) *CancelStepsInfo {
+	if effectiveStepStatus(s.Status).State != StepStatePending {
+		return &CancelStepsInfo{
+			StepID: s.ID,
+			Status: cancelStepsStatusFailed,
+			Reason: "Step is not in a state to be cancelled",
+		}
+	}
+
+	s.Status.State = StepStateCancelled
+
+	return &CancelStepsInfo{StepID: s.ID, Status: cancelStepsStatusSubmitted}
 }
 
 // ModifyCluster updates StepConcurrencyLevel on a cluster.
@@ -1810,11 +1904,31 @@ func (b *InMemoryBackend) ModifyInstanceFleet(
 
 	for i := range cluster.instanceFleets {
 		if cluster.instanceFleets[i].ID == mod.InstanceFleetID {
+			applyInstanceFleetMod(&cluster.instanceFleets[i], mod)
+
 			return nil
 		}
 	}
 
 	return fmt.Errorf("%w: instance fleet %s not found", ErrNotFound, mod.InstanceFleetID)
+}
+
+// applyInstanceFleetMod updates fleet's target (and, since gopherstack
+// provisions instantly, provisioned) capacities from mod. A zero value in
+// either field means "not specified" (the JSON field is plain int, not a
+// pointer, so unset and explicit-zero are indistinguishable on the wire) --
+// matching the real API, where either capacity may be omitted to leave it
+// unchanged.
+func applyInstanceFleetMod(fleet *InstanceFleet, mod InstanceFleetModification) {
+	if mod.TargetOnDemandCapacity > 0 {
+		fleet.TargetOnDemandCapacity = mod.TargetOnDemandCapacity
+		fleet.ProvisionedOnDemandCapacity = mod.TargetOnDemandCapacity
+	}
+
+	if mod.TargetSpotCapacity > 0 {
+		fleet.TargetSpotCapacity = mod.TargetSpotCapacity
+		fleet.ProvisionedSpotCapacity = mod.TargetSpotCapacity
+	}
 }
 
 // InstanceFleetModification describes a fleet target capacity change.
@@ -2135,7 +2249,7 @@ func (b *InMemoryBackend) GetBlockPublicAccessConfiguration(
 
 	cfg, ok := b.blockPublicAccess.Get(region)
 	if !ok {
-		return defaultBlockPublicAccess(), blockPublicAccessMeta{CreationDateTime: time.Now()}
+		return defaultBlockPublicAccess(), blockPublicAccessMeta{CreationDateTime: awstime.Epoch(time.Now())}
 	}
 
 	meta, _ := b.blockPublicAccessMeta.Get(region)
@@ -2170,7 +2284,7 @@ func (b *InMemoryBackend) PutBlockPublicAccessConfiguration(
 	cp.region = region
 	b.blockPublicAccess.Put(&cp)
 	b.blockPublicAccessMeta.Put(&blockPublicAccessMeta{
-		CreationDateTime: time.Now(),
+		CreationDateTime: awstime.Epoch(time.Now()),
 		CreatedByArn:     arn.Build("iam", "", b.accountID, "root"),
 		region:           region,
 	})
@@ -2218,9 +2332,10 @@ func (b *InMemoryBackend) ListSecurityConfigurations(
 }
 
 // SecurityConfigSummary is returned by ListSecurityConfigurations.
+// CreationDateTime is epoch seconds (float64); see SecurityConfiguration for why.
 type SecurityConfigSummary struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	Name             string    `json:"Name"`
+	Name             string  `json:"Name"`
+	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
 // ListReleaseLabels returns release labels optionally filtered by prefix and application.
@@ -2515,7 +2630,7 @@ func (b *InMemoryBackend) UpdateStudioSessionMapping(
 	}
 
 	mapping.SessionPolicyArn = sessionPolicyArn
-	mapping.LastModifiedTime = time.Now()
+	mapping.LastModifiedTime = awstime.Epoch(time.Now())
 
 	return nil
 }
@@ -2564,12 +2679,12 @@ func jobFlowMatchesFilter(
 		return false
 	}
 
-	creationMillis := clusterCreationMillisFromCluster(c)
-	if createdAfter != nil && creationMillis < createdAfter.UnixMilli() {
+	creationSeconds := clusterCreationSecondsFromCluster(c)
+	if createdAfter != nil && creationSeconds < awstime.Epoch(*createdAfter) {
 		return false
 	}
 
-	if createdBefore != nil && creationMillis > createdBefore.UnixMilli() {
+	if createdBefore != nil && creationSeconds > awstime.Epoch(*createdBefore) {
 		return false
 	}
 
@@ -2603,8 +2718,8 @@ type JobFlowInstancesDetail struct {
 }
 
 func clusterToJobFlow(c *Cluster) JobFlow {
-	creationMillis, _ := c.Status.Timeline[timelineKeyCreation].(float64)
-	endMillis, _ := c.Status.Timeline[timelineKeyEnd].(float64)
+	creationSeconds := timelineSeconds(c.Status.Timeline, timelineKeyCreation)
+	endSeconds := timelineSeconds(c.Status.Timeline, timelineKeyEnd)
 
 	stateChangeMsg := ""
 	if m, ok := c.Status.StateChangeReason["Message"]; ok {
@@ -2635,8 +2750,8 @@ func clusterToJobFlow(c *Cluster) JobFlow {
 		ServiceRole:  c.ServiceRole,
 		ExecutionStatusDetail: JobFlowExecutionStatusDetail{
 			State:             c.Status.State,
-			CreationDateTime:  creationMillis,
-			EndDateTime:       endMillis,
+			CreationDateTime:  creationSeconds,
+			EndDateTime:       endSeconds,
 			StateChangeReason: stateChangeMsg,
 		},
 		Instances: JobFlowInstancesDetail{
@@ -2772,7 +2887,7 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 	sc := &SecurityConfiguration{
 		Name:             name,
 		SecurityConfig:   securityConfig,
-		CreationDateTime: time.Now(),
+		CreationDateTime: awstime.Epoch(time.Now()),
 		region:           region,
 	}
 
@@ -2861,7 +2976,7 @@ func (b *InMemoryBackend) CreateStudio(
 		WorkspaceSecurityGroupID: workspaceSGID,
 		SubnetIDs:                subnetCopy,
 		Tags:                     tagsCopy,
-		CreationTime:             time.Now(),
+		CreationTime:             awstime.Epoch(time.Now()),
 		URL:                      "https://studio." + id + ".emrstudio-prod." + region + ".amazonaws.com",
 		region:                   region,
 	}
@@ -2927,14 +3042,16 @@ func (b *InMemoryBackend) CreateStudioSessionMapping(
 		return fmt.Errorf("%w: studio %s not found", ErrNotFound, studioID)
 	}
 
+	nowEpoch := awstime.Epoch(time.Now())
+
 	b.studioSessionMappingPut(&StudioSessionMapping{
 		StudioID:         studioID,
 		IdentityType:     identityType,
 		IdentityID:       identityID,
 		IdentityName:     identityName,
 		SessionPolicyArn: sessionPolicyArn,
-		CreationTime:     time.Now(),
-		LastModifiedTime: time.Now(),
+		CreationTime:     nowEpoch,
+		LastModifiedTime: nowEpoch,
 		region:           region,
 	})
 
@@ -3058,7 +3175,7 @@ func (b *InMemoryBackend) StartNotebookExecution(
 		NotebookParams:        params,
 		ExecutionEngineID:     engineID,
 		Status:                NotebookStatusRunning,
-		StartTime:             time.Now(),
+		StartTime:             awstime.Epoch(time.Now()),
 		Tags:                  tagsCopy,
 		region:                region,
 	}
@@ -3084,7 +3201,7 @@ func (b *InMemoryBackend) StopNotebookExecution(ctx context.Context, id string) 
 
 	if ne.Status == NotebookStatusRunning || ne.Status == NotebookStatusStopping {
 		ne.Status = NotebookStatusStopped
-		ne.EndTime = time.Now()
+		ne.EndTime = awstime.Epoch(time.Now())
 	}
 
 	return nil

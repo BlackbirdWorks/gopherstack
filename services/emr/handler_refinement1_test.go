@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
@@ -225,21 +226,24 @@ func TestRefinement1_CreationDateTime(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	before := time.Now().UnixMilli()
+	before := awstime.Epoch(time.Now())
 	cluster, err := b.RunJobFlow(
 		context.Background(),
 		emr.RunJobFlowParams{Name: "ts-cluster", ReleaseLabel: "emr-6.0.0"},
 	)
 	require.NoError(t, err)
-	after := time.Now().UnixMilli()
+	after := awstime.Epoch(time.Now())
 
 	rawCreation, ok := cluster.Status.Timeline["CreationDateTime"]
 	require.True(t, ok, "CreationDateTime must be set in the timeline")
 
-	creationMs, ok := rawCreation.(int64)
-	require.True(t, ok, "CreationDateTime must be int64 UnixMilli")
-	assert.GreaterOrEqual(t, creationMs, before, "CreationDateTime must be >= before")
-	assert.LessOrEqual(t, creationMs, after, "CreationDateTime must be <= after")
+	// EMR's awsjson1.1 wire format is epoch seconds (float64), not
+	// milliseconds -- see smithytime.ParseEpochSeconds in the real SDK
+	// deserializer.
+	creationSeconds, ok := rawCreation.(float64)
+	require.True(t, ok, "CreationDateTime must be a float64 epoch-seconds value")
+	assert.GreaterOrEqual(t, creationSeconds, before, "CreationDateTime must be >= before")
+	assert.LessOrEqual(t, creationSeconds, after, "CreationDateTime must be <= after")
 }
 
 // TestRefinement1_CreatePersistentAppUI_ReturnsCopy verifies CreatePersistentAppUI returns a copy.
@@ -312,7 +316,9 @@ func TestRefinement1_ErrValidationMapping(t *testing.T) {
 		Type string `json:"__type"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
-	assert.Equal(t, "ValidationException", errBody.Type)
+	// EMR's real error model has only InvalidRequestException (client fault)
+	// and InternalServerException (server fault) -- no ValidationException.
+	assert.Equal(t, "InvalidRequestException", errBody.Type)
 }
 
 // TestRefinement1_StudioSessionMapping_CreationTime verifies CreationTime is set.
@@ -411,13 +417,13 @@ func TestRefinement1_DescribeSecurityConfiguration(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out struct {
-					Name                  string `json:"Name"`
-					CreationDateTime      string `json:"CreationDateTime"`
-					SecurityConfiguration string `json:"SecurityConfiguration"`
+					Name                  string  `json:"Name"`
+					SecurityConfiguration string  `json:"SecurityConfiguration"`
+					CreationDateTime      float64 `json:"CreationDateTime"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				assert.Equal(t, tt.scName, out.Name)
-				assert.NotEmpty(t, out.CreationDateTime)
+				assert.NotZero(t, out.CreationDateTime)
 				assert.JSONEq(t, `{"EncryptionConfiguration":{}}`, out.SecurityConfiguration)
 			}
 		})

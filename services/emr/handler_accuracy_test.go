@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -623,8 +624,11 @@ func TestAccuracy_ListClusters_DateFilter(t *testing.T) {
 
 	doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "date-cluster"})
 
-	past := float64(time.Now().Add(-time.Hour).UnixMilli())
-	future := float64(time.Now().Add(time.Hour).UnixMilli())
+	// EMR's awsjson1.1 wire format for CreatedAfter/CreatedBefore is epoch
+	// seconds (float64), not milliseconds -- see smithytime.FormatEpochSeconds
+	// in the real SDK serializer.
+	past := awstime.Epoch(time.Now().Add(-time.Hour))
+	future := awstime.Epoch(time.Now().Add(time.Hour))
 
 	listInRange := doEMRRequest(t, h, "ListClusters", map[string]any{
 		"CreatedAfter":  past,
@@ -707,11 +711,11 @@ func TestAccuracy_GetClusterSessionCredentials(t *testing.T) {
 
 	var out struct {
 		Credentials map[string]any `json:"Credentials"`
-		ExpiresAt   string         `json:"ExpiresAt"`
+		ExpiresAt   float64        `json:"ExpiresAt"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.NotEmpty(t, out.Credentials)
-	assert.NotEmpty(t, out.ExpiresAt)
+	assert.NotZero(t, out.ExpiresAt)
 }
 
 func TestAccuracy_GetClusterSessionCredentials_MissingRole(t *testing.T) {

@@ -3,6 +3,8 @@ package emr
 import (
 	"context"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- DescribeJobFlows ---
@@ -24,12 +26,12 @@ func (h *Handler) handleDescribeJobFlows(
 	var createdAfter, createdBefore *time.Time
 
 	if in.CreatedAfter != nil {
-		t := time.UnixMilli(int64(*in.CreatedAfter))
+		t := epochSecondsToTime(*in.CreatedAfter)
 		createdAfter = &t
 	}
 
 	if in.CreatedBefore != nil {
-		t := time.UnixMilli(int64(*in.CreatedBefore))
+		t := epochSecondsToTime(*in.CreatedBefore)
 		createdBefore = &t
 	}
 
@@ -156,9 +158,14 @@ type getBlockPublicAccessConfigurationOutput struct {
 	BlockPublicAccessConfiguration         BlockPublicAccessConfiguration         `json:"BlockPublicAccessConfiguration"`
 }
 
+// blockPublicAccessConfigurationMetadata mirrors
+// BlockPublicAccessConfigurationMetadata; CreationDateTime is epoch seconds
+// (float64), matching the EMR awsjson1.1 wire format -- the real SDK
+// deserializer parses it with smithytime.ParseEpochSeconds and rejects
+// RFC3339 strings.
 type blockPublicAccessConfigurationMetadata struct {
-	CreationDateTime string `json:"CreationDateTime"`
-	CreatedByArn     string `json:"CreatedByArn,omitempty"`
+	CreatedByArn     string  `json:"CreatedByArn,omitempty"`
+	CreationDateTime float64 `json:"CreationDateTime"`
 }
 
 func (h *Handler) handleGetBlockPublicAccessConfiguration(
@@ -170,7 +177,7 @@ func (h *Handler) handleGetBlockPublicAccessConfiguration(
 	return &getBlockPublicAccessConfigurationOutput{
 		BlockPublicAccessConfiguration: cfg,
 		BlockPublicAccessConfigurationMetadata: blockPublicAccessConfigurationMetadata{
-			CreationDateTime: meta.CreationDateTime.UTC().Format("2006-01-02T15:04:05Z"),
+			CreationDateTime: meta.CreationDateTime,
 			CreatedByArn:     meta.CreatedByArn,
 		},
 	}, nil
@@ -183,9 +190,11 @@ type getClusterSessionCredentialsInput struct {
 	ExecutionRoleArn string `json:"ExecutionRoleArn"`
 }
 
+// getClusterSessionCredentialsOutput mirrors GetClusterSessionCredentialsOutput.
+// ExpiresAt is epoch seconds (float64); see blockPublicAccessConfigurationMetadata for why.
 type getClusterSessionCredentialsOutput struct {
 	Credentials map[string]any `json:"Credentials"`
-	ExpiresAt   string         `json:"ExpiresAt"`
+	ExpiresAt   float64        `json:"ExpiresAt"`
 }
 
 func (h *Handler) handleGetClusterSessionCredentials(
@@ -199,7 +208,7 @@ func (h *Handler) handleGetClusterSessionCredentials(
 
 	return &getClusterSessionCredentialsOutput{
 		Credentials: creds,
-		ExpiresAt:   expiry.UTC().Format("2006-01-02T15:04:05Z"),
+		ExpiresAt:   awstime.Epoch(expiry),
 	}, nil
 }
 
