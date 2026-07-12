@@ -156,6 +156,12 @@ type CreateKeyOutput struct {
 type DescribeKeyInput struct {
 	// KeyId is the key ID or alias to describe.
 	KeyID string `json:"KeyId"`
+	// GrantTokens is an optional list of grant tokens used to make a just-created
+	// grant that permits DescribeKey immediately effective. DescribeKey is a valid
+	// grant operation (see isValidGrantOperation) and the real DescribeKey op
+	// declares InvalidGrantTokenException in its error set, so a supplied token
+	// must resolve to an existing, unexpired grant.
+	GrantTokens []string `json:"GrantTokens,omitempty"`
 }
 
 // DescribeKeyOutput is the response payload for DescribeKey.

@@ -1,7 +1,7 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.54.0
-last_audit_commit: 05e127fa13a618837560e0b6a56098937fc1cae4
+last_audit_commit: db25aeabef5bf3f7a33c8ed328247641b3ffcc15
 last_audit_date: 2026-07-12
 overall: A            # Terraform-lifecycle-focused re-audit (full apply/plan/destroy
                        # cycle with no drift). Found + fixed 1 CreateKey-Policy-class
@@ -14,7 +14,7 @@ overall: A            # Terraform-lifecycle-focused re-audit (full apply/plan/de
                        # perpetual-plan-drift bug class this sweep was hunting for).
 ops:
   CreateKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag)"}
-  DescribeKey: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "DescribeKeyInput was missing the GrantTokens field entirely (real SDK: aws-sdk-go-v2/service/kms@v1.54.0 DescribeKeyInput carries GrantTokens []string; DescribeKey is a valid grant operation and declares InvalidGrantTokenException in its error set). Added the field + validateGrantTokenPresence (existence+TTL, no encryption-context check -- consistent with Sign/Verify/GetPublicKey/DeriveSharedSecret). Empty tokens is a no-op (the only case Terraform exercises)."}
   ListKeys: {wire: ok, errors: ok, state: ok, persist: ok}
   Encrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "real AES-256-GCM / RSA-OAEP-SHA-256, AAD-bound encryption context, grant-token constraint check already present; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
   Decrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "key ID embedded in blob prefix; mismatched context fails AES-GCM auth -> InvalidCiphertextException; history fallback for post-rotation ciphertexts; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
@@ -43,14 +43,14 @@ ops:
   EnableKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ScheduleKeyDeletion: {wire: ok, errors: ok, state: ok, persist: ok, note: "7-30 day window enforced; janitor purges past DeletionDate"}
   CancelKeyDeletion: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateGrant: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListGrants: {wire: ok, errors: ok, state: ok, persist: ok}
-  RevokeGrant: {wire: ok, errors: ok, state: ok, persist: ok}
-  RetireGrant: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now resolves KeyId against the key's own region (ARN-embedded region for an ARN input) via resolveKeyAndRegion, so a grant created via a cross-region ARN is stored in the key's region -- was: stored in the request region, so ListGrants/RevokeGrant addressing the same ARN could not find it (root cause was resolveKeyID's resolution cache returning the request region on cache hits instead of the ARN's embedded region; fixed at source)"}
+  ListGrants: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant"}
+  RevokeGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant"}
+  RetireGrant: {wire: ok, errors: ok, state: fixed, persist: ok, note: "GrantId+KeyId path now uses the key's own region; GrantId-only (no KeyId, no region hint) now searches all regions instead of only the request region"}
   ListRetirableGrants: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutKeyPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetKeyPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListKeyPolicies: {wire: ok, errors: ok, state: ok, persist: n/a}
+  PutKeyPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant -- policy now stored in the key's own region so a cross-region ARN round-trips through GetKeyPolicy"}
+  GetKeyPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same region-resolution fix as CreateGrant -- reads the policy from the key's own region (ARN-embedded region for an ARN input)"}
+  ListKeyPolicies: {wire: ok, errors: ok, state: ok, persist: n/a, note: "already region-aware (routes through lookupKey); confirmed no change needed"}
   GetParametersForImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-2048/3072/4096 wrapping keypair generated per call"}
   ImportKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-OAEP unwrap of caller material"}
   DeleteImportedKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -76,8 +76,8 @@ gaps:
   - "GrantConstraints has no SourceArn field (real SDK: GrantConstraints.SourceArn); no operation in this mock threads a caller/resource ARN through crypto calls to check against it, and no other service adapter currently supplies one either — deferred, needs cross-cutting request-context plumbing, not a KMS-local fix (bd: gopherstack-w3k)"
   - "CreateGrantInput has no GrantTokens field (real SDK: authorizes the CreateGrant call itself via an existing not-yet-consistent grant). No IAM/authorization layer exists anywhere in this mock, so this field would currently be a no-op; deferred, consistent with the rest of the codebase's scope"
   - "GranteeServicePrincipal / RetiringServicePrincipal (AWS-service grantees) not modeled on CreateGrantInput; same no-IAM-layer scope reasoning as above"
-  - "DescribeKeyInput has no GrantTokens field (real SDK: aws-sdk-go-v2/service/kms@v1.54.0's DescribeKeyInput carries GrantTokens []string), and isValidGrantOperation lists \"DescribeKey\" as a grantable operation -- but DescribeKey itself performs NO authorization check at all (no IAM layer anywhere in this mock, matching the CreateGrant-GrantTokens gap above), so adding the field would be a pure no-op with nothing to validate against. Not fixed: same no-IAM-layer scope boundary as the two gaps above, and Terraform never sends GrantTokens on a plain DescribeKey call anyway. Low priority for the next auditor to re-flag."
-  - "GetKeyPolicy/PutKeyPolicy/CreateGrant/ListGrants/RevokeGrant/RetireGrant resolve a bare (non-alias, non-ARN) KeyId strictly against the request's own region (getRegion(ctx, defaultRegion)), discarding the region resolveKeyID would return for an ARN-form KeyId -- unlike DescribeKey/Encrypt/Decrypt/Sign/etc., which route through the shared lookupKey helper and fall back to searching every region for a bare UUID (an intentional mock convenience, see lookupKey's doc comment) and honor an ARN's own embedded region unconditionally. Confirmed via a real cross-region ReplicateKey + GetKeyPolicy test: calling GetKeyPolicy with the replica's full ARN while ctx carries the primary's region returned NotFoundException. NOT fixed this pass: a real region-scoped Terraform provider client always calls the endpoint matching the key's own region (httputils.ExtractRegionFromRequest sets ctx region from the actual HTTP request, not from KeyId content), so this never manifests in realistic single-region-per-provider Terraform usage -- confirmed by rewriting the ReplicateKey Policy regression test to go through the full HTTP handler with per-region requests, which passes cleanly. Worth a follow-up bd issue for exact DescribeKey-vs-GetKeyPolicy consistency, but not Terraform-blocking."
+  - "RESOLVED 2026-07-12: DescribeKeyInput was missing the GrantTokens field -- added + wired validateGrantTokenPresence (see the DescribeKey op row and describe_key_grant_tokens_test.go). Unlike the CreateGrant/CreateGrantInput GrantTokens gap above (which authorizes the CreateGrant call itself and has nothing to validate without an IAM layer), DescribeKey's GrantTokens resolve to real existing grants, so validation is meaningful and AWS-accurate here (DescribeKey declares InvalidGrantTokenException)."
+  - "RESOLVED 2026-07-12: the region-scoped KeyId resolution inconsistency (GetKeyPolicy/PutKeyPolicy/CreateGrant/ListGrants/RevokeGrant/RetireGrant indexed their policiesStore/grantsRegion using the request region instead of an ARN's embedded region). Root cause was two-fold and both fixed at source: (1) these ops discarded the region resolveKeyID returned and re-used getRegion(ctx) -- fixed by adding a shared resolveKeyAndRegion helper (lookupKey now delegates to it too) that returns the key's actual region, and routing all six ops through it; (2) resolveKeyID's resolution cache stored only the resolved UUID and returned the REQUEST region on every cache hit, so even the region resolveKeyID returned was wrong for any ARN resolved more than once -- fixed by caching a {keyID, region} pair (region=\"\" sentinel for aliases means 'derive from request context', so alias behavior is unchanged; ARN caches its own embedded region, which is safe because the region is part of the ARN cache key). Verified by region_scoped_resolution_test.go (cross-region ReplicateKey -> replica-ARN Put/GetKeyPolicy round-trip + full grant lifecycle by ARN, all while ctx defaults to the primary's region)."
 deferred:
   - Custom key store cryptographic connection/HSM simulation (ConnectCustomKeyStore is a pure state-machine transition; no CloudHSM cluster or XKS proxy is modeled, matching pre-existing scope)
   - GetKeyLastUsage (not a real AWS KMS operation; left as-is from a prior pass, out of scope for this sweep)
@@ -433,3 +433,52 @@ check key existence (`DescribeKey` + `errors.Is(err, kms.ErrKeyNotFound)`, both 
 services above is pure `cli.go` + that service's own backend work, per
 `PARITY_PHASE4_KICKOFF.md`'s "cross-service interconnect wired in cli.go, main-thread
 work" rule — out of scope for this KMS-only pass.
+
+## 2026-07-12 gap-closure pass (in-scope follow-ups from the lifecycle re-audit)
+
+Closed the two remaining in-scope gaps the Terraform-lifecycle re-audit above had
+identified and deferred. Both are now `RESOLVED` in the `gaps` block; the op rows carry
+the details.
+
+1. **`DescribeKeyInput.GrantTokens` added (wire parity + AWS-accurate validation).** The
+   real `aws-sdk-go-v2/service/kms@v1.54.0` `DescribeKeyInput` carries `GrantTokens
+   []string` and the op declares `InvalidGrantTokenException` in its error set, so
+   validation here is meaningful (unlike the still-deferred `CreateGrantInput.GrantTokens`,
+   which authorizes the CreateGrant call itself and has nothing to check without an IAM
+   layer). Wired `validateGrantTokenPresence` (existence + TTL, no encryption-context
+   check), consistent with Sign/Verify/GetPublicKey/DeriveSharedSecret. Empty tokens is a
+   no-op — the only case Terraform exercises. Tests: `describe_key_grant_tokens_test.go`.
+
+2. **Region-scoped KeyId resolution made consistent across all region-partitioned ops.**
+   `GetKeyPolicy`/`PutKeyPolicy`/`CreateGrant`/`ListGrants`/`RevokeGrant`/`RetireGrant` now
+   index their `policiesStore`/`grantsRegion` using the key's OWN region (an ARN's embedded
+   region for an ARN input), the same region-awareness `DescribeKey`/`Encrypt`/`Decrypt`
+   already had via `lookupKey`. Two root causes, both fixed at source in `backend.go`:
+   - Added `resolveKeyAndRegion(ctx, keyID) (*Key, region, error)` — resolves the key AND
+     reports the region it actually lives in (with the same bare-UUID all-region fallback
+     `lookupKey` had). `lookupKey` now delegates to it (returns just the key). The six ops
+     route through it instead of `getRegion(ctx)` + `resolveKeyID` + `keysStore(region)`.
+   - **Deeper bug the cross-region test surfaced:** `resolveKeyID`'s resolution cache stored
+     only the resolved UUID and returned the *request* region on every cache hit — so the
+     2nd+ resolution of any ARN lost the ARN's embedded region even for callers that did
+     use it. Fixed by caching a `{keyID, region}` pair: `region=""` sentinel for aliases
+     (means "derive from request context" — alias behavior unchanged, and safe because a
+     bare `alias/name` cache key carries no region), and the ARN's own embedded region for
+     ARN inputs (safe because the region is part of the ARN cache key). This is the piece
+     that makes the fix hold across repeated calls, which is exactly the read-after-write
+     pattern Terraform drives.
+   Alias ops (`CreateAlias`/`UpdateAlias`/`DeleteAlias`/`ListAliases`) were audited and
+   deliberately left request-region-scoped: an AWS alias must target a key in its own
+   region, so resolving the target/filter against the request region is correct AWS
+   behavior, not the same bug. Tests: `region_scoped_resolution_test.go` (cross-region
+   `ReplicateKey` → replica-ARN policy round-trip + full grant lifecycle by ARN, table-
+   driven over Revoke/Retire-by-ARN/Retire-by-token/Retire-by-GrantId, all while ctx
+   defaults to the primary's region).
+
+**Only remaining KMS-related follow-up is external (out of this service's scope):** the
+cross-service Secrets Manager → KMS wiring (real `SecretString`/`SecretBinary` encryption
+via a `secretsmanager.KMSEncryptor`-style adapter, mirroring the existing SSM precedent).
+That is `cli.go` + Secrets Manager backend work — main-thread / cross-service territory
+per `PARITY_PHASE4_KICKOFF.md`, and needs no new KMS-side export (`Handler.Backend`'s
+`Encrypt`/`Decrypt`/`DescribeKey` already suffice, as documented in the cross-service
+punch-list above). No KMS-local gaps remain.
