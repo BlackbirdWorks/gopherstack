@@ -10,6 +10,30 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
+// Snapshot implements persistence.Persistable by delegating to the backend.
+//
+// h.Backend is the StorageBackend interface, which already declares
+// Snapshot(ctx context.Context) []byte (see interfaces.go) with a shape
+// matching persistence.Persistable exactly, so this can call it directly --
+// no local type assertion needed. But interface membership alone does not
+// help: h.Backend is a named field, not an embedded one, so InMemoryBackend's
+// methods are never promoted onto *Handler. Without this delegation, cli.go's
+// setupPersistence type-asserts the registered service.Registerable (this
+// *Handler) against persistence.Persistable, fails silently, and never
+// registers pinpoint for snapshot/restore despite the backend being fully
+// capable. Mirrors services/securityhub's Handler-level delegation.
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	return h.Backend.Snapshot(ctx)
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
+
+// Compile-time proof Handler satisfies the persistence layer's contract.
+var _ persistence.Persistable = (*Handler)(nil)
+
 // pinpointSnapshotVersion identifies the shape of [backendSnapshot]. It must
 // be bumped whenever a change to the persisted table set (or a persisted
 // value type) would make an older snapshot unsafe to decode as the current

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -229,4 +230,38 @@ func TestInMemoryBackend_RevokePermissions_KeepsPermissionsMapConsistent(t *test
 	// left behind in permissionsMap).
 	require.NoError(t, b.GrantPermissions(entry))
 	assert.Equal(t, 1, b.PermissionCount())
+}
+
+// Test_Handler_SnapshotRestore verifies Handler.Snapshot/Restore
+// (persistence.go) delegate to the backend -- the shape persistence.Manager
+// actually drives. cli.go's setupPersistence registers a service.Registerable
+// (the *Handler returned by Provider.Init) in the persistence.Manager only if
+// that Handler itself satisfies Snapshot(ctx)/Restore(ctx, []byte);
+// InMemoryBackend implementing Snapshot()([]byte,error)/Restore(ctx,[]byte)error
+// is not enough on its own, since Handler.Backend is the StorageBackend
+// interface and does not promote them, and the shapes differ (no ctx,
+// returns an error) so Handler.Snapshot must adapt. Mirrors
+// services/securityhub's Test_Handler_SnapshotRestore.
+func Test_Handler_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	// Compile-time proof Handler satisfies the persistence layer's contract.
+	var _ persistence.Persistable = h
+
+	require.NoError(t, b.CreateLFTag("123456789012", "handler-tag", []string{"a", "b"}))
+
+	data := h.Snapshot(ctx)
+	require.NotEmpty(t, data)
+
+	restoredBackend := lakeformation.NewInMemoryBackend()
+	restoredHandler := lakeformation.NewHandler(restoredBackend)
+	require.NoError(t, restoredHandler.Restore(ctx, data))
+
+	tag, err := restoredBackend.GetLFTag("123456789012", "handler-tag")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"a", "b"}, tag.TagValues)
 }

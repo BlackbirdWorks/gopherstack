@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -227,22 +228,31 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "device-1", transfers[0].DeviceID)
 }
 
-// TestHandler_SnapshotRestoreDelegate verifies the Handler-level Snapshot and
-// Restore -- which the persistence layer actually calls -- correctly
-// delegate to the backend.
-func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
+// Test_Handler_SnapshotRestore verifies Handler.Snapshot/Restore
+// (persistence.go) delegate to the backend -- the shape persistence.Manager
+// actually drives. cli.go's setupPersistence registers a service.Registerable
+// (the *Handler returned by Provider.Init) in the persistence.Manager only if
+// that Handler itself satisfies Snapshot(ctx)/Restore(ctx, []byte);
+// InMemoryBackend implementing the same two methods is not enough on its own,
+// since Handler.Backend is the StorageBackend interface and does not promote
+// them. Mirrors services/securityhub's Test_Handler_SnapshotRestore.
+func Test_Handler_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 
+	ctx := t.Context()
 	h := medialive.NewHandler(medialive.NewInMemoryBackend("000000000000", "us-east-1"))
+
+	// Compile-time proof Handler satisfies the persistence layer's contract.
+	var _ persistence.Persistable = h
 
 	_, err := h.Backend.CreateChannel("delegate-channel", "", "", nil)
 	require.NoError(t, err)
 
-	snap := h.Backend.Snapshot(t.Context())
+	snap := h.Snapshot(ctx)
 	require.NotNil(t, snap)
 
 	h2 := medialive.NewHandler(medialive.NewInMemoryBackend("000000000000", "us-east-1"))
-	require.NoError(t, h2.Backend.Restore(t.Context(), snap))
+	require.NoError(t, h2.Restore(ctx, snap))
 
 	assert.Equal(t, 1, medialive.ChannelCount(h2.Backend.(*medialive.InMemoryBackend)))
 }

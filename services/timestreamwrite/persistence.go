@@ -11,6 +11,41 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
+// Snapshot implements persistence.Persistable by delegating to the backend.
+//
+// h.Backend is *InMemoryBackend (a concrete type, not the StorageBackend
+// interface), so no type assertion is needed here -- but its methods are
+// still not promoted to Handler, since Backend is a named field rather than
+// an embedded one. Without this delegation, cli.go's setupPersistence
+// type-asserts the registered service.Registerable (this *Handler) against
+// persistence.Persistable, fails silently, and never registers
+// timestreamwrite for snapshot/restore despite the backend being fully
+// capable. Mirrors services/securityhub's Handler-level delegation.
+//
+// InMemoryBackend.Snapshot has a different shape than persistence.Persistable
+// (no ctx parameter, and it returns an error instead of logging one itself),
+// so this adapts: it calls the backend's Snapshot() and logs+swallows any
+// marshal error, matching the Persistable contract (a nil snapshot is skipped
+// by the persistence Manager).
+func (h *Handler) Snapshot(ctx context.Context) []byte {
+	data, err := h.Backend.Snapshot()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "timestreamwrite: Handler snapshot failed", "error", err)
+
+		return nil
+	}
+
+	return data
+}
+
+// Restore implements persistence.Persistable by delegating to the backend.
+func (h *Handler) Restore(ctx context.Context, data []byte) error {
+	return h.Backend.Restore(ctx, data)
+}
+
+// Compile-time proof Handler satisfies the persistence layer's contract.
+var _ persistence.Persistable = (*Handler)(nil)
+
 // timestreamwriteSnapshotVersion identifies the shape of [backendSnapshot].
 // It must be bumped whenever a change to backendSnapshot (or a value type
 // held by one of the registered tables) would make an older snapshot unsafe
