@@ -418,7 +418,7 @@ func TestBatch2_DescribeDBClusterParameters_Errors(t *testing.T) {
 			name:         "unknown_group_returns_not_found",
 			groupName:    "no-such-group",
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name:         "known_group_returns_params",
@@ -530,14 +530,14 @@ func TestBatch2_CopyDBClusterParameterGroup_Errors(t *testing.T) {
 			source:       "no-such-group",
 			target:       "new-group",
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name:         "duplicate_target_returns_error",
 			source:       "src-group",
 			target:       "dst-group",
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterParameterGroupAlreadyExistsFault",
+			wantContains: "DBParameterGroupAlreadyExists",
 		},
 		{
 			name:         "valid_copy_succeeds",

@@ -1396,10 +1396,17 @@ func parseBoolParam(vals url.Values, key string) *bool {
 	return &v
 }
 
+// parseSubnetIDMembers parses the SubnetIds list. The real aws-sdk-go-v2
+// query-protocol serializer (awsAwsquery_serializeDocumentSubnetIdentifierList)
+// encodes each element as "SubnetIds.SubnetIdentifier.N", not the generic
+// "SubnetIds.member.N" -- unlike most docdb lists, this one's member name is
+// not "member". Getting this wrong means every subnet ID a real client sends
+// is silently dropped, so CreateDBSubnetGroup/ModifyDBSubnetGroup would always
+// persist an empty subnet list.
 func parseSubnetIDMembers(vals url.Values) []string {
 	var ids []string
 	for i := 1; ; i++ {
-		sid := vals.Get(fmt.Sprintf("SubnetIds.member.%d", i))
+		sid := vals.Get(fmt.Sprintf("SubnetIds.SubnetIdentifier.%d", i))
 		if sid == "" {
 			return ids
 		}
@@ -1439,10 +1446,8 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	}
 	logTypes := make([]string, len(c.EnabledCloudwatchLogsExports))
 	copy(logTypes, c.EnabledCloudwatchLogsExports)
-	azMembers := make([]xmlAvailabilityZone, 0, len(c.AvailabilityZones))
-	for _, az := range c.AvailabilityZones {
-		azMembers = append(azMembers, xmlAvailabilityZone{Name: az})
-	}
+	azMembers := make([]string, len(c.AvailabilityZones))
+	copy(azMembers, c.AvailabilityZones)
 
 	return xmlDBCluster{
 		DBClusterIdentifier:              c.DBClusterIdentifier,
@@ -1578,12 +1583,15 @@ type xmlDBClusterMemberList struct {
 	Members []xmlDBClusterMember `xml:"DBClusterMember"`
 }
 
-type xmlAvailabilityZone struct {
-	Name string `xml:"Name"`
-}
-
+// xmlAvailabilityZoneList models the DBCluster.AvailabilityZones wire shape:
+// a list of plain-string <AvailabilityZone> elements (unlike the singular
+// AvailabilityZone document used for DBSubnetGroup.Subnet.SubnetAvailabilityZone,
+// which nests a <Name> child). See awsAwsquery_deserializeDocumentAvailabilityZones
+// in the real SDK, which reads each <AvailabilityZone> element's text value
+// directly -- nesting a <Name> child here (as this type previously did) would
+// make every real client parse the AZ as an empty string.
 type xmlAvailabilityZoneList struct {
-	Members []xmlAvailabilityZone `xml:"AvailabilityZone"`
+	Members []string `xml:"AvailabilityZone"`
 }
 
 type xmlDBCluster struct {
@@ -2345,10 +2353,15 @@ func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, stri
 	return items[:limit], strconv.Itoa(start + limit)
 }
 
+// parseAvailabilityZones parses the AvailabilityZones list. The real
+// aws-sdk-go-v2 query-protocol serializer
+// (awsAwsquery_serializeDocumentAvailabilityZones) encodes each element as
+// "AvailabilityZones.AvailabilityZone.N", not the generic
+// "AvailabilityZones.member.N".
 func parseAvailabilityZones(vals url.Values) []string {
 	var azs []string
 	for i := 1; ; i++ {
-		az := vals.Get(fmt.Sprintf("AvailabilityZones.member.%d", i))
+		az := vals.Get(fmt.Sprintf("AvailabilityZones.AvailabilityZone.%d", i))
 		if az == "" {
 			return azs
 		}
@@ -2378,10 +2391,15 @@ func parseAttributeValueMembers(vals url.Values, prefix string) []string {
 	}
 }
 
+// parseVpcSecurityGroupIDs parses the VpcSecurityGroupIds list. The real
+// aws-sdk-go-v2 query-protocol serializer
+// (awsAwsquery_serializeDocumentVpcSecurityGroupIdList) encodes each element
+// as "VpcSecurityGroupIds.VpcSecurityGroupId.N", not the generic
+// "VpcSecurityGroupIds.member.N".
 func parseVpcSecurityGroupIDs(vals url.Values) []string {
 	var ids []string
 	for i := 1; ; i++ {
-		id := vals.Get(fmt.Sprintf("VpcSecurityGroupIds.member.%d", i))
+		id := vals.Get(fmt.Sprintf("VpcSecurityGroupIds.VpcSecurityGroupId.%d", i))
 		if id == "" {
 			return ids
 		}
@@ -2422,15 +2440,20 @@ func parseCloudwatchDisableLogTypes(vals url.Values) []string {
 	}
 }
 
-// parseDBClusterParameters parses Parameters.member.N.ParameterName + ParameterValue form values.
+// parseDBClusterParameters parses Parameters.Parameter.N.ParameterName +
+// ParameterValue form values. The real aws-sdk-go-v2 query-protocol
+// serializer (awsAwsquery_serializeDocumentParametersList) encodes each
+// element as "Parameters.Parameter.N", not the generic "Parameters.member.N"
+// -- getting this wrong means ModifyDBClusterParameterGroup silently ignores
+// every parameter a real client sends.
 func parseDBClusterParameters(vals url.Values) map[string]string {
 	params := make(map[string]string)
 	for i := 1; ; i++ {
-		pName := vals.Get(fmt.Sprintf("Parameters.member.%d.ParameterName", i))
+		pName := vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ParameterName", i))
 		if pName == "" {
 			break
 		}
-		pValue := vals.Get(fmt.Sprintf("Parameters.member.%d.ParameterValue", i))
+		pValue := vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ParameterValue", i))
 		params[pName] = pValue
 	}
 

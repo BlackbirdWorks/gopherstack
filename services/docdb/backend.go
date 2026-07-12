@@ -42,24 +42,39 @@ func regionFromARN(resourceARN, defaultRegion string) string {
 	return defaultRegion
 }
 
+// Error code strings below are the literal wire values the real
+// aws-sdk-go-v2/service/docdb query-protocol error deserializers switch on
+// (see deserializers.go's awsAwsquery_deserializeOpError* functions for each
+// operation), NOT the Go SDK type names (which all end in "...Fault"). AWS's
+// DocDB API is inconsistent here: some resources put "Fault" on the wire code
+// (DBCluster, DBClusterSnapshot, GlobalCluster, InvalidDBClusterStateFault,
+// InvalidDBSubnetGroupStateFault), while others strip it (DBInstance,
+// DBSubnetGroup-already-exists) or additionally drop "Cluster" and reuse the
+// plain RDS DBParameterGroup codes for DBClusterParameterGroup operations
+// (CreateDBClusterParameterGroup, ModifyDBClusterParameterGroup, etc. all
+// switch on "DBParameterGroupNotFound"/"DBParameterGroupAlreadyExists"/
+// "InvalidDBParameterGroupState", never "DBClusterParameterGroup...Fault").
+// A wire code that doesn't match the SDK's switch falls through to
+// smithy.GenericAPIError, so real callers doing errors.As against the typed
+// fault (e.g. *types.DBInstanceNotFoundFault) silently stop matching.
 var (
 	ErrClusterNotFound                    = awserr.New("DBClusterNotFoundFault", awserr.ErrNotFound)
 	ErrClusterAlreadyExists               = awserr.New("DBClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrInstanceNotFound                   = awserr.New("DBInstanceNotFoundFault", awserr.ErrNotFound)
-	ErrInstanceAlreadyExists              = awserr.New("DBInstanceAlreadyExistsFault", awserr.ErrAlreadyExists)
+	ErrInstanceNotFound                   = awserr.New("DBInstanceNotFound", awserr.ErrNotFound)
+	ErrInstanceAlreadyExists              = awserr.New("DBInstanceAlreadyExists", awserr.ErrAlreadyExists)
 	ErrSubnetGroupNotFound                = awserr.New("DBSubnetGroupNotFoundFault", awserr.ErrNotFound)
-	ErrSubnetGroupAlreadyExists           = awserr.New("DBSubnetGroupAlreadyExistsFault", awserr.ErrAlreadyExists)
+	ErrSubnetGroupAlreadyExists           = awserr.New("DBSubnetGroupAlreadyExists", awserr.ErrAlreadyExists)
 	ErrSubnetGroupInUse                   = awserr.New("InvalidDBSubnetGroupStateFault", awserr.ErrInvalidParameter)
-	ErrClusterParameterGroupNotFound      = awserr.New("DBClusterParameterGroupNotFoundFault", awserr.ErrNotFound)
+	ErrClusterParameterGroupNotFound      = awserr.New("DBParameterGroupNotFound", awserr.ErrNotFound)
 	ErrClusterParameterGroupAlreadyExists = awserr.New(
-		"DBClusterParameterGroupAlreadyExistsFault",
+		"DBParameterGroupAlreadyExists",
 		awserr.ErrAlreadyExists,
 	)
-	ErrParameterGroupInUse            = awserr.New("InvalidDBParameterGroupStateFault", awserr.ErrInvalidParameter)
+	ErrParameterGroupInUse            = awserr.New("InvalidDBParameterGroupState", awserr.ErrInvalidParameter)
 	ErrClusterSnapshotNotFound        = awserr.New("DBClusterSnapshotNotFoundFault", awserr.ErrNotFound)
 	ErrClusterSnapshotAlreadyExists   = awserr.New("DBClusterSnapshotAlreadyExistsFault", awserr.ErrAlreadyExists)
-	ErrEventSubscriptionNotFound      = awserr.New("SubscriptionNotFoundFault", awserr.ErrNotFound)
-	ErrEventSubscriptionAlreadyExists = awserr.New("SubscriptionAlreadyExistFault", awserr.ErrAlreadyExists)
+	ErrEventSubscriptionNotFound      = awserr.New("SubscriptionNotFound", awserr.ErrNotFound)
+	ErrEventSubscriptionAlreadyExists = awserr.New("SubscriptionAlreadyExist", awserr.ErrAlreadyExists)
 	ErrGlobalClusterNotFound          = awserr.New("GlobalClusterNotFoundFault", awserr.ErrNotFound)
 	ErrGlobalClusterAlreadyExists     = awserr.New("GlobalClusterAlreadyExistsFault", awserr.ErrAlreadyExists)
 	ErrInvalidParameter               = awserr.New("InvalidParameterValue", awserr.ErrInvalidParameter)
