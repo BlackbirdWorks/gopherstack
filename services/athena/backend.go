@@ -108,7 +108,11 @@ type CustomerEncCfg struct {
 
 // ResultConfiguration holds the configuration for where query results are stored.
 type ResultConfiguration struct {
-	ACLConfiguration        *ACLConfiguration       `json:"ACLConfiguration,omitempty"`
+	// ACLConfiguration is tagged "AclConfiguration" (not "ACLConfiguration") to
+	// match the real Athena wire shape: aws-sdk-go-v2's generated deserializer
+	// switches on the exact-case JSON key "AclConfiguration", so a mismatched
+	// tag here would make the SDK silently drop the field.
+	ACLConfiguration        *ACLConfiguration       `json:"AclConfiguration,omitempty"`
 	EncryptionConfiguration EncryptionConfiguration `json:"EncryptionConfiguration,omitzero"`
 	ExpectedBucketOwner     string                  `json:"ExpectedBucketOwner,omitempty"`
 	OutputLocation          string                  `json:"OutputLocation,omitempty"`
@@ -407,7 +411,7 @@ type StorageBackend interface {
 
 	// Notebooks
 	CreateNotebook(workGroup, name string, tags map[string]string) (string, error)
-	CreatePresignedNotebookURL(sessionID string) (string, error)
+	CreatePresignedNotebookURL(sessionID string) (url, authToken string, authTokenExpiration float64, err error)
 	DeleteNotebook(notebookID string) error
 	ExportNotebook(notebookID string) (NotebookMetadata, string, error)
 	GetNotebookMetadata(notebookID string) (*NotebookMetadata, error)
@@ -425,7 +429,7 @@ type StorageBackend interface {
 	) (string, string, error)
 	GetSession(id string) (*Session, error)
 	GetSessionStatus(id string) (SessionStatus, error)
-	GetSessionEndpoint(id string) (string, error)
+	GetSessionEndpoint(id string) (url, authToken string, authTokenExpiration float64, err error)
 	TerminateSession(id string) (string, error)
 	ListSessions(workGroup, stateFilter string) ([]SessionSummary, error)
 	ListNotebookSessions(notebookID string) ([]SessionSummary, error)
@@ -455,6 +459,7 @@ type StorageBackend interface {
 	UpdateNamedQuery(id, name, description, queryString string) error
 	UpdatePreparedStatement(name, workGroup, queryStatement, description string) error
 	GetQueryRuntimeStatistics(id string) (*QueryRuntimeStatistics, error)
+	GetResourceDashboard(resourceARN string) (string, error)
 
 	// Engine version / executor / DPU listings
 	ListEngineVersions() []EngineVersionDescriptor
@@ -570,6 +575,23 @@ func randomID() string {
 	}
 
 	return string(b)
+}
+
+// sessionAuthTokenTTL is the validity window gopherstack assigns to the
+// synthesized bearer tokens returned by GetSessionEndpoint and
+// CreatePresignedNotebookUrl. AWS documents CreatePresignedNotebookUrl's token
+// as needing a refresh roughly every 10 minutes; gopherstack reuses that
+// window for both operations since neither backs a real authentication
+// system.
+const sessionAuthTokenTTL = 10 * time.Minute
+
+// newSessionAuthToken synthesizes an opaque bearer token and its
+// epoch-seconds expiration time for GetSessionEndpoint and
+// CreatePresignedNotebookUrl, both of which require an AuthToken +
+// AuthTokenExpirationTime pair on the wire despite gopherstack modeling no
+// real authentication.
+func newSessionAuthToken() (string, float64) {
+	return randomID(), float64(time.Now().Add(sessionAuthTokenTTL).UnixMilli()) / millisToSeconds
 }
 
 func (b *InMemoryBackend) workGroupARN(name string) string {
@@ -1736,13 +1758,18 @@ func (b *InMemoryBackend) CreateNotebook(
 	return id, nil
 }
 
-// CreatePresignedNotebookURL generates a presigned URL for a notebook session.
-func (b *InMemoryBackend) CreatePresignedNotebookURL(sessionID string) (string, error) {
-	return fmt.Sprintf(
+// CreatePresignedNotebookURL generates a presigned notebook URL plus the
+// AuthToken/AuthTokenExpirationTime pair the real CreatePresignedNotebookUrl
+// response carries alongside it.
+func (b *InMemoryBackend) CreatePresignedNotebookURL(sessionID string) (string, string, float64, error) {
+	url := fmt.Sprintf(
 		"https://athena.%s.amazonaws.com/notebooks/presigned/%s",
 		b.region,
 		sessionID,
-	), nil
+	)
+	authToken, authTokenExpiration := newSessionAuthToken()
+
+	return url, authToken, authTokenExpiration, nil
 }
 
 // DeleteNotebook removes a notebook by its ID.

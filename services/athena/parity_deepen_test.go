@@ -64,7 +64,7 @@ func TestParity_GetSessionEndpoint_UsesConfiguredRegion(t *testing.T) {
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			url, _ := resp["SessionEndpoint"].(string)
+			url, _ := resp["EndpointUrl"].(string)
 			assert.Contains(t, url, tt.wantPrefix,
 				"GetSessionEndpoint URL must use the configured region %q, not hardcoded us-east-1", tt.region)
 		})

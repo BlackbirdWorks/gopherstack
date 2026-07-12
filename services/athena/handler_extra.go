@@ -148,6 +148,10 @@ type getQueryRuntimeStatsInput struct {
 	QueryExecutionID string `json:"QueryExecutionId"`
 }
 
+type getResourceDashboardInput struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
 // extendedSupportedOperations are the operations added in this iteration.
 func (h *Handler) extendedSupportedOperations() []string {
 	return []string{
@@ -248,12 +252,16 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 				return nil, err
 			}
 
-			url, err := h.Backend.GetSessionEndpoint(input.SessionID)
+			url, authToken, authTokenExpiration, err := h.Backend.GetSessionEndpoint(input.SessionID)
 			if err != nil {
 				return nil, err
 			}
 
-			return map[string]any{"SessionEndpoint": url}, nil
+			return map[string]any{
+				"EndpointUrl":             url,
+				"AuthToken":               authToken,
+				"AuthTokenExpirationTime": authTokenExpiration,
+			}, nil
 		},
 		"TerminateSession": func(b []byte) (any, error) {
 			var input sessionIDInput
@@ -629,10 +637,18 @@ func (h *Handler) miscOps() map[string]athenaActionFn {
 
 			return map[string]any{"QueryRuntimeStatistics": stats}, nil
 		},
-		"GetResourceDashboard": func(_ []byte) (any, error) {
-			// GetResourceDashboard returns a dashboard for an Athena resource.
-			// In-process simulation returns an empty dashboard.
-			return map[string]any{"ResourceDashboard": map[string]any{}}, nil
+		"GetResourceDashboard": func(b []byte) (any, error) {
+			var input getResourceDashboardInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			url, err := h.Backend.GetResourceDashboard(input.ResourceARN)
+			if err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"Url": url}, nil
 		},
 	}
 }

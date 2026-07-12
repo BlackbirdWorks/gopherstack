@@ -328,16 +328,21 @@ func (b *InMemoryBackend) GetSessionStatus(id string) (SessionStatus, error) {
 	return s.Status, nil
 }
 
-// GetSessionEndpoint returns a presigned endpoint URL for the given session.
-func (b *InMemoryBackend) GetSessionEndpoint(id string) (string, error) {
+// GetSessionEndpoint returns a presigned endpoint URL for the given session,
+// plus the AuthToken/AuthTokenExpirationTime pair the real GetSessionEndpoint
+// response carries alongside it.
+func (b *InMemoryBackend) GetSessionEndpoint(id string) (string, string, float64, error) {
 	b.mu.RLock("GetSessionEndpoint")
 	defer b.mu.RUnlock()
 
 	if !b.sessions.Has(id) {
-		return "", fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
+		return "", "", 0, fmt.Errorf("%w: session %q not found", ErrResourceNotFound, id)
 	}
 
-	return fmt.Sprintf(notebookEndpointBase, b.region) + id, nil
+	url := fmt.Sprintf(notebookEndpointBase, b.region) + id
+	authToken, authTokenExpiration := newSessionAuthToken()
+
+	return url, authToken, authTokenExpiration, nil
 }
 
 // TerminateSession terminates an existing session.
@@ -1112,4 +1117,15 @@ func (b *InMemoryBackend) GetQueryRuntimeStatistics(id string) (*QueryRuntimeSta
 			State:   qe.Status.State,
 		},
 	}, nil
+}
+
+// GetResourceDashboard returns the Live UI/Persistence UI dashboard URL for a
+// resource (session) ARN, matching the real GetResourceDashboard response's
+// single required "Url" field.
+func (b *InMemoryBackend) GetResourceDashboard(resourceARN string) (string, error) {
+	if resourceARN == "" {
+		return "", fmt.Errorf("%w: ResourceARN is required", ErrValidation)
+	}
+
+	return fmt.Sprintf("https://athena.%s.amazonaws.com/dashboards/%s", b.region, randomID()), nil
 }

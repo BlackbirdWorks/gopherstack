@@ -216,7 +216,7 @@ func TestParity_BatchGet_SizeLimits(t *testing.T) {
 		{
 			name:       "BatchGetPreparedStatement_over_25_rejected",
 			action:     "BatchGetPreparedStatement",
-			body:       `{"StatementNames":` + buildNames(26) + `,"WorkGroup":"primary"}`,
+			body:       `{"PreparedStatementNames":` + buildNames(26) + `,"WorkGroup":"primary"}`,
 			wantStatus: http.StatusBadRequest,
 		},
 	}

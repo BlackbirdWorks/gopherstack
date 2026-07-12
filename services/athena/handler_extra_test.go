@@ -242,7 +242,7 @@ func TestHandler_GetSessionEndpoint(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				assert.Contains(t, jsonField(t, rec.Body.Bytes(), "SessionEndpoint"), id)
+				assert.Contains(t, jsonField(t, rec.Body.Bytes(), "EndpointUrl"), id)
 			}
 		})
 	}
@@ -1566,6 +1566,47 @@ func TestHandler_GetQueryRuntimeStatistics(t *testing.T) {
 
 			rec := doRequest(t, h, "GetQueryRuntimeStatistics", `{"QueryExecutionId":"`+queryID+`"}`)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestHandler_GetResourceDashboard asserts the wire-accurate response shape:
+// a single top-level "Url" string field (AWS's GetResourceDashboardOutput),
+// not the fabricated empty "ResourceDashboard" object this handler used to
+// return regardless of input.
+func TestHandler_GetResourceDashboard(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       `{"ResourceARN":"arn:aws:athena:us-east-1:000000000000:session/sess-1"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_resource_arn_rejected",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetResourceDashboard", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				url := jsonField(t, rec.Body.Bytes(), "Url")
+				assert.Contains(t, url, "athena.")
+				assert.NotContains(t, rec.Body.String(), "ResourceDashboard")
+			}
 		})
 	}
 }
