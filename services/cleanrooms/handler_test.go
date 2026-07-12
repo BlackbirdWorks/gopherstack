@@ -214,7 +214,17 @@ func TestTagOperations(t *testing.T) {
 
 	e := newTestServer(t)
 
-	const testARN = "arn:aws:cleanrooms:us-east-1:123456789012:collaboration/abc123"
+	// TagResource/UntagResource/ListTagsForResource all document
+	// ResourceNotFoundException for an ARN that isn't a real resource, so tag
+	// a collaboration actually created through the API rather than a
+	// fabricated ARN.
+	colRec := doRequest(t, e, http.MethodPost, "/collaborations", map[string]any{
+		"name": "tag-collab", "creatorDisplayName": "Dana",
+		"creatorMemberAbilities": []string{}, "members": []any{}, "queryLogStatus": "DISABLED",
+	})
+	var colResp map[string]any
+	_ = json.NewDecoder(colRec.Body).Decode(&colResp)
+	testARN := colResp["collaboration"].(map[string]any)["arn"].(string)
 
 	// Tag resource
 	rec := doRequest(
@@ -238,6 +248,37 @@ func TestTagOperations(t *testing.T) {
 	rec = doRequest(t, e, http.MethodDelete, "/tags/"+testARN+"?tagKeys=env", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("untag: status %d want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
+// TestTagOperations_UnknownResourceARN verifies TagResource, UntagResource,
+// and ListTagsForResource all reject an ARN that doesn't correspond to any
+// real resource with ResourceNotFoundException, matching the AWS API model
+// (previously these silently no-op'd/succeeded on a fabricated ARN).
+func TestTagOperations_UnknownResourceARN(t *testing.T) {
+	t.Parallel()
+
+	e := newTestServer(t)
+
+	const fakeARN = "arn:aws:cleanrooms:us-east-1:123456789012:collaboration/does-not-exist"
+
+	cases := []struct {
+		body   map[string]any
+		method string
+		path   string
+	}{
+		{map[string]any{"tags": map[string]string{"env": "test"}}, http.MethodPost, "/tags/" + fakeARN},
+		{nil, http.MethodGet, "/tags/" + fakeARN},
+		{nil, http.MethodDelete, "/tags/" + fakeARN + "?tagKeys=env"},
+	}
+	for _, tc := range cases {
+		rec := doRequest(t, e, tc.method, tc.path, tc.body)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf(
+				"%s %s: status %d want %d: %s",
+				tc.method, tc.path, rec.Code, http.StatusNotFound, rec.Body.String(),
+			)
+		}
 	}
 }
 

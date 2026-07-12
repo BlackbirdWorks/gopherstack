@@ -330,7 +330,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		status, code = http.StatusNotFound, "ResourceNotFoundException"
-	case errors.Is(err, ErrAlreadyExists):
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrConflict):
 		status, code = http.StatusConflict, "ConflictException"
 	case errors.Is(err, ErrValidation):
 		status, code = http.StatusBadRequest, "ValidationException"
@@ -466,7 +466,13 @@ func classifyCollabAnalysisTemplates(method, id string, segs []string) (string, 
 	if len(segs) == segsWithSub && method == http.MethodGet {
 		return opListCollaborationAnalysisTemplates, id
 	}
-	if len(segs) == segsWithSubID && method == http.MethodGet {
+	// GetCollaborationAnalysisTemplate's path parameter is analysisTemplateArn
+	// (arn:...:membership/{id}/analysistemplate/{id}), which contains real "/"
+	// characters. Go's http server decodes the request's percent-encoded %2F
+	// back into a literal "/" in URL.Path (see injectCollaborationParams,
+	// which re-joins segs[3:]), so the ARN spans more than one path segment
+	// here -- ">=", not "==", or this op is permanently unroutable.
+	if len(segs) >= segsWithSubID && method == http.MethodGet {
 		return opGetCollaborationAnalysisTemplate, id
 	}
 
@@ -924,7 +930,11 @@ func injectCollaborationParams(segs []string, setStr func(string, string)) {
 	if len(segs) >= segsWithSubID {
 		switch segs[2] {
 		case subAnalysisTemplates:
-			setStr("analysisTemplateArn", segs[3])
+			// analysisTemplateArn is an ARN (arn:...:membership/{id}/analysistemplate/{id})
+			// and so spans every remaining segment once URL.Path has decoded its
+			// embedded "/" characters back to literal slashes; see
+			// classifyCollabAnalysisTemplates.
+			setStr("analysisTemplateArn", strings.Join(segs[3:], "/"))
 		case "changeRequests":
 			setStr("changeRequestIdentifier", segs[3])
 		case subCAMAAssociations:
