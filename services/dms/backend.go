@@ -41,6 +41,7 @@ const (
 	statusAvailable      = "available"
 	statusCancelling     = "cancelling"
 	statusSuccessful     = "successful"
+	statusCreated        = "created"
 	defaultEngineVersion = "3.5.3"
 
 	eventCategoryCreation    = "creation"
@@ -233,6 +234,14 @@ type MigrationProject struct {
 }
 
 // ReplicationConfig represents a DMS replication config.
+// ReplicationConfig also tracks the runtime state of its associated DMS
+// Serverless "Replication" resource (Status, StartReplicationType). AWS
+// models the replication config (returned by CreateReplicationConfig /
+// DescribeReplicationConfigs / ModifyReplicationConfig) and the replication
+// runtime state (returned by StartReplication / StopReplication /
+// DescribeReplications) as two distinct API shapes, but a single config has
+// at most one associated replication in this in-memory emulation, so the
+// runtime fields live on the same struct rather than a separate table.
 type ReplicationConfig struct {
 	Tags                        *tags.Tags `json:"-"`
 	ReplicationConfigIdentifier string
@@ -242,6 +251,16 @@ type ReplicationConfig struct {
 	TargetEndpointArn           string
 	AccountID                   string
 	Region                      string
+	// Status is the runtime status of the associated Replication resource
+	// (created, running, stopped, ...). It is never surfaced on the
+	// ReplicationConfig wire shape itself -- only via StartReplication /
+	// StopReplication / DescribeReplications, which report on the
+	// "Replication" resource, not the "ReplicationConfig" resource.
+	Status string
+	// StartReplicationType records the StartReplicationType passed to the
+	// most recent StartReplication call (start-replication, resume-processing,
+	// or reload-target), echoed back on the Replication resource.
+	StartReplicationType string
 }
 
 // AssessmentRun represents a DMS pre-migration assessment run.
@@ -944,6 +963,34 @@ func (b *InMemoryBackend) BatchStartRecommendations(ctx context.Context) error {
 			})
 		}
 	}
+
+	return nil
+}
+
+// StartRecommendation starts the analysis for a single Fleet Advisor source
+// database and stores a resulting target-engine recommendation, visible via
+// DescribeRecommendations. This is the single-target counterpart of
+// BatchStartRecommendations.
+func (b *InMemoryBackend) StartRecommendation(ctx context.Context, databaseID string) error {
+	if databaseID == "" {
+		return fmt.Errorf("%w: DatabaseId is required", ErrValidation)
+	}
+
+	b.mu.Lock("StartRecommendation")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	engine := "rds-mysql"
+	if db, ok := b.fleetAdvisorDatabases.Get(regionKey(region, databaseID)); ok && db.EngineName != "" {
+		engine = db.EngineName
+	}
+
+	b.recommendations[region] = append(b.recommendations[region], &Recommendation{
+		DatabaseID: databaseID,
+		EngineName: engine,
+		Status:     "active",
+	})
 
 	return nil
 }
@@ -2547,6 +2594,40 @@ func (b *InMemoryBackend) DeleteReplicationSubnetGroup(ctx context.Context, iden
 	return fmt.Errorf("%w: replication subnet group %s not found", ErrNotFound, identifierOrArn)
 }
 
+// ModifyReplicationSubnetGroup updates a subnet group's description by
+// identifier or ARN. SubnetIds are accepted (as required by the real AWS
+// request shape) but not modeled further since gopherstack does not emulate
+// VPC subnet membership for DMS subnet groups.
+func (b *InMemoryBackend) ModifyReplicationSubnetGroup(
+	ctx context.Context,
+	identifierOrArn, description string,
+) (*ReplicationSubnetGroup, error) {
+	b.mu.Lock("ModifyReplicationSubnetGroup")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	if sg, ok := b.replicationSubnetGroups.Get(regionKey(region, identifierOrArn)); ok {
+		if description != "" {
+			sg.ReplicationSubnetGroupDescription = description
+		}
+		cp := *sg
+
+		return &cp, nil
+	}
+
+	if sg, ok := lookupUnique(b.replicationSubnetGroupsByARN, regionKey(region, identifierOrArn)); ok {
+		if description != "" {
+			sg.ReplicationSubnetGroupDescription = description
+		}
+		cp := *sg
+
+		return &cp, nil
+	}
+
+	return nil, fmt.Errorf("%w: replication subnet group %s not found", ErrNotFound, identifierOrArn)
+}
+
 // CreateReplicationConfig creates a replication config.
 func (b *InMemoryBackend) CreateReplicationConfig(
 	ctx context.Context,
@@ -2579,6 +2660,7 @@ func (b *InMemoryBackend) CreateReplicationConfig(
 		TargetEndpointArn:           targetEndpointArn,
 		AccountID:                   b.accountID,
 		Region:                      region,
+		Status:                      statusCreated,
 		Tags:                        t,
 	}
 	b.replicationConfigs.Put(rc)
@@ -2848,6 +2930,115 @@ func (b *InMemoryBackend) ModifyReplicationConfig(
 	}
 
 	return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, identifierOrArn)
+}
+
+// findReplicationConfig locates a replication config by identifier or ARN
+// within the request region (must hold a lock).
+func (b *InMemoryBackend) findReplicationConfig(ctx context.Context, arnOrID string) *ReplicationConfig {
+	region := getRegion(ctx, b.region)
+	if rc, ok := b.replicationConfigs.Get(regionKey(region, arnOrID)); ok {
+		return rc
+	}
+
+	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, arnOrID)); ok {
+		return rc
+	}
+
+	return nil
+}
+
+// StartReplication starts (or resumes) the DMS Serverless replication
+// associated with a replication config. Real AWS rejects starting a
+// replication that is already running.
+func (b *InMemoryBackend) StartReplication(
+	ctx context.Context,
+	replicationConfigArn, startReplicationType string,
+) (*ReplicationConfig, error) {
+	b.mu.Lock("StartReplication")
+	defer b.mu.Unlock()
+
+	rc := b.findReplicationConfig(ctx, replicationConfigArn)
+	if rc == nil {
+		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, replicationConfigArn)
+	}
+
+	if rc.Status == statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication for %s is already running",
+			ErrInvalidState,
+			replicationConfigArn,
+		)
+	}
+
+	rc.Status = statusRunning
+	rc.StartReplicationType = startReplicationType
+	cp := *rc
+
+	return &cp, nil
+}
+
+// StopReplication stops the DMS Serverless replication associated with a
+// replication config. Real AWS rejects stopping a replication that is not
+// currently running.
+func (b *InMemoryBackend) StopReplication(
+	ctx context.Context,
+	replicationConfigArn string,
+) (*ReplicationConfig, error) {
+	b.mu.Lock("StopReplication")
+	defer b.mu.Unlock()
+
+	rc := b.findReplicationConfig(ctx, replicationConfigArn)
+	if rc == nil {
+		return nil, fmt.Errorf("%w: replication config %s not found", ErrNotFound, replicationConfigArn)
+	}
+
+	if rc.Status != statusRunning {
+		return nil, fmt.Errorf(
+			"%w: replication for %s is not running",
+			ErrInvalidState,
+			replicationConfigArn,
+		)
+	}
+
+	rc.Status = statusStopped
+	cp := *rc
+
+	return &cp, nil
+}
+
+// DescribeReplications returns DMS Serverless replication runtime state,
+// backed by the replication configs that have had StartReplication called
+// against them at least once. A config that has never been started still
+// carries a valid Status ("created") from CreateReplicationConfig, matching
+// AWS's behavior of DescribeReplications listing every config regardless of
+// whether it has ever run. Optionally filtered by config identifier or ARN.
+func (b *InMemoryBackend) DescribeReplications(
+	ctx context.Context,
+	replicationConfigIDOrArn string,
+) ([]*ReplicationConfig, error) {
+	b.mu.RLock("DescribeReplications")
+	defer b.mu.RUnlock()
+
+	if replicationConfigIDOrArn != "" {
+		rc := b.findReplicationConfig(ctx, replicationConfigIDOrArn)
+		if rc == nil {
+			return []*ReplicationConfig{}, nil
+		}
+
+		cp := *rc
+
+		return []*ReplicationConfig{&cp}, nil
+	}
+
+	items := b.replicationConfigsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*ReplicationConfig, 0, len(items))
+
+	for _, rc := range items {
+		cp := *rc
+		list = append(list, &cp)
+	}
+
+	return list, nil
 }
 
 // DescribeCertificates returns all certificates.

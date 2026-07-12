@@ -696,7 +696,8 @@ func extractExtendedResourceField(c *echo.Context, action string) string {
 	case opCreateMigrationProject, opDeleteMigrationProject, opModifyMigrationProject:
 
 		return extractField(c, "MigrationProjectName", "MigrationProjectArn")
-	case opCreateReplicationConfig, opDeleteReplicationConfig, opModifyReplicationConfig:
+	case opCreateReplicationConfig, opDeleteReplicationConfig, opModifyReplicationConfig,
+		opStartReplication, opStopReplication:
 
 		return extractField(c, "ReplicationConfigIdentifier", "ReplicationConfigArn")
 	case opCreateReplicationSubnetGroup,
@@ -2122,6 +2123,15 @@ func (h *Handler) handleCreateReplicationSubnetGroup(
 	identifier := ptrconv.String(in.ReplicationSubnetGroupIdentifier)
 	if identifier == "" {
 		return nil, fmt.Errorf("%w: ReplicationSubnetGroupIdentifier is required", ErrValidation)
+	}
+
+	description := ptrconv.String(in.ReplicationSubnetGroupDescription)
+	if description == "" {
+		return nil, fmt.Errorf("%w: ReplicationSubnetGroupDescription is required", ErrValidation)
+	}
+
+	if len(in.SubnetIDs) == 0 {
+		return nil, fmt.Errorf("%w: SubnetIds is required", ErrValidation)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -3871,14 +3881,32 @@ type describeReplicationsInput struct {
 }
 
 type describeReplicationsOutput struct {
-	Marker       *string          `json:"Marker,omitempty"`
-	Replications []map[string]any `json:"Replications"`
+	Marker       *string           `json:"Marker,omitempty"`
+	Replications []replicationJSON `json:"Replications"`
 }
 
 func (h *Handler) handleDescribeReplications(
-	_ context.Context, _ *describeReplicationsInput,
+	ctx context.Context, in *describeReplicationsInput,
 ) (*describeReplicationsOutput, error) {
-	return &describeReplicationsOutput{Replications: []map[string]any{}}, nil
+	arnOrID := extractFilterValue(in.Filters, "replication-config-arn", "replication-config-id")
+
+	list, err := h.Backend.DescribeReplications(ctx, arnOrID)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ReplicationConfigIdentifier < list[j].ReplicationConfigIdentifier
+	})
+
+	all := make([]replicationJSON, 0, len(list))
+	for _, rc := range list {
+		all = append(all, replToJSON(rc))
+	}
+
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
+	return &describeReplicationsOutput{Replications: data, Marker: nextMarker}, nil
 }
 
 // --- DescribeSchemas handler ---
@@ -4285,16 +4313,24 @@ func (h *Handler) handleModifyReplicationSubnetGroup(
 	ctx context.Context, in *modifyReplicationSubnetGroupInput,
 ) (*modifyReplicationSubnetGroupOutput, error) {
 	identifier := ptrconv.String(in.ReplicationSubnetGroupIdentifier)
-
-	groups, _ := h.Backend.DescribeReplicationSubnetGroups(ctx)
-	for _, sg := range groups {
-		if sg.ReplicationSubnetGroupIdentifier == identifier ||
-			sg.ReplicationSubnetGroupArn == identifier {
-			return &modifyReplicationSubnetGroupOutput{ReplicationSubnetGroup: rsgToJSON(sg)}, nil
-		}
+	if identifier == "" {
+		return nil, fmt.Errorf("%w: ReplicationSubnetGroupIdentifier is required", ErrValidation)
 	}
 
-	return nil, fmt.Errorf("%w: replication subnet group %s not found", ErrNotFound, identifier)
+	if len(in.SubnetIDs) == 0 {
+		return nil, fmt.Errorf("%w: SubnetIds is required", ErrValidation)
+	}
+
+	sg, err := h.Backend.ModifyReplicationSubnetGroup(
+		ctx,
+		identifier,
+		ptrconv.String(in.ReplicationSubnetGroupDescription),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyReplicationSubnetGroupOutput{ReplicationSubnetGroup: rsgToJSON(sg)}, nil
 }
 
 // --- ModifyReplicationTask handler ---
@@ -4667,8 +4703,12 @@ type startRecommendationsInput struct {
 type startRecommendationsOutput struct{}
 
 func (h *Handler) handleStartRecommendations(
-	_ context.Context, _ *startRecommendationsInput,
+	ctx context.Context, in *startRecommendationsInput,
 ) (*startRecommendationsOutput, error) {
+	if err := h.Backend.StartRecommendation(ctx, ptrconv.String(in.DatabaseID)); err != nil {
+		return nil, err
+	}
+
 	return &startRecommendationsOutput{}, nil
 }
 
@@ -4679,12 +4719,63 @@ type startReplicationInput struct {
 	StartReplicationType *string `json:"StartReplicationType"`
 }
 
-type startReplicationOutput struct{}
+// replicationJSON represents the DMS Serverless "Replication" runtime
+// resource returned by StartReplication, StopReplication, and
+// DescribeReplications. This is distinct from the "ReplicationConfig"
+// resource (replicationConfigJSON) which has no Status field.
+type replicationJSON struct {
+	ReplicationConfigArn        string `json:"ReplicationConfigArn"`
+	ReplicationConfigIdentifier string `json:"ReplicationConfigIdentifier"`
+	ReplicationType             string `json:"ReplicationType,omitempty"`
+	SourceEndpointArn           string `json:"SourceEndpointArn,omitempty"`
+	TargetEndpointArn           string `json:"TargetEndpointArn,omitempty"`
+	StartReplicationType        string `json:"StartReplicationType,omitempty"`
+	Status                      string `json:"Status"`
+}
+
+func replToJSON(rc *ReplicationConfig) replicationJSON {
+	return replicationJSON{
+		ReplicationConfigArn:        rc.ReplicationConfigArn,
+		ReplicationConfigIdentifier: rc.ReplicationConfigIdentifier,
+		ReplicationType:             rc.ReplicationType,
+		SourceEndpointArn:           rc.SourceEndpointArn,
+		TargetEndpointArn:           rc.TargetEndpointArn,
+		StartReplicationType:        rc.StartReplicationType,
+		Status:                      rc.Status,
+	}
+}
+
+type startReplicationOutput struct {
+	Replication replicationJSON `json:"Replication"`
+}
 
 func (h *Handler) handleStartReplication(
-	_ context.Context, _ *startReplicationInput,
+	ctx context.Context, in *startReplicationInput,
 ) (*startReplicationOutput, error) {
-	return &startReplicationOutput{}, nil
+	configArn := ptrconv.String(in.ReplicationConfigArn)
+	if configArn == "" {
+		return nil, fmt.Errorf("%w: ReplicationConfigArn is required", ErrValidation)
+	}
+
+	startType := ptrconv.String(in.StartReplicationType)
+	if startType == "" {
+		return nil, fmt.Errorf("%w: StartReplicationType is required", ErrValidation)
+	}
+
+	if !isValidStartReplicationTaskType(startType) {
+		return nil, fmt.Errorf(
+			"%w: invalid StartReplicationType %q; valid: start-replication, resume-processing, reload-target",
+			ErrValidation,
+			startType,
+		)
+	}
+
+	rc, err := h.Backend.StartReplication(ctx, configArn, startType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startReplicationOutput{Replication: replToJSON(rc)}, nil
 }
 
 // --- StartReplicationTaskAssessment handler ---
@@ -4780,12 +4871,24 @@ type stopReplicationInput struct {
 	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
 }
 
-type stopReplicationOutput struct{}
+type stopReplicationOutput struct {
+	Replication replicationJSON `json:"Replication"`
+}
 
 func (h *Handler) handleStopReplication(
-	_ context.Context, _ *stopReplicationInput,
+	ctx context.Context, in *stopReplicationInput,
 ) (*stopReplicationOutput, error) {
-	return &stopReplicationOutput{}, nil
+	configArn := ptrconv.String(in.ReplicationConfigArn)
+	if configArn == "" {
+		return nil, fmt.Errorf("%w: ReplicationConfigArn is required", ErrValidation)
+	}
+
+	rc, err := h.Backend.StopReplication(ctx, configArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stopReplicationOutput{Replication: replToJSON(rc)}, nil
 }
 
 // --- TestConnection handler ---
