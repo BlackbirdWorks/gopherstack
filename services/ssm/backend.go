@@ -215,6 +215,7 @@ type InMemoryBackend struct {
 	gcm                        cipher.AEAD // per-instance key; not shared across backends
 	registry                   *store.Registry
 	activations                map[string]*store.Table[Activation]
+	cloudConnectors            map[string]*store.Table[CloudConnector]
 	maintenanceWindows         map[string]*store.Table[MaintenanceWindow]
 	maintenanceWindowTargets   map[string]*store.Table[MaintenanceWindowTarget]
 	maintenanceWindowTasks     map[string]*store.Table[MaintenanceWindowTask]
@@ -277,6 +278,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		commands:                   make(map[string]*store.Table[Command]),
 		commandInvocations:         make(map[string]map[string][]CommandInvocation),
 		activations:                make(map[string]*store.Table[Activation]),
+		cloudConnectors:            make(map[string]*store.Table[CloudConnector]),
 		associations:               make(map[string]*store.Table[Association]),
 		maintenanceWindows:         make(map[string]*store.Table[MaintenanceWindow]),
 		maintenanceWindowTargets:   make(map[string]*store.Table[MaintenanceWindowTarget]),
@@ -400,6 +402,10 @@ func (b *InMemoryBackend) commandInvocationsStore(region string) map[string][]Co
 
 func (b *InMemoryBackend) activationsStore(region string) *store.Table[Activation] {
 	return getOrCreateTable(b, b.activations, "activations", region, activationKeyFn)
+}
+
+func (b *InMemoryBackend) cloudConnectorsStore(region string) *store.Table[CloudConnector] {
+	return getOrCreateTable(b, b.cloudConnectors, "cloudConnectors", region, cloudConnectorKeyFn)
 }
 
 func (b *InMemoryBackend) associationsStore(region string) *store.Table[Association] {
@@ -2520,6 +2526,7 @@ func (b *InMemoryBackend) Reset() {
 	b.commands = make(map[string]*store.Table[Command])
 	b.commandInvocations = make(map[string]map[string][]CommandInvocation)
 	b.activations = make(map[string]*store.Table[Activation])
+	b.cloudConnectors = make(map[string]*store.Table[CloudConnector])
 	b.associations = make(map[string]*store.Table[Association])
 	b.maintenanceWindows = make(map[string]*store.Table[MaintenanceWindow])
 	b.maintenanceWindowTargets = make(map[string]*store.Table[MaintenanceWindowTarget])

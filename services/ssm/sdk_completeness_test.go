@@ -18,12 +18,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := ssm.NewInMemoryBackend()
 	h := ssm.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &ssmsdk.Client{}, h.GetSupportedOperations(), []string{
-		"CreateCloudConnector",
-		"DeleteCloudConnector",
-		"GetCloudConnector",
-		"ListCloudConnectors",
-		"UpdateCloudConnector",
-		"ValidateCloudConnector",
-	})
+	sdkcheck.CheckCompleteness(t, &ssmsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

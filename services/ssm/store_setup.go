@@ -60,6 +60,7 @@ func parameterKeyFn(v *Parameter) string                 { return v.Name }
 func documentKeyFn(v *Document) string                   { return v.Name }
 func commandKeyFn(v *Command) string                     { return v.CommandID }
 func activationKeyFn(v *Activation) string               { return v.ActivationID }
+func cloudConnectorKeyFn(v *CloudConnector) string       { return v.CloudConnectorID }
 func associationKeyFn(v *Association) string             { return v.AssociationID }
 func maintenanceWindowKeyFn(v *MaintenanceWindow) string { return v.WindowID }
 func maintenanceWindowTargetKeyFn(v *MaintenanceWindowTarget) string {
@@ -114,6 +115,7 @@ var tableAccessorsByPrefix = map[string]func(b *InMemoryBackend, region string){
 	"documents":          func(b *InMemoryBackend, region string) { b.documentsStore(region) },
 	"commands":           func(b *InMemoryBackend, region string) { b.commandsStore(region) },
 	"activations":        func(b *InMemoryBackend, region string) { b.activationsStore(region) },
+	"cloudConnectors":    func(b *InMemoryBackend, region string) { b.cloudConnectorsStore(region) },
 	"associations":       func(b *InMemoryBackend, region string) { b.associationsStore(region) },
 	"maintenanceWindows": func(b *InMemoryBackend, region string) { b.maintenanceWindowsStore(region) },
 	"maintenanceWindowTargets": func(b *InMemoryBackend, region string) {

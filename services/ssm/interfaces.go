@@ -521,6 +521,31 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *UpdateServiceSettingInput,
 	) (*UpdateServiceSettingOutput, error)
+	// Cloud connector operations.
+	CreateCloudConnector(
+		ctx context.Context,
+		input *CreateCloudConnectorInput,
+	) (*CreateCloudConnectorOutput, error)
+	DeleteCloudConnector(
+		ctx context.Context,
+		input *DeleteCloudConnectorInput,
+	) (*DeleteCloudConnectorOutput, error)
+	GetCloudConnector(
+		ctx context.Context,
+		input *GetCloudConnectorInput,
+	) (*GetCloudConnectorOutput, error)
+	ListCloudConnectors(
+		ctx context.Context,
+		input *ListCloudConnectorsInput,
+	) (*ListCloudConnectorsOutput, error)
+	UpdateCloudConnector(
+		ctx context.Context,
+		input *UpdateCloudConnectorInput,
+	) (*UpdateCloudConnectorOutput, error)
+	ValidateCloudConnector(
+		ctx context.Context,
+		input *ValidateCloudConnectorInput,
+	) (*ValidateCloudConnectorOutput, error)
 }
 
 // Compile-time assertion: InMemoryBackend must implement StorageBackend.
