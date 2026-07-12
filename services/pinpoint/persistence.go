@@ -183,4 +183,8 @@ func rebuildARNIndexLocked(b *InMemoryBackend) {
 	for _, v := range b.smsTemplates.All() {
 		b.arnIndex[v.ARN] = v
 	}
+
+	for _, v := range b.voiceTemplates.All() {
+		b.arnIndex[v.ARN] = v
+	}
 }

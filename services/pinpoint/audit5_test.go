@@ -302,7 +302,10 @@ func TestAudit5_SendUsersMessages_WithEndpoints(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp))
 
-	result, _ := resp["Result"].(map[string]any)
+	envelope, _ := resp["SendUsersMessageResponse"].(map[string]any)
+	require.NotNil(t, envelope, "response must be nested under SendUsersMessageResponse")
+
+	result, _ := envelope["Result"].(map[string]any)
 	require.NotNil(t, result)
 
 	aliceResults, _ := result["alice"].(map[string]any)
@@ -343,7 +346,10 @@ func TestAudit5_SendUsersMessages_UnknownUser(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp))
 
-	result, _ := resp["Result"].(map[string]any)
+	envelope, _ := resp["SendUsersMessageResponse"].(map[string]any)
+	require.NotNil(t, envelope, "response must be nested under SendUsersMessageResponse")
+
+	result, _ := envelope["Result"].(map[string]any)
 	ghostResults, _ := result["ghost"].(map[string]any)
 	require.NotNil(t, ghostResults, "unknown user still gets a result entry")
 }
@@ -363,7 +369,8 @@ func TestAudit5_SendUsersMessages_EmptyBody(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	result, _ := resp["Result"].(map[string]any)
+	envelope, _ := resp["SendUsersMessageResponse"].(map[string]any)
+	result, _ := envelope["Result"].(map[string]any)
 	assert.Empty(t, result, "no users in request → empty result")
 }
 

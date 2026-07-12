@@ -565,14 +565,14 @@ type updateGCMChannelRequest struct {
 
 // updateAPNSChannelRequest is the request body for UpdateApnsChannel (and sandbox/voip variants).
 type updateAPNSChannelRequest struct {
-	BundleID          string `json:"BundleId,omitempty"`
-	Certificate       string `json:"Certificate,omitempty"`
-	DefaultAuthMethod string `json:"DefaultAuthMethod,omitempty"`
-	PrivateKey        string `json:"PrivateKey,omitempty"`
-	TeamID            string `json:"TeamId,omitempty"`
-	TokenKey          string `json:"TokenKey,omitempty"`
-	TokenKeyID        string `json:"TokenKeyId,omitempty"`
-	Enabled           bool   `json:"Enabled"`
+	BundleID                    string `json:"BundleId,omitempty"`
+	Certificate                 string `json:"Certificate,omitempty"`
+	DefaultAuthenticationMethod string `json:"DefaultAuthenticationMethod,omitempty"`
+	PrivateKey                  string `json:"PrivateKey,omitempty"`
+	TeamID                      string `json:"TeamId,omitempty"`
+	TokenKey                    string `json:"TokenKey,omitempty"`
+	TokenKeyID                  string `json:"TokenKeyId,omitempty"`
+	Enabled                     bool   `json:"Enabled"`
 }
 
 // updateEmailChannelRequest is the request body for UpdateEmailChannel.
@@ -765,7 +765,9 @@ type kpiResultItem struct {
 
 // messageResponse is the JSON wire format of MessageResponse.
 type messageResponse struct {
-	Result map[string]messageResult `json:"Result"`
+	Result        map[string]messageResult `json:"Result"`
+	ApplicationID string                   `json:"ApplicationId"`
+	RequestID     string                   `json:"RequestId,omitempty"`
 }
 
 // messageResult is a per-address message result.
@@ -775,9 +777,25 @@ type messageResult struct {
 	StatusCode     int    `json:"StatusCode"`
 }
 
+// sendMessagesResponse is the JSON wire format of SendMessagesOutput: the
+// MessageResponse shape is nested under a "MessageResponse" key, never
+// returned bare.
+type sendMessagesResponse struct {
+	MessageResponse messageResponse `json:"MessageResponse"`
+}
+
 // usersMessageResponse is the JSON wire format of SendUsersMessageResponse.
 type usersMessageResponse struct {
-	Result map[string]map[string]messageResult `json:"Result"`
+	Result        map[string]map[string]messageResult `json:"Result"`
+	ApplicationID string                              `json:"ApplicationId"`
+	RequestID     string                              `json:"RequestId,omitempty"`
+}
+
+// sendUsersMessagesResponse is the JSON wire format of SendUsersMessagesOutput:
+// the SendUsersMessageResponse shape is nested under a
+// "SendUsersMessageResponse" key, never returned bare.
+type sendUsersMessagesResponse struct {
+	SendUsersMessageResponse usersMessageResponse `json:"SendUsersMessageResponse"`
 }
 
 // sendOTPMessageResponse is the response for SendOTPMessage.
@@ -817,6 +835,12 @@ type attributesResource struct {
 	ApplicationID string   `json:"ApplicationId"`
 	AttributeType string   `json:"AttributeType"`
 	Attributes    []string `json:"Attributes"`
+}
+
+// removeAttributesRequest is the request body for RemoveAttributes. The wire
+// payload IS the UpdateAttributesRequest shape directly (no wrapper key).
+type removeAttributesRequest struct {
+	Blacklist []string `json:"Blacklist"`
 }
 
 // inAppMessagesResponse is the response for GetInAppMessages.

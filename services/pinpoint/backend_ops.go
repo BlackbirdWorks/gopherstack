@@ -175,6 +175,7 @@ func (b *InMemoryBackend) CreateVoiceTemplate(
 	}
 
 	b.voiceTemplates.Put(t)
+	b.arnIndex[templateARN] = t
 
 	// Track template version history.
 	versionKey := templateName + "/VOICE"
@@ -257,6 +258,7 @@ func (b *InMemoryBackend) DeleteVoiceTemplate(templateName string) (*VoiceTempla
 	}
 
 	b.voiceTemplates.Delete(templateName)
+	delete(b.arnIndex, t.ARN)
 
 	cp := *t
 	cp.Tags = nonNilTagsCopy(t.Tags)
@@ -1783,7 +1785,7 @@ func (b *InMemoryBackend) SendMessages(
 		return nil, ErrAppNotFound
 	}
 
-	result := &messageResponse{Result: make(map[string]messageResult)}
+	result := &messageResponse{ApplicationID: appID, Result: make(map[string]messageResult)}
 
 	for addr := range req.MessageRequest.Addresses {
 		result.Result[addr] = messageResult{
@@ -1839,7 +1841,7 @@ func (b *InMemoryBackend) SendUsersMessages(
 		b.sentMessages[appID]++
 	}
 
-	return &usersMessageResponse{Result: result}, nil
+	return &usersMessageResponse{ApplicationID: appID, Result: result}, nil
 }
 
 // SendOTPMessage sends an OTP message and stores the generated code.
@@ -1860,6 +1862,7 @@ func (b *InMemoryBackend) SendOTPMessage(appID string) (*sendOTPMessageResponse,
 
 	return &sendOTPMessageResponse{
 		MessageResponse: messageResponse{
+			ApplicationID: appID,
 			Result: map[string]messageResult{
 				appID: {DeliveryStatus: deliveryStatusSuccessful, MessageID: msgID, StatusCode: statusCodeOK},
 			},
@@ -2009,9 +2012,31 @@ func (b *InMemoryBackend) PhoneNumberValidate(
 	}, nil
 }
 
-// RemoveAttributes removes attributes from endpoints and returns the updated attributesResource.
+// attributeTypeEndpointCustom, attributeTypeEndpointMetric, and
+// attributeTypeEndpointUser are the AttributeType path-parameter values
+// accepted by RemoveAttributes; each selects a different per-endpoint map.
+const (
+	attributeTypeEndpointCustom = "endpoint-custom-attributes"
+	attributeTypeEndpointMetric = "endpoint-metric-attributes"
+	attributeTypeEndpointUser   = "endpoint-user-attributes"
+)
+
+// matchesAttributePattern reports whether name matches an entry from the
+// RemoveAttributes Blacklist. Entries may be an exact attribute name or a
+// glob ending in "*" (AWS documents trailing-wildcard prefix matching).
+func matchesAttributePattern(name, pattern string) bool {
+	if trunk, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(name, trunk)
+	}
+
+	return name == pattern
+}
+
+// RemoveAttributes removes the attributes named in blacklist, of the given
+// attributeType category, from every endpoint in the application. It returns
+// the updated attributesResource echoing back what was removed.
 func (b *InMemoryBackend) RemoveAttributes(
-	appID, attributeType string,
+	appID, attributeType string, blacklist []string,
 ) (*attributesResource, error) {
 	b.mu.Lock("RemoveAttributes")
 	defer b.mu.Unlock()
@@ -2020,20 +2045,57 @@ func (b *InMemoryBackend) RemoveAttributes(
 		return nil, ErrAppNotFound
 	}
 
-	// Remove the attribute from all endpoints in this app.
 	for _, e := range b.endpoints.All() {
-		if e.ApplicationID == appID {
-			if e.Attributes != nil {
-				delete(e.Attributes, attributeType)
-			}
+		if e.ApplicationID != appID {
+			continue
 		}
+
+		removeMatchingAttributes(e, attributeType, blacklist)
 	}
 
 	return &attributesResource{
 		ApplicationID: appID,
 		AttributeType: attributeType,
-		Attributes:    []string{},
+		Attributes:    append([]string{}, blacklist...),
 	}, nil
+}
+
+// removeMatchingAttributes deletes every key matching a blacklist pattern
+// from the endpoint map selected by attributeType.
+func removeMatchingAttributes(e *Endpoint, attributeType string, blacklist []string) {
+	switch attributeType {
+	case attributeTypeEndpointMetric:
+		for k := range e.Metrics {
+			if matchesAnyPattern(k, blacklist) {
+				delete(e.Metrics, k)
+			}
+		}
+	case attributeTypeEndpointUser:
+		for k := range e.UserAttributes {
+			if matchesAnyPattern(k, blacklist) {
+				delete(e.UserAttributes, k)
+			}
+		}
+	case attributeTypeEndpointCustom:
+		fallthrough
+	default:
+		for k := range e.Attributes {
+			if matchesAnyPattern(k, blacklist) {
+				delete(e.Attributes, k)
+			}
+		}
+	}
+}
+
+// matchesAnyPattern reports whether name matches any Blacklist pattern.
+func matchesAnyPattern(name string, patterns []string) bool {
+	for _, p := range patterns {
+		if matchesAttributePattern(name, p) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetInAppMessages returns in-app messages for an endpoint.
@@ -2231,7 +2293,7 @@ func (b *InMemoryBackend) GetCampaignVersions(appID, campaignID string) ([]*Camp
 	b.mu.RLock("GetCampaignVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.campaigns.Get(campaignID); !ok {
+	if c, ok := b.campaigns.Get(campaignID); !ok || c.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
 
@@ -2277,7 +2339,7 @@ func (b *InMemoryBackend) GetSegmentVersions(appID, segmentID string) ([]*Segmen
 	b.mu.RLock("GetSegmentVersions")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.segments.Get(segmentID); !ok {
+	if s, ok := b.segments.Get(segmentID); !ok || s.ApplicationID != appID {
 		return nil, ErrAppNotFound
 	}
 

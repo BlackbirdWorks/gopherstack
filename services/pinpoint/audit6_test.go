@@ -3,6 +3,7 @@ package pinpoint_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -632,4 +633,191 @@ func TestAudit6_PhoneNumberValidate_PhoneTypeAndCarrier(t *testing.T) {
 	inner := resp["NumberValidateResponse"].(map[string]any)
 	assert.NotEmpty(t, inner["PhoneType"], "PhoneType must be set")
 	assert.NotNil(t, inner["PhoneTypeCode"], "PhoneTypeCode must be present")
+}
+
+// ──────────────────────────────────────────────────
+// Parity Phase 4: SendMessages/SendUsersMessages response envelope
+// ──────────────────────────────────────────────────
+
+// TestAudit6_SendMessages_ResponseEnvelope verifies SendMessages nests its
+// result under a top-level "MessageResponse" key (matching
+// SendMessagesOutput.MessageResponse in aws-sdk-go-v2), not a bare envelope.
+func TestAudit6_SendMessages_ResponseEnvelope(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "send-messages-app")
+
+	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/messages",
+		map[string]any{
+			"MessageRequest": map[string]any{
+				"Addresses": map[string]any{
+					"+15555550100": map[string]any{"ChannelType": "SMS"},
+				},
+			},
+		})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	envelope, ok := resp["MessageResponse"].(map[string]any)
+	require.True(t, ok, "response must be nested under a MessageResponse key")
+	assert.Equal(t, appID, envelope["ApplicationId"])
+
+	result, ok := envelope["Result"].(map[string]any)
+	require.True(t, ok)
+
+	entry, ok := result["+15555550100"].(map[string]any)
+	require.True(t, ok, "result must be keyed by address")
+	assert.Equal(t, "SUCCESSFUL", entry["DeliveryStatus"])
+	assert.NotEmpty(t, entry["MessageId"])
+}
+
+// ──────────────────────────────────────────────────
+// Parity Phase 4: RemoveAttributes honors the Blacklist and AttributeType
+// ──────────────────────────────────────────────────
+
+// TestAudit6_RemoveAttributes_RemovesBlacklistedNamesOnly verifies
+// RemoveAttributes parses the UpdateAttributesRequest.Blacklist from the
+// request body and only deletes the named custom attributes -- not the
+// whole endpoint-custom-attributes bucket, and not unrelated attributes.
+func TestAudit6_RemoveAttributes_RemovesBlacklistedNamesOnly(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "remove-attrs-app")
+
+	rec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/endpoints/ep-1",
+		map[string]any{
+			"ChannelType": "EMAIL",
+			"Address":     "user@example.com",
+			"Attributes": map[string]any{
+				"Interests": []string{"Music"},
+				"Plan":      []string{"Gold"},
+			},
+		})
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	rec = doPinpointRequest(t, h, http.MethodPut,
+		"/v1/apps/"+appID+"/attributes/endpoint-custom-attributes",
+		map[string]any{"Blacklist": []string{"Interests"}})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "endpoint-custom-attributes", resp["AttributeType"])
+
+	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/endpoints/ep-1", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var ep map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep))
+
+	attrs, _ := ep["Attributes"].(map[string]any)
+	_, hasInterests := attrs["Interests"]
+	assert.False(t, hasInterests, "blacklisted attribute must be removed")
+
+	_, hasPlan := attrs["Plan"]
+	assert.True(t, hasPlan, "non-blacklisted attribute must survive")
+}
+
+// ──────────────────────────────────────────────────
+// Parity Phase 4: VoiceTemplate tagging via ARN
+// ──────────────────────────────────────────────────
+
+// TestAudit6_VoiceTemplate_TagRoundTrip verifies a voice template is
+// registered in the ARN index on creation so TagResource/ListTagsForResource
+// work for it like every other template type.
+func TestAudit6_VoiceTemplate_TagRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+
+	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/templates/my-voice-template/voice",
+		map[string]any{"Body": "Hello"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	templateARN, _ := createResp["Arn"].(string)
+	require.NotEmpty(t, templateARN)
+
+	escapedARN := url.PathEscape(templateARN)
+
+	tagRec := doPinpointRequest(t, h, http.MethodPost, "/v1/tags/"+escapedARN,
+		map[string]any{"tags": map[string]string{"env": "prod"}})
+	require.Equal(t, http.StatusNoContent, tagRec.Code,
+		"TagResource must find the voice template by ARN")
+
+	listRec := doPinpointRequest(t, h, http.MethodGet, "/v1/tags/"+escapedARN, nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+
+	tags, _ := tagsResp["tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+}
+
+// ──────────────────────────────────────────────────
+// Parity Phase 4: Campaign/Segment version history is app-scoped
+// ──────────────────────────────────────────────────
+
+// TestAudit6_GetCampaignVersions_CrossAppIsolation verifies a campaign
+// belonging to one app is not visible through another app's versions path,
+// even when the campaign ID happens to be known.
+func TestAudit6_GetCampaignVersions_CrossAppIsolation(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	ownerAppID := createTestApp(t, h, "owner-app")
+	otherAppID := createTestApp(t, h, "other-app")
+
+	rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+ownerAppID+"/campaigns",
+		map[string]any{"Name": "campaign-a"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	campaignID, _ := createResp["Id"].(string)
+	require.NotEmpty(t, campaignID)
+
+	rec = doPinpointRequest(t, h, http.MethodGet,
+		"/v1/apps/"+otherAppID+"/campaigns/"+campaignID+"/versions", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code,
+		"a campaign from another app must not be reachable through this app's versions path")
+
+	rec = doPinpointRequest(t, h, http.MethodGet,
+		"/v1/apps/"+ownerAppID+"/campaigns/"+campaignID+"/versions", nil)
+	assert.Equal(t, http.StatusOK, rec.Code, "the owning app must still see its own campaign versions")
+}
+
+// ──────────────────────────────────────────────────
+// Parity Phase 4: APNS channel DefaultAuthenticationMethod wire field
+// ──────────────────────────────────────────────────
+
+// TestAudit6_ApnsChannel_DefaultAuthenticationMethod verifies the APNS
+// channel family round-trips DefaultAuthenticationMethod under its real
+// aws-sdk-go-v2 field name, not a shortened "DefaultAuthMethod".
+func TestAudit6_ApnsChannel_DefaultAuthenticationMethod(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+	appID := createTestApp(t, h, "apns-auth-app")
+
+	rec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/channels/apns",
+		map[string]any{
+			"BundleId":                    "com.example.app",
+			"TokenKey":                    "-----BEGIN PRIVATE KEY-----",
+			"TokenKeyId":                  "key123",
+			"TeamId":                      "TEAM123",
+			"DefaultAuthenticationMethod": "TOKEN",
+			"Enabled":                     true,
+		})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "TOKEN", resp["DefaultAuthenticationMethod"])
 }

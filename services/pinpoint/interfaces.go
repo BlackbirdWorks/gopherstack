@@ -130,7 +130,7 @@ type StorageBackend interface {
 	VerifyOTPMessage(appID, code string) (*verifyOTPMessageResponse, error)
 	PutEvents(appID string, req putEventsRequest) (*eventsResponse, error)
 	PhoneNumberValidate(phoneNumber string) (*phoneNumberValidateResponse, error)
-	RemoveAttributes(appID, attributeType string) (*attributesResource, error)
+	RemoveAttributes(appID, attributeType string, blacklist []string) (*attributesResource, error)
 	GetInAppMessages(appID, endpointID string) (*inAppMessagesResponse, error)
 
 	// Lifecycle

@@ -173,7 +173,7 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyExecutionMetrics.
-	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+journeyID+"/execution/metrics", nil)
+	rec = doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/journeys/"+journeyID+"/execution-metrics", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// GetJourneyExecutionActivityMetrics.
@@ -181,7 +181,7 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v1/apps/"+appID+"/journeys/"+journeyID+"/activities/act-1/execution/metrics",
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/activities/act-1/execution-metrics",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -195,7 +195,7 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/execution/metrics",
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/execution-metrics",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -205,7 +205,7 @@ func TestCoverage_JourneyCRUD(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/activities/act-1/execution/metrics",
+		"/v1/apps/"+appID+"/journeys/"+journeyID+"/runs/run-1/activities/act-1/execution-metrics",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
