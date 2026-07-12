@@ -1,6 +1,9 @@
 package medialive
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // StorageBackend is the interface for MediaLive storage operations.
 type StorageBackend interface {
@@ -226,9 +229,15 @@ type StorageBackend interface {
 	UpdateReservation(reservationID, name string) (*Reservation, error)
 
 	// Batch ops
-	BatchStart(channelIDs, inputIDs, multiplexIDs []string) (*BatchResult, error)
-	BatchStop(channelIDs, inputIDs, multiplexIDs []string) (*BatchResult, error)
-	BatchDelete(channelIDs, inputIDs, multiplexIDs []string) (*BatchResult, error)
+	// BatchStart/BatchStop take only channel and multiplex IDs -- the real
+	// BatchStartInput/BatchStopInput shapes have NO inputIds field (verified
+	// against aws-sdk-go-v2/service/medialive's api_op_BatchStart.go /
+	// api_op_BatchStop.go; only ChannelIds+MultiplexIds).
+	BatchStart(channelIDs, multiplexIDs []string) (*BatchResult, error)
+	BatchStop(channelIDs, multiplexIDs []string) (*BatchResult, error)
+	// BatchDelete takes channel, input, multiplex, AND input-security-group
+	// IDs -- BatchDeleteInput is the one Batch* shape with all four fields.
+	BatchDelete(channelIDs, inputIDs, multiplexIDs, inputSecurityGroupIDs []string) (*BatchResult, error)
 	BatchUpdateSchedule(
 		channelID string,
 		creates []ScheduleAction,
@@ -311,13 +320,13 @@ type StorageBackend interface {
 
 // IPPool is a CIDR pool for a Network.
 type IPPool struct {
-	Cidr string `json:"Cidr"`
+	Cidr string `json:"cidr"`
 }
 
 // Route is a static route for a Network.
 type Route struct {
-	Cidr    string `json:"Cidr"`
-	Gateway string `json:"Gateway"`
+	Cidr    string `json:"cidr"`
+	Gateway string `json:"gateway"`
 }
 
 // Network represents a MediaLive Anywhere network resource.
@@ -561,6 +570,8 @@ type NodeSummary struct {
 
 // SignalMap represents a MediaLive signal map resource.
 type SignalMap struct {
+	CreatedAt                       time.Time
+	ModifiedAt                      time.Time
 	Tags                            map[string]string
 	Arn                             string
 	ID                              string
@@ -575,6 +586,8 @@ type SignalMap struct {
 
 // CloudWatchAlarmTemplateGroup is a named group for CloudWatch alarm templates.
 type CloudWatchAlarmTemplateGroup struct {
+	CreatedAt   time.Time
+	ModifiedAt  time.Time
 	Tags        map[string]string
 	Arn         string
 	ID          string
@@ -584,6 +597,8 @@ type CloudWatchAlarmTemplateGroup struct {
 
 // CloudWatchAlarmTemplate is a template for generating CloudWatch alarms.
 type CloudWatchAlarmTemplate struct {
+	CreatedAt          time.Time
+	ModifiedAt         time.Time
 	Tags               map[string]string
 	Arn                string
 	ID                 string
@@ -605,6 +620,8 @@ type CloudWatchAlarmTemplate struct {
 
 // EventBridgeRuleTemplateGroup is a named group for EventBridge rule templates.
 type EventBridgeRuleTemplateGroup struct {
+	CreatedAt   time.Time
+	ModifiedAt  time.Time
 	Tags        map[string]string
 	Arn         string
 	ID          string
@@ -619,6 +636,8 @@ type EventBridgeRuleTemplateTarget struct {
 
 // EventBridgeRuleTemplate is a template for EventBridge rules.
 type EventBridgeRuleTemplate struct {
+	CreatedAt       time.Time
+	ModifiedAt      time.Time
 	Tags            map[string]string
 	Arn             string
 	ID              string
@@ -650,6 +669,7 @@ type Offering struct {
 	OfferingType          string
 	CurrencyCode          string
 	DurationUnits         string
+	Region                string
 	FixedPrice            float64
 	UsagePrice            float64
 	Duration              int32
@@ -686,9 +706,10 @@ type BatchSuccessfulResult struct {
 
 // BatchFailedResult is a failed result in a batch operation.
 type BatchFailedResult struct {
-	Arn  string
-	ID   string
-	Code string
+	Arn     string
+	ID      string
+	Code    string
+	Message string
 }
 
 // BatchResult holds results of a batch start/stop/delete.

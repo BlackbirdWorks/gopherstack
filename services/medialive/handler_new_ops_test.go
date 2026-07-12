@@ -26,9 +26,11 @@ func TestSignalMap_CRUD(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotEmpty(t, resp["Id"])
-				assert.Equal(t, "SUCCEEDED", resp["Status"])
-				assert.Equal(t, "NOT_DEPLOYED", resp["MonitorDeploymentStatus"])
+				assert.NotEmpty(t, resp["id"])
+				assert.Equal(t, "SUCCEEDED", resp["status"])
+				assert.Equal(t, "NOT_DEPLOYED", resp["monitorDeploymentStatus"])
+				assert.NotEmpty(t, resp["createdAt"])
+				assert.NotEmpty(t, resp["modifiedAt"])
 			},
 		},
 	}
@@ -39,7 +41,7 @@ func TestSignalMap_CRUD(t *testing.T) {
 			h := newTestHandler(t)
 			rec := doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{
 				"name":                   "test-signal-map",
-				"DiscoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:channel:abc123",
+				"discoveryEntryPointArn": "arn:aws:medialive:us-east-1:000000000000:channel:abc123",
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.check != nil {
@@ -60,7 +62,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	id := created["Id"].(string)
+	id := created["id"].(string)
 
 	// Get by ID
 	rec = doRequest(t, h, http.MethodGet, "/prod/signal-maps/"+id, nil)
@@ -75,7 +77,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	items := listResp["SignalMaps"].([]any)
+	items := listResp["signalMaps"].([]any)
 	assert.Len(t, items, 1)
 
 	// StartUpdateSignalMap (PATCH)
@@ -89,7 +91,7 @@ func TestSignalMap_GetListDelete(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	var deployResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deployResp))
-	assert.Equal(t, "DEPLOYED", deployResp["MonitorDeploymentStatus"])
+	assert.Equal(t, "DEPLOYED", deployResp["monitorDeploymentStatus"])
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/"+id, nil)
@@ -119,8 +121,10 @@ func TestCWAlarmTemplateGroup_CRUD(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotEmpty(t, resp["Id"])
-				assert.Equal(t, "test-cw-group", resp["Name"])
+				assert.NotEmpty(t, resp["id"])
+				assert.Equal(t, "test-cw-group", resp["name"])
+				assert.NotEmpty(t, resp["createdAt"])
+				assert.NotEmpty(t, resp["modifiedAt"])
 			},
 		},
 		{
@@ -165,7 +169,7 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	id := created["Id"].(string)
+	id := created["id"].(string)
 
 	// Get
 	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-template-groups/"+id, nil)
@@ -184,14 +188,14 @@ func TestCWAlarmTemplateGroup_GetUpdateListDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
-	assert.Equal(t, "cw-group-updated", updated["Name"])
+	assert.Equal(t, "cw-group-updated", updated["name"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-template-groups", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	items := listResp["CloudWatchAlarmTemplateGroups"].([]any)
+	items := listResp["cloudWatchAlarmTemplateGroups"].([]any)
 	assert.Len(t, items, 1)
 
 	// Delete (204)
@@ -218,17 +222,21 @@ func TestCWAlarmTemplate_CRUD(t *testing.T) {
 			name:     "create returns 201 with metric fields",
 			wantCode: http.StatusCreated,
 			body: map[string]any{
-				"name": "cw-template-1", "MetricName": "InputLossSeconds",
-				"Namespace": "MediaLive", "Statistic": "Sum",
-				"ComparisonOperator": "GreaterThanThreshold", "Threshold": 0.0,
-				"EvaluationPeriods": 1.0, "Period": 300.0,
+				"name": "cw-template-1", "metricName": "InputLossSeconds",
+				"namespace": "MediaLive", "statistic": "Sum",
+				"comparisonOperator": "GreaterThanThreshold", "threshold": 0.0,
+				"evaluationPeriods": 1.0, "period": 300.0,
 			},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotEmpty(t, resp["Id"])
-				assert.Equal(t, "InputLossSeconds", resp["MetricName"])
+				assert.NotEmpty(t, resp["id"])
+				assert.Equal(t, "InputLossSeconds", resp["metricName"])
+				assert.NotEmpty(t, resp["createdAt"])
+				assert.NotEmpty(t, resp["modifiedAt"])
+				_, hasNamespace := resp["namespace"]
+				assert.False(t, hasNamespace, "real GetCloudWatchAlarmTemplateOutput has no namespace field")
 			},
 		},
 	}
@@ -251,12 +259,12 @@ func TestCWAlarmTemplate_GetUpdateListDelete(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/cloudwatch-alarm-templates", map[string]any{
-		"name": "cw-template-1", "MetricName": "OutputLossSeconds",
+		"name": "cw-template-1", "metricName": "OutputLossSeconds",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	id := created["Id"].(string)
+	id := created["id"].(string)
 
 	// Get by ID
 	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-templates/"+id, nil)
@@ -268,19 +276,19 @@ func TestCWAlarmTemplate_GetUpdateListDelete(t *testing.T) {
 
 	// Update (PATCH)
 	rec = doRequest(t, h, http.MethodPatch, "/prod/cloudwatch-alarm-templates/"+id, map[string]any{
-		"MetricName": "ActiveAlerts",
+		"metricName": "ActiveAlerts",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
-	assert.Equal(t, "ActiveAlerts", updated["MetricName"])
+	assert.Equal(t, "ActiveAlerts", updated["metricName"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/cloudwatch-alarm-templates", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	items := listResp["CloudWatchAlarmTemplates"].([]any)
+	items := listResp["cloudWatchAlarmTemplates"].([]any)
 	assert.Len(t, items, 1)
 
 	// Delete
@@ -306,8 +314,10 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	id := created["Id"].(string)
+	id := created["id"].(string)
 	assert.NotEmpty(t, id)
+	assert.NotEmpty(t, created["createdAt"])
+	assert.NotEmpty(t, created["modifiedAt"])
 
 	// Get
 	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-template-groups/"+id, nil)
@@ -320,7 +330,7 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 		http.MethodPatch,
 		"/prod/eventbridge-rule-template-groups/"+id,
 		map[string]any{
-			"Description": "updated desc",
+			"description": "updated desc",
 		},
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -330,7 +340,7 @@ func TestEBRuleTemplateGroup_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["EventBridgeRuleTemplateGroups"].([]any), 1)
+	assert.Len(t, listResp["eventBridgeRuleTemplateGroups"].([]any), 1)
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/eventbridge-rule-template-groups/"+id, nil)
@@ -345,12 +355,16 @@ func TestEBRuleTemplate_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/eventbridge-rule-templates", map[string]any{
 		"name":      "eb-template-1",
-		"EventType": "MEDIALIVE_CHANNEL_STATE_CHANGE",
+		"eventType": "MEDIALIVE_CHANNEL_STATE_CHANGE",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	id := created["Id"].(string)
+	id := created["id"].(string)
+	assert.NotEmpty(t, created["createdAt"])
+	assert.NotEmpty(t, created["modifiedAt"])
+	_, hasGroupIdentifier := created["groupIdentifier"]
+	assert.False(t, hasGroupIdentifier, "real GetEventBridgeRuleTemplateOutput has no groupIdentifier field")
 
 	// Get by ID
 	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-templates/"+id, nil)
@@ -358,19 +372,19 @@ func TestEBRuleTemplate_CRUD(t *testing.T) {
 
 	// Update (PATCH)
 	rec = doRequest(t, h, http.MethodPatch, "/prod/eventbridge-rule-templates/"+id, map[string]any{
-		"EventType": "MEDIALIVE_MULTIPLEX_ALERT",
+		"eventType": "MEDIALIVE_MULTIPLEX_ALERT",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updated map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
-	assert.Equal(t, "MEDIALIVE_MULTIPLEX_ALERT", updated["EventType"])
+	assert.Equal(t, "MEDIALIVE_MULTIPLEX_ALERT", updated["eventType"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/eventbridge-rule-templates", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["EventBridgeRuleTemplates"].([]any), 1)
+	assert.Len(t, listResp["eventBridgeRuleTemplates"].([]any), 1)
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/eventbridge-rule-templates/"+id, nil)
@@ -394,7 +408,7 @@ func TestOfferings_ListDescribe(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				offerings := resp["Offerings"].([]any)
+				offerings := resp["offerings"].([]any)
 				assert.GreaterOrEqual(t, len(offerings), 3)
 			},
 		},
@@ -421,7 +435,10 @@ func TestOfferings_Describe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "87654321", resp["OfferingId"])
+	assert.Equal(t, "87654321", resp["offeringId"])
+	assert.NotEmpty(t, resp["region"])
+	_, hasName := resp["name"]
+	assert.False(t, hasName, "real DescribeOfferingOutput has no name field")
 
 	// Unknown offering
 	rec = doRequest(t, h, http.MethodGet, "/prod/offerings/99999999", nil)
@@ -438,16 +455,16 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	// Purchase
 	rec := doRequest(t, h, http.MethodPost, "/prod/offerings/87654321/purchase", map[string]any{
 		"name":  "test-reservation",
-		"Count": 2.0,
+		"count": 2.0,
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var purchaseResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &purchaseResp))
-	resv := purchaseResp["Reservation"].(map[string]any)
-	reservationID := resv["ReservationId"].(string)
+	resv := purchaseResp["reservation"].(map[string]any)
+	reservationID := resv["reservationId"].(string)
 	assert.NotEmpty(t, reservationID)
-	assert.Equal(t, "ACTIVE", resv["State"])
-	assert.InDelta(t, float64(2), resv["Count"], 0.001)
+	assert.Equal(t, "ACTIVE", resv["state"])
+	assert.InDelta(t, float64(2), resv["count"], 0.001)
 
 	// Describe
 	rec = doRequest(t, h, http.MethodGet, "/prod/reservations/"+reservationID, nil)
@@ -458,7 +475,7 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["Reservations"].([]any), 1)
+	assert.Len(t, listResp["reservations"].([]any), 1)
 
 	// Update name
 	rec = doRequest(t, h, http.MethodPut, "/prod/reservations/"+reservationID, map[string]any{
@@ -467,14 +484,15 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updatedResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updatedResp))
-	assert.Equal(t, "renamed-reservation", updatedResp["Name"])
+	updatedResv := updatedResp["reservation"].(map[string]any)
+	assert.Equal(t, "renamed-reservation", updatedResv["name"])
 
-	// Delete (cancel)
+	// Delete (cancel) -- DeleteReservationOutput is NOT wrapped in "reservation".
 	rec = doRequest(t, h, http.MethodDelete, "/prod/reservations/"+reservationID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var deletedResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deletedResp))
-	assert.Equal(t, "CANCELED", deletedResp["State"])
+	assert.Equal(t, "CANCELED", deletedResp["state"])
 
 	// Describe after delete returns 404
 	rec = doRequest(t, h, http.MethodGet, "/prod/reservations/"+reservationID, nil)
@@ -496,19 +514,19 @@ func TestBatch_StartStopDelete(t *testing.T) {
 			name:     "batch start channels",
 			path:     "/prod/batch/start",
 			wantCode: http.StatusOK,
-			body:     map[string]any{"ChannelIds": []any{}},
+			body:     map[string]any{"channelIds": []any{}},
 		},
 		{
 			name:     "batch stop channels",
 			path:     "/prod/batch/stop",
 			wantCode: http.StatusOK,
-			body:     map[string]any{"ChannelIds": []any{}},
+			body:     map[string]any{"channelIds": []any{}},
 		},
 		{
 			name:     "batch delete channels",
 			path:     "/prod/batch/delete",
 			wantCode: http.StatusOK,
-			body:     map[string]any{"ChannelIds": []any{}},
+			body:     map[string]any{"channelIds": []any{}},
 		},
 	}
 
@@ -530,29 +548,29 @@ func TestBatch_StartStopKnownChannels(t *testing.T) {
 
 	// Batch start
 	rec := doRequest(t, h, http.MethodPost, "/prod/batch/start", map[string]any{
-		"ChannelIds": []any{chID},
+		"channelIds": []any{chID},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
-	successful := startResp["Successful"].([]any)
+	successful := startResp["successful"].([]any)
 	assert.Len(t, successful, 1)
-	assert.Equal(t, chID, successful[0].(map[string]any)["Id"])
+	assert.Equal(t, chID, successful[0].(map[string]any)["id"])
 
 	// Batch stop
 	rec = doRequest(t, h, http.MethodPost, "/prod/batch/stop", map[string]any{
-		"ChannelIds": []any{chID},
+		"channelIds": []any{chID},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Batch delete (channel must be idle)
 	rec = doRequest(t, h, http.MethodPost, "/prod/batch/delete", map[string]any{
-		"ChannelIds": []any{chID},
+		"channelIds": []any{chID},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var delResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp))
-	delSuccessful := delResp["Successful"].([]any)
+	delSuccessful := delResp["successful"].([]any)
 	assert.Len(t, delSuccessful, 1)
 }
 
@@ -561,13 +579,41 @@ func TestBatch_StartNotFound(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/prod/batch/start", map[string]any{
-		"ChannelIds": []any{"nonexistent"},
+		"channelIds": []any{"nonexistent"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	failed := resp["Failed"].([]any)
+	failed := resp["failed"].([]any)
 	assert.Len(t, failed, 1)
+}
+
+// TestBatch_DeleteInputSecurityGroups exercises the bug fix documented in
+// PARITY.md: BatchDeleteInput has an inputSecurityGroupIds field that the
+// handler previously never parsed.
+func TestBatch_DeleteInputSecurityGroups(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/prod/inputSecurityGroups", map[string]any{})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	groupID := created["securityGroup"].(map[string]any)["id"].(string)
+
+	rec = doRequest(t, h, http.MethodPost, "/prod/batch/delete", map[string]any{
+		"inputSecurityGroupIds": []any{groupID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	successful := resp["successful"].([]any)
+	require.Len(t, successful, 1)
+	assert.Equal(t, groupID, successful[0].(map[string]any)["id"])
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/inputSecurityGroups/"+groupID, nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestBatchUpdateSchedule(t *testing.T) {
@@ -578,23 +624,23 @@ func TestBatchUpdateSchedule(t *testing.T) {
 
 	// Add schedule actions
 	rec := doRequest(t, h, http.MethodPut, "/prod/channels/"+chID+"/schedule", map[string]any{
-		"Creates": map[string]any{
-			"ScheduleActions": []any{
-				map[string]any{"ActionName": "start-at-midnight"},
+		"creates": map[string]any{
+			"scheduleActions": []any{
+				map[string]any{"actionName": "start-at-midnight"},
 			},
 		},
-		"Deletes": map[string]any{"ActionNames": []any{}},
+		"deletes": map[string]any{"actionNames": []any{}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	creates := resp["Creates"].(map[string]any)["ScheduleActions"].([]any)
+	creates := resp["creates"].(map[string]any)["scheduleActions"].([]any)
 	assert.Len(t, creates, 1)
 
 	// Delete the action
 	rec = doRequest(t, h, http.MethodPut, "/prod/channels/"+chID+"/schedule", map[string]any{
-		"Creates": map[string]any{"ScheduleActions": []any{}},
-		"Deletes": map[string]any{"ActionNames": []any{"start-at-midnight"}},
+		"creates": map[string]any{"scheduleActions": []any{}},
+		"deletes": map[string]any{"actionNames": []any{"start-at-midnight"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }

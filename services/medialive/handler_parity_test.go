@@ -26,25 +26,25 @@ func TestNetwork_CRUD(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/networks", map[string]any{
 		"name":    "net-1",
-		"IpPools": []map[string]any{{"Cidr": "10.0.0.0/16"}},
-		"Routes":  []map[string]any{{"Cidr": "0.0.0.0/0", "Gateway": "10.0.0.1"}},
+		"ipPools": []map[string]any{{"cidr": "10.0.0.0/16"}},
+		"routes":  []map[string]any{{"cidr": "0.0.0.0/0", "gateway": "10.0.0.1"}},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	created := decodeBody(t, rec.Body.Bytes())
-	id := created["Id"].(string)
-	assert.Equal(t, "ACTIVE", created["State"])
-	assert.NotEmpty(t, created["IpPools"])
+	id := created["id"].(string)
+	assert.Equal(t, "ACTIVE", created["state"])
+	assert.NotEmpty(t, created["ipPools"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/networks/"+id, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, http.MethodPut, "/prod/networks/"+id, map[string]any{"name": "net-1-upd"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "net-1-upd", decodeBody(t, rec.Body.Bytes())["Name"])
+	assert.Equal(t, "net-1-upd", decodeBody(t, rec.Body.Bytes())["name"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/networks", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Len(t, decodeBody(t, rec.Body.Bytes())["Networks"].([]any), 1)
+	assert.Len(t, decodeBody(t, rec.Body.Bytes())["networks"].([]any), 1)
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/networks/"+id, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -99,24 +99,24 @@ func TestSdiSource_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/sdiSources", map[string]any{
-		"name": "sdi-1", "Type": "SINGLE", "Mode": "QUADRANT",
+		"name": "sdi-1", "type": "SINGLE", "mode": "QUADRANT",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
-	created := decodeBody(t, rec.Body.Bytes())["SdiSource"].(map[string]any)
-	id := created["Id"].(string)
-	assert.Equal(t, "IDLE", created["State"])
+	created := decodeBody(t, rec.Body.Bytes())["sdiSource"].(map[string]any)
+	id := created["id"].(string)
+	assert.Equal(t, "IDLE", created["state"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/sdiSources/"+id, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, http.MethodPut, "/prod/sdiSources/"+id, map[string]any{"name": "sdi-upd"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	got := decodeBody(t, rec.Body.Bytes())["SdiSource"].(map[string]any)
-	assert.Equal(t, "sdi-upd", got["Name"])
+	got := decodeBody(t, rec.Body.Bytes())["sdiSource"].(map[string]any)
+	assert.Equal(t, "sdi-upd", got["name"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/sdiSources", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Len(t, decodeBody(t, rec.Body.Bytes())["SdiSources"].([]any), 1)
+	assert.Len(t, decodeBody(t, rec.Body.Bytes())["sdiSources"].([]any), 1)
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/sdiSources/"+id, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -168,28 +168,28 @@ func TestChannelPlacementGroup_CRUD(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/clusters", map[string]any{"name": "clu-1"})
 	require.Equal(t, http.StatusCreated, rec.Code)
-	clusterID := decodeBody(t, rec.Body.Bytes())["Id"].(string)
+	clusterID := decodeBody(t, rec.Body.Bytes())["id"].(string)
 
 	base := "/prod/clusters/" + clusterID + "/channelplacementgroups"
 	rec = doRequest(t, h, http.MethodPost, base, map[string]any{
-		"name": "cpg-1", "Nodes": []string{"node-a"},
+		"name": "cpg-1", "nodes": []string{"node-a"},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	created := decodeBody(t, rec.Body.Bytes())
-	groupID := created["Id"].(string)
-	assert.Equal(t, "UNASSIGNED", created["State"])
-	assert.Equal(t, clusterID, created["ClusterId"])
+	groupID := created["id"].(string)
+	assert.Equal(t, "UNASSIGNED", created["state"])
+	assert.Equal(t, clusterID, created["clusterId"])
 
 	rec = doRequest(t, h, http.MethodGet, base+"/"+groupID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, http.MethodPut, base+"/"+groupID, map[string]any{"name": "cpg-upd"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "cpg-upd", decodeBody(t, rec.Body.Bytes())["Name"])
+	assert.Equal(t, "cpg-upd", decodeBody(t, rec.Body.Bytes())["name"])
 
 	rec = doRequest(t, h, http.MethodGet, base, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Len(t, decodeBody(t, rec.Body.Bytes())["ChannelPlacementGroups"].([]any), 1)
+	assert.Len(t, decodeBody(t, rec.Body.Bytes())["channelPlacementGroups"].([]any), 1)
 
 	rec = doRequest(t, h, http.MethodDelete, base+"/"+groupID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -242,20 +242,20 @@ func TestAccountConfiguration(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/prod/accountConfiguration", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	cfg := decodeBody(t, rec.Body.Bytes())["AccountConfiguration"].(map[string]any)
-	assert.Empty(t, cfg["KmsKeyId"])
+	cfg := decodeBody(t, rec.Body.Bytes())["accountConfiguration"].(map[string]any)
+	assert.Empty(t, cfg["kmsKeyId"])
 
 	rec = doRequest(t, h, http.MethodPut, "/prod/accountConfiguration", map[string]any{
-		"AccountConfiguration": map[string]any{"KmsKeyId": "key-123"},
+		"accountConfiguration": map[string]any{"kmsKeyId": "key-123"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	cfg = decodeBody(t, rec.Body.Bytes())["AccountConfiguration"].(map[string]any)
-	assert.Equal(t, "key-123", cfg["KmsKeyId"])
+	cfg = decodeBody(t, rec.Body.Bytes())["accountConfiguration"].(map[string]any)
+	assert.Equal(t, "key-123", cfg["kmsKeyId"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/accountConfiguration", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	cfg = decodeBody(t, rec.Body.Bytes())["AccountConfiguration"].(map[string]any)
-	assert.Equal(t, "key-123", cfg["KmsKeyId"])
+	cfg = decodeBody(t, rec.Body.Bytes())["accountConfiguration"].(map[string]any)
+	assert.Equal(t, "key-123", cfg["kmsKeyId"])
 }
 
 // --- Schedule tests ---
@@ -268,9 +268,9 @@ func TestSchedule_DescribeDelete(t *testing.T) {
 
 	// Seed an action via BatchUpdateSchedule.
 	rec := doRequest(t, h, http.MethodPut, "/prod/channels/"+channelID+"/schedule", map[string]any{
-		"Creates": map[string]any{
-			"ScheduleActions": []map[string]any{
-				{"ActionName": "a1", "ScheduleActionSettings": map[string]any{}},
+		"creates": map[string]any{
+			"scheduleActions": []map[string]any{
+				{"actionName": "a1", "scheduleActionSettings": map[string]any{}},
 			},
 		},
 	})
@@ -278,7 +278,7 @@ func TestSchedule_DescribeDelete(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID+"/schedule", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["ScheduleActions"])
+	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["scheduleActions"])
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/channels/"+channelID+"/schedule", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -297,14 +297,19 @@ func TestAlertsAndVersions(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID+"/alerts", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["Alerts"])
+	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["alerts"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels/missing/alerts", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/versions", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotEmpty(t, decodeBody(t, rec.Body.Bytes())["Versions"].([]any))
+	versions := decodeBody(t, rec.Body.Bytes())["versions"].([]any)
+	require.NotEmpty(t, versions)
+	first := versions[0].(map[string]any)
+	assert.NotEmpty(t, first["version"])
+	_, hasExpiration := first["expirationDate"]
+	assert.False(t, hasExpiration, "empty expirationDate must be omitted, not emitted as \"\"")
 }
 
 func TestMultiplexAlerts(t *testing.T) {
@@ -328,7 +333,7 @@ func TestMultiplexAlerts(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+muxID+"/alerts", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["Alerts"])
+	assert.NotNil(t, decodeBody(t, rec.Body.Bytes())["alerts"])
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/missing/alerts", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -414,11 +419,14 @@ func TestStartDeleteMonitorDeployment(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/signal-maps", map[string]any{"name": "sm-1"})
 	require.Equal(t, http.StatusCreated, rec.Code)
-	id := decodeBody(t, rec.Body.Bytes())["Id"].(string)
+	created := decodeBody(t, rec.Body.Bytes())
+	id := created["id"].(string)
+	assert.NotEmpty(t, created["createdAt"])
+	assert.NotEmpty(t, created["modifiedAt"])
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/"+id+"/monitor-deployment", nil)
 	require.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, "DELETING", decodeBody(t, rec.Body.Bytes())["MonitorDeploymentStatus"])
+	assert.Equal(t, "DELETING", decodeBody(t, rec.Body.Bytes())["monitorDeploymentStatus"])
 
 	rec = doRequest(t, h, http.MethodDelete, "/prod/signal-maps/missing/monitor-deployment", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)

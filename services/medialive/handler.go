@@ -5,12 +5,30 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// formatISO8601 renders t in the wire format the real medialive restjson1
+// deserializer expects for __timestampIso8601 shapes (SignalMap/
+// CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)
+// createdAt/modifiedAt) -- confirmed against
+// aws-sdk-go-v2/service/medialive@v1.97.2's deserializers.go, which parses
+// these fields with smithytime.ParseDateTime (an ISO8601/RFC3339 string),
+// NOT smithytime.ParseEpochSeconds. A zero time.Time renders as "" so a
+// resource that hasn't recorded a timestamp yet doesn't emit a bogus
+// 0001-01-01 date.
+func formatISO8601(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.Format(time.RFC3339)
+}
 
 const (
 	matchPriority = service.PriorityPathVersioned
@@ -62,31 +80,22 @@ const (
 	pathSegmentsDeepSub = 4
 
 	keyMessage         = "Message"
-	keyArn             = "Arn"
-	keyID              = "Id"
-	keyName            = "Name"
-	keyState           = "State"
-	keyTags            = "Tags"
-	keyDescription     = "Description"
+	keyArn             = "arn"
+	keyID              = "id"
+	keyName            = "name"
+	keyState           = "state"
+	keyTags            = "tags"
+	keyDescription     = "description"
 	keyChannel         = "channel"
 	keyInput           = "input"
-	keyAlerts          = "Alerts"
-	keyActionName      = "ActionName"
-	keyScheduleActions = "ScheduleActions"
-	keySdiSource       = "SdiSource"
+	keyAlerts          = "alerts"
+	keyActionName      = "actionName"
+	keyScheduleActions = "scheduleActions"
+	keyLowerMessage    = "message"
+	keyCreatedAt       = "createdAt"
+	keyModifiedAt      = "modifiedAt"
+	keySdiSource       = "sdiSource"
 	opUnknown          = "Unknown"
-
-	// wireArn/wireID/wireName/wireState are the lowerCamel wire keys shared
-	// by the resource-summary list handlers whose casing has been verified
-	// against the real SDK (Channel, Input, InputSecurityGroup, Multiplex --
-	// see channelOutput's doc comment for why case matters). They are
-	// distinct from keyArn/keyID/keyName/keyState above, which stay
-	// PascalCase for the other resource families out of scope for this
-	// pass (see PARITY.md's wire-shape casing gap).
-	wireArn   = "arn"
-	wireID    = "id"
-	wireName  = "name"
-	wireState = "state"
 
 	opCreateChannel   = "CreateChannel"
 	opDescribeChannel = "DescribeChannel"
@@ -1323,11 +1332,11 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			wireArn:                 s.ARN,
-			wireID:                  s.ID,
-			wireName:                s.Name,
+			keyArn:                  s.ARN,
+			keyID:                   s.ID,
+			keyName:                 s.Name,
 			"channelClass":          s.ChannelClass,
-			wireState:               s.State,
+			keyState:                s.State,
 			"pipelinesRunningCount": pipelinesRunningCount(s.State, s.ChannelClass),
 		})
 	}
@@ -1440,11 +1449,11 @@ func (h *Handler) handleListInputs(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			wireArn:   s.ARN,
-			wireID:    s.ID,
-			wireName:  s.Name,
-			"type":    s.InputType,
-			wireState: s.State,
+			keyArn:   s.ARN,
+			keyID:    s.ID,
+			keyName:  s.Name,
+			"type":   s.InputType,
+			keyState: s.State,
 		})
 	}
 
@@ -1569,9 +1578,9 @@ func (h *Handler) handleListInputSecurityGroups(c *echo.Context) error {
 			rules = append(rules, map[string]any{"cidr": r.Cidr})
 		}
 		out = append(out, map[string]any{
-			wireArn:          s.ARN,
-			wireID:           s.ID,
-			wireState:        s.State,
+			keyArn:           s.ARN,
+			keyID:            s.ID,
+			keyState:         s.State,
 			"whitelistRules": rules,
 		})
 	}
@@ -1616,11 +1625,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		tags = map[string]string{}
 	}
 
-	// ListTagsForResourceOutput's wire key is lowercase "tags" (unlike the
-	// shared keyTags constant, which stays "Tags" for the other resource
-	// families' PascalCase responses out of scope for this pass -- see
-	// PARITY.md's wire-shape casing gap).
-	return c.JSON(http.StatusOK, map[string]any{"tags": tags})
+	return c.JSON(http.StatusOK, map[string]any{keyTags: tags})
 }
 
 // --- Multiplex handlers ---
@@ -1784,10 +1789,10 @@ func (h *Handler) handleListMultiplexes(c *echo.Context) error {
 		}
 
 		out = append(out, map[string]any{
-			wireArn:                 s.ARN,
-			wireID:                  s.ID,
-			wireName:                s.Name,
-			wireState:               s.State,
+			keyArn:                  s.ARN,
+			keyID:                   s.ID,
+			keyName:                 s.Name,
+			keyState:                s.State,
 			"availabilityZones":     zones,
 			"pipelinesRunningCount": multiplexPipelinesRunningCount(s.State),
 			"programCount":          int32(s.ProgramCount), //nolint:gosec // program count is always small
@@ -1984,18 +1989,24 @@ func extractTagKeys(c *echo.Context) []string {
 
 // --- InputDevice handlers ---
 
+// inputDeviceOutput mirrors DescribeInputDeviceOutput/UpdateInputDeviceOutput
+// (see channelOutput's doc comment for why case matters). "maintenanceWindowActive"
+// is NOT a real top-level field on this shape (verified against the SDK
+// deserializer) -- left in place (harmless extra key an SDK client
+// ignores) since only casing, not shape, is in scope for InputDevice this
+// pass.
 type inputDeviceOutput struct {
-	Tags                    map[string]string `json:"Tags"`
-	Arn                     string            `json:"Arn"`
-	ID                      string            `json:"Id"`
-	Name                    string            `json:"Name"`
-	SerialNumber            string            `json:"SerialNumber"`
-	MacAddress              string            `json:"MacAddress"`
-	DeviceType              string            `json:"Type"`
-	ConnectionState         string            `json:"ConnectionState"`
-	DeviceSettingsSyncState string            `json:"DeviceSettingsSyncState"`
-	DeviceUpdateStatus      string            `json:"DeviceUpdateStatus"`
-	MaintenanceWindowActive bool              `json:"MaintenanceWindowActive"`
+	Tags                    map[string]string `json:"tags"`
+	Arn                     string            `json:"arn"`
+	ID                      string            `json:"id"`
+	Name                    string            `json:"name"`
+	SerialNumber            string            `json:"serialNumber"`
+	MacAddress              string            `json:"macAddress"`
+	DeviceType              string            `json:"type"`
+	ConnectionState         string            `json:"connectionState"`
+	DeviceSettingsSyncState string            `json:"deviceSettingsSyncState"`
+	DeviceUpdateStatus      string            `json:"deviceUpdateStatus"`
+	MaintenanceWindowActive bool              `json:"maintenanceWindowActive"`
 }
 
 func toInputDeviceOutput(d *InputDevice) inputDeviceOutput {
@@ -2040,9 +2051,9 @@ func (h *Handler) handleListInputDevices(c *echo.Context) error {
 		out = append(out, toInputDeviceOutput(d))
 	}
 
-	resp := map[string]any{"InputDevices": out}
+	resp := map[string]any{"inputDevices": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2132,15 +2143,15 @@ func (h *Handler) handleListInputDeviceTransfers(c *echo.Context) error {
 	for _, t := range transfers {
 		out = append(out, map[string]any{
 			keyID:              t.DeviceID,
-			"TargetCustomerId": t.TargetCustomerID,
-			"TransferType":     t.TransferType,
-			"Message":          t.Message,
+			"targetCustomerId": t.TargetCustomerID,
+			"transferType":     t.TransferType,
+			keyLowerMessage:    t.Message,
 		})
 	}
 
-	resp := map[string]any{"InputDeviceTransfers": out}
+	resp := map[string]any{"inputDeviceTransfers": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2292,37 +2303,40 @@ func splitClusterNode(resource string) (string, string) {
 
 // --- Cluster handlers ---
 
+// clusterOutput mirrors DescribeClusterOutput/CreateClusterOutput/
+// UpdateClusterOutput exactly. The real API has NO "tags" field on this
+// shape (verified against aws-sdk-go-v2/service/medialive@v1.97.2's
+// awsRestjson1_deserializeOpDocumentDescribeClusterOutput) even though
+// CreateClusterInput accepts tags -- tags for a Cluster only surface via
+// ListTagsForResource. It does have "channelIds", which gopherstack
+// doesn't track per-cluster; emitted as an empty list (derived, matches
+// AWS's zero-value shape for a cluster with no channels assigned).
 type clusterOutput struct {
-	Tags            map[string]string `json:"Tags"`
-	Arn             string            `json:"Arn"`
-	ID              string            `json:"Id"`
-	Name            string            `json:"Name"`
-	ClusterType     string            `json:"ClusterType"`
-	InstanceRoleArn string            `json:"InstanceRoleArn"`
-	State           string            `json:"State"`
+	Arn             string   `json:"arn"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	ClusterType     string   `json:"clusterType"`
+	InstanceRoleArn string   `json:"instanceRoleArn"`
+	State           string   `json:"state"`
+	ChannelIDs      []string `json:"channelIds"`
 }
 
 func toClusterOutput(c *Cluster) clusterOutput {
-	tags := c.Tags
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
 	return clusterOutput{
-		Tags:            tags,
 		Arn:             c.ARN,
 		ID:              c.ID,
 		Name:            c.Name,
 		ClusterType:     c.ClusterType,
 		InstanceRoleArn: c.InstanceRoleArn,
 		State:           c.State,
+		ChannelIDs:      []string{},
 	}
 }
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body map[string]any) error {
 	name, _ := body["name"].(string)
-	clusterType, _ := body["ClusterType"].(string)
-	instanceRoleArn, _ := body["InstanceRoleArn"].(string)
+	clusterType, _ := body["clusterType"].(string)
+	instanceRoleArn, _ := body["instanceRoleArn"].(string)
 	tags := extractTags(body)
 
 	cl, err := h.Backend.CreateCluster(name, clusterType, instanceRoleArn, tags)
@@ -2379,14 +2393,15 @@ func (h *Handler) handleListClusters(c *echo.Context) error {
 			keyID:             s.ID,
 			keyName:           s.Name,
 			keyState:          s.State,
-			"ClusterType":     s.ClusterType,
-			"InstanceRoleArn": s.InstanceRoleArn,
+			"clusterType":     s.ClusterType,
+			"instanceRoleArn": s.InstanceRoleArn,
+			"channelIds":      []string{},
 		})
 	}
 
-	resp := map[string]any{"Clusters": out}
+	resp := map[string]any{"clusters": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2400,7 +2415,7 @@ func (h *Handler) handleListClusterAlerts(c *echo.Context, clusterID string) err
 
 	resp := map[string]any{keyAlerts: alerts}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2412,43 +2427,43 @@ func (h *Handler) handleCreateNodeRegistrationScript(c *echo.Context, clusterID 
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"NodeRegistrationScript": script})
+	return c.JSON(http.StatusCreated, map[string]any{"nodeRegistrationScript": script})
 }
 
 // --- Node handlers ---
 
+// nodeOutput mirrors DescribeNodeOutput/CreateNodeOutput/UpdateNodeOutput/
+// UpdateNodeStateOutput exactly -- like Cluster, the real API has NO "tags"
+// field here (only ListTagsForResource echoes Node tags). It does have
+// "channelPlacementGroups", which gopherstack doesn't track per-node;
+// emitted as an empty list (derived).
 type nodeOutput struct {
-	Tags            map[string]string `json:"Tags"`
-	Arn             string            `json:"Arn"`
-	ID              string            `json:"Id"`
-	Name            string            `json:"Name"`
-	ClusterID       string            `json:"ClusterId"`
-	Role            string            `json:"Role"`
-	State           string            `json:"State"`
-	ConnectionState string            `json:"ConnectionState"`
+	Arn                    string   `json:"arn"`
+	ID                     string   `json:"id"`
+	Name                   string   `json:"name"`
+	ClusterID              string   `json:"clusterId"`
+	Role                   string   `json:"role"`
+	State                  string   `json:"state"`
+	ConnectionState        string   `json:"connectionState"`
+	ChannelPlacementGroups []string `json:"channelPlacementGroups"`
 }
 
 func toNodeOutput(n *Node) nodeOutput {
-	tags := n.Tags
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
 	return nodeOutput{
-		Tags:            tags,
-		Arn:             n.ARN,
-		ID:              n.ID,
-		Name:            n.Name,
-		ClusterID:       n.ClusterID,
-		Role:            n.Role,
-		State:           n.State,
-		ConnectionState: n.ConnectionState,
+		Arn:                    n.ARN,
+		ID:                     n.ID,
+		Name:                   n.Name,
+		ClusterID:              n.ClusterID,
+		Role:                   n.Role,
+		State:                  n.State,
+		ConnectionState:        n.ConnectionState,
+		ChannelPlacementGroups: []string{},
 	}
 }
 
 func (h *Handler) handleCreateNode(c *echo.Context, clusterID string, body map[string]any) error {
 	name, _ := body["name"].(string)
-	role, _ := body["Role"].(string)
+	role, _ := body["role"].(string)
 	tags := extractTags(body)
 
 	n, err := h.Backend.CreateNode(clusterID, name, role, tags)
@@ -2474,7 +2489,7 @@ func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body map[st
 	clusterID, nodeID := splitClusterNode(resource)
 
 	name, _ := body["name"].(string)
-	role, _ := body["Role"].(string)
+	role, _ := body["role"].(string)
 
 	n, err := h.Backend.UpdateNode(clusterID, nodeID, name, role)
 	if err != nil {
@@ -2491,7 +2506,7 @@ func (h *Handler) handleUpdateNodeState(
 ) error {
 	clusterID, nodeID := splitClusterNode(resource)
 
-	state, _ := body["State"].(string)
+	state, _ := body["state"].(string)
 
 	n, err := h.Backend.UpdateNodeState(clusterID, nodeID, state)
 	if err != nil {
@@ -2521,19 +2536,20 @@ func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			keyArn:            s.ARN,
-			keyID:             s.ID,
-			keyName:           s.Name,
-			keyState:          s.State,
-			"ClusterId":       s.ClusterID,
-			"Role":            s.Role,
-			"ConnectionState": s.ConnectionState,
+			keyArn:                   s.ARN,
+			keyID:                    s.ID,
+			keyName:                  s.Name,
+			keyState:                 s.State,
+			"clusterId":              s.ClusterID,
+			"role":                   s.Role,
+			"connectionState":        s.ConnectionState,
+			"channelPlacementGroups": []string{},
 		})
 	}
 
-	resp := map[string]any{"Nodes": out}
+	resp := map[string]any{"nodes": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2541,6 +2557,10 @@ func (h *Handler) handleListNodes(c *echo.Context, clusterID string) error {
 
 // --- Signal Map handlers ---
 
+// toSignalMapOutput mirrors GetSignalMapOutput/CreateSignalMapOutput/
+// StartUpdateSignalMapOutput exactly, including "createdAt"/"modifiedAt"
+// (__timestampIso8601, parsed via smithytime.ParseDateTime in the real
+// deserializer -- an ISO8601 string, not epoch seconds).
 func toSignalMapOutput(sm *SignalMap) map[string]any {
 	tags := sm.Tags
 	if tags == nil {
@@ -2557,9 +2577,10 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 
 	return map[string]any{
 		keyArn: sm.Arn, keyID: sm.ID, keyName: sm.Name,
-		keyDescription: sm.Description, "DiscoveryEntryPointArn": sm.DiscoveryEntryPointArn,
-		"Status": sm.Status, "MonitorDeploymentStatus": sm.MonitorDeploymentStatus,
-		"CloudWatchAlarmTemplateGroupIds": cwIDs, "EventBridgeRuleTemplateGroupIds": ebIDs,
+		keyDescription: sm.Description, "discoveryEntryPointArn": sm.DiscoveryEntryPointArn,
+		"status": sm.Status, "monitorDeploymentStatus": sm.MonitorDeploymentStatus,
+		"cloudWatchAlarmTemplateGroupIds": cwIDs, "eventBridgeRuleTemplateGroupIds": ebIDs,
+		keyCreatedAt: formatISO8601(sm.CreatedAt), keyModifiedAt: formatISO8601(sm.ModifiedAt),
 		keyTags: tags,
 	}
 }
@@ -2567,9 +2588,9 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 func (h *Handler) handleCreateSignalMap(c *echo.Context, body map[string]any) error {
 	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
-	discoveryArn, _ := body["DiscoveryEntryPointArn"].(string)
-	cwGroupIDs := extractStringSlice(body, "CloudWatchAlarmTemplateGroupIdentifiers")
-	ebGroupIDs := extractStringSlice(body, "EventBridgeRuleTemplateGroupIdentifiers")
+	discoveryArn, _ := body["discoveryEntryPointArn"].(string)
+	cwGroupIDs := extractStringSlice(body, "cloudWatchAlarmTemplateGroupIdentifiers")
+	ebGroupIDs := extractStringSlice(body, "eventBridgeRuleTemplateGroupIdentifiers")
 	tags := extractTags(body)
 	sm, err := h.Backend.CreateSignalMap(
 		name,
@@ -2604,9 +2625,9 @@ func (h *Handler) handleListSignalMaps(c *echo.Context) error {
 	for _, sm := range items {
 		out = append(out, toSignalMapOutput(sm))
 	}
-	resp := map[string]any{"SignalMaps": out}
+	resp := map[string]any{"signalMaps": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2627,8 +2648,8 @@ func (h *Handler) handleStartUpdateSignalMap(
 ) error {
 	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
-	cwGroupIDs := extractStringSlice(body, "CloudWatchAlarmTemplateGroupIdentifiers")
-	ebGroupIDs := extractStringSlice(body, "EventBridgeRuleTemplateGroupIdentifiers")
+	cwGroupIDs := extractStringSlice(body, "cloudWatchAlarmTemplateGroupIdentifiers")
+	ebGroupIDs := extractStringSlice(body, "eventBridgeRuleTemplateGroupIdentifiers")
 	sm, err := h.Backend.StartUpdateSignalMap(identifier, name, description, cwGroupIDs, ebGroupIDs)
 	if err != nil {
 		return respondErr(c, err)
@@ -2648,6 +2669,15 @@ func (h *Handler) handleStartMonitorDeployment(c *echo.Context, identifier strin
 
 // --- CloudWatch Alarm Template Group handlers ---
 
+// toCWAlarmTemplateGroupOutput mirrors GetCloudWatchAlarmTemplateGroupOutput/
+// CreateCloudWatchAlarmTemplateGroupOutput/
+// UpdateCloudWatchAlarmTemplateGroupOutput. The real API's own
+// Get/Create/Update responses do NOT include "templateCount" -- only the
+// List response's CloudWatchAlarmTemplateGroupSummary shape does (verified
+// against the SDK deserializer); gopherstack doesn't track the
+// group-to-template relationship needed to compute it, so ListCW
+// AlarmTemplateGroups continues to reuse this same shape (missing
+// templateCount -- tracked as a residual gap in PARITY.md).
 func toCWAlarmTemplateGroupOutput(g *CloudWatchAlarmTemplateGroup) map[string]any {
 	tags := g.Tags
 	if tags == nil {
@@ -2655,7 +2685,9 @@ func toCWAlarmTemplateGroupOutput(g *CloudWatchAlarmTemplateGroup) map[string]an
 	}
 
 	return map[string]any{
-		keyArn: g.Arn, keyID: g.ID, keyName: g.Name, keyDescription: g.Description, keyTags: tags,
+		keyArn: g.Arn, keyID: g.ID, keyName: g.Name, keyDescription: g.Description,
+		keyCreatedAt: formatISO8601(g.CreatedAt), keyModifiedAt: formatISO8601(g.ModifiedAt),
+		keyTags: tags,
 	}
 }
 
@@ -2689,9 +2721,9 @@ func (h *Handler) handleListCWAlarmTemplateGroups(c *echo.Context) error {
 	for _, g := range items {
 		out = append(out, toCWAlarmTemplateGroupOutput(g))
 	}
-	resp := map[string]any{"CloudWatchAlarmTemplateGroups": out}
+	resp := map[string]any{"cloudWatchAlarmTemplateGroups": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2722,6 +2754,12 @@ func (h *Handler) handleDeleteCWAlarmTemplateGroup(c *echo.Context, identifier s
 
 // --- CloudWatch Alarm Template handlers ---
 
+// toCWAlarmTemplateOutput mirrors GetCloudWatchAlarmTemplateOutput/
+// CreateCloudWatchAlarmTemplateOutput/UpdateCloudWatchAlarmTemplateOutput
+// exactly, including createdAt/modifiedAt (ISO8601 strings, see
+// formatISO8601's doc comment). "namespace" and "groupIdentifier" are
+// intentionally omitted: neither is a real field on this shape (verified
+// against the SDK deserializer -- only "groupId" is returned).
 func toCWAlarmTemplateOutput(t *CloudWatchAlarmTemplate) map[string]any {
 	tags := t.Tags
 	if tags == nil {
@@ -2730,12 +2768,13 @@ func toCWAlarmTemplateOutput(t *CloudWatchAlarmTemplate) map[string]any {
 
 	return map[string]any{
 		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
-		"GroupId": t.GroupID, "GroupIdentifier": t.GroupIdentifier,
-		"MetricName": t.MetricName, "Namespace": t.Namespace,
-		"Statistic": t.Statistic, "ComparisonOperator": t.ComparisonOperator,
-		"TargetResourceType": t.TargetResourceType, "TreatMissingData": t.TreatMissingData,
-		"Threshold": t.Threshold, "EvaluationPeriods": t.EvaluationPeriods,
-		"DatapointsToAlarm": t.DatapointsToAlarm, "Period": t.Period,
+		"groupId":    t.GroupID,
+		"metricName": t.MetricName,
+		"statistic":  t.Statistic, "comparisonOperator": t.ComparisonOperator,
+		"targetResourceType": t.TargetResourceType, "treatMissingData": t.TreatMissingData,
+		"threshold": t.Threshold, "evaluationPeriods": t.EvaluationPeriods,
+		"datapointsToAlarm": t.DatapointsToAlarm, "period": t.Period,
+		keyCreatedAt: formatISO8601(t.CreatedAt), keyModifiedAt: formatISO8601(t.ModifiedAt),
 		keyTags: tags,
 	}
 }
@@ -2743,27 +2782,27 @@ func toCWAlarmTemplateOutput(t *CloudWatchAlarmTemplate) map[string]any {
 func extractCWAlarmTemplateFields(
 	body map[string]any,
 ) (string, string, string, string, string, string, string, float64, int32, int32, int32) {
-	groupIdentifier, _ := body["GroupIdentifier"].(string)
-	metricName, _ := body["MetricName"].(string)
-	namespace, _ := body["Namespace"].(string)
-	statistic, _ := body["Statistic"].(string)
-	comparisonOperator, _ := body["ComparisonOperator"].(string)
-	targetResourceType, _ := body["TargetResourceType"].(string)
-	treatMissingData, _ := body["TreatMissingData"].(string)
+	groupIdentifier, _ := body["groupIdentifier"].(string)
+	metricName, _ := body["metricName"].(string)
+	namespace, _ := body["namespace"].(string)
+	statistic, _ := body["statistic"].(string)
+	comparisonOperator, _ := body["comparisonOperator"].(string)
+	targetResourceType, _ := body["targetResourceType"].(string)
+	treatMissingData, _ := body["treatMissingData"].(string)
 	var threshold float64
-	if v, ok := body["Threshold"].(float64); ok {
+	if v, ok := body["threshold"].(float64); ok {
 		threshold = v
 	}
 	var evalPeriods int32
-	if v, ok := body["EvaluationPeriods"].(float64); ok {
+	if v, ok := body["evaluationPeriods"].(float64); ok {
 		evalPeriods = int32(v)
 	}
 	var datapointsToAlarm int32
-	if v, ok := body["DatapointsToAlarm"].(float64); ok {
+	if v, ok := body["datapointsToAlarm"].(float64); ok {
 		datapointsToAlarm = int32(v)
 	}
 	var period int32
-	if v, ok := body["Period"].(float64); ok {
+	if v, ok := body["period"].(float64); ok {
 		period = int32(v)
 	}
 
@@ -2820,9 +2859,9 @@ func (h *Handler) handleListCWAlarmTemplates(c *echo.Context) error {
 	for _, t := range items {
 		out = append(out, toCWAlarmTemplateOutput(t))
 	}
-	resp := map[string]any{"CloudWatchAlarmTemplates": out}
+	resp := map[string]any{"cloudWatchAlarmTemplates": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2872,6 +2911,11 @@ func (h *Handler) handleDeleteCWAlarmTemplate(c *echo.Context, identifier string
 
 // --- EventBridge Rule Template Group handlers ---
 
+// toEBRuleTemplateGroupOutput mirrors GetEventBridgeRuleTemplateGroupOutput/
+// CreateEventBridgeRuleTemplateGroupOutput/
+// UpdateEventBridgeRuleTemplateGroupOutput -- same "no templateCount on the
+// non-list shapes" nuance as toCWAlarmTemplateGroupOutput above (List
+// reuses this shape; see that function's doc comment).
 func toEBRuleTemplateGroupOutput(g *EventBridgeRuleTemplateGroup) map[string]any {
 	tags := g.Tags
 	if tags == nil {
@@ -2879,7 +2923,9 @@ func toEBRuleTemplateGroupOutput(g *EventBridgeRuleTemplateGroup) map[string]any
 	}
 
 	return map[string]any{
-		keyArn: g.Arn, keyID: g.ID, keyName: g.Name, keyDescription: g.Description, keyTags: tags,
+		keyArn: g.Arn, keyID: g.ID, keyName: g.Name, keyDescription: g.Description,
+		keyCreatedAt: formatISO8601(g.CreatedAt), keyModifiedAt: formatISO8601(g.ModifiedAt),
+		keyTags: tags,
 	}
 }
 
@@ -2913,9 +2959,9 @@ func (h *Handler) handleListEBRuleTemplateGroups(c *echo.Context) error {
 	for _, g := range items {
 		out = append(out, toEBRuleTemplateGroupOutput(g))
 	}
-	resp := map[string]any{"EventBridgeRuleTemplateGroups": out}
+	resp := map[string]any{"eventBridgeRuleTemplateGroups": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -2946,6 +2992,11 @@ func (h *Handler) handleDeleteEBRuleTemplateGroup(c *echo.Context, identifier st
 
 // --- EventBridge Rule Template handlers ---
 
+// toEBRuleTemplateOutput mirrors GetEventBridgeRuleTemplateOutput/
+// CreateEventBridgeRuleTemplateOutput/UpdateEventBridgeRuleTemplateOutput
+// exactly, including createdAt/modifiedAt. "groupIdentifier" is
+// intentionally omitted: it isn't a real field on this shape (only
+// "groupId" is returned; verified against the SDK deserializer).
 func toEBRuleTemplateOutput(t *EventBridgeRuleTemplate) map[string]any {
 	tags := t.Tags
 	if tags == nil {
@@ -2958,13 +3009,16 @@ func toEBRuleTemplateOutput(t *EventBridgeRuleTemplate) map[string]any {
 
 	return map[string]any{
 		keyArn: t.Arn, keyID: t.ID, keyName: t.Name, keyDescription: t.Description,
-		"GroupId": t.GroupID, "GroupIdentifier": t.GroupIdentifier,
-		"EventType": t.EventType, "EventTargets": targets, keyTags: tags,
+		"groupId":      t.GroupID,
+		"eventType":    t.EventType,
+		"eventTargets": targets,
+		keyCreatedAt:   formatISO8601(t.CreatedAt), keyModifiedAt: formatISO8601(t.ModifiedAt),
+		keyTags: tags,
 	}
 }
 
 func extractEBTargets(body map[string]any) []EventBridgeRuleTemplateTarget {
-	raw, _ := body["EventTargets"].([]any)
+	raw, _ := body["eventTargets"].([]any)
 	targets := make([]EventBridgeRuleTemplateTarget, 0, len(raw))
 	for _, item := range raw {
 		m, ok := item.(map[string]any)
@@ -2983,8 +3037,8 @@ func extractEBTargets(body map[string]any) []EventBridgeRuleTemplateTarget {
 func (h *Handler) handleCreateEBRuleTemplate(c *echo.Context, body map[string]any) error {
 	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
-	groupIdentifier, _ := body["GroupIdentifier"].(string)
-	eventType, _ := body["EventType"].(string)
+	groupIdentifier, _ := body["groupIdentifier"].(string)
+	eventType, _ := body["eventType"].(string)
 	targets := extractEBTargets(body)
 	tags := extractTags(body)
 	t, err := h.Backend.CreateEventBridgeRuleTemplate(
@@ -3020,9 +3074,9 @@ func (h *Handler) handleListEBRuleTemplates(c *echo.Context) error {
 	for _, t := range items {
 		out = append(out, toEBRuleTemplateOutput(t))
 	}
-	resp := map[string]any{"EventBridgeRuleTemplates": out}
+	resp := map[string]any{"eventBridgeRuleTemplates": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3035,8 +3089,8 @@ func (h *Handler) handleUpdateEBRuleTemplate(
 ) error {
 	name, _ := body["name"].(string)
 	description, _ := body[keyDescription].(string)
-	groupIdentifier, _ := body["GroupIdentifier"].(string)
-	eventType, _ := body["EventType"].(string)
+	groupIdentifier, _ := body["groupIdentifier"].(string)
+	eventType, _ := body["eventType"].(string)
 	targets := extractEBTargets(body)
 	t, err := h.Backend.UpdateEventBridgeRuleTemplate(
 		identifier,
@@ -3063,19 +3117,24 @@ func (h *Handler) handleDeleteEBRuleTemplate(c *echo.Context, identifier string)
 
 // --- Offering handlers ---
 
+// toOfferingOutput mirrors DescribeOfferingOutput/Offering exactly. Note
+// the real shape has NO "name" and NO "tags" field (verified against the
+// SDK deserializer) even though Reservation -- a purchased Offering --
+// has both; gopherstack's Offering model never had Name/Tags fields
+// either, so nothing to drop here.
 func toOfferingOutput(o *Offering) map[string]any {
 	return map[string]any{
-		keyArn: o.Arn, "OfferingId": o.OfferingID,
-		"OfferingDescription": o.OfferingDescription, "OfferingType": o.OfferingType,
-		"CurrencyCode": o.CurrencyCode, "FixedPrice": o.FixedPrice, "UsagePrice": o.UsagePrice,
-		"Duration": o.Duration, "DurationUnits": o.DurationUnits,
-		"ResourceSpecification": map[string]any{
-			"ResourceType":     o.ResourceSpecification.ResourceType,
-			"VideoQuality":     o.ResourceSpecification.VideoQuality,
-			"Resolution":       o.ResourceSpecification.Resolution,
-			"MaximumBitrate":   o.ResourceSpecification.MaximumBitrate,
-			"MaximumFramerate": o.ResourceSpecification.MaximumFramerate,
-			"Codec":            o.ResourceSpecification.Codec,
+		keyArn: o.Arn, "offeringId": o.OfferingID,
+		"offeringDescription": o.OfferingDescription, "offeringType": o.OfferingType,
+		"currencyCode": o.CurrencyCode, "fixedPrice": o.FixedPrice, "usagePrice": o.UsagePrice,
+		"duration": o.Duration, "durationUnits": o.DurationUnits, "region": o.Region,
+		"resourceSpecification": map[string]any{
+			"resourceType":     o.ResourceSpecification.ResourceType,
+			"videoQuality":     o.ResourceSpecification.VideoQuality,
+			"resolution":       o.ResourceSpecification.Resolution,
+			"maximumBitrate":   o.ResourceSpecification.MaximumBitrate,
+			"maximumFramerate": o.ResourceSpecification.MaximumFramerate,
+			"codec":            o.ResourceSpecification.Codec,
 		},
 	}
 }
@@ -3089,9 +3148,9 @@ func (h *Handler) handleListOfferings(c *echo.Context) error {
 	for _, o := range items {
 		out = append(out, toOfferingOutput(o))
 	}
-	resp := map[string]any{"Offerings": out}
+	resp := map[string]any{"offerings": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3113,7 +3172,7 @@ func (h *Handler) handlePurchaseOffering(
 ) error {
 	name, _ := body["name"].(string)
 	var count int32 = 1
-	if v, ok := body["Count"].(float64); ok {
+	if v, ok := body["count"].(float64); ok {
 		count = int32(v)
 	}
 	tags := extractTags(body)
@@ -3122,7 +3181,7 @@ func (h *Handler) handlePurchaseOffering(
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"Reservation": toReservationOutput(r)})
+	return c.JSON(http.StatusCreated, map[string]any{"reservation": toReservationOutput(r)})
 }
 
 // --- Reservation handlers ---
@@ -3134,20 +3193,20 @@ func toReservationOutput(r *Reservation) map[string]any {
 	}
 
 	return map[string]any{
-		keyArn: r.Arn, "ReservationId": r.ReservationID, keyName: r.Name,
-		"OfferingId": r.OfferingID, "OfferingDescription": r.OfferingDescription,
-		"OfferingType": r.OfferingType, "CurrencyCode": r.CurrencyCode,
-		"FixedPrice": r.FixedPrice, "UsagePrice": r.UsagePrice,
-		"Duration": r.Duration, "DurationUnits": r.DurationUnits,
-		"Start": r.Start, "End": r.End, "Region": r.Region, keyState: r.State,
-		"Count": r.Count,
-		"ResourceSpecification": map[string]any{
-			"ResourceType":     r.ResourceSpecification.ResourceType,
-			"VideoQuality":     r.ResourceSpecification.VideoQuality,
-			"Resolution":       r.ResourceSpecification.Resolution,
-			"MaximumBitrate":   r.ResourceSpecification.MaximumBitrate,
-			"MaximumFramerate": r.ResourceSpecification.MaximumFramerate,
-			"Codec":            r.ResourceSpecification.Codec,
+		keyArn: r.Arn, "reservationId": r.ReservationID, keyName: r.Name,
+		"offeringId": r.OfferingID, "offeringDescription": r.OfferingDescription,
+		"offeringType": r.OfferingType, "currencyCode": r.CurrencyCode,
+		"fixedPrice": r.FixedPrice, "usagePrice": r.UsagePrice,
+		"duration": r.Duration, "durationUnits": r.DurationUnits,
+		"start": r.Start, "end": r.End, "region": r.Region, keyState: r.State,
+		"count": r.Count,
+		"resourceSpecification": map[string]any{
+			"resourceType":     r.ResourceSpecification.ResourceType,
+			"videoQuality":     r.ResourceSpecification.VideoQuality,
+			"resolution":       r.ResourceSpecification.Resolution,
+			"maximumBitrate":   r.ResourceSpecification.MaximumBitrate,
+			"maximumFramerate": r.ResourceSpecification.MaximumFramerate,
+			"codec":            r.ResourceSpecification.Codec,
 		},
 		keyTags: tags,
 	}
@@ -3162,9 +3221,9 @@ func (h *Handler) handleListReservations(c *echo.Context) error {
 	for _, r := range items {
 		out = append(out, toReservationOutput(r))
 	}
-	resp := map[string]any{"Reservations": out}
+	resp := map[string]any{"reservations": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3199,11 +3258,14 @@ func (h *Handler) handleUpdateReservation(
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toReservationOutput(r))
+	return c.JSON(http.StatusOK, map[string]any{"reservation": toReservationOutput(r)})
 }
 
 // --- Batch handlers ---
 
+// toBatchResultOutput mirrors BatchStartOutput/BatchStopOutput/
+// BatchDeleteOutput exactly (wrapper keys "successful"/"failed", item
+// keys "arn"/"id"/"state" and "arn"/"id"/"code"/"message").
 func toBatchResultOutput(result *BatchResult) map[string]any {
 	successful := make([]map[string]any, 0, len(result.Successful))
 	for _, s := range result.Successful {
@@ -3214,10 +3276,13 @@ func toBatchResultOutput(result *BatchResult) map[string]any {
 	}
 	failed := make([]map[string]any, 0, len(result.Failed))
 	for _, f := range result.Failed {
-		failed = append(failed, map[string]any{keyArn: f.Arn, keyID: f.ID, "Code": f.Code})
+		failed = append(
+			failed,
+			map[string]any{keyArn: f.Arn, keyID: f.ID, "code": f.Code, keyLowerMessage: f.Message},
+		)
 	}
 
-	return map[string]any{"Successful": successful, "Failed": failed}
+	return map[string]any{"successful": successful, "failed": failed}
 }
 
 func extractStringSlice(body map[string]any, key string) []string {
@@ -3232,11 +3297,13 @@ func extractStringSlice(body map[string]any, key string) []string {
 	return result
 }
 
+// handleBatchStart parses BatchStartInput. Real field names, verified
+// against aws-sdk-go-v2/service/medialive's api_op_BatchStart.go and
+// serializers.go: channelIds, multiplexIds. There is NO inputIds field.
 func (h *Handler) handleBatchStart(c *echo.Context, body map[string]any) error {
-	channelIDs := extractStringSlice(body, "ChannelIds")
-	inputIDs := extractStringSlice(body, "InputIds")
-	multiplexIDs := extractStringSlice(body, "MultiplexIds")
-	result, err := h.Backend.BatchStart(channelIDs, inputIDs, multiplexIDs)
+	channelIDs := extractStringSlice(body, "channelIds")
+	multiplexIDs := extractStringSlice(body, "multiplexIds")
+	result, err := h.Backend.BatchStart(channelIDs, multiplexIDs)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -3244,11 +3311,12 @@ func (h *Handler) handleBatchStart(c *echo.Context, body map[string]any) error {
 	return c.JSON(http.StatusOK, toBatchResultOutput(result))
 }
 
+// handleBatchStop parses BatchStopInput -- same shape as BatchStartInput
+// (channelIds, multiplexIds; no inputIds).
 func (h *Handler) handleBatchStop(c *echo.Context, body map[string]any) error {
-	channelIDs := extractStringSlice(body, "ChannelIds")
-	inputIDs := extractStringSlice(body, "InputIds")
-	multiplexIDs := extractStringSlice(body, "MultiplexIds")
-	result, err := h.Backend.BatchStop(channelIDs, inputIDs, multiplexIDs)
+	channelIDs := extractStringSlice(body, "channelIds")
+	multiplexIDs := extractStringSlice(body, "multiplexIds")
+	result, err := h.Backend.BatchStop(channelIDs, multiplexIDs)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -3256,11 +3324,15 @@ func (h *Handler) handleBatchStop(c *echo.Context, body map[string]any) error {
 	return c.JSON(http.StatusOK, toBatchResultOutput(result))
 }
 
+// handleBatchDelete parses BatchDeleteInput. Unlike BatchStart/BatchStop,
+// this shape has all four ID lists: channelIds, inputIds, multiplexIds,
+// AND inputSecurityGroupIds (verified against api_op_BatchDelete.go).
 func (h *Handler) handleBatchDelete(c *echo.Context, body map[string]any) error {
-	channelIDs := extractStringSlice(body, "ChannelIds")
-	inputIDs := extractStringSlice(body, "InputIds")
-	multiplexIDs := extractStringSlice(body, "MultiplexIds")
-	result, err := h.Backend.BatchDelete(channelIDs, inputIDs, multiplexIDs)
+	channelIDs := extractStringSlice(body, "channelIds")
+	inputIDs := extractStringSlice(body, "inputIds")
+	multiplexIDs := extractStringSlice(body, "multiplexIds")
+	inputSecurityGroupIDs := extractStringSlice(body, "inputSecurityGroupIds")
+	result, err := h.Backend.BatchDelete(channelIDs, inputIDs, multiplexIDs, inputSecurityGroupIDs)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -3274,22 +3346,22 @@ func (h *Handler) handleBatchUpdateSchedule(
 	body map[string]any,
 ) error {
 	var creates []ScheduleAction
-	if rawCreates, ok := body["Creates"].(map[string]any); ok {
-		rawActions, hasActions := rawCreates["ScheduleActions"].([]any)
+	if rawCreates, ok := body["creates"].(map[string]any); ok {
+		rawActions, hasActions := rawCreates[keyScheduleActions].([]any)
 		if hasActions {
 			for _, item := range rawActions {
 				m, isMapped := item.(map[string]any)
 				if !isMapped {
 					continue
 				}
-				actionName, _ := m["ActionName"].(string)
+				actionName, _ := m[keyActionName].(string)
 				creates = append(creates, ScheduleAction{ActionName: actionName})
 			}
 		}
 	}
 	var deleteNames []string
-	if rawDeletes, ok := body["Deletes"].(map[string]any); ok {
-		deleteNames = extractStringSlice(rawDeletes, "ActionNames")
+	if rawDeletes, ok := body["deletes"].(map[string]any); ok {
+		deleteNames = extractStringSlice(rawDeletes, "actionNames")
 	}
 	result, err := h.Backend.BatchUpdateSchedule(channelID, creates, deleteNames)
 	if err != nil {
@@ -3299,14 +3371,17 @@ func (h *Handler) handleBatchUpdateSchedule(
 	for _, a := range result.Creates {
 		createsOut = append(createsOut, map[string]any{keyActionName: a.ActionName})
 	}
+	// BatchScheduleActionDeleteResult also echoes back "scheduleActions"
+	// (the full deleted actions), NOT "actionNames" -- verified against
+	// the SDK deserializer (awsRestjson1_deserializeDocumentBatchScheduleActionDeleteResult).
 	deletesOut := make([]map[string]any, 0, len(result.Deletes))
 	for _, a := range result.Deletes {
 		deletesOut = append(deletesOut, map[string]any{keyActionName: a.ActionName})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"Creates": map[string]any{keyScheduleActions: createsOut},
-		"Deletes": map[string]any{keyScheduleActions: deletesOut},
+		"creates": map[string]any{keyScheduleActions: createsOut},
+		"deletes": map[string]any{keyScheduleActions: deletesOut},
 	})
 }
 
@@ -3332,13 +3407,13 @@ func toNetworkOutput(n *Network) map[string]any {
 
 	return map[string]any{
 		keyArn: n.ARN, keyID: n.ID, keyName: n.Name, keyState: n.State,
-		"AssociatedClusterIds": clusters, "IpPools": pools, "Routes": routes,
+		"associatedClusterIds": clusters, "ipPools": pools, "routes": routes,
 		keyTags: tags,
 	}
 }
 
 func extractIPPools(body map[string]any) []IPPool {
-	raw, _ := body["IpPools"].([]any)
+	raw, _ := body["ipPools"].([]any)
 	if raw == nil {
 		return nil
 	}
@@ -3349,7 +3424,7 @@ func extractIPPools(body map[string]any) []IPPool {
 		if !ok {
 			continue
 		}
-		cidr, _ := m["Cidr"].(string)
+		cidr, _ := m["cidr"].(string)
 		pools = append(pools, IPPool{Cidr: cidr})
 	}
 
@@ -3357,7 +3432,7 @@ func extractIPPools(body map[string]any) []IPPool {
 }
 
 func extractRoutes(body map[string]any) []Route {
-	raw, _ := body["Routes"].([]any)
+	raw, _ := body["routes"].([]any)
 	if raw == nil {
 		return nil
 	}
@@ -3368,8 +3443,8 @@ func extractRoutes(body map[string]any) []Route {
 		if !ok {
 			continue
 		}
-		cidr, _ := m["Cidr"].(string)
-		gateway, _ := m["Gateway"].(string)
+		cidr, _ := m["cidr"].(string)
+		gateway, _ := m["gateway"].(string)
 		routes = append(routes, Route{Cidr: cidr, Gateway: gateway})
 	}
 
@@ -3432,9 +3507,9 @@ func (h *Handler) handleListNetworks(c *echo.Context) error {
 		out = append(out, toNetworkOutput(n))
 	}
 
-	resp := map[string]any{"Networks": out}
+	resp := map[string]any{"networks": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3450,14 +3525,14 @@ func toSdiSourceOutput(s *SdiSource) map[string]any {
 
 	return map[string]any{
 		keyArn: s.ARN, keyID: s.ID, keyName: s.Name,
-		"Type": s.Type, "Mode": s.Mode, keyState: s.State, "Inputs": inputs,
+		"type": s.Type, "mode": s.Mode, keyState: s.State, "inputs": inputs,
 	}
 }
 
 func (h *Handler) handleCreateSdiSource(c *echo.Context, body map[string]any) error {
 	name, _ := body["name"].(string)
-	sdiType, _ := body["Type"].(string)
-	mode, _ := body["Mode"].(string)
+	sdiType, _ := body["type"].(string)
+	mode, _ := body["mode"].(string)
 	tags := extractTags(body)
 
 	s, err := h.Backend.CreateSdiSource(name, sdiType, mode, tags)
@@ -3483,8 +3558,8 @@ func (h *Handler) handleUpdateSdiSource(
 	body map[string]any,
 ) error {
 	name, _ := body["name"].(string)
-	sdiType, _ := body["Type"].(string)
-	mode, _ := body["Mode"].(string)
+	sdiType, _ := body["type"].(string)
+	mode, _ := body["mode"].(string)
 
 	s, err := h.Backend.UpdateSdiSource(sdiSourceID, name, sdiType, mode)
 	if err != nil {
@@ -3514,9 +3589,9 @@ func (h *Handler) handleListSdiSources(c *echo.Context) error {
 		out = append(out, toSdiSourceOutput(s))
 	}
 
-	resp := map[string]any{"SdiSources": out}
+	resp := map[string]any{"sdiSources": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3535,8 +3610,8 @@ func toChannelPlacementGroupOutput(g *ChannelPlacementGroup) map[string]any {
 	}
 
 	return map[string]any{
-		keyArn: g.ARN, keyID: g.ID, keyName: g.Name, "ClusterId": g.ClusterID,
-		keyState: g.State, "Channels": channels, "Nodes": nodes,
+		keyArn: g.ARN, keyID: g.ID, keyName: g.Name, "clusterId": g.ClusterID,
+		keyState: g.State, "channels": channels, "nodes": nodes,
 	}
 }
 
@@ -3546,7 +3621,7 @@ func (h *Handler) handleCreateChannelPlacementGroup(
 	body map[string]any,
 ) error {
 	name, _ := body["name"].(string)
-	nodes := extractStringSlice(body, "Nodes")
+	nodes := extractStringSlice(body, "nodes")
 	tags := extractTags(body)
 
 	g, err := h.Backend.CreateChannelPlacementGroup(clusterID, name, nodes, tags)
@@ -3575,7 +3650,7 @@ func (h *Handler) handleUpdateChannelPlacementGroup(
 ) error {
 	clusterID, groupID := splitClusterNode(resource)
 	name, _ := body["name"].(string)
-	nodes := extractStringSlice(body, "Nodes")
+	nodes := extractStringSlice(body, "nodes")
 
 	g, err := h.Backend.UpdateChannelPlacementGroup(clusterID, groupID, name, nodes)
 	if err != nil {
@@ -3607,9 +3682,9 @@ func (h *Handler) handleListChannelPlacementGroups(c *echo.Context, clusterID st
 		out = append(out, toChannelPlacementGroupOutput(g))
 	}
 
-	resp := map[string]any{"ChannelPlacementGroups": out}
+	resp := map[string]any{"channelPlacementGroups": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -3624,14 +3699,14 @@ func (h *Handler) handleDescribeAccountConfiguration(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"AccountConfiguration": map[string]any{"KmsKeyId": cfg.KmsKeyID},
+		"accountConfiguration": map[string]any{"kmsKeyId": cfg.KmsKeyID},
 	})
 }
 
 func (h *Handler) handleUpdateAccountConfiguration(c *echo.Context, body map[string]any) error {
 	kmsKeyID := ""
-	if cfg, ok := body["AccountConfiguration"].(map[string]any); ok {
-		kmsKeyID, _ = cfg["KmsKeyId"].(string)
+	if cfg, ok := body["accountConfiguration"].(map[string]any); ok {
+		kmsKeyID, _ = cfg["kmsKeyId"].(string)
 	}
 
 	cfg, err := h.Backend.UpdateAccountConfiguration(kmsKeyID)
@@ -3640,7 +3715,7 @@ func (h *Handler) handleUpdateAccountConfiguration(c *echo.Context, body map[str
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"AccountConfiguration": map[string]any{"KmsKeyId": cfg.KmsKeyID},
+		"accountConfiguration": map[string]any{"kmsKeyId": cfg.KmsKeyID},
 	})
 }
 
@@ -3693,10 +3768,17 @@ func (h *Handler) handleListVersions(c *echo.Context) error {
 
 	out := make([]map[string]any, 0, len(versions))
 	for _, v := range versions {
-		out = append(out, map[string]any{"Version": v.Version, "ExpirationDate": v.ExpirationDate})
+		item := map[string]any{"version": v.Version}
+		// expirationDate is __timestampIso8601 on the real wire
+		// (smithytime.ParseDateTime) -- omit rather than emit "", which a
+		// real SDK client would fail to parse.
+		if v.ExpirationDate != "" {
+			item["expirationDate"] = v.ExpirationDate
+		}
+		out = append(out, item)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Versions": out})
+	return c.JSON(http.StatusOK, map[string]any{"versions": out})
 }
 
 // --- Channel lifecycle extra handlers ---
