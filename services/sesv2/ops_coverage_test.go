@@ -44,7 +44,7 @@ func TestOps_PutAccountSendingAttributes(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodPut, "/v2/email/account/sending-attributes", map[string]any{
+	rec := doRequest(t, h, http.MethodPut, "/v2/email/account/sending", map[string]any{
 		"SendingEnabled": true,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -58,7 +58,7 @@ func TestOps_PutAccountSuppressionAttributes(t *testing.T) {
 		t,
 		h,
 		http.MethodPut,
-		"/v2/email/account/suppression-attributes",
+		"/v2/email/account/suppression",
 		map[string]any{},
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -68,7 +68,7 @@ func TestOps_PutAccountVdmAttributes(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodPut, "/v2/email/account/vdm-attributes", map[string]any{})
+	rec := doRequest(t, h, http.MethodPut, "/v2/email/account/vdm", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -80,7 +80,7 @@ func TestOps_PutAccountDedicatedIPWarmupAttributes(t *testing.T) {
 		t,
 		h,
 		http.MethodPut,
-		"/v2/email/account/dedicated-ip-warmup-attributes",
+		"/v2/email/account/dedicated-ips/warmup",
 		map[string]any{},
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -106,7 +106,7 @@ func TestOps_PutSuppressedDestination(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodPut, "/v2/email/suppressed-destination", map[string]any{
+	rec := doRequest(t, h, http.MethodPut, "/v2/email/suppression/addresses", map[string]any{
 		"EmailAddress": "suppress@example.com",
 		"Reason":       "BOUNCE",
 	})
@@ -118,7 +118,7 @@ func TestOps_GetSuppressedDestination(t *testing.T) {
 
 	h := newHandler()
 
-	doRequest(t, h, http.MethodPut, "/v2/email/suppressed-destination", map[string]any{
+	doRequest(t, h, http.MethodPut, "/v2/email/suppression/addresses", map[string]any{
 		"EmailAddress": "get-supp@example.com",
 		"Reason":       "COMPLAINT",
 	})
@@ -127,7 +127,7 @@ func TestOps_GetSuppressedDestination(t *testing.T) {
 		t,
 		h,
 		http.MethodGet,
-		"/v2/email/suppressed-destination/get-supp%40example.com",
+		"/v2/email/suppression/addresses/get-supp%40example.com",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -138,7 +138,7 @@ func TestOps_DeleteSuppressedDestination(t *testing.T) {
 
 	h := newHandler()
 
-	doRequest(t, h, http.MethodPut, "/v2/email/suppressed-destination", map[string]any{
+	doRequest(t, h, http.MethodPut, "/v2/email/suppression/addresses", map[string]any{
 		"EmailAddress": "del-supp@example.com",
 		"Reason":       "BOUNCE",
 	})
@@ -147,7 +147,7 @@ func TestOps_DeleteSuppressedDestination(t *testing.T) {
 		t,
 		h,
 		http.MethodDelete,
-		"/v2/email/suppressed-destination/del-supp%40example.com",
+		"/v2/email/suppression/addresses/del-supp%40example.com",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -157,7 +157,7 @@ func TestOps_ListSuppressedDestinations(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-	rec := doRequest(t, h, http.MethodGet, "/v2/email/suppressed-destination", nil)
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/suppression/addresses", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -326,8 +326,8 @@ func TestOps_ListContacts(t *testing.T) {
 	rec := doRequest(
 		t,
 		h,
-		http.MethodGet,
-		"/v2/email/contact-lists/ContactOpsListList/contacts",
+		http.MethodPost,
+		"/v2/email/contact-lists/ContactOpsListList/contacts/list",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -533,7 +533,7 @@ func TestOps_PutDedicatedIPPoolScalingAttributes(t *testing.T) {
 		t,
 		h,
 		http.MethodPut,
-		"/v2/email/dedicated-ip-pools/ScalingPool/scaling-attributes",
+		"/v2/email/dedicated-ip-pools/ScalingPool/scaling",
 		map[string]any{
 			"ScalingMode": "STANDARD",
 		},
@@ -778,7 +778,7 @@ func TestOps_GetExportJob(t *testing.T) {
 
 	var createResp map[string]any
 	require.NoError(t, parseJSON(t, createRec.Body.Bytes(), &createResp))
-	jobID := createResp["jobId"].(string)
+	jobID := createResp["JobId"].(string)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/export-jobs/"+jobID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -812,7 +812,7 @@ func TestOps_CancelExportJob(t *testing.T) {
 
 	var createResp map[string]any
 	require.NoError(t, parseJSON(t, createRec.Body.Bytes(), &createResp))
-	jobID := createResp["jobId"].(string)
+	jobID := createResp["JobId"].(string)
 
 	rec := doRequest(t, h, http.MethodPut, "/v2/email/export-jobs/"+jobID+"/cancel", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -858,7 +858,7 @@ func TestOps_GetImportJob(t *testing.T) {
 
 	var createResp map[string]any
 	require.NoError(t, parseJSON(t, createRec.Body.Bytes(), &createResp))
-	jobID := createResp["jobId"].(string)
+	jobID := createResp["JobId"].(string)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/import-jobs/"+jobID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1090,7 +1090,7 @@ func TestOps_PutConfigurationSetAttributes(t *testing.T) {
 		"/v2/email/configuration-sets/AttrCS/archiving-options",
 		"/v2/email/configuration-sets/AttrCS/delivery-options",
 		"/v2/email/configuration-sets/AttrCS/reputation-options",
-		"/v2/email/configuration-sets/AttrCS/sending-options",
+		"/v2/email/configuration-sets/AttrCS/sending",
 		"/v2/email/configuration-sets/AttrCS/suppression-options",
 		"/v2/email/configuration-sets/AttrCS/tracking-options",
 		"/v2/email/configuration-sets/AttrCS/vdm-options",

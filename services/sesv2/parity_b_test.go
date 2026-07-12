@@ -141,19 +141,19 @@ func TestPutAccountAttributesPersist(t *testing.T) {
 		{
 			name:   "suppression_attributes",
 			method: http.MethodPut,
-			path:   "/v2/email/account/suppression-attributes",
+			path:   "/v2/email/account/suppression",
 			body:   map[string]any{"SuppressedReasons": []any{"BOUNCE", "COMPLAINT"}},
 		},
 		{
 			name:   "vdm_attributes",
 			method: http.MethodPut,
-			path:   "/v2/email/account/vdm-attributes",
+			path:   "/v2/email/account/vdm",
 			body:   map[string]any{"VdmAttributes": map[string]any{"DashboardAttributes": map[string]any{}}},
 		},
 		{
 			name:   "dedicated_ip_warmup",
 			method: http.MethodPut,
-			path:   "/v2/email/account/dedicated-ip-warmup-attributes",
+			path:   "/v2/email/account/dedicated-ips/warmup",
 			body:   map[string]any{"AutoWarmupEnabled": true},
 		},
 	}
