@@ -169,21 +169,41 @@ func (h *Handler) handleListConfigurationPolicies(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) handleGetConfigurationPolicyAssociation(c *echo.Context, body map[string]any) error {
-	targetID := ""
-	targetType := ""
+// Configuration policy association target-type wire values (TargetType enum).
+const (
+	targetTypeAccount            = "ACCOUNT"
+	targetTypeOrganizationalUnit = "ORGANIZATIONAL_UNIT"
+	targetTypeRoot               = "ROOT"
+)
 
-	if t, ok := body["Target"].(map[string]any); ok {
-		targetID, _ = t["AccountId"].(string)
-		if targetID == "" {
-			targetID, _ = t["OrganizationalUnitId"].(string)
-			if targetID == "" {
-				targetID, _ = t["RootId"].(string)
-			}
-		}
-
-		targetType, _ = t["TargetType"].(string)
+// extractConfigPolicyTarget reads the Target union from a request body and
+// derives (targetID, targetType). The wire shape is a tagged union --
+// {"AccountId": ...} | {"OrganizationalUnitId": ...} | {"RootId": ...} --
+// with no client-supplied "TargetType" field; TargetType must be derived from
+// which key is present, matching aws-sdk-go-v2's types.Target variants.
+func extractConfigPolicyTarget(body map[string]any) (string, string) {
+	t, isMap := body["Target"].(map[string]any)
+	if !isMap {
+		return "", ""
 	}
+
+	if v, isStr := t["AccountId"].(string); isStr && v != "" {
+		return v, targetTypeAccount
+	}
+
+	if v, isStr := t["OrganizationalUnitId"].(string); isStr && v != "" {
+		return v, targetTypeOrganizationalUnit
+	}
+
+	if v, isStr := t["RootId"].(string); isStr && v != "" {
+		return v, targetTypeRoot
+	}
+
+	return "", ""
+}
+
+func (h *Handler) handleGetConfigurationPolicyAssociation(c *echo.Context, body map[string]any) error {
+	targetID, targetType := extractConfigPolicyTarget(body)
 
 	assoc, err := h.Backend.GetConfigurationPolicyAssociation(targetID, targetType)
 	if err != nil {
@@ -244,20 +264,7 @@ func (h *Handler) handleStartConfigurationPolicyAssociation(c *echo.Context, bod
 		policyID = t
 	}
 
-	targetID := ""
-	targetType := ""
-
-	if t, ok := body["Target"].(map[string]any); ok {
-		targetID, _ = t["AccountId"].(string)
-		if targetID == "" {
-			targetID, _ = t["OrganizationalUnitId"].(string)
-			if targetID == "" {
-				targetID, _ = t["RootId"].(string)
-			}
-		}
-
-		targetType, _ = t["TargetType"].(string)
-	}
+	targetID, targetType := extractConfigPolicyTarget(body)
 
 	assoc, err := h.Backend.StartConfigurationPolicyAssociation(policyID, targetID, targetType)
 	if err != nil {
@@ -278,20 +285,7 @@ func (h *Handler) handleStartConfigurationPolicyDisassociation(c *echo.Context, 
 		policyID = t
 	}
 
-	targetID := ""
-	targetType := ""
-
-	if t, ok := body["Target"].(map[string]any); ok {
-		targetID, _ = t["AccountId"].(string)
-		if targetID == "" {
-			targetID, _ = t["OrganizationalUnitId"].(string)
-			if targetID == "" {
-				targetID, _ = t["RootId"].(string)
-			}
-		}
-
-		targetType, _ = t["TargetType"].(string)
-	}
+	targetID, targetType := extractConfigPolicyTarget(body)
 
 	if err := h.Backend.StartConfigurationPolicyDisassociation(policyID, targetID, targetType); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})

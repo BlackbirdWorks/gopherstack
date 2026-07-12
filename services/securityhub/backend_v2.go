@@ -342,8 +342,19 @@ func (b *InMemoryBackend) UpdateAutomationRuleV2(
 		target.Criteria = v
 	}
 
-	if v, ok := updates["Actions"].([]map[string]any); ok {
-		target.Actions = v
+	// Actions decodes from JSON as []any (each element map[string]any), not
+	// []map[string]any -- a direct type assertion to []map[string]any always
+	// fails and silently drops every Actions update.
+	if raw, ok := updates["Actions"].([]any); ok {
+		actionMaps := make([]map[string]any, 0, len(raw))
+
+		for _, a := range raw {
+			if m, isMap := a.(map[string]any); isMap {
+				actionMaps = append(actionMaps, m)
+			}
+		}
+
+		target.Actions = actionMaps
 	}
 
 	if v, ok := updates["RuleOrder"].(float64); ok {

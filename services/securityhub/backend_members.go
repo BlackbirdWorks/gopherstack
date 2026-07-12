@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const msgMemberNotFound = "Member not found"
+
 // Member represents a Security Hub member account.
 type Member struct {
 	AccountId       string `json:"AccountId"`       //nolint:revive,staticcheck // existing issue.
@@ -111,7 +113,7 @@ func (b *InMemoryBackend) DeleteMembers(accountIDs []string) ([]string, []map[st
 			unprocessed = append(unprocessed, map[string]any{
 				"AccountId":     id,
 				keyErrorCode:    "ResourceNotFoundException", //nolint:goconst // existing issue.
-				keyErrorMessage: "Member not found",
+				keyErrorMessage: msgMemberNotFound,
 			})
 		}
 	}
@@ -134,7 +136,7 @@ func (b *InMemoryBackend) GetMembers(accountIDs []string) ([]*Member, []map[stri
 			unprocessed = append(unprocessed, map[string]any{
 				"AccountId":     id,
 				keyErrorCode:    "ResourceNotFoundException",
-				keyErrorMessage: "Member not found",
+				keyErrorMessage: msgMemberNotFound,
 			})
 		}
 	}
@@ -151,6 +153,20 @@ func (b *InMemoryBackend) InviteMembers(accountIDs []string) []map[string]any {
 	var unprocessed []map[string]any
 
 	for _, id := range accountIDs {
+		// AWS requires the account to already exist as a member (via
+		// CreateMembers) before it can be invited; accounts that were never
+		// created go to UnprocessedAccounts instead of silently succeeding.
+		m, ok := b.members.Get(id)
+		if !ok {
+			unprocessed = append(unprocessed, map[string]any{
+				"AccountId":     id,
+				keyErrorCode:    "ResourceNotFoundException",
+				keyErrorMessage: msgMemberNotFound,
+			})
+
+			continue
+		}
+
 		b.memberSeq++
 		invitationID := fmt.Sprintf("%s-invite-%d", b.accountID, b.memberSeq)
 
@@ -162,10 +178,8 @@ func (b *InMemoryBackend) InviteMembers(accountIDs []string) []map[string]any {
 		}
 		b.invitations.Put(inv)
 
-		if m, ok := b.members.Get(id); ok {
-			m.MemberStatus = "Invited"
-			m.InvitedAt = now
-		}
+		m.MemberStatus = "Invited"
+		m.InvitedAt = now
 	}
 
 	return unprocessed
