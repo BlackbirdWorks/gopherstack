@@ -104,6 +104,11 @@ func TestBackend_OrgLifecycle(t *testing.T) {
 			assert.NotEmpty(t, org.ARN)
 			assert.Equal(t, tt.featureSet, org.FeatureSet)
 			assert.NotEmpty(t, root.ID)
+			// The account that calls CreateOrganization becomes the management
+			// account, matching real AWS: its ID must equal the caller identity
+			// this backend reports elsewhere (e.g. to STS/IAM), not a synthetic
+			// counter-derived account ID.
+			assert.Equal(t, b.AccountID(), org.MasterAccountID)
 
 			if tt.doubleCreate {
 				_, _, err2 := b.CreateOrganization(tt.featureSet)

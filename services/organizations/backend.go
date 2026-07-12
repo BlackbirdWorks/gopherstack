@@ -496,8 +496,15 @@ func (b *InMemoryBackend) CreateOrganization(featureSet string) (*Organization, 
 	orgID := newOrgID()
 	rootID := newRootID()
 
+	// The management account is the account making the CreateOrganization
+	// call, matching real AWS: whichever account calls CreateOrganization
+	// becomes the organization's management account, so its ID must equal
+	// the caller identity other services (STS, IAM) report for this backend
+	// -- not a synthetic counter-derived ID. accountCounter still starts at
+	// managementAccountCounter so subsequently created member accounts get
+	// sequential 12-digit IDs, independent of the management account's ID.
 	b.accountCounter = managementAccountCounter
-	mgmtAcctID := newAccountID(b.accountCounter)
+	mgmtAcctID := b.accountID
 
 	org := &Organization{
 		ID:                 orgID,
