@@ -56,10 +56,15 @@ const (
 	// DeploymentModeCluster is the cluster multi-AZ deployment mode (RabbitMQ).
 	DeploymentModeCluster = "CLUSTER_MULTI_AZ"
 
-	// StorageTypeEFS is the EFS storage type (ActiveMQ).
-	StorageTypeEFS = "efs"
-	// StorageTypeEBS is the EBS storage type (RabbitMQ).
-	StorageTypeEBS = "ebs"
+	// StorageTypeEFS is the EFS storage type (ActiveMQ). AWS MQ's
+	// BrokerStorageType enum uses the uppercase form on the wire (see
+	// aws-sdk-go-v2/service/mq/types.BrokerStorageTypeEfs); a lowercase value
+	// here would round-trip through JSON fine but silently fail any
+	// client-side comparison against the SDK's typed enum constants.
+	StorageTypeEFS = "EFS"
+	// StorageTypeEBS is the EBS storage type (RabbitMQ). See StorageTypeEFS
+	// for why this must match the SDK's uppercase enum value.
+	StorageTypeEBS = "EBS"
 
 	// PromoteModeFailover is the failover promote mode.
 	PromoteModeFailover = "FAILOVER"
@@ -183,7 +188,9 @@ func validateDeploymentModeForEngine(mode, engineType string) error {
 }
 
 // validateActiveMQPassword enforces AWS MQ ActiveMQ password constraints:
-// 12-250 characters, no commas, at least 4 unique characters.
+// 12-250 characters, no commas/colons/equal signs, at least 4 unique
+// characters. See CreateUserRequest.Password in the MQ API reference:
+// "must not contain commas, colons, or equal signs (,:=)".
 func validateActiveMQPassword(password string) error {
 	if len(password) < 12 || len(password) > 250 {
 		return fmt.Errorf(
@@ -192,8 +199,8 @@ func validateActiveMQPassword(password string) error {
 		)
 	}
 
-	if strings.ContainsRune(password, ',') {
-		return fmt.Errorf("%w: ActiveMQ password must not contain commas", ErrValidation)
+	if strings.ContainsAny(password, ",:=") {
+		return fmt.Errorf("%w: ActiveMQ password must not contain commas, colons, or equal signs", ErrValidation)
 	}
 
 	unique := make(map[rune]struct{})
@@ -211,9 +218,12 @@ func validateActiveMQPassword(password string) error {
 	return nil
 }
 
-// validateUsername enforces AWS MQ broker username constraints:
-// 2-100 characters, must start with alphanumeric, only alphanumeric, hyphens,
-// and underscores allowed, no commas or colons.
+// validateUsername enforces AWS MQ broker username constraints. Per the User
+// shape's ActiveMQ documentation, a username may contain only alphanumeric
+// characters, dashes, periods, underscores, and tildes (- . _ ~) and must be
+// 2-100 characters long. (RabbitMQ additionally forbids the tilde and the
+// literal name "guest", but this validator is used before the broker's
+// engine type is known, so it accepts the more permissive ActiveMQ charset.)
 func validateUsername(username string) error {
 	if len(username) < minUsernameLen || len(username) > maxUsernameLen {
 		return fmt.Errorf(
@@ -227,9 +237,10 @@ func validateUsername(username string) error {
 	}
 
 	for _, c := range username {
-		if !isAlphanumeric(c) && c != '-' && c != '_' {
+		if !isAlphanumeric(c) && c != '-' && c != '_' && c != '.' && c != '~' {
 			return fmt.Errorf(
-				"%w: username must contain only alphanumeric characters, hyphens, and underscores, got %q",
+				"%w: username must contain only alphanumeric characters, dashes, periods, "+
+					"underscores, and tildes, got %q",
 				ErrValidation, c,
 			)
 		}
@@ -1487,7 +1498,7 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 		{
 			EngineType:               EngineTypeActiveMQ,
 			HostInstanceType:         "mq.m5.large",
-			StorageType:              "efs",
+			StorageType:              StorageTypeEFS,
 			AvailabilityZones:        zones,
 			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "ACTIVE_STANDBY_MULTI_AZ"},
 			SupportedEngineVersions: []string{
@@ -1500,7 +1511,7 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 		{
 			EngineType:               EngineTypeActiveMQ,
 			HostInstanceType:         "mq.m5.xlarge",
-			StorageType:              "efs",
+			StorageType:              StorageTypeEFS,
 			AvailabilityZones:        zones,
 			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "ACTIVE_STANDBY_MULTI_AZ"},
 			SupportedEngineVersions: []string{
@@ -1513,7 +1524,7 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 		{
 			EngineType:               EngineTypeRabbitMQ,
 			HostInstanceType:         "mq.m5.large",
-			StorageType:              "ebs",
+			StorageType:              StorageTypeEBS,
 			AvailabilityZones:        zones,
 			SupportedDeploymentModes: []string{DeploymentModeSingleInstance, "CLUSTER_MULTI_AZ"},
 			SupportedEngineVersions:  []string{"3.13.2", "3.12.13", "3.11.28", "3.10.25"},

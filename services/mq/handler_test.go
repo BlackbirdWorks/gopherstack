@@ -103,13 +103,13 @@ func TestMQ_BrokerLifecycle(t *testing.T) {
 			name:       "create_activemq",
 			brokerName: "my-activemq-broker",
 			engineType: "ACTIVEMQ",
-			wantStatus: http.StatusAccepted,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "create_rabbitmq",
 			brokerName: "my-rabbitmq-broker",
 			engineType: "RABBITMQ",
-			wantStatus: http.StatusAccepted,
+			wantStatus: http.StatusOK,
 		},
 	}
 
@@ -237,7 +237,7 @@ func TestMQ_CreateBroker_Validation(t *testing.T) {
 					"brokerName": "my-broker",
 					"engineType": "ACTIVEMQ",
 				})
-				require.Equal(t, http.StatusAccepted, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/v1/brokers", tt.body)
@@ -352,7 +352,7 @@ func TestMQ_UserLifecycle(t *testing.T) {
 				"brokerName": "test-broker",
 				"engineType": "ACTIVEMQ",
 			})
-			require.Equal(t, http.StatusAccepted, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createBrokerResp map[string]string
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBrokerResp))
@@ -418,7 +418,7 @@ func TestMQ_UpdateBroker(t *testing.T) {
 				"brokerName": "update-broker",
 				"engineType": "ACTIVEMQ",
 			})
-			require.Equal(t, http.StatusAccepted, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]string
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -457,7 +457,7 @@ func TestMQ_UpdateUser(t *testing.T) {
 				"brokerName": "broker-for-user-update",
 				"engineType": "ACTIVEMQ",
 			})
-			require.Equal(t, http.StatusAccepted, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createBrokerResp map[string]string
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBrokerResp))
@@ -813,7 +813,7 @@ func TestMQ_TagsLifecycle(t *testing.T) {
 				"brokerName": "tagged-broker",
 				"engineType": "ACTIVEMQ",
 			})
-			require.Equal(t, http.StatusAccepted, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]string
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -831,7 +831,7 @@ func TestMQ_TagsLifecycle(t *testing.T) {
 			c := e.NewContext(req, recW)
 			err = h.Handler()(c)
 			require.NoError(t, err)
-			assert.Equal(t, http.StatusOK, recW.Code)
+			assert.Equal(t, http.StatusNoContent, recW.Code)
 
 			// List tags.
 			req = httptest.NewRequest(http.MethodGet, "/v1/tags/"+resourceARN, nil)
@@ -875,7 +875,7 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 			"brokerName": "test-broker-upd",
 			"engineType": "ACTIVEMQ",
 		})
-		require.Equal(t, http.StatusAccepted, rec.Code)
+		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createBrokerResp map[string]string
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBrokerResp))
@@ -1010,7 +1010,7 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		c = e.NewContext(req, rec)
 		err = h.Handler()(c)
 		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
 
 		// Delete tags on configuration.
 		req = httptest.NewRequest(http.MethodDelete, "/v1/tags/"+configARN+"?tagKeys=tier", nil)
@@ -1032,7 +1032,7 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 			"brokerName": "broker-no-users",
 			"engineType": "ACTIVEMQ",
 		})
-		require.Equal(t, http.StatusAccepted, rec.Code)
+		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createBrokerResp map[string]string
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createBrokerResp))
@@ -1220,7 +1220,7 @@ func TestMQ_DescribeBrokerInstanceOptions(t *testing.T) {
 		},
 		{
 			name:         "ebs_storage_type",
-			storageType:  "ebs",
+			storageType:  "EBS",
 			wantMinCount: 1,
 		},
 		{
@@ -1445,7 +1445,7 @@ func TestMQ_Promote(t *testing.T) {
 					"brokerName": "promotable-broker",
 					"engineType": "ACTIVEMQ",
 				})
-				require.Equal(t, http.StatusAccepted, rec.Code)
+				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]string
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
@@ -1476,7 +1476,7 @@ func TestMQ_Promote_InvalidBody(t *testing.T) {
 		"brokerName": "promote-invalid-body-broker",
 		"engineType": "ACTIVEMQ",
 	})
-	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
