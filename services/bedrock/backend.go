@@ -319,11 +319,21 @@ type FoundationModelAgreement struct {
 	ModelID string `json:"modelId"`
 }
 
-// GuardrailVersion represents a specific version of a guardrail.
+// GuardrailVersion represents a numbered, immutable snapshot of a guardrail taken at the
+// time CreateGuardrailVersion was called. AWS freezes the guardrail's full configuration
+// into each numbered version, so GetGuardrail(id, version) must be able to serve this
+// snapshot independently of the (still-editable) DRAFT.
 type GuardrailVersion struct {
-	GuardrailID string `json:"guardrailId"`
-	Version     string `json:"version"`
-	Description string `json:"description,omitempty"`
+	CreatedAt               time.Time          `json:"createdAt"`
+	Policies                *GuardrailPolicies `json:"policies,omitempty"`
+	GuardrailID             string             `json:"guardrailId"`
+	GuardrailArn            string             `json:"guardrailArn"`
+	Version                 string             `json:"version"`
+	Name                    string             `json:"name"`
+	Description             string             `json:"description,omitempty"`
+	BlockedInputMessaging   string             `json:"blockedInputMessaging,omitempty"`
+	BlockedOutputsMessaging string             `json:"blockedOutputsMessaging,omitempty"`
+	Tags                    []Tag              `json:"tags,omitempty"`
 }
 
 // ModelCopyJob represents a model copy job.
@@ -769,7 +779,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 		Name:                    name,
 		Description:             description,
 		Status:                  "READY",
-		Version:                 "DRAFT",
+		Version:                 agentStatusDraft,
 		BlockedInputMessaging:   blockedInput,
 		BlockedOutputsMessaging: blockedOutput,
 		Tags:                    tagsCopy,
@@ -839,27 +849,10 @@ func (b *InMemoryBackend) ListGuardrails(
 	return paginateBedrockSlice(list, nextToken)
 }
 
-// hasPublishedVersions reports whether a guardrail has any published (non-DRAFT) versions.
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) hasPublishedVersions(guardrailID string) bool {
-	found := false
-
-	b.guardrailVersions.Range(func(v *GuardrailVersion) bool {
-		if v.GuardrailID == guardrailID {
-			found = true
-
-			return false
-		}
-
-		return true
-	})
-
-	return found
-}
-
 // UpdateGuardrail updates a guardrail's name, description, messaging, and policies.
-// Mutations are rejected when the guardrail has published (numbered) versions,
-// as AWS rejects updates to guardrails that have been versioned.
+// UpdateGuardrail always mutates the DRAFT version; numbered versions created via
+// CreateGuardrailVersion are immutable snapshots and are unaffected (AWS imposes no
+// restriction on editing DRAFT after versions have been published).
 // The optional policies argument replaces all existing policy configs when provided.
 func (b *InMemoryBackend) UpdateGuardrail(
 	idOrARN, name, description, blockedInput, blockedOutput string,
@@ -871,14 +864,6 @@ func (b *InMemoryBackend) UpdateGuardrail(
 	g, ok := b.findGuardrailByIDOrARN(idOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
-	}
-
-	if b.hasPublishedVersions(g.GuardrailID) {
-		return nil, fmt.Errorf(
-			"%w: guardrail %s has published versions and cannot be mutated",
-			ErrAlreadyExists,
-			idOrARN,
-		)
 	}
 
 	// Update name with index maintenance.
@@ -915,8 +900,10 @@ func (b *InMemoryBackend) UpdateGuardrail(
 	return &cp, nil
 }
 
-// DeleteGuardrail removes a guardrail by ID or ARN.
-func (b *InMemoryBackend) DeleteGuardrail(idOrARN string) error {
+// DeleteGuardrail removes a guardrail by ID or ARN. If version is empty, the DRAFT and
+// every numbered version are deleted. If version is a specific numbered version, only
+// that version's snapshot is deleted and the DRAFT (and other versions) are untouched.
+func (b *InMemoryBackend) DeleteGuardrail(idOrARN, version string) error {
 	b.mu.Lock("DeleteGuardrail")
 	defer b.mu.Unlock()
 
@@ -925,9 +912,25 @@ func (b *InMemoryBackend) DeleteGuardrail(idOrARN string) error {
 		return fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
+	if version != "" && version != agentStatusDraft {
+		if !b.guardrailVersions.Delete(g.GuardrailID + ":" + version) {
+			return fmt.Errorf("%w: guardrail %s version %s not found", ErrNotFound, idOrARN, version)
+		}
+
+		return nil
+	}
+
 	b.guardrails.Delete(g.GuardrailID)
 	delete(b.guardrailsByName, g.Name)
 	delete(b.guardrailsByARN, g.GuardrailArn)
+
+	b.guardrailVersions.Range(func(v *GuardrailVersion) bool {
+		if v.GuardrailID == g.GuardrailID {
+			b.guardrailVersions.Delete(v.GuardrailID + ":" + v.Version)
+		}
+
+		return true
+	})
 
 	return nil
 }
@@ -1079,10 +1082,12 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs(
 	return paginateBedrockSlice(list, nextToken)
 }
 
-// UpdateProvisionedModelThroughput updates a provisioned model throughput.
+// UpdateProvisionedModelThroughput updates a provisioned model throughput's desired
+// model association and/or name. AWS does not allow changing modelUnits via Update —
+// the unit count is fixed at creation (UpdateProvisionedModelThroughputInput only has
+// desiredModelId and desiredProvisionedModelName).
 func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
-	idOrARN, modelID string,
-	modelUnits *int32,
+	idOrARN, desiredModelID, newName string,
 ) (*ProvisionedModelThroughput, error) {
 	b.mu.Lock("UpdateProvisionedModelThroughput")
 	defer b.mu.Unlock()
@@ -1096,13 +1101,23 @@ func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
 		)
 	}
 
-	if modelID != "" {
-		modelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+modelID)
+	if desiredModelID != "" {
+		modelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+desiredModelID)
 		pmt.DesiredModelArn = modelARN
 	}
 
-	if modelUnits != nil {
-		pmt.DesiredModelUnits = *modelUnits
+	if newName != "" && newName != pmt.ProvisionedModelName {
+		if _, exists := b.pmtsByName[newName]; exists {
+			return nil, fmt.Errorf(
+				"%w: provisioned model throughput %s already exists",
+				ErrAlreadyExists,
+				newName,
+			)
+		}
+
+		delete(b.pmtsByName, pmt.ProvisionedModelName)
+		b.pmtsByName[newName] = pmt.ProvisionedModelArn
+		pmt.ProvisionedModelName = newName
 	}
 
 	pmt.LastModifiedTime = time.Now().UTC()
@@ -2517,15 +2532,61 @@ func (b *InMemoryBackend) CreateGuardrailVersion(
 	g.versionCounter++
 	versionNum := strconv.Itoa(g.versionCounter)
 
+	// AWS freezes the DRAFT's current configuration into the numbered version at
+	// creation time; the version stays immutable even as DRAFT continues to change.
 	gv := &GuardrailVersion{
-		GuardrailID: g.GuardrailID,
-		Version:     versionNum,
-		Description: description,
+		GuardrailID:             g.GuardrailID,
+		GuardrailArn:            g.GuardrailArn,
+		Version:                 versionNum,
+		Name:                    g.Name,
+		Description:             description,
+		BlockedInputMessaging:   g.BlockedInputMessaging,
+		BlockedOutputsMessaging: g.BlockedOutputsMessaging,
+		Policies:                copyGuardrailPolicies(g.Policies),
+		Tags:                    copyTags(g.Tags),
+		CreatedAt:               time.Now().UTC(),
 	}
 
 	b.guardrailVersions.Put(gv)
 
 	return gv, nil
+}
+
+// GetGuardrailVersion returns guardrail details for a specific version. An empty or
+// "DRAFT" version returns the current (mutable) draft. A numbered version returns the
+// immutable snapshot captured when that version was published via CreateGuardrailVersion.
+func (b *InMemoryBackend) GetGuardrailVersion(idOrARN, version string) (*Guardrail, error) {
+	if version == "" || version == agentStatusDraft {
+		return b.GetGuardrail(idOrARN)
+	}
+
+	b.mu.RLock("GetGuardrailVersion")
+	defer b.mu.RUnlock()
+
+	g, ok := b.findGuardrailByIDOrARN(idOrARN)
+	if !ok {
+		return nil, fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
+	}
+
+	gv, ok := b.guardrailVersions.Get(g.GuardrailID + ":" + version)
+	if !ok {
+		return nil, fmt.Errorf("%w: guardrail %s version %s not found", ErrNotFound, idOrARN, version)
+	}
+
+	return &Guardrail{
+		CreatedAt:               gv.CreatedAt,
+		UpdatedAt:               gv.CreatedAt,
+		Policies:                copyGuardrailPolicies(gv.Policies),
+		GuardrailID:             gv.GuardrailID,
+		GuardrailArn:            gv.GuardrailArn,
+		Name:                    gv.Name,
+		Description:             gv.Description,
+		Status:                  "READY",
+		Version:                 gv.Version,
+		BlockedInputMessaging:   gv.BlockedInputMessaging,
+		BlockedOutputsMessaging: gv.BlockedOutputsMessaging,
+		Tags:                    copyTags(gv.Tags),
+	}, nil
 }
 
 // paginateBedrockSlice applies pagination to a slice using an integer-offset NextToken.

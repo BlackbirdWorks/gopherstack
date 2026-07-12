@@ -549,8 +549,39 @@ func (h *Handler) handleGetModelInvocationJob(c *echo.Context, jobARN string) er
 	})
 }
 
+// parseListModelInvocationJobsQuery builds the backend filter/sort/pagination input from
+// the real ListModelInvocationJobs query-string bindings (nameContains, statusEquals,
+// sortBy, sortOrder, nextToken, submitTimeAfter, submitTimeBefore). The previous
+// implementation discarded all of these — a disguised no-op, since the backend already
+// implements the filter/sort logic in full.
+func parseListModelInvocationJobsQuery(c *echo.Context) *ListModelInvocationJobsInput {
+	q := c.Request().URL.Query()
+
+	in := &ListModelInvocationJobsInput{
+		StatusEquals: q.Get("statusEquals"),
+		NameContains: q.Get("nameContains"),
+		SortBy:       q.Get("sortBy"),
+		SortOrder:    q.Get("sortOrder"),
+		NextToken:    q.Get("nextToken"),
+	}
+
+	if v := q.Get("submitTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.SubmitTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("submitTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.SubmitTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
-	jobs, _ := h.Backend.ListModelInvocationJobs(nil)
+	jobs, outToken := h.Backend.ListModelInvocationJobs(parseListModelInvocationJobsQuery(c))
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
@@ -563,7 +594,12 @@ func (h *Handler) handleListModelInvocationJobs(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"invocationJobSummaries": summaries})
+	resp := map[string]any{"invocationJobSummaries": summaries}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleStopModelInvocationJob(c *echo.Context, jobARN string) error {

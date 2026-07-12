@@ -1253,9 +1253,11 @@ func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec3.Code)
 
 	// Update endpoint.
-	rec4 := doRequest(t, h, http.MethodPut, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), map[string]any{
-		"endpointConfig": map[string]any{},
-	})
+	rec4 := doRequest(
+		t, h, http.MethodPatch,
+		"/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
+		map[string]any{"endpointConfig": map[string]any{}},
+	)
 	assert.Equal(t, http.StatusOK, rec4.Code)
 
 	// Register endpoint.
@@ -1263,9 +1265,8 @@ func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
 	rec5 := doRequest(t, h, http.MethodPost, regPath, nil)
 	assert.Equal(t, http.StatusOK, rec5.Code)
 
-	// Deregister endpoint.
-	deregPath := "/marketplace-model/endpoints/" + url.PathEscape(endpointARN) + "/deregistration"
-	rec6 := doRequest(t, h, http.MethodPost, deregPath, nil)
+	// Deregister endpoint (same "/registration" path, DELETE method).
+	rec6 := doRequest(t, h, http.MethodDelete, regPath, nil)
 	assert.Equal(t, http.StatusOK, rec6.Code)
 
 	// Delete endpoint.

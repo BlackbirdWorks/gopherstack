@@ -160,11 +160,9 @@ func TestBatch1_Guardrail_ContentPolicy_ViaHTTP(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name":        "http-content-guard",
 		"description": "content filter test",
-		"policies": map[string]any{
-			"contentPolicyConfig": map[string]any{
-				"filtersConfig": []map[string]any{
-					{"type": "SEXUAL", "inputStrength": "HIGH", "outputStrength": "HIGH"},
-				},
+		"contentPolicyConfig": map[string]any{
+			"filtersConfig": []map[string]any{
+				{"type": "SEXUAL", "inputStrength": "HIGH", "outputStrength": "HIGH"},
 			},
 		},
 	})
@@ -179,8 +177,7 @@ func TestBatch1_Guardrail_ContentPolicy_ViaHTTP(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
-	policies := getOut["policies"].(map[string]any)
-	contentPolicy := policies["contentPolicyConfig"].(map[string]any)
+	contentPolicy := getOut["contentPolicy"].(map[string]any)
 	filters := contentPolicy["filtersConfig"].([]any)
 	require.Len(t, filters, 1)
 	filter := filters[0].(map[string]any)
@@ -233,14 +230,12 @@ func TestBatch1_Guardrail_TopicPolicy_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name": "http-topic-guard",
-		"policies": map[string]any{
-			"topicPolicyConfig": map[string]any{
-				"topicsConfig": []map[string]any{
-					{
-						"name":       "legal-advice",
-						"definition": "Legal counsel or law-specific guidance",
-						"type":       "DENY",
-					},
+		"topicPolicyConfig": map[string]any{
+			"topicsConfig": []map[string]any{
+				{
+					"name":       "legal-advice",
+					"definition": "Legal counsel or law-specific guidance",
+					"type":       "DENY",
 				},
 			},
 		},
@@ -256,7 +251,7 @@ func TestBatch1_Guardrail_TopicPolicy_ViaHTTP(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
-	topicPolicy := getOut["policies"].(map[string]any)["topicPolicyConfig"].(map[string]any)
+	topicPolicy := getOut["topicPolicy"].(map[string]any)
 	topics := topicPolicy["topicsConfig"].([]any)
 	require.Len(t, topics, 1)
 	assert.Equal(t, "legal-advice", topics[0].(map[string]any)["name"])
@@ -297,14 +292,12 @@ func TestBatch1_Guardrail_WordPolicy_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name": "http-word-guard",
-		"policies": map[string]any{
-			"wordPolicyConfig": map[string]any{
-				"wordsConfig": []map[string]any{
-					{"text": "forbidden"},
-				},
-				"managedWordListsConfig": []map[string]any{
-					{"type": "PROFANITY"},
-				},
+		"wordPolicyConfig": map[string]any{
+			"wordsConfig": []map[string]any{
+				{"text": "forbidden"},
+			},
+			"managedWordListsConfig": []map[string]any{
+				{"type": "PROFANITY"},
 			},
 		},
 	})
@@ -319,7 +312,7 @@ func TestBatch1_Guardrail_WordPolicy_ViaHTTP(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
-	wordPolicy := getOut["policies"].(map[string]any)["wordPolicyConfig"].(map[string]any)
+	wordPolicy := getOut["wordPolicy"].(map[string]any)
 	words := wordPolicy["wordsConfig"].([]any)
 	require.Len(t, words, 1)
 	assert.Equal(t, "forbidden", words[0].(map[string]any)["text"])
@@ -374,14 +367,12 @@ func TestBatch1_Guardrail_SensitiveInformationPolicy_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name": "http-sensitive-guard",
-		"policies": map[string]any{
-			"sensitiveInformationPolicyConfig": map[string]any{
-				"piiEntitiesConfig": []map[string]any{
-					{"type": "CREDIT_DEBIT_CARD_NUMBER", "action": "BLOCK"},
-				},
-				"regexesConfig": []map[string]any{
-					{"name": "AccountNum", "pattern": `ACC-\d+`, "action": "ANONYMIZE"},
-				},
+		"sensitiveInformationPolicyConfig": map[string]any{
+			"piiEntitiesConfig": []map[string]any{
+				{"type": "CREDIT_DEBIT_CARD_NUMBER", "action": "BLOCK"},
+			},
+			"regexesConfig": []map[string]any{
+				{"name": "AccountNum", "pattern": `ACC-\d+`, "action": "ANONYMIZE"},
 			},
 		},
 	})
@@ -396,7 +387,7 @@ func TestBatch1_Guardrail_SensitiveInformationPolicy_ViaHTTP(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
-	sip := getOut["policies"].(map[string]any)["sensitiveInformationPolicyConfig"].(map[string]any)
+	sip := getOut["sensitiveInformationPolicy"].(map[string]any)
 	piiEntities := sip["piiEntitiesConfig"].([]any)
 	require.Len(t, piiEntities, 1)
 	assert.Equal(t, "CREDIT_DEBIT_CARD_NUMBER", piiEntities[0].(map[string]any)["type"])
@@ -446,11 +437,9 @@ func TestBatch1_Guardrail_ContextualGroundingPolicy_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name": "http-contextual-guard",
-		"policies": map[string]any{
-			"contextualGroundingPolicyConfig": map[string]any{
-				"filtersConfig": []map[string]any{
-					{"type": "GROUNDING", "threshold": 0.8},
-				},
+		"contextualGroundingPolicyConfig": map[string]any{
+			"filtersConfig": []map[string]any{
+				{"type": "GROUNDING", "threshold": 0.8},
 			},
 		},
 	})
@@ -465,7 +454,7 @@ func TestBatch1_Guardrail_ContextualGroundingPolicy_ViaHTTP(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
-	cgp := getOut["policies"].(map[string]any)["contextualGroundingPolicyConfig"].(map[string]any)
+	cgp := getOut["contextualGroundingPolicy"].(map[string]any)
 	filters := cgp["filtersConfig"].([]any)
 	require.Len(t, filters, 1)
 	f := filters[0].(map[string]any)
@@ -568,10 +557,8 @@ func TestBatch1_Guardrail_UpdatePolicies_ViaHTTP(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{
 		"name": "http-update-policy-guard",
-		"policies": map[string]any{
-			"wordPolicyConfig": map[string]any{
-				"wordsConfig": []map[string]any{{"text": "original"}},
-			},
+		"wordPolicyConfig": map[string]any{
+			"wordsConfig": []map[string]any{{"text": "original"}},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -583,10 +570,8 @@ func TestBatch1_Guardrail_UpdatePolicies_ViaHTTP(t *testing.T) {
 	recUpdate := doRequest(t, h, http.MethodPut, "/guardrails/"+guardrailID, map[string]any{
 		"name":        "http-update-policy-guard",
 		"description": "updated",
-		"policies": map[string]any{
-			"wordPolicyConfig": map[string]any{
-				"wordsConfig": []map[string]any{{"text": "updated"}},
-			},
+		"wordPolicyConfig": map[string]any{
+			"wordsConfig": []map[string]any{{"text": "updated"}},
 		},
 	})
 	require.Equal(t, http.StatusOK, recUpdate.Code)
@@ -596,7 +581,7 @@ func TestBatch1_Guardrail_UpdatePolicies_ViaHTTP(t *testing.T) {
 
 	var getOut map[string]any
 	mustUnmarshal(t, recGet, &getOut)
-	wordPolicy := getOut["policies"].(map[string]any)["wordPolicyConfig"].(map[string]any)
+	wordPolicy := getOut["wordPolicy"].(map[string]any)
 	words := wordPolicy["wordsConfig"].([]any)
 	assert.Equal(t, "updated", words[0].(map[string]any)["text"])
 }
@@ -929,16 +914,14 @@ func TestBatch1_Guardrail_AddPoliciesViaUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet.Code)
 	var getOut1 map[string]any
 	mustUnmarshal(t, recGet, &getOut1)
-	assert.Nil(t, getOut1["policies"])
+	assert.Nil(t, getOut1["contentPolicy"])
 
 	// Update to add a content policy.
 	recUpdate := doRequest(t, h, http.MethodPut, "/guardrails/"+guardrailID, map[string]any{
 		"name": "add-policies-later",
-		"policies": map[string]any{
-			"contentPolicyConfig": map[string]any{
-				"filtersConfig": []map[string]any{
-					{"type": "INSULTS", "inputStrength": "MEDIUM", "outputStrength": "MEDIUM"},
-				},
+		"contentPolicyConfig": map[string]any{
+			"filtersConfig": []map[string]any{
+				{"type": "INSULTS", "inputStrength": "MEDIUM", "outputStrength": "MEDIUM"},
 			},
 		},
 	})
@@ -948,8 +931,8 @@ func TestBatch1_Guardrail_AddPoliciesViaUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet2.Code)
 	var getOut2 map[string]any
 	mustUnmarshal(t, recGet2, &getOut2)
-	require.NotNil(t, getOut2["policies"])
-	cp := getOut2["policies"].(map[string]any)["contentPolicyConfig"].(map[string]any)
+	require.NotNil(t, getOut2["contentPolicy"])
+	cp := getOut2["contentPolicy"].(map[string]any)
 	filters := cp["filtersConfig"].([]any)
 	assert.Equal(t, "INSULTS", filters[0].(map[string]any)["type"])
 }

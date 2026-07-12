@@ -107,9 +107,19 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 func seedGuardrailAndModelResources(t *testing.T, b *bedrock.InMemoryBackend, tags []bedrock.Tag) fixtureIDs {
 	t.Helper()
 
-	g, err := b.CreateGuardrail("test-guardrail", "desc", "blocked-in", "blocked-out", tags)
+	policies := &bedrock.GuardrailPolicies{
+		ContentPolicy: &bedrock.GuardrailContentPolicyConfig{
+			FiltersConfig: []bedrock.GuardrailContentFilter{
+				{Type: "HATE", InputStrength: "HIGH", OutputStrength: "HIGH"},
+			},
+		},
+	}
+
+	g, err := b.CreateGuardrail("test-guardrail", "desc", "blocked-in", "blocked-out", tags, policies)
 	require.NoError(t, err)
 
+	// CreateGuardrailVersion snapshots the DRAFT's current policies immutably; this
+	// snapshot (not the live DRAFT) must survive Snapshot/Restore intact.
 	gv, err := b.CreateGuardrailVersion(g.GuardrailID, "v1 snapshot")
 	require.NoError(t, err)
 
@@ -368,6 +378,14 @@ func assertGuardrailAndModelState(t *testing.T, fresh *bedrock.InMemoryBackend, 
 	// restart version numbering from 1 -- see persistence.go's
 	// backendSnapshot doc comment for the data-corruption risk this avoids.
 	assert.Equal(t, ids.guardrailVersionCount, fresh.GuardrailVersionCounterForTest(ids.guardrailID))
+
+	// The numbered version's immutable policy snapshot (a GuardrailVersion field added
+	// alongside GetGuardrailVersion) must also round-trip.
+	gv, err := fresh.GetGuardrailVersion(ids.guardrailID, ids.guardrailVersion)
+	require.NoError(t, err)
+	require.NotNil(t, gv.Policies)
+	require.NotNil(t, gv.Policies.ContentPolicy)
+	assert.Equal(t, "HATE", gv.Policies.ContentPolicy.FiltersConfig[0].Type)
 
 	cfgs := fresh.ListEnforcedGuardrailsConfiguration()
 	require.Len(t, cfgs, 1)

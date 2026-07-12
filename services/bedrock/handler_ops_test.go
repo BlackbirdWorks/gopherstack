@@ -77,7 +77,7 @@ func TestHandler_StopEvaluationJob(t *testing.T) {
 	mustUnmarshal(t, rec, &created)
 	jobARN := created["jobArn"].(string)
 
-	rec2 := doRequest(t, h, http.MethodDelete, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
+	rec2 := doRequest(t, h, http.MethodPost, "/evaluation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	rec3 := doRequest(t, h, http.MethodGet, "/evaluation-jobs/"+url.PathEscape(jobARN), nil)
@@ -299,7 +299,7 @@ func TestHandler_ModelInvocationJob_CRUD(t *testing.T) {
 	h := newTestHandler(t)
 
 	// Create
-	rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs", map[string]any{"jobName": "inv-job-1"})
+	rec := doRequest(t, h, http.MethodPost, "/model-invocation-job", map[string]any{"jobName": "inv-job-1"})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
@@ -308,7 +308,7 @@ func TestHandler_ModelInvocationJob_CRUD(t *testing.T) {
 	assert.NotEmpty(t, jobARN)
 
 	// Get
-	rec2 := doRequest(t, h, http.MethodGet, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+	rec2 := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+url.PathEscape(jobARN), nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
@@ -325,11 +325,11 @@ func TestHandler_ModelInvocationJob_CRUD(t *testing.T) {
 	assert.Len(t, listOut["invocationJobSummaries"], 1)
 
 	// Stop
-	rec4 := doRequest(t, h, http.MethodDelete, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+	rec4 := doRequest(t, h, http.MethodPost, "/model-invocation-job/"+url.PathEscape(jobARN)+"/stop", nil)
 	assert.Equal(t, http.StatusNoContent, rec4.Code)
 
 	// Verify stopped
-	rec5 := doRequest(t, h, http.MethodGet, "/model-invocation-jobs/"+url.PathEscape(jobARN), nil)
+	rec5 := doRequest(t, h, http.MethodGet, "/model-invocation-job/"+url.PathEscape(jobARN), nil)
 	var stopped map[string]any
 	mustUnmarshal(t, rec5, &stopped)
 	assert.Equal(t, "Stopped", stopped[keyStatus])
@@ -339,7 +339,7 @@ func TestHandler_ModelInvocationJob_MissingName(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs", map[string]any{"jobName": ""})
+	rec := doRequest(t, h, http.MethodPost, "/model-invocation-job", map[string]any{"jobName": ""})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -347,8 +347,8 @@ func TestHandler_ModelInvocationJob_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/model-invocation-jobs", map[string]any{"jobName": "dup-job"})
-	rec := doRequest(t, h, http.MethodPost, "/model-invocation-jobs", map[string]any{"jobName": "dup-job"})
+	doRequest(t, h, http.MethodPost, "/model-invocation-job", map[string]any{"jobName": "dup-job"})
+	rec := doRequest(t, h, http.MethodPost, "/model-invocation-job", map[string]any{"jobName": "dup-job"})
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
@@ -469,15 +469,17 @@ func TestHandler_CustomModelDeployment_GetListUpdateDelete(t *testing.T) {
 	assert.NotEmpty(t, deployARN)
 
 	// List
-	rec2 := doRequest(t, h, http.MethodGet, "/custom-model-deployments", nil)
+	rec2 := doRequest(t, h, http.MethodGet, "/model-customization/custom-model-deployments", nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listOut map[string]any
 	mustUnmarshal(t, rec2, &listOut)
 	assert.Len(t, listOut["deploymentSummaries"], 1)
 
+	deployPath := "/model-customization/custom-model-deployments/" + url.PathEscape(deployARN)
+
 	// Get
-	rec3 := doRequest(t, h, http.MethodGet, "/custom-model-deployments/"+url.PathEscape(deployARN), nil)
+	rec3 := doRequest(t, h, http.MethodGet, deployPath, nil)
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var getOut map[string]any
@@ -485,15 +487,15 @@ func TestHandler_CustomModelDeployment_GetListUpdateDelete(t *testing.T) {
 	assert.Equal(t, deployARN, getOut["customModelDeploymentArn"])
 
 	// Update
-	rec4 := doRequest(t, h, http.MethodPatch, "/custom-model-deployments/"+url.PathEscape(deployARN), nil)
+	rec4 := doRequest(t, h, http.MethodPatch, deployPath, nil)
 	assert.Equal(t, http.StatusOK, rec4.Code)
 
 	// Delete
-	rec5 := doRequest(t, h, http.MethodDelete, "/custom-model-deployments/"+url.PathEscape(deployARN), nil)
+	rec5 := doRequest(t, h, http.MethodDelete, deployPath, nil)
 	assert.Equal(t, http.StatusNoContent, rec5.Code)
 
 	// Get after delete
-	rec6 := doRequest(t, h, http.MethodGet, "/custom-model-deployments/"+url.PathEscape(deployARN), nil)
+	rec6 := doRequest(t, h, http.MethodGet, deployPath, nil)
 	assert.Equal(t, http.StatusNotFound, rec6.Code)
 }
 

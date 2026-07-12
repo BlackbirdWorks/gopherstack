@@ -179,7 +179,11 @@ func TestAccuracy_GuardrailVersion_PerGuardrailCounter(t *testing.T) {
 	assert.Equal(t, "2", v2a.Version)
 }
 
-func TestAccuracy_GuardrailVersion_RejectUpdateAfterPublish(t *testing.T) {
+// TestAccuracy_GuardrailVersion_UpdateAfterPublishAllowed verifies AWS's actual
+// behavior: UpdateGuardrail always edits the mutable DRAFT and succeeds regardless of
+// how many numbered versions have been published from it. Published (numbered) versions
+// are immutable snapshots and are unaffected by later DRAFT edits.
+func TestAccuracy_GuardrailVersion_UpdateAfterPublishAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
@@ -187,12 +191,18 @@ func TestAccuracy_GuardrailVersion_RejectUpdateAfterPublish(t *testing.T) {
 	g, err := b.CreateGuardrail("versioned-guard", "", "", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateGuardrailVersion(g.GuardrailID, "first version")
+	v1, err := b.CreateGuardrailVersion(g.GuardrailID, "first version")
 	require.NoError(t, err)
 
-	// Attempting to update after a version is published should fail.
-	_, err = b.UpdateGuardrail(g.GuardrailID, "new-name", "new-description", "", "")
-	require.Error(t, err, "update of a versioned guardrail should be rejected")
+	// Updating DRAFT after a version is published must succeed.
+	updated, err := b.UpdateGuardrail(g.GuardrailID, "new-name", "new-description", "", "")
+	require.NoError(t, err, "update of DRAFT after publishing a version should succeed")
+	assert.Equal(t, "new-name", updated.Name)
+
+	// The already-published version stays a frozen snapshot of the pre-update name.
+	snapshot, err := b.GetGuardrailVersion(g.GuardrailID, v1.Version)
+	require.NoError(t, err)
+	assert.Equal(t, "versioned-guard", snapshot.Name, "published version must not reflect later DRAFT edits")
 }
 
 // ─────────────────────────────────────────────────────────────
