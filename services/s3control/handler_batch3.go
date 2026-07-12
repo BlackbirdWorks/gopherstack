@@ -60,7 +60,7 @@ func (h *Handler) handlePutAccessPointPublicAccessBlock(c *echo.Context) error {
 
 	var body putAPPABRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	cfg := PublicAccessBlock{

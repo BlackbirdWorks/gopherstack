@@ -53,7 +53,7 @@ func (h *Handler) handlePutJobTagging(c *echo.Context) error {
 
 	var body putJobTaggingRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	tags := make(TagSet, len(body.Tags.Tags))
@@ -142,7 +142,7 @@ func (h *Handler) handlePutAccessGrantsInstanceResourcePolicy(c *echo.Context) e
 
 	var body putAccessGrantsInstanceResourcePolicyRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	h.Backend.PutAccessGrantsInstanceResourcePolicy(accountID, body.Policy)
@@ -331,7 +331,7 @@ func (h *Handler) handleUpdateAccessGrantsLocation(c *echo.Context) error {
 
 	var body updateAccessGrantsLocationRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	loc, err := h.Backend.UpdateAccessGrantsLocation(accountID, locationID, body.IAMRoleArn)
@@ -432,7 +432,7 @@ func (h *Handler) handlePutAccessPointScope(c *echo.Context) error {
 
 	var body putAccessPointScopeRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutAccessPointScope(accountID, name, body.Scope); err != nil {
@@ -579,7 +579,7 @@ func (h *Handler) handlePutAccessPointPolicyForObjectLambda(c *echo.Context) err
 
 	var body putAccessPointPolicyForObjectLambdaRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutAccessPointPolicyForObjectLambda(accountID, name, body.Policy); err != nil {
@@ -655,7 +655,7 @@ func (h *Handler) handlePutAccessPointConfigurationForObjectLambda(c *echo.Conte
 
 	var body putAPConfigForObjectLambdaRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutAccessPointConfigurationForObjectLambda(accountID, name, body.Configuration); err != nil {
@@ -842,7 +842,7 @@ func (h *Handler) handlePutBucketTagging(c *echo.Context) error {
 
 	var body putBucketTaggingRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	tags := make(TagSet, len(body.Tags))
@@ -903,7 +903,7 @@ func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
 
 	var body putBucketVersioningRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutBucketVersioning(accountID, bucketName, body.Status); err != nil {
@@ -1003,7 +1003,7 @@ func (h *Handler) handleGetMultiRegionAccessPointPolicyStatus(c *echo.Context) e
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathMRAPInstancePrefix),
-		"/policyStatus",
+		pathMRAPPolicyStatusSuffix,
 	)
 
 	isPublic, err := h.Backend.GetMultiRegionAccessPointPolicyStatus(accountID, name)

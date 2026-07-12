@@ -51,7 +51,7 @@ func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
 
 	var body putReplicationRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutBucketReplication(accountID, bucketName, body.Inner); err != nil {
@@ -91,7 +91,7 @@ func (h *Handler) handleSubmitMultiRegionAccessPointRoutes(c *echo.Context) erro
 
 	var body submitMRAPRoutesRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.SubmitMultiRegionAccessPointRoutes(accountID, mrapName, body.Routes); err != nil {
@@ -137,7 +137,7 @@ func (h *Handler) handlePutStorageLensConfiguration(c *echo.Context) error {
 
 	var body putStorageLensConfigRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	if err := h.Backend.PutStorageLensConfiguration(accountID, configName, body.Config); err != nil {
@@ -208,7 +208,7 @@ func (h *Handler) handlePutStorageLensConfigurationTagging(c *echo.Context) erro
 
 	var body putStorageLensConfigTaggingRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	tags := make(TagSet, len(body.Tags.Tags))
@@ -327,7 +327,7 @@ func (h *Handler) handleUpdateStorageLensGroup(c *echo.Context) error {
 
 	var body updateStorageLensGroupRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	_, err := h.Backend.UpdateStorageLensGroup(accountID, name)
@@ -410,7 +410,7 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 
 	var body tagResourceRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	tags := make(map[string]string, len(body.Tags))
@@ -435,7 +435,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 	var body untagResourceRequestXML
 	if err := decodeXML(c, &body); err != nil {
-		return c.String(http.StatusBadRequest, "invalid request body")
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
 	h.Backend.UntagResource(arn, body.TagKeys)
