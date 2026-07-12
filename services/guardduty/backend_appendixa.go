@@ -91,6 +91,7 @@ type OrgFeature struct {
 // PublishingDestination represents a GuardDuty publishing destination.
 type PublishingDestination struct {
 	DestinationProperties      DestinationProperties `json:"destinationProperties"`
+	Tags                       map[string]string     `json:"tags,omitempty"`
 	DestinationID              string                `json:"destinationId"`
 	DestinationType            string                `json:"destinationType"`
 	Status                     string                `json:"status"`
@@ -737,6 +738,7 @@ func (b *InMemoryBackend) GetOrganizationStatistics() map[string]any {
 func (b *InMemoryBackend) CreatePublishingDestination(
 	detectorID, destType string,
 	props DestinationProperties,
+	tags map[string]string,
 ) (*PublishingDestination, error) {
 	b.mu.Lock("CreatePublishingDestination")
 	defer b.mu.Unlock()
@@ -752,8 +754,13 @@ func (b *InMemoryBackend) CreatePublishingDestination(
 		Status:                "PUBLISHING",
 		DestinationProperties: props,
 		DetectorID:            detectorID,
+		Tags:                  tags,
 	}
 	b.publishingDestinations.Put(dest)
+
+	if tags != nil {
+		b.tags[b.publishingDestinationARN(detectorID, id)] = maps.Clone(tags)
+	}
 
 	return dest, nil
 }
@@ -770,6 +777,8 @@ func (b *InMemoryBackend) DeletePublishingDestination(detectorID, destID string)
 	if !b.publishingDestinations.Delete(detectorKey(detectorID, destID)) {
 		return ErrPublishingDestNotFound
 	}
+
+	delete(b.tags, b.publishingDestinationARN(detectorID, destID))
 
 	return nil
 }
@@ -1194,6 +1203,10 @@ func (b *InMemoryBackend) CreateThreatEntitySet(
 	}
 	b.threatEntitySets.Put(s)
 
+	if tags != nil {
+		b.tags[b.threatEntitySetARN(detectorID, id)] = maps.Clone(tags)
+	}
+
 	return s, nil
 }
 
@@ -1288,6 +1301,8 @@ func (b *InMemoryBackend) DeleteThreatEntitySet(detectorID, setID string) error 
 		return ErrThreatEntitySetNotFound
 	}
 
+	delete(b.tags, b.threatEntitySetARN(detectorID, setID))
+
 	return nil
 }
 
@@ -1333,6 +1348,10 @@ func (b *InMemoryBackend) CreateTrustedEntitySet(
 		UpdatedAt:          now,
 	}
 	b.trustedEntitySets.Put(s)
+
+	if tags != nil {
+		b.tags[b.trustedEntitySetARN(detectorID, id)] = maps.Clone(tags)
+	}
 
 	return s, nil
 }
@@ -1427,6 +1446,8 @@ func (b *InMemoryBackend) DeleteTrustedEntitySet(detectorID, setID string) error
 	if !b.trustedEntitySets.Delete(detectorKey(detectorID, setID)) {
 		return ErrTrustedEntitySetNotFound
 	}
+
+	delete(b.tags, b.trustedEntitySetARN(detectorID, setID))
 
 	return nil
 }

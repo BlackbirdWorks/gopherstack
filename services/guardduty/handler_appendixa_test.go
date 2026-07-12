@@ -661,8 +661,11 @@ func TestAppendixA_MalwareProtectionPlans(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 				assert.Equal(t, planID, getResp["malwareProtectionPlanId"])
 
-				// UpdateMalwareProtectionPlan
-				rec = auditDo(t, h, http.MethodPost, "/malware-protection-plan/"+planID, map[string]any{
+				// UpdateMalwareProtectionPlan uses PATCH on the real wire --
+				// it's the only GuardDuty op that does (see
+				// aws-sdk-go-v2/service/guardduty serializers.go's
+				// awsRestjson1_serializeOpUpdateMalwareProtectionPlan).
+				rec = auditDo(t, h, http.MethodPatch, "/malware-protection-plan/"+planID, map[string]any{
 					"role": "arn:aws:iam::123456789012:role/GuardDutyS3RoleV2",
 				})
 				assert.Equal(t, http.StatusOK, rec.Code)

@@ -26,9 +26,11 @@ const (
 	pathThreatIntelSet = "threatintelset"
 	pathTags           = "tags"
 
-	keyName   = "name"
-	keyStatus = "status"
-	keyTags   = "tags"
+	keyName      = "name"
+	keyStatus    = "status"
+	keyTags      = "tags"
+	keyCreatedAt = "createdAt"
+	keyUpdatedAt = "updatedAt"
 
 	opCreateDetector         = "CreateDetector"
 	opGetDetector            = "GetDetector"
@@ -280,7 +282,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, "/"+pathDetector) ||
-			strings.HasPrefix(path, "/"+pathTags+"/arn:aws:guardduty:") ||
+			isGuardDutyTagsPath(path) ||
 			strings.HasPrefix(path, "/"+pathAdmin) ||
 			strings.HasPrefix(path, "/"+pathInvitation) ||
 			strings.HasPrefix(path, "/"+pathMalwareProtectionPlan) ||
@@ -288,6 +290,24 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/"+pathObjectMalwareScan) ||
 			strings.HasPrefix(path, "/"+pathOrganization)
 	}
+}
+
+// isGuardDutyTagsPath reports whether path is a /tags/{resourceArn} request
+// for a GuardDuty resource ARN. It checks for the "guardduty" service
+// segment rather than hardcoding the "aws" partition: a hardcoded
+// "arn:aws:guardduty:" prefix would reject a well-formed GuardDuty ARN from
+// any non-standard partition (arn:aws-us-gov:guardduty:..., arn:aws-cn:
+// guardduty:..., arn:aws-iso*:guardduty:...), silently making
+// TagResource/UntagResource/ListTagsForResource unroutable for those
+// accounts even though pkgs/arn.PartitionForRegion already produces such
+// ARNs for GovCloud/China/ISO regions.
+func isGuardDutyTagsPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/"+pathTags+"/arn:")
+	if !ok {
+		return false
+	}
+
+	return strings.Contains(rest, ":guardduty:")
 }
 
 // MatchPriority returns the routing priority.
@@ -994,8 +1014,8 @@ func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
 		keyStatus:                    d.Status,
 		"serviceRole":                d.ServiceRole,
 		"findingPublishingFrequency": d.FindingPublishingFrequency,
-		"createdAt":                  d.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		"updatedAt":                  d.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:                 d.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyUpdatedAt:                 d.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyTags:                      tagsOrEmpty(d.Tags),
 		"features":                   d.Features, //nolint:goconst // existing issue.
 	}, http.StatusOK, nil

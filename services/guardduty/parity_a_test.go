@@ -34,7 +34,7 @@ func TestParity_DeleteDetectorCleansUpSubResources(t *testing.T) {
 	// Seed a publishing destination.
 	_, err = b.CreatePublishingDestination(detID, "S3", guardduty.DestinationProperties{
 		DestinationArn: "arn:aws:s3:::my-bucket",
-	})
+	}, nil)
 	require.NoError(t, err)
 
 	// Verify sub-resources exist before deletion.

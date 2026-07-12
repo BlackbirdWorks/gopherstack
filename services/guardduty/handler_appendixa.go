@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- new root path parsers ---
@@ -70,7 +72,15 @@ func parseMalwareProtectionPlanPath(method string, parts []string) (string, stri
 		switch method {
 		case http.MethodGet:
 			return opGetMalwareProtectionPlan, planID
-		case http.MethodPost:
+		// UpdateMalwareProtectionPlan is the one GuardDuty op that uses PATCH
+		// instead of POST (see aws-sdk-go-v2/service/guardduty
+		// serializers.go: awsRestjson1_serializeOpUpdateMalwareProtectionPlan
+		// sets request.Method = "PATCH"). A real SDK client sending PATCH
+		// would never have matched a POST-only case here, making the op
+		// unroutable even though a body-level unit test that calls
+		// h.Handler() directly (bypassing echo's method-aware routing)
+		// would never notice.
+		case http.MethodPatch:
 			return opUpdateMalwareProtectionPlan, planID
 		case http.MethodDelete:
 			return opDeleteMalwareProtectionPlan, planID
@@ -830,6 +840,7 @@ func (h *Handler) handleGetOrganizationStatistics() (any, int) {
 func (h *Handler) handleCreatePublishingDestination(detectorID string, body []byte) (any, int, error) {
 	var req struct {
 		DestinationProperties DestinationProperties `json:"destinationProperties"`
+		Tags                  map[string]string     `json:"tags"`
 		DestinationType       string                `json:"destinationType"`
 		ClientToken           string                `json:"clientToken"`
 	}
@@ -838,7 +849,9 @@ func (h *Handler) handleCreatePublishingDestination(detectorID string, body []by
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	dest, err := h.Backend.CreatePublishingDestination(detectorID, req.DestinationType, req.DestinationProperties)
+	dest, err := h.Backend.CreatePublishingDestination(
+		detectorID, req.DestinationType, req.DestinationProperties, req.Tags,
+	)
 	if err != nil {
 		return nil, http.StatusBadRequest, err
 	}
@@ -861,11 +874,18 @@ func (h *Handler) handleDescribePublishingDestination(detectorID, destID string)
 	}
 
 	return map[string]any{
-		"destinationId":              dest.DestinationID,
-		"destinationType":            dest.DestinationType,
-		"status":                     dest.Status, //nolint:goconst // existing issue.
-		"publishingFailureStartedAt": dest.PublishingFailureStartedAt,
-		"destinationProperties":      dest.DestinationProperties,
+		"destinationId":   dest.DestinationID,
+		"destinationType": dest.DestinationType,
+		"status":          dest.Status, //nolint:goconst // existing issue.
+		// Real GuardDuty wire key is "publishingFailureStartTimestamp" (epoch
+		// milliseconds), not "publishingFailureStartedAt" -- see
+		// aws-sdk-go-v2/service/guardduty deserializers.go's
+		// awsRestjson1_deserializeOpDocumentDescribePublishingDestinationOutput.
+		// The old key name meant a real SDK client's
+		// PublishingFailureStartTimestamp field was silently left nil.
+		"publishingFailureStartTimestamp": dest.PublishingFailureStartedAt,
+		"destinationProperties":           dest.DestinationProperties,
+		keyTags:                           tagsOrEmpty(dest.Tags),
 	}, http.StatusOK, nil
 }
 
@@ -945,16 +965,20 @@ func (h *Handler) handleGetMalwareScan(scanID string) (any, int, error) {
 		return nil, http.StatusNotFound, err
 	}
 
+	// GetMalwareScanOutput is a distinct, richer shape from the Scan type
+	// DescribeMalwareScans/ListMalwareScans return -- it has no accountId,
+	// resourceDetails, or findings members, and its timestamps are named (and
+	// wire-encoded as epoch seconds) scanStartedAt/scanCompletedAt, not
+	// scanStartTime/scanEndTime. See aws-sdk-go-v2/service/guardduty
+	// api_op_GetMalwareScan.go's GetMalwareScanOutput and deserializers.go's
+	// awsRestjson1_deserializeOpDocumentGetMalwareScanOutput.
 	return map[string]any{
 		"scanId":          scan.ScanID,
 		"detectorId":      scan.DetectorID, //nolint:goconst // existing issue.
-		"accountId":       scan.AccountID,
 		"scanStatus":      scan.ScanStatus,
 		"scanType":        scan.ScanType,
-		"scanStartTime":   scan.ScanStartTime,
-		"scanEndTime":     scan.ScanEndTime,
-		"resourceDetails": scan.ResourceDetails,
-		"findings":        scan.Findings,
+		"scanStartedAt":   awstime.Epoch(scan.ScanStartTime),
+		"scanCompletedAt": awstime.Epoch(scan.ScanEndTime),
 	}, http.StatusOK, nil
 }
 
@@ -1075,11 +1099,15 @@ func (h *Handler) handleGetMalwareProtectionPlan(planID string) (any, int, error
 		"arn":                     plan.Arn,
 		"role":                    plan.Role,
 		"status":                  plan.Status,
-		"createdAt":               plan.CreatedAt,
-		"statusReasons":           plan.StatusReasons,
-		"protectedResource":       plan.ProtectedResource,
-		"actions":                 plan.Actions,
-		"tags":                    tagsOrEmpty(plan.Tags),
+		// GetMalwareProtectionPlanOutput.CreatedAt is an epoch-seconds number
+		// on the wire (smithytime.ParseEpochSeconds in the SDK deserializer),
+		// not the default RFC3339 string json.Marshal would produce from a
+		// bare time.Time -- a real SDK client would fail to parse it.
+		keyCreatedAt:        awstime.Epoch(plan.CreatedAt),
+		"statusReasons":     plan.StatusReasons,
+		"protectedResource": plan.ProtectedResource,
+		"actions":           plan.Actions,
+		"tags":              tagsOrEmpty(plan.Tags),
 	}, http.StatusOK, nil
 }
 
@@ -1181,6 +1209,13 @@ func (h *Handler) handleGetThreatEntitySet(detectorID, setID string) (any, int, 
 		"location": s.Location, //nolint:goconst // existing issue.
 		keyStatus:  s.Status,
 		keyTags:    tagsOrEmpty(s.Tags),
+		// GetThreatEntitySetOutput.CreatedAt/UpdatedAt are epoch-seconds
+		// numbers on the wire (unlike GetDetectorOutput's ISO8601 strings) --
+		// see aws-sdk-go-v2/service/guardduty deserializers.go's
+		// awsRestjson1_deserializeOpDocumentGetThreatEntitySetOutput, which
+		// parses them via smithytime.ParseEpochSeconds.
+		keyCreatedAt: awstime.Epoch(s.CreatedAt),
+		keyUpdatedAt: awstime.Epoch(s.UpdatedAt),
 	}, http.StatusOK, nil
 }
 
@@ -1265,6 +1300,10 @@ func (h *Handler) handleGetTrustedEntitySet(detectorID, setID string) (any, int,
 		"location": s.Location,
 		keyStatus:  s.Status,
 		keyTags:    tagsOrEmpty(s.Tags),
+		// See handleGetThreatEntitySet: GetTrustedEntitySetOutput.CreatedAt/
+		// UpdatedAt are epoch-seconds numbers on the wire.
+		keyCreatedAt: awstime.Epoch(s.CreatedAt),
+		keyUpdatedAt: awstime.Epoch(s.UpdatedAt),
 	}, http.StatusOK, nil
 }
 
@@ -1313,7 +1352,11 @@ func memberToMap(m *Member) map[string]any {
 		"email":              m.Email,
 		"relationshipStatus": m.RelationshipStatus,
 		"invitedAt":          m.InvitedAt,
-		"updatedAt":          m.UpdatedAt,
+		// MemberOutput.UpdatedAt is a plain ISO8601 string on the wire (like
+		// GetDetectorOutput's, unlike ThreatEntitySet's epoch numbers) -- see
+		// aws-sdk-go-v2/service/guardduty deserializers.go's
+		// awsRestjson1_deserializeDocumentMember.
+		keyUpdatedAt: m.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
