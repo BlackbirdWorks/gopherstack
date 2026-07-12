@@ -2662,6 +2662,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["CloudWatch"], byName["EC2"], byName["Autoscaling"],
 	)
 
+	// Wire Auto Scaling → EC2 so scale-out launches real (mock) EC2 instances
+	// and scale-in terminates them there too, instead of Auto Scaling
+	// fabricating instance IDs with no EC2-side record.
+	wireAutoScalingEC2(byName["Autoscaling"], byName["EC2"])
+
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
@@ -3688,7 +3693,7 @@ func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
 	}
 
 	var resp map[string]any
-	if err := json.Unmarshal(result, &resp); err != nil {
+	if err = json.Unmarshal(result, &resp); err != nil {
 		return nil, err
 	}
 
@@ -4274,6 +4279,72 @@ func (a *cwAutoScalingAdapter) ExecuteScalingPolicy(asgName, policyName string) 
 		AutoScalingGroupName: asgName,
 		PolicyName:           policyName,
 	})
+}
+
+// wireAutoScalingEC2 wires Auto Scaling to the EC2 backend so scale-out
+// launches real (mock) EC2 instances and scale-in terminates them there too,
+// keeping EC2 DescribeInstances consistent with Auto Scaling group
+// membership instead of Auto Scaling fabricating instance IDs with no EC2
+// backing.
+func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
+	asgH, ok := asgReg.(*autoscalingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	asgBk, ok := asgH.Backend.(*autoscalingbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ec2H, ok := ec2Reg.(*ec2backend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{backend: ec2Bk})
+}
+
+// ec2AutoScalingLauncherAdapter adapts the EC2 backend to the
+// autoscaling.EC2Launcher interface, translating an
+// autoscaling.InstanceLaunchSpec into an EC2 RunInstances call (and tagging
+// the results) and an autoscaling instance-ID list into an EC2
+// TerminateInstances call.
+type ec2AutoScalingLauncherAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *ec2AutoScalingLauncherAdapter) LaunchInstances(
+	_ context.Context, spec autoscalingbackend.InstanceLaunchSpec, count int,
+) ([]string, error) {
+	instances, err := a.backend.RunInstances(spec.ImageID, spec.InstanceType, spec.SubnetID, count)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(instances))
+	for i, inst := range instances {
+		ids[i] = inst.ID
+	}
+
+	if len(spec.Tags) > 0 {
+		if tagErr := a.backend.CreateTags(ids, spec.Tags); tagErr != nil {
+			return ids, tagErr
+		}
+	}
+
+	return ids, nil
+}
+
+func (a *ec2AutoScalingLauncherAdapter) TerminateInstances(_ context.Context, ids []string) error {
+	_, err := a.backend.TerminateInstances(ids)
+
+	return err
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.

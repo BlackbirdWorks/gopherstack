@@ -297,6 +297,11 @@ type InMemoryBackend struct {
 	// instanceIndex maps instanceID → groupName for O(1) lookup.
 	instanceIndex map[string]string
 	mu            *lockmetrics.RWMutex
+	// ec2Launcher, when set (see SetEC2Launcher), routes scale-out/scale-in
+	// through the EC2 backend so ASG membership stays consistent with EC2
+	// DescribeInstances. Nil preserves the historical fabricated-instance-ID
+	// behavior.
+	ec2Launcher EC2Launcher
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -336,67 +341,6 @@ func lcInstanceType(lcs *store.Table[LaunchConfiguration], lcName string) string
 	}
 
 	return "t2.micro"
-}
-
-// makeInstances creates the desired number of healthy InService instances for an ASG.
-// The fake service immediately puts instances in InService/Healthy state so that
-// Terraform provider capacity checks do not time out.
-func makeInstances(count int32, azs []string, launchConfigName, instanceType string) []Instance {
-	// Clamp to valid range before use to avoid CodeQL
-	// go/slice-memory-allocation-excessive-size on the capacity hint.
-	n := max(0, min(maxDesiredCapacity, int(count)))
-	if n == 0 {
-		return []Instance{}
-	}
-
-	az := defaultAvailabilityZone
-	if len(azs) > 0 {
-		az = azs[0]
-	}
-
-	// No capacity hint — append grows naturally; any user-derived value in
-	// the capacity position would trigger CodeQL go/slice-memory-allocation-excessive-size.
-	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
-	instances := make([]Instance, 0)
-
-	now := time.Now()
-	for range n {
-		// Use full UUID (stripped of dashes) to generate a unique, collision-free instance ID.
-		id := "i-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
-		instances = append(instances, Instance{
-			InstanceID:              id,
-			AvailabilityZone:        az,
-			LifecycleState:          lifecycleStateInService,
-			HealthStatus:            healthStatusHealthy,
-			LaunchConfigurationName: launchConfigName,
-			InstanceType:            instanceType,
-			LaunchTime:              now,
-		})
-	}
-
-	return instances
-}
-
-// adjustInstances adjusts the instances slice to match the new desired count.
-// It adds or removes instances from the end, preserving existing instance IDs.
-func adjustInstances(
-	existing []Instance, desired int32, azs []string, launchConfigName, instanceType string,
-) []Instance {
-	current := len(existing)
-	want := int(desired)
-
-	if want == current {
-		return existing
-	}
-
-	if want < current {
-		return existing[:want]
-	}
-
-	// Add new instances for the delta.
-	delta := desired - int32(current) //nolint:gosec // current <= math.MaxInt32 (bounded by desired which is int32)
-
-	return append(existing, makeInstances(delta, azs, launchConfigName, instanceType)...)
 }
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
@@ -457,12 +401,6 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		normalizedHooks = append(normalizedHooks, hook)
 	}
 
-	// Use the shared makeInstances helper so all instance IDs use the same format.
-	instances := makeInstances(
-		desired, azs, input.LaunchConfigurationName,
-		lcInstanceType(b.launchConfigurations, input.LaunchConfigurationName),
-	)
-
 	group := &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
 		AutoScalingGroupARN: fmt.Sprintf(
@@ -492,9 +430,13 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		TrafficSources:                   input.TrafficSources,
 		Tags:                             input.Tags,
 		TerminationPolicies:              input.TerminationPolicies,
-		Instances:                        instances,
 		CreatedTime:                      time.Now(),
 	}
+
+	// Use the shared makeInstances helper (real EC2 instances when an
+	// EC2Launcher is wired, fabricated IDs otherwise) so all initial
+	// instances use the same launch path as later scale-out.
+	group.Instances = b.makeInstances(group, desired)
 
 	if input.NewInstancesProtectedFromScaleIn {
 		for i := range group.Instances {
@@ -1261,10 +1203,7 @@ func (b *InMemoryBackend) applyDesiredCapacityChange(g *AutoScalingGroup, newDes
 	case newDesired > current:
 		if !suspendedSet["Launch"] {
 			oldLen := len(g.Instances)
-			g.Instances = adjustInstances(
-				g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
-				lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
-			)
+			g.Instances = b.adjustInstances(g, g.Instances, g.DesiredCapacity)
 			// Add newly launched instances to index.
 			for _, inst := range g.Instances[oldLen:] {
 				b.instanceIndex[inst.InstanceID] = g.AutoScalingGroupName
@@ -1344,6 +1283,8 @@ func (b *InMemoryBackend) applyScaleIn(g *AutoScalingGroup, targetCount int) {
 	for _, id := range removedIDs {
 		delete(b.instanceIndex, id)
 	}
+
+	b.terminateInEC2(removedIDs)
 }
 
 // SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.
@@ -1435,6 +1376,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 
 	targetGroup.Instances = newInstances
 	delete(b.instanceIndex, instanceID)
+	b.terminateInEC2([]string{instanceID})
 
 	if shouldDecrement {
 		if targetGroup.DesiredCapacity > 0 {
@@ -1447,13 +1389,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	} else {
 		// Launch a replacement to maintain DesiredCapacity.
 		oldLen := len(targetGroup.Instances)
-		targetGroup.Instances = adjustInstances(
-			targetGroup.Instances,
-			targetGroup.DesiredCapacity,
-			targetGroup.AvailabilityZones,
-			targetGroup.LaunchConfigurationName,
-			lcInstanceType(b.launchConfigurations, targetGroup.LaunchConfigurationName),
-		)
+		targetGroup.Instances = b.adjustInstances(targetGroup, targetGroup.Instances, targetGroup.DesiredCapacity)
 
 		for _, inst := range targetGroup.Instances[oldLen:] {
 			b.instanceIndex[inst.InstanceID] = targetGroup.AutoScalingGroupName
@@ -1921,8 +1857,9 @@ func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result
 	}
 }
 
-// removeInstanceByID removes the named instance from the group and its index, if present.
-// Must be called with b.mu held (write lock).
+// removeInstanceByID removes the named instance from the group and its index,
+// if present, and terminates it in EC2 (when an EC2Launcher is wired — see
+// terminateInEC2). Must be called with b.mu held (write lock).
 func (b *InMemoryBackend) removeInstanceByID(g *AutoScalingGroup, instanceID string) {
 	for i, inst := range g.Instances {
 		if inst.InstanceID == instanceID {
@@ -1933,6 +1870,7 @@ func (b *InMemoryBackend) removeInstanceByID(g *AutoScalingGroup, instanceID str
 	}
 
 	delete(b.instanceIndex, instanceID)
+	b.terminateInEC2([]string{instanceID})
 }
 
 // finishTermination completes a deferred termination once its Terminating:Wait hook
@@ -1973,10 +1911,7 @@ func (b *InMemoryBackend) finishTermination(g *AutoScalingGroup, action *pending
 		fallthrough
 	default:
 		oldLen := len(g.Instances)
-		g.Instances = adjustInstances(
-			g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName,
-			lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
-		)
+		g.Instances = b.adjustInstances(g, g.Instances, g.DesiredCapacity)
 
 		for _, inst := range g.Instances[oldLen:] {
 			b.instanceIndex[inst.InstanceID] = g.AutoScalingGroupName
@@ -2883,10 +2818,7 @@ func (b *InMemoryBackend) LaunchInstances(groupName string, count int32) ([]Inst
 	}
 
 	oldLen := len(g.Instances)
-	newInstances := makeInstances(
-		count, g.AvailabilityZones, g.LaunchConfigurationName,
-		lcInstanceType(b.launchConfigurations, g.LaunchConfigurationName),
-	)
+	newInstances := b.makeInstances(g, count)
 	g.Instances = append(g.Instances, newInstances...)
 	g.DesiredCapacity = int32(len(g.Instances)) //nolint:gosec // bounded by maxDesiredCapacity
 
