@@ -1,15 +1,10 @@
 package athena
 
 import (
-	"encoding/json"
-	"maps"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // DefaultJanitorInterval exposes the package default janitor interval for testing.
@@ -167,66 +162,42 @@ func (h *Handler) GetJanitorInterval() time.Duration {
 	return h.janitor.Interval
 }
 
-// --- Phase 3.3 registry round-trip test ---
-//
-// Athena has no persistence.go: nothing wires InMemoryBackend into
-// pkgs/persistence, so no map -- raw or store.Table-backed -- was ever
-// snapshotted/restored across a restart before the Phase 3.3 datalayer
-// conversion (see store_setup.go's file doc for the pkgs/store conversion
-// itself), and none of the three maps deliberately left raw (queryResults,
-// tableData, resourceTags) suffers any persistence regression as a result:
-// they are exactly as unpersisted as they always were.
-//
-// What that conversion DOES introduce is a store.Registry (b.registry) plus
-// two "dirty" tables (databases, tables) that would need a DTO round trip if
-// a future persistence layer were added. TestRegistryDatabasesTablesRoundTrip
-// below is the "registry round-trip test" verifying that machinery is
-// actually correct: every clean table survives a
-// SnapshotAll/ResetAll/RestoreAll cycle, and the two dirty tables survive an
-// equivalent DTO-based round trip without losing the Catalog/Database
-// identity that their json:"-" fields would otherwise drop.
-
-// databaseSnapshot and tableMetadataSnapshot are the DTOs a real persistence
-// layer would use to round-trip the "dirty" databases/tables tables (see
-// services/ses/persistence.go for the established pattern this mirrors).
-// They live here, in export_test.go, rather than a non-test .go file because
-// nothing in the current codebase actually persists Athena state yet.
-type databaseSnapshot struct {
-	Catalog string   `json:"catalog"`
-	Record  Database `json:"record"`
+// Fixture carries the fixed names and randomly generated IDs
+// PopulateEveryTable creates, so an external test can look each resource back
+// up (by name where deterministic, by ID where PopulateEveryTable's callee
+// generates it) after a Snapshot/Restore round trip.
+type Fixture struct {
+	WorkGroup             string
+	NamedQueryID          string
+	DataCatalog           string
+	SelectExecID          string
+	PreparedStatementName string
+	CapacityReservation   string
+	NotebookID            string
+	SessionID             string
+	CalculationID         string
+	Database              string
+	Table                 string
+	WorkGroupARN          string
 }
 
-func databaseSnapshotKeyFn(v *databaseSnapshot) string { return databaseKey(v.Catalog, v.Record.Name) }
-
-type tableMetadataSnapshot struct {
-	Catalog  string        `json:"catalog"`
-	Database string        `json:"database"`
-	Record   TableMetadata `json:"record"`
-}
-
-func tableMetadataSnapshotKeyFn(v *tableMetadataSnapshot) string {
-	return tableMetadataKey(v.Catalog, v.Database, v.Record.Name)
-}
-
-// populateEveryTable exercises every store.Table-backed resource on b through
+// PopulateEveryTable exercises every store.Table-backed resource on b through
 // its public API (plus a couple of DDL statements for databases/tables, which
-// are only reachable via SQL DDL) so a snapshot afterward has at least one
-// row in every table the Phase 3.3 conversion touched.
-func populateEveryTable(t *testing.T, b *InMemoryBackend) {
+// are only reachable via SQL DDL, and InsertRows/a SELECT for the plain-map
+// tableData/queryResults fields) so a snapshot afterward has at least one row
+// in every table and field persistence.go's Snapshot/Restore round-trips.
+// Exported (capitalized) so services/athena's external persistence_test.go,
+// which exercises the real Snapshot/Restore methods, can reuse it instead of
+// hand-rolling the same fixture again.
+func PopulateEveryTable(t *testing.T, b *InMemoryBackend) Fixture {
 	t.Helper()
 
 	require.NoError(t, b.CreateWorkGroup("wg1", "", "", WorkGroupConfiguration{}, nil))
 
-	_, err := b.CreateNamedQuery("nq1", "", "db", "SELECT 1", "wg1")
+	namedQueryID, err := b.CreateNamedQuery("nq1", "", "db", "SELECT 1", "wg1")
 	require.NoError(t, err)
 
 	require.NoError(t, b.CreateDataCatalog("cat1", "GLUE", "", "", nil, nil))
-
-	execID, err := b.StartQueryExecution(
-		"SELECT 1", "wg1", QueryExecutionContext{}, ResultConfiguration{}, nil, nil,
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, execID)
 
 	require.NoError(t, b.CreatePreparedStatement("ps1", "", "wg1", "SELECT 1"))
 	require.NoError(t, b.CreateCapacityReservation("cr1", 24, nil))
@@ -241,7 +212,9 @@ func populateEveryTable(t *testing.T, b *InMemoryBackend) {
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 
-	_, _, err = b.StartCalculationExecution(sessions[0].SessionID, "", "print(1)")
+	sessionID := sessions[0].SessionID
+
+	calcID, _, err := b.StartCalculationExecution(sessionID, "", "print(1)")
 	require.NoError(t, err)
 
 	require.NoError(t, b.PutCapacityAssignmentConfiguration("cr1", []CapacityAssignment{
@@ -261,163 +234,34 @@ func populateEveryTable(t *testing.T, b *InMemoryBackend) {
 		"wg1", QueryExecutionContext{}, ResultConfiguration{}, nil, nil,
 	)
 	require.NoError(t, err)
-}
 
-// snapshotRegistry captures both b.registry (the "clean" tables) and the two
-// "dirty" tables (databases, tables) via a throwaway DTO registry, mirroring
-// what a real Snapshot() method would do -- see store_setup.go's file doc.
-func snapshotRegistry(t *testing.T, b *InMemoryBackend) map[string]json.RawMessage {
-	t.Helper()
+	// InsertRows + a SELECT populate tableData and queryResults respectively --
+	// the two remaining plain-map fields persistence.go's backendSnapshot
+	// persists explicitly (see its file doc).
+	b.InsertRows(awsDataCatalog, "mydb", "mytable", []map[string]any{{"id": 1, "name": "a"}})
 
-	dtoReg := store.NewRegistry()
-	dbDTOs := store.Register(dtoReg, "databases", store.New(databaseSnapshotKeyFn))
-	tblDTOs := store.Register(dtoReg, "tables", store.New(tableMetadataSnapshotKeyFn))
-
-	for _, d := range b.databases.Snapshot() {
-		dbDTOs.Put(&databaseSnapshot{Catalog: d.Catalog, Record: *d})
-	}
-
-	for _, tm := range b.tables.Snapshot() {
-		tblDTOs.Put(&tableMetadataSnapshot{Catalog: tm.Catalog, Database: tm.Database, Record: *tm})
-	}
-
-	dirty, err := dtoReg.SnapshotAll()
+	selID, err := b.StartQueryExecution(
+		"SELECT * FROM mydb.mytable", "wg1",
+		QueryExecutionContext{Catalog: awsDataCatalog}, ResultConfiguration{}, nil, nil,
+	)
 	require.NoError(t, err)
+	require.NotEmpty(t, selID)
 
-	clean, err := b.registry.SnapshotAll()
-	require.NoError(t, err)
+	workGroupARN := "arn:aws:athena:us-east-1:123456789012:workgroup/wg1"
+	require.NoError(t, b.TagResource(workGroupARN, map[string]string{"env": "test"}))
 
-	out := make(map[string]json.RawMessage, len(clean)+len(dirty))
-	maps.Copy(out, clean)
-	maps.Copy(out, dirty)
-
-	return out
-}
-
-// restoreRegistry is the inverse of snapshotRegistry: it restores b's clean
-// tables via registry.RestoreAll and rebuilds the dirty databases/tables
-// tables from their DTOs, restoring the Catalog/Database identity the DTOs
-// (not the live types) carry as real JSON fields.
-func restoreRegistry(t *testing.T, b *InMemoryBackend, data map[string]json.RawMessage) {
-	t.Helper()
-
-	require.NoError(t, b.registry.RestoreAll(data))
-
-	dtoReg := store.NewRegistry()
-	dbDTOs := store.Register(dtoReg, "databases", store.New(databaseSnapshotKeyFn))
-	tblDTOs := store.Register(dtoReg, "tables", store.New(tableMetadataSnapshotKeyFn))
-	require.NoError(t, dtoReg.RestoreAll(data))
-
-	liveDatabases := make([]*Database, 0, dbDTOs.Len())
-
-	for _, dto := range dbDTOs.All() {
-		rec := dto.Record
-		rec.Catalog = dto.Catalog
-		liveDatabases = append(liveDatabases, &rec)
+	return Fixture{
+		WorkGroup:             "wg1",
+		NamedQueryID:          namedQueryID,
+		DataCatalog:           "cat1",
+		SelectExecID:          selID,
+		PreparedStatementName: "ps1",
+		CapacityReservation:   "cr1",
+		NotebookID:            notebookID,
+		SessionID:             sessionID,
+		CalculationID:         calcID,
+		Database:              "mydb",
+		Table:                 "mytable",
+		WorkGroupARN:          workGroupARN,
 	}
-
-	b.databases.Restore(liveDatabases)
-
-	liveTables := make([]*TableMetadata, 0, tblDTOs.Len())
-
-	for _, dto := range tblDTOs.All() {
-		rec := dto.Record
-		rec.Catalog = dto.Catalog
-		rec.Database = dto.Database
-		liveTables = append(liveTables, &rec)
-	}
-
-	b.tables.Restore(liveTables)
-}
-
-// TestRegistryDatabasesTablesRoundTrip is the "registry round-trip test"
-// called for by the Phase 3.3 conversion plan in lieu of Athena having a
-// persistence.go to rewire (it has none -- see the block comment above). It
-// verifies that every store.Table the conversion introduced -- both the
-// "clean" ones registered directly on b.registry and the two "dirty" ones
-// (databases, tables) that need a DTO -- survive a full
-// Snapshot/Reset/Restore cycle with their data AND their secondary indexes
-// intact.
-func TestRegistryDatabasesTablesRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	b := NewInMemoryBackend("", "")
-	populateEveryTable(t, b)
-
-	data := snapshotRegistry(t, b)
-
-	// Reset every table (clean + dirty) to simulate a fresh process before
-	// restoring, exactly as a real Restore() would encounter.
-	b.registry.ResetAll()
-	b.databases.Reset()
-	b.tables.Reset()
-
-	restoreRegistry(t, b, data)
-
-	t.Run("clean_tables_restored", func(t *testing.T) {
-		t.Parallel()
-
-		// The default "primary" workgroup NewInMemoryBackend seeds, plus wg1.
-		assert.Equal(t, 2, b.workGroups.Len())
-		assert.True(t, b.workGroups.Has("wg1"))
-
-		assert.Equal(t, 1, b.namedQueries.Len())
-		// AwsDataCatalog (seeded) + cat1.
-		assert.Equal(t, 2, b.dataCatalogs.Len())
-		// SELECT 1, CREATE DATABASE mydb, CREATE TABLE mydb.mytable.
-		assert.Equal(t, 3, b.queryExecutions.Len())
-		assert.Equal(t, 1, b.preparedStatements.Len())
-		assert.Equal(t, 1, b.capacityReservations.Len())
-		assert.Equal(t, 1, b.notebooks.Len())
-		assert.Equal(t, 1, b.sessions.Len())
-		assert.Equal(t, 1, b.calculations.Len())
-		assert.Equal(t, 1, b.capacityAssignments.Len())
-	})
-
-	t.Run("dirty_tables_restored_with_identity", func(t *testing.T) {
-		t.Parallel()
-
-		// AwsDataCatalog/default (seeded) + mydb.
-		assert.Equal(t, 2, b.databases.Len())
-
-		mydb, ok := b.databases.Get(databaseKey(awsDataCatalog, "mydb"))
-		require.True(t, ok, "mydb must be restored under its original catalog key")
-		assert.Equal(t, awsDataCatalog, mydb.Catalog, "Catalog identity must survive the DTO round trip")
-
-		mytable, ok := b.tables.Get(tableMetadataKey(awsDataCatalog, "mydb", "mytable"))
-		require.True(t, ok, "mytable must be restored under its original catalog/database key")
-		assert.Equal(t, awsDataCatalog, mytable.Catalog)
-		assert.Equal(t, "mydb", mytable.Database)
-	})
-
-	t.Run("secondary_indexes_rebuilt", func(t *testing.T) {
-		t.Parallel()
-
-		// namedQueriesByWorkGroup.
-		nqs := b.namedQueriesByWorkGroup.Get("wg1")
-		require.Len(t, nqs, 1)
-		assert.Equal(t, "nq1", nqs[0].Name)
-
-		// preparedStatementsByWorkGroup.
-		pss := b.preparedStatementsByWorkGroup.Get("wg1")
-		require.Len(t, pss, 1)
-		assert.Equal(t, "ps1", pss[0].StatementName)
-
-		// queryExecutionsByWorkGroup.
-		qes := b.queryExecutionsByWorkGroup.Get("wg1")
-		assert.Len(t, qes, 3)
-
-		// notebooksByName uniqueness index.
-		nbs := b.notebooksByName.Get(notebookNameKey("wg1", "nb1"))
-		require.Len(t, nbs, 1)
-		assert.Equal(t, "nb1", nbs[0].Name)
-
-		// databasesByCatalog / tablesByDatabase secondary indexes.
-		dbs := b.databasesByCatalog.Get(awsDataCatalog)
-		assert.Len(t, dbs, 2, "AwsDataCatalog must contain both the seeded default db and mydb")
-
-		tbls := b.tablesByDatabase.Get(databaseKey(awsDataCatalog, "mydb"))
-		require.Len(t, tbls, 1)
-		assert.Equal(t, "mytable", tbls[0].Name)
-	})
 }
