@@ -72,7 +72,7 @@ func TestAuditR53_NSSOAAutoSeeding(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone(tt.zoneName, "ref-"+tt.name, "", false)
+			hz, err := b.CreateHostedZone(tt.zoneName, "ref-"+tt.name, "", false, "")
 			require.NoError(t, err)
 
 			pg, err := b.ListResourceRecordSets(hz.ID, "", "", "", 100)
@@ -101,7 +101,7 @@ func TestAuditR53_ResourceRecordSetCount_IncludesNSSOA(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-count", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref-count", "", false, "")
 	require.NoError(t, err)
 
 	got, err := b.GetHostedZone(hz.ID)
@@ -128,7 +128,7 @@ func TestAuditR53_DeleteEmptyZone_WithDefaultNSSOA_Succeeds(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", tt.ref, "", false)
+			hz, err := b.CreateHostedZone("example.com", tt.ref, "", false, "")
 			require.NoError(t, err)
 
 			err = b.DeleteHostedZone(hz.ID)
@@ -189,7 +189,7 @@ func TestAuditR53_WeightedRouting(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-wt-"+tt.name, "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-wt-"+tt.name, "", false, "")
 			require.NoError(t, err)
 
 			setID := ""
@@ -286,7 +286,7 @@ func TestAuditR53_RecordTypes(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-rt-"+tt.name, "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-rt-"+tt.name, "", false, "")
 			require.NoError(t, err)
 
 			name := "host.example.com."
@@ -436,7 +436,7 @@ func TestAuditR53_RoutingPolicyMutualExclusion(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-rp-"+tt.name, "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-rp-"+tt.name, "", false, "")
 			require.NoError(t, err)
 
 			changes := []route53.Change{
@@ -479,7 +479,7 @@ func TestAuditR53_AliasRecord(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-alias-"+tt.name, "", false)
+			hz, err := b.CreateHostedZone("example.com", "ref-alias-"+tt.name, "", false, "")
 			require.NoError(t, err)
 
 			changes := []route53.Change{
@@ -658,7 +658,7 @@ func TestAuditR53_WeightedRecordsCoexist(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-wcoexist", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref-wcoexist", "", false, "")
 	require.NoError(t, err)
 
 	// Create three weighted records for the same name+type.
@@ -723,7 +723,7 @@ func TestAuditR53_PrivateZone(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", "ref-pvt-"+tt.name, "", tt.private)
+			hz, err := b.CreateHostedZone("example.com", "ref-pvt-"+tt.name, "", tt.private, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.private, hz.PrivateZone)
 
@@ -742,7 +742,7 @@ func TestAuditR53_UPSERT_CreateThenUpdate(t *testing.T) {
 	t.Parallel()
 
 	b := route53.NewInMemoryBackend()
-	hz, err := b.CreateHostedZone("example.com", "ref-upsert", "", false)
+	hz, err := b.CreateHostedZone("example.com", "ref-upsert", "", false, "")
 	require.NoError(t, err)
 
 	rrs := route53.ResourceRecordSet{
@@ -837,7 +837,7 @@ func TestAuditR53_GeoRoutingAccepted(t *testing.T) {
 			t.Parallel()
 
 			b := route53.NewInMemoryBackend()
-			hz, err := b.CreateHostedZone("example.com", fmt.Sprintf("ref-geo-%d", i), "", false)
+			hz, err := b.CreateHostedZone("example.com", fmt.Sprintf("ref-geo-%d", i), "", false, "")
 			require.NoError(t, err)
 
 			changes := []route53.Change{

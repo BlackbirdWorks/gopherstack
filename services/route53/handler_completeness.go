@@ -580,9 +580,7 @@ func (h *Handler) getReusableDelegationSetLimit(c *echo.Context, path string) er
 		dsID = before
 		limitType = after
 	}
-	if !strings.HasPrefix(dsID, "/delegationset/") {
-		dsID = "/delegationset/" + dsID
-	}
+	dsID = normaliseDelegationSetID(dsID)
 
 	count, err := h.Backend.CountZonesByReusableDelegationSet(dsID)
 	if err != nil {

@@ -96,6 +96,24 @@ var (
 	// called with a name that is already in use (AWS:
 	// CidrCollectionAlreadyExistsException, 400).
 	ErrCidrCollectionAlreadyExists = errors.New("CidrCollectionAlreadyExistsException")
+	// ErrHealthCheckVersionMismatch is returned when UpdateHealthCheck is
+	// called with a HealthCheckVersion that does not match the health
+	// check's current version (AWS: HealthCheckVersionMismatch, 409).
+	ErrHealthCheckVersionMismatch = errors.New("HealthCheckVersionMismatch")
+	// ErrCidrCollectionVersionMismatch is returned when ChangeCidrCollection
+	// is called with a CollectionVersion that does not match the
+	// collection's current version (AWS:
+	// CidrCollectionVersionMismatchException, 409).
+	ErrCidrCollectionVersionMismatch = errors.New("CidrCollectionVersionMismatchException")
+	// ErrCidrCollectionInUse is returned when DeleteCidrCollection is called
+	// on a non-empty collection — real AWS requires the collection to be
+	// emptied of locations/blocks before it can be deleted (AWS:
+	// CidrCollectionInUseException, 400).
+	ErrCidrCollectionInUse = errors.New("CidrCollectionInUseException")
+	// ErrDelegationSetInUse is returned when DeleteReusableDelegationSet is
+	// called on a delegation set that is still associated with one or more
+	// hosted zones (AWS: DelegationSetInUse, 400).
+	ErrDelegationSetInUse = errors.New("DelegationSetInUse")
 )
 
 const (
@@ -220,6 +238,12 @@ type HealthCheck struct {
 	Status          string                   `json:"status"`
 	Observations    []HealthCheckObservation `json:"observations"`
 	Config          HealthCheckConfig        `json:"config"`
+	// Version is a sequential counter AWS sets to 1 at creation and
+	// increments by 1 on every UpdateHealthCheck. Wire field
+	// HealthCheckVersion; UpdateHealthCheck's optional request-side
+	// HealthCheckVersion is checked against this for optimistic
+	// concurrency (see ErrHealthCheckVersionMismatch).
+	Version int64 `json:"version"`
 }
 
 // FailoverPolicy is the failover role for a record set.
@@ -268,13 +292,23 @@ type DNSRegistrar interface {
 
 // HostedZone represents a Route 53 hosted zone.
 type HostedZone struct {
-	CreatedAt              time.Time `json:"createdAt"`
-	Name                   string    `json:"name"`
-	ID                     string    `json:"id"`
-	CallerReference        string    `json:"callerReference"`
-	Comment                string    `json:"comment"`
-	ResourceRecordSetCount int       `json:"resourceRecordSetCount"`
-	PrivateZone            bool      `json:"privateZone"`
+	CreatedAt       time.Time `json:"createdAt"`
+	Name            string    `json:"name"`
+	ID              string    `json:"id"`
+	CallerReference string    `json:"callerReference"`
+	Comment         string    `json:"comment"`
+	// DelegationSetID is the ID of the reusable delegation set this zone
+	// was created with, or "" if the zone uses a system-assigned (non
+	// reusable) delegation set. Not part of the wire "HostedZone" element
+	// itself — real AWS only surfaces it via the separate DelegationSet
+	// element on CreateHostedZone/GetHostedZone responses.
+	DelegationSetID string `json:"delegationSetId,omitempty"`
+	// NameServers are the authoritative name servers for this zone, fixed
+	// at creation time: either the reusable delegation set's servers (when
+	// DelegationSetID is set) or the default pair otherwise.
+	NameServers            []string `json:"nameServers,omitempty"`
+	ResourceRecordSetCount int      `json:"resourceRecordSetCount"`
+	PrivateZone            bool     `json:"privateZone"`
 }
 
 // ResourceRecord holds a single DNS resource record value.
@@ -290,22 +324,20 @@ type AliasTarget struct {
 }
 
 // ResourceRecordSet represents a DNS resource record set.
-//
-//nolint:govet // fieldalignment: field order follows AWS documentation
 type ResourceRecordSet struct {
 	AliasTarget          *AliasTarget          `json:"aliasTarget,omitempty"`
 	GeoLocation          *GeoLocation          `json:"geoLocation,omitempty"`
 	GeoProximityLocation *GeoProximityLocation `json:"geoProximityLocation,omitempty"`
 	CidrRoutingConfig    *CidrRoutingConfig    `json:"cidrRoutingConfig,omitempty"`
-	Name                 string                `json:"name"`
-	Type                 string                `json:"type"`
+	Weight               *int64                `json:"weight,omitempty"`
 	SetIdentifier        string                `json:"setIdentifier,omitempty"`
+	Type                 string                `json:"type"`
 	Failover             FailoverPolicy        `json:"failover,omitempty"`
 	Region               string                `json:"region,omitempty"`
 	HealthCheckID        string                `json:"healthCheckId,omitempty"`
+	Name                 string                `json:"name"`
 	Records              []ResourceRecord      `json:"records"`
 	TTL                  int64                 `json:"ttl"`
-	Weight               *int64                `json:"weight,omitempty"`
 	MultiValueAnswer     bool                  `json:"multiValueAnswer,omitempty"`
 }
 
@@ -512,10 +544,15 @@ func normaliseName(name string) string {
 	return name
 }
 
-// CreateHostedZone creates a new hosted zone.
+// CreateHostedZone creates a new hosted zone. When delegationSetID is
+// non-empty, the zone is linked to that reusable delegation set (which must
+// already exist, see ErrDelegationSetNotFound) and inherits its name
+// servers; otherwise the zone gets the default system-assigned name
+// servers.
 func (b *InMemoryBackend) CreateHostedZone(
 	name, callerRef, comment string,
 	private bool,
+	delegationSetID string,
 ) (*HostedZone, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
@@ -530,28 +567,14 @@ func (b *InMemoryBackend) CreateHostedZone(
 	b.mu.Lock("CreateHostedZone")
 	defer b.mu.Unlock()
 
-	// CallerReference idempotency: reusing a CallerReference with the exact
-	// same Name/Comment/PrivateZone is a safe retry and returns the existing
-	// zone. Reusing it with any different parameter is rejected — real AWS
-	// returns HostedZoneAlreadyExists (409) rather than silently returning
-	// (or silently creating a second zone for) mismatched input.
-	for _, zd := range b.zones.All() {
-		if zd.zone.CallerReference != callerRef {
-			continue
-		}
+	existing, err := b.matchExistingHostedZone(name, callerRef, comment, delegationSetID, private)
+	if existing != nil || err != nil {
+		return existing, err
+	}
 
-		if zd.zone.Name == name && zd.zone.Comment == comment && zd.zone.PrivateZone == private {
-			cp := zd.zone
-			cp.ResourceRecordSetCount = len(zd.records)
-
-			return &cp, nil
-		}
-
-		return nil, fmt.Errorf(
-			"%w: a hosted zone already exists for CallerReference %s with different parameters",
-			ErrHostedZoneAlreadyExists,
-			callerRef,
-		)
+	nameServers, err := b.resolveZoneNameServers(delegationSetID)
+	if err != nil {
+		return nil, err
 	}
 
 	id := "Z" + randomZoneID()
@@ -562,6 +585,8 @@ func (b *InMemoryBackend) CreateHostedZone(
 		Comment:         comment,
 		PrivateZone:     private,
 		CreatedAt:       time.Now(),
+		DelegationSetID: delegationSetID,
+		NameServers:     nameServers,
 	}
 
 	zd := &zoneData{
@@ -569,27 +594,7 @@ func (b *InMemoryBackend) CreateHostedZone(
 		records: make(map[string]*ResourceRecordSet),
 	}
 	b.zones.Put(zd)
-
-	// Seed the zone with the default NS and SOA records that AWS auto-creates.
-	nsKey := recordSetKey(name, "NS", "")
-	zd.records[nsKey] = &ResourceRecordSet{
-		Name: name,
-		Type: "NS",
-		TTL:  defaultNSTTL,
-		Records: []ResourceRecord{
-			{Value: dnsNS1Default + "."},
-			{Value: dnsNS2Default + "."},
-		},
-	}
-	soaKey := recordSetKey(name, "SOA", "")
-	zd.records[soaKey] = &ResourceRecordSet{
-		Name: name,
-		Type: "SOA",
-		TTL:  defaultSOATTL,
-		Records: []ResourceRecord{
-			{Value: dnsNS1Default + ". awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"},
-		},
-	}
+	seedZoneAutoRecords(zd, name, nameServers)
 
 	// Register a synthetic INSYNC change so that GetChange on the zone-creation
 	// change ID (used by Terraform's waiter) returns INSYNC immediately.
@@ -603,6 +608,89 @@ func (b *InMemoryBackend) CreateHostedZone(
 	cp := hz
 
 	return &cp, nil
+}
+
+// matchExistingHostedZone implements CreateHostedZone's CallerReference
+// idempotency: reusing a CallerReference with the exact same
+// Name/Comment/PrivateZone/DelegationSetID is a safe retry and returns the
+// existing zone (non-nil HostedZone, nil error). Reusing it with any
+// different parameter is rejected — real AWS returns HostedZoneAlreadyExists
+// (409) rather than silently returning (or silently creating a second zone
+// for) mismatched input (nil HostedZone, non-nil error). Both return values
+// nil means no CallerReference collision was found and zone creation should
+// proceed. Caller must hold b.mu.
+func (b *InMemoryBackend) matchExistingHostedZone(
+	name, callerRef, comment, delegationSetID string,
+	private bool,
+) (*HostedZone, error) {
+	for _, zd := range b.zones.All() {
+		if zd.zone.CallerReference != callerRef {
+			continue
+		}
+
+		if zd.zone.Name == name && zd.zone.Comment == comment &&
+			zd.zone.PrivateZone == private && zd.zone.DelegationSetID == delegationSetID {
+			cp := zd.zone
+			cp.ResourceRecordSetCount = len(zd.records)
+
+			return &cp, nil
+		}
+
+		return nil, fmt.Errorf(
+			"%w: a hosted zone already exists for CallerReference %s with different parameters",
+			ErrHostedZoneAlreadyExists,
+			callerRef,
+		)
+	}
+
+	return nil, nil //nolint:nilnil // (nil, nil) is the documented "no collision" sentinel
+}
+
+// resolveZoneNameServers returns the default name servers, or — when
+// delegationSetID is non-empty — the reusable delegation set's own name
+// servers. Caller must hold b.mu.
+func (b *InMemoryBackend) resolveZoneNameServers(delegationSetID string) ([]string, error) {
+	if delegationSetID == "" {
+		return []string{dnsNS1Default, dnsNS2Default}, nil
+	}
+
+	ds, ok := b.reusableDelegationSets.Get(delegationSetID)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: reusable delegation set %s not found",
+			ErrDelegationSetNotFound,
+			delegationSetID,
+		)
+	}
+
+	return append([]string(nil), ds.NameServers...), nil
+}
+
+// seedZoneAutoRecords populates zd with the zone-apex NS and SOA records
+// that AWS auto-creates for every new hosted zone, using the zone's actual
+// name servers.
+func seedZoneAutoRecords(zd *zoneData, name string, nameServers []string) {
+	nsValues := make([]ResourceRecord, 0, len(nameServers))
+	for _, ns := range nameServers {
+		nsValues = append(nsValues, ResourceRecord{Value: ns + "."})
+	}
+
+	nsKey := recordSetKey(name, "NS", "")
+	zd.records[nsKey] = &ResourceRecordSet{
+		Name:    name,
+		Type:    "NS",
+		TTL:     defaultNSTTL,
+		Records: nsValues,
+	}
+	soaKey := recordSetKey(name, "SOA", "")
+	zd.records[soaKey] = &ResourceRecordSet{
+		Name: name,
+		Type: "SOA",
+		TTL:  defaultSOATTL,
+		Records: []ResourceRecord{
+			{Value: nameServers[0] + ". awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"},
+		},
+	}
 }
 
 // zoneUserRecordCount returns the number of records in zd that are not the
@@ -1553,6 +1641,7 @@ func (b *InMemoryBackend) CreateHealthCheck(
 		Config:          cfg,
 		Status:          defaultHealthStatus,
 		CreatedAt:       time.Now(),
+		Version:         1,
 	}
 
 	b.healthChecks.Put(hc)
@@ -1613,9 +1702,16 @@ func (b *InMemoryBackend) DeleteHealthCheck(id string) error {
 }
 
 // UpdateHealthCheck updates configuration fields of an existing health check.
+// expectedVersion is the caller-supplied HealthCheckVersion, or nil when the
+// request omitted it (the field is optional on the wire). When present, it
+// must match the health check's current Version or the update is rejected
+// with ErrHealthCheckVersionMismatch — this is AWS's optimistic-concurrency
+// guard against overwriting an intervening update. Version is incremented by
+// 1 on every successful update, matching real AWS's documented behavior.
 func (b *InMemoryBackend) UpdateHealthCheck(
 	id string,
 	cfg HealthCheckConfig,
+	expectedVersion *int64,
 ) (*HealthCheck, error) {
 	b.mu.Lock("UpdateHealthCheck")
 	defer b.mu.Unlock()
@@ -1625,7 +1721,16 @@ func (b *InMemoryBackend) UpdateHealthCheck(
 		return nil, fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
 	}
 
+	if expectedVersion != nil && *expectedVersion != hc.Version {
+		return nil, fmt.Errorf(
+			"%w: health check %s is at version %d, request specified %d",
+			ErrHealthCheckVersionMismatch,
+			id, hc.Version, *expectedVersion,
+		)
+	}
+
 	hc.Config = cfg
+	hc.Version++
 
 	cp := *hc
 
@@ -2179,12 +2284,19 @@ func copyLocations(m map[string][]string) map[string][]string {
 	return out
 }
 
-// ChangeCidrCollection applies PUT/DELETE_IF_EXISTS changes to a CIDR collection's locations.
+// ChangeCidrCollection applies PUT/DELETE_IF_EXISTS changes to a CIDR
+// collection's locations. expectedVersion is the caller-supplied
+// CollectionVersion, or nil when the request omitted it (the field is
+// optional on the wire). When present, it must match the collection's
+// current Version or the change is rejected with
+// ErrCidrCollectionVersionMismatch — AWS's optimistic-concurrency guard
+// against overwriting an intervening update.
 //
 //nolint:gocognit // validates and applies multiple change actions with per-action branching
 func (b *InMemoryBackend) ChangeCidrCollection(
 	collectionID string,
 	changes []CidrCollectionChange,
+	expectedVersion *int64,
 ) (*CidrCollection, error) {
 	b.mu.Lock("ChangeCidrCollection")
 	defer b.mu.Unlock()
@@ -2195,6 +2307,14 @@ func (b *InMemoryBackend) ChangeCidrCollection(
 			"%w: CIDR collection %s not found",
 			ErrCidrCollectionNotFound,
 			collectionID,
+		)
+	}
+
+	if expectedVersion != nil && *expectedVersion != col.Version {
+		return nil, fmt.Errorf(
+			"%w: CIDR collection %s is at version %d, request specified %d",
+			ErrCidrCollectionVersionMismatch,
+			collectionID, col.Version, *expectedVersion,
 		)
 	}
 
@@ -2812,12 +2932,24 @@ func (b *InMemoryBackend) ListTrafficPolicyInstances() ([]*TrafficPolicyInstance
 }
 
 // DeleteCidrCollection deletes a CIDR collection.
+// DeleteCidrCollection deletes a CIDR collection. Real AWS requires the
+// collection to be empty (no locations/CIDR blocks) before it can be
+// deleted — see ErrCidrCollectionInUse.
 func (b *InMemoryBackend) DeleteCidrCollection(id string) error {
 	b.mu.Lock("DeleteCidrCollection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.cidrCollections.Get(id); !ok {
+	col, ok := b.cidrCollections.Get(id)
+	if !ok {
 		return fmt.Errorf("%w: CIDR collection %s not found", ErrCidrCollectionNotFound, id)
+	}
+
+	if len(col.Locations) > 0 {
+		return fmt.Errorf(
+			"%w: CIDR collection %s still has locations, empty it before deleting",
+			ErrCidrCollectionInUse,
+			id,
+		)
 	}
 
 	b.cidrCollections.Delete(id)
@@ -2877,13 +3009,25 @@ func (b *InMemoryBackend) GetReusableDelegationSet(id string) (*ReusableDelegati
 	return &cp, nil
 }
 
-// DeleteReusableDelegationSet deletes a reusable delegation set.
+// DeleteReusableDelegationSet deletes a reusable delegation set. It returns
+// ErrDelegationSetInUse if any hosted zone is still linked to it — real AWS
+// requires all zones created with the set to be deleted first.
 func (b *InMemoryBackend) DeleteReusableDelegationSet(id string) error {
 	b.mu.Lock("DeleteReusableDelegationSet")
 	defer b.mu.Unlock()
 
 	if !b.reusableDelegationSets.Has(id) {
 		return fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
+	}
+
+	for _, zd := range b.zones.All() {
+		if zd.zone.DelegationSetID == id {
+			return fmt.Errorf(
+				"%w: reusable delegation set %s is still in use by hosted zone %s",
+				ErrDelegationSetInUse,
+				id, zd.zone.ID,
+			)
+		}
 	}
 
 	b.reusableDelegationSets.Delete(id)
@@ -3246,9 +3390,15 @@ func (b *InMemoryBackend) CountZonesByReusableDelegationSet(id string) (int, err
 		return 0, fmt.Errorf("%w: delegation set %s not found", ErrDelegationSetNotFound, id)
 	}
 
-	// Hosted zones are not currently associated with a reusable delegation set
-	// in this backend, so no zones reference it.
-	return 0, nil
+	count := 0
+
+	for _, zd := range b.zones.All() {
+		if zd.zone.DelegationSetID == id {
+			count++
+		}
+	}
+
+	return count, nil
 }
 
 // tagResourceTypeHealthCheck and tagResourceTypeHostedZone are the wire
