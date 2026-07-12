@@ -235,6 +235,7 @@ type InMemoryBackend struct {
 	podIdentityAssociations          *store.Table[PodIdentityAssociation]
 	podIdentityAssociationsByCluster *store.Index[PodIdentityAssociation]
 	capabilities                     *store.Table[Capability]
+	capabilitiesByCluster            *store.Index[Capability]
 	subscriptions                    *store.Table[AnywhereSubscription]
 	updates                          *store.Table[Update]
 	updatesByCluster                 *store.Index[Update]
@@ -336,6 +337,14 @@ func (b *InMemoryBackend) closeIDPAndSubscriptionTagsLocked() {
 	b.identityProviderConfigs.Range(func(cfg *IdentityProviderConfig) bool {
 		if cfg.Tags != nil {
 			cfg.Tags.Close()
+		}
+
+		return true
+	})
+
+	b.capabilities.Range(func(capa *Capability) bool {
+		if capa.Tags != nil {
+			capa.Tags.Close()
 		}
 
 		return true
@@ -598,6 +607,14 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 
 	for _, fp := range slices.Clone(b.fargateProfilesByCluster.Get(name)) {
 		b.fargateProfiles.Delete(fargateProfileKey(fp.ClusterName, fp.FargateProfileName))
+	}
+
+	for _, capa := range slices.Clone(b.capabilitiesByCluster.Get(name)) {
+		if capa.Tags != nil {
+			capa.Tags.Close()
+		}
+
+		b.capabilities.Delete(capabilityKey(capa.ClusterName, capa.CapabilityName))
 	}
 
 	b.closeAccessEntryTagsForCluster(name)
@@ -997,6 +1014,20 @@ func (b *InMemoryBackend) findTagInProfilesAndAssocLocked(resourceARN string) *t
 		return found
 	}
 
+	b.capabilities.Range(func(capa *Capability) bool {
+		if capa.ARN == resourceARN {
+			found = capa.Tags
+
+			return false
+		}
+
+		return true
+	})
+
+	if found != nil {
+		return found
+	}
+
 	b.subscriptions.Range(func(sub *AnywhereSubscription) bool {
 		if sub.ARN == resourceARN {
 			found = sub.Tags
@@ -1158,6 +1189,10 @@ func (b *InMemoryBackend) AddFargateProfileInternal(p *FargateProfile) {
 func (b *InMemoryBackend) AddCapabilityInternal(capa *Capability) {
 	b.mu.Lock("AddCapabilityInternal")
 	defer b.mu.Unlock()
+
+	if capa.Tags == nil {
+		capa.Tags = tags.New("eks.capability." + capa.ClusterName + "." + capa.CapabilityName + ".tags")
+	}
 
 	b.capabilities.Put(capa)
 }

@@ -18,7 +18,7 @@ func TestEKS_Subscription_Lifecycle(t *testing.T) {
 	h := newTestEKSHandler(t)
 
 	// Create subscription
-	rec := doREST(t, h, http.MethodPost, "/subscriptions", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions", map[string]any{
 		"name":            "my-sub",
 		"licenseType":     "Cluster",
 		"licenseQuantity": 5,
@@ -30,37 +30,37 @@ func TestEKS_Subscription_Lifecycle(t *testing.T) {
 	require.NotEmpty(t, subID)
 
 	// List subscriptions
-	rec = doREST(t, h, http.MethodGet, "/subscriptions", nil)
+	rec = doREST(t, h, http.MethodGet, "/eks-anywhere-subscriptions", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Describe subscription
-	rec = doREST(t, h, http.MethodGet, "/subscriptions/"+subID, nil)
+	rec = doREST(t, h, http.MethodGet, "/eks-anywhere-subscriptions/"+subID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Describe nonexistent subscription
-	rec = doREST(t, h, http.MethodGet, "/subscriptions/nonexistent", nil)
+	rec = doREST(t, h, http.MethodGet, "/eks-anywhere-subscriptions/nonexistent", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	// Update subscription
+	// Update subscription (POST to the same leaf path, not PUT)
 	qty := int32(10)
-	rec = doREST(t, h, http.MethodPut, "/subscriptions/"+subID, map[string]any{
+	rec = doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions/"+subID, map[string]any{
 		"licenseType":     "Cluster",
 		"licenseQuantity": qty,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update nonexistent
-	rec = doREST(t, h, http.MethodPut, "/subscriptions/nonexistent", map[string]any{
+	rec = doREST(t, h, http.MethodPost, "/eks-anywhere-subscriptions/nonexistent", map[string]any{
 		"licenseType": "Cluster",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Delete subscription
-	rec = doREST(t, h, http.MethodDelete, "/subscriptions/"+subID, nil)
+	rec = doREST(t, h, http.MethodDelete, "/eks-anywhere-subscriptions/"+subID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Delete nonexistent
-	rec = doREST(t, h, http.MethodDelete, "/subscriptions/nonexistent", nil)
+	rec = doREST(t, h, http.MethodDelete, "/eks-anywhere-subscriptions/nonexistent", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -203,11 +203,11 @@ func TestEKS_PodIdentityAssociation_Lifecycle(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	// Update via handler
+	// Update via handler (POST, not PUT -- verified against the SDK serializer)
 	rec = doREST(
 		t,
 		h,
-		http.MethodPut,
+		http.MethodPost,
 		"/clusters/pid-cluster/pod-identity-associations/"+assocID,
 		map[string]any{
 			"roleArn": "arn:aws:iam::123:role/new-role",
@@ -219,7 +219,7 @@ func TestEKS_PodIdentityAssociation_Lifecycle(t *testing.T) {
 	rec = doREST(
 		t,
 		h,
-		http.MethodPut,
+		http.MethodPost,
 		"/clusters/pid-cluster/pod-identity-associations/nonexistent",
 		map[string]any{
 			"roleArn": "arn:aws:iam::123:role/new-role",
@@ -278,11 +278,11 @@ func TestEKS_AccessEntry_DescribeListUpdate(t *testing.T) {
 	rec = doREST(t, h, http.MethodGet, "/clusters/ac-cluster/access-entries", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Update access entry
+	// Update access entry (POST, not PUT -- verified against the SDK serializer)
 	rec = doREST(
 		t,
 		h,
-		http.MethodPut,
+		http.MethodPost,
 		"/clusters/ac-cluster/access-entries/"+principalARN,
 		map[string]any{
 			"username": "my-user",
@@ -426,35 +426,32 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ih-cluster"})
 
-	// List via handler
-	rec := doREST(t, h, http.MethodGet, "/clusters/ih-cluster/insights", nil)
+	// List via handler. ListInsights is POST (it carries an optional filter
+	// body), not GET -- verified against the SDK serializer.
+	rec := doREST(t, h, http.MethodPost, "/clusters/ih-cluster/insights", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// List nonexistent cluster
-	rec = doREST(t, h, http.MethodGet, "/clusters/nonexistent/insights", nil)
+	rec = doREST(t, h, http.MethodPost, "/clusters/nonexistent/insights", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Describe insight (synthetic - always succeeds for valid cluster)
 	rec = doREST(t, h, http.MethodGet, "/clusters/ih-cluster/insights/some-id", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Start insights refresh
-	rec = doREST(t, h, http.MethodPost, "/clusters/ih-cluster/insights/some-id/refresh", nil)
+	// Start insights refresh. This is a cluster-level singleton at
+	// /clusters/{name}/insights-refresh -- there is no per-refresh id in the
+	// real API.
+	rec = doREST(t, h, http.MethodPost, "/clusters/ih-cluster/insights-refresh", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	refreshIDRaw, _ := resp["insightsRefresh"].(map[string]any)["id"].(string)
-	_ = refreshIDRaw
+	_, hasStatus := resp["status"]
+	assert.True(t, hasStatus)
 
 	// Describe insights refresh
-	rec = doREST(
-		t,
-		h,
-		http.MethodGet,
-		"/clusters/ih-cluster/insights/some-id/refresh/some-refresh-id",
-		nil,
-	)
-	assert.NotNil(t, rec)
+	rec = doREST(t, h, http.MethodGet, "/clusters/ih-cluster/insights-refresh", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // ---- Cluster Update tests ----
@@ -466,8 +463,9 @@ func TestEKS_ClusterUpdates(t *testing.T) {
 
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "update-cluster"})
 
-	// Update cluster config (logging)
-	rec := doREST(t, h, http.MethodPut, "/clusters/update-cluster", map[string]any{
+	// Update cluster config (logging). Real path is POST
+	// /clusters/{name}/update-config, not a bare-path PUT.
+	rec := doREST(t, h, http.MethodPost, "/clusters/update-cluster/update-config", map[string]any{
 		"logging": map[string]any{
 			"clusterLogging": []map[string]any{
 				{"types": []string{"api", "audit"}, "enabled": true},
@@ -477,17 +475,18 @@ func TestEKS_ClusterUpdates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update nonexistent cluster config
-	rec = doREST(t, h, http.MethodPut, "/clusters/nonexistent", nil)
+	rec = doREST(t, h, http.MethodPost, "/clusters/nonexistent/update-config", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	// Update cluster version
-	rec = doREST(t, h, http.MethodPost, "/clusters/update-cluster/update-version", map[string]any{
+	// Update cluster version. Real path is POST /clusters/{name}/updates
+	// (shared with ListUpdates' GET), not "/update-version".
+	rec = doREST(t, h, http.MethodPost, "/clusters/update-cluster/updates", map[string]any{
 		"version": "1.33",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Update cluster version for nonexistent cluster
-	rec = doREST(t, h, http.MethodPost, "/clusters/nonexistent/update-version", map[string]any{
+	rec = doREST(t, h, http.MethodPost, "/clusters/nonexistent/updates", map[string]any{
 		"version": "1.33",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -549,8 +548,9 @@ func TestEKS_RegisterDeregisterCluster(t *testing.T) {
 
 	h := newTestEKSHandler(t)
 
-	// Register cluster
-	rec := doREST(t, h, http.MethodPost, "/clusters/my-ext-cluster/register", map[string]any{
+	// Register cluster. Real path is global POST /cluster-registrations (no
+	// cluster name in the URI -- Name comes from the body).
+	rec := doREST(t, h, http.MethodPost, "/cluster-registrations", map[string]any{
 		"name":                    "my-ext-cluster",
 		"connectorConfigProvider": "EKS_ANYWHERE",
 		"connectorConfigRoleArn":  "arn:aws:iam::123:role/connector",
@@ -558,15 +558,15 @@ func TestEKS_RegisterDeregisterCluster(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Register cluster missing name
-	rec = doREST(t, h, http.MethodPost, "/clusters/whatever/register", map[string]any{})
+	rec = doREST(t, h, http.MethodPost, "/cluster-registrations", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	// Deregister cluster
-	rec = doREST(t, h, http.MethodPost, "/clusters/my-ext-cluster/deregister", nil)
+	// Deregister cluster. Real path is DELETE /cluster-registrations/{name}.
+	rec = doREST(t, h, http.MethodDelete, "/cluster-registrations/my-ext-cluster", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Deregister nonexistent cluster
-	rec = doREST(t, h, http.MethodPost, "/clusters/nonexistent/deregister", nil)
+	rec = doREST(t, h, http.MethodDelete, "/cluster-registrations/nonexistent", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 

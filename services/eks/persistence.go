@@ -123,6 +123,12 @@ func (b *InMemoryBackend) restoreIDPAndSubscriptionTagsLocked() {
 		cfg.Tags = tags.FromMap("eks.idp."+cfg.ClusterName+"."+cfg.Name+".tags", rawTags)
 	}
 
+	for _, capa := range b.capabilities.All() {
+		rawTags := capa.Tags.Clone()
+		capa.Tags.Close()
+		capa.Tags = tags.FromMap("eks.capability."+capa.ClusterName+"."+capa.CapabilityName+".tags", rawTags)
+	}
+
 	for _, sub := range b.subscriptions.All() {
 		rawTags := sub.Tags.Clone()
 		sub.Tags.Close()

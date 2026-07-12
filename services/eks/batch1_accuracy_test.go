@@ -637,7 +637,7 @@ func TestBatch1_Update_Params_Array_Present_On_Version_Update(t *testing.T) {
 	h, b := newB1Handler(t)
 	mustCreateClusterNoVpc(t, b, "upd-params-cluster")
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/upd-params-cluster", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/upd-params-cluster/update-config", map[string]any{
 		"version": "1.32",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -691,7 +691,7 @@ func TestBatch1_Update_Errors_Empty_Array_On_Success(t *testing.T) {
 	h, b := newB1Handler(t)
 	mustCreateClusterNoVpc(t, b, "upd-err-cluster")
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/upd-err-cluster", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/upd-err-cluster/update-config", map[string]any{
 		"logging": map[string]any{
 			"clusterLogging": []map[string]any{
 				{"types": []string{"api"}, "enabled": true},
@@ -718,7 +718,7 @@ func TestBatch1_UpdateClusterConfig_VpcEndpoint_Public_To_Private(t *testing.T) 
 	h, b := newB1Handler(t)
 	mustCreateCluster(t, b, "vpc-upd-cluster")
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/vpc-upd-cluster", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/vpc-upd-cluster/update-config", map[string]any{
 		"resourcesVpcConfig": map[string]any{
 			"endpointPublicAccess":  false,
 			"endpointPrivateAccess": true,
@@ -740,7 +740,7 @@ func TestBatch1_UpdateClusterConfig_VpcEndpoint_PublicAccessCidrs(t *testing.T) 
 	h, b := newB1Handler(t)
 	mustCreateCluster(t, b, "vpc-cidr-cluster")
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/vpc-cidr-cluster", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/vpc-cidr-cluster/update-config", map[string]any{
 		"resourcesVpcConfig": map[string]any{
 			"publicAccessCidrs": []string{"10.0.0.0/8", "192.168.1.0/24"},
 		},
@@ -1021,7 +1021,7 @@ func TestBatch1_Logging_HTTP_AllTypes_In_Response(t *testing.T) {
 	h, b := newB1Handler(t)
 	mustCreateClusterNoVpc(t, b, "logging-http-all")
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/logging-http-all", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/logging-http-all/update-config", map[string]any{
 		"logging": map[string]any{
 			"clusterLogging": []map[string]any{
 				{"types": []string{"api", "audit", "authenticator", "controllerManager", "scheduler"}, "enabled": true},
@@ -1340,7 +1340,7 @@ func TestBatch1_Nodegroup_UpdateScalingConfig(t *testing.T) {
 		"scalingConfig": map[string]any{"desiredSize": 1, "minSize": 1, "maxSize": 5},
 	})
 
-	rec := doREST(t, h, http.MethodPost, "/clusters/ng-upd-scale-cluster/node-groups/ng-to-scale",
+	rec := doREST(t, h, http.MethodPost, "/clusters/ng-upd-scale-cluster/node-groups/ng-to-scale/update-config",
 		map[string]any{
 			"scalingConfig": map[string]any{"desiredSize": 4, "minSize": 2, "maxSize": 8},
 		})

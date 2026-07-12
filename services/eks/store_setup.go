@@ -13,9 +13,10 @@ package eks
 // FargateProfile.ClusterName+FargateProfileName,
 // PodIdentityAssociation.ClusterName+AssociationID,
 // IdentityProviderConfig.ClusterName+Name, Update.ClusterName+ID,
-// Capability.Name, AnywhereSubscription.ID) -- unlike the services/ses pilot,
-// no value type here needs a json:"-" identity field or a DTO wrapper: every
-// table below is "clean" and registered on b.registry directly.
+// Capability.ClusterName+CapabilityName, AnywhereSubscription.ID) -- unlike
+// the services/ses pilot, no value type here needs a json:"-" identity field
+// or a DTO wrapper: every table below is "clean" and registered on
+// b.registry directly.
 //
 // Resources that used to live in a nested map[string]map[string]*T (keyed by
 // clusterName then by a local name) are now a single flat store.Table[T]
@@ -103,7 +104,15 @@ func podIdentityAssociationKeyFn(v *PodIdentityAssociation) string {
 
 func podIdentityAssociationClusterKeyFn(v *PodIdentityAssociation) string { return v.ClusterName }
 
-func capabilityKeyFn(v *Capability) string { return v.Name }
+// capabilityKey builds the composite key shared by every capability nested
+// under a cluster (CapabilityName is unique per cluster, not globally).
+func capabilityKey(clusterName, capabilityName string) string {
+	return clusterName + "\x00" + capabilityName
+}
+
+func capabilityKeyFn(v *Capability) string { return capabilityKey(v.ClusterName, v.CapabilityName) }
+
+func capabilityClusterKeyFn(v *Capability) string { return v.ClusterName }
 
 func subscriptionKeyFn(v *AnywhereSubscription) string { return v.ID }
 
@@ -158,6 +167,8 @@ func registerAllTables(b *InMemoryBackend) {
 	)
 
 	b.capabilities = store.Register(b.registry, "capabilities", store.New(capabilityKeyFn))
+	b.capabilitiesByCluster = b.capabilities.AddIndex("byCluster", capabilityClusterKeyFn)
+
 	b.subscriptions = store.Register(b.registry, "subscriptions", store.New(subscriptionKeyFn))
 
 	b.updates = store.Register(b.registry, "updates", store.New(updateKeyFn))

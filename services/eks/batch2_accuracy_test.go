@@ -299,7 +299,7 @@ func TestBatch2_UpdateClusterConfig_SubnetIDs_Via_Handler(t *testing.T) {
 		},
 	})
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/upd-sub-cluster", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/upd-sub-cluster/update-config", map[string]any{
 		"resourcesVpcConfig": map[string]any{
 			"subnetIds": []string{"subnet-a", "subnet-b"},
 		},
@@ -390,7 +390,7 @@ func TestBatch2_AccessEntry_KubernetesGroups_Update(t *testing.T) {
 	})
 
 	rec := doREST(
-		t, h, http.MethodPut,
+		t, h, http.MethodPost,
 		"/clusters/ae-upd-cluster/access-entries/arn:aws:iam::123456789012:role/my-role",
 		map[string]any{
 			"kubernetesGroups": []string{"system:masters"},
@@ -502,7 +502,8 @@ func TestBatch2_Nodegroup_UpdateConfig_Via_UpdateNodegroupConfig(t *testing.T) {
 				"subnets":       []string{"subnet-x"},
 			})
 
-			rec := doREST(t, h, http.MethodPost, "/clusters/ng-uc-upd-"+tt.name+"/node-groups/ng1", tt.body)
+			path := "/clusters/ng-uc-upd-" + tt.name + "/node-groups/ng1/update-config"
+			rec := doREST(t, h, http.MethodPost, path, tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			desc := doREST(t, h, http.MethodGet, "/clusters/ng-uc-upd-"+tt.name+"/node-groups/ng1", nil)
@@ -578,7 +579,7 @@ func TestBatch2_UpdateNodegroupConfig_Labels(t *testing.T) {
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": clusterName})
 			doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups", tt.setup)
 
-			rec := doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups/ng1", tt.update)
+			rec := doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups/ng1/update-config", tt.update)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			desc := doREST(t, h, http.MethodGet, "/clusters/"+clusterName+"/node-groups/ng1", nil)
@@ -652,7 +653,7 @@ func TestBatch2_UpdateNodegroupConfig_Taints(t *testing.T) {
 			doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": clusterName})
 			doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups", tt.setup)
 
-			rec := doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups/ng1", tt.update)
+			rec := doREST(t, h, http.MethodPost, "/clusters/"+clusterName+"/node-groups/ng1/update-config", tt.update)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			desc := doREST(t, h, http.MethodGet, "/clusters/"+clusterName+"/node-groups/ng1", nil)
@@ -837,7 +838,9 @@ func TestBatch2_Insights_InsightStatus_Object(t *testing.T) {
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "ins-cluster"})
 
-	rec := doREST(t, h, http.MethodGet, "/clusters/ins-cluster/insights", nil)
+	// ListInsights is POST (it carries an optional filter body), not GET --
+	// verified against the SDK serializer.
+	rec := doREST(t, h, http.MethodPost, "/clusters/ins-cluster/insights", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
@@ -902,9 +905,9 @@ func TestBatch2_RegisterCluster_ConnectorConfig_Nested(t *testing.T) {
 			t.Parallel()
 
 			h := newTestEKSHandler(t)
-			// RegisterCluster path is POST /clusters/{placeholder}/register
+			// RegisterCluster path is the global POST /cluster-registrations.
 			// The cluster name comes from the request body, not the path.
-			rec := doREST(t, h, http.MethodPost, "/clusters/placeholder/register", tt.body)
+			rec := doREST(t, h, http.MethodPost, "/cluster-registrations", tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			cluster := parseResp(t, rec)["cluster"].(map[string]any)
@@ -987,7 +990,7 @@ func TestBatch2_UpdateClusterConfig_Handler_AccessConfig(t *testing.T) {
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "upd-ac-handler"})
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/upd-ac-handler", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/upd-ac-handler/update-config", map[string]any{
 		"accessConfig": map[string]any{
 			"authenticationMode": "API",
 		},
@@ -1007,7 +1010,7 @@ func TestBatch2_UpdateClusterConfig_Handler_ComputeConfig(t *testing.T) {
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "upd-cc-handler"})
 
-	rec := doREST(t, h, http.MethodPut, "/clusters/upd-cc-handler", map[string]any{
+	rec := doREST(t, h, http.MethodPost, "/clusters/upd-cc-handler/update-config", map[string]any{
 		"computeConfig": map[string]any{
 			"enabled":     true,
 			"nodeRoleArn": "arn:aws:iam::123:role/node",

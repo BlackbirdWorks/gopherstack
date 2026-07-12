@@ -52,12 +52,14 @@ type Insight struct {
 	Recommendation  string            `json:"recommendation,omitempty"`
 }
 
-// InsightsRefresh represents an EKS insights refresh request.
+// InsightsRefresh represents the cluster-level (singleton -- there is no
+// per-refresh id in the real API) EKS insights refresh operation state.
 type InsightsRefresh struct {
 	StartedAt   time.Time `json:"startedAt"`
-	ID          string    `json:"id"`
+	EndedAt     time.Time `json:"endedAt,omitzero"`
 	ClusterName string    `json:"clusterName"`
 	Status      string    `json:"status"`
+	Message     string    `json:"message,omitempty"`
 }
 
 // UpdateParam represents a single parameter changed by an EKS update operation.
@@ -286,32 +288,38 @@ func (b *InMemoryBackend) DescribeAddonConfiguration(addonName, addonVersion str
 
 // --- Capability CRUD ---
 
-// DeleteCapability removes a capability by name.
-func (b *InMemoryBackend) DeleteCapability(name string) (*Capability, error) {
+// DeleteCapability removes a capability by cluster and capability name.
+func (b *InMemoryBackend) DeleteCapability(clusterName, capabilityName string) (*Capability, error) {
 	b.mu.Lock("DeleteCapability")
 	defer b.mu.Unlock()
 
-	capa, ok := b.capabilities.Get(name)
+	key := capabilityKey(clusterName, capabilityName)
+
+	capa, ok := b.capabilities.Get(key)
 	if !ok {
-		return nil, fmt.Errorf("%w: capability %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: capability %s not found in cluster %s", ErrNotFound, capabilityName, clusterName)
 	}
 
 	cp := *capa
-	b.capabilities.Delete(name)
+	b.capabilities.Delete(key)
+
+	if capa.Tags != nil {
+		capa.Tags.Close()
+	}
 
 	cp.Status = statusDeleting
 
 	return &cp, nil
 }
 
-// DescribeCapability returns a capability by name.
-func (b *InMemoryBackend) DescribeCapability(name string) (*Capability, error) {
+// DescribeCapability returns a capability by cluster and capability name.
+func (b *InMemoryBackend) DescribeCapability(clusterName, capabilityName string) (*Capability, error) {
 	b.mu.RLock("DescribeCapability")
 	defer b.mu.RUnlock()
 
-	capa, ok := b.capabilities.Get(name)
+	capa, ok := b.capabilities.Get(capabilityKey(clusterName, capabilityName))
 	if !ok {
-		return nil, fmt.Errorf("%w: capability %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: capability %s not found in cluster %s", ErrNotFound, capabilityName, clusterName)
 	}
 
 	cp := *capa
@@ -319,35 +327,44 @@ func (b *InMemoryBackend) DescribeCapability(name string) (*Capability, error) {
 	return &cp, nil
 }
 
-// ListCapabilities returns all capability names sorted alphabetically.
-func (b *InMemoryBackend) ListCapabilities() []string {
+// ListCapabilities returns all capability names in a cluster sorted alphabetically.
+func (b *InMemoryBackend) ListCapabilities(clusterName string) []string {
 	b.mu.RLock("ListCapabilities")
 	defer b.mu.RUnlock()
 
-	// Capability's key IS its Name, so Snapshot's key-sorted order is already
-	// name-sorted order.
-	items := b.capabilities.Snapshot()
+	items := b.capabilitiesByCluster.Get(clusterName)
 	names := make([]string, len(items))
 
 	for i, c := range items {
-		names[i] = c.Name
+		names[i] = c.CapabilityName
 	}
+
+	sort.Strings(names)
 
 	return names
 }
 
-// UpdateCapability updates an existing capability.
-func (b *InMemoryBackend) UpdateCapability(name, version string) (*Capability, error) {
+// UpdateCapability updates an existing capability's role ARN and/or delete
+// propagation policy.
+func (b *InMemoryBackend) UpdateCapability(
+	clusterName, capabilityName, roleARN, deletePropagationPolicy string,
+) (*Capability, error) {
 	b.mu.Lock("UpdateCapability")
 	defer b.mu.Unlock()
 
-	capa, ok := b.capabilities.Get(name)
+	key := capabilityKey(clusterName, capabilityName)
+
+	capa, ok := b.capabilities.Get(key)
 	if !ok {
-		return nil, fmt.Errorf("%w: capability %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: capability %s not found in cluster %s", ErrNotFound, capabilityName, clusterName)
 	}
 
-	if version != "" {
-		capa.Version = version
+	if roleARN != "" {
+		capa.RoleARN = roleARN
+	}
+
+	if deletePropagationPolicy != "" {
+		capa.DeletePropagationPolicy = deletePropagationPolicy
 	}
 
 	cp := *capa
@@ -932,7 +949,8 @@ func (b *InMemoryBackend) ListInsights(clusterName string) ([]*Insight, error) {
 	}, nil
 }
 
-// StartInsightsRefresh starts an insights refresh for a cluster.
+// StartInsightsRefresh starts the (cluster-level singleton) insights refresh
+// operation for a cluster.
 func (b *InMemoryBackend) StartInsightsRefresh(clusterName string) (*InsightsRefresh, error) {
 	b.mu.RLock("StartInsightsRefresh")
 	defer b.mu.RUnlock()
@@ -941,16 +959,20 @@ func (b *InMemoryBackend) StartInsightsRefresh(clusterName string) (*InsightsRef
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
+	now := time.Now().UTC()
+
 	return &InsightsRefresh{
-		ID:          stableID(clusterName + "/refresh/" + time.Now().String()),
 		ClusterName: clusterName,
 		Status:      "COMPLETED",
-		StartedAt:   time.Now().UTC(),
+		Message:     "Insights refresh completed successfully",
+		StartedAt:   now,
+		EndedAt:     now,
 	}, nil
 }
 
-// DescribeInsightsRefresh returns status of an insights refresh.
-func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string) (*InsightsRefresh, error) {
+// DescribeInsightsRefresh returns the status of the (cluster-level singleton)
+// insights refresh operation for a cluster.
+func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName string) (*InsightsRefresh, error) {
 	b.mu.RLock("DescribeInsightsRefresh")
 	defer b.mu.RUnlock()
 
@@ -958,11 +980,14 @@ func (b *InMemoryBackend) DescribeInsightsRefresh(clusterName, refreshID string)
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
+	now := time.Now().UTC()
+
 	return &InsightsRefresh{
-		ID:          refreshID,
 		ClusterName: clusterName,
 		Status:      "COMPLETED",
-		StartedAt:   time.Now().UTC(),
+		Message:     "Insights refresh completed successfully",
+		StartedAt:   now,
+		EndedAt:     now,
 	}, nil
 }
 
