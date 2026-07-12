@@ -870,8 +870,8 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 
 func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		Name        *string `json:"Name"`
+		Description *string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -989,8 +989,9 @@ func (h *Handler) handleUpdateEnvironment(
 	applicationID, environmentID string,
 ) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		Name        *string    `json:"Name"`
+		Description *string    `json:"Description"`
+		Monitors    *[]Monitor `json:"Monitors"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -999,7 +1000,9 @@ func (h *Handler) handleUpdateEnvironment(
 		)
 	}
 
-	env, err := h.Backend.UpdateEnvironment(applicationID, environmentID, req.Name, req.Description)
+	env, err := h.Backend.UpdateEnvironment(
+		applicationID, environmentID, req.Name, req.Description, req.Monitors,
+	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -1129,8 +1132,10 @@ func (h *Handler) handleUpdateConfigurationProfile(
 	applicationID, profileID string,
 ) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		Name             *string      `json:"Name"`
+		Description      *string      `json:"Description"`
+		RetrievalRoleArn *string      `json:"RetrievalRoleArn"`
+		Validators       *[]Validator `json:"Validators"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -1144,6 +1149,8 @@ func (h *Handler) handleUpdateConfigurationProfile(
 		profileID,
 		req.Name,
 		req.Description,
+		req.RetrievalRoleArn,
+		req.Validators,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
@@ -1233,9 +1240,40 @@ func (h *Handler) handleCreateHostedConfigurationVersion(
 		)
 	}
 
-	c.Response().Header().Set("Appconfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
+	setHostedConfigurationVersionHeaders(c, v)
 
-	return c.JSON(http.StatusCreated, v)
+	return c.Blob(http.StatusCreated, v.ContentType, v.Content)
+}
+
+// setHostedConfigurationVersionHeaders sets the response headers the real
+// AWS AppConfig REST API returns for CreateHostedConfigurationVersion and
+// GetHostedConfigurationVersion. Both operations carry the raw configuration
+// content as the httpPayload response body, with every other field --
+// including the version number -- bound to a response header (see the
+// awsRestjson1_deserializeOpHttpBindingsGetHostedConfigurationVersionOutput /
+// ...CreateHostedConfigurationVersionOutput http bindings in
+// aws-sdk-go-v2/service/appconfig/deserializers.go): Application-Id,
+// Configuration-Profile-Id, Content-Type, Description, VersionLabel, and
+// Version-Number. Previously this handler set a fabricated
+// "Appconfig-Configuration-Version" header instead of "Version-Number" and
+// omitted the rest, so a real SDK client's VersionNumber/ApplicationId/
+// ConfigurationProfileId/Description/VersionLabel output fields always came
+// back zero-valued.
+func setHostedConfigurationVersionHeaders(c *echo.Context, v *HostedConfigurationVersion) {
+	h := c.Response().Header()
+	h.Set("Application-Id", v.ApplicationID)
+	h.Set("Configuration-Profile-Id", v.ConfigurationProfileID)
+	h.Set("Content-Type", v.ContentType)
+
+	if v.Description != "" {
+		h.Set("Description", v.Description)
+	}
+
+	if v.VersionLabel != "" {
+		h.Set("Versionlabel", v.VersionLabel)
+	}
+
+	h.Set("Version-Number", strconv.Itoa(int(v.VersionNumber)))
 }
 
 func (h *Handler) handleGetHostedConfigurationVersion(
@@ -1255,8 +1293,7 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 		)
 	}
 
-	c.Response().Header().Set("Content-Type", v.ContentType)
-	c.Response().Header().Set("Appconfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
+	setHostedConfigurationVersionHeaders(c, v)
 
 	return c.Blob(http.StatusOK, v.ContentType, v.Content)
 }
@@ -1377,8 +1414,8 @@ func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID str
 		DeploymentDurationInMinutes *int32   `json:"DeploymentDurationInMinutes"`
 		FinalBakeTimeInMinutes      *int32   `json:"FinalBakeTimeInMinutes"`
 		GrowthFactor                *float32 `json:"GrowthFactor"`
+		Description                 *string  `json:"Description"`
 		Name                        string   `json:"Name"`
-		Description                 string   `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(
@@ -1677,7 +1714,7 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 	var req struct {
 		Actions     map[string][]ExtensionAction  `json:"Actions"`
 		Parameters  map[string]ExtensionParameter `json:"Parameters"`
-		Description string                        `json:"Description"`
+		Description *string                       `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(

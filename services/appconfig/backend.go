@@ -245,9 +245,12 @@ func (b *InMemoryBackend) ListApplications(
 	return page, token
 }
 
-// UpdateApplication updates an application's name and description.
+// UpdateApplication updates an application's name and description. A nil
+// name/description means the request omitted that field, and AWS AppConfig
+// leaves an omitted field unchanged rather than clearing it (only an
+// explicit, present value -- including "" -- overwrites).
 func (b *InMemoryBackend) UpdateApplication(
-	applicationID, name, description string,
+	applicationID string, name, description *string,
 ) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
@@ -258,11 +261,14 @@ func (b *InMemoryBackend) UpdateApplication(
 	}
 
 	updated := *existing
-	if name != "" {
-		updated.Name = name
+	if name != nil && *name != "" {
+		updated.Name = *name
 	}
 
-	updated.Description = description
+	if description != nil {
+		updated.Description = *description
+	}
+
 	updated.UpdatedAt = time.Now()
 	b.applications.Put(&updated)
 	cp := updated
@@ -395,9 +401,14 @@ func (b *InMemoryBackend) ListEnvironments(
 	return page, token, nil
 }
 
-// UpdateEnvironment updates an environment's name and description.
+// UpdateEnvironment updates an environment's name, description, and
+// monitors. A nil name/description/monitors means the request omitted that
+// field, and AWS AppConfig leaves an omitted field unchanged rather than
+// clearing it.
 func (b *InMemoryBackend) UpdateEnvironment(
-	applicationID, environmentID, name, description string,
+	applicationID, environmentID string,
+	name, description *string,
+	monitors *[]Monitor,
 ) (*Environment, error) {
 	b.mu.Lock("UpdateEnvironment")
 	defer b.mu.Unlock()
@@ -408,11 +419,18 @@ func (b *InMemoryBackend) UpdateEnvironment(
 	}
 
 	updated := *existing
-	if name != "" {
-		updated.Name = name
+	if name != nil && *name != "" {
+		updated.Name = *name
 	}
 
-	updated.Description = description
+	if description != nil {
+		updated.Description = *description
+	}
+
+	if monitors != nil {
+		updated.Monitors = *monitors
+	}
+
 	updated.UpdatedAt = time.Now()
 	b.environments.Put(&updated)
 	cp := updated
@@ -528,9 +546,14 @@ func (b *InMemoryBackend) ListConfigurationProfiles(
 	return page, token, nil
 }
 
-// UpdateConfigurationProfile updates a configuration profile.
+// UpdateConfigurationProfile updates a configuration profile. A nil
+// name/description/retrievalRoleArn/validators means the request omitted
+// that field, and AWS AppConfig leaves an omitted field unchanged rather
+// than clearing it.
 func (b *InMemoryBackend) UpdateConfigurationProfile(
-	applicationID, profileID, name, description string,
+	applicationID, profileID string,
+	name, description, retrievalRoleArn *string,
+	validators *[]Validator,
 ) (*ConfigurationProfile, error) {
 	b.mu.Lock("UpdateConfigurationProfile")
 	defer b.mu.Unlock()
@@ -545,11 +568,22 @@ func (b *InMemoryBackend) UpdateConfigurationProfile(
 	}
 
 	updated := *existing
-	if name != "" {
-		updated.Name = name
+	if name != nil && *name != "" {
+		updated.Name = *name
 	}
 
-	updated.Description = description
+	if description != nil {
+		updated.Description = *description
+	}
+
+	if retrievalRoleArn != nil {
+		updated.RetrievalRoleArn = *retrievalRoleArn
+	}
+
+	if validators != nil {
+		updated.Validators = *validators
+	}
+
 	b.configProfiles.Put(&updated)
 	cp := updated
 
@@ -795,9 +829,12 @@ func (b *InMemoryBackend) ListDeploymentStrategies(
 	return page, token
 }
 
-// UpdateDeploymentStrategy updates a deployment strategy.
+// UpdateDeploymentStrategy updates a deployment strategy. A nil description
+// means the request omitted that field, and AWS AppConfig leaves an omitted
+// field unchanged rather than clearing it.
 func (b *InMemoryBackend) UpdateDeploymentStrategy(
-	strategyID, name, description string,
+	strategyID, name string,
+	description *string,
 	deploymentDuration, bakeTime int32,
 	growthFactor float32,
 ) (*DeploymentStrategy, error) {
@@ -818,7 +855,10 @@ func (b *InMemoryBackend) UpdateDeploymentStrategy(
 		updated.Name = name
 	}
 
-	updated.Description = description
+	if description != nil {
+		updated.Description = *description
+	}
+
 	updated.DeploymentDurationInMinutes = deploymentDuration
 	updated.FinalBakeTimeInMinutes = bakeTime
 	updated.GrowthFactor = growthFactor
@@ -1135,9 +1175,12 @@ func (b *InMemoryBackend) ListExtensions(
 	return page, token
 }
 
-// UpdateExtension updates an extension's description, actions, and parameters.
+// UpdateExtension updates an extension's description, actions, and
+// parameters. A nil description means the request omitted that field, and
+// AWS AppConfig leaves an omitted field unchanged rather than clearing it.
 func (b *InMemoryBackend) UpdateExtension(
-	extensionIdentifier, description string,
+	extensionIdentifier string,
+	description *string,
 	actions map[string][]ExtensionAction,
 	parameters map[string]ExtensionParameter,
 ) (*Extension, error) {
@@ -1150,7 +1193,9 @@ func (b *InMemoryBackend) UpdateExtension(
 	}
 
 	updated := *ext
-	updated.Description = description
+	if description != nil {
+		updated.Description = *description
+	}
 
 	if actions != nil {
 		updated.Actions = actions

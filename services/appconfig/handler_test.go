@@ -281,6 +281,35 @@ func TestHandler_UpdateApplication(t *testing.T) {
 	assert.Equal(t, "new desc", updated.Description)
 }
 
+// TestHandler_UpdateApplication_OmittedDescriptionPreserved verifies that
+// omitting Description from an UpdateApplication request leaves the
+// existing description untouched, matching real AWS AppConfig's
+// UpdateApplicationInput.Description (an optional *string member: absent
+// means unchanged, only a present value -- including "" -- overwrites).
+func TestHandler_UpdateApplication_OmittedDescriptionPreserved(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/applications",
+		[]byte(`{"Name":"orig","Description":"keep-me"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+
+	// Update only Name; Description is omitted from the request body.
+	rec = doRequest(t, h, http.MethodPatch, "/applications/"+app.ID,
+		[]byte(`{"Name":"renamed"}`))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updated appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.Equal(t, "renamed", updated.Name)
+	assert.Equal(t, "keep-me", updated.Description,
+		"omitted Description must not clobber the existing value")
+}
+
 func TestHandler_Environment_CRUD(t *testing.T) {
 	t.Parallel()
 
@@ -652,7 +681,7 @@ func TestBackend_UpdateDeploymentStrategy_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.UpdateDeploymentStrategy("nonexistent", "name", "", 0, 0, 0)
+	_, err := b.UpdateDeploymentStrategy("nonexistent", "name", new(""), 0, 0, 0)
 	require.Error(t, err)
 }
 
@@ -758,7 +787,7 @@ func TestBackend_UpdateConfigurationProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.UpdateConfigurationProfile("app-1", "prof-1", "name", "")
+	_, err := b.UpdateConfigurationProfile("app-1", "prof-1", new("name"), new(""), nil, nil)
 	require.Error(t, err)
 }
 
@@ -774,7 +803,7 @@ func TestBackend_UpdateEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.UpdateEnvironment("app-1", "env-1", "name", "")
+	_, err := b.UpdateEnvironment("app-1", "env-1", new("name"), new(""), nil)
 	require.Error(t, err)
 }
 
@@ -849,6 +878,51 @@ func TestHandler_UpdateEnvironment_HTTP(t *testing.T) {
 	assert.Equal(t, "production", updated.Name)
 }
 
+// TestHandler_UpdateEnvironment_OmittedFieldsPreserved verifies that
+// UpdateEnvironment leaves Description and Monitors unchanged when they are
+// omitted from the request, and that a present Monitors list does replace
+// the existing one -- matching UpdateEnvironmentInput's optional members.
+func TestHandler_UpdateEnvironment_OmittedFieldsPreserved(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"upd-env-app2"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
+		[]byte(`{"Name":"staging","Description":"keep-me","Monitors":[{"AlarmArn":"arn:aws:cloudwatch:alarm1"}]}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var env appconfig.Environment
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.Len(t, env.Monitors, 1)
+
+	// Update only Name; Description and Monitors are omitted.
+	rec = doRequest(t, h, http.MethodPatch, "/applications/"+app.ID+"/environments/"+env.ID,
+		[]byte(`{"Name":"production"}`))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updated appconfig.Environment
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.Equal(t, "production", updated.Name)
+	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
+	require.Len(t, updated.Monitors, 1, "omitted Monitors must be preserved")
+	assert.Equal(t, "arn:aws:cloudwatch:alarm1", updated.Monitors[0].AlarmArn)
+
+	// A present (even empty) Monitors list replaces the existing one.
+	rec = doRequest(t, h, http.MethodPatch, "/applications/"+app.ID+"/environments/"+env.ID,
+		[]byte(`{"Monitors":[]}`))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var cleared appconfig.Environment
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cleared))
+	assert.Empty(t, cleared.Monitors, "an explicit empty Monitors list must replace the existing one")
+}
+
 func TestHandler_ListConfigurationProfiles_HTTP(t *testing.T) {
 	t.Parallel()
 
@@ -917,6 +991,45 @@ func TestHandler_UpdateConfigurationProfile_HTTP(t *testing.T) {
 	assert.Equal(t, "new-name", updated.Name)
 }
 
+// TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators verifies
+// that UpdateConfigurationProfile applies RetrievalRoleArn and Validators
+// when present (previously silently dropped -- the backend only accepted
+// Name/Description) and preserves Description when it is omitted, matching
+// real UpdateConfigurationProfileInput's optional members.
+func TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"upd-prof-app2"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var app appconfig.Application
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+
+	profileBody := []byte(
+		`{"Name":"old-name","Description":"keep-me","LocationUri":"hosted","Type":"AWS.Freeform"}`,
+	)
+	rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", profileBody)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var profile appconfig.ConfigurationProfile
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+
+	rec = doRequest(t, h, http.MethodPatch,
+		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID,
+		[]byte(`{"RetrievalRoleArn":"arn:aws:iam::123456789012:role/retrieval",`+
+			`"Validators":[{"Type":"JSON_SCHEMA","Content":"{}"}]}`))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updated appconfig.ConfigurationProfile
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.Equal(t, "arn:aws:iam::123456789012:role/retrieval", updated.RetrievalRoleArn,
+		"RetrievalRoleArn must be applied, not silently dropped")
+	require.Len(t, updated.Validators, 1, "Validators must be applied, not silently dropped")
+	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
+}
+
 func TestHandler_ListDeploymentStrategies_HTTP(t *testing.T) {
 	t.Parallel()
 
@@ -929,6 +1042,34 @@ func TestHandler_ListDeploymentStrategies_HTTP(t *testing.T) {
 
 	rec = doRequest(t, h, http.MethodGet, "/deploymentstrategies", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestHandler_UpdateDeploymentStrategy_OmittedDescriptionPreserved verifies
+// that updating only GrowthFactor leaves Description unchanged when it is
+// omitted, matching real UpdateDeploymentStrategyInput's optional *string
+// Description member.
+func TestHandler_UpdateDeploymentStrategy_OmittedDescriptionPreserved(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := []byte(`{"Name":"upd-strat","Description":"keep-me",` +
+		`"DeploymentDurationInMinutes":0,"FinalBakeTimeInMinutes":0,` +
+		`"GrowthFactor":10,"GrowthType":"LINEAR","ReplicateTo":"NONE"}`)
+	rec := doRequest(t, h, http.MethodPost, "/deploymentstrategies", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var strat appconfig.DeploymentStrategy
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
+
+	rec = doRequest(t, h, http.MethodPatch, "/deploymentstrategies/"+strat.ID,
+		[]byte(`{"GrowthFactor":50}`))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updated appconfig.DeploymentStrategy
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.InDelta(t, float32(50), updated.GrowthFactor, 0.001)
+	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
 }
 
 func TestHandler_Environment_HTTP_NotFound(t *testing.T) {
@@ -1892,6 +2033,32 @@ func TestHandler_UpdateExtension(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
 	assert.Equal(t, "updated", updated.Description)
 	assert.Equal(t, int32(2), updated.VersionNumber)
+}
+
+// TestHandler_UpdateExtension_OmittedDescriptionPreserved verifies that
+// updating an extension's Actions without including Description leaves the
+// existing description unchanged, matching real UpdateExtensionInput's
+// optional *string Description member.
+func TestHandler_UpdateExtension_OmittedDescriptionPreserved(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/extensions",
+		[]byte(`{"Name":"update-ext2","Description":"keep-me"}`))
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var ext appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+
+	// Update Actions only; Description is omitted.
+	rec = doRequest(t, h, http.MethodPatch, "/extensions/"+ext.ID,
+		[]byte(`{"Actions":{"ON_DEPLOYMENT_START":[{"Name":"a","Uri":"lambda:1"}]}}`))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var updated appconfig.Extension
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	assert.Equal(t, "keep-me", updated.Description, "omitted Description must not be cleared")
 }
 
 func TestHandler_UpdateExtension_NotFound(t *testing.T) {

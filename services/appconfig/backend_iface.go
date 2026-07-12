@@ -19,8 +19,12 @@ type StorageBackend interface {
 	GetApplication(applicationID string) (*Application, error)
 	// ListApplications returns paginated applications.
 	ListApplications(nextToken string, maxResults int) ([]Application, string)
-	// UpdateApplication updates an application's name and description.
-	UpdateApplication(applicationID, name, description string) (*Application, error)
+	// UpdateApplication updates an application's name and description. A nil
+	// name/description means the field was omitted from the request and must
+	// be left unchanged (real UpdateApplicationInput.Name/Description are
+	// optional *string members; only a present, non-nil member overwrites
+	// the existing value -- see AWS AppConfig's UpdateApplication contract).
+	UpdateApplication(applicationID string, name, description *string) (*Application, error)
 	// DeleteApplication deletes an application by ID.
 	DeleteApplication(applicationID string) error
 
@@ -33,8 +37,16 @@ type StorageBackend interface {
 	GetEnvironment(applicationID, environmentID string) (*Environment, error)
 	// ListEnvironments returns paginated environments for an application.
 	ListEnvironments(applicationID, nextToken string, maxResults int) ([]Environment, string, error)
-	// UpdateEnvironment updates an environment's name and description.
-	UpdateEnvironment(applicationID, environmentID, name, description string) (*Environment, error)
+	// UpdateEnvironment updates an environment's name, description, and
+	// monitors. A nil name/description leaves the field unchanged (see
+	// UpdateApplication doc); a nil monitors leaves the existing monitor
+	// list unchanged, while a non-nil (possibly empty) slice replaces it,
+	// matching UpdateEnvironmentInput's optional Monitors member.
+	UpdateEnvironment(
+		applicationID, environmentID string,
+		name, description *string,
+		monitors *[]Monitor,
+	) (*Environment, error)
 	// DeleteEnvironment deletes an environment.
 	DeleteEnvironment(applicationID, environmentID string) error
 
@@ -50,9 +62,15 @@ type StorageBackend interface {
 		applicationID, nextToken string,
 		maxResults int,
 	) ([]ConfigurationProfile, string, error)
-	// UpdateConfigurationProfile updates a configuration profile.
+	// UpdateConfigurationProfile updates a configuration profile. Nil
+	// name/description/retrievalRoleArn leave the field unchanged; a nil
+	// validators leaves the existing validator list unchanged, while a
+	// non-nil (possibly empty) slice replaces it -- matching
+	// UpdateConfigurationProfileInput's optional members.
 	UpdateConfigurationProfile(
-		applicationID, profileID, name, description string,
+		applicationID, profileID string,
+		name, description, retrievalRoleArn *string,
+		validators *[]Validator,
 	) (*ConfigurationProfile, error)
 	// DeleteConfigurationProfile deletes a configuration profile.
 	DeleteConfigurationProfile(applicationID, profileID string) error
@@ -86,9 +104,14 @@ type StorageBackend interface {
 	GetDeploymentStrategy(strategyID string) (*DeploymentStrategy, error)
 	// ListDeploymentStrategies returns paginated deployment strategies.
 	ListDeploymentStrategies(nextToken string, maxResults int) ([]DeploymentStrategy, string)
-	// UpdateDeploymentStrategy updates a deployment strategy.
+	// UpdateDeploymentStrategy updates a deployment strategy. A nil
+	// description leaves the field unchanged (real
+	// UpdateDeploymentStrategyInput.Description is an optional *string
+	// member); name has no counterpart in the real API and is applied only
+	// when non-empty, matching this backend's pre-existing behavior.
 	UpdateDeploymentStrategy(
-		strategyID, name, description string,
+		strategyID, name string,
+		description *string,
 		deploymentDuration, bakeTime int32,
 		growthFactor float32,
 	) (*DeploymentStrategy, error)
@@ -131,9 +154,12 @@ type StorageBackend interface {
 		nameFilter string,
 		versionNumber int32,
 	) ([]Extension, string)
-	// UpdateExtension updates an extension's description, actions, and parameters.
+	// UpdateExtension updates an extension's description, actions, and
+	// parameters. A nil description leaves the field unchanged (real
+	// UpdateExtensionInput.Description is an optional *string member).
 	UpdateExtension(
-		extensionIdentifier, description string,
+		extensionIdentifier string,
+		description *string,
 		actions map[string][]ExtensionAction,
 		parameters map[string]ExtensionParameter,
 	) (*Extension, error)

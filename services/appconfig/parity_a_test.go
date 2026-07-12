@@ -3,6 +3,7 @@ package appconfig_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -318,8 +319,16 @@ func TestParity_DeploymentNumberIncrements(t *testing.T) {
 }
 
 // TestParity_HostedConfigVersionResponseHeaders verifies that
-// CreateHostedConfigurationVersion sets the Appconfig-Configuration-Version
-// response header, matching real AWS AppConfig behavior.
+// CreateHostedConfigurationVersion and GetHostedConfigurationVersion return
+// the real AWS AppConfig wire shape: the configuration content as the raw
+// response body (not a JSON envelope), with every other field -- including
+// the version number -- bound to a response header. Real aws-sdk-go-v2
+// reads Version-Number (not a fabricated "Appconfig-Configuration-Version"),
+// plus Application-Id, Configuration-Profile-Id, Description, and
+// VersionLabel; see
+// awsRestjson1_deserializeOpHttpBindingsCreateHostedConfigurationVersionOutput
+// / ...GetHostedConfigurationVersionOutput in
+// aws-sdk-go-v2/service/appconfig/deserializers.go.
 func TestParity_HostedConfigVersionResponseHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -346,19 +355,31 @@ func TestParity_HostedConfigVersionResponseHeaders(t *testing.T) {
 	base := "/applications/" + app.ID + "/configurationprofiles/" + prof.ID +
 		"/hostedconfigurationversions"
 
-	for wantVer, content := range [][]byte{
+	contents := [][]byte{
 		[]byte(`{"value":"first"}`),
 		[]byte(`{"value":"second"}`),
 		[]byte(`{"value":"third"}`),
-	} {
+	}
+
+	for i, content := range contents {
+		wantVer := strconv.Itoa(i + 1)
+
 		rec := doRequest(t, h, http.MethodPost, base, content)
 		require.Equal(t, http.StatusCreated, rec.Code)
 
-		verHeader := rec.Header().Get("Appconfig-Configuration-Version")
-		assert.NotEmpty(t, verHeader,
-			"Appconfig-Configuration-Version header must be set on CreateHostedConfigurationVersion")
-		assert.Equal(t, string(rune('1'+wantVer)), verHeader,
-			"version header must increment with each version")
+		assert.Equal(t, wantVer, rec.Header().Get("Version-Number"),
+			"Version-Number header must increment with each version (real SDK deserializer key)")
+		assert.Equal(t, app.ID, rec.Header().Get("Application-Id"))
+		assert.Equal(t, prof.ID, rec.Header().Get("Configuration-Profile-Id"))
+		assert.Equal(t, content, rec.Body.Bytes(),
+			"response body must be the raw configuration content, not a JSON envelope")
+
+		getRec := doRequest(t, h, http.MethodGet, base+"/"+wantVer, nil)
+		require.Equal(t, http.StatusOK, getRec.Code)
+		assert.Equal(t, wantVer, getRec.Header().Get("Version-Number"))
+		assert.Equal(t, app.ID, getRec.Header().Get("Application-Id"))
+		assert.Equal(t, prof.ID, getRec.Header().Get("Configuration-Profile-Id"))
+		assert.Equal(t, content, getRec.Body.Bytes())
 	}
 }
 
