@@ -3,6 +3,8 @@ package redshift
 import (
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateClusterSnapshot creates a manual snapshot of the specified cluster.
@@ -169,19 +171,47 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 	}
 
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", clusterID, b.accountID, b.region)
+
+	// Mirror CreateCluster's lifecycle model: when no activation delay is
+	// configured, the restored cluster is immediately "available" (matching
+	// every other synchronous lifecycle transition in this backend). When a
+	// delay is configured, start in "restoring" and schedule the transition
+	// to "available" via the managed reconciler -- previously this status
+	// was hardcoded to "restoring" with no transition ever scheduled, so a
+	// restored cluster stayed stuck in "restoring" forever and SDK waiters
+	// polling for cluster-available would never observe completion.
+	initialStatus := clusterStatusAvailable
+	if b.clusterActivationDelay > 0 {
+		initialStatus = "restoring"
+	}
+
 	cluster := &Cluster{
 		ClusterIdentifier: clusterID,
 		NodeType:          nodeType,
 		ClusterType:       clusterTypeMultiNode,
 		Endpoint:          endpoint,
-		Status:            "restoring",
+		Status:            initialStatus,
 		DBName:            dbName,
 		MasterUsername:    masterUser,
 		Port:              defaultPort,
 		NumberOfNodes:     numberOfNodes,
+		// Every cluster must own a live Tags collection: CreateCluster does
+		// this, and DescribeTags/CreateTags/DeleteTags call methods on
+		// cluster.Tags unconditionally for every cluster in the backend. A
+		// nil Tags here previously caused a nil-pointer panic the moment
+		// DescribeTags (or a tag-filtered DescribeClusters) ran after any
+		// restore.
+		Tags: tags.New("redshift.cluster." + clusterID + ".tags"),
 	}
 
 	b.clusters.Put(cluster)
+
+	if b.clusterActivationDelay > 0 {
+		b.scheduleClusterTransitionLocked(clusterID, &clusterTransition{
+			effectiveAt: time.Now().Add(b.clusterActivationDelay),
+			status:      clusterStatusAvailable,
+		})
+	}
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)

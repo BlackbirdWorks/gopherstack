@@ -19,13 +19,25 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 	nodeType := vals.Get("NodeType")
 	masterUserPassword := vals.Get("MasterUserPassword")
-	encryptedStr := vals.Get("Encrypted")
-	enhancedVpcRoutingStr := vals.Get("EnhancedVpcRouting")
 	numberOfNodesStr := vals.Get("NumberOfNodes")
 	applyImmediatelyStr := vals.Get("ApplyImmediately")
 
-	encrypted := encryptedStr == paramValueTrue
-	enhancedVpcRouting := enhancedVpcRoutingStr == paramValueTrue
+	// Encrypted/EnhancedVpcRouting are tri-state on the wire (real
+	// ModifyClusterInput fields are *bool): only build a pointer when the
+	// form actually included the key, so "not specified" is distinguishable
+	// from "explicitly false" (e.g. decrypting a cluster).
+	var encrypted *bool
+	if v := vals.Get("Encrypted"); v != "" {
+		b := v == paramValueTrue
+		encrypted = &b
+	}
+
+	var enhancedVpcRouting *bool
+	if v := vals.Get("EnhancedVpcRouting"); v != "" {
+		b := v == paramValueTrue
+		enhancedVpcRouting = &b
+	}
+
 	applyImmediately := applyImmediatelyStr != "false"
 
 	numberOfNodes := 0
