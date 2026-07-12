@@ -3266,6 +3266,12 @@ func (b *InMemoryBackend) ReplicateKey(
 		return nil, fmt.Errorf("%w: ReplicaRegion must not be empty", ErrValidation)
 	}
 
+	// An inline policy, if supplied, must be a well-formed key policy document
+	// (same rule CreateKey applies to its own Policy field).
+	if input.Policy != "" && !validKeyPolicyDoc(input.Policy) {
+		return nil, ErrMalformedPolicyDocument
+	}
+
 	b.mu.Lock("ReplicateKey")
 	defer b.mu.Unlock()
 
@@ -3338,6 +3344,17 @@ func (b *InMemoryBackend) ReplicateKey(
 
 	// Store replica key in the target region's store.
 	b.keysStore(input.ReplicaRegion).Put(replica)
+
+	// Persist the caller-supplied policy so GetKeyPolicy on the replica returns
+	// it verbatim rather than synthesizing the default -- the key policy is not
+	// a shared multi-region property, so the replica does not inherit the
+	// source key's policy. Mirrors CreateKey's identical Policy handling; see
+	// the CreateKey comment above for why this matters to Terraform's
+	// aws_kms_replica_key resource (it polls GetKeyPolicy after apply the same
+	// way aws_kms_key does).
+	if input.Policy != "" {
+		b.policiesStore(input.ReplicaRegion)[replica.KeyID] = input.Policy
+	}
 
 	// Record the replica key ID on the source (primary) key so DescribeKey can
 	// return the full MultiRegionConfiguration.

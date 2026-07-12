@@ -1,12 +1,17 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.54.0
-last_audit_commit: eb94f3c3
-last_audit_date: 2026-07-11
-overall: A-           # re-audit; local surface unchanged since last sweep (sdk bumped
-                       # 1.53.6->1.54.0, additive-only: request serialization snapshot
-                       # tests, no new ops/fields). Found + fixed 2 missing errCodeLookup
-                       # entries and 1 made-up default exception name.
+last_audit_commit: 05e127fa13a618837560e0b6a56098937fc1cae4
+last_audit_date: 2026-07-12
+overall: A            # Terraform-lifecycle-focused re-audit (full apply/plan/destroy
+                       # cycle with no drift). Found + fixed 1 CreateKey-Policy-class
+                       # regression on ReplicateKey (aws_kms_replica_key would have hit
+                       # the same 10-minute GetKeyPolicy poll hang the already-fixed
+                       # CreateKey bug caused) and 1 real persistence gap (KMS resource
+                       # tags live in a Handler-level side map, not the backend, and were
+                       # never included in Snapshot/Restore -- silently dropped across any
+                       # process restart with persistence enabled, which is exactly the
+                       # perpetual-plan-drift bug class this sweep was hunting for).
 ops:
   CreateKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag)"}
   DescribeKey: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -49,7 +54,7 @@ ops:
   GetParametersForImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-2048/3072/4096 wrapping keypair generated per call"}
   ImportKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok, note: "real RSA-OAEP unwrap of caller material"}
   DeleteImportedKeyMaterial: {wire: ok, errors: ok, state: ok, persist: ok}
-  ReplicateKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "tag validation moved before replica creation (was: orphan-leak on bad tag, and tags on ReplicateKey bypassed validateTag entirely)"}
+  ReplicateKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "tag validation moved before replica creation (was: orphan-leak on bad tag, and tags on ReplicateKey bypassed validateTag entirely); ReplicateKeyInput was ALSO missing the Policy field entirely (confirmed against aws-sdk-go-v2/service/kms@v1.54.0's api_op_ReplicateKey.go) -- an inline replica policy was silently dropped, so GetKeyPolicy on the replica always returned the synthesized default, the exact same bug class (and same Terraform symptom: aws_kms_replica_key's post-apply GetKeyPolicy poll never converges) as the already-fixed CreateKey Policy bug. Fixed by adding Policy (+ BypassPolicyLockoutSafetyCheck, unused like CreateKey's own copy since there is no IAM layer) to ReplicateKeyInput and persisting it into the replica's region-scoped policiesStore, mirroring CreateKey exactly."}
   UpdateKeyDescription: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdatePrimaryRegion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomKeyStore: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -59,9 +64,9 @@ ops:
   DisconnectCustomKeyStore: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateCustomKeyStore: {wire: ok, errors: ok, state: ok, persist: ok}
   GetKeyLastUsage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not a real AWS KMS op; internal telemetry accessor kept from a prior pass"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: n/a, note: "tags stored via pkgs/tags, not in backendSnapshot (see gaps)"}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListResourceTags: {wire: ok, errors: ok, state: ok, persist: n/a}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: fixed, note: "tags stored via pkgs/tags in a Handler-level side map (Handler.tags, keyed by KeyID), NOT in InMemoryBackend.backendSnapshot -- Handler.Snapshot previously delegated straight to Backend.Snapshot and never serialized Handler.tags at all, so a process restart with persistence enabled silently dropped every key's tags (ListResourceTags stayed correct within a single running process, masking the gap). Fixed: Handler.Snapshot/Restore now wrap the backend snapshot together with a tags map (see persistence.go's handlerSnapshot); a handlerFormat marker distinguishes the new wrapped shape from a legacy pre-fix snapshot (raw backend bytes) so old on-disk snapshots still restore backend state cleanly, just without tags (no worse than before)."}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: fixed, note: "same Handler.tags persistence fix as TagResource"}
+  ListResourceTags: {wire: ok, errors: ok, state: ok, persist: fixed, note: "same Handler.tags persistence fix as TagResource"}
 families:
   crypto_core: {status: ok, note: "AES-256-GCM (real Seal/Open, AAD = keyID + sorted encryption-context pairs), RSA-OAEP-SHA-256/SHA-1 fallback, RSASSA-PSS/PKCS1v15, ECDSA P-256/384/521, ECDH (crypto/ecdh), HMAC-SHA-256/384/512 — all real crypto/*, no mock byte-flipping anywhere in crypto.go"}
   error_classification: {status: fixed, note: "kmsErrorTable was missing entries for ErrExpiredKeyMaterial and ErrKeyMaterialUnavailable (raised by checkKeyMaterialExpiry/requireKeyMaterial, reachable from every crypto op: Encrypt, Decrypt, ReEncrypt, Sign, Verify, GetPublicKey, GenerateMac, VerifyMac, DeriveSharedSecret, GenerateDataKeyPair(WithoutPlaintext)), so both fell through to the generic 500 default. Also, that generic default itself emitted the type string \"InternalServiceError\", which is not a real KMS exception name (the real SDK's unclassified-server-error type is KMSInternalException) -- a caller's errors.As(&types.KMSInternalException{}) would never match. Fixed: added both sentinels to the table (ExpiredImportTokenException/400 client-fault, KeyUnavailableException/500 server-fault per the real SDK's ErrorFault), and changed the default-branch type string to KMSInternalException."}
@@ -71,6 +76,8 @@ gaps:
   - "GrantConstraints has no SourceArn field (real SDK: GrantConstraints.SourceArn); no operation in this mock threads a caller/resource ARN through crypto calls to check against it, and no other service adapter currently supplies one either — deferred, needs cross-cutting request-context plumbing, not a KMS-local fix (bd: gopherstack-w3k)"
   - "CreateGrantInput has no GrantTokens field (real SDK: authorizes the CreateGrant call itself via an existing not-yet-consistent grant). No IAM/authorization layer exists anywhere in this mock, so this field would currently be a no-op; deferred, consistent with the rest of the codebase's scope"
   - "GranteeServicePrincipal / RetiringServicePrincipal (AWS-service grantees) not modeled on CreateGrantInput; same no-IAM-layer scope reasoning as above"
+  - "DescribeKeyInput has no GrantTokens field (real SDK: aws-sdk-go-v2/service/kms@v1.54.0's DescribeKeyInput carries GrantTokens []string), and isValidGrantOperation lists \"DescribeKey\" as a grantable operation -- but DescribeKey itself performs NO authorization check at all (no IAM layer anywhere in this mock, matching the CreateGrant-GrantTokens gap above), so adding the field would be a pure no-op with nothing to validate against. Not fixed: same no-IAM-layer scope boundary as the two gaps above, and Terraform never sends GrantTokens on a plain DescribeKey call anyway. Low priority for the next auditor to re-flag."
+  - "GetKeyPolicy/PutKeyPolicy/CreateGrant/ListGrants/RevokeGrant/RetireGrant resolve a bare (non-alias, non-ARN) KeyId strictly against the request's own region (getRegion(ctx, defaultRegion)), discarding the region resolveKeyID would return for an ARN-form KeyId -- unlike DescribeKey/Encrypt/Decrypt/Sign/etc., which route through the shared lookupKey helper and fall back to searching every region for a bare UUID (an intentional mock convenience, see lookupKey's doc comment) and honor an ARN's own embedded region unconditionally. Confirmed via a real cross-region ReplicateKey + GetKeyPolicy test: calling GetKeyPolicy with the replica's full ARN while ctx carries the primary's region returned NotFoundException. NOT fixed this pass: a real region-scoped Terraform provider client always calls the endpoint matching the key's own region (httputils.ExtractRegionFromRequest sets ctx region from the actual HTTP request, not from KeyId content), so this never manifests in realistic single-region-per-provider Terraform usage -- confirmed by rewriting the ReplicateKey Policy regression test to go through the full HTTP handler with per-region requests, which passes cleanly. Worth a follow-up bd issue for exact DescribeKey-vs-GetKeyPolicy consistency, but not Terraform-blocking."
 deferred:
   - Custom key store cryptographic connection/HSM simulation (ConnectCustomKeyStore is a pure state-machine transition; no CloudHSM cluster or XKS proxy is modeled, matching pre-existing scope)
   - GetKeyLastUsage (not a real AWS KMS operation; left as-is from a prior pass, out of scope for this sweep)
@@ -222,3 +229,207 @@ and the full suite re-run green.
 
 No other gaps found this pass. The three deferred items and the previously-fixed leak in the
 `ops`/`gaps`/`leaks` block above are unchanged and still accurate.
+
+## 2026-07-12 Terraform-lifecycle-focused re-audit (bd: none filed yet — see report)
+
+Per the re-audit protocol: `git diff eb94f3c3..HEAD -- services/kms/` showed two commits
+since the last ledger entry: `d9cb5d10` (the error-classification fix already recorded
+above) and `42cff5ce` ("fix(kms): CreateKey now honors inline Policy (Terraform
+GetKeyPolicy hang)" — CreateKey dropped the inline `Policy` field entirely, so
+`GetKeyPolicy` always returned the synthesized default and Terraform's `aws_kms_key`
+polled to a 10-minute timeout; already fixed before this pass started, per the task
+background). This pass's brief: hunt for *more* bugs in the same two classes (AWS wire
+parity, and LocalStack/Terraform read-after-write behavioral parity) that would break a
+full `terraform apply`/`plan`/`destroy` cycle, since the CreateKey bug proved more exist.
+
+### Fixed this pass
+
+1. **`ReplicateKeyInput` was missing the `Policy` field entirely — the exact same bug
+   class as the already-fixed CreateKey regression (severe, confirmed Terraform-breaking).**
+   Confirmed against the real `aws-sdk-go-v2/service/kms@v1.54.0` vendored source
+   (`api_op_ReplicateKey.go`, found via the Go module cache): the real `ReplicateKeyInput`
+   carries `Policy *string`, and the field's doc comment is explicit that "The key policy
+   is not a shared property of multi-Region keys... KMS does not synchronize this
+   property" — i.e. a replica does NOT inherit the primary's policy; it needs its own,
+   supplied via this field or defaulted. gopherstack's `ReplicateKeyInput` had no `Policy`
+   field at all, so `Backend.ReplicateKey` silently dropped any inline policy a caller
+   supplied, and `GetKeyPolicy` on the replica always returned the synthesized default.
+   Since Terraform's `aws_kms_replica_key` resource sets an inline `policy` argument via
+   `ReplicateKeyInput.Policy` and then polls `GetKeyPolicy` after apply until the
+   configured policy propagates (identical read-after-write pattern to `aws_kms_key`),
+   this would have caused the **exact same 10-minute poll-timeout hang** as the
+   already-fixed CreateKey bug, just on the replica-key resource instead of the primary.
+   Fixed by adding `Policy` (plus `BypassPolicyLockoutSafetyCheck`, present on the real
+   input but a no-op here just like CreateKey's own copy of that field, since there is no
+   IAM layer) to `ReplicateKeyInput`, validating it with the same `validKeyPolicyDoc`
+   helper CreateKey/PutKeyPolicy already share (rejecting a malformed policy with
+   `MalformedPolicyDocumentException` *before* creating the replica, consistent with the
+   orphan-resource-leak fix from sweep 3), and persisting it into the replica's
+   region-scoped `policiesStore` exactly like CreateKey does. See
+   `backend.go`'s `ReplicateKey` and `models.go`'s `ReplicateKeyInput`.
+   Proven by `Test_ReplicateKey_InlinePolicy` in `replicate_key_policy_test.go`, routed
+   through the full HTTP handler with per-region requests (the replica lives in a
+   different region than the primary) — table-driven: policy round-trips verbatim,
+   defaults correctly when omitted, is rejected as malformed before any replica is
+   created, and does not leak onto the primary's own policy (proving the "not a shared
+   property" semantics).
+
+2. **KMS resource tags were never included in `Handler.Snapshot`/`Restore` — a real
+   persistence gap, exactly the perpetual-`terraform-plan`-drift bug class this sweep's
+   brief called out as highest priority (moderate; only manifests across a process
+   restart with persistence enabled).** Unlike most other gopherstack services, which
+   embed `*tags.Tags` directly in their resource struct (see
+   `.claude/memories/pkgs-catalog.md`'s tags entry), KMS applies tags at the *handler*
+   layer: `createKeyAction`/`tagResource`/`replicateKeyAction` all write into
+   `Handler.tags`, a side map keyed by KeyID, entirely separate from
+   `InMemoryBackend`'s own state. `Handler.Snapshot` previously delegated straight to
+   `Backend.Snapshot(ctx)` and returned those bytes verbatim — `Handler.tags` was never
+   serialized at all. `ListResourceTags` kept returning tags correctly within a single
+   running process (masking the gap in every same-process test, including the existing
+   `create_key_policy_test.go`-style tests), but any gopherstack restart with persistence
+   enabled would silently drop every KMS key's tags — the next `terraform plan` after a
+   restart would show a permanent diff on the `tags` attribute of every `aws_kms_key`/
+   `aws_kms_replica_key` resource, forever, since there'd be no way to reconcile it short
+   of a real `TagResource` call. This is precisely the kind of gap the audit brief
+   highlighted ("verify these newly-touched fields are included in the snapshot/restore
+   round trip") applied retroactively to an *existing*, previously undetected gap rather
+   than a field I was actively adding. Fixed: `Handler.Snapshot` now wraps the backend's
+   own snapshot bytes together with a tags map into a small `handlerSnapshot` envelope
+   (`persistence.go`), stamped with a `handlerFormat` marker. `Handler.Restore` peeks that
+   marker to distinguish the new wrapped shape from a *legacy* snapshot (raw backend
+   bytes with no wrapper at all — exactly what `Handler.Snapshot` produced before this
+   fix) so an existing on-disk snapshot taken before this fix still restores backend
+   state cleanly instead of erroring out; it just won't have tags to restore (no worse
+   than the pre-fix status quo). Proven by `TestHandlerSnapshotRestore_TagsRoundTrip`,
+   `TestHandlerSnapshotRestore_EmptyTagsOmitted`, and
+   `TestHandlerRestore_LegacyBackendOnlySnapshot` in `handler_tags_persistence_test.go`.
+
+### Audited and confirmed already correct (do not re-check next pass)
+
+- **CreateKey's inline `Policy` fix (the task's background bug) is solid**: verified the
+  fix persists the policy into `policiesStore` before returning, and that `GetKeyPolicy`
+  returns it verbatim on every subsequent call (not regenerated), including across two
+  consecutive `DescribeKey`/`GetKeyPolicy`/`ListResourceTags`/`GetKeyRotationStatus`
+  calls in the new `TestTerraformLifecycle_KMSKey` integration test (`assert.JSONEq`
+  on the raw HTTP response bytes of back-to-back calls) — no drift.
+- **The synthesized default key policy is deterministic**: built from a static string
+  template (`policiesStore` miss branch in `GetKeyPolicy`), not regenerated with
+  randomized/timestamped content — confirmed identical across repeated calls.
+- **Tags round-trip immediately after CreateKey** (within a single process, the common
+  case): `createKeyAction` validates tags *before* creating the key (sweep-3 fix, still
+  correct) and applies them synchronously in the same request; `ListResourceTags`
+  reflects them immediately, no async lag.
+- **Aliases**: full `CreateAlias -> ListAliases -> UpdateAlias -> DeleteAlias` round trip
+  confirmed correct. `ListAliases` does NOT synthesize `alias/aws/*` AWS-managed entries
+  — confirmed intentional (no AWS-managed-key simulation anywhere in this mock, a
+  pre-existing scope boundary, not a gap) rather than an oversight. `DeleteAlias` is
+  correctly non-idempotent (`NotFoundException` on double-delete), matching real AWS.
+- **Grants**: `CreateGrant` returns `GrantId`+`GrantToken`; `ListGrants` (with its
+  `GrantId` filter, matching the real SDK's `ListGrantsInput.GrantId`) shows the new
+  grant immediately, matching how `aws_kms_grant`'s refresh re-reads a specific grant;
+  `RetireGrant`/`RevokeGrant` remove it immediately (verified via the pre-existing
+  `GrantIndexesConsistent` test helper).
+- **ScheduleKeyDeletion/CancelKeyDeletion/EnableKey/DisableKey**: all state transitions
+  (`KeyState`, `Enabled`, `DeletionDate`, `PendingDeletionWindowInDays`) apply
+  synchronously with no async lag; `DescribeKey` reflects them on the very next call.
+  Proven end-to-end (not just at the backend layer) by
+  `TestTerraformLifecycle_KMSKey`'s `ScheduleKeyDeletion -> DescribeKey` sequence.
+- **EnableKeyRotation/DisableKeyRotation/GetKeyRotationStatus**: round-trip exactly;
+  default `KeyRotationEnabled` is `false` and stable across repeated
+  `GetKeyRotationStatus` calls (byte-identical JSON, asserted via `assert.JSONEq` in the
+  new lifecycle test).
+- **Replica keys (`ReplicateKey`/`DescribeKey`)**: `MultiRegionConfiguration`
+  (`PRIMARY`/`REPLICA` role + `PrimaryKey`/`ReplicaKeys` list) already correct on both
+  sides prior to this pass (per sweep-3's `TestUpdatePrimaryRegion_RoleSwap`); this
+  pass's only replica-side finding was the missing `Policy` field (fixed above).
+- **DescribeKey's `KeyMetadata` shape**: `KeyState`, `KeyManager` (hardcoded `"CUSTOMER"`,
+  correct — this mock never creates AWS-managed keys), `MultiRegion`,
+  `MultiRegionConfiguration`, `PendingDeletionWindowInDays`, `DeletionDate`, `ValidTo`,
+  `Origin`, `KeySpec` AND the deprecated `CustomerMasterKeySpec` alias (always mirrors
+  `KeySpec`), `EncryptionAlgorithms`, `SigningAlgorithms`, `Enabled` — all present and
+  correct; cross-checked field-by-field against the real vendored
+  `aws-sdk-go-v2/service/kms@v1.54.0/types.KeyMetadata`.
+- **Tag/grant/policy wire shapes** (`TagResource`/`UntagResource`/`ListResourceTags`
+  inputs+outputs, `ListGrantsInput`/`CreateGrantInput`/`GrantListEntry`) — all
+  field-for-field checked against the vendored real SDK; no casing or shape gaps. Note
+  the real SDK's `GrantListEntry` (the `ListGrants` response entry type) has NO
+  `GrantToken` field at all (tokens are only ever returned once, at `CreateGrant` time);
+  gopherstack's shared `Grant` struct does include `GrantToken` in `ListGrants` output
+  too, which is a harmless superset (unknown extra JSON fields are ignored by the real
+  SDK's non-strict deserializer) rather than a functional bug — not fixed, noted for
+  awareness only.
+
+### Cross-service KMS integration punch-list (Step 4, report-only — no edits made)
+
+Searched the full non-KMS codebase (read-only) for `KmsKeyId`/`KMSMasterKeyId`/
+`SSEKMSKeyId`-style fields. **Already wired in `cli.go` (no gap):**
+
+- **SSM** (`wireSSMKMS` in `cli.go:3542`): `ssm.InMemoryBackend.WithKMS` +
+  `ssm.KMSEncryptor` interface + a `cli.go`-local `ssmKMSAdapter` calling
+  `kms.InMemoryBackend.Encrypt`/`Decrypt` directly. SecureString `Parameter`s whose
+  `KeyId` is set get *real* KMS encryption already. No action needed.
+- **Resource Groups Tagging API** (`wireTaggingKMS` in `cli.go:5218`): uses
+  `Handler.TaggedKeys`/`TagKeyByARN`/`UntagKeyByARN` (already exported on
+  `kms.Handler` specifically for this). No action needed.
+- **CloudFormation** (`services/cloudformation/resources.go`,
+  `resources_phase5.go`/`resources_phase6.go`): `AWS::KMS::Key`/`AWS::KMS::Alias`/
+  `AWS::KMS::ReplicaKey` CFN resource types call `rc.backends.KMS.Backend.CreateKey`/
+  `CreateAlias`/`DeleteAlias`/`ReplicateKey`/`ScheduleKeyDeletion` directly via the
+  already-exported `Handler.Backend` (`StorageBackend`) field. This is CFN driving KMS
+  natively (not really a "consumer" relationship) but confirms the integration point
+  already works end-to-end. No action needed.
+
+**Not wired (gap, but confirmed pro-tier-enforcement-only, not needed for a basic
+`terraform apply`/`plan`/`destroy` to succeed):** none of the below call into the `kms`
+package at all today; each just stores/echoes the KMS key ID string on its own resource
+with no existence check, no alias resolution beyond what the field already is, and no
+real encrypt/decrypt. For every one of these, **Terraform's own resource lifecycle only
+needs the field to round-trip on the owning service's Create/Describe/Update calls**
+(that service's own attribute-round-trip correctness is that service's PARITY.md
+concern, not KMS's) — actually calling into KMS is additive Pro-tier realism, not a
+correctness requirement for `apply`/`plan`/`destroy` to succeed:
+
+  - **S3** (`aws_s3_bucket_server_side_encryption_configuration`,
+    `kms_master_key_id`/`SSEKMSKeyId` in `backend_memory.go`/`multipart_ops.go`/
+    `object_ops.go`/`types.go`): stored per-object/version, never validated or used to
+    actually encrypt object bytes at rest. (a) existence check: no. (b) alias
+    resolution: no (stores whatever string was given). (c) real encrypt/decrypt: no. (d)
+    needed for basic apply: no.
+  - **SQS** (`aws_sqs_queue`, `KmsMasterKeyId`/`KmsDataKeyReusePeriodSeconds` queue
+    attributes in `types.go`/`backend.go`): stored/echoed only, format-unvalidated. Same
+    (a)-(d) answers as S3.
+  - **SNS** (`aws_sns_topic`, `KmsMasterKeyId` topic attribute in `backend.go`): DOES
+    format-validate the value (alias name / alias ARN / key ID / key ARN shape) but
+    never checks it against a live KMS key and never actually encrypts messages. (a) no
+    existence check (format-only). (b)/(c) no. (d) not needed for basic apply.
+  - **Secrets Manager** (`aws_secretsmanager_secret`, `KmsKeyID` in `backend.go`/
+    `models.go`): stored/echoed on the secret and its replicas, never validated or used
+    to encrypt `SecretString`/`SecretBinary` at rest. Same (a)-(d) answers as S3. This is
+    arguably the highest-value future wire-up (mirrors the SSM precedent almost exactly
+    — Secrets Manager's `SecretString` is conceptually identical to SSM's SecureString
+    `Value`), but still not required for `terraform apply` to succeed today.
+  - **DynamoDB** (`aws_dynamodb_table`, `SSESpecification.KMSMasterKeyId` ->
+    `SSEKMSMasterKeyArn` in `table_ops.go`): stored/echoed only. Same (a)-(d) as S3.
+  - **RDS** (`aws_db_instance`/`aws_db_snapshot`, `KmsKeyId` throughout
+    `handler.go`/`batch1.go`): stored/echoed only. Same (a)-(d) as S3.
+  - **EC2/EBS** (`aws_ebs_volume`/`aws_ebs_default_kms_key`, `KmsKeyID` in
+    `backend_accuracy.go`/`backend_batch1.go`/`backend_batch3.go`): stored/echoed only,
+    plus an account-level default-KMS-key setting (`GetEbsDefaultKmsKeyID`/
+    `ResetEbsDefaultKmsKeyID`) that's also just a stored string. Same (a)-(d) as S3.
+  - **CloudWatch Logs** (`aws_cloudwatch_log_group`, `KmsKeyId` in
+    `backend.go`/`handler.go`/`models.go`): stored/echoed only. Same (a)-(d) as S3.
+
+**No new KMS-side export is needed for any future cli.go wiring of the services above.**
+The integration surface already exists and is already exercised by the SSM/CloudFormation
+precedents: `kms.Handler.Backend` is already a public field typed as the `StorageBackend`
+interface (exactly how `wireSSMKMS` and the CloudFormation resource handlers obtain a
+concrete `*kms.InMemoryBackend` today), and that interface's already-public
+`DescribeKey`/`Encrypt`/`Decrypt` methods are sufficient for a future adapter to (a)
+check key existence (`DescribeKey` + `errors.Is(err, kms.ErrKeyNotFound)`, both exported),
+(b) resolve an alias or ARN to a key ID (`DescribeKey` already accepts `alias/...`/
+`arn:...`/bare-UUID interchangeably in its `KeyId` field and returns the canonical
+`KeyMetadata.KeyID`), and (c) perform real encrypt/decrypt passthrough (`Encrypt`/
+`Decrypt`), exactly mirroring `ssmKMSAdapter`'s three-method shape. Wiring any of the
+services above is pure `cli.go` + that service's own backend work, per
+`PARITY_PHASE4_KICKOFF.md`'s "cross-service interconnect wired in cli.go, main-thread
+work" rule — out of scope for this KMS-only pass.

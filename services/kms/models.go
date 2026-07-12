@@ -630,8 +630,15 @@ type ReplicateKeyInput struct {
 	KeyID         string `json:"KeyId"`
 	ReplicaRegion string `json:"ReplicaRegion"`
 	Description   string `json:"Description,omitempty"`
+	// Policy is the key policy to attach to the replica. If omitted, KMS
+	// attaches the default key policy (matches CreateKey's Policy field).
+	// The key policy is NOT a shared property of multi-region keys: the
+	// replica gets its own independent policy rather than inheriting the
+	// primary's.
+	Policy string `json:"Policy,omitempty"`
 	// Tags are optional tags to apply to the replica key.
-	Tags []Tag `json:"Tags,omitempty"`
+	Tags                           []Tag `json:"Tags,omitempty"`
+	BypassPolicyLockoutSafetyCheck bool  `json:"BypassPolicyLockoutSafetyCheck,omitempty"`
 }
 
 // ReplicateKeyOutput is the response payload for ReplicateKey.
