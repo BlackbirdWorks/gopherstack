@@ -1,8 +1,8 @@
 ---
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.64.0
-last_audit_commit: 17a215e4
-last_audit_date: 2026-07-05
+last_audit_commit: 3884816a
+last_audit_date: 2026-07-11
 overall: A
 ops:
   PutLogEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: sequenceToken was validated and rejected with InvalidSequenceTokenException; real AWS (v1.64.0 doc) ignores sequenceToken entirely and never returns that exception. Also fixed RejectedLogEventsInfo wire shape (tooOldLogEventStartIndex -> tooOldLogEventEndIndex, exclusive-end semantics) and an off-by-one on ExpiredLogEventEndIndex."}
@@ -105,3 +105,24 @@ leaks: {status: clean, note: "Only one goroutine spawn site (scheduleFilterDeliv
   `compiledFilterPattern.extractString`/`extractValue` or `patternFieldRefs`, not re-parse the
   pattern text directly -- the existing JSON lexer/space-term parsing is reused rather than
   duplicated so the match and extract paths can't drift out of sync.
+
+- **2026-07-11 re-audit (this pass): the diff from 17a215e4 to this commit is the "Phase 3.3"
+  datalayer refactor** (backend.go/store_setup.go/region_accessors.go/persistence.go/
+  janitor.go/export.go), replacing every hand-rolled `map[string]*T` / nested
+  `map[string]map[string]*T` resource field with `pkgs/store.Table[T]` (+ `store.Index` for
+  the region-qualified "dirty" tables: groups, streams, subscriptionFilters, metricFilters;
+  events now live inline on `LogStream.events` instead of a separate `events` map). Verified
+  op-by-op that every accessor was mechanically translated with no behavior change: locking
+  discipline (coarse `b.mu` still guards every Table/Index access, matching `pkgs/store`'s
+  "no internal locking" contract), in-place index-key-stable mutation (`PutSubscriptionFilter`
+  update-in-path, `DeleteLogStream`/`applyEvictionPlan` decrementing `group.StoredBytes` through
+  the same pointer), copy-before-delete-while-iterating on every `Index.Get()` consumer
+  (`deleteStreamsInGroup` et al.), and DTO round-tripping of the four now-unexported identity
+  fields (`region`, `logGroupName`, inline `events`) through `persistence.go`'s
+  `logGroupSnapshot`/`logStreamSnapshot`/`subscriptionFilterSnapshot`/`metricFilterSnapshot`.
+  No regression found; `go build`/`go vet`/`go test -race`/`golangci-lint` all clean before and
+  after this pass. One hygiene fix made: `ErrInvalidSequenceToken` (backend.go) was an orphaned
+  error var -- never returned by any op (PutLogEvents stopped validating sequenceToken in the
+  prior sweep, see the "PutLogEvents sequenceToken is a no-op today" note above) and its
+  `handler.go` errType mapping was already removed in that same prior sweep, so the var itself
+  was dead code left behind; removed it (de-stub hygiene: no orphaned symbols).
