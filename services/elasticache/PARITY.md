@@ -1,11 +1,14 @@
 ---
 service: elasticache
 sdk_module: aws-sdk-go-v2/service/elasticache@v1.51.11
-last_audit_commit: e7830377
-last_audit_date: 2026-07-05
+last_audit_commit: 1b31b73f
+last_audit_date: 2026-07-12
 overall: B            # already-accurate op-by-op, with a real error-code/HTTP-status
                        # bug class found and fixed across ~60 call sites, plus two
                        # disguised-stub validation gaps wired up (see Notes/gaps).
+                       # 2026-07-12 re-audit: zero drift since ce30166a (sweep3, this
+                       # ledger's baseline), SDK still v1.51.11 with the same 75 ops,
+                       # all gates green, no new bugs found (see final note below).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
   CreateCacheCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: CacheClusterNotFound 400->404; added SnapshotName restore (was silently ignored)"}
@@ -178,3 +181,18 @@ Modify while a resource's `PendingStatus` is still `"creating"` (see gaps above)
 existing, deliberate design choice from a prior sweep to keep the lifecycle mechanism purely
 observational, not a bug this pass introduced or should "fix" without first confirming AWS's
 exact state-transition matrix per operation.
+
+**2026-07-12 re-audit (no code changes)**: the ledger's recorded `last_audit_commit`
+(`e7830377`, a cloudfront-only commit hash) was not an ancestor of HEAD, so per the re-audit
+protocol this pass used `ce30166a` (the commit that authored/last touched this ledger, "Parity
+sweep 3 (#2382)") as the drift baseline instead. `git diff ce30166a..HEAD --
+services/elasticache/` is empty -- no local drift to audit. `aws-sdk-go-v2/service/elasticache`
+is still pinned at `v1.51.11` (unchanged `go.mod`/`go.sum`), and its `api_op_*.go` surface is
+still exactly the same 75 operations already covered 1:1 by the `ops:` table above -- no new
+ops to wire up. Spot-checked for regressions: no `//nolint:funlen|gocyclo|cyclop|gocognit`
+anywhere in the package, no stub/TODO/FIXME/unimplemented markers outside the legitimate
+`EngineStub = "stub"` docker-engine-mode config constant (a real feature value, not a code
+stub). All five scoped gates are green: `go build`, `go vet`, `go fix -diff` (empty),
+`go test -race` (pass), `golangci-lint run` (0 issues). No real bugs found this pass --
+`gaps` below (state-transition guards) remains the only known, deliberately-deferred item and
+is unchanged.
