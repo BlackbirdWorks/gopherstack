@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -1097,7 +1098,7 @@ func (h *Handler) handleDescribeEvents(ctx context.Context, c *echo.Context, bod
 
 	for _, ev := range events {
 		objs = append(objs, eventObject{
-			Date:       ev.Date.Format(time.RFC3339),
+			Date:       awstime.Epoch(ev.Date),
 			SourceName: ev.SourceName,
 			SourceType: ev.SourceType,
 			Message:    ev.Message,
@@ -1404,11 +1405,11 @@ func (h *Handler) handleDescribeServiceUpdates(ctx context.Context, c *echo.Cont
 	for _, su := range updates {
 		objs = append(objs, serviceUpdateObject{
 			ServiceUpdateName:   su.ServiceUpdateName,
-			ReleaseDate:         su.ReleaseDate,
+			ReleaseDate:         awstime.Epoch(su.ReleaseDate),
 			Description:         su.Description,
 			Status:              su.Status,
 			Type:                su.Type,
-			AutoUpdateStartDate: su.AutoUpdateStartDate,
+			AutoUpdateStartDate: awstime.Epoch(su.AutoUpdateStartDate),
 		})
 	}
 
@@ -1543,8 +1544,54 @@ func findStartIndex[T any](items []T, token string, getName func(T) string) int 
 	return 0
 }
 
-// writeBackendError translates a backend error to an HTTP response.
+// errCodeLookup maps specific backend sentinel errors to the exact AWS
+// MemoryDB fault name real aws-sdk-go-v2 clients switch on via
+// errors.As(&types.XyzFault{}) (aws-sdk-go-v2/service/memorydb/types.errors.go).
+// MemoryDB defines no generic "ResourceNotFoundException"/"ResourceInUseException"
+// -- every fault is resource-specific (ClusterNotFoundFault, ACLNotFoundFault,
+// ...), so writeBackendError must not collapse them into one bucket the way a
+// coarse awserr-category switch would. Checked before the generic fallback
+// below; analogous to EC2's errCodeLookup / CloudFront's errCodeMapping.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at startup
+var errCodeLookup = []struct {
+	err    error
+	code   string
+	status int
+}{
+	{ErrClusterNotFound, "ClusterNotFoundFault", http.StatusNotFound},
+	{ErrClusterAlreadyExists, "ClusterAlreadyExistsFault", http.StatusConflict},
+	{ErrACLInUse, "InvalidACLStateFault", http.StatusConflict},
+	{ErrACLNotFound, "ACLNotFoundFault", http.StatusNotFound},
+	{ErrACLAlreadyExists, "ACLAlreadyExistsFault", http.StatusConflict},
+	{ErrSubnetGroupInUse, "SubnetGroupInUseFault", http.StatusConflict},
+	{ErrSubnetGroupNotFound, "SubnetGroupNotFoundFault", http.StatusNotFound},
+	{ErrSubnetGroupAlreadyExists, "SubnetGroupAlreadyExistsFault", http.StatusConflict},
+	{ErrUserInUse, "InvalidUserStateFault", http.StatusConflict},
+	{ErrUserNotFound, "UserNotFoundFault", http.StatusNotFound},
+	{ErrUserAlreadyExists, "UserAlreadyExistsFault", http.StatusConflict},
+	{ErrParameterGroupNotFound, "ParameterGroupNotFoundFault", http.StatusNotFound},
+	{ErrParameterGroupAlreadyExists, "ParameterGroupAlreadyExistsFault", http.StatusConflict},
+	{ErrSnapshotNotFound, "SnapshotNotFoundFault", http.StatusNotFound},
+	{ErrSnapshotAlreadyExists, "SnapshotAlreadyExistsFault", http.StatusConflict},
+	{ErrMultiRegionClusterNotFound, "MultiRegionClusterNotFoundFault", http.StatusNotFound},
+	{ErrMultiRegionClusterAlreadyExists, "MultiRegionClusterAlreadyExistsFault", http.StatusConflict},
+	{ErrMultiRegionParameterGroupNotFound, "MultiRegionParameterGroupNotFoundFault", http.StatusNotFound},
+	{ErrInvalidARN, "InvalidARNFault", http.StatusNotFound},
+	{ErrReservationAlreadyExists, "ReservedNodeAlreadyExistsFault", http.StatusConflict},
+}
+
+// writeBackendError translates a backend error to an HTTP response. It
+// prefers the specific AWS fault name from errCodeLookup; the coarse
+// awserr-category switch below is a best-effort fallback only, for any
+// sentinel error not (yet) cataloged in errCodeLookup above.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
+	for _, e := range errCodeLookup {
+		if errors.Is(err, e.err) {
+			return writeError(c, e.status, e.code, err.Error())
+		}
+	}
+
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 
@@ -1841,11 +1888,6 @@ func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
 
 // toSnapshotObject converts a Snapshot to its JSON representation.
 func toSnapshotObject(s *Snapshot) snapshotObject {
-	createdAt := ""
-	if !s.CreatedAt.IsZero() {
-		createdAt = s.CreatedAt.UTC().Format(time.RFC3339)
-	}
-
 	var clusterConfig *snapshotClusterConfig
 	if s.ClusterConfiguration.Name != "" {
 		cfg := s.ClusterConfiguration
@@ -1860,7 +1902,7 @@ func toSnapshotObject(s *Snapshot) snapshotObject {
 		KmsKeyID:             s.KmsKeyID,
 		SnapshotType:         s.SnapshotType,
 		Source:               s.Source,
-		CreatedAt:            createdAt,
+		CreatedAt:            awstime.Epoch(s.CreatedAt),
 	}
 }
 

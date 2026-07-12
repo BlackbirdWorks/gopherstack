@@ -1,0 +1,129 @@
+package memorydb_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// -- Error __type wire-shape regression tests -------------------------------
+//
+// Real AWS MemoryDB defines no generic "ResourceNotFoundException" /
+// "ResourceInUseException" / "InvalidRequestException" faults -- every error
+// is resource-specific (see aws-sdk-go-v2/service/memorydb/types/errors.go).
+// A real SDK client type-switches on the response's "__type" field via
+// errors.As(&types.ClusterNotFoundFault{}, ...); collapsing every not-found
+// error into one generic bucket makes that always fail to match.
+
+func responseType(t *testing.T, body []byte) string {
+	t.Helper()
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(body, &resp))
+
+	typ, _ := resp["__type"].(string)
+
+	return typ
+}
+
+func TestErrCode_ClusterNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DeleteCluster", map[string]any{"ClusterName": "no-such-cluster"})
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "ClusterNotFoundFault", responseType(t, rec.Body.Bytes()))
+}
+
+func TestErrCode_ACLInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateACL", map[string]any{"ACLName": "in-use-acl"})
+	doRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName": "acl-cluster",
+		"NodeType":    "db.t4g.small",
+		"ACLName":     "in-use-acl",
+	})
+
+	rec := doRequest(t, h, "DeleteACL", map[string]any{"ACLName": "in-use-acl"})
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, "InvalidACLStateFault", responseType(t, rec.Body.Bytes()))
+}
+
+func TestErrCode_UserInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateUser", map[string]any{
+		"UserName":     "in-use-user",
+		"AccessString": "on ~* +@all",
+	})
+	doRequest(t, h, "CreateACL", map[string]any{
+		"ACLName":   "user-holder-acl",
+		"UserNames": []string{"in-use-user"},
+	})
+
+	rec := doRequest(t, h, "DeleteUser", map[string]any{"UserName": "in-use-user"})
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, "InvalidUserStateFault", responseType(t, rec.Body.Bytes()))
+}
+
+// TestErrCode_SubnetGroupInUse also covers a state-correctness gap: previously
+// DeleteSubnetGroup had no in-use check at all and would delete a subnet
+// group still referenced by a live cluster.
+func TestErrCode_SubnetGroupInUse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doRequest(t, h, "CreateSubnetGroup", map[string]any{
+		"SubnetGroupName": "in-use-sg",
+		"SubnetIds":       []string{"subnet-1"},
+	})
+	doRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName":     "sg-cluster",
+		"NodeType":        "db.t4g.small",
+		"SubnetGroupName": "in-use-sg",
+	})
+
+	rec := doRequest(t, h, "DeleteSubnetGroup", map[string]any{"SubnetGroupName": "in-use-sg"})
+	require.Equal(t, http.StatusConflict, rec.Code,
+		"DeleteSubnetGroup must reject deleting a subnet group still referenced by a cluster")
+	assert.Equal(t, "SubnetGroupInUseFault", responseType(t, rec.Body.Bytes()))
+
+	// The subnet group must still exist.
+	rec = doRequest(t, h, "DescribeSubnetGroups", map[string]any{"SubnetGroupName": "in-use-sg"})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestErrCode_TagResourceInvalidARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": "arn:aws:memorydb:us-east-1:123456789012:cluster/does-not-exist",
+		"Tags":        []map[string]string{{"Key": "k", "Value": "v"}},
+	})
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "InvalidARNFault", responseType(t, rec.Body.Bytes()))
+}
+
+func TestErrCode_MultiRegionParameterGroupNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DescribeMultiRegionParameters", map[string]any{
+		"ParameterGroupName": "no-such-mrpg",
+	})
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "MultiRegionParameterGroupNotFoundFault", responseType(t, rec.Body.Bytes()))
+}

@@ -2,6 +2,7 @@ package memorydb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -29,9 +31,13 @@ const (
 	authTypeIAM = "iam"
 	// authTypePassword is the password authentication type.
 	authTypePassword = "password"
-	// authTypeNoPasswordRequired is the no-password authentication type.
+	// authTypeNoPasswordRequired is an accepted request-side alias for
+	// authTypeNoPassword. It is never stored or returned on the wire: real
+	// AWS's Authentication.Type output enum only knows "password", "iam", and
+	// "no-password" (see aws-sdk-go-v2/service/memorydb/types.AuthenticationType).
 	authTypeNoPasswordRequired = "no-password-required"
-	// authTypeNoPassword is the alias for no-password-required.
+	// authTypeNoPassword is the canonical stored/wire value for a user that
+	// does not require a password to authenticate.
 	authTypeNoPassword = "no-password"
 	// snapshotSourceAutomated is the source type for automated snapshots.
 	snapshotSourceAutomated = "automated"
@@ -158,13 +164,32 @@ var (
 	)
 	// ErrMultiRegionParameterGroupNotFound is returned when a multi-region parameter group does not exist.
 	ErrMultiRegionParameterGroupNotFound = awserr.New(
-		"ParameterGroupNotFoundFault: multi-region parameter group not found",
+		"MultiRegionParameterGroupNotFoundFault: multi-region parameter group not found",
 		awserr.ErrNotFound,
 	)
-	// ErrACLInUse is returned when an ACL cannot be deleted because it is assigned to a cluster.
-	ErrACLInUse = awserr.New("ACLInUseFault: ACL is currently associated with a cluster", awserr.ErrConflict)
-	// ErrUserInUse is returned when a user cannot be deleted because it is a member of an ACL.
-	ErrUserInUse = awserr.New("UserInUseFault: user is currently a member of an ACL", awserr.ErrConflict)
+	// ErrSubnetGroupInUse is returned when a subnet group cannot be deleted because it
+	// is assigned to a cluster (real AWS fault: SubnetGroupInUseFault).
+	ErrSubnetGroupInUse = awserr.New(
+		"SubnetGroupInUseFault: subnet group is currently associated with a cluster",
+		awserr.ErrConflict,
+	)
+	// ErrACLInUse is returned when an ACL cannot be deleted because it is assigned to a
+	// cluster (real AWS fault: InvalidACLStateFault).
+	ErrACLInUse = awserr.New(
+		"InvalidACLStateFault: ACL is currently associated with a cluster",
+		awserr.ErrConflict,
+	)
+	// ErrUserInUse is returned when a user cannot be deleted because it is a member of
+	// an ACL (real AWS fault: InvalidUserStateFault).
+	ErrUserInUse = awserr.New(
+		"InvalidUserStateFault: user is currently a member of an ACL",
+		awserr.ErrConflict,
+	)
+	// ErrInvalidARN is returned by the tagging operations (ListTags/TagResource/
+	// UntagResource) when the given ResourceArn does not match any known
+	// resource (real AWS fault: InvalidARNFault -- the only NotFound-family
+	// fault those three operations' models actually define for an unmatched ARN).
+	ErrInvalidARN = awserr.New("InvalidARNFault: resource not found for the given ARN", awserr.ErrNotFound)
 	// ErrReservationAlreadyExists is returned when a reserved node with the same ID already exists.
 	ErrReservationAlreadyExists = awserr.New(
 		"ReservedNodeAlreadyExistsFault: reserved node already exists",
@@ -207,6 +232,63 @@ func validateMaintenanceWindow(w string) error {
 	parts := strings.SplitN(w, "-", splitParts)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return fmt.Errorf("MaintenanceWindow must be in format ddd:hh24:mi-ddd:hh24:mi: %w", ErrValidation)
+	}
+
+	return nil
+}
+
+// normalizeAuthType validates req.AuthenticationMode.Type (raw as sent on the
+// wire) and normalizes it to its canonical stored/output form. Real AWS's
+// request-side InputAuthenticationType enum only allows "password" and "iam"
+// (Type omitted means no password required); this backend additionally
+// accepts "no-password" and the "no-password-required" alias as explicit
+// input, normalizing all of them to authTypeNoPassword ("no-password") --
+// the only value real AWS's Authentication.Type output enum defines for a
+// passwordless user. Callers must never store/emit the raw input string.
+func normalizeAuthType(raw string) (string, error) {
+	authType := strings.ToLower(raw)
+	if authType == "" || authType == authTypeNoPasswordRequired {
+		authType = authTypeNoPassword
+	}
+
+	if authType != authTypePassword && authType != authTypeIAM && authType != authTypeNoPassword {
+		return "", fmt.Errorf(
+			"AuthenticationMode.Type must be password, iam, or no-password-required: %w",
+			ErrValidation,
+		)
+	}
+
+	return authType, nil
+}
+
+// validateAuthPasswordCombo rejects passwords supplied alongside iam auth,
+// matching real AWS's CreateUser/UpdateUser validation.
+func validateAuthPasswordCombo(authType string, passwords []string) error {
+	if authType == authTypeIAM && len(passwords) > 0 {
+		return fmt.Errorf("passwords cannot be set when AuthenticationMode.Type is iam: %w", ErrValidation)
+	}
+
+	return nil
+}
+
+// applyUserAuthModeUpdate validates and applies an UpdateUser AuthenticationMode
+// request onto u, normalizing/validating Type exactly like CreateUser.
+func applyUserAuthModeUpdate(u *User, mode *authenticationModeReq) error {
+	if mode.Type != "" {
+		authType, err := normalizeAuthType(mode.Type)
+		if err != nil {
+			return err
+		}
+
+		if err = validateAuthPasswordCombo(authType, mode.Passwords); err != nil {
+			return err
+		}
+
+		u.AuthType = authType
+	}
+
+	if len(mode.Passwords) > 0 {
+		u.Passwords = mode.Passwords
 	}
 
 	return nil
@@ -344,6 +426,30 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return newInMemoryBackendWithDefaults(region, accountID)
 }
 
+// defaultServiceUpdates returns the built-in seed service updates. Extracted
+// to a function (rather than duplicated inline) so the constructor and
+// resetLocked's re-seed stay in sync automatically.
+func defaultServiceUpdates() []*ServiceUpdate {
+	return []*ServiceUpdate{
+		{
+			ServiceUpdateName:   "memorydb-20240601-redis-security",
+			ReleaseDate:         time.Date(2024, time.June, 1, 0, 0, 0, 0, time.UTC),
+			Description:         "Security update for Redis 7.x clusters",
+			Status:              clusterStatusAvailable,
+			Type:                "security-update",
+			AutoUpdateStartDate: time.Date(2024, time.July, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			ServiceUpdateName:   "memorydb-20240801-engine-update",
+			ReleaseDate:         time.Date(2024, time.August, 1, 0, 0, 0, 0, time.UTC),
+			Description:         "Engine update with performance improvements",
+			Status:              clusterStatusAvailable,
+			Type:                "engine-update",
+			AutoUpdateStartDate: time.Date(2024, time.September, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+}
+
 func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:        store.NewRegistry(),
@@ -376,22 +482,9 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	})
 	b.arnToResourceStore(region)[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 
-	b.serviceUpdates.Put(&ServiceUpdate{
-		ServiceUpdateName:   "memorydb-20240601-redis-security",
-		ReleaseDate:         "2024-06-01",
-		Description:         "Security update for Redis 7.x clusters",
-		Status:              clusterStatusAvailable,
-		Type:                "security-update",
-		AutoUpdateStartDate: "2024-07-01",
-	})
-	b.serviceUpdates.Put(&ServiceUpdate{
-		ServiceUpdateName:   "memorydb-20240801-engine-update",
-		ReleaseDate:         "2024-08-01",
-		Description:         "Engine update with performance improvements",
-		Status:              clusterStatusAvailable,
-		Type:                "engine-update",
-		AutoUpdateStartDate: "2024-09-01",
-	})
+	for _, su := range defaultServiceUpdates() {
+		b.serviceUpdates.Put(su)
+	}
 
 	b.seedDefaultParameterGroupsLocked()
 
@@ -506,22 +599,9 @@ func (b *InMemoryBackend) resetLocked() {
 	})
 	b.arnToResourceStore(b.defaultRegion)[openAccessARN] = resourceRef{Kind: resourceKindACL, Name: openAccessACL}
 
-	b.serviceUpdates.Put(&ServiceUpdate{
-		ServiceUpdateName:   "memorydb-20240601-redis-security",
-		ReleaseDate:         "2024-06-01",
-		Description:         "Security update for Redis 7.x clusters",
-		Status:              clusterStatusAvailable,
-		Type:                "security-update",
-		AutoUpdateStartDate: "2024-07-01",
-	})
-	b.serviceUpdates.Put(&ServiceUpdate{
-		ServiceUpdateName:   "memorydb-20240801-engine-update",
-		ReleaseDate:         "2024-08-01",
-		Description:         "Engine update with performance improvements",
-		Status:              clusterStatusAvailable,
-		Type:                "engine-update",
-		AutoUpdateStartDate: "2024-09-01",
-	})
+	for _, su := range defaultServiceUpdates() {
+		b.serviceUpdates.Put(su)
+	}
 
 	b.seedDefaultParameterGroupsLocked()
 }
@@ -1414,6 +1494,15 @@ func (b *InMemoryBackend) DeleteSubnetGroup(ctx context.Context, name string) (*
 		return nil, ErrSubnetGroupNotFound
 	}
 
+	for _, c := range tableAll(b.clusters[region]) {
+		if c.SubnetGroupName == name {
+			return nil, fmt.Errorf(
+				"subnet group %q is associated with cluster %q: %w",
+				name, c.Name, ErrSubnetGroupInUse,
+			)
+		}
+	}
+
 	b.subnetGroupsStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), sg.ARN)
 
@@ -1460,21 +1549,13 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, req *createUserRequest
 		return nil, ErrUserAlreadyExists
 	}
 
-	authType := strings.ToLower(req.AuthenticationMode.Type)
-	if authType == "" {
-		authType = authTypeNoPasswordRequired
+	authType, err := normalizeAuthType(req.AuthenticationMode.Type)
+	if err != nil {
+		return nil, err
 	}
-	if authType == authTypeNoPassword {
-		authType = authTypeNoPasswordRequired
-	}
-	if authType != authTypePassword && authType != authTypeIAM && authType != authTypeNoPasswordRequired {
-		return nil, fmt.Errorf(
-			"AuthenticationMode.Type must be password, iam, or no-password-required: %w",
-			ErrValidation,
-		)
-	}
-	if authType == authTypeIAM && len(req.AuthenticationMode.Passwords) > 0 {
-		return nil, fmt.Errorf("passwords cannot be set when AuthenticationMode.Type is iam: %w", ErrValidation)
+
+	if err = validateAuthPasswordCombo(authType, req.AuthenticationMode.Passwords); err != nil {
+		return nil, err
 	}
 
 	userARN := arn.Build("memorydb", region, b.accountID, "user/"+req.UserName)
@@ -1573,11 +1654,8 @@ func (b *InMemoryBackend) UpdateUser(ctx context.Context, req *updateUserRequest
 	}
 
 	if req.AuthenticationMode != nil {
-		if req.AuthenticationMode.Type != "" {
-			u.AuthType = req.AuthenticationMode.Type
-		}
-		if len(req.AuthenticationMode.Passwords) > 0 {
-			u.Passwords = req.AuthenticationMode.Passwords
+		if err := applyUserAuthModeUpdate(u, req.AuthenticationMode); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1623,7 +1701,12 @@ func (b *InMemoryBackend) CreateParameterGroup(
 	b.parameterGroupsStore(region).Put(pg)
 	b.arnToResourceStore(region)[pgARN] = resourceRef{Kind: resourceKindParameterGroup, Name: req.ParameterGroupName}
 
-	return pg, nil
+	// Return a clone, not the live table entry: the entry stays reachable for
+	// concurrent UpdateParameterGroup/TagResource calls, which mutate its
+	// Parameters/Tags maps in place under b.mu -- returning the raw pointer
+	// would let the JSON encoder (which runs after this call returns and the
+	// lock is released) race with those in-place mutations.
+	return cloneParameterGroup(pg), nil
 }
 
 // DescribeParameterGroups returns parameter groups, optionally filtered by name.
@@ -1704,7 +1787,7 @@ func (b *InMemoryBackend) ListTags(_ context.Context, resourceArn string) (map[s
 
 	region, ref, ok := b.findARN(resourceArn)
 	if !ok {
-		return nil, awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
+		return nil, ErrInvalidARN
 	}
 
 	tags := b.tagsForRef(region, ref)
@@ -1719,7 +1802,7 @@ func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tag
 
 	region, ref, ok := b.findARN(resourceArn)
 	if !ok {
-		return awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
+		return ErrInvalidARN
 	}
 
 	const maxTagsPerResource = 50
@@ -1753,7 +1836,7 @@ func (b *InMemoryBackend) UntagResource(_ context.Context, resourceArn string, t
 
 	region, ref, ok := b.findARN(resourceArn)
 	if !ok {
-		return awserr.New("ResourceNotFoundFault: resource not found", awserr.ErrNotFound)
+		return ErrInvalidARN
 	}
 
 	b.removeTags(region, ref, tagKeys)
@@ -1946,7 +2029,10 @@ func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapsho
 		Message: "Snapshot " + req.SnapshotName + " created for cluster " + req.ClusterName,
 	})
 
-	return s, nil
+	// Clone: s stays in the table and its Tags map can be mutated in place by
+	// a concurrent TagResource/UntagResource call after this method returns
+	// and b.mu is released.
+	return cloneSnapshot(s), nil
 }
 
 // DescribeSnapshots returns snapshots, optionally filtered by name, cluster name, snapshot type, or source.
@@ -2039,7 +2125,8 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 	b.snapshotsStore(region).Put(dst)
 	b.arnToResourceStore(region)[targetARN] = resourceRef{Kind: resourceKindSnapshot, Name: req.TargetSnapshotName}
 
-	return dst, nil
+	// Clone for the same reason as CreateSnapshot: dst remains live in the table.
+	return cloneSnapshot(dst), nil
 }
 
 // DeleteSnapshot removes a snapshot.
@@ -2079,7 +2166,10 @@ func (b *InMemoryBackend) ExportSnapshot(ctx context.Context, req *exportSnapsho
 		return nil, ErrSnapshotNotFound
 	}
 
-	return s, nil
+	// Clone: s is the live table entry and its Tags map can be mutated in
+	// place by a concurrent TagResource/UntagResource call after this method
+	// returns and the RLock is released.
+	return cloneSnapshot(s), nil
 }
 
 // -- EngineVersion operations ---------------------------------------------------
@@ -2229,13 +2319,21 @@ func (b *InMemoryBackend) DescribeEvents(_ context.Context, req *describeEventsR
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	startTime := resolveEventStartTime(req)
+	startTime, err := resolveEventStartTime(req)
+	if err != nil {
+		return nil, err
+	}
+
+	endTime, err := parseEpochRequestTime(req.EndTime)
+	if err != nil {
+		return nil, err
+	}
 
 	var result []*Event
 
 	for _, evs := range b.events {
 		for _, ev := range evs {
-			if eventMatchesFilter(ev, req, startTime) {
+			if eventMatchesFilter(ev, req, startTime, endTime) {
 				result = append(result, cloneEvent(ev))
 			}
 		}
@@ -2244,21 +2342,47 @@ func (b *InMemoryBackend) DescribeEvents(_ context.Context, req *describeEventsR
 	return result, nil
 }
 
-func resolveEventStartTime(req *describeEventsRequest) *time.Time {
-	if req.StartTime != nil {
-		return req.StartTime
+// parseEpochRequestTime parses a describeEventsRequest StartTime/EndTime
+// field. Real aws-sdk-go-v2 clients serialize these TStamp shapes as a JSON
+// number of epoch seconds (awsjson1.1), so n arrives as json.Number, not an
+// RFC3339 string. Returns nil, nil when n is the empty (unset) value.
+func parseEpochRequestTime(n json.Number) (*time.Time, error) {
+	if n == "" {
+		return nil, nil //nolint:nilnil // absent filter is a valid, distinct state from "parse failed"
+	}
+
+	f, err := n.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("invalid timestamp %q: %w", n, ErrValidation)
+	}
+
+	sec := int64(f)
+	nsec := int64((f - float64(sec)) * float64(time.Second))
+	t := time.Unix(sec, nsec).UTC()
+
+	return &t, nil
+}
+
+func resolveEventStartTime(req *describeEventsRequest) (*time.Time, error) {
+	startTime, err := parseEpochRequestTime(req.StartTime)
+	if err != nil {
+		return nil, err
+	}
+
+	if startTime != nil {
+		return startTime, nil
 	}
 
 	if req.Duration != nil {
 		t := time.Now().Add(-time.Duration(*req.Duration) * time.Minute)
 
-		return &t
+		return &t, nil
 	}
 
-	return nil
+	return nil, nil //nolint:nilnil // no start filter is a valid state
 }
 
-func eventMatchesFilter(ev *Event, req *describeEventsRequest, startTime *time.Time) bool {
+func eventMatchesFilter(ev *Event, req *describeEventsRequest, startTime, endTime *time.Time) bool {
 	if req.SourceName != "" && ev.SourceName != req.SourceName {
 		return false
 	}
@@ -2271,7 +2395,7 @@ func eventMatchesFilter(ev *Event, req *describeEventsRequest, startTime *time.T
 		return false
 	}
 
-	if req.EndTime != nil && ev.Date.After(*req.EndTime) {
+	if endTime != nil && ev.Date.After(*endTime) {
 		return false
 	}
 
@@ -2331,7 +2455,10 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 	b.multiRegionClusters.Put(mrc)
 	b.arnToResourceStore(region)[mrARN] = resourceRef{Kind: resourceKindMultiRegionCluster, Name: fullName}
 
-	return mrc, nil
+	// Clone: mrc stays in the registry and its Tags map can be mutated in
+	// place by a concurrent TagResource/UntagResource or UpdateMultiRegionCluster
+	// call after this method returns and b.mu is released.
+	return cloneMultiRegionCluster(mrc), nil
 }
 
 // DeleteMultiRegionCluster removes a multi-region cluster.
@@ -2764,7 +2891,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 		OfferingType:     offering.OfferingType,
 		RecurringCharges: offering.RecurringCharges,
 		State:            "active",
-		StartTime:        time.Now().UTC().Format(time.RFC3339),
+		StartTime:        awstime.Epoch(time.Now().UTC()),
 		NodeCount:        nodeCount,
 		ARN:              rnARN,
 	}
