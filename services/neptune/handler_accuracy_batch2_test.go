@@ -279,7 +279,7 @@ func TestBatch2Ops_EventSubscription_DescribeModifyDeleteLifecycle(t *testing.T)
 		"SubscriptionName": {"sub-1"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "SubscriptionNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "SubscriptionNotFound")
 }
 
 func TestBatch2Ops_EventSubscription_NotFound(t *testing.T) {
@@ -297,7 +297,7 @@ func TestBatch2Ops_EventSubscription_NotFound(t *testing.T) {
 				"Version":          {"2014-10-31"},
 				"SubscriptionName": {"no-such"},
 			},
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 		{
 			name: "modify_not_found",
@@ -307,7 +307,7 @@ func TestBatch2Ops_EventSubscription_NotFound(t *testing.T) {
 				"SubscriptionName": {"no-such"},
 				"SnsTopicArn":      {"arn:x"},
 			},
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 		{
 			name: "delete_not_found",
@@ -316,7 +316,7 @@ func TestBatch2Ops_EventSubscription_NotFound(t *testing.T) {
 				"Version":          {"2014-10-31"},
 				"SubscriptionName": {"no-such"},
 			},
-			wantContains: "SubscriptionNotFoundFault",
+			wantContains: "SubscriptionNotFound",
 		},
 	}
 
@@ -575,7 +575,7 @@ func TestBatch2Ops_DBParameterGroup_FullLifecycle(t *testing.T) {
 		"DBParameterGroupName": {"pg-full"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 func TestBatch2Ops_DBParameterGroup_NotFound(t *testing.T) {
@@ -593,7 +593,7 @@ func TestBatch2Ops_DBParameterGroup_NotFound(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBParameterGroupName": {"no-such"},
 			},
-			wantContains: "DBParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "describe_params_not_found",
@@ -602,7 +602,7 @@ func TestBatch2Ops_DBParameterGroup_NotFound(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBParameterGroupName": {"no-such"},
 			},
-			wantContains: "DBParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "modify_not_found",
@@ -611,7 +611,7 @@ func TestBatch2Ops_DBParameterGroup_NotFound(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBParameterGroupName": {"no-such"},
 			},
-			wantContains: "DBParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "reset_not_found",
@@ -620,7 +620,7 @@ func TestBatch2Ops_DBParameterGroup_NotFound(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBParameterGroupName": {"no-such"},
 			},
-			wantContains: "DBParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 		{
 			name: "delete_not_found",
@@ -629,7 +629,7 @@ func TestBatch2Ops_DBParameterGroup_NotFound(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBParameterGroupName": {"no-such"},
 			},
-			wantContains: "DBParameterGroupNotFoundFault",
+			wantContains: "DBParameterGroupNotFound",
 		},
 	}
 
@@ -692,7 +692,7 @@ func TestBatch2Ops_ClusterParameterGroup_ModifyResetDescribeParams(t *testing.T)
 		"DBClusterParameterGroupName": {"no-such-cpg"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBClusterParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // --- Snapshot attributes ---
@@ -721,8 +721,8 @@ func TestBatch2Ops_SnapshotAttributes(t *testing.T) {
 			setupSnap:    false,
 			snapshotID:   "",
 			action:       "DescribeDBClusterSnapshotAttributes",
-			wantStatus:   http.StatusOK,
-			wantContains: "DescribeDBClusterSnapshotAttributesResponse",
+			wantStatus:   http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
 		},
 		{
 			name:         "describe_attributes_not_found",
@@ -769,6 +769,10 @@ func TestBatch2Ops_SnapshotAttributes(t *testing.T) {
 			}
 			if tt.snapshotID != "" {
 				vals["DBClusterSnapshotIdentifier"] = []string{tt.snapshotID}
+			}
+			if tt.action == "ModifyDBClusterSnapshotAttribute" {
+				vals["AttributeName"] = []string{"restore"}
+				vals["ValuesToAdd.AttributeValue.1"] = []string{"123456789012"}
 			}
 			rr := doRequest(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rr.Code, rr.Body.String())

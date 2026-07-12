@@ -7,11 +7,19 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
+
+// nowISO8601 returns the current UTC time formatted as the ISO8601/RFC3339
+// wire string Neptune's query/xml deserializers expect for *CreateTime
+// fields (smithytime.ParseDateTime on the client side).
+func nowISO8601() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
 type regionContextKey struct{}
@@ -131,6 +139,7 @@ const (
 	snapshotStatusAvailable      = "available"
 	snapshotStatusCreating       = "creating"
 	percentProgressComplete      = 100
+	minFailoverClusterMembers    = 2
 )
 
 // ServerlessV2ScalingConfiguration holds Neptune Serverless v2 capacity settings.
@@ -253,6 +262,7 @@ type DBInstance struct {
 	Engine                          string `json:"Engine"`
 	EngineVersion                   string `json:"EngineVersion"`
 	DBInstanceStatus                string `json:"DBInstanceStatus"`
+	InstanceCreateTime              string `json:"InstanceCreateTime"`
 	Endpoint                        string `json:"Endpoint"`
 	DBSubnetGroupName               string `json:"DBSubnetGroupName"`
 	DBParameterGroupName            string `json:"DBParameterGroupName"`
@@ -332,21 +342,28 @@ type DBClusterParameterGroup struct {
 type DBClusterSnapshot struct {
 	// region is the AWS region this cluster snapshot belongs to; see
 	// DBCluster.region for the composite-key rationale.
-	region                           string
-	DBClusterSnapshotIdentifier      string `json:"DBClusterSnapshotIdentifier"`
-	DBClusterSnapshotArn             string `json:"DBClusterSnapshotArn"`
-	DBClusterIdentifier              string `json:"DBClusterIdentifier"`
-	Engine                           string `json:"Engine"`
-	EngineVersion                    string `json:"EngineVersion"`
-	Status                           string `json:"Status"`
-	SnapshotType                     string `json:"SnapshotType"`
-	KmsKeyID                         string `json:"KmsKeyId"`
-	VpcID                            string `json:"VpcId"`
-	StorageEncrypted                 bool   `json:"StorageEncrypted"`
-	IAMDatabaseAuthenticationEnabled bool   `json:"IAMDatabaseAuthenticationEnabled"`
-	Port                             int    `json:"Port"`
-	PercentProgress                  int    `json:"PercentProgress"`
-	AllocatedStorage                 int    `json:"AllocatedStorage"`
+	region                      string
+	DBClusterSnapshotIdentifier string `json:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn        string `json:"DBClusterSnapshotArn"`
+	DBClusterIdentifier         string `json:"DBClusterIdentifier"`
+	Engine                      string `json:"Engine"`
+	EngineVersion               string `json:"EngineVersion"`
+	Status                      string `json:"Status"`
+	SnapshotType                string `json:"SnapshotType"`
+	SnapshotCreateTime          string `json:"SnapshotCreateTime"`
+	ClusterCreateTime           string `json:"ClusterCreateTime"`
+	KmsKeyID                    string `json:"KmsKeyId"`
+	VpcID                       string `json:"VpcId"`
+	// RestoreAttributeValues holds the account IDs (or "all") authorized to
+	// copy/restore this manual snapshot via the "restore" DB cluster snapshot
+	// attribute -- the only attribute Neptune's API models (see
+	// ModifyDBClusterSnapshotAttribute/DescribeDBClusterSnapshotAttributes).
+	RestoreAttributeValues           []string `json:"RestoreAttributeValues"`
+	Port                             int      `json:"Port"`
+	PercentProgress                  int      `json:"PercentProgress"`
+	AllocatedStorage                 int      `json:"AllocatedStorage"`
+	StorageEncrypted                 bool     `json:"StorageEncrypted"`
+	IAMDatabaseAuthenticationEnabled bool     `json:"IAMDatabaseAuthenticationEnabled"`
 }
 
 // DBParameterGroup represents a Neptune DB parameter group.
@@ -675,6 +692,18 @@ func cloneSubnetGroup(sg *DBSubnetGroup) DBSubnetGroup {
 	return cp
 }
 
+// cloneClusterSnapshot returns a deep copy of a cluster snapshot (with its
+// RestoreAttributeValues slice copied, so a caller mutating the returned copy
+// -- or a later ModifyDBClusterSnapshotAttribute call mutating the stored
+// original -- cannot alias the other's backing array).
+func cloneClusterSnapshot(snap *DBClusterSnapshot) DBClusterSnapshot {
+	cp := *snap
+	cp.RestoreAttributeValues = make([]string, len(snap.RestoreAttributeValues))
+	copy(cp.RestoreAttributeValues, snap.RestoreAttributeValues)
+
+	return cp
+}
+
 // cloneEventSubscription returns a deep copy of an event subscription (with its slices copied).
 func cloneEventSubscription(sub *EventSubscription) EventSubscription {
 	cp := *sub
@@ -868,7 +897,7 @@ func (b *InMemoryBackend) buildNewCluster(
 		DBClusterIdentifier:             id,
 		DBClusterArn:                    b.clusterARN(region, id),
 		DBClusterResourceID:             fmt.Sprintf("cluster-%s", id),
-		ClusterCreateTime:               "2024-01-01T00:00:00Z",
+		ClusterCreateTime:               nowISO8601(),
 		Engine:                          neptuneEngine,
 		EngineVersion:                   engineVersion,
 		EngineMode:                      engineMode,
@@ -1014,6 +1043,8 @@ func (b *InMemoryBackend) DeleteDBCluster(
 				PercentProgress:                  percentProgressComplete,
 				AllocatedStorage:                 c.AllocatedStorage,
 				SnapshotType:                     snapshotSourceManual,
+				SnapshotCreateTime:               nowISO8601(),
+				ClusterCreateTime:                c.ClusterCreateTime,
 			})
 		}
 	}
@@ -1187,7 +1218,9 @@ func (b *InMemoryBackend) StartDBCluster(ctx context.Context, id string) (*DBClu
 }
 
 // FailoverDBCluster triggers a failover for a Neptune DB cluster.
-func (b *InMemoryBackend) FailoverDBCluster(ctx context.Context, id string) (*DBCluster, error) {
+func (b *InMemoryBackend) FailoverDBCluster(
+	ctx context.Context, id, targetInstanceID string,
+) (*DBCluster, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("FailoverDBCluster")
 	defer b.mu.Unlock()
@@ -1195,9 +1228,63 @@ func (b *InMemoryBackend) FailoverDBCluster(ctx context.Context, id string) (*DB
 	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
+	if err := promoteClusterMember(c, targetInstanceID); err != nil {
+		return nil, err
+	}
 	cp := cloneCluster(c)
 
 	return &cp, nil
+}
+
+// promoteClusterMember performs the state change of a failover: it promotes
+// one non-writer member of c to writer and demotes the current writer,
+// mirroring the DBClusterMembers.IsClusterWriter flip AWS performs. When
+// targetInstanceID is empty, AWS (and this backend) picks any available
+// reader; when set, it must name an existing member other than the current
+// writer. A cluster with fewer than two members has no reader to fail over
+// to, matching AWS's InvalidDBClusterStateFault in that situation.
+func promoteClusterMember(c *DBCluster, targetInstanceID string) error {
+	if len(c.DBClusterMembers) < minFailoverClusterMembers {
+		return fmt.Errorf(
+			"%w: cluster %s has no reader instance available to fail over to",
+			ErrInvalidDBClusterStateFault,
+			c.DBClusterIdentifier,
+		)
+	}
+	targetIdx := -1
+	for i, m := range c.DBClusterMembers {
+		if targetInstanceID != "" {
+			if m.DBInstanceIdentifier == targetInstanceID {
+				targetIdx = i
+			}
+
+			continue
+		}
+		if !m.IsClusterWriter && targetIdx == -1 {
+			targetIdx = i
+		}
+	}
+	if targetIdx == -1 {
+		return fmt.Errorf(
+			"%w: target instance %s is not a valid failover target for cluster %s",
+			ErrInvalidDBInstanceStateFault,
+			targetInstanceID,
+			c.DBClusterIdentifier,
+		)
+	}
+	if c.DBClusterMembers[targetIdx].IsClusterWriter {
+		return fmt.Errorf(
+			"%w: target instance %s is already the writer for cluster %s",
+			ErrInvalidDBInstanceStateFault,
+			targetInstanceID,
+			c.DBClusterIdentifier,
+		)
+	}
+	for i := range c.DBClusterMembers {
+		c.DBClusterMembers[i].IsClusterWriter = i == targetIdx
+	}
+
+	return nil
 }
 
 // CreateDBInstance creates a new Neptune DB instance.
@@ -1251,6 +1338,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		Engine:                          neptuneEngine,
 		EngineVersion:                   engineVersion,
 		DBInstanceStatus:                clusterStatusAvailable,
+		InstanceCreateTime:              nowISO8601(),
 		Endpoint:                        endpoint,
 		Port:                            defaultNeptunePort,
 		AutoMinorVersionUpgrade:         true,
@@ -1630,9 +1718,11 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(
 		PercentProgress:                  percentProgressComplete,
 		AllocatedStorage:                 cl.AllocatedStorage,
 		SnapshotType:                     snapshotSourceManual,
+		SnapshotCreateTime:               nowISO8601(),
+		ClusterCreateTime:                cl.ClusterCreateTime,
 	}
 	b.clusterSnapshotPut(snap)
-	cp := *snap
+	cp := cloneClusterSnapshot(snap)
 
 	return &cp, nil
 }
@@ -1654,7 +1744,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 				snapshotID,
 			)
 		}
-		cp := *snap
+		cp := cloneClusterSnapshot(snap)
 
 		return []DBClusterSnapshot{cp}, nil
 	}
@@ -1667,7 +1757,7 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(
 		if snapshotTypeFilter != "" && snap.SnapshotType != snapshotTypeFilter {
 			continue
 		}
-		result = append(result, *snap)
+		result = append(result, cloneClusterSnapshot(snap))
 	}
 	slices.SortFunc(result, func(a, b DBClusterSnapshot) int {
 		return strings.Compare(a.DBClusterSnapshotIdentifier, b.DBClusterSnapshotIdentifier)
@@ -1692,9 +1782,64 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(
 			snapshotID,
 		)
 	}
-	cp := *snap
+	cp := cloneClusterSnapshot(snap)
 	b.clusterSnapshotDelete(region, snapshotID)
 	delete(b.tagsStore(region), b.clusterSnapshotARN(region, snapshotID))
+
+	return &cp, nil
+}
+
+// dbClusterSnapshotRestoreAttribute is the only DB cluster snapshot attribute
+// name Neptune's API models: it holds the account IDs (or "all") authorized
+// to copy/restore a manual snapshot. See ModifyDBClusterSnapshotAttribute /
+// DescribeDBClusterSnapshotAttributes.
+const dbClusterSnapshotRestoreAttribute = "restore"
+
+// ModifyDBClusterSnapshotAttribute adds and/or removes values from a Neptune
+// DB cluster snapshot's "restore" attribute (the list of accounts authorized
+// to copy/restore the snapshot). It returns the updated snapshot so callers
+// can render the DBClusterSnapshotAttributesResult AWS includes in both the
+// Modify and Describe responses.
+func (b *InMemoryBackend) ModifyDBClusterSnapshotAttribute(
+	ctx context.Context,
+	snapshotID, attributeName string,
+	valuesToAdd, valuesToRemove []string,
+) (*DBClusterSnapshot, error) {
+	if attributeName != dbClusterSnapshotRestoreAttribute {
+		return nil, fmt.Errorf(
+			"%w: AttributeName must be %q",
+			ErrInvalidParameter,
+			dbClusterSnapshotRestoreAttribute,
+		)
+	}
+	region := getRegion(ctx, b.region)
+	b.mu.Lock("ModifyDBClusterSnapshotAttribute")
+	defer b.mu.Unlock()
+	snap, exists := b.clusterSnapshotGet(region, snapshotID)
+	if !exists {
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s not found",
+			ErrClusterSnapshotNotFound,
+			snapshotID,
+		)
+	}
+	remove := make(map[string]bool, len(valuesToRemove))
+	for _, v := range valuesToRemove {
+		remove[v] = true
+	}
+	kept := make([]string, 0, len(snap.RestoreAttributeValues))
+	for _, v := range snap.RestoreAttributeValues {
+		if !remove[v] {
+			kept = append(kept, v)
+		}
+	}
+	for _, v := range valuesToAdd {
+		if !slices.Contains(kept, v) {
+			kept = append(kept, v)
+		}
+	}
+	snap.RestoreAttributeValues = kept
+	cp := cloneClusterSnapshot(snap)
 
 	return &cp, nil
 }
@@ -1982,18 +2127,26 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(
 		)
 	}
 	snap := &DBClusterSnapshot{
-		region:                      region,
-		DBClusterSnapshotIdentifier: targetSnapshotID,
-		DBClusterSnapshotArn:        b.clusterSnapshotARN(region, targetSnapshotID),
-		DBClusterIdentifier:         src.DBClusterIdentifier,
-		Engine:                      src.Engine,
-		EngineVersion:               src.EngineVersion,
-		Status:                      clusterStatusAvailable,
-		StorageEncrypted:            src.StorageEncrypted,
-		SnapshotType:                snapshotSourceManual,
+		region:                           region,
+		DBClusterSnapshotIdentifier:      targetSnapshotID,
+		DBClusterSnapshotArn:             b.clusterSnapshotARN(region, targetSnapshotID),
+		DBClusterIdentifier:              src.DBClusterIdentifier,
+		Engine:                           src.Engine,
+		EngineVersion:                    src.EngineVersion,
+		Status:                           snapshotStatusAvailable,
+		StorageEncrypted:                 src.StorageEncrypted,
+		KmsKeyID:                         src.KmsKeyID,
+		VpcID:                            src.VpcID,
+		IAMDatabaseAuthenticationEnabled: src.IAMDatabaseAuthenticationEnabled,
+		Port:                             src.Port,
+		AllocatedStorage:                 src.AllocatedStorage,
+		PercentProgress:                  percentProgressComplete,
+		SnapshotType:                     snapshotSourceManual,
+		SnapshotCreateTime:               nowISO8601(),
+		ClusterCreateTime:                src.ClusterCreateTime,
 	}
 	b.clusterSnapshotPut(snap)
-	cp := *snap
+	cp := cloneClusterSnapshot(snap)
 
 	return &cp, nil
 }
@@ -2235,21 +2388,28 @@ func (b *InMemoryBackend) DescribeGlobalClusters(_ context.Context) []GlobalClus
 	return result
 }
 
-// DeleteDBClusterEndpoint deletes a Neptune DB cluster custom endpoint.
-func (b *InMemoryBackend) DeleteDBClusterEndpoint(ctx context.Context, endpointID string) error {
+// DeleteDBClusterEndpoint deletes a Neptune DB cluster custom endpoint,
+// returning the deleted endpoint's details -- AWS's DeleteDBClusterEndpoint
+// response echoes them back (DeleteDBClusterEndpointResult), unlike e.g.
+// DeleteDBSubnetGroup which has a genuinely empty output.
+func (b *InMemoryBackend) DeleteDBClusterEndpoint(
+	ctx context.Context, endpointID string,
+) (*DBClusterEndpoint, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBClusterEndpoint")
 	defer b.mu.Unlock()
-	if !b.clusterEndpointHas(region, endpointID) {
-		return fmt.Errorf(
+	ep, exists := b.clusterEndpointGet(region, endpointID)
+	if !exists {
+		return nil, fmt.Errorf(
 			"%w: cluster endpoint %s not found",
 			ErrClusterEndpointNotFound,
 			endpointID,
 		)
 	}
+	cp := *ep
 	b.clusterEndpointDelete(region, endpointID)
 
-	return nil
+	return &cp, nil
 }
 
 // DescribeDBClusterEndpoints returns all Neptune DB cluster endpoints or a specific one.
@@ -2711,6 +2871,8 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		region:                      region,
 		DBClusterIdentifier:         clusterID,
 		DBClusterArn:                b.clusterARN(region, clusterID),
+		DBClusterResourceID:         fmt.Sprintf("cluster-%s", clusterID),
+		ClusterCreateTime:           nowISO8601(),
 		Engine:                      snap.Engine,
 		EngineVersion:               snap.EngineVersion,
 		EngineMode:                  engineModeProvisioned,
@@ -2759,6 +2921,8 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		region:                          region,
 		DBClusterIdentifier:             targetClusterID,
 		DBClusterArn:                    b.clusterARN(region, targetClusterID),
+		DBClusterResourceID:             fmt.Sprintf("cluster-%s", targetClusterID),
+		ClusterCreateTime:               nowISO8601(),
 		Engine:                          src.Engine,
 		EngineVersion:                   src.EngineVersion,
 		EngineMode:                      src.EngineMode,

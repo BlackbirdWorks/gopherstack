@@ -170,7 +170,7 @@ func TestRefinement2_DescribeDBClusterParameters_MissingGroup(t *testing.T) {
 		"DBClusterParameterGroupName": {"nonexistent-cpg"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBClusterParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // TestRefinement2_DescribeDBClusterParameters_Empty verifies empty group name succeeds.
@@ -196,7 +196,7 @@ func TestRefinement2_DescribeDBParameters_MissingGroup(t *testing.T) {
 		"DBParameterGroupName": {"nonexistent-pg"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFoundFault")
+	assert.Contains(t, rr.Body.String(), "DBParameterGroupNotFound")
 }
 
 // TestRefinement2_DescribeDBClusterSnapshotAttributes_MissingSnapshot returns error.

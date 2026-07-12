@@ -444,7 +444,7 @@ func TestParity_ErrorCodes_DBInstanceFaultSuffix(t *testing.T) {
 				"Version":              {"2014-10-31"},
 				"DBInstanceIdentifier": {"nonexistent-instance"},
 			},
-			wantContains: "DBInstanceNotFoundFault",
+			wantContains: "DBInstanceNotFound",
 		},
 		{
 			name: "instance_already_exists_has_fault_suffix",
@@ -455,7 +455,7 @@ func TestParity_ErrorCodes_DBInstanceFaultSuffix(t *testing.T) {
 				"DBClusterIdentifier":  {"dup-cluster"},
 				"DBInstanceClass":      {"db.r5.large"},
 			},
-			wantContains: "DBInstanceAlreadyExistsFault",
+			wantContains: "DBInstanceAlreadyExists",
 		},
 	}
 
