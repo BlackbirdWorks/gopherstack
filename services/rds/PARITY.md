@@ -5,17 +5,20 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.116.2
-last_audit_commit: 23de3aab
-last_audit_date: 2026-07-05
-overall: B            # already-accurate on nearly all of ~140 routed ops (5+ prior audit
-                       # passes: batch1-3, refinement1-4, #2213/#2226/#2227/#2329/#2334/#2339);
-                       # this pass found and fixed 2 genuine wire/behavior gaps (final-snapshot
-                       # contract on delete, DescribeDBInstances Filters) rather than a
-                       # ground-up rewrite.
+last_audit_commit: dad3e28d
+last_audit_date: 2026-07-11
+overall: B+           # already-accurate on nearly all of ~163 routed ops (6+ prior audit
+                       # passes: batch1-3, refinement1-4, sweeps 2-3, #2213/#2226/#2227/#2329/
+                       # #2334/#2339/#2380/#2381/#2382); services/rds had zero local drift
+                       # since the prior audit (ce30166a) and the vendored SDK version is
+                       # unchanged (v1.116.2, all 163 ops still routed), so this pass targeted
+                       # exactly the items the prior ledger flagged as "spot-checked, not
+                       # re-verified op-by-op" (DB shard groups, zero-ETL integrations) and
+                       # found a real, previously-unnoticed wire-shape bug affecting 10 ops.
 ops:
-  DeleteDBInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — see gaps"}
-  DeleteDBCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass — see gaps"}
-  DescribeDBInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "Filters added this pass"}
+  DeleteDBInstance: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteDBCluster: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeDBInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDBInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyDBInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   StartDBInstance: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -36,6 +39,29 @@ ops:
   ResetDBParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDBSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateOptionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateDBShardGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  DeleteDBShardGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  ModifyDBShardGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  RebootDBShardGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  DescribeDBShardGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "list shape was already correct"}
+  CreateIntegration: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  DeleteIntegration: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  ModifyIntegration: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  DescribeIntegrations: {wire: ok, errors: ok, state: ok, persist: ok, note: "list shape was already correct"}
+  CreateCustomDBEngineVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting + wrong field name fixed this pass — see gaps/Notes"}
+  DeleteCustomDBEngineVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting bug fixed this pass — see gaps/Notes"}
+  ModifyCustomDBEngineVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "wire nesting + wrong field name fixed this pass — see gaps/Notes"}
+  CreateTenantDatabase: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real AWS output nests under <TenantDatabase>, matches gopherstack"}
+  DeleteTenantDatabase: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass"}
+  ModifyTenantDatabase: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass"}
+  DescribeTenantDatabases: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass"}
+  CreateDBSecurityGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — real AWS output nests under <DBSecurityGroup>, matches gopherstack"}
+  AuthorizeDBSecurityGroupIngress: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass"}
+  RevokeDBSecurityGroupIngress: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass"}
+  ModifyCertificates: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — nests under <Certificate>, matches"}
+  ModifyDBRecommendation: {wire: ok, errors: ok, state: ok, persist: ok, note: "verified this pass — nests under <DBRecommendation>, matches"}
+  CreateDBProxy/DeleteDBProxy/ModifyDBProxy: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <DBProxy>, matches (family already ok per prior audits)"}
+  PurchaseReservedDBInstancesOffering: {wire: ok, errors: ok, state: ok, persist: ok, note: "spot-verified this pass — nests under <ReservedDBInstance>, matches"}
 families:
   db_instance_lifecycle: {status: ok, note: "creating->available->modifying/deleting state machine via instanceReadyAt + self-terminating reconciler goroutine (backend.go scheduleReconcilerLocked); verified transitions, DeletionProtection guard, already-deleting guard"}
   db_cluster_lifecycle: {status: ok, note: "cluster members, reader/writer endpoint synthesis, ServerlessV2ScalingConfiguration, start/stop/failover/reboot all mutate real state"}
@@ -56,15 +82,20 @@ families:
   performance_insights: {status: ok, note: "GetPerformanceInsightsMetrics requires seeded data via SetPerformanceInsightsData — not a fabricated-on-the-fly stub; batch3_test.go.rej/.patch cruft from a prior sweep's already-applied fix removed this pass"}
   error_codes: {status: ok, note: "awserr sentinels map to correct AWS fault codes (DBInstanceNotFound, DBInstanceAlreadyExists, InvalidDBInstanceState, DBSnapshotNotFound, InvalidParameterValue, InvalidParameterCombination) with correct HTTP status via errCodeLookup in handler.go"}
   leaks: {status: ok, note: "single reconciler goroutine per backend; self-terminates when instanceReadyAt/clusterReadyAt both empty (no ticker leak); no unbounded maps found — events ring-buffered at maxEvents"}
+  db_shard_groups: {status: ok, note: "Aurora Limitless shard groups — CRUD + Reboot real state; wire-shape bug (extra nesting) on Create/Delete/Modify/Reboot FIXED this pass, see gaps/Notes"}
+  integrations: {status: ok, note: "zero-ETL Redshift integrations — CRUD real state; wire-shape bug (extra nesting) on Create/Delete/Modify FIXED this pass, see gaps/Notes"}
+  custom_db_engine_versions: {status: ok, note: "wire-shape bug (extra nesting + wrong field name for description) on Create/Delete/Modify FIXED this pass, see gaps/Notes"}
+  tenant_databases: {status: ok, note: "re-verified this pass against the real SDK's CreateTenantDatabaseOutput/DeleteTenantDatabaseOutput/ModifyTenantDatabaseOutput shapes (these DO nest under <TenantDatabase>, unlike shard groups/integrations) — no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
+  db_security_groups: {status: ok, note: "re-verified this pass (EC2-Classic legacy) — CreateDBSecurityGroupOutput/AuthorizeDBSecurityGroupIngressOutput/RevokeDBSecurityGroupIngressOutput all nest under <DBSecurityGroup> in the real SDK, matches gopherstack; no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
 gaps:
-  - DeleteDBInstance/DeleteDBCluster previously ignored SkipFinalSnapshot/FinalDBSnapshotIdentifier/DeleteAutomatedBackups entirely (silently always skipped the final snapshot with no validation) — FIXED this pass (bd: gopherstack-bgl)
-  - DescribeDBInstances previously ignored the Filters parameter entirely — FIXED this pass for db-cluster-id/db-instance-id/dbi-resource-id/domain/engine (bd: gopherstack-bgl)
-  - DescribeDBClusters, DescribeDBSnapshots, DescribeDBClusterSnapshots, DescribeEvents still ignore Filters — same shape of gap as DescribeDBInstances before this pass, not fixed (scope/time); follow-up under gopherstack-bgl
+  - DescribeDBClusters, DescribeDBSnapshots, DescribeDBClusterSnapshots, DescribeEvents still ignore Filters (DescribeDBInstances Filters support was added in a prior pass) — not fixed this pass (scope/time); follow-up under gopherstack-bgl
   - DB instance/cluster/snapshot/parameter-group identifiers are compared case-sensitively (Go map keys); real AWS treats DBInstanceIdentifier etc. as case-insensitive (e.g. creating "MyDB" then "mydb" should collide with DBInstanceAlreadyExistsFault but does not here) — not fixed: normalizing would touch every resource map across ~30K LOC and was judged too invasive for a scoped, low-risk pass; flagged for a dedicated follow-up
   - CreateDBInstance/CreateDBCluster do not validate the Engine name against a known-engine list; any string is accepted (real AWS returns InvalidParameterValue for an unsupported engine) — not fixed: many existing tests rely on the current permissive behavior with ad hoc engine strings; changing this is a larger, separately-scoped hardening task
+  - CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — FIXED this pass, see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
+  - CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — FIXED this pass alongside the nesting fix, see Notes.
 deferred:
-  - DB shard groups / integrations / tenant databases (Aurora Limitless / zero-ETL) — spot-checked as real (not stubs) but not re-verified op-by-op against the newest SDK field additions this pass
-  - Activity streams / DB security groups (EC2-Classic legacy) — spot-checked only
+  - Activity streams (StartActivityStream/StopActivityStream/ModifyActivityStream) — spot-checked only, not re-verified against the real SDK wire shape this pass (scope/time); given the wire-shape bug class found in shard-groups/integrations this pass, this family should be prioritized in the next audit
+  - DB shard groups / integrations (Aurora Limitless / zero-ETL) — CRUD *state* logic was previously spot-checked as real (not a stub); this pass went further and verified wire shape op-by-op against the real SDK, finding and fixing the nesting bug above. Field *coverage* is still partial (e.g. Integration doesn't model Tags/KMSKeyId/CreateTime/Errors, DBShardGroup doesn't model DBShardGroupArn/DBShardGroupResourceId/PubliclyAccessible on the wire) — not fixed, judged lower priority than the nesting bug since partial-but-correctly-shaped field coverage is a common, accepted pattern elsewhere in this emulator (e.g. DBInstance doesn't model every AWS field either)
 leaks: {status: clean, note: "reconciler goroutine (backend.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty; Close() is a documented no-op given this. No time.Sleep/unbounded-map patterns found in non-test files."}
 
 ## Notes
@@ -130,6 +161,56 @@ leaks: {status: clean, note: "reconciler goroutine (backend.go:scheduleReconcile
   `batch3_test.go` and confirmed the patch's content (deterministic-vs-flaky
   `TestPerformanceInsights_*` fixes) was already live in the tracked test file. Removed as
   dead weight; not a behavior change.
+
+- **DBShardGroup / Integration / CustomDBEngineVersion single-object response nesting bug
+  (fixed this pass).** `services/rds/handler_completeness.go` modeled the responses for
+  `CreateDBShardGroup`, `DeleteDBShardGroup`, `ModifyDBShardGroup`, `RebootDBShardGroup`,
+  `CreateIntegration`, `DeleteIntegration`, `ModifyIntegration`, `CreateCustomDBEngineVersion`,
+  `DeleteCustomDBEngineVersion`, and `ModifyCustomDBEngineVersion` the same way as the
+  well-established `CreateDBInstance`/`CreateDBCluster`/etc. pattern: a scalar wrapper struct
+  nested one level under the result, e.g.
+  `xml:"CreateDBShardGroupResult>DBShardGroup"`. That pattern is correct for DBInstance/
+  DBCluster/DBSnapshot/etc. because `CreateDBInstanceOutput` genuinely nests its payload under
+  a `DBInstance *types.DBInstanceType` field. But `CreateDBShardGroupOutput`,
+  `CreateIntegrationOutput`, and `CreateCustomDBEngineVersionOutput` (verified directly against
+  `aws-sdk-go-v2/service/rds@v1.116.2`'s `api_op_*.go` output structs and `deserializers.go`)
+  are all **flat** — `ComputeRedundancy`, `DBShardGroupIdentifier`, `IntegrationName`, `Engine`,
+  etc. sit directly on the output struct, not inside a nested sub-object. Confirmed against
+  `awsAwsquery_deserializeOpDocumentCreateDBShardGroupOutput` in `deserializers.go`: the
+  generated deserializer's `switch` only matches field names as *direct children* of the
+  `<CreateDBShardGroupResult>` node; an unrecognized child element name (like a stray
+  `<DBShardGroup>` wrapper) falls through unmatched and its entire subtree — including the real
+  field values one level deeper — is silently skipped. A real aws-sdk-go-v2 client calling any
+  of these 10 ops against the old code would therefore get back a `*XxxOutput` with every field
+  zero-valued, including the identifier fields (`DBShardGroupIdentifier`, `IntegrationName`,
+  `Engine`/`EngineVersion`) client code typically needs from a Create response to address the
+  resource in a follow-up call — a silent, high-impact wire break despite the backend state
+  being entirely real (this is the "disguised stub" bug class from
+  `.claude/memories/parity-principles.md` #2/#4: a real-looking nested-struct response that is
+  wrong purely in its XML chain depth). `DescribeDBShardGroups`/`DescribeIntegrations` were
+  NOT affected — those really do return a list (`DBShardGroups []types.DBShardGroup` /
+  `Integrations []types.Integration`), so the existing `xmlDBShardGroupList`/
+  `xmlIntegrationList` nesting is correct and was left unchanged; `toXMLDBShardGroup`/
+  `toXMLIntegration` helpers are still used for that list path. `TenantDatabase` and
+  `DBSecurityGroup` responses were checked against the same risk and found NOT to have this bug
+  — their real SDK outputs (`CreateTenantDatabaseOutput.TenantDatabase *types.TenantDatabase`,
+  `CreateDBSecurityGroupOutput.DBSecurityGroup *types.DBSecurityGroup`) genuinely do nest, so
+  gopherstack's existing nested-wrapper responses for those were already correct.
+  Fix: the 10 broken response structs now carry each field with the full
+  `xml:"CreateDBShardGroupResult>FieldName"` chain individually (same technique already used
+  a few lines below for `ModifyCurrentDBClusterCapacityResult`), so Go's `encoding/xml` emits
+  all fields as flat siblings under one `<XxxResult>` element instead of nesting them under an
+  extra wrapper element. Also fixed in the same pass: `CreateCustomDBEngineVersion`/
+  `ModifyCustomDBEngineVersion` serialized their description field under the wrong element name
+  entirely (`DatabaseInstallationFilesS3BucketName`, which isn't even a field on the real
+  output) instead of the real `DBEngineVersionDescription` — fixed alongside the nesting change.
+  `TestCreateCustomDBEngineVersionCRUD` in `accuracy_test.go` had encoded the old, wrong nested
+  shape as its expected XML structure (exactly the "unit tests are not parity proof" trap from
+  `.claude/memories/parity-principles.md` #3 — the test was green because it was written against
+  the emulator's own bugged output, not against the real SDK shape); updated to assert the flat
+  shape instead. Added `TestCreateDBShardGroup_WireShapeIsFlat` and
+  `TestCreateIntegration_WireShapeIsFlat` regression tests that unmarshal the HTTP response body
+  with the real (flat) field layout to guard against regressing back to the nested shape.
 
 - No goroutine/ticker/map leaks found. The single background reconciler
   (`scheduleReconcilerLocked`) is started lazily per backend on first

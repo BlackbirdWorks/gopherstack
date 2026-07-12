@@ -164,30 +164,38 @@ func (h *Handler) dispatchExtended15(action string, vals url.Values) (any, error
 
 // ---- XML response types ----
 
-type xmlCustomDBEngineVersion struct {
-	Engine                 string `xml:"Engine"`
-	EngineVersion          string `xml:"EngineVersion"`
-	Status                 string `xml:"Status,omitempty"`
-	Description            string `xml:"DatabaseInstallationFilesS3BucketName,omitempty"`
-	DBParameterGroupFamily string `xml:"DBParameterGroupFamily,omitempty"`
-}
-
+// CreateCustomDBEngineVersionOutput, DeleteCustomDBEngineVersionOutput, and
+// ModifyCustomDBEngineVersionOutput are all flat shapes in the real RDS API — the
+// Engine/EngineVersion/Status/DBEngineVersionDescription members sit directly under
+// the <XxxResult> element, there is no nested <CustomDBEngineVersion> wrapper (unlike
+// e.g. CreateDBInstanceOutput, which does nest under <DBInstance>). Each field below
+// therefore carries the full result-element chain individually instead of nesting
+// through a shared struct, matching the pattern already used for e.g.
+// ModifyCurrentDBClusterCapacityResult below.
 type createCustomDBEngineVersionResponse struct {
-	XMLName               xml.Name                 `xml:"CreateCustomDBEngineVersionResponse"`
-	Xmlns                 string                   `xml:"xmlns,attr"`
-	CustomDBEngineVersion xmlCustomDBEngineVersion `xml:"CreateCustomDBEngineVersionResult>CustomDBEngineVersion"`
+	XMLName                    xml.Name `xml:"CreateCustomDBEngineVersionResponse"`
+	Xmlns                      string   `xml:"xmlns,attr"`
+	Engine                     string   `xml:"CreateCustomDBEngineVersionResult>Engine"`
+	EngineVersion              string   `xml:"CreateCustomDBEngineVersionResult>EngineVersion"`
+	Status                     string   `xml:"CreateCustomDBEngineVersionResult>Status,omitempty"`
+	DBEngineVersionDescription string   `xml:"CreateCustomDBEngineVersionResult>DBEngineVersionDescription,omitempty"`
 }
 
 type deleteCustomDBEngineVersionResponse struct {
-	XMLName               xml.Name                 `xml:"DeleteCustomDBEngineVersionResponse"`
-	Xmlns                 string                   `xml:"xmlns,attr"`
-	CustomDBEngineVersion xmlCustomDBEngineVersion `xml:"DeleteCustomDBEngineVersionResult>CustomDBEngineVersion"`
+	XMLName       xml.Name `xml:"DeleteCustomDBEngineVersionResponse"`
+	Xmlns         string   `xml:"xmlns,attr"`
+	Engine        string   `xml:"DeleteCustomDBEngineVersionResult>Engine"`
+	EngineVersion string   `xml:"DeleteCustomDBEngineVersionResult>EngineVersion"`
+	Status        string   `xml:"DeleteCustomDBEngineVersionResult>Status,omitempty"`
 }
 
 type modifyCustomDBEngineVersionResponse struct {
-	XMLName               xml.Name                 `xml:"ModifyCustomDBEngineVersionResponse"`
-	Xmlns                 string                   `xml:"xmlns,attr"`
-	CustomDBEngineVersion xmlCustomDBEngineVersion `xml:"ModifyCustomDBEngineVersionResult>CustomDBEngineVersion"`
+	XMLName                    xml.Name `xml:"ModifyCustomDBEngineVersionResponse"`
+	Xmlns                      string   `xml:"xmlns,attr"`
+	Engine                     string   `xml:"ModifyCustomDBEngineVersionResult>Engine"`
+	EngineVersion              string   `xml:"ModifyCustomDBEngineVersionResult>EngineVersion"`
+	Status                     string   `xml:"ModifyCustomDBEngineVersionResult>Status,omitempty"`
+	DBEngineVersionDescription string   `xml:"ModifyCustomDBEngineVersionResult>DBEngineVersionDescription,omitempty"`
 }
 
 type xmlDBShardGroup struct {
@@ -204,16 +212,30 @@ type xmlDBShardGroupList struct {
 	Members []xmlDBShardGroup `xml:"DBShardGroup"`
 }
 
+// CreateDBShardGroupOutput, DeleteDBShardGroupOutput, ModifyDBShardGroupOutput, and
+// RebootDBShardGroupOutput are flat shapes in the real RDS API (no nested
+// <DBShardGroup> wrapper — see the comment on createCustomDBEngineVersionResponse for
+// why each field below repeats the full result-element chain). DescribeDBShardGroups
+// is different: it returns a real list (DBShardGroups []types.DBShardGroup), so
+// describeDBShardGroupsResponse below correctly keeps the xmlDBShardGroupList nesting.
 type createDBShardGroupResponse struct {
-	XMLName      xml.Name        `xml:"CreateDBShardGroupResponse"`
-	Xmlns        string          `xml:"xmlns,attr"`
-	DBShardGroup xmlDBShardGroup `xml:"CreateDBShardGroupResult>DBShardGroup"`
+	XMLName                xml.Name `xml:"CreateDBShardGroupResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	DBShardGroupIdentifier string   `xml:"CreateDBShardGroupResult>DBShardGroupIdentifier"`
+	DBClusterIdentifier    string   `xml:"CreateDBShardGroupResult>DBClusterIdentifier,omitempty"`
+	Status                 string   `xml:"CreateDBShardGroupResult>Status,omitempty"`
+	Endpoint               string   `xml:"CreateDBShardGroupResult>Endpoint,omitempty"`
+	MaxACU                 float64  `xml:"CreateDBShardGroupResult>MaxACU,omitempty"`
+	MinACU                 float64  `xml:"CreateDBShardGroupResult>MinACU,omitempty"`
+	ComputeRedundancy      int      `xml:"CreateDBShardGroupResult>ComputeRedundancy,omitempty"`
 }
 
 type deleteDBShardGroupResponse struct {
-	XMLName      xml.Name        `xml:"DeleteDBShardGroupResponse"`
-	Xmlns        string          `xml:"xmlns,attr"`
-	DBShardGroup xmlDBShardGroup `xml:"DeleteDBShardGroupResult>DBShardGroup"`
+	XMLName                xml.Name `xml:"DeleteDBShardGroupResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	DBShardGroupIdentifier string   `xml:"DeleteDBShardGroupResult>DBShardGroupIdentifier"`
+	DBClusterIdentifier    string   `xml:"DeleteDBShardGroupResult>DBClusterIdentifier,omitempty"`
+	Status                 string   `xml:"DeleteDBShardGroupResult>Status,omitempty"`
 }
 
 type describeDBShardGroupsResponse struct {
@@ -224,15 +246,21 @@ type describeDBShardGroupsResponse struct {
 }
 
 type modifyDBShardGroupResponse struct {
-	XMLName      xml.Name        `xml:"ModifyDBShardGroupResponse"`
-	Xmlns        string          `xml:"xmlns,attr"`
-	DBShardGroup xmlDBShardGroup `xml:"ModifyDBShardGroupResult>DBShardGroup"`
+	XMLName                xml.Name `xml:"ModifyDBShardGroupResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	DBShardGroupIdentifier string   `xml:"ModifyDBShardGroupResult>DBShardGroupIdentifier"`
+	DBClusterIdentifier    string   `xml:"ModifyDBShardGroupResult>DBClusterIdentifier,omitempty"`
+	Status                 string   `xml:"ModifyDBShardGroupResult>Status,omitempty"`
+	MaxACU                 float64  `xml:"ModifyDBShardGroupResult>MaxACU,omitempty"`
+	ComputeRedundancy      int      `xml:"ModifyDBShardGroupResult>ComputeRedundancy,omitempty"`
 }
 
 type rebootDBShardGroupResponse struct {
-	XMLName      xml.Name        `xml:"RebootDBShardGroupResponse"`
-	Xmlns        string          `xml:"xmlns,attr"`
-	DBShardGroup xmlDBShardGroup `xml:"RebootDBShardGroupResult>DBShardGroup"`
+	XMLName                xml.Name `xml:"RebootDBShardGroupResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	DBShardGroupIdentifier string   `xml:"RebootDBShardGroupResult>DBShardGroupIdentifier"`
+	DBClusterIdentifier    string   `xml:"RebootDBShardGroupResult>DBClusterIdentifier,omitempty"`
+	Status                 string   `xml:"RebootDBShardGroupResult>Status,omitempty"`
 }
 
 type xmlIntegration struct {
@@ -249,16 +277,31 @@ type xmlIntegrationList struct {
 	Members []xmlIntegration `xml:"Integration"`
 }
 
+// CreateIntegrationOutput, DeleteIntegrationOutput, and ModifyIntegrationOutput are
+// flat shapes in the real RDS API (no nested <Integration> wrapper — see the comment
+// on createCustomDBEngineVersionResponse for why each field below repeats the full
+// result-element chain). DescribeIntegrations is different: it returns a real list,
+// so describeIntegrationsResponse below correctly keeps the xmlIntegrationList nesting.
 type createIntegrationResponse struct {
-	XMLName     xml.Name       `xml:"CreateIntegrationResponse"`
-	Xmlns       string         `xml:"xmlns,attr"`
-	Integration xmlIntegration `xml:"CreateIntegrationResult>Integration"`
+	XMLName                xml.Name `xml:"CreateIntegrationResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	IntegrationName        string   `xml:"CreateIntegrationResult>IntegrationName"`
+	IntegrationArn         string   `xml:"CreateIntegrationResult>IntegrationArn,omitempty"`
+	Status                 string   `xml:"CreateIntegrationResult>Status,omitempty"`
+	SourceArn              string   `xml:"CreateIntegrationResult>SourceArn,omitempty"`
+	TargetArn              string   `xml:"CreateIntegrationResult>TargetArn,omitempty"`
+	DataFilter             string   `xml:"CreateIntegrationResult>DataFilter,omitempty"`
+	IntegrationDescription string   `xml:"CreateIntegrationResult>Description,omitempty"`
 }
 
 type deleteIntegrationResponse struct {
-	XMLName     xml.Name       `xml:"DeleteIntegrationResponse"`
-	Xmlns       string         `xml:"xmlns,attr"`
-	Integration xmlIntegration `xml:"DeleteIntegrationResult>Integration"`
+	XMLName         xml.Name `xml:"DeleteIntegrationResponse"`
+	Xmlns           string   `xml:"xmlns,attr"`
+	IntegrationName string   `xml:"DeleteIntegrationResult>IntegrationName"`
+	IntegrationArn  string   `xml:"DeleteIntegrationResult>IntegrationArn,omitempty"`
+	Status          string   `xml:"DeleteIntegrationResult>Status,omitempty"`
+	SourceArn       string   `xml:"DeleteIntegrationResult>SourceArn,omitempty"`
+	TargetArn       string   `xml:"DeleteIntegrationResult>TargetArn,omitempty"`
 }
 
 type describeIntegrationsResponse struct {
@@ -269,9 +312,15 @@ type describeIntegrationsResponse struct {
 }
 
 type modifyIntegrationResponse struct {
-	XMLName     xml.Name       `xml:"ModifyIntegrationResponse"`
-	Xmlns       string         `xml:"xmlns,attr"`
-	Integration xmlIntegration `xml:"ModifyIntegrationResult>Integration"`
+	XMLName                xml.Name `xml:"ModifyIntegrationResponse"`
+	Xmlns                  string   `xml:"xmlns,attr"`
+	IntegrationName        string   `xml:"ModifyIntegrationResult>IntegrationName"`
+	IntegrationArn         string   `xml:"ModifyIntegrationResult>IntegrationArn,omitempty"`
+	Status                 string   `xml:"ModifyIntegrationResult>Status,omitempty"`
+	SourceArn              string   `xml:"ModifyIntegrationResult>SourceArn,omitempty"`
+	TargetArn              string   `xml:"ModifyIntegrationResult>TargetArn,omitempty"`
+	DataFilter             string   `xml:"ModifyIntegrationResult>DataFilter,omitempty"`
+	IntegrationDescription string   `xml:"ModifyIntegrationResult>Description,omitempty"`
 }
 
 type xmlTenantDatabase struct {
@@ -432,13 +481,11 @@ func (h *Handler) handleCreateCustomDBEngineVersion(vals url.Values) (any, error
 	}
 
 	return &createCustomDBEngineVersionResponse{
-		Xmlns: rdsXMLNS,
-		CustomDBEngineVersion: xmlCustomDBEngineVersion{
-			Engine:        cev.Engine,
-			EngineVersion: cev.EngineVersion,
-			Status:        cev.Status,
-			Description:   cev.Description,
-		},
+		Xmlns:                      rdsXMLNS,
+		Engine:                     cev.Engine,
+		EngineVersion:              cev.EngineVersion,
+		Status:                     cev.Status,
+		DBEngineVersionDescription: cev.Description,
 	}, nil
 }
 
@@ -452,12 +499,10 @@ func (h *Handler) handleDeleteCustomDBEngineVersion(vals url.Values) (any, error
 	}
 
 	return &deleteCustomDBEngineVersionResponse{
-		Xmlns: rdsXMLNS,
-		CustomDBEngineVersion: xmlCustomDBEngineVersion{
-			Engine:        cev.Engine,
-			EngineVersion: cev.EngineVersion,
-			Status:        cev.Status,
-		},
+		Xmlns:         rdsXMLNS,
+		Engine:        cev.Engine,
+		EngineVersion: cev.EngineVersion,
+		Status:        cev.Status,
 	}, nil
 }
 
@@ -473,13 +518,11 @@ func (h *Handler) handleModifyCustomDBEngineVersion(vals url.Values) (any, error
 	}
 
 	return &modifyCustomDBEngineVersionResponse{
-		Xmlns: rdsXMLNS,
-		CustomDBEngineVersion: xmlCustomDBEngineVersion{
-			Engine:        cev.Engine,
-			EngineVersion: cev.EngineVersion,
-			Status:        cev.Status,
-			Description:   cev.Description,
-		},
+		Xmlns:                      rdsXMLNS,
+		Engine:                     cev.Engine,
+		EngineVersion:              cev.EngineVersion,
+		Status:                     cev.Status,
+		DBEngineVersionDescription: cev.Description,
 	}, nil
 }
 
@@ -497,8 +540,14 @@ func (h *Handler) handleCreateDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &createDBShardGroupResponse{
-		Xmlns:        rdsXMLNS,
-		DBShardGroup: toXMLDBShardGroup(sg),
+		Xmlns:                  rdsXMLNS,
+		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+		DBClusterIdentifier:    sg.DBClusterIdentifier,
+		Status:                 sg.Status,
+		Endpoint:               sg.Endpoint,
+		MaxACU:                 sg.MaxACU,
+		MinACU:                 sg.MinACU,
+		ComputeRedundancy:      sg.ComputeRedundancy,
 	}, nil
 }
 
@@ -511,8 +560,10 @@ func (h *Handler) handleDeleteDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &deleteDBShardGroupResponse{
-		Xmlns:        rdsXMLNS,
-		DBShardGroup: toXMLDBShardGroup(sg),
+		Xmlns:                  rdsXMLNS,
+		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+		DBClusterIdentifier:    sg.DBClusterIdentifier,
+		Status:                 sg.Status,
 	}, nil
 }
 
@@ -553,8 +604,12 @@ func (h *Handler) handleModifyDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &modifyDBShardGroupResponse{
-		Xmlns:        rdsXMLNS,
-		DBShardGroup: toXMLDBShardGroup(sg),
+		Xmlns:                  rdsXMLNS,
+		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+		DBClusterIdentifier:    sg.DBClusterIdentifier,
+		Status:                 sg.Status,
+		MaxACU:                 sg.MaxACU,
+		ComputeRedundancy:      sg.ComputeRedundancy,
 	}, nil
 }
 
@@ -567,8 +622,10 @@ func (h *Handler) handleRebootDBShardGroup(vals url.Values) (any, error) {
 	}
 
 	return &rebootDBShardGroupResponse{
-		Xmlns:        rdsXMLNS,
-		DBShardGroup: toXMLDBShardGroup(sg),
+		Xmlns:                  rdsXMLNS,
+		DBShardGroupIdentifier: sg.DBShardGroupIdentifier,
+		DBClusterIdentifier:    sg.DBClusterIdentifier,
+		Status:                 sg.Status,
 	}, nil
 }
 
@@ -610,8 +667,14 @@ func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
 	}
 
 	return &createIntegrationResponse{
-		Xmlns:       rdsXMLNS,
-		Integration: toXMLIntegration(intg),
+		Xmlns:                  rdsXMLNS,
+		IntegrationName:        intg.IntegrationName,
+		IntegrationArn:         intg.IntegrationArn,
+		Status:                 intg.Status,
+		SourceArn:              intg.SourceArn,
+		TargetArn:              intg.TargetArn,
+		DataFilter:             intg.DataFilter,
+		IntegrationDescription: intg.IntegrationDescription,
 	}, nil
 }
 
@@ -624,8 +687,12 @@ func (h *Handler) handleDeleteIntegration(vals url.Values) (any, error) {
 	}
 
 	return &deleteIntegrationResponse{
-		Xmlns:       rdsXMLNS,
-		Integration: toXMLIntegration(intg),
+		Xmlns:           rdsXMLNS,
+		IntegrationName: intg.IntegrationName,
+		IntegrationArn:  intg.IntegrationArn,
+		Status:          intg.Status,
+		SourceArn:       intg.SourceArn,
+		TargetArn:       intg.TargetArn,
 	}, nil
 }
 
@@ -664,8 +731,14 @@ func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
 	}
 
 	return &modifyIntegrationResponse{
-		Xmlns:       rdsXMLNS,
-		Integration: toXMLIntegration(intg),
+		Xmlns:                  rdsXMLNS,
+		IntegrationName:        intg.IntegrationName,
+		IntegrationArn:         intg.IntegrationArn,
+		Status:                 intg.Status,
+		SourceArn:              intg.SourceArn,
+		TargetArn:              intg.TargetArn,
+		DataFilter:             intg.DataFilter,
+		IntegrationDescription: intg.IntegrationDescription,
 	}, nil
 }
 

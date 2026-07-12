@@ -364,18 +364,20 @@ func TestCreateCustomDBEngineVersionCRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
+	// CreateCustomDBEngineVersionOutput is a flat shape in the real RDS API — the
+	// Engine/EngineVersion/Status members sit directly under
+	// <CreateCustomDBEngineVersionResult>, with no nested <CustomDBEngineVersion>
+	// wrapper (unlike e.g. CreateDBInstanceOutput, which nests under <DBInstance>).
 	var createResp struct {
 		Result struct {
-			CustomDBEngineVersion struct {
-				Engine        string `xml:"Engine"`
-				EngineVersion string `xml:"EngineVersion"`
-				Status        string `xml:"Status"`
-			} `xml:"CustomDBEngineVersion"`
+			Engine        string `xml:"Engine"`
+			EngineVersion string `xml:"EngineVersion"`
+			Status        string `xml:"Status"`
 		} `xml:"CreateCustomDBEngineVersionResult"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &createResp))
-	assert.Equal(t, "custom-oracle-ee", createResp.Result.CustomDBEngineVersion.Engine)
-	assert.Equal(t, "available", createResp.Result.CustomDBEngineVersion.Status)
+	assert.Equal(t, "custom-oracle-ee", createResp.Result.Engine)
+	assert.Equal(t, "available", createResp.Result.Status)
 
 	// Modify.
 	modRec := doAccuracyRDS(t, h, url.Values{
@@ -389,13 +391,11 @@ func TestCreateCustomDBEngineVersionCRUD(t *testing.T) {
 
 	var modResp struct {
 		Result struct {
-			CustomDBEngineVersion struct {
-				Status string `xml:"Status"`
-			} `xml:"CustomDBEngineVersion"`
+			Status string `xml:"Status"`
 		} `xml:"ModifyCustomDBEngineVersionResult"`
 	}
 	require.NoError(t, xml.Unmarshal(modRec.Body.Bytes(), &modResp))
-	assert.Equal(t, "inactive", modResp.Result.CustomDBEngineVersion.Status)
+	assert.Equal(t, "inactive", modResp.Result.Status)
 
 	// Delete.
 	delRec := doAccuracyRDS(t, h, url.Values{
@@ -408,13 +408,11 @@ func TestCreateCustomDBEngineVersionCRUD(t *testing.T) {
 
 	var delResp struct {
 		Result struct {
-			CustomDBEngineVersion struct {
-				Status string `xml:"Status"`
-			} `xml:"CustomDBEngineVersion"`
+			Status string `xml:"Status"`
 		} `xml:"DeleteCustomDBEngineVersionResult"`
 	}
 	require.NoError(t, xml.Unmarshal(delRec.Body.Bytes(), &delResp))
-	assert.Equal(t, "deleting", delResp.Result.CustomDBEngineVersion.Status)
+	assert.Equal(t, "deleting", delResp.Result.Status)
 
 	// Modify after delete should fail.
 	modRec2 := doAccuracyRDS(t, h, url.Values{
@@ -425,6 +423,66 @@ func TestCreateCustomDBEngineVersionCRUD(t *testing.T) {
 		"Status":        {"available"},
 	})
 	assert.Equal(t, http.StatusBadRequest, modRec2.Code)
+}
+
+// TestCreateDBShardGroup_WireShapeIsFlat verifies CreateDBShardGroupOutput's members sit
+// directly under <CreateDBShardGroupResult>, matching the real (flat) aws-sdk-go-v2 shape —
+// there is no nested <DBShardGroup> wrapper element (unlike e.g. CreateDBInstanceOutput,
+// which does nest under <DBInstance>). A client using the real SDK deserializer would get
+// back an empty struct if gopherstack wrapped these fields one level too deep, since the
+// deserializer only looks for named fields as direct children of the Result element.
+func TestCreateDBShardGroup_WireShapeIsFlat(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":                 {"CreateDBShardGroup"},
+		"Version":                {"2014-10-31"},
+		"DBShardGroupIdentifier": {"wire-sg"},
+		"DBClusterIdentifier":    {"wire-cluster"},
+		"MaxACU":                 {"128"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp struct {
+		Result struct {
+			DBShardGroupIdentifier string `xml:"DBShardGroupIdentifier"`
+			DBClusterIdentifier    string `xml:"DBClusterIdentifier"`
+		} `xml:"CreateDBShardGroupResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "wire-sg", resp.Result.DBShardGroupIdentifier)
+	assert.Equal(t, "wire-cluster", resp.Result.DBClusterIdentifier)
+}
+
+// TestCreateIntegration_WireShapeIsFlat verifies CreateIntegrationOutput's members sit
+// directly under <CreateIntegrationResult>, matching the real (flat) aws-sdk-go-v2 shape —
+// there is no nested <Integration> wrapper element. See TestCreateDBShardGroup_WireShapeIsFlat
+// for why this matters to a real SDK client.
+func TestCreateIntegration_WireShapeIsFlat(t *testing.T) {
+	t.Parallel()
+
+	h := newAccuracyRDSHandler()
+
+	rec := doAccuracyRDS(t, h, url.Values{
+		"Action":          {"CreateIntegration"},
+		"Version":         {"2014-10-31"},
+		"IntegrationName": {"wire-intg"},
+		"SourceArn":       {"arn:aws:rds:us-east-1:123456789012:cluster:src"},
+		"TargetArn":       {"arn:aws:redshift:us-east-1:123456789012:namespace:tgt"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp struct {
+		Result struct {
+			IntegrationName string `xml:"IntegrationName"`
+			SourceArn       string `xml:"SourceArn"`
+		} `xml:"CreateIntegrationResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "wire-intg", resp.Result.IntegrationName)
+	assert.Equal(t, "arn:aws:rds:us-east-1:123456789012:cluster:src", resp.Result.SourceArn)
 }
 
 // TestDBClusterMembersEmitted verifies DBClusterMembers are populated and returned.
