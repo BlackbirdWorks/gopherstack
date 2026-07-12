@@ -66,9 +66,9 @@ func createTestChannel(t *testing.T, h *medialive.Handler) string {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	ch := resp["Channel"].(map[string]any)
+	ch := resp["channel"].(map[string]any)
 
-	return ch["Id"].(string)
+	return ch["id"].(string)
 }
 
 func createTestInput(t *testing.T, h *medialive.Handler) string {
@@ -105,11 +105,11 @@ func TestAudit1_Channel_Create(t *testing.T) {
 
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				ch := resp["Channel"].(map[string]any)
-				assert.Contains(t, ch["Arn"], "arn:aws:medialive:us-east-1:000000000000:channel:")
-				assert.Equal(t, "IDLE", ch["State"])
-				assert.Equal(t, "STANDARD", ch["ChannelClass"])
-				assert.NotEmpty(t, ch["Id"])
+				ch := resp["channel"].(map[string]any)
+				assert.Contains(t, ch["arn"], "arn:aws:medialive:us-east-1:000000000000:channel:")
+				assert.Equal(t, "IDLE", ch["state"])
+				assert.Equal(t, "STANDARD", ch["channelClass"])
+				assert.NotEmpty(t, ch["id"])
 			},
 		},
 		{
@@ -145,8 +145,8 @@ func TestAudit1_Channel_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "test-channel", descResp["Name"])
-	assert.Equal(t, "IDLE", descResp["State"])
+	assert.Equal(t, "test-channel", descResp["name"])
+	assert.Equal(t, "IDLE", descResp["state"])
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/channels/"+channelID, map[string]any{
@@ -155,15 +155,15 @@ func TestAudit1_Channel_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	ch := updateResp["Channel"].(map[string]any)
-	assert.Equal(t, "updated-channel", ch["Name"])
+	ch := updateResp["channel"].(map[string]any)
+	assert.Equal(t, "updated-channel", ch["name"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/channels", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["Channels"], 1)
+	assert.Len(t, listResp["channels"], 1)
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/channels/"+channelID, nil)
@@ -186,7 +186,7 @@ func TestAudit1_Channel_StartStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
-	assert.Equal(t, "STARTING", startResp["State"])
+	assert.Equal(t, "STARTING", startResp["state"])
 
 	// Start again returns conflict
 	rec = doRequest(t, h, http.MethodPost, "/prod/channels/"+channelID+"/start", nil)
@@ -197,7 +197,36 @@ func TestAudit1_Channel_StartStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stopResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
-	assert.Equal(t, "STOPPING", stopResp["State"])
+	assert.Equal(t, "STOPPING", stopResp["state"])
+}
+
+// TestAudit1_Channel_PipelinesRunningCount locks in the wire-accurate
+// pipelinesRunningCount field (real DescribeChannelOutput reports the
+// number of currently healthy pipelines: 0 while IDLE/STARTING/STOPPING, 2
+// for a STANDARD channel once RUNNING).
+func TestAudit1_Channel_PipelinesRunningCount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	channelID := createTestChannel(t, h)
+
+	rec := doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.InDelta(t, 0, descResp["pipelinesRunningCount"], 0, "IDLE channel reports 0 running pipelines")
+
+	rec = doRequest(t, h, http.MethodPost, "/prod/channels/"+channelID+"/start", nil)
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	assert.InDelta(t, 0, startResp["pipelinesRunningCount"], 0, "STARTING channel reports 0 running pipelines")
+
+	// The backend advances internal state to RUNNING immediately (see
+	// StartChannel's doc comment), so an immediate Describe should already
+	// report the class's full pipeline count.
+	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "RUNNING", descResp["state"])
+	assert.InDelta(t, 2, descResp["pipelinesRunningCount"], 0, "RUNNING STANDARD channel reports 2 running pipelines")
 }
 
 func TestAudit1_Channel_DeleteRunning(t *testing.T) {
@@ -366,11 +395,11 @@ func TestAudit1_Tags(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	resourceARN := descResp["Arn"].(string)
+	resourceARN := descResp["arn"].(string)
 
 	// CreateTags
 	rec = doRequest(t, h, http.MethodPost, "/prod/tags/"+resourceARN, map[string]any{
-		"Tags": map[string]any{"env": "prod", "team": "platform"},
+		"tags": map[string]any{"env": "prod", "team": "platform"},
 	})
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -379,7 +408,7 @@ func TestAudit1_Tags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	tags := listResp["Tags"].(map[string]any)
+	tags := listResp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
 
@@ -394,9 +423,57 @@ func TestAudit1_Tags(t *testing.T) {
 	// Verify tag removed
 	rec = doRequest(t, h, http.MethodGet, "/prod/tags/"+resourceARN, nil)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	tags = listResp["Tags"].(map[string]any)
+	tags = listResp["tags"].(map[string]any)
 	assert.NotContains(t, tags, "env")
 	assert.Equal(t, "platform", tags["team"])
+}
+
+// TestAudit1_Tags_StaySyncedWithResource guards against the pre-fix bug
+// where the generic CreateTags/DeleteTags/ListTagsForResource endpoints
+// wrote to a b.tags[ARN] map that was completely disconnected from the
+// per-resource Tags field Describe/Create echo inline: tags set at
+// CreateChannel never showed up in ListTagsForResource, and tags set via
+// CreateTags never showed up in DescribeChannel.
+func TestAudit1_Tags_StaySyncedWithResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Tags supplied at creation must be visible through the generic
+	// tagging endpoint, not just echoed back on the create response.
+	rec := doRequest(t, h, http.MethodPost, "/prod/channels", map[string]any{
+		"name":         "tag-sync-channel",
+		"channelClass": "STANDARD",
+		"tags":         map[string]any{"owner": "video-team"},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	ch := created["channel"].(map[string]any)
+	channelARN := ch["arn"].(string)
+
+	rec = doRequest(t, h, http.MethodGet, "/prod/tags/"+channelARN, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	tags := listResp["tags"].(map[string]any)
+	assert.Equal(t, "video-team", tags["owner"])
+
+	// Tags added via CreateTags must be echoed back by DescribeChannel, not
+	// just visible through ListTagsForResource.
+	rec = doRequest(t, h, http.MethodPost, "/prod/tags/"+channelARN, map[string]any{
+		"tags": map[string]any{"cost-center": "1234"},
+	})
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	channelID := ch["id"].(string)
+	rec = doRequest(t, h, http.MethodGet, "/prod/channels/"+channelID, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	descTags := descResp["tags"].(map[string]any)
+	assert.Equal(t, "video-team", descTags["owner"])
+	assert.Equal(t, "1234", descTags["cost-center"])
 }
 
 func TestAudit1_ListChannels_Empty(t *testing.T) {
@@ -408,7 +485,7 @@ func TestAudit1_ListChannels_Empty(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Empty(t, resp["Channels"])
+	assert.Empty(t, resp["channels"])
 }
 
 func TestAudit1_ListInputs_Empty(t *testing.T) {

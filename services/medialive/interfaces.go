@@ -472,6 +472,7 @@ type Multiplex struct {
 	State             string
 	AvailabilityZones []string
 	Settings          MultiplexSettings
+	ProgramCount      int
 }
 
 // MultiplexSummary is a Multiplex in a list response.
@@ -481,6 +482,7 @@ type MultiplexSummary struct {
 	Name              string
 	State             string
 	AvailabilityZones []string
+	ProgramCount      int
 }
 
 // ServiceDescriptor holds provider/service name for a program.

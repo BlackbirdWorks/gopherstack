@@ -68,13 +68,25 @@ const (
 	keyState           = "State"
 	keyTags            = "Tags"
 	keyDescription     = "Description"
-	keyChannel         = "Channel"
+	keyChannel         = "channel"
 	keyInput           = "input"
 	keyAlerts          = "Alerts"
 	keyActionName      = "ActionName"
 	keyScheduleActions = "ScheduleActions"
 	keySdiSource       = "SdiSource"
 	opUnknown          = "Unknown"
+
+	// wireArn/wireID/wireName/wireState are the lowerCamel wire keys shared
+	// by the resource-summary list handlers whose casing has been verified
+	// against the real SDK (Channel, Input, InputSecurityGroup, Multiplex --
+	// see channelOutput's doc comment for why case matters). They are
+	// distinct from keyArn/keyID/keyName/keyState above, which stay
+	// PascalCase for the other resource families out of scope for this
+	// pass (see PARITY.md's wire-shape casing gap).
+	wireArn   = "arn"
+	wireID    = "id"
+	wireName  = "name"
+	wireState = "state"
 
 	opCreateChannel   = "CreateChannel"
 	opDescribeChannel = "DescribeChannel"
@@ -1202,14 +1214,38 @@ func respondErr(c *echo.Context, err error) error {
 // --- Channel handlers ---
 
 // Tags first: reduces GC pointer scan from 104 to 96 bytes.
+//
+// JSON tags are lowerCamelCase to match the real DescribeChannelOutput wire
+// shape (aws-sdk-go-v2/service/medialive deserializers.go switches on
+// exact-case keys "arn"/"id"/"name"/... -- a PascalCase key like "Arn" is
+// silently ignored by the real SDK client's decoder, leaving every field at
+// its zero value).
 type channelOutput struct {
-	Tags         map[string]string `json:"Tags"`
-	Arn          string            `json:"Arn"`
-	ID           string            `json:"Id"`
-	Name         string            `json:"Name"`
-	ChannelClass string            `json:"ChannelClass"`
-	RoleArn      string            `json:"RoleArn"`
-	State        string            `json:"State"`
+	Tags                  map[string]string `json:"tags"`
+	Arn                   string            `json:"arn"`
+	ID                    string            `json:"id"`
+	Name                  string            `json:"name"`
+	ChannelClass          string            `json:"channelClass"`
+	RoleArn               string            `json:"roleArn"`
+	State                 string            `json:"state"`
+	PipelinesRunningCount int32             `json:"pipelinesRunningCount"`
+}
+
+// pipelinesRunningCount derives the number of currently healthy pipelines
+// from a channel's State and ChannelClass, matching AWS: only RUNNING
+// channels report running pipelines (2 for STANDARD, 1 for
+// SINGLE_PIPELINE); every other state (IDLE, STARTING, STOPPING, etc.)
+// reports 0.
+func pipelinesRunningCount(state, channelClass string) int32 {
+	if state != stateRunning {
+		return 0
+	}
+
+	if channelClass == channelClassSinglePipeline {
+		return pipelinesRunningCountSinglePipeline
+	}
+
+	return pipelinesRunningCountStandard
 }
 
 func toChannelOutput(ch *Channel) channelOutput {
@@ -1219,13 +1255,14 @@ func toChannelOutput(ch *Channel) channelOutput {
 	}
 
 	return channelOutput{
-		Tags:         tags,
-		Arn:          ch.ARN,
-		ID:           ch.ID,
-		Name:         ch.Name,
-		ChannelClass: ch.ChannelClass,
-		RoleArn:      ch.RoleARN,
-		State:        ch.State,
+		Tags:                  tags,
+		Arn:                   ch.ARN,
+		ID:                    ch.ID,
+		Name:                  ch.Name,
+		ChannelClass:          ch.ChannelClass,
+		RoleArn:               ch.RoleARN,
+		State:                 ch.State,
+		PipelinesRunningCount: pipelinesRunningCount(ch.State, ch.ChannelClass),
 	}
 }
 
@@ -1286,17 +1323,18 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			keyArn:         s.ARN,
-			keyID:          s.ID,
-			"Name":         s.Name,
-			"ChannelClass": s.ChannelClass,
-			keyState:       s.State,
+			wireArn:                 s.ARN,
+			wireID:                  s.ID,
+			wireName:                s.Name,
+			"channelClass":          s.ChannelClass,
+			wireState:               s.State,
+			"pipelinesRunningCount": pipelinesRunningCount(s.State, s.ChannelClass),
 		})
 	}
 
-	resp := map[string]any{"Channels": out}
+	resp := map[string]any{"channels": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -1402,11 +1440,11 @@ func (h *Handler) handleListInputs(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"arn":   s.ARN,
-			"id":    s.ID,
-			"name":  s.Name,
-			"type":  s.InputType,
-			"state": s.State,
+			wireArn:   s.ARN,
+			wireID:    s.ID,
+			wireName:  s.Name,
+			"type":    s.InputType,
+			wireState: s.State,
 		})
 	}
 
@@ -1531,9 +1569,9 @@ func (h *Handler) handleListInputSecurityGroups(c *echo.Context) error {
 			rules = append(rules, map[string]any{"cidr": r.Cidr})
 		}
 		out = append(out, map[string]any{
-			"arn":            s.ARN,
-			"id":             s.ID,
-			"state":          s.State,
+			wireArn:          s.ARN,
+			wireID:           s.ID,
+			wireState:        s.State,
 			"whitelistRules": rules,
 		})
 	}
@@ -1578,27 +1616,48 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 		tags = map[string]string{}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyTags: tags})
+	// ListTagsForResourceOutput's wire key is lowercase "tags" (unlike the
+	// shared keyTags constant, which stays "Tags" for the other resource
+	// families' PascalCase responses out of scope for this pass -- see
+	// PARITY.md's wire-shape casing gap).
+	return c.JSON(http.StatusOK, map[string]any{"tags": tags})
 }
 
 // --- Multiplex handlers ---
 
+// JSON tags are lowerCamelCase to match the real DescribeMultiplexOutput /
+// MultiplexSettings wire shape (see channelOutput's doc comment for why
+// case matters to the real SDK client's decoder).
 type multiplexSettingsOutput struct {
-	TransportStreamBitrate              int `json:"TransportStreamBitrate"`
-	TransportStreamID                   int `json:"TransportStreamId"`
-	TransportStreamReservedBitrate      int `json:"TransportStreamReservedBitrate"`
-	MaximumVideoBufferDelayMilliseconds int `json:"MaximumVideoBufferDelayMilliseconds"`
+	TransportStreamBitrate              int `json:"transportStreamBitrate"`
+	TransportStreamID                   int `json:"transportStreamId"`
+	TransportStreamReservedBitrate      int `json:"transportStreamReservedBitrate"`
+	MaximumVideoBufferDelayMilliseconds int `json:"maximumVideoBufferDelayMilliseconds"`
 }
 
 // Tags and AvailabilityZones first: reduces GC pointer scan.
 type multiplexOutput struct {
-	Tags              map[string]string       `json:"Tags"`
-	Arn               string                  `json:"Arn"`
-	ID                string                  `json:"Id"`
-	Name              string                  `json:"Name"`
-	State             string                  `json:"State"`
-	AvailabilityZones []string                `json:"AvailabilityZones"`
-	MultiplexSettings multiplexSettingsOutput `json:"MultiplexSettings"`
+	Tags                  map[string]string       `json:"tags"`
+	Arn                   string                  `json:"arn"`
+	ID                    string                  `json:"id"`
+	Name                  string                  `json:"name"`
+	State                 string                  `json:"state"`
+	AvailabilityZones     []string                `json:"availabilityZones"`
+	MultiplexSettings     multiplexSettingsOutput `json:"multiplexSettings"`
+	PipelinesRunningCount int32                   `json:"pipelinesRunningCount"`
+	ProgramCount          int32                   `json:"programCount"`
+}
+
+// multiplexPipelinesRunningCount mirrors pipelinesRunningCount for
+// Multiplex: AWS Elemental multiplexes always run as a 2-pipeline hitless
+// pair, so a RUNNING multiplex reports 2 healthy pipelines and every other
+// state reports 0.
+func multiplexPipelinesRunningCount(state string) int32 {
+	if state != stateRunning {
+		return 0
+	}
+
+	return pipelinesRunningCountStandard
 }
 
 func toMultiplexOutput(m *Multiplex) multiplexOutput {
@@ -1625,20 +1684,22 @@ func toMultiplexOutput(m *Multiplex) multiplexOutput {
 			TransportStreamReservedBitrate:      m.Settings.TransportStreamReservedBitrate,
 			MaximumVideoBufferDelayMilliseconds: m.Settings.MaximumVideoBufferDelayMilliseconds,
 		},
+		PipelinesRunningCount: multiplexPipelinesRunningCount(m.State),
+		ProgramCount:          int32(m.ProgramCount), //nolint:gosec // program count is always small
 	}
 }
 
 func extractMultiplexSettings(body map[string]any) MultiplexSettings {
-	raw, _ := body["MultiplexSettings"].(map[string]any)
+	raw, _ := body["multiplexSettings"].(map[string]any)
 	if raw == nil {
 		return MultiplexSettings{}
 	}
 
 	return MultiplexSettings{
-		TransportStreamBitrate:              intFromAny(raw["TransportStreamBitrate"]),
-		TransportStreamID:                   intFromAny(raw["TransportStreamId"]),
-		TransportStreamReservedBitrate:      intFromAny(raw["TransportStreamReservedBitrate"]),
-		MaximumVideoBufferDelayMilliseconds: intFromAny(raw["MaximumVideoBufferDelayMilliseconds"]),
+		TransportStreamBitrate:              intFromAny(raw["transportStreamBitrate"]),
+		TransportStreamID:                   intFromAny(raw["transportStreamId"]),
+		TransportStreamReservedBitrate:      intFromAny(raw["transportStreamReservedBitrate"]),
+		MaximumVideoBufferDelayMilliseconds: intFromAny(raw["maximumVideoBufferDelayMilliseconds"]),
 	}
 }
 
@@ -1659,7 +1720,7 @@ func (h *Handler) handleCreateMultiplex(c *echo.Context, body map[string]any) er
 	tags := extractTags(body)
 
 	var zones []string
-	if raw, ok := body["AvailabilityZones"].([]any); ok {
+	if raw, ok := body["availabilityZones"].([]any); ok {
 		for _, z := range raw {
 			if s, isStr := z.(string); isStr {
 				zones = append(zones, s)
@@ -1672,7 +1733,7 @@ func (h *Handler) handleCreateMultiplex(c *echo.Context, body map[string]any) er
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"Multiplex": toMultiplexOutput(m)})
+	return c.JSON(http.StatusCreated, map[string]any{"multiplex": toMultiplexOutput(m)})
 }
 
 func (h *Handler) handleDescribeMultiplex(c *echo.Context, multiplexID string) error {
@@ -1697,7 +1758,7 @@ func (h *Handler) handleUpdateMultiplex(
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Multiplex": toMultiplexOutput(m)})
+	return c.JSON(http.StatusOK, map[string]any{"multiplex": toMultiplexOutput(m)})
 }
 
 func (h *Handler) handleDeleteMultiplex(c *echo.Context, multiplexID string) error {
@@ -1723,17 +1784,19 @@ func (h *Handler) handleListMultiplexes(c *echo.Context) error {
 		}
 
 		out = append(out, map[string]any{
-			keyArn:              s.ARN,
-			keyID:               s.ID,
-			keyName:             s.Name,
-			keyState:            s.State,
-			"AvailabilityZones": zones,
+			wireArn:                 s.ARN,
+			wireID:                  s.ID,
+			wireName:                s.Name,
+			wireState:               s.State,
+			"availabilityZones":     zones,
+			"pipelinesRunningCount": multiplexPipelinesRunningCount(s.State),
+			"programCount":          int32(s.ProgramCount), //nolint:gosec // program count is always small
 		})
 	}
 
-	resp := map[string]any{"Multiplexes": out}
+	resp := map[string]any{"multiplexes": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
@@ -1760,21 +1823,21 @@ func (h *Handler) handleStopMultiplex(c *echo.Context, multiplexID string) error
 // --- MultiplexProgram handlers ---
 
 type serviceDescriptorOutput struct {
-	ProviderName string `json:"ProviderName"`
-	ServiceName  string `json:"ServiceName"`
+	ProviderName string `json:"providerName"`
+	ServiceName  string `json:"serviceName"`
 }
 
 type multiplexProgramSettingsOutput struct {
-	ServiceDescriptor        serviceDescriptorOutput `json:"ServiceDescriptor"`
-	PreferredChannelPipeline string                  `json:"PreferredChannelPipeline"`
-	ProgramNumber            int                     `json:"ProgramNumber"`
+	ServiceDescriptor        serviceDescriptorOutput `json:"serviceDescriptor"`
+	PreferredChannelPipeline string                  `json:"preferredChannelPipeline"`
+	ProgramNumber            int                     `json:"programNumber"`
 }
 
 // ProgramName and ChannelID first: reduces GC pointer scan.
 type multiplexProgramOutput struct {
-	ProgramName              string                         `json:"ProgramName"`
-	ChannelID                string                         `json:"ChannelId"`
-	MultiplexProgramSettings multiplexProgramSettingsOutput `json:"MultiplexProgramSettings"`
+	ProgramName              string                         `json:"programName"`
+	ChannelID                string                         `json:"channelId"`
+	MultiplexProgramSettings multiplexProgramSettingsOutput `json:"multiplexProgramSettings"`
 }
 
 func toMultiplexProgramOutput(p *MultiplexProgram) multiplexProgramOutput {
@@ -1793,24 +1856,24 @@ func toMultiplexProgramOutput(p *MultiplexProgram) multiplexProgramOutput {
 }
 
 func extractMultiplexProgramSettings(body map[string]any) MultiplexProgramSettings {
-	programName, _ := body["ProgramName"].(string)
+	programName, _ := body["programName"].(string)
 
-	raw, _ := body["MultiplexProgramSettings"].(map[string]any)
+	raw, _ := body["multiplexProgramSettings"].(map[string]any)
 	if raw == nil {
 		return MultiplexProgramSettings{ProgramName: programName}
 	}
 
 	var sd ServiceDescriptor
-	if sdRaw, ok := raw["ServiceDescriptor"].(map[string]any); ok {
-		sd.ProviderName, _ = sdRaw["ProviderName"].(string)
-		sd.ServiceName, _ = sdRaw["ServiceName"].(string)
+	if sdRaw, ok := raw["serviceDescriptor"].(map[string]any); ok {
+		sd.ProviderName, _ = sdRaw["providerName"].(string)
+		sd.ServiceName, _ = sdRaw["serviceName"].(string)
 	}
 
-	preferred, _ := raw["PreferredChannelPipeline"].(string)
+	preferred, _ := raw["preferredChannelPipeline"].(string)
 
 	return MultiplexProgramSettings{
 		ProgramName:              programName,
-		ProgramNumber:            intFromAny(raw["ProgramNumber"]),
+		ProgramNumber:            intFromAny(raw["programNumber"]),
 		PreferredChannelPipeline: preferred,
 		ServiceDescriptor:        sd,
 	}
@@ -1830,7 +1893,7 @@ func (h *Handler) handleCreateMultiplexProgram(
 
 	return c.JSON(
 		http.StatusCreated,
-		map[string]any{"MultiplexProgram": toMultiplexProgramOutput(p)},
+		map[string]any{"multiplexProgram": toMultiplexProgramOutput(p)},
 	)
 }
 
@@ -1860,7 +1923,7 @@ func (h *Handler) handleUpdateMultiplexProgram(
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"MultiplexProgram": toMultiplexProgramOutput(p)})
+	return c.JSON(http.StatusOK, map[string]any{"multiplexProgram": toMultiplexProgramOutput(p)})
 }
 
 func (h *Handler) handleDeleteMultiplexProgram(c *echo.Context, resource string) error {
@@ -1883,14 +1946,14 @@ func (h *Handler) handleListMultiplexPrograms(c *echo.Context, multiplexID strin
 	out := make([]map[string]any, 0, len(summaries))
 	for _, s := range summaries {
 		out = append(out, map[string]any{
-			"ProgramName": s.ProgramName,
-			"ChannelId":   s.ChannelID,
+			"programName": s.ProgramName,
+			"channelId":   s.ChannelID,
 		})
 	}
 
-	resp := map[string]any{"MultiplexPrograms": out}
+	resp := map[string]any{"multiplexPrograms": out}
 	if nextToken != "" {
-		resp["NextToken"] = nextToken
+		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)

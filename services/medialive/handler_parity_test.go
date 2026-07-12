@@ -314,17 +314,17 @@ func TestMultiplexAlerts(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/multiplexes", map[string]any{
 		"name":              "mux-1",
-		"AvailabilityZones": []string{"us-east-1a", "us-east-1b"},
-		"MultiplexSettings": map[string]any{
-			"TransportStreamBitrate": 1000000,
-			"TransportStreamId":      1,
+		"availabilityZones": []string{"us-east-1a", "us-east-1b"},
+		"multiplexSettings": map[string]any{
+			"transportStreamBitrate": 1000000,
+			"transportStreamId":      1,
 		},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	mux := created["Multiplex"].(map[string]any)
-	muxID := mux["Id"].(string)
+	mux := created["multiplex"].(map[string]any)
+	muxID := mux["id"].(string)
 
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+muxID+"/alerts", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -352,8 +352,8 @@ func TestChannelLifecycleExtras(t *testing.T) {
 		},
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
-	ch := decodeBody(t, rec.Body.Bytes())["Channel"].(map[string]any)
-	assert.Equal(t, "SINGLE_PIPELINE", ch["ChannelClass"])
+	ch := decodeBody(t, rec.Body.Bytes())["channel"].(map[string]any)
+	assert.Equal(t, "SINGLE_PIPELINE", ch["channelClass"])
 
 	rec = doRequest(
 		t,

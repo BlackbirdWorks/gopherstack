@@ -16,19 +16,19 @@ func createTestMultiplex(t *testing.T, h *medialive.Handler) string {
 
 	rec := doRequest(t, h, http.MethodPost, "/prod/multiplexes", map[string]any{
 		"name":              "test-multiplex",
-		"AvailabilityZones": []any{"us-east-1a", "us-east-1b"},
-		"MultiplexSettings": map[string]any{
-			"TransportStreamBitrate": 1000000,
-			"TransportStreamId":      1,
+		"availabilityZones": []any{"us-east-1a", "us-east-1b"},
+		"multiplexSettings": map[string]any{
+			"transportStreamBitrate": 1000000,
+			"transportStreamId":      1,
 		},
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	m := resp["Multiplex"].(map[string]any)
+	m := resp["multiplex"].(map[string]any)
 
-	return m["Id"].(string)
+	return m["id"].(string)
 }
 
 func TestMultiplex_Create(t *testing.T) {
@@ -44,10 +44,10 @@ func TestMultiplex_Create(t *testing.T) {
 			name: "create returns multiplex with ARN and IDLE state",
 			body: map[string]any{
 				"name":              "my-multiplex",
-				"AvailabilityZones": []any{"us-east-1a"},
-				"MultiplexSettings": map[string]any{
-					"TransportStreamBitrate": 2000000,
-					"TransportStreamId":      5,
+				"availabilityZones": []any{"us-east-1a"},
+				"multiplexSettings": map[string]any{
+					"transportStreamBitrate": 2000000,
+					"transportStreamId":      5,
 				},
 			},
 			wantCode: http.StatusCreated,
@@ -56,14 +56,16 @@ func TestMultiplex_Create(t *testing.T) {
 
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				m := resp["Multiplex"].(map[string]any)
-				assert.Contains(t, m["Arn"], "arn:aws:medialive:us-east-1:000000000000:multiplex:")
-				assert.Equal(t, "IDLE", m["State"])
-				assert.NotEmpty(t, m["Id"])
-				assert.Equal(t, "my-multiplex", m["Name"])
-				settings := m["MultiplexSettings"].(map[string]any)
-				assert.Equal(t, 2000000, int(settings["TransportStreamBitrate"].(float64)))
-				assert.Equal(t, 5, int(settings["TransportStreamId"].(float64)))
+				m := resp["multiplex"].(map[string]any)
+				assert.Contains(t, m["arn"], "arn:aws:medialive:us-east-1:000000000000:multiplex:")
+				assert.Equal(t, "IDLE", m["state"])
+				assert.NotEmpty(t, m["id"])
+				assert.Equal(t, "my-multiplex", m["name"])
+				assert.InDelta(t, 0, m["pipelinesRunningCount"], 0)
+				assert.InDelta(t, 0, m["programCount"], 0)
+				settings := m["multiplexSettings"].(map[string]any)
+				assert.Equal(t, 2000000, int(settings["transportStreamBitrate"].(float64)))
+				assert.Equal(t, 5, int(settings["transportStreamId"].(float64)))
 			},
 		},
 		{
@@ -99,31 +101,31 @@ func TestMultiplex_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "test-multiplex", descResp["Name"])
-	assert.Equal(t, "IDLE", descResp["State"])
+	assert.Equal(t, "test-multiplex", descResp["name"])
+	assert.Equal(t, "IDLE", descResp["state"])
 
 	// Update
 	rec = doRequest(t, h, http.MethodPut, "/prod/multiplexes/"+multiplexID, map[string]any{
 		"name": "updated-multiplex",
-		"MultiplexSettings": map[string]any{
-			"TransportStreamBitrate": 3000000,
-			"TransportStreamId":      2,
+		"multiplexSettings": map[string]any{
+			"transportStreamBitrate": 3000000,
+			"transportStreamId":      2,
 		},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	m := updateResp["Multiplex"].(map[string]any)
-	assert.Equal(t, "updated-multiplex", m["Name"])
-	settings := m["MultiplexSettings"].(map[string]any)
-	assert.Equal(t, 3000000, int(settings["TransportStreamBitrate"].(float64)))
+	m := updateResp["multiplex"].(map[string]any)
+	assert.Equal(t, "updated-multiplex", m["name"])
+	settings := m["multiplexSettings"].(map[string]any)
+	assert.Equal(t, 3000000, int(settings["transportStreamBitrate"].(float64)))
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["Multiplexes"], 1)
+	assert.Len(t, listResp["multiplexes"], 1)
 
 	// Delete
 	rec = doRequest(t, h, http.MethodDelete, "/prod/multiplexes/"+multiplexID, nil)
@@ -146,7 +148,7 @@ func TestMultiplex_StartStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
-	assert.Equal(t, "STARTING", startResp["State"])
+	assert.Equal(t, "STARTING", startResp["state"])
 
 	// Start again returns conflict
 	rec = doRequest(t, h, http.MethodPost, "/prod/multiplexes/"+multiplexID+"/start", nil)
@@ -157,7 +159,7 @@ func TestMultiplex_StartStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stopResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
-	assert.Equal(t, "STOPPING", stopResp["State"])
+	assert.Equal(t, "STOPPING", stopResp["state"])
 
 	// Stop again returns conflict
 	rec = doRequest(t, h, http.MethodPost, "/prod/multiplexes/"+multiplexID+"/stop", nil)
@@ -213,9 +215,9 @@ func TestMultiplex_NotFound(t *testing.T) {
 			http.MethodPost,
 			"/prod/multiplexes/notexist/programs",
 			map[string]any{
-				"ProgramName": "prog-1",
-				"MultiplexProgramSettings": map[string]any{
-					"ProgramNumber": 1,
+				"programName": "prog-1",
+				"multiplexProgramSettings": map[string]any{
+					"programNumber": 1,
 				},
 			},
 		)
@@ -232,7 +234,7 @@ func TestMultiplex_ListEmpty(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Empty(t, resp["Multiplexes"])
+	assert.Empty(t, resp["multiplexes"])
 }
 
 func TestMultiplexProgram_CRUD(t *testing.T) {
@@ -248,13 +250,13 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 		http.MethodPost,
 		"/prod/multiplexes/"+multiplexID+"/programs",
 		map[string]any{
-			"ProgramName": "prog-1",
-			"MultiplexProgramSettings": map[string]any{
-				"ProgramNumber":            1,
-				"PreferredChannelPipeline": "CURRENTLY_ACTIVE",
-				"ServiceDescriptor": map[string]any{
-					"ProviderName": "MyProvider",
-					"ServiceName":  "MyService",
+			"programName": "prog-1",
+			"multiplexProgramSettings": map[string]any{
+				"programNumber":            1,
+				"preferredChannelPipeline": "CURRENTLY_ACTIVE",
+				"serviceDescriptor": map[string]any{
+					"providerName": "MyProvider",
+					"serviceName":  "MyService",
 				},
 			},
 		},
@@ -263,14 +265,14 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 
 	var createResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	prog := createResp["MultiplexProgram"].(map[string]any)
-	assert.Equal(t, "prog-1", prog["ProgramName"])
-	settings := prog["MultiplexProgramSettings"].(map[string]any)
-	assert.Equal(t, 1, int(settings["ProgramNumber"].(float64)))
-	assert.Equal(t, "CURRENTLY_ACTIVE", settings["PreferredChannelPipeline"])
-	sd := settings["ServiceDescriptor"].(map[string]any)
-	assert.Equal(t, "MyProvider", sd["ProviderName"])
-	assert.Equal(t, "MyService", sd["ServiceName"])
+	prog := createResp["multiplexProgram"].(map[string]any)
+	assert.Equal(t, "prog-1", prog["programName"])
+	settings := prog["multiplexProgramSettings"].(map[string]any)
+	assert.Equal(t, 1, int(settings["programNumber"].(float64)))
+	assert.Equal(t, "CURRENTLY_ACTIVE", settings["preferredChannelPipeline"])
+	sd := settings["serviceDescriptor"].(map[string]any)
+	assert.Equal(t, "MyProvider", sd["providerName"])
+	assert.Equal(t, "MyService", sd["serviceName"])
 
 	assert.Equal(
 		t,
@@ -283,7 +285,7 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "prog-1", descResp["ProgramName"])
+	assert.Equal(t, "prog-1", descResp["programName"])
 
 	// Update
 	rec = doRequest(
@@ -292,12 +294,12 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 		http.MethodPut,
 		"/prod/multiplexes/"+multiplexID+"/programs/prog-1",
 		map[string]any{
-			"MultiplexProgramSettings": map[string]any{
-				"ProgramNumber":            2,
-				"PreferredChannelPipeline": "PIPELINE_0",
-				"ServiceDescriptor": map[string]any{
-					"ProviderName": "UpdatedProvider",
-					"ServiceName":  "UpdatedService",
+			"multiplexProgramSettings": map[string]any{
+				"programNumber":            2,
+				"preferredChannelPipeline": "PIPELINE_0",
+				"serviceDescriptor": map[string]any{
+					"providerName": "UpdatedProvider",
+					"serviceName":  "UpdatedService",
 				},
 			},
 		},
@@ -305,17 +307,17 @@ func TestMultiplexProgram_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	updatedProg := updateResp["MultiplexProgram"].(map[string]any)
-	updatedSettings := updatedProg["MultiplexProgramSettings"].(map[string]any)
-	assert.Equal(t, 2, int(updatedSettings["ProgramNumber"].(float64)))
-	assert.Equal(t, "PIPELINE_0", updatedSettings["PreferredChannelPipeline"])
+	updatedProg := updateResp["multiplexProgram"].(map[string]any)
+	updatedSettings := updatedProg["multiplexProgramSettings"].(map[string]any)
+	assert.Equal(t, 2, int(updatedSettings["programNumber"].(float64)))
+	assert.Equal(t, "PIPELINE_0", updatedSettings["preferredChannelPipeline"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/multiplexes/"+multiplexID+"/programs", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	assert.Len(t, listResp["MultiplexPrograms"], 1)
+	assert.Len(t, listResp["multiplexPrograms"], 1)
 
 	// Delete
 	rec = doRequest(
@@ -344,9 +346,9 @@ func TestMultiplexProgram_CreateConflict(t *testing.T) {
 	multiplexID := createTestMultiplex(t, h)
 
 	body := map[string]any{
-		"ProgramName": "prog-1",
-		"MultiplexProgramSettings": map[string]any{
-			"ProgramNumber": 1,
+		"programName": "prog-1",
+		"multiplexProgramSettings": map[string]any{
+			"programNumber": 1,
 		},
 	}
 
@@ -370,7 +372,7 @@ func TestMultiplexProgram_MissingName(t *testing.T) {
 		http.MethodPost,
 		"/prod/multiplexes/"+multiplexID+"/programs",
 		map[string]any{
-			"MultiplexProgramSettings": map[string]any{"ProgramNumber": 1},
+			"multiplexProgramSettings": map[string]any{"programNumber": 1},
 		},
 	)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -424,5 +426,5 @@ func TestMultiplexProgram_ListEmpty(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Empty(t, resp["MultiplexPrograms"])
+	assert.Empty(t, resp["multiplexPrograms"])
 }
