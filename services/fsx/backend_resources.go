@@ -27,7 +27,7 @@ type storedDataRepositoryAssoc struct {
 
 func (a *storedDataRepositoryAssoc) toPublic() *DataRepositoryAssociation {
 	return &DataRepositoryAssociation{
-		CreationTime:       a.CreationTime,
+		CreationTime:       epochTime(a.CreationTime),
 		AssociationID:      a.AssociationID,
 		FileSystemID:       a.FileSystemID,
 		FileSystemPath:     a.FileSystemPath,
@@ -51,7 +51,7 @@ type storedDataRepositoryTask struct {
 
 func (t *storedDataRepositoryTask) toPublic() *DataRepositoryTask {
 	return &DataRepositoryTask{
-		CreationTime: t.CreationTime,
+		CreationTime: epochTime(t.CreationTime),
 		TaskID:       t.TaskID,
 		FileSystemID: t.FileSystemID,
 		Type:         t.Type,
@@ -74,7 +74,7 @@ type storedFileCache struct {
 
 func (c *storedFileCache) toPublic() *FileCache {
 	return &FileCache{
-		CreationTime:       c.CreationTime,
+		CreationTime:       epochTime(c.CreationTime),
 		FileCacheID:        c.FileCacheID,
 		FileCacheType:      c.FileCacheType,
 		Lifecycle:          c.Lifecycle,
@@ -96,7 +96,7 @@ type storedSnapshot struct {
 
 func (s *storedSnapshot) toPublic() *Snapshot {
 	return &Snapshot{
-		CreationTime: s.CreationTime,
+		CreationTime: epochTime(s.CreationTime),
 		SnapshotID:   s.SnapshotID,
 		VolumeID:     s.VolumeID,
 		Name:         s.Name,
@@ -120,7 +120,7 @@ type storedStorageVirtualMachine struct {
 
 func (s *storedStorageVirtualMachine) toPublic() *StorageVirtualMachine {
 	return &StorageVirtualMachine{
-		CreationTime:            s.CreationTime,
+		CreationTime:            epochTime(s.CreationTime),
 		StorageVirtualMachineID: s.StorageVirtualMachineID,
 		FileSystemID:            s.FileSystemID,
 		Name:                    s.Name,
@@ -146,7 +146,7 @@ type storedVolume struct {
 
 func (v *storedVolume) toPublic() *Volume {
 	return &Volume{
-		CreationTime:            v.CreationTime,
+		CreationTime:            epochTime(v.CreationTime),
 		VolumeID:                v.VolumeID,
 		VolumeType:              v.VolumeType,
 		FileSystemID:            v.FileSystemID,
@@ -170,7 +170,7 @@ type storedS3AccessPoint struct {
 
 func (a *storedS3AccessPoint) toPublic() *S3AccessPoint {
 	return &S3AccessPoint{
-		CreationTime: a.CreationTime,
+		CreationTime: epochTime(a.CreationTime),
 		Name:         a.Name,
 		FileSystemID: a.FileSystemID,
 		VolumeID:     a.VolumeID,

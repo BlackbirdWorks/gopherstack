@@ -75,6 +75,11 @@ var (
 	ErrDataRepositoryTaskNotFound = awserr.New("DataRepositoryTaskNotFound", awserr.ErrNotFound)
 	// ErrS3AccessPointNotFound is returned when an S3 access point does not exist.
 	ErrS3AccessPointNotFound = awserr.New("InvalidRequest", awserr.ErrNotFound)
+	// ErrResourceNotFound is returned by the generic Tag/Untag/ListTagsForResource
+	// operations when the given ResourceARN does not match any known FSx resource.
+	// Real FSx uses the generic ResourceNotFound exception here, distinct from the
+	// resource-type-specific *NotFound exceptions used by Describe/Delete ops.
+	ErrResourceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
 
 // storedFileSystem is the persisted form of a FileSystem.
@@ -670,7 +675,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceARN) {
-		return ErrFileSystemNotFound
+		return ErrResourceNotFound
 	}
 
 	if b.tags[resourceARN] == nil {
@@ -703,7 +708,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	defer b.mu.Unlock()
 
 	if !b.arnExists(resourceARN) {
-		return ErrFileSystemNotFound
+		return ErrResourceNotFound
 	}
 
 	for _, k := range tagKeys {
@@ -719,7 +724,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	defer b.mu.RUnlock()
 
 	if !b.arnExists(resourceARN) {
-		return nil, ErrFileSystemNotFound
+		return nil, ErrResourceNotFound
 	}
 
 	return tagsMapToSlice(b.tags[resourceARN]), nil

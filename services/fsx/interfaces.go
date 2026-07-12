@@ -167,8 +167,10 @@ type FileSystemAlias struct {
 
 // DataRepositoryAssociation links a file system path to an S3 data repository.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryAssociation struct {
-	CreationTime       time.Time `json:"CreationTime"`
+	CreationTime       epochTime `json:"CreationTime"`
 	AssociationID      string    `json:"AssociationId"`
 	FileSystemID       string    `json:"FileSystemId"`
 	FileSystemPath     string    `json:"FileSystemPath"`
@@ -180,8 +182,10 @@ type DataRepositoryAssociation struct {
 
 // DataRepositoryTask represents a task that moves data between FSx and a data repository.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryTask struct {
-	CreationTime time.Time `json:"CreationTime"`
+	CreationTime epochTime `json:"CreationTime"`
 	TaskID       string    `json:"TaskId"`
 	FileSystemID string    `json:"FileSystemId"`
 	Type         string    `json:"Type"`
@@ -193,8 +197,10 @@ type DataRepositoryTask struct {
 
 // FileCache represents an Amazon FSx file cache.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type FileCache struct {
-	CreationTime       time.Time `json:"CreationTime"`
+	CreationTime       epochTime `json:"CreationTime"`
 	FileCacheID        string    `json:"FileCacheId"`
 	FileCacheType      string    `json:"FileCacheType"`
 	Lifecycle          string    `json:"Lifecycle"`
@@ -205,8 +211,10 @@ type FileCache struct {
 
 // Snapshot represents an FSx ONTAP or OpenZFS snapshot.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type Snapshot struct {
-	CreationTime time.Time `json:"CreationTime"`
+	CreationTime epochTime `json:"CreationTime"`
 	SnapshotID   string    `json:"SnapshotId"`
 	VolumeID     string    `json:"VolumeId"`
 	Name         string    `json:"Name"`
@@ -217,8 +225,10 @@ type Snapshot struct {
 
 // StorageVirtualMachine represents an FSx ONTAP Storage Virtual Machine.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type StorageVirtualMachine struct {
-	CreationTime            time.Time `json:"CreationTime"`
+	CreationTime            epochTime `json:"CreationTime"`
 	StorageVirtualMachineID string    `json:"StorageVirtualMachineId"`
 	FileSystemID            string    `json:"FileSystemId"`
 	Name                    string    `json:"Name"`
@@ -231,8 +241,10 @@ type StorageVirtualMachine struct {
 
 // Volume represents an FSx ONTAP or OpenZFS volume.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type Volume struct {
-	CreationTime            time.Time `json:"CreationTime"`
+	CreationTime            epochTime `json:"CreationTime"`
 	VolumeID                string    `json:"VolumeId"`
 	VolumeType              string    `json:"VolumeType"`
 	FileSystemID            string    `json:"FileSystemId"`
@@ -245,8 +257,10 @@ type Volume struct {
 
 // S3AccessPoint represents an S3 access point attached to an FSx resource.
 // CreationTime is first so its non-pointer prefix reduces GC pointer bytes.
+// CreationTime uses epochTime: the real FSx deserializer requires a JSON
+// number of epoch seconds here, not an RFC3339 string.
 type S3AccessPoint struct {
-	CreationTime time.Time `json:"CreationTime"`
+	CreationTime epochTime `json:"CreationTime"`
 	Name         string    `json:"Name"`
 	FileSystemID string    `json:"FileSystemId"`
 	VolumeID     string    `json:"VolumeId,omitempty"`

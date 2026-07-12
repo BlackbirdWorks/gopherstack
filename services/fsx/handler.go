@@ -303,35 +303,53 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	if code, ok := notFoundErrorCode(err); ok {
+		return c.JSON(http.StatusBadRequest, errorResponse(code, err.Error()))
+	}
+
 	switch {
 	case errors.Is(err, ErrTagLimitExceeded):
 		return c.JSON(http.StatusBadRequest, errorResponse("ServiceLimitExceeded", err.Error()))
 	case errors.Is(err, ErrTagInvalid):
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequest", err.Error()))
-	case errors.Is(err, ErrBackupNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("BackupNotFound", err.Error()))
-	case errors.Is(err, ErrSnapshotNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("SnapshotNotFound", err.Error()))
-	case errors.Is(err, ErrStorageVirtualMachineNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("StorageVirtualMachineNotFound", err.Error()))
-	case errors.Is(err, ErrVolumeNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("VolumeNotFound", err.Error()))
-	case errors.Is(err, ErrFileCacheNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("FileCacheNotFound", err.Error()))
-	case errors.Is(err, ErrDataRepositoryAssociationNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("DataRepositoryAssociationNotFound", err.Error()))
-	case errors.Is(err, ErrDataRepositoryTaskNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("DataRepositoryTaskNotFound", err.Error()))
-	case errors.Is(err, ErrS3AccessPointNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequest", err.Error()))
-	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("FileSystemNotFound", err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationError", err.Error()))
 	case errors.Is(err, errUnknownOperation):
 		return c.JSON(http.StatusBadRequest, errorResponse("UnsupportedOperation", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	}
+}
+
+// notFoundErrorCode maps the family of "not found" sentinel errors to their
+// AWS error code. It is split out of handleError to keep that function's
+// cyclomatic complexity bounded. The generic awserr.ErrNotFound check must
+// stay last: every specific *NotFound sentinel also wraps it, so a more
+// specific case earlier in this list must win.
+func notFoundErrorCode(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrBackupNotFound):
+		return "BackupNotFound", true
+	case errors.Is(err, ErrSnapshotNotFound):
+		return "SnapshotNotFound", true
+	case errors.Is(err, ErrStorageVirtualMachineNotFound):
+		return "StorageVirtualMachineNotFound", true
+	case errors.Is(err, ErrVolumeNotFound):
+		return "VolumeNotFound", true
+	case errors.Is(err, ErrFileCacheNotFound):
+		return "FileCacheNotFound", true
+	case errors.Is(err, ErrDataRepositoryAssociationNotFound):
+		return "DataRepositoryAssociationNotFound", true
+	case errors.Is(err, ErrDataRepositoryTaskNotFound):
+		return "DataRepositoryTaskNotFound", true
+	case errors.Is(err, ErrS3AccessPointNotFound):
+		return "InvalidRequest", true
+	case errors.Is(err, ErrResourceNotFound):
+		return "ResourceNotFound", true
+	case errors.Is(err, awserr.ErrNotFound):
+		return "FileSystemNotFound", true
+	default:
+		return "", false
 	}
 }
 
