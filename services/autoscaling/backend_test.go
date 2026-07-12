@@ -983,11 +983,13 @@ func TestInMemoryBackend_SetDesiredCapacity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(b *autoscaling.InMemoryBackend)
-		name    string
-		group   string
-		desired int32
-		wantErr bool
+		setup        func(b *autoscaling.InMemoryBackend)
+		name         string
+		group        string
+		wantInstance int
+		desired      int32
+		wantErr      bool
+		useDefault   bool
 	}{
 		{
 			name: "increase_capacity",
@@ -999,8 +1001,38 @@ func TestInMemoryBackend_SetDesiredCapacity(t *testing.T) {
 					DesiredCapacity:      2,
 				})
 			},
-			group:   "sdc-asg",
-			desired: 5,
+			group:      "sdc-asg",
+			desired:    5,
+			useDefault: true,
+		},
+		{
+			name: "decrease_capacity_no_hook_removes_instances_immediately",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "sdc-scalein-asg",
+					MinSize:              0,
+					MaxSize:              10,
+					DesiredCapacity:      3,
+				})
+			},
+			group:      "sdc-scalein-asg",
+			desired:    1,
+			useDefault: true,
+		},
+		{
+			name: "decrease_capacity_respects_scale_in_protection",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName:             "sdc-protected-asg",
+					MinSize:                          0,
+					MaxSize:                          10,
+					DesiredCapacity:                  3,
+					NewInstancesProtectedFromScaleIn: true,
+				})
+			},
+			group:        "sdc-protected-asg",
+			desired:      1,
+			wantInstance: 3, // all instances protected: none can be removed, count stays at 3
 		},
 		{
 			name: "below_min_returns_error",
@@ -1044,7 +1076,13 @@ func TestInMemoryBackend_SetDesiredCapacity(t *testing.T) {
 			groups, err := b.DescribeAutoScalingGroups([]string{tt.group})
 			require.NoError(t, err)
 			assert.Equal(t, tt.desired, groups[0].DesiredCapacity)
-			assert.Len(t, groups[0].Instances, int(tt.desired))
+
+			wantInstance := tt.wantInstance
+			if tt.useDefault {
+				wantInstance = int(tt.desired)
+			}
+
+			assert.Len(t, groups[0].Instances, wantInstance)
 		})
 	}
 }
