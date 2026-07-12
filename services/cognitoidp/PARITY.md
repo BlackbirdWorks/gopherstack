@@ -1,9 +1,9 @@
 ---
 service: cognitoidp
 sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@1.59.1
-last_audit_commit: 7d0baf79
-last_audit_date: 2026-07-05
-overall: A                # ~870 LOC genuine fixes this pass (see below); prior sweeps already got most of the surface to B
+last_audit_commit: ee7d2bae
+last_audit_date: 2026-07-12
+overall: A                # ~17 LOC genuine fix (backend.go) + 107 LOC new tests this pass (PreventUserExistenceErrors masking gap closed); no local drift since ce30166a (prior sweep 3), SDK pinned at same v1.59.1
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
   InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/USER_SRP_AUTH(simplified)/REFRESH_TOKEN_AUTH real; PreventUserExistenceErrors masking added this pass (gopherstack-2sp)"}
@@ -28,7 +28,7 @@ ops:
   SignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "password policy enforced, real confirm code generated"}
   ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException"}
   AdminConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok}
-  ResendConfirmationCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "does not yet apply PreventUserExistenceErrors masking, see gaps (gopherstack-aib)"}
+  ResendConfirmationCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (this pass, closes gopherstack-aib)"}
   AdminCreateUser: {wire: ok, errors: ok, state: ok, persist: ok}
   AdminSetUserPassword: {wire: ok, errors: ok, state: ok, persist: ok}
   AdminGetUser: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -43,7 +43,7 @@ ops:
   RevokeToken: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/page-style pagination"}
   ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "does not yet apply PreventUserExistenceErrors masking, see gaps (gopherstack-aib)"}
+  ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (this pass, closes gopherstack-aib)"}
   ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok}
   ChangePassword: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUser: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -69,11 +69,12 @@ families:
   log_delivery: {status: ok, note: "GetLogDeliveryConfiguration/SetLogDeliveryConfiguration — family level"}
 gaps:
   - "USER_SRP_AUTH does not implement real SRP-6a: InitiateAuth requires AuthParameters[PASSWORD] directly (server-side bcrypt check), then returns a PASSWORD_VERIFIER challenge that RespondToAuthChallenge completes without any zero-knowledge proof exchange. A real SRP client never sends PASSWORD and cannot authenticate here. Investigated in depth this pass; not fixed because a byte-perfect implementation of Cognito's SRP variant (3072-bit N, HKDF-SHA256 with the \"Caldera Derived Key\" info string, HMAC-SHA256 M1 proof) could not be verified against a real client/reference vectors in this session, and a subtly-wrong crypto implementation would be worse than the current honestly-documented simplification. (bd: gopherstack-p8i)"
-  - "LambdaConfig (PreSignUp, PostConfirmation, PreTokenGeneration, CustomMessage, etc.) is stored/returned but no trigger is ever invoked — would require cross-service invocation into the lambda service. (bd: gopherstack-8fw)"
-  - "PreventUserExistenceErrors=ENABLED masking (added this pass) only covers InitiateAuth. ForgotPassword and ResendConfirmationCode still reveal UserNotFoundException regardless of the setting; AWS masks those too (fake-success response). (bd: gopherstack-aib)"
+  - "LambdaConfig (PreSignUp, PostConfirmation, PreTokenGeneration, CustomMessage, etc.) is stored/returned but no trigger is ever invoked — would require cross-service invocation into the lambda service. Confirmed again this pass: no interconnect call into services/lambda exists anywhere in services/cognitoidp; delivery would have to be wired through cli.go or a shared interconnect layer, both out of this service's edit scope. (bd: gopherstack-8fw)"
+  - "PreventUserExistenceErrors=ENABLED still only masks user-existence at InitiateAuth/ForgotPassword/ResendConfirmationCode (this pass closed the latter two — see 'What this pass fixed'). ConfirmSignUp and ConfirmForgotPassword do not mask an unknown username behind CodeMismatchException the way AWS does; not fixed this pass to keep the change scoped to the ledger's existing gap (gopherstack-aib) — worth a follow-up bd issue if stricter parity is wanted."
 deferred:
   - "Identity providers, resource servers, user import jobs, devices, WebAuthn, managed login branding, risk config, domains, terms, log delivery: verified at a family/smoke level (dispatch wired, backend mutates real maps, persisted in backendSnapshot, no bare stubs found), not re-walked op-by-op field-by-field this pass — unchanged since the prior two sweeps (parity sweep 1 & 2) which already covered these in depth."
-leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker; no new goroutines/unbounded maps introduced this pass — the two new maps touched (mfaSessionEntry.Code is a field, not a map) reuse existing bounded, janitor-swept structures"}
+  - "handler.go retains dead, shadowed implementations of ~15 ops (ForgotPassword, ConfirmForgotPassword, ResendConfirmationCode, SignUp, ConfirmSignUp, InitiateAuth, AdminInitiateAuth, CreateUserPool[Client], UpdateUserPool[Client], DescribeUserPool[Client], ListUserPoolClients, GetUser) whose dispatchTable() registrations are unconditionally overwritten by accuracy_handler.go's accurate/SecretHash-validating versions via maps.Copy(table, h.accuracyDispatchTable()) in dispatchTable(). Confirmed genuinely unreachable (not a routing bug — the accurate version is correct and live), but it is dead code that could mislead a future auditor reading handler.go in isolation (as it briefly did this pass). Not deleted this pass to stay scoped to the PreventUserExistenceErrors fix; candidate for a follow-up de-stub-hygiene cleanup bd issue."
+leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessions/confirm codes/attr verification codes on a bounded interval (WithJanitor); ctx cancellation observed via StartWorker; no new goroutines/unbounded maps introduced this pass"}
 ---
 
 ## Notes
@@ -108,6 +109,20 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
    `InvalidParameterException` with AWS's documented remediation message, and the pool can
    still be deleted after `UpdateUserPool` flips it back to `"INACTIVE"`.
 
+4. **(2026-07-12 re-audit) `ForgotPassword`/`ResendConfirmationCode` did not honor
+   `PreventUserExistenceErrors` (previously flagged gap `gopherstack-aib`).** Both ops
+   unconditionally returned `UserNotFoundException` for an unknown username regardless of
+   the app client's setting, letting a caller enumerate valid usernames even with
+   `PreventUserExistenceErrors=ENABLED` — the exact vulnerability that setting exists to
+   close, and the same masking `InitiateAuth` already got in a prior sweep. Fixed in
+   `backend.go`'s `ForgotPassword`/`ResendConfirmationCode`: when the client masks
+   existence errors, an unknown username now returns a fabricated success (same
+   `CodeDeliveryDetails` shape a real account gets) instead of erroring, and the fabricated
+   code is never stored so it can't actually be redeemed. New table-driven tests in
+   `prevent_user_existence_test.go` (`Test_ForgotPassword_PreventUserExistenceErrors`,
+   `Test_ResendConfirmationCode_PreventUserExistenceErrors`) lock in both the masked and
+   unmasked (LEGACY) behavior.
+
 ### Traps for the next auditor
 
 - **USER_SRP_AUTH is not a stub in the "returns fake data" sense** — it does real bcrypt
@@ -134,3 +149,12 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
   apply to this service the way they do to EC2/S3-family query/XML services.
 - Token timestamps (`iat`/`exp`/`auth_time`/`UserCreateDate`/etc.) are epoch-seconds JSON
   numbers throughout — already correct, no `awstime.Epoch` gap found.
+- **`handler.go`'s `dispatchTable()` and `accuracy_handler.go`'s `accuracyDispatchTable()`
+  overlap on ~15 op names** (see `deferred` above for the full list). `dispatchTable()`
+  does `maps.Copy(table, h.accuracyDispatchTable())` *after* populating its own entries, so
+  the accuracy version always wins and the `handler.go` version of those 15 ops is dead
+  code — do not assume editing `handler.go`'s `handleForgotPassword` (etc.) has any
+  runtime effect; the live implementation is the `*Accurate` twin in `accuracy_handler.go`.
+  This is what almost caused a wasted fix this pass (this branch's `PreventUserExistenceErrors`
+  gap was correctly fixed in the shared `backend.go` methods, so it applies regardless, but
+  reading only `handler.go` in isolation would give a false read on op behavior).

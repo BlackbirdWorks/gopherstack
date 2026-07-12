@@ -836,6 +836,15 @@ func (b *InMemoryBackend) ForgotPassword(clientID, username string) (string, err
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
+		if client.PreventUserExistenceErrors == preventUserExistenceEnabled {
+			// AWS never reveals UserNotFoundException here when masking is enabled: the
+			// caller gets the same success response (fabricated CodeDeliveryDetails) it
+			// would get for a real account. The code is not stored anywhere, so
+			// ConfirmForgotPassword will still fail for this username -- matching AWS,
+			// which never actually delivers anything for a nonexistent account either.
+			return randomAlphanumeric(confirmCodeLen), nil
+		}
+
 		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
@@ -1912,6 +1921,14 @@ func (b *InMemoryBackend) ResendConfirmationCode(clientID, username string) (str
 
 	user, ok := b.users.Get(userKey(client.UserPoolID, username))
 	if !ok {
+		if client.PreventUserExistenceErrors == preventUserExistenceEnabled {
+			// Same masking rationale as ForgotPassword above: fabricate a success
+			// response instead of revealing that the account does not exist. The code
+			// is never stored, so a subsequent ConfirmSignUp for this username still
+			// fails.
+			return randomAlphanumeric(confirmCodeLen), nil
+		}
+
 		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
