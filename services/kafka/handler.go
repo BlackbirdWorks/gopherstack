@@ -83,28 +83,40 @@ const (
 )
 
 const (
-	clustersV1Prefix          = "/v1/clusters/"
-	clustersV2Prefix          = "/api/v2/clusters/"
-	configurationsPrefix      = "/v1/configurations/"
-	tagsPrefix                = "/v1/tags/"
-	bootstrapBrokersSuffix    = "/bootstrap-brokers"
-	scramSecretsSuffix        = "/scram-secrets"
-	topicsSuffix              = "/topics"
-	topicPartitionsSuffix     = "/topic-partitions"
-	policySuffix              = "/policy"
-	operationsPrefix          = "/v1/operations/"
-	operationsV2Prefix        = "/api/v2/operations/"
-	replicatorsPrefix         = "/replication/v1/replicators/"
-	replicatorsRoot           = "/replication/v1/replicators"
-	vpcConnectionPrefix       = "/v1/vpc-connection/"
-	vpcConnectionRoot         = "/v1/vpc-connection"
-	kafkaVersionsRoot         = "/v1/kafka-versions"
-	compatibleVersionsSuffix  = "/compatible-kafka-versions"
-	nodesSuffix               = "/nodes"
-	rebootBrokerSuffix        = "/reboot-broker"
-	clientVpcConnectionSuffix = "/client-vpc-connections"
-	rejectVpcConnectionSuffix = "/reject-client-vpc-connection"
-	revisionsSuffix           = "/revisions"
+	clustersV1Prefix            = "/v1/clusters/"
+	clustersV2Prefix            = "/api/v2/clusters/"
+	configurationsPrefix        = "/v1/configurations/"
+	tagsPrefix                  = "/v1/tags/"
+	bootstrapBrokersSuffix      = "/bootstrap-brokers"
+	scramSecretsSuffix          = "/scram-secrets"
+	topicsSuffix                = "/topics"
+	topicPartitionsSuffix       = "/partitions"
+	policySuffix                = "/policy"
+	operationsPrefix            = "/v1/operations/"
+	operationsV2Prefix          = "/api/v2/operations/"
+	replicatorsPrefix           = "/replication/v1/replicators/"
+	replicatorsRoot             = "/replication/v1/replicators"
+	replicationInfoSuffix       = "/replication-info"
+	vpcConnectionPrefix         = "/v1/vpc-connection/"
+	vpcConnectionRoot           = "/v1/vpc-connection"
+	vpcConnectionsListPath      = "/v1/vpc-connections"
+	kafkaVersionsRoot           = "/v1/kafka-versions"
+	compatibleKafkaVersionsPath = "/v1/compatible-kafka-versions"
+	nodesSuffix                 = "/nodes"
+	rebootBrokerSuffix          = "/reboot-broker"
+	clientVpcConnectionSuffix   = "/client-vpc-connections"
+	clientVpcConnectionSingular = "/client-vpc-connection"
+	revisionsSuffix             = "/revisions"
+	brokerCountUpdateSuffix     = "/nodes/count"
+	brokerStorageUpdateSuffix   = "/nodes/storage"
+	brokerTypeUpdateSuffix      = "/nodes/type"
+	clusterConfigUpdateSuffix   = "/configuration"
+	clusterKafkaVersionSuffix   = "/version"
+	connectivityUpdateSuffix    = "/connectivity"
+	monitoringUpdateSuffix      = "/monitoring"
+	rebalancingUpdateSuffix     = "/rebalancing"
+	securityUpdateSuffix        = "/security"
+	storageUpdateSuffix         = "/storage"
 
 	arnMaxParts           = 6 // arn:partition:service:region:account:resource
 	arnMinPartsForService = 3 // minimum ARN parts needed to read service field at index 2
@@ -218,7 +230,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(p, "/replication/v1/replicators") ||
 			p == vpcConnectionRoot ||
 			strings.HasPrefix(p, vpcConnectionPrefix) ||
+			p == vpcConnectionsListPath ||
 			p == kafkaVersionsRoot ||
+			p == compatibleKafkaVersionsPath ||
 			isKafkaTagsPath(p)
 	}
 }
@@ -352,7 +366,7 @@ func parseClusterAndConfigPath(method, path string) (string, string) {
 	return "", ""
 }
 
-// parseExtendedOpsPath handles operations, replicators, VPC connections, and misc paths.
+// parseExtendedOpsPath handles operations, replicator, and VPC connection paths.
 func parseExtendedOpsPath(method, path string) (string, string) {
 	switch {
 	case strings.HasPrefix(path, operationsPrefix):
@@ -365,11 +379,29 @@ func parseExtendedOpsPath(method, path string) (string, string) {
 		return parseReplicatorResource(method, path[len(replicatorsPrefix):])
 	case path == vpcConnectionRoot || path == vpcConnectionRoot+"/":
 		return parseVpcConnectionRoot(method)
+	case path == vpcConnectionsListPath || path == vpcConnectionsListPath+"/":
+		if method == http.MethodGet {
+			return opListVpcConnections, ""
+		}
 	case strings.HasPrefix(path, vpcConnectionPrefix):
 		return parseVpcConnectionResource(method, path[len(vpcConnectionPrefix):])
-	case path == kafkaVersionsRoot || path == kafkaVersionsRoot+"/":
+	}
+
+	return parseMiscTopLevelPath(method, path)
+}
+
+// parseMiscTopLevelPath handles the remaining top-level GET-only paths:
+// ListKafkaVersions and GetCompatibleKafkaVersions (the latter carries its
+// clusterArn as a query parameter, not a path segment).
+func parseMiscTopLevelPath(method, path string) (string, string) {
+	switch path {
+	case kafkaVersionsRoot, kafkaVersionsRoot + "/":
 		if method == http.MethodGet {
 			return opListKafkaVersions, ""
+		}
+	case compatibleKafkaVersionsPath, compatibleKafkaVersionsPath + "/":
+		if method == http.MethodGet {
+			return opGetCompatibleKafkaVersions, ""
 		}
 	}
 
@@ -411,16 +443,21 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 
 // parseClusterResourceV1Topics handles topic and scram secret sub-paths.
 func parseClusterResourceV1Topics(method, decoded string) (string, string) {
-	// /topic-partitions/{topicName}: must be checked before /topics suffix.
-	if idx := strings.Index(decoded, topicPartitionsSuffix+"/"); idx != -1 {
-		arnStr := decoded[:idx]
-		topicName := decoded[idx+len(topicPartitionsSuffix)+1:]
+	// /topics/{topicName}/partitions: DescribeTopicPartitions. Must be checked
+	// before the generic /topics/{topicName} case below.
+	if strings.HasSuffix(decoded, topicPartitionsSuffix) {
+		trimmed := decoded[:len(decoded)-len(topicPartitionsSuffix)]
 
-		if method == http.MethodGet {
-			return opDescribeTopicPartitions, arnStr + topicKeySeparator + topicName
+		if idx := strings.Index(trimmed, topicsSuffix+"/"); idx != -1 {
+			arnStr := trimmed[:idx]
+			topicName := trimmed[idx+len(topicsSuffix)+1:]
+
+			if method == http.MethodGet {
+				return opDescribeTopicPartitions, arnStr + topicKeySeparator + topicName
+			}
+
+			return "", ""
 		}
-
-		return "", ""
 	}
 
 	// /topics/{topicName}: must be checked before /topics suffix.
@@ -502,6 +539,14 @@ func parseClusterResourceV1Config(method, decoded string) (string, string) {
 		return "", ""
 	}
 
+	if op, id := parseClusterResourceV1BrokerUpdates(method, decoded); op != "" {
+		return op, id
+	}
+
+	if op, id := parseClusterResourceV1ClusterUpdates(method, decoded); op != "" {
+		return op, id
+	}
+
 	if op, id := parseClusterResourceV1Misc(method, decoded); op != "" {
 		return op, id
 	}
@@ -509,19 +554,134 @@ func parseClusterResourceV1Config(method, decoded string) (string, string) {
 	return "", ""
 }
 
-// parseClusterResourceV1Misc handles compatible versions, nodes, reboot, VPC, and operations paths.
-func parseClusterResourceV1Misc(method, decoded string) (string, string) {
-	// /compatible-kafka-versions: GetCompatibleKafkaVersions.
-	if strings.HasSuffix(decoded, compatibleVersionsSuffix) {
-		arnStr := decoded[:len(decoded)-len(compatibleVersionsSuffix)]
-
-		if method == http.MethodGet {
-			return opGetCompatibleKafkaVersions, arnStr
-		}
-
+// clusterUpdateOpFor returns op with the ARN stripped of suffix when method
+// matches wantMethod, otherwise it reports no match. Used for the single-method
+// V1 cluster update sub-paths (all PUT except UpdateSecurity, which is PATCH).
+func clusterUpdateOpFor(method, wantMethod, op, decoded, suffix string) (string, string) {
+	if method != wantMethod {
 		return "", ""
 	}
 
+	return op, decoded[:len(decoded)-len(suffix)]
+}
+
+// parseClusterResourceV1BrokerUpdates handles the /nodes/{count,storage,type}
+// broker update sub-paths (PUT). Must be checked before the generic /nodes
+// (ListNodes) and /storage (UpdateStorage) suffix checks, since e.g.
+// ".../nodes/storage" also ends with "/storage".
+func parseClusterResourceV1BrokerUpdates(method, decoded string) (string, string) {
+	if strings.HasSuffix(decoded, brokerCountUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateBrokerCount,
+			decoded,
+			brokerCountUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, brokerStorageUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateBrokerStorage,
+			decoded,
+			brokerStorageUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, brokerTypeUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateBrokerType,
+			decoded,
+			brokerTypeUpdateSuffix,
+		)
+	}
+
+	return "", ""
+}
+
+// parseClusterResourceV1ClusterUpdates handles the cluster-level V1 update
+// sub-paths: configuration, kafka version, connectivity, monitoring,
+// rebalancing, security (PATCH), and storage.
+func parseClusterResourceV1ClusterUpdates(method, decoded string) (string, string) {
+	if strings.HasSuffix(decoded, clusterConfigUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateClusterConfiguration,
+			decoded,
+			clusterConfigUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, clusterKafkaVersionSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateClusterKafkaVersion,
+			decoded,
+			clusterKafkaVersionSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, connectivityUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateConnectivity,
+			decoded,
+			connectivityUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, monitoringUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateMonitoring,
+			decoded,
+			monitoringUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, rebalancingUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateRebalancing,
+			decoded,
+			rebalancingUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, securityUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPatch,
+			opUpdateSecurity,
+			decoded,
+			securityUpdateSuffix,
+		)
+	}
+
+	if strings.HasSuffix(decoded, storageUpdateSuffix) {
+		return clusterUpdateOpFor(
+			method,
+			http.MethodPut,
+			opUpdateStorage,
+			decoded,
+			storageUpdateSuffix,
+		)
+	}
+
+	return "", ""
+}
+
+// parseClusterResourceV1Misc handles nodes, reboot, VPC, and operations paths.
+func parseClusterResourceV1Misc(method, decoded string) (string, string) {
 	// /nodes: ListNodes.
 	if strings.HasSuffix(decoded, nodesSuffix) {
 		arnStr := decoded[:len(decoded)-len(nodesSuffix)]
@@ -555,12 +715,17 @@ func parseClusterResourceV1Misc(method, decoded string) (string, string) {
 		return "", ""
 	}
 
-	// /reject-client-vpc-connection/{vpcConnectionArn}: RejectClientVpcConnection.
-	if idx := strings.Index(decoded, rejectVpcConnectionSuffix+"/"); idx != -1 {
-		vpcConnectionArn := decoded[idx+len(rejectVpcConnectionSuffix)+1:]
+	// /client-vpc-connection (singular): RejectClientVpcConnection. The target VPC
+	// connection ARN travels in the request body (vpcConnectionArn), not the path --
+	// the resource here is the owning cluster ARN. Must be checked after the plural
+	// /client-vpc-connections (ListClientVpcConnections) suffix above, since HasSuffix
+	// on the shorter singular suffix would otherwise never be reached first anyway
+	// (the strings differ in their final character, so order doesn't matter here).
+	if strings.HasSuffix(decoded, clientVpcConnectionSingular) {
+		arnStr := decoded[:len(decoded)-len(clientVpcConnectionSingular)]
 
 		if method == http.MethodPut {
-			return opRejectClientVpcConnection, vpcConnectionArn
+			return opRejectClientVpcConnection, arnStr
 		}
 
 		return "", ""
@@ -591,6 +756,12 @@ func parseClusterRootV2(method string) (string, string) {
 	return "", ""
 }
 
+// parseClusterResourceV2 handles /api/v2/clusters/{ClusterArn} sub-paths. Unlike
+// the V1 tree, the real MSK API only exposes ListClusterOperationsV2 and
+// DescribeClusterV2 under the /api/v2/clusters prefix -- every Update* operation
+// (UpdateBrokerCount, UpdateSecurity, etc.) actually lives under /v1/clusters/
+// (see parseClusterResourceV1BrokerUpdates / parseClusterResourceV1ClusterUpdates),
+// even though ClusterV2 is the "modern" describe/list surface.
 func parseClusterResourceV2(method, remainder string) (string, string) {
 	decoded, _ := url.PathUnescape(remainder)
 
@@ -603,28 +774,6 @@ func parseClusterResourceV2(method, remainder string) (string, string) {
 		}
 
 		return "", ""
-	}
-
-	// Update sub-operations via PUT with specific suffixes.
-	if method == http.MethodPut {
-		for suffix, op := range map[string]string{
-			"/broker-count":   opUpdateBrokerCount,
-			"/broker-storage": opUpdateBrokerStorage,
-			"/broker-type":    opUpdateBrokerType,
-			"/configuration":  opUpdateClusterConfiguration,
-			"/kafka-version":  opUpdateClusterKafkaVersion,
-			"/connectivity":   opUpdateConnectivity,
-			"/monitoring":     opUpdateMonitoring,
-			"/rebalancing":    opUpdateRebalancing,
-			"/security":       opUpdateSecurity,
-			"/storage":        opUpdateStorage,
-		} {
-			if strings.HasSuffix(decoded, suffix) {
-				arnStr := decoded[:len(decoded)-len(suffix)]
-
-				return op, arnStr
-			}
-		}
 	}
 
 	if method == http.MethodGet {
@@ -737,18 +886,22 @@ func parseReplicatorResource(method, remainder string) (string, string) {
 	case http.MethodGet:
 		return opDescribeReplicator, decoded
 	case http.MethodPut:
-		return opUpdateReplicationInfo, decoded
+		// UpdateReplicationInfo lives at .../replicators/{ReplicatorArn}/replication-info,
+		// not bare .../replicators/{ReplicatorArn}; strip the suffix to recover the ARN.
+		if strings.HasSuffix(decoded, replicationInfoSuffix) {
+			return opUpdateReplicationInfo, decoded[:len(decoded)-len(replicationInfoSuffix)]
+		}
 	}
 
 	return "", ""
 }
 
+// parseVpcConnectionRoot handles the singular /v1/vpc-connection root, which
+// only accepts CreateVpcConnection. ListVpcConnections lives at the distinct
+// plural /v1/vpc-connections path (see vpcConnectionsListPath).
 func parseVpcConnectionRoot(method string) (string, string) {
-	switch method {
-	case http.MethodPost:
+	if method == http.MethodPost {
 		return opCreateVpcConnection, ""
-	case http.MethodGet:
-		return opListVpcConnections, ""
 	}
 
 	return "", ""
@@ -768,7 +921,12 @@ func parseVpcConnectionResource(method, remainder string) (string, string) {
 }
 
 // dispatch routes a parsed operation to the appropriate handler.
-func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, resource string, body []byte) error {
+func (h *Handler) dispatch(
+	ctx context.Context,
+	c *echo.Context,
+	op, resource string,
+	body []byte,
+) error {
 	if ok, err := h.dispatchCoreOps(ctx, c, op, resource, body); ok {
 		return err
 	}
@@ -920,7 +1078,7 @@ func (h *Handler) dispatchTopicAndVpcOps(
 	case opListClientVpcConnections:
 		return true, h.handleListClientVpcConnections(ctx, c, resource)
 	case opRejectClientVpcConnection:
-		return true, h.handleRejectClientVpcConnection(ctx, c, resource)
+		return true, h.handleRejectClientVpcConnection(ctx, c, body)
 	}
 
 	return false, nil
@@ -958,7 +1116,7 @@ func (h *Handler) dispatchPolicyAndMiscOps(
 	case opListKafkaVersions:
 		return true, h.handleListKafkaVersions(ctx, c)
 	case opGetCompatibleKafkaVersions:
-		return true, h.handleGetCompatibleKafkaVersions(ctx, c, resource)
+		return true, h.handleGetCompatibleKafkaVersions(ctx, c)
 	case opListNodes:
 		return true, h.handleListNodes(ctx, c, resource)
 	case opRebootBroker:
@@ -1252,7 +1410,12 @@ func (h *Handler) handleCreateClusterV2(ctx context.Context, c *echo.Context, bo
 			serverlessInfo.VpcConfigs = append(serverlessInfo.VpcConfigs, ServerlessVpcConfig(vc))
 		}
 
-		cluster, err := h.Backend.CreateServerlessCluster(ctx, in.ClusterName, serverlessInfo, in.Tags)
+		cluster, err := h.Backend.CreateServerlessCluster(
+			ctx,
+			in.ClusterName,
+			serverlessInfo,
+			in.Tags,
+		)
 		if err != nil {
 			return h.writeBackendError(c, err)
 		}
@@ -1350,7 +1513,11 @@ func (h *Handler) handleListClustersV2(ctx context.Context, c *echo.Context) err
 	return c.JSON(http.StatusOK, listClustersV2Output{ClusterInfoList: page, NextToken: nextToken})
 }
 
-func (h *Handler) handleDescribeCluster(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleDescribeCluster(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	cluster, err := h.Backend.DescribeCluster(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -1359,7 +1526,11 @@ func (h *Handler) handleDescribeCluster(ctx context.Context, c *echo.Context, cl
 	return c.JSON(http.StatusOK, describeClusterOutput{ClusterInfo: toClusterInfoV1(cluster)})
 }
 
-func (h *Handler) handleDescribeClusterV2(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleDescribeClusterV2(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	cluster, err := h.Backend.DescribeCluster(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -1368,7 +1539,11 @@ func (h *Handler) handleDescribeClusterV2(ctx context.Context, c *echo.Context, 
 	return c.JSON(http.StatusOK, describeClusterV2Output{ClusterInfo: toClusterInfoV2(cluster)})
 }
 
-func (h *Handler) handleDeleteCluster(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleDeleteCluster(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	if err := h.Backend.DeleteCluster(ctx, clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1376,7 +1551,11 @@ func (h *Handler) handleDeleteCluster(ctx context.Context, c *echo.Context, clus
 	return c.NoContent(http.StatusOK)
 }
 
-func (h *Handler) handleGetBootstrapBrokers(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleGetBootstrapBrokers(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	cluster, err := h.Backend.DescribeCluster(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -1426,7 +1605,11 @@ func addSaslBrokers(sasl *SaslSettings, out *getBootstrapBrokersOutput) {
 }
 
 // addPublicBrokers populates public access broker endpoints when public access is enabled.
-func addPublicBrokers(auth *ClientAuthentication, pa *PublicAccess, out *getBootstrapBrokersOutput) {
+func addPublicBrokers(
+	auth *ClientAuthentication,
+	pa *PublicAccess,
+	out *getBootstrapBrokersOutput,
+) {
 	if pa == nil || pa.Type != "SERVICE_PROVIDED_EIPS" {
 		return
 	}
@@ -1592,7 +1775,11 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 // Configuration handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateConfiguration(ctx context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateConfiguration(
+	ctx context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
 	var in createConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1642,10 +1829,17 @@ func (h *Handler) handleListConfigurations(ctx context.Context, c *echo.Context)
 		nextToken = encodeKafkaPageToken(offset + pageSize)
 	}
 
-	return c.JSON(http.StatusOK, listConfigurationsOutput{Configurations: page, NextToken: nextToken})
+	return c.JSON(
+		http.StatusOK,
+		listConfigurationsOutput{Configurations: page, NextToken: nextToken},
+	)
 }
 
-func (h *Handler) handleDescribeConfiguration(ctx context.Context, c *echo.Context, configArn string) error {
+func (h *Handler) handleDescribeConfiguration(
+	ctx context.Context,
+	c *echo.Context,
+	configArn string,
+) error {
 	config, err := h.Backend.DescribeConfiguration(ctx, configArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -1664,7 +1858,11 @@ func (h *Handler) handleDescribeConfiguration(ctx context.Context, c *echo.Conte
 	})
 }
 
-func (h *Handler) handleDeleteConfiguration(ctx context.Context, c *echo.Context, configArn string) error {
+func (h *Handler) handleDeleteConfiguration(
+	ctx context.Context,
+	c *echo.Context,
+	configArn string,
+) error {
 	if err := h.Backend.DeleteConfiguration(ctx, configArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1676,7 +1874,11 @@ func (h *Handler) handleDeleteConfiguration(ctx context.Context, c *echo.Context
 // Tag handlers
 // ----------------------------------------
 
-func (h *Handler) handleListTagsForResource(ctx context.Context, c *echo.Context, resourceArn string) error {
+func (h *Handler) handleListTagsForResource(
+	ctx context.Context,
+	c *echo.Context,
+	resourceArn string,
+) error {
 	tags, err := h.Backend.GetTags(ctx, resourceArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -1685,7 +1887,12 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, c *echo.Context
 	return c.JSON(http.StatusOK, listTagsOutput{Tags: tags})
 }
 
-func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, resourceArn string, body []byte) error {
+func (h *Handler) handleTagResource(
+	ctx context.Context,
+	c *echo.Context,
+	resourceArn string,
+	body []byte,
+) error {
 	var in tagResourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1703,7 +1910,12 @@ func (h *Handler) handleTagResource(ctx context.Context, c *echo.Context, resour
 	return c.NoContent(http.StatusOK)
 }
 
-func (h *Handler) handleUntagResource(ctx context.Context, c *echo.Context, resourceArn string, u *url.URL) error {
+func (h *Handler) handleUntagResource(
+	ctx context.Context,
+	c *echo.Context,
+	resourceArn string,
+	u *url.URL,
+) error {
 	tagKeys := u.Query()["tagKeys"]
 
 	if err := h.Backend.UntagResource(ctx, resourceArn, tagKeys); err != nil {
@@ -1826,7 +2038,11 @@ func (h *Handler) handleCreateReplicator(ctx context.Context, c *echo.Context, b
 	})
 }
 
-func (h *Handler) handleDeleteReplicator(ctx context.Context, c *echo.Context, replicatorArn string) error {
+func (h *Handler) handleDeleteReplicator(
+	ctx context.Context,
+	c *echo.Context,
+	replicatorArn string,
+) error {
 	if err := h.Backend.DeleteReplicator(ctx, replicatorArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1856,7 +2072,12 @@ type createTopicOutput struct {
 // Topic handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateTopic(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleCreateTopic(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in createTopicInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1928,7 +2149,11 @@ type createVpcConnectionOutput struct {
 // VPC connection handlers
 // ----------------------------------------
 
-func (h *Handler) handleCreateVpcConnection(ctx context.Context, c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateVpcConnection(
+	ctx context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
 	var in createVpcConnectionInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -1957,7 +2182,11 @@ func (h *Handler) handleCreateVpcConnection(ctx context.Context, c *echo.Context
 	})
 }
 
-func (h *Handler) handleDeleteVpcConnection(ctx context.Context, c *echo.Context, vpcConnectionArn string) error {
+func (h *Handler) handleDeleteVpcConnection(
+	ctx context.Context,
+	c *echo.Context,
+	vpcConnectionArn string,
+) error {
 	if err := h.Backend.DeleteVpcConnection(ctx, vpcConnectionArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -1969,7 +2198,11 @@ func (h *Handler) handleDeleteVpcConnection(ctx context.Context, c *echo.Context
 // Cluster policy handlers
 // ----------------------------------------
 
-func (h *Handler) handleDeleteClusterPolicy(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleDeleteClusterPolicy(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	if err := h.Backend.DeleteClusterPolicy(ctx, clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2010,7 +2243,11 @@ type listScramSecretsOutput struct {
 	SecretArnList []string `json:"secretArnList"`
 }
 
-func (h *Handler) handleListScramSecrets(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleListScramSecrets(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	secrets, err := h.Backend.ListScramSecrets(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2037,7 +2274,11 @@ type updateReplicationInfoOutput struct {
 	ReplicatorState string `json:"replicatorState"`
 }
 
-func (h *Handler) handleDescribeReplicator(ctx context.Context, c *echo.Context, replicatorArn string) error {
+func (h *Handler) handleDescribeReplicator(
+	ctx context.Context,
+	c *echo.Context,
+	replicatorArn string,
+) error {
 	r, err := h.Backend.DescribeReplicator(ctx, replicatorArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2127,7 +2368,11 @@ func (h *Handler) handleDescribeTopic(ctx context.Context, c *echo.Context, reso
 	return c.JSON(http.StatusOK, topic)
 }
 
-func (h *Handler) handleDescribeTopicPartitions(ctx context.Context, c *echo.Context, resource string) error {
+func (h *Handler) handleDescribeTopicPartitions(
+	ctx context.Context,
+	c *echo.Context,
+	resource string,
+) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(
@@ -2170,7 +2415,12 @@ func (h *Handler) handleListTopics(ctx context.Context, c *echo.Context, cluster
 	return c.JSON(http.StatusOK, listTopicsOutput{Topics: page, NextToken: nextToken})
 }
 
-func (h *Handler) handleUpdateTopic(ctx context.Context, c *echo.Context, resource string, body []byte) error {
+func (h *Handler) handleUpdateTopic(
+	ctx context.Context,
+	c *echo.Context,
+	resource string,
+	body []byte,
+) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(
@@ -2207,7 +2457,11 @@ type listVpcConnectionsOutput struct {
 	VpcConnections []*VpcConnection `json:"vpcConnections"`
 }
 
-func (h *Handler) handleDescribeVpcConnection(ctx context.Context, c *echo.Context, vpcConnectionArn string) error {
+func (h *Handler) handleDescribeVpcConnection(
+	ctx context.Context,
+	c *echo.Context,
+	vpcConnectionArn string,
+) error {
 	v, err := h.Backend.DescribeVpcConnection(ctx, vpcConnectionArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2222,7 +2476,11 @@ func (h *Handler) handleListVpcConnections(ctx context.Context, c *echo.Context)
 	return c.JSON(http.StatusOK, listVpcConnectionsOutput{VpcConnections: conns})
 }
 
-func (h *Handler) handleListClientVpcConnections(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleListClientVpcConnections(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	conns, err := h.Backend.ListClientVpcConnections(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2231,8 +2489,38 @@ func (h *Handler) handleListClientVpcConnections(ctx context.Context, c *echo.Co
 	return c.JSON(http.StatusOK, listVpcConnectionsOutput{VpcConnections: conns})
 }
 
-func (h *Handler) handleRejectClientVpcConnection(ctx context.Context, c *echo.Context, vpcConnectionArn string) error {
-	if err := h.Backend.RejectClientVpcConnection(ctx, vpcConnectionArn); err != nil {
+type rejectClientVpcConnectionInput struct {
+	VpcConnectionArn string `json:"vpcConnectionArn"`
+}
+
+// handleRejectClientVpcConnection serves PUT /v1/clusters/{ClusterArn}/client-vpc-connection.
+// The path carries the owning cluster ARN; the real API carries the target VPC
+// connection ARN in the JSON body (vpcConnectionArn), not the path.
+func (h *Handler) handleRejectClientVpcConnection(
+	ctx context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
+	var in rejectClientVpcConnectionInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"invalid request body: "+err.Error(),
+		)
+	}
+
+	if in.VpcConnectionArn == "" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"BadRequestException",
+			"vpcConnectionArn is required",
+		)
+	}
+
+	if err := h.Backend.RejectClientVpcConnection(ctx, in.VpcConnectionArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -2251,7 +2539,11 @@ type putClusterPolicyInput struct {
 	Policy string `json:"policy"`
 }
 
-func (h *Handler) handleGetClusterPolicy(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleGetClusterPolicy(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	policy, err := h.Backend.GetClusterPolicy(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2260,7 +2552,12 @@ func (h *Handler) handleGetClusterPolicy(ctx context.Context, c *echo.Context, c
 	return c.JSON(http.StatusOK, getClusterPolicyOutput{Policy: policy})
 }
 
-func (h *Handler) handlePutClusterPolicy(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handlePutClusterPolicy(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in putClusterPolicyInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2307,7 +2604,11 @@ func (h *Handler) handleDescribeClusterOperationV2(
 	return c.JSON(http.StatusOK, describeClusterOperationV2Output{ClusterOperationInfo: op})
 }
 
-func (h *Handler) handleListClusterOperations(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleListClusterOperations(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	ops, err := h.Backend.ListClusterOperations(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2316,7 +2617,11 @@ func (h *Handler) handleListClusterOperations(ctx context.Context, c *echo.Conte
 	return c.JSON(http.StatusOK, listClusterOperationsOutput{ClusterOperationInfoList: ops})
 }
 
-func (h *Handler) handleListClusterOperationsV2(ctx context.Context, c *echo.Context, clusterArn string) error {
+func (h *Handler) handleListClusterOperationsV2(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+) error {
 	ops, err := h.Backend.ListClusterOperationsV2(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2339,7 +2644,11 @@ type updateConfigurationInput struct {
 	ServerProperties string `json:"serverProperties,omitempty"`
 }
 
-func (h *Handler) handleDescribeConfigurationRevision(ctx context.Context, c *echo.Context, resource string) error {
+func (h *Handler) handleDescribeConfigurationRevision(
+	ctx context.Context,
+	c *echo.Context,
+	resource string,
+) error {
 	parts := strings.SplitN(resource, topicKeySeparator, topicKeySeparatorParts)
 	if len(parts) != topicKeySeparatorParts {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid resource")
@@ -2361,7 +2670,11 @@ func (h *Handler) handleDescribeConfigurationRevision(ctx context.Context, c *ec
 	return c.JSON(http.StatusOK, rev)
 }
 
-func (h *Handler) handleListConfigurationRevisions(ctx context.Context, c *echo.Context, configArn string) error {
+func (h *Handler) handleListConfigurationRevisions(
+	ctx context.Context,
+	c *echo.Context,
+	configArn string,
+) error {
 	all, err := h.Backend.ListConfigurationRevisions(ctx, configArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2382,10 +2695,18 @@ func (h *Handler) handleListConfigurationRevisions(ctx context.Context, c *echo.
 		nextToken = encodeKafkaPageToken(offset + pageSize)
 	}
 
-	return c.JSON(http.StatusOK, listConfigurationRevisionsOutput{Revisions: page, NextToken: nextToken})
+	return c.JSON(
+		http.StatusOK,
+		listConfigurationRevisionsOutput{Revisions: page, NextToken: nextToken},
+	)
 }
 
-func (h *Handler) handleUpdateConfiguration(ctx context.Context, c *echo.Context, configArn string, body []byte) error {
+func (h *Handler) handleUpdateConfiguration(
+	ctx context.Context,
+	c *echo.Context,
+	configArn string,
+	body []byte,
+) error {
 	var in updateConfigurationInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2396,7 +2717,12 @@ func (h *Handler) handleUpdateConfiguration(ctx context.Context, c *echo.Context
 		)
 	}
 
-	config, err := h.Backend.UpdateConfiguration(ctx, configArn, in.Description, in.ServerProperties)
+	config, err := h.Backend.UpdateConfiguration(
+		ctx,
+		configArn,
+		in.Description,
+		in.ServerProperties,
+	)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -2434,7 +2760,12 @@ func (h *Handler) handleListKafkaVersions(ctx context.Context, c *echo.Context) 
 	return c.JSON(http.StatusOK, listKafkaVersionsOutput{KafkaVersions: versions})
 }
 
-func (h *Handler) handleGetCompatibleKafkaVersions(ctx context.Context, c *echo.Context, clusterArn string) error {
+// handleGetCompatibleKafkaVersions serves GET /v1/compatible-kafka-versions.
+// Unlike most cluster-scoped ops, the real MSK API carries the cluster ARN as
+// a query parameter (clusterArn) on this top-level path, not a URI path segment.
+func (h *Handler) handleGetCompatibleKafkaVersions(ctx context.Context, c *echo.Context) error {
+	clusterArn := c.Request().URL.Query().Get("clusterArn")
+
 	versions, err := h.Backend.GetCompatibleKafkaVersions(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2464,7 +2795,12 @@ type clusterOperationOutput struct {
 	ClusterOperationArn string `json:"clusterOperationArn"`
 }
 
-func (h *Handler) handleRebootBroker(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleRebootBroker(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in rebootBrokerInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2555,7 +2891,12 @@ type updateClusterKafkaVersionInput struct {
 	TargetKafkaVersion string `json:"targetKafkaVersion"`
 }
 
-func (h *Handler) handleUpdateBrokerCount(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateBrokerCount(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateBrokerCountInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2617,7 +2958,12 @@ func (h *Handler) handleUpdateBrokerStorage(
 	)
 }
 
-func (h *Handler) handleUpdateBrokerType(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateBrokerType(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateBrokerTypeInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(
@@ -2715,7 +3061,12 @@ type updateConnectivityInput struct {
 	CurrentVersion   string            `json:"currentVersion"`
 }
 
-func (h *Handler) handleUpdateConnectivity(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateConnectivity(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateConnectivityInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
@@ -2746,7 +3097,12 @@ type updateMonitoringInput struct {
 	CurrentVersion     string          `json:"currentVersion"`
 }
 
-func (h *Handler) handleUpdateMonitoring(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateMonitoring(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateMonitoringInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
@@ -2771,7 +3127,12 @@ func (h *Handler) handleUpdateMonitoring(ctx context.Context, c *echo.Context, c
 	)
 }
 
-func (h *Handler) handleUpdateRebalancing(ctx context.Context, c *echo.Context, clusterArn string, _ []byte) error {
+func (h *Handler) handleUpdateRebalancing(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	_ []byte,
+) error {
 	op, err := h.Backend.UpdateRebalancing(ctx, clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
@@ -2790,7 +3151,12 @@ type updateSecurityInput struct {
 	CurrentVersion       string                `json:"currentVersion"`
 }
 
-func (h *Handler) handleUpdateSecurity(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateSecurity(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateSecurityInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())
@@ -2822,7 +3188,12 @@ type updateStorageInput struct {
 	VolumeSizeGB          int32                  `json:"volumeSizeGB"`
 }
 
-func (h *Handler) handleUpdateStorage(ctx context.Context, c *echo.Context, clusterArn string, body []byte) error {
+func (h *Handler) handleUpdateStorage(
+	ctx context.Context,
+	c *echo.Context,
+	clusterArn string,
+	body []byte,
+) error {
 	var in updateStorageInput
 	if err := decodeJSONBody(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", err.Error())

@@ -85,13 +85,13 @@ func TestParity_UpdateOpsRequireCurrentVersion(t *testing.T) {
 	}{
 		{
 			name:     "broker_count_empty_version_rejected",
-			suffix:   "/broker-count",
+			suffix:   "/nodes/count",
 			body:     map[string]any{"targetNumberOfBrokerNodes": int32(6)},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "broker_count_wrong_version_rejected",
-			suffix: "/broker-count",
+			suffix: "/nodes/count",
 			body: map[string]any{
 				"currentVersion":            "WRONG_VERSION",
 				"targetNumberOfBrokerNodes": int32(6),
@@ -100,7 +100,7 @@ func TestParity_UpdateOpsRequireCurrentVersion(t *testing.T) {
 		},
 		{
 			name:   "broker_count_correct_version_accepted",
-			suffix: "/broker-count",
+			suffix: "/nodes/count",
 			body: map[string]any{
 				"currentVersion":            kafka.DefaultClusterVersion,
 				"targetNumberOfBrokerNodes": int32(6),
@@ -109,13 +109,13 @@ func TestParity_UpdateOpsRequireCurrentVersion(t *testing.T) {
 		},
 		{
 			name:     "broker_type_empty_version_rejected",
-			suffix:   "/broker-type",
+			suffix:   "/nodes/type",
 			body:     map[string]any{"targetInstanceType": "kafka.m5.xlarge"},
 			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:   "broker_type_correct_version_accepted",
-			suffix: "/broker-type",
+			suffix: "/nodes/type",
 			body: map[string]any{
 				"currentVersion":     kafka.DefaultClusterVersion,
 				"targetInstanceType": "kafka.m5.xlarge",
@@ -145,7 +145,7 @@ func TestParity_UpdateOpsRequireCurrentVersion(t *testing.T) {
 			encoded := url.PathEscape(clusterArn)
 
 			rec := doKafkaRequest(t, h, http.MethodPut,
-				"/api/v2/clusters/"+encoded+tt.suffix, tt.body)
+				"/v1/clusters/"+encoded+tt.suffix, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, "suffix=%s body=%v", tt.suffix, tt.body)
 
 			if tt.wantCode == http.StatusBadRequest {
