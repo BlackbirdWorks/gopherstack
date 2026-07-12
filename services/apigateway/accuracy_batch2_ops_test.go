@@ -314,6 +314,44 @@ func TestBatch2Ops_PatchOps_UpdateApiKey(t *testing.T) {
 	}
 }
 
+// TestBatch2Ops_ApiKey_CustomerID verifies that customerId (AWS Marketplace
+// SaaS integration field, types.ApiKey.CustomerId / types.CreateApiKeyInput.CustomerId
+// in the SDK) round-trips through CreateApiKey, GetApiKey, and the UpdateApiKey
+// PATCH /customerId path (a "Supported" replace path per AWS's patch-operations
+// reference). This field was previously entirely absent from gopherstack's
+// APIKey/CreateAPIKeyInput/UpdateAPIKeyInput models, so it was silently dropped
+// on create and unpatchable.
+func TestBatch2Ops_ApiKey_CustomerID(t *testing.T) {
+	t.Parallel()
+
+	b := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(b)
+
+	createRec := restRequest(t, h, http.MethodPost, "/apikeys",
+		`{"name":"customer-key","enabled":true,"customerId":"mp-cust-123"}`)
+	require.True(t, createRec.Code >= 200 && createRec.Code < 300)
+
+	var createResp map[string]any
+	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	keyID, _ := createResp["id"].(string)
+	require.NotEmpty(t, keyID)
+	assert.Equal(t, "mp-cust-123", createResp["customerId"],
+		"CreateApiKey response must echo customerId back on the wire")
+
+	stored, err := b.GetAPIKey(keyID)
+	require.NoError(t, err)
+	assert.Equal(t, "mp-cust-123", stored.CustomerID, "customerId must be persisted on create")
+
+	patchRec := restRequest(t, h, http.MethodPatch, "/apikeys/"+keyID,
+		`[{"op":"replace","path":"/customerId","value":"mp-cust-456"}]`)
+	require.True(t, patchRec.Code >= 200 && patchRec.Code < 300)
+
+	updated, err := b.GetAPIKey(keyID)
+	require.NoError(t, err)
+	assert.Equal(t, "mp-cust-456", updated.CustomerID,
+		"PATCH /customerId must update the API key's customerId")
+}
+
 // TestBatch2Ops_PatchOps_UpdateUsagePlan verifies that JSON patch operations
 // are applied when PATCH /usageplans/{id} is called. Previously patch ops were
 // silently dropped, leaving the plan name unchanged.

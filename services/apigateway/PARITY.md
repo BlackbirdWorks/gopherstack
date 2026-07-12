@@ -1,16 +1,17 @@
 ---
 service: apigateway
 sdk_module: aws-sdk-go-v2/service/apigateway@v1.38.6
-last_audit_commit: 0b1194b6
-last_audit_date: 2026-07-05
-overall: A            # ~1300 LOC of genuine PATCH-semantics fixes this sweep (see Notes)
+last_audit_commit: 83adaebe
+last_audit_date: 2026-07-11
+overall: A            # re-audit sweep: no SDK/local drift since ce30166a; found+fixed one real gap (ApiKey.customerId) plus a misleading-wire-shape doc/test fix on UpdateUsage
 ops:
   UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH semantics rewritten this sweep: /variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields added"}
   UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /binaryMediaTypes/{escaped} add/remove now merges (was silently dropped); minimumCompressionSize string->int coercion fixed"}
   UpdateAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "CloudwatchRoleARN field added to UpdateAccountInput (previously unsettable at all); /throttle/{rateLimit,burstLimit} nested PATCH now merges"}
   UpdateUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok, note: "/apiStages add/remove (value 'restApiId:stage') now merges; fixed InMemoryBackend.UpdateUsagePlan's len()>0 check so removing the last API stage actually applies"}
   UpdateGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok, note: "now backed by a dedicated merge-based backend method (was reusing PutGatewayResponse's full-replace, silently wiping ResponseParameters/ResponseTemplates/StatusCode on every partial PATCH); /responseParameters/{key} and /responseTemplates/{key} per-entry PATCH added"}
-  UpdateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "top-level enabled bool now coerced from its string-typed PATCH value (see Notes #1)"}
+  UpdateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "top-level enabled bool now coerced from its string-typed PATCH value (see Notes #1); this sweep added the missing customerId field (create/get/patch) — see Notes"}
+  UpdateUsage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: verified against AWS's patch-operations.html + CLI reference that the real (and only) supported path is the single-segment scalar /remaining, NOT a per-date path as the prior code comment and test claimed; behavior was already correct (the backend loop only reads map values, not keys) but doc/test were misleading — corrected both, see Notes"}
   UpdateRequestValidator: {wire: ok, errors: ok, state: ok, persist: ok, note: "validateRequestBody/validateRequestParameters bool coercion fixed"}
   UpdateMethod: {wire: ok, errors: ok, state: ok, persist: ok, note: "apiKeyRequired bool coercion fixed"}
   UpdateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "authorizerResultTtlInSeconds int coercion fixed"}
@@ -59,9 +60,9 @@ ops:
   GetAuthorizers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok}
   TestInvokeAuthorizer: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateApiKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetApiKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetApiKeys: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId (AWS Marketplace SaaS integration field, types.CreateApiKeyInput.CustomerId) added this sweep — was entirely absent from CreateAPIKeyInput/APIKey, silently dropped on create"}
+  GetApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId now included in the response"}
+  GetApiKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "customerId now included per item"}
   DeleteApiKey: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUsagePlan: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -140,6 +141,7 @@ gaps:
 deferred:
   - "RestApi.ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode (present in aws-sdk-go-v2 types.RestApi, absent from gopherstack's RestAPI struct) — cosmetic/status-only fields, low client impact, out of scope this pass."
   - "Stage.DocumentationVersion (present in AWS's Stage type) not modeled."
+  - "ApiKey.StageKeys (types.ApiKey.StageKeys / types.CreateApiKeyInput.StageKeys) not modeled, so CreateApiKey's stageKeys and UpdateApiKey's PATCH /stages add/remove are unimplemented. Checked this sweep against aws-sdk-go-v2 CreateApiKeyInput's doc comment: 'DEPRECATED FOR USAGE PLANS - Specifies stages associated with the API key. ... This parameter is deprecated and should not be used.' Low real-world impact; deferred. The PATCH /labels add/remove path from patch-operations.html has no corresponding field anywhere in aws-sdk-go-v2/service/apigateway/types.ApiKey either (likely a stale doc artifact from a pre-Tags API generation) — nothing to implement against."
 leaks: {status: clean, note: "no new goroutines/tickers/persistent state introduced this sweep — patch.go is pure request-scoped transform code; authorizer cache and resource routing trie growth were already bounded by a prior sweep (bd gopherstack #1403)"}
 ---
 
@@ -257,3 +259,62 @@ resource, JSON request/response bodies, `application/x-amz-json-1.1` on
 errors, epoch-seconds timestamps (`unixEpochTime`/`pkgs/awstime`-equivalent
 inline type) — not a single json-1.0/1.1 RPC target the way most other
 services in this codebase are.
+
+## 2026-07-11 re-audit sweep
+
+No local drift since ce30166a (`git diff` over `services/apigateway/` between
+the two commits is empty) and no SDK version bump (`aws-sdk-go-v2/service/apigateway`
+still pinned at v1.38.6), so this sweep audited only the ledger's documented
+`gaps` plus a general due-diligence pass rather than re-verifying every `ok`
+row from scratch.
+
+**Real bug found and fixed: `ApiKey.CustomerId` was entirely absent.**
+aws-sdk-go-v2's `types.ApiKey`/`types.CreateApiKeyInput`/`UpdateApiKeyInput`
+(via `PatchOperations`) all carry `CustomerId` (an AWS Marketplace SaaS
+integration identifier) — confirmed by reading the vendored SDK's
+`types/types.go` and `api_op_CreateApiKey.go`. gopherstack's `APIKey`,
+`CreateAPIKeyInput`, and `UpdateAPIKeyInput` structs had no such field at all,
+so a real client's `customerId` was silently dropped on create, never
+returned by Get/GetApiKeys, and unpatchable (AWS's `patch-operations.html`
+lists `/customerId` as a `replace`-supported UpdateApiKey path). Added the
+field to all three structs and wired it through
+`InMemoryBackend.CreateAPIKey`/`UpdateAPIKey`; no `patch.go` change was needed
+since `/customerId` is a single-segment scalar path that the existing generic
+top-level PATCH fallback already handles correctly for string fields. Covered
+by `TestBatch2Ops_ApiKey_CustomerID` (create/get/patch round-trip).
+`apiKeys` is a "clean" (non-DTO) persisted table, so the new field persists
+automatically.
+
+**Almost-bug, verified false via WebFetch against AWS's live docs — logged so
+the next auditor doesn't repeat the investigation.** `UpdateUsage`'s PATCH
+routing looked suspicious: `applyResourcePatchOp` (patch.go) has no case for
+`opUpdateUsage`, so any *multi-segment* PATCH path falls through to
+`applyTopLevelPatchOp`, which explicitly no-ops any path containing `/` after
+the leading slash. Every other resource with a real-world multi-segment PATCH
+path (stage variables, per-route method settings, usage-plan API stages, ...)
+got an explicit resolver in a prior sweep, and `UpdateUsage`'s doc comment
+*said* its patch paths were per-date (`"date -> new remaining quota"`),
+which would have been multi-segment (`/{date}/{usageIndex}`) and thus
+silently broken. Fetched AWS's `patch-operations.html` UpdateUsage table
+*and* the `aws apigateway update-usage` CLI reference example directly:
+both agree the one and only supported path is the single-segment scalar
+`/remaining` — there is no per-date path at all. Under that real shape the
+existing code was already correct (the backend's merge loop only reads the
+flattened map's *values*, never its keys, so the misleading "date" key name
+never mattered). Fixed the stale/misleading doc comment on
+`InMemoryBackend.UpdateUsage` and the test in `handler_destub_test.go` that
+was asserting against the wrong (`/2024-01-01`) path shape, and strengthened
+that test to assert the actual overridden `remaining` value instead of just
+key presence.
+
+**Checked but deferred**: `ApiKey.StageKeys` (`/stages` add/remove) is
+present in the SDK but explicitly marked deprecated in
+`CreateApiKeyInput.StageKeys`'s doc comment ("should not be used"); left
+unimplemented (see `deferred`). The `/labels` PATCH path AWS's
+patch-operations.html lists for UpdateApiKey has no corresponding field
+anywhere in the current SDK's `types.ApiKey` — likely stale documentation
+with nothing to implement against.
+
+No other rows changed. Gates: `go build`/`go vet`/`go test -race`/`go fix
+-diff`/`golangci-lint run`, all scoped to `./services/apigateway/...`, pass
+clean both before and after this sweep's edits.

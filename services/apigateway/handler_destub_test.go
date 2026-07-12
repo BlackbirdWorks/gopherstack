@@ -433,9 +433,12 @@ func TestAPIGateway_UpdateUsage_RESTRoute(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// "/remaining" is the real (and only) AWS-documented UpdateUsage patch
+	// path (patch-operations.html's UpdateUsage table lists just this single
+	// scalar field — there is no per-date path segment).
 	rec := restCall(
 		t, h, http.MethodPatch, "/usageplans/"+plan.ID+"/keys/"+key.ID+"/usage", "application/json",
-		`[{"op":"replace","path":"/2024-01-01","value":"42"}]`,
+		`[{"op":"replace","path":"/remaining","value":"42"}]`,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -448,6 +451,10 @@ func TestAPIGateway_UpdateUsage_RESTRoute(t *testing.T) {
 	usage, err := backend.GetUsage(apigateway.GetUsageInput{UsagePlanID: plan.ID})
 	require.NoError(t, err)
 	require.Contains(t, usage.Items, key.ID)
+
+	pair, ok := usage.Items[key.ID][0].([]int)
+	require.True(t, ok, "usage.Items[keyID][0] must be a [used, remaining] pair")
+	require.Equal(t, 42, pair[1], "PATCH /remaining must set the overridden remaining quota")
 }
 
 func TestAPIGateway_UpdateUsage_UnknownPlan(t *testing.T) {
@@ -458,7 +465,7 @@ func TestAPIGateway_UpdateUsage_UnknownPlan(t *testing.T) {
 
 	rec := restCall(
 		t, h, http.MethodPatch, "/usageplans/nope/keys/also-nope/usage", "application/json",
-		`[{"op":"replace","path":"/2024-01-01","value":"42"}]`,
+		`[{"op":"replace","path":"/remaining","value":"42"}]`,
 	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

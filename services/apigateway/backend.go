@@ -1589,6 +1589,7 @@ func (b *InMemoryBackend) CreateAPIKey(input CreateAPIKeyInput) (*APIKey, error)
 		Name:            input.Name,
 		Description:     input.Description,
 		Value:           value,
+		CustomerID:      input.CustomerID,
 		Enabled:         input.Enabled,
 		Tags:            backendTags,
 		CreatedDate:     now,
@@ -2111,6 +2112,9 @@ func (b *InMemoryBackend) UpdateAPIKey(id string, input UpdateAPIKeyInput) (*API
 	}
 	if input.Description != "" {
 		key.Description = input.Description
+	}
+	if input.CustomerID != "" {
+		key.CustomerID = input.CustomerID
 	}
 	if input.Enabled != nil {
 		key.Enabled = *input.Enabled

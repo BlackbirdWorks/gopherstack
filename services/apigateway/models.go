@@ -341,7 +341,10 @@ type APIKey struct {
 	Name            string        `json:"name"`
 	Description     string        `json:"description,omitempty"`
 	Value           string        `json:"value,omitempty"`
-	Enabled         bool          `json:"enabled"`
+	// CustomerID is an AWS Marketplace customer identifier, when integrating
+	// with the AWS SaaS Marketplace (types.ApiKey.CustomerId in the SDK).
+	CustomerID string `json:"customerId,omitempty"`
+	Enabled    bool   `json:"enabled"`
 }
 
 // CreateAPIKeyInput is the input for CreateAPIKey.
@@ -350,6 +353,7 @@ type CreateAPIKeyInput struct {
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
 	Value       string     `json:"value,omitempty"`
+	CustomerID  string     `json:"customerId,omitempty"`
 	Enabled     bool       `json:"enabled"`
 }
 
@@ -543,6 +547,7 @@ type UpdateAPIKeyInput struct {
 	Enabled     *bool  `json:"enabled,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+	CustomerID  string `json:"customerId,omitempty"`
 }
 
 // UpdateModelInput is the input for UpdateModel.
