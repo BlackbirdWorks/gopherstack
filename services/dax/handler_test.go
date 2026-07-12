@@ -72,7 +72,7 @@ func TestHandlerCreateCluster(t *testing.T) {
 				t.Helper()
 				cluster := resp["Cluster"].(map[string]any)
 				assert.Equal(t, "test-cluster", cluster["ClusterName"])
-				assert.Equal(t, "available", cluster["ClusterStatus"])
+				assert.Equal(t, "available", cluster["Status"])
 				assert.Equal(t, dax.EncryptionTypeNone, cluster["ClusterEndpointEncryptionType"])
 			},
 		},

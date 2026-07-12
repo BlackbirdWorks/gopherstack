@@ -421,7 +421,7 @@ func TestParameterResponseFields(t *testing.T) {
 			"param %s should have ParameterType", p.ParameterName)
 		assert.Equal(t, "integer", p.DataType, "param %s DataType should be integer", p.ParameterName)
 		assert.Equal(t, "TRUE", p.IsModifiable, "param %s IsModifiable should be TRUE", p.ParameterName)
-		assert.Equal(t, "requires-reboot", p.ChangeType, "param %s ChangeType", p.ParameterName)
+		assert.Equal(t, "REQUIRES_REBOOT", p.ChangeType, "param %s ChangeType", p.ParameterName)
 	}
 }
 
