@@ -1,10 +1,12 @@
 ---
 service: kinesis
 sdk_module: aws-sdk-go-v2/service/kinesis@v1.43.2
-last_audit_commit: f222f376
-last_audit_date: 2026-07-05
-overall: A            # ~750 LOC genuine fixes across backend.go/handler.go/persistence.go + new/updated tests
+last_audit_commit: d9cb5d10
+last_audit_date: 2026-07-11
+overall: A            # re-audit: ~70 LOC fix (retention-period equality bug) + 2 missing ops added to ledger + 1 stale gap corrected
 ops:
+  IncreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: equal-to-current RetentionPeriodHours was silently treated as an idempotent no-op (200 OK); real AWS requires the new value to be strictly greater than the current one and rejects equal/lower values with InvalidArgumentException (verified against the aws-sdk-go-v2 input doc comment 'Must be more than the current retention period'). Was previously undocumented in this ledger (not part of the prior sweep's audited ops list) and had a dedicated test (TestRefinement3_RetentionPeriod_IdempotentIncrease) actively asserting the wrong behavior -- classic 'rationalized bug' trap. Bounds (min 24h/max 8760h) unaffected and re-verified correct."}
+  DecreaseStreamRetentionPeriod: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same equality bug as IncreaseStreamRetentionPeriod, mirrored -- equal-to-current now rejected with InvalidArgumentException instead of a silent no-op, matching the aws-sdk-go-v2 doc comment 'Must be less than the current retention period'. Min bound (24h) unaffected."}
   CreateStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ON_DEMAND now defaults to 4 shards (was 1); inline Tags now validated pre-mutation and persisted via TagResource instead of a lost handler-local map"}
   DeleteStream: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Shards list now paginates (Limit/ExclusiveStartShardId/HasMoreShards); previously returned every shard in one page with HasMoreShards hardcoded false"}
@@ -52,7 +54,7 @@ gaps:
   - "UpdateStreamMode does not reshard when switching PROVISIONED -> ON_DEMAND (or back); AWS auto-adjusts shard count on mode transitions based on throughput history, which this in-memory emulator has no model for. Low priority: consumers of UpdateStreamMode generally re-describe the stream afterward. (bd: gopherstack-ud2)"
   - "GetShardIterator/SubscribeToShard AT_TIMESTAMP with a zero/omitted Timestamp is not rejected with ValidationException (silently treated as position 0). Minor; no test exercises this AWS edge case. (bd: gopherstack-ud2)"
   - "ListShards ShardFilter AT_TIMESTAMP/FROM_TIMESTAMP approximated as 'include closed+open' rather than true timestamp-bounded shard-lineage filtering (would need per-shard closed-at timestamps, which are not tracked). (bd: gopherstack-ud2)"
-  - "Resource policies (PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy) are not part of backendSnapshot — they are lost across a persistence restart, same class of bug as the tags issue fixed this pass. Not fixed this pass due to time budget; flagged for the next sweep. (bd: gopherstack-ud2)"
+  - "CORRECTED this pass: the previous gap entry claiming resource policies (PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy) are lost across a persistence restart was stale/incorrect. persistence.go's backendSnapshot already has a ResourcePolicies field wired into both Snapshot (line ~60) and Restore (line ~119), and TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip already exercises PutResourcePolicy through an actual snapshot/restore cycle and passes. No code change needed; this was a documentation-only correction."
 deferred:
   - "Enhanced fan-out SubscribeToShard real streaming cadence / HTTP2 push semantics beyond the polling emulation already in place"
   - "Cross-service Lambda event-source-mapping trigger wiring (lives in cli.go per task constraints; not touched)"
@@ -61,7 +63,39 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 
 ## Notes
 
-### Tag persistence bug (the headline fix this pass)
+### Retention-period equality bug (the headline fix this re-audit pass)
+
+`IncreaseStreamRetentionPeriod` and `DecreaseStreamRetentionPeriod` were absent from the previous
+sweep's `ops:` table entirely — they had never actually been audited against the real SDK, only
+implemented. Both handlers treated a `RetentionPeriodHours` equal to the stream's current retention
+period as a **silent no-op returning success (200 OK)**, justified by an in-code comment claiming this
+"matches the idempotent behaviour expected by the AWS Terraform provider." The real
+`aws-sdk-go-v2/service/kinesis` input doc comments are unambiguous: `IncreaseStreamRetentionPeriodInput.
+RetentionPeriodHours` "Must be more than the current retention period" and
+`DecreaseStreamRetentionPeriodInput.RetentionPeriodHours` "Must be less than the current retention
+period" — both strict inequalities. Real AWS returns `InvalidArgumentException` for an equal (or
+wrong-direction) value; this was independently confirmed via web search against AWS documentation.
+Worse, a previous sweep had gone on to write a dedicated regression test
+(`TestRefinement3_RetentionPeriod_IdempotentIncrease`, since renamed
+`TestRefinement3_RetentionPeriod_IncreaseToSameValueRejected`) plus two `backend_test.go` table cases
+(`increase_same_value_is_noop`/`decrease_same_value_is_noop`, since renamed `..._rejected`) that
+actively *asserted* the wrong behavior — the exact "rationalized-bug" trap this ledger's own tag-fix
+note warned about. Fixed both backend methods to reject `RetentionPeriodHours` that is `<=`/`>=` the
+current value (respectively) with `ErrInvalidArgument`, and updated the three tests that had codified
+the old behavior to assert the correct `InvalidArgumentException` instead. Min/max bound checks (24h
+floor / 8760h ceiling) were already correct and untouched.
+
+### Resource-policy persistence gap correction (documentation-only)
+
+The previous ledger's `gaps:` list claimed `PutResourcePolicy`/`GetResourcePolicy`/
+`DeleteResourcePolicy` state was not part of `backendSnapshot` and was lost across a persistence
+restart. This was stale/incorrect: `persistence.go`'s `backendSnapshot.ResourcePolicies` field is
+already wired into both `Snapshot` and `Restore`, and
+`TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip` already exercises `PutResourcePolicy` through
+an actual snapshot→restore cycle and passes. No backend/handler code changed for this item — the gap
+entry has been corrected to reflect reality.
+
+### Tag persistence bug (fixed in a prior pass)
 
 Before this pass, `Handler` kept a **second, parallel tag store** (`h.tags map[string]*svcTags.Tags`,
 keyed by `region+"/"+streamName`) that was the *only* backing store for tags applied via

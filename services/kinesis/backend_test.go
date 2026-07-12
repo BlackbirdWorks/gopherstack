@@ -362,16 +362,18 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "increase_same_value_is_noop",
+			name: "increase_same_value_rejected",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 			},
-			wantErr: false, // idempotent: same value → success
+			// AWS requires the new value to be strictly greater than the current
+			// retention period; equal values are InvalidArgumentException, not a no-op.
+			wantErr: true,
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.IncreaseStreamRetentionPeriod(
 					context.Background(),
 					&kinesis.IncreaseStreamRetentionPeriodInput{
-						StreamName: "s", RetentionPeriodHours: 24, // same as default — no-op
+						StreamName: "s", RetentionPeriodHours: 24, // same as default
 					},
 				)
 			},
@@ -423,19 +425,21 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "decrease_same_value_is_noop",
+			name: "decrease_same_value_rejected",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(context.Background(), &kinesis.CreateStreamInput{StreamName: "s"})
 				_ = bk.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
-			wantErr: false, // idempotent: same value → success
+			// AWS requires the new value to be strictly less than the current
+			// retention period; equal values are InvalidArgumentException, not a no-op.
+			wantErr: true,
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.DecreaseStreamRetentionPeriod(
 					context.Background(),
 					&kinesis.DecreaseStreamRetentionPeriodInput{
-						StreamName: "s", RetentionPeriodHours: 48, // same as current — no-op
+						StreamName: "s", RetentionPeriodHours: 48, // same as current
 					},
 				)
 			},

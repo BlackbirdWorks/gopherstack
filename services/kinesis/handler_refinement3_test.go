@@ -1684,7 +1684,7 @@ func TestRefinement3_PutRecord_ExplicitHashKey_OneAboveMax(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRefinement3_RetentionPeriod_IdempotentIncrease(t *testing.T) {
+func TestRefinement3_RetentionPeriod_IncreaseToSameValueRejected(t *testing.T) {
 	t.Parallel()
 
 	b := kinesis.NewInMemoryBackend()
@@ -1702,14 +1702,15 @@ func TestRefinement3_RetentionPeriod_IdempotentIncrease(t *testing.T) {
 		}),
 	)
 
-	// Set it to the same value again — should be a no-op.
-	require.NoError(
-		t,
-		b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
-			StreamName:           "idempotent-retention",
-			RetentionPeriodHours: 48,
-		}),
-	)
+	// AWS requires the new value to be strictly greater than the current
+	// retention period; calling with the same value is InvalidArgumentException,
+	// not a silent no-op (verified against the aws-sdk-go-v2 doc comment "Must
+	// be more than the current retention period").
+	err := b.IncreaseStreamRetentionPeriod(context.Background(), &kinesis.IncreaseStreamRetentionPeriodInput{
+		StreamName:           "idempotent-retention",
+		RetentionPeriodHours: 48,
+	})
+	require.ErrorIs(t, err, kinesis.ErrInvalidArgument)
 
 	out, err := b.DescribeStream(context.Background(), &kinesis.DescribeStreamInput{StreamName: "idempotent-retention"})
 	require.NoError(t, err)
