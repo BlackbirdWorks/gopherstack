@@ -2637,6 +2637,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire API Gateway → Cognito for JWT signature verification.
 	wireAPIGatewayCognito(byName["APIGateway"], byName["APIGatewayV2"], byName["CognitoIDP"])
 
+	// Wire Cognito User Pool Lambda triggers (PreSignUp, PostConfirmation,
+	// PreTokenGeneration, CustomMessage) to the Lambda backend.
+	wireCognitoLambdaTriggers(byName["CognitoIDP"], byName["Lambda"])
+
 	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
 	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
 
@@ -3635,6 +3639,60 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 			sfnBk.SetLambdaInvoker(lambdaBk)
 		}
 	}
+}
+
+// wireCognitoLambdaTriggers connects Cognito User Pool Lambda triggers to the
+// Lambda backend so configured triggers (PreSignUp, PostConfirmation,
+// PreTokenGeneration, CustomMessage) actually invoke their functions.
+func wireCognitoLambdaTriggers(cognitoReg, lambdaReg service.Registerable) {
+	cognitoH, ok := cognitoReg.(*cognitoidpbackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler)
+	if !lambdaOk {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	cognitoH.Backend.SetLambdaTriggerInvoker(&cognitoLambdaTriggerAdapter{backend: lambdaBk})
+}
+
+// cognitoLambdaTriggerAdapter adapts the Lambda backend to the
+// cognitoidp.LambdaTriggerInvoker interface, invoking a trigger function
+// synchronously (RequestResponse) and round-tripping the JSON event envelope.
+type cognitoLambdaTriggerAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
+	ctx context.Context,
+	functionARN string,
+	event map[string]any,
+) (map[string]any, error) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return nil, err
+	}
+
+	result, _, err := a.backend.InvokeFunction(
+		ctx, functionARN, lambdabackend.InvocationTypeRequestResponse, payload,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(result, &resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 // wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, DynamoDB,
