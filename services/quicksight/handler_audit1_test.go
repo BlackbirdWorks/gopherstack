@@ -924,6 +924,10 @@ func TestQuickSight_Ingestions(t *testing.T) {
 			method: http.MethodGet,
 			path:   accountPath("/data-sets/dset5/ingestions"),
 			setup: func(h *quicksight.Handler) {
+				// createDataSet defaults to ImportMode SPICE, which itself
+				// triggers one auto-ingestion (see CreateDataSetOutput's
+				// IngestionArn/IngestionId docs) in addition to the two
+				// explicitly created below.
 				createDataSet(h, "dset5")
 				doRequest(t, h, http.MethodPut, accountPath("/data-sets/dset5/ingestions/i1"), nil)
 				doRequest(t, h, http.MethodPut, accountPath("/data-sets/dset5/ingestions/i2"), nil)
@@ -933,7 +937,7 @@ func TestQuickSight_Ingestions(t *testing.T) {
 				t.Helper()
 				items, ok := body["Ingestions"].([]any)
 				require.True(t, ok)
-				assert.Len(t, items, 2)
+				assert.Len(t, items, 3)
 			},
 		},
 	}

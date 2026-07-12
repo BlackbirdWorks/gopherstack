@@ -58,7 +58,6 @@ const (
 	statusCreationSuccessful = "CREATION_SUCCESSFUL"
 	statusCreationInProgress = "CREATION_IN_PROGRESS"
 	statusUpdateSuccessful   = "UPDATE_SUCCESSFUL"
-	statusCreated            = "CREATED"
 	statusDeleted            = "DELETED"
 	statusRunning            = "RUNNING"
 	statusCompleted          = "COMPLETED"
@@ -1386,6 +1385,8 @@ func (b *InMemoryBackend) DeleteUser(accountID, namespace, userName string) erro
 		return ErrUserNotFound
 	}
 
+	b.removeUserFromAllGroups(accountID, namespace, userName)
+
 	return nil
 }
 
@@ -1396,12 +1397,27 @@ func (b *InMemoryBackend) DeleteUserByPrincipalID(accountID, namespace, principa
 	for _, u := range b.users.All() {
 		if u.Namespace == namespace && u.PrincipalID == principalID {
 			b.users.Delete(userKey(accountID, namespace, u.UserName))
+			b.removeUserFromAllGroups(accountID, namespace, u.UserName)
 
 			return nil
 		}
 	}
 
 	return ErrUserNotFound
+}
+
+// removeUserFromAllGroups deletes every group-membership entry for userName
+// in namespace. Called on user deletion so DescribeGroupMembership,
+// ListGroupMemberships, and ListUserGroups don't keep surfacing a deleted
+// user as a live group member. Caller must hold b.mu.
+func (b *InMemoryBackend) removeUserFromAllGroups(accountID, namespace, userName string) {
+	suffix := "/" + userName
+	prefix := accountID + "/" + namespace + "/"
+	for key := range b.groupMembers {
+		if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, suffix) {
+			delete(b.groupMembers, key)
+		}
+	}
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types
@@ -1697,13 +1713,20 @@ func (b *InMemoryBackend) UpdateDataSourcePermissions(
 
 // ---- DataSets ----
 
+// CreateDataSet creates a dataset. When importMode is SPICE, AWS triggers an
+// ingestion as a side effect of dataset creation and returns its ARN/ID in
+// the CreateDataSet response; this backend mirrors that by creating a real
+// Ingestion record (so a subsequent DescribeIngestion/ListIngestions call
+// finds it) instead of fabricating an ARN/ID that names a resource that was
+// never persisted. For DIRECT_QUERY datasets, no ingestion is triggered and
+// the returned *Ingestion is nil.
 func (b *InMemoryBackend) CreateDataSet(
 	accountID, dataSetID, name, importMode string,
 	permissions []ResourcePermission,
 	tags map[string]string,
-) (*DataSet, error) {
+) (*DataSet, *Ingestion, error) {
 	if dataSetID == "" || name == "" {
-		return nil, ErrValidation
+		return nil, nil, ErrValidation
 	}
 
 	b.mu.Lock("CreateDataSet")
@@ -1711,7 +1734,7 @@ func (b *InMemoryBackend) CreateDataSet(
 
 	key := dataSetKey(accountID, dataSetID)
 	if b.dataSets.Has(key) {
-		return nil, ErrDataSetAlreadyExists
+		return nil, nil, ErrDataSetAlreadyExists
 	}
 
 	if importMode == "" {
@@ -1735,7 +1758,25 @@ func (b *InMemoryBackend) CreateDataSet(
 		b.tags[ds.Arn] = maps.Clone(tags)
 	}
 
-	return ds.toDataSet(), nil
+	var ingestion *Ingestion
+	if importMode == "SPICE" {
+		ing := &storedIngestion{
+			CreatedTime:     now,
+			IngestionID:     uuid.NewString(),
+			DataSetID:       dataSetID,
+			IngestionStatus: statusCompleted,
+		}
+		ing.Arn = arn.Build(
+			"quicksight",
+			b.region,
+			accountID,
+			fmt.Sprintf("dataset/%s/ingestion/%s", dataSetID, ing.IngestionID),
+		)
+		b.ingestions.Put(ing)
+		ingestion = ing.toIngestion()
+	}
+
+	return ds.toDataSet(), ingestion, nil
 }
 
 func (b *InMemoryBackend) DescribeDataSet(accountID, dataSetID string) (*DataSet, error) {
@@ -1934,12 +1975,11 @@ func (b *InMemoryBackend) CreateIngestion(accountID, dataSetID, ingestionID stri
 	ing := &storedIngestion{
 		CreatedTime: time.Now().UTC(),
 		IngestionID: ingestionID,
-		Arn: fmt.Sprintf(
-			"arn:aws:quicksight:%s:%s:dataset/%s/ingestion/%s",
+		Arn: arn.Build(
+			"quicksight",
 			b.region,
 			accountID,
-			dataSetID,
-			ingestionID,
+			fmt.Sprintf("dataset/%s/ingestion/%s", dataSetID, ingestionID),
 		),
 		DataSetID:       dataSetID,
 		IngestionStatus: statusRunning,
@@ -2050,7 +2090,7 @@ func (b *InMemoryBackend) CreateDashboard(
 		DashboardID:            dashboardID,
 		Arn:                    arn.Build("quicksight", b.region, accountID, fmt.Sprintf("dashboard/%s", dashboardID)),
 		Name:                   name,
-		Status:                 statusCreated,
+		Status:                 statusCreationSuccessful,
 		VersionNumber:          1,
 		PublishedVersionNumber: 1,
 		Definition:             definition,
@@ -2098,6 +2138,9 @@ func (b *InMemoryBackend) UpdateDashboard(
 	}
 	d.LastUpdatedTime = time.Now().UTC()
 	d.VersionNumber++
+	// UpdateDashboardOutput's field is named CreationStatus: it reports the
+	// creation status of the new dashboard version this update just created.
+	d.Status = statusCreationSuccessful
 
 	return d.toDashboard(), nil
 }
@@ -2199,7 +2242,7 @@ func (b *InMemoryBackend) ListDashboardVersions(
 		versions = append(versions, &DashboardVersion{
 			CreatedTime:   d.CreatedTime,
 			Arn:           fmt.Sprintf("%s/version/%d", d.Arn, i),
-			Status:        statusCreated,
+			Status:        statusCreationSuccessful,
 			VersionNumber: int64(i),
 		})
 	}

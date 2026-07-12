@@ -60,11 +60,14 @@ type StorageBackend interface {
 	) (*DataSource, []ResourcePermission, error)
 
 	// DataSets
+	// CreateDataSet returns the created dataset plus the *Ingestion triggered
+	// as a side effect when importMode is SPICE (nil for DIRECT_QUERY, which
+	// triggers no ingestion).
 	CreateDataSet(
 		accountID, dataSetID, name, importMode string,
 		permissions []ResourcePermission,
 		tags map[string]string,
-	) (*DataSet, error)
+	) (*DataSet, *Ingestion, error)
 	DescribeDataSet(accountID, dataSetID string) (*DataSet, error)
 	UpdateDataSet(accountID, dataSetID, name, importMode string) (*DataSet, error)
 	DeleteDataSet(accountID, dataSetID string) error
