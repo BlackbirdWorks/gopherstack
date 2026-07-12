@@ -170,10 +170,10 @@ func TestAccuracy_UpdateDestination_Success_VersionIncrements(t *testing.T) {
 
 	var descOut struct {
 		DeliveryStreamDescription struct {
-			VersionID                 string `json:"VersionId"`
-			S3DestinationDescriptions []struct {
+			VersionID    string `json:"VersionId"`
+			Destinations []struct {
 				DestinationID string `json:"DestinationId"`
-			} `json:"S3DestinationDescriptions"`
+			} `json:"Destinations"`
 		} `json:"DeliveryStreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut))
@@ -195,17 +195,19 @@ func TestAccuracy_UpdateDestination_Success_VersionIncrements(t *testing.T) {
 
 	var descOut2 struct {
 		DeliveryStreamDescription struct {
-			VersionID                 string `json:"VersionId"`
-			S3DestinationDescriptions []struct {
-				BucketARN string `json:"BucketARN"`
-			} `json:"S3DestinationDescriptions"`
+			VersionID    string `json:"VersionId"`
+			Destinations []struct {
+				ExtendedS3DestinationDescription struct {
+					BucketARN string `json:"BucketARN"`
+				} `json:"ExtendedS3DestinationDescription"`
+			} `json:"Destinations"`
 		} `json:"DeliveryStreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(desc2.Body.Bytes(), &descOut2))
 	assert.NotEqual(t, versionBefore, descOut2.DeliveryStreamDescription.VersionID)
-	require.Len(t, descOut2.DeliveryStreamDescription.S3DestinationDescriptions, 1)
+	require.Len(t, descOut2.DeliveryStreamDescription.Destinations, 1)
 	assert.Equal(t, "arn:aws:s3:::updated-bucket",
-		descOut2.DeliveryStreamDescription.S3DestinationDescriptions[0].BucketARN)
+		descOut2.DeliveryStreamDescription.Destinations[0].ExtendedS3DestinationDescription.BucketARN)
 }
 
 func TestAccuracy_UpdateDestination_VersionMismatch(t *testing.T) {
@@ -327,7 +329,7 @@ func TestAccuracy_DescribeDeliveryStream_MSKSourceDescription_Fields(t *testing.
 	assert.Contains(t, body, "PRIVATE")
 }
 
-// --- S3DestinationDescriptions fields preserved ---
+// --- ExtendedS3DestinationDescription fields preserved ---
 
 func TestAccuracy_DescribeDeliveryStream_S3Destination_FieldsPreserved(t *testing.T) {
 	t.Parallel()
@@ -347,7 +349,7 @@ func TestAccuracy_DescribeDeliveryStream_S3Destination_FieldsPreserved(t *testin
 	require.Equal(t, http.StatusOK, desc.Code)
 
 	body := desc.Body.String()
-	assert.Contains(t, body, "S3DestinationDescriptions")
+	assert.Contains(t, body, "ExtendedS3DestinationDescription")
 	assert.Contains(t, body, "arn:aws:s3:::my-test-bucket")
 	assert.Contains(t, body, "logs/")
 	assert.Contains(t, body, "GZIP")

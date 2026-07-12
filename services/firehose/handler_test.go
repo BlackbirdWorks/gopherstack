@@ -669,7 +669,7 @@ func TestFirehoseHandler_DescribeDeliveryStream_WithS3Destination(t *testing.T) 
 	})
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "S3DestinationDescriptions")
+	assert.Contains(t, rec.Body.String(), "ExtendedS3DestinationDescription")
 	assert.Contains(t, rec.Body.String(), "arn:aws:s3:::my-bucket")
 }
 
