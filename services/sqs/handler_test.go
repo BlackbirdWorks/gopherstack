@@ -1324,6 +1324,21 @@ func TestHandlerActions_ErrorBackend(t *testing.T) {
 			wantCode:        http.StatusInternalServerError,
 			wantBodyContain: "InternalError",
 		},
+		{
+			// Regression test: ErrInvalidDelaySeconds was missing from both
+			// invalidParameterValueMessage and every errorDetails lookup table,
+			// so it fell through to the default InternalError/500 branch
+			// instead of the AWS-accurate 400 InvalidParameterValue.
+			name:       "invalid delay seconds",
+			backendErr: sqs.ErrInvalidDelaySeconds,
+			action:     "SendMessage",
+			body: map[string]any{
+				"QueueUrl":    "http://localhost/000000000000/q",
+				"MessageBody": "body",
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "InvalidParameterValue",
+		},
 	}
 
 	for _, tt := range tests {

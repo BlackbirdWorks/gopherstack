@@ -1,8 +1,8 @@
 ---
 service: sqs
-sdk_module: aws-sdk-go-v2/service/sqs@v1.44.2
-last_audit_commit: 58e50f3a
-last_audit_date: 2026-07-05
+sdk_module: aws-sdk-go-v2/service/sqs@v1.45.0
+last_audit_commit: 3d4de4f9
+last_audit_date: 2026-07-11
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -13,11 +13,11 @@ ops:
   GetQueueUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetQueueAttributes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "dynamic attrs (ApproximateNumberOfMessages/NotVisible/Delayed) computed live from q.delayedCount + slice lens under q.mu"}
   SetQueueAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "FifoQueue immutable; full range validation (VisibilityTimeout/DelaySeconds/MessageRetentionPeriod/MaximumMessageSize/KmsDataKeyReusePeriodSeconds/FIFO enum attrs/RedriveAllowPolicy shape); RedriveAllowPolicy enforcement added this pass"}
-  SendMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "MD5OfBody + MD5OfMessageAttributes + MD5OfMessageSystemAttributes all correct AWS byte-packing algorithm; FIFO validated (MessageGroupId required, no per-message DelaySeconds, dedup ID required unless content-based); delay/queue-default resolution correct"}
+  SendMessage: {wire: ok, errors: partial->ok, state: ok, persist: ok, note: "fixed this pass: ErrInvalidDelaySeconds (returned when DelaySeconds is outside [0,900]) was declared in errors.go but absent from every errorDetails/invalidParameterValueMessage lookup table, so it fell through to the default com.amazonaws.sqs#InternalError/500 branch instead of the AWS-accurate 400 InvalidParameterValue — the exact missing-errCodeLookup-entry bug class called out in parity-principles.md item 2. Also: MD5OfBody + MD5OfMessageAttributes + MD5OfMessageSystemAttributes all correct AWS byte-packing algorithm; FIFO validated (MessageGroupId required, no per-message DelaySeconds, dedup ID required unless content-based); delay/queue-default resolution correct"}
   ReceiveMessage: {wire: ok, errors: partial->ok, state: partial->ok, persist: n/a, note: "fixed this pass: (1) VisibilityTimeout range was validated only in the JSON handler, not centrally — Query protocol silently accepted out-of-range values; (2) re-queued (visibility-expired or explicitly zeroed) FIFO messages were appended to the tail of the pending list instead of reinserted by SequenceNumber, letting a newer same-group message jump ahead — see families.fifo_ordering"}
   DeleteMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "O(1) via inFlightByHandle (#56)"}
   ChangeMessageVisibility: {wire: ok, errors: ok, state: partial->ok, persist: ok, note: "0-timeout re-queue had the same FIFO tail-append ordering bug as ReceiveMessage's janitor sweep; both now go through the shared requeueMessage helper"}
-  SendMessageBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "per-entry BatchResultErrorEntry, 10-entry cap, BatchRequestTooLong on combined-size overflow, order preserved"}
+  SendMessageBatch: {wire: ok, errors: partial->ok, state: partial->ok, persist: ok, note: "fixed this pass: entries were routed straight to sendMessageLocked, which — unlike the top-level SendMessage entry point — never checked for an empty MessageBody, never range-checked per-entry DelaySeconds ([0,900]), and never called validateMessageAttributes (reserved AWS./Amazon. name prefixes, DataType shape, >10 attributes). A batch entry with any of these was silently accepted as a normal message instead of surfaced as a per-entry BatchResultErrorEntry — a disguised stub on the validation path even though the surrounding op is fully real. All three checks now also run inside sendMessageLocked so both the single-message and batch paths share one validation path. Otherwise: per-entry BatchResultErrorEntry, 10-entry cap, BatchRequestTooLong on combined-size overflow, order preserved"}
   DeleteMessageBatch: {wire: ok, errors: ok, state: ok, persist: ok, note: "batch-level QueueDoesNotExist, per-entry delegates to DeleteMessage"}
   ChangeMessageVisibilityBatch: {wire: ok, errors: ok, state: ok, persist: ok}
   PurgeQueue: {wire: ok, errors: ok, state: ok, persist: ok, note: "60s cooldown enforced (PurgeQueueInProgress); FIFO dedup state reset on purge"}
@@ -45,6 +45,7 @@ gaps:
   - "KMS SSE (SqsManagedSseEnabled/KmsMasterKeyId/KmsDataKeyReusePeriodSeconds) are accepted, range/shape-validated, and round-trip through GetQueueAttributes, but no actual encryption is modeled (expected for this class of emulator; would require cross-service KMS integration — out of scope for services/sqs/)."
 deferred:
   - "SDK-driven integration tests (test/integration/*_parity_test.go) were not run this pass — per parity-principles.md, unit tests are not full parity proof. Recommend a follow-up integration-suite pass."
+  - "This pass: aws-sdk-go-v2/service/sqs bumped 1.44.2 -> 1.45.0 between audits (dependency-upgrade commit, not an sqs-specific change); diffed the two module versions and confirmed no operation/shape changes (only CHANGELOG/generated.json/go_module_metadata.go and new auto-generated serde_snapshot fixtures differ), so no new API surface to audit. Also reviewed the backend.go/persistence.go migration of b.queues/b.moveTasks from bare maps to the new pkgs/store.Table[V] generic collection (shared pkg, out of scope to edit here): locking discipline is preserved (Table performs no internal locking by design; every call site still holds b.mu exactly as it did with the bare map), Snapshot/Restore round-trip through a throwaway DTO registry rather than the live table (correctly excludes non-serialisable fields and RUNNING move tasks), and DLQ pointer re-wiring after Restore iterates the now-populated table correctly. No bugs found in the refactor itself."
 leaks: {status: clean, note: "fixed this pass: restoreQueueFromSnapshot now seeds hasActivity so the background janitor doesn't silently ignore restored queues forever (previously an unbounded-lifetime leak of retention-expired/DLQ-eligible messages on any queue restored with pending state and no subsequent SendMessage). Verified clean (pre-existing, unchanged): janitor ticker + StartMessageMoveTask goroutines are ctx-scoped and cancelled on Close/DeleteQueue/queue-involved-in-task; dedup maps are bounded (100k) with eviction; receiveAttempts/fifoSendTimes pruned each janitor tick; long-poll goroutines exit via the recheck-interval timer or notify-channel close, no goroutine leak on DeleteQueue mid-poll (input queue lookup re-checked each loop iteration)."}
 ---
 

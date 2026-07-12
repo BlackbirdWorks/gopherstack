@@ -2136,6 +2136,53 @@ func TestBatch2_MessageAttributes_ReservedNames_Rejected(t *testing.T) {
 	}
 }
 
+// TestBatch2_SendMessageBatch_BypassedValidation_Rejected is a regression test:
+// SendMessageBatch entries were routed straight to sendMessageLocked, which
+// (unlike the top-level SendMessage) never called validateMessageAttributes
+// or checked for an empty MessageBody. A batch entry with a reserved-prefix
+// attribute name, an invalid DataType, or an empty body was therefore
+// silently accepted instead of surfaced as a per-entry BatchResultErrorEntry,
+// unlike real AWS and unlike the single-message SendMessage path.
+func TestBatch2_SendMessageBatch_BypassedValidation_Rejected(t *testing.T) {
+	t.Parallel()
+	b := b2newBackend(t)
+
+	qURL := b2createQueue(t, b, "batch-validation-gap")
+
+	out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
+		QueueURL: qURL,
+		Entries: []sqs.SendMessageBatchEntry{
+			{ID: "ok", MessageBody: "fine"},
+			{
+				ID:          "reserved-attr",
+				MessageBody: "body",
+				MessageAttributes: map[string]sqs.MessageAttributeValue{
+					"AWS.Reserved": {DataType: "String", StringValue: "v"},
+				},
+			},
+			{
+				ID:          "bad-datatype",
+				MessageBody: "body",
+				MessageAttributes: map[string]sqs.MessageAttributeValue{
+					"attr": {DataType: "NotARealType", StringValue: "v"},
+				},
+			},
+			{ID: "empty-body", MessageBody: ""},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.Successful, 1)
+	assert.Equal(t, "ok", out.Successful[0].ID)
+
+	failedIDs := make([]string, len(out.Failed))
+	for i, f := range out.Failed {
+		failedIDs[i] = f.ID
+		assert.True(t, f.SenderFault, "entry %s should be sender-fault", f.ID)
+	}
+	assert.ElementsMatch(t, []string{"reserved-attr", "bad-datatype", "empty-body"}, failedIDs)
+}
+
 func TestBatch2_MessageAttributes_ValidCustomNames(t *testing.T) {
 	t.Parallel()
 	b := b2newBackend(t)

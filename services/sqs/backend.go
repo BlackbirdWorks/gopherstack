@@ -1206,6 +1206,26 @@ func sendMessageLocked(
 	md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID string,
 	now time.Time,
 ) (*SendMessageOutput, error) {
+	// SendMessage's top-level entry point already checks these three (empty
+	// body, DelaySeconds range, message attribute shape) before calling in
+	// here, but SendMessageBatch calls this function directly per entry with
+	// no equivalent checks of its own. Without repeating them here, a batch
+	// entry could carry an empty body, an out-of-range DelaySeconds (e.g.
+	// negative or > 900), or a malformed/reserved-name message attribute and
+	// have it silently accepted instead of surfaced as a per-entry
+	// BatchResultErrorEntry, unlike real AWS.
+	if input.MessageBody == "" {
+		return nil, ErrInvalidMessageBody
+	}
+
+	if input.DelaySeconds < 0 || input.DelaySeconds > maxDelaySeconds {
+		return nil, ErrInvalidDelaySeconds
+	}
+
+	if err := validateMessageAttributes(input.MessageAttributes); err != nil {
+		return nil, err
+	}
+
 	if err := validateMessageSize(input.MessageBody, input.MessageAttributes, q); err != nil {
 		return nil, err
 	}

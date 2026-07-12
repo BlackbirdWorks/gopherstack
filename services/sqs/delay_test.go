@@ -154,6 +154,59 @@ func TestDelayQueue_QueueLevelDelay(t *testing.T) {
 	}
 }
 
+// TestDelayQueue_InvalidDelaySecondsRange verifies that DelaySeconds outside
+// AWS's documented [0, 900] range is rejected by SendMessage, and that a
+// SendMessageBatch entry with an out-of-range DelaySeconds is surfaced as a
+// per-entry BatchResultErrorEntry rather than being silently accepted.
+// Regression test: SendMessageBatch entries bypassed sendMessageLocked's
+// range check entirely (the check only lived in the top-level SendMessage
+// entry point), so a batch entry with e.g. DelaySeconds: 99999 was silently
+// accepted and produced a message effectively delayed by a bogus duration.
+func TestDelayQueue_InvalidDelaySecondsRange(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SendMessage rejects out-of-range DelaySeconds", func(t *testing.T) {
+		t.Parallel()
+
+		b := sqs.NewInMemoryBackend()
+		t.Cleanup(b.Close)
+		qURL := createTestQueue(t, b, "delay-range-single")
+
+		for _, delay := range []int{-1, 901, 100000} {
+			_, err := b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:     qURL,
+				MessageBody:  "body",
+				DelaySeconds: delay,
+			})
+			require.ErrorIs(t, err, sqs.ErrInvalidDelaySeconds, "delay=%d", delay)
+		}
+	})
+
+	t.Run("SendMessageBatch rejects out-of-range DelaySeconds per entry", func(t *testing.T) {
+		t.Parallel()
+
+		b := sqs.NewInMemoryBackend()
+		t.Cleanup(b.Close)
+		qURL := createTestQueue(t, b, "delay-range-batch")
+
+		out, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
+			QueueURL: qURL,
+			Entries: []sqs.SendMessageBatchEntry{
+				{ID: "ok", MessageBody: "fine", DelaySeconds: 5},
+				{ID: "bad", MessageBody: "bogus", DelaySeconds: 99999},
+			},
+		})
+		require.NoError(t, err)
+
+		require.Len(t, out.Successful, 1)
+		assert.Equal(t, "ok", out.Successful[0].ID)
+
+		require.Len(t, out.Failed, 1)
+		assert.Equal(t, "bad", out.Failed[0].ID)
+		assert.True(t, out.Failed[0].SenderFault)
+	})
+}
+
 // TestDelayQueue_ApproximateNumberOfMessagesDelayed verifies the
 // ApproximateNumberOfMessagesDelayed attribute reflects delayed message count.
 func TestDelayQueue_ApproximateNumberOfMessagesDelayed(t *testing.T) {
