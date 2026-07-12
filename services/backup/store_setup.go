@@ -47,7 +47,7 @@ package backup
 // mpaApprovals (map[string]string, vaultName -> mpaApprovalTeamArn) and the
 // remaining raw indexes/settings maps (vaultARNIndex, planARNIndex,
 // planIDIndex, frameworkARNIndex, reportPlanARNIndex, globalSettings,
-// recoveryPointLifecycle, recoveryPointIndexStatus, restoreValidations) are
+// recoveryPointIndexStatus, restoreValidations) are
 // deliberately left plain maps: their values are plain strings, not *T, so
 // they do not fit store.Table's keyed-by-identity-value shape (mirroring
 // ses's "policies" map, left raw for the same reason). regionSettings is a

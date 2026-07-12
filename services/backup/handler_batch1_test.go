@@ -72,7 +72,7 @@ func TestBatch1_RegionSettings(t *testing.T) {
 	t.Run("describe returns defaults", func(t *testing.T) {
 		t.Parallel()
 		h2, _ := newBatch1Handler(t)
-		resp := doBatch1Request(t, h2, http.MethodGet, "/region-settings", "")
+		resp := doBatch1Request(t, h2, http.MethodGet, "/account-settings", "")
 		assert.Equal(t, http.StatusOK, resp.Code)
 		assert.Contains(t, resp.Body.String(), "ResourceTypeOptInPreference")
 	})
