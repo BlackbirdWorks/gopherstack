@@ -114,7 +114,14 @@ func TestParity_UpdateAgent_IdleSessionTTL(t *testing.T) {
 	}
 }
 
-func TestParity_CreateAgentVersion_Returns202(t *testing.T) {
+// TestParity_AgentVersionsPOST_IsListNotCreate pins the real AWS wire shape:
+// bedrockagent has no CreateAgentVersion operation. POST to the
+// /agents/{agentId}/agentversions collection path is ListAgentVersions (see
+// the awsRestjson1_serializeOpListAgentVersions path/method in
+// aws-sdk-go-v2/service/bedrockagent/serializers.go -- CreateAgentAlias is
+// the only wire-visible way to create a numbered version, see
+// TestParity_CreateAgentAlias_NoRoutingConfig_AutoCreatesVersion below).
+func TestParity_AgentVersionsPOST_IsListNotCreate(t *testing.T) {
 	t.Parallel()
 
 	h, e := newParitySetup(t)
@@ -132,12 +139,72 @@ func TestParity_CreateAgentVersion_Returns202(t *testing.T) {
 
 	agentID, _ := createResp["agent"]["agentId"].(string)
 
-	rec := doRequest(t, h, e, http.MethodPost, "/agents/"+agentID+"/agentversions", map[string]any{
-		"description": "v1",
+	rec := doRequest(t, h, e, http.MethodPost, "/agents/"+agentID+"/agentversions", nil)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST .../agentversions got %d, want 200 (ListAgentVersions, AWS spec)", rec.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, ok := resp["agentVersionSummaries"]; !ok {
+		t.Errorf("response missing agentVersionSummaries (ListAgentVersions shape): %s", rec.Body.String())
+	}
+}
+
+// TestParity_CreateAgentAlias_NoRoutingConfig_AutoCreatesVersion pins real
+// AWS CreateAgentAlias behavior: when routingConfiguration is omitted,
+// Amazon Bedrock automatically creates a new agent version and routes the
+// alias to it.
+func TestParity_CreateAgentAlias_NoRoutingConfig_AutoCreatesVersion(t *testing.T) {
+	t.Parallel()
+
+	h, e := newParitySetup(t)
+
+	createRec := doRequest(t, h, e, http.MethodPut, "/agents", map[string]any{
+		"agentName":            "autoversion-agent",
+		"foundationModel":      "anthropic.claude-v2",
+		"agentResourceRoleArn": "arn:aws:iam::123456789012:role/AmazonBedrockRole",
 	})
 
-	if rec.Code != http.StatusAccepted {
-		t.Errorf("CreateAgentVersion got %d, want 202 Accepted (AWS spec)", rec.Code)
+	var createResp map[string]map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &createResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	agentID, _ := createResp["agent"]["agentId"].(string)
+
+	aliasRec := doRequest(t, h, e, http.MethodPut, "/agents/"+agentID+"/agentaliases", map[string]any{
+		"agentAliasName": "prod",
+	})
+
+	if aliasRec.Code != http.StatusOK {
+		t.Fatalf("create alias: got %d: %s", aliasRec.Code, aliasRec.Body.String())
+	}
+
+	var aliasResp map[string]map[string]any
+	if err := json.Unmarshal(aliasRec.Body.Bytes(), &aliasResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	routing, _ := aliasResp["agentAlias"]["routingConfiguration"].([]any)
+	if len(routing) != 1 {
+		t.Fatalf("routingConfiguration = %v, want exactly 1 auto-created entry", routing)
+	}
+
+	listRec := doRequest(t, h, e, http.MethodGet, "/agents/"+agentID+"/agentversions", nil)
+
+	var listResp map[string]any
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	summaries, _ := listResp["agentVersionSummaries"].([]any)
+	if len(summaries) != 1 {
+		t.Errorf("agentVersionSummaries = %v, want exactly 1 auto-created version", summaries)
 	}
 }
 

@@ -57,14 +57,21 @@ const (
 	kbStatusActive         = "ACTIVE"
 	dsStatusAvailable      = "AVAILABLE"
 	aliasStatusPrepared    = "PREPARED"
-	flowStatusPrepared     = "PREPARED"
-	flowStatusNotPrepared  = "NOT_PREPARED"
-	ingestionJobRunning    = "IN_PROGRESS"
-	ingestionJobComplete   = "COMPLETE"
-	actionGroupEnabled     = "ENABLED"
-	collabEnabled          = "ENABLED"
-	docStatusIndexed       = "INDEXED"
-	defaultAgentVersion    = "DRAFT"
+	// FlowStatus is one of the few bedrockagent enums that is NOT
+	// SCREAMING_SNAKE_CASE on the wire: the real aws-sdk-go-v2 enum values
+	// are "Prepared"/"Preparing"/"NotPrepared"/"Failed" (see
+	// types.FlowStatus in aws-sdk-go-v2/service/bedrockagent). Every other
+	// status enum in this file (AgentStatus, DataSourceStatus,
+	// KnowledgeBaseStatus, ...) IS upper-snake-case -- don't "fix" these to
+	// match that pattern.
+	flowStatusPrepared    = "Prepared"
+	flowStatusNotPrepared = "NotPrepared"
+	ingestionJobRunning   = "IN_PROGRESS"
+	ingestionJobComplete  = "COMPLETE"
+	actionGroupEnabled    = "ENABLED"
+	collabEnabled         = "ENABLED"
+	docStatusIndexed      = "INDEXED"
+	defaultAgentVersion   = "DRAFT"
 
 	bedrockAgentService = "bedrock"
 )
@@ -909,12 +916,31 @@ func (b *InMemoryBackend) PrepareAgent(_ context.Context, agentID string) (*Agen
 // ---------------------------------------------------------------------------
 
 // CreateAgentVersion creates a numbered snapshot of an agent.
+//
+// Note: real Bedrock Agents has no CreateAgentVersion wire operation --
+// numbered agent versions are created as a side effect of CreateAgentAlias
+// when called with no routingConfiguration (see the doAgentAlias helper in
+// CreateAgentAlias below, which calls newAgentVersionLocked directly while
+// already holding b.mu). This method stays exported on InMemoryBackend/
+// StorageBackend for internal/programmatic use (e.g. tests seeding a
+// version directly) but is deliberately not reachable from any HTTP route.
 func (b *InMemoryBackend) CreateAgentVersion(
 	_ context.Context, agentID, description string,
 ) (*AgentVersion, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	av, err := b.newAgentVersionLocked(agentID, description)
+	if err != nil {
+		return nil, err
+	}
+
+	return agentVersionCopy(av), nil
+}
+
+// newAgentVersionLocked creates a numbered snapshot of an agent. Callers
+// must hold b.mu.Lock.
+func (b *InMemoryBackend) newAgentVersionLocked(agentID, description string) (*AgentVersion, error) {
 	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
@@ -941,7 +967,7 @@ func (b *InMemoryBackend) CreateAgentVersion(
 
 	b.agentVersions.Put(av)
 
-	return agentVersionCopy(av), nil
+	return av, nil
 }
 
 // GetAgentVersion returns a specific agent version.
@@ -1206,6 +1232,23 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		return nil, fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
 	}
 
+	routing := cfg.RoutingConfiguration
+
+	// Real AWS: when CreateAgentAlias is called with no routingConfiguration,
+	// Bedrock automatically creates a new numbered agent version (a snapshot
+	// of DRAFT) and points the alias at it -- there is no public
+	// CreateAgentVersion API; this is the only wire-visible way a numbered
+	// version comes into existence. See newAgentVersionLocked's doc comment
+	// on CreateAgentVersion.
+	if len(routing) == 0 {
+		av, err := b.newAgentVersionLocked(agentID, "")
+		if err != nil {
+			return nil, err
+		}
+
+		routing = []AliasRouting{{AgentVersion: av.AgentVersion}}
+	}
+
 	id := b.nextID("alias", &b.aliasCounter)
 	now := time.Now().UTC()
 
@@ -1217,7 +1260,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 		AgentID:              agentID,
 		Description:          cfg.Description,
 		Tags:                 maps.Clone(cfg.Tags),
-		RoutingConfiguration: cfg.RoutingConfiguration,
+		RoutingConfiguration: routing,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}

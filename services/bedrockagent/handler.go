@@ -29,7 +29,6 @@ const (
 	opDeleteAgent                    = "DeleteAgent"
 	opListAgents                     = "ListAgents"
 	opPrepareAgent                   = "PrepareAgent"
-	opCreateAgentVersion             = "CreateAgentVersion"
 	opGetAgentVersion                = "GetAgentVersion"
 	opDeleteAgentVersion             = "DeleteAgentVersion"
 	opListAgentVersions              = "ListAgentVersions"
@@ -171,7 +170,9 @@ func (h *Handler) Name() string { return "BedrockAgent" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opCreateAgent, opGetAgent, opUpdateAgent, opDeleteAgent, opListAgents, opPrepareAgent,
-		opCreateAgentVersion, opGetAgentVersion, opDeleteAgentVersion, opListAgentVersions,
+		// No CreateAgentVersion: it is not a real bedrockagent SDK operation
+		// (see the doc comment on InMemoryBackend.CreateAgentVersion).
+		opGetAgentVersion, opDeleteAgentVersion, opListAgentVersions,
 		opCreateAgentActionGroup, opGetAgentActionGroup, opUpdateAgentActionGroup,
 		opDeleteAgentActionGroup, opListAgentActionGroups,
 		opCreateAgentAlias, opGetAgentAlias, opUpdateAgentAlias, opDeleteAgentAlias, opListAgentAliases,
@@ -354,10 +355,12 @@ func (h *Handler) dispatchAgentVersions(
 	rest, _ := strings.CutPrefix(suffix, "/agentversions")
 
 	if rest == "" {
+		// Real AWS has no CreateAgentVersion wire op: ListAgentVersions is a
+		// POST to this exact collection path (see the wire-shape note on
+		// InMemoryBackend.CreateAgentVersion in backend.go). GET is also
+		// accepted here as harmless extra leniency.
 		switch method {
-		case http.MethodPost:
-			return h.handleCreateAgentVersion(ctx, c, agentID, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListAgentVersions(ctx, c, agentID)
 		}
 
@@ -399,11 +402,15 @@ func (h *Handler) dispatchActionGroups(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/actiongroups")
 
+	// CreateAgentActionGroup (PUT) and ListAgentActionGroups (POST) share
+	// this exact collection path on the real wire, distinguished only by
+	// method -- POST is NOT a Create synonym here. GET is accepted too as
+	// harmless extra leniency (no real client sends it).
 	if rest == "" {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return h.handleCreateAgentActionGroup(ctx, c, agentID, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListAgentActionGroups(ctx, c, agentID, agentVersion)
 		}
 	}
@@ -427,11 +434,14 @@ func (h *Handler) dispatchCollaborators(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/agentcollaborators")
 
+	// AssociateAgentCollaborator (PUT) and ListAgentCollaborators (POST)
+	// share this exact collection path on the real wire; without the POST
+	// case here a real SDK client's ListAgentCollaborators call 404s.
 	if rest == "" {
 		switch method {
 		case http.MethodPut:
 			return h.handleAssociateCollaborator(ctx, c, agentID, agentVersion, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListCollaborators(ctx, c, agentID, agentVersion)
 		}
 	}
@@ -455,11 +465,14 @@ func (h *Handler) dispatchAgentKBs(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/knowledgebases")
 
+	// AssociateAgentKnowledgeBase (PUT) and ListAgentKnowledgeBases (POST)
+	// share this exact collection path on the real wire; without the POST
+	// case here a real SDK client's ListAgentKnowledgeBases call 404s.
 	if rest == "" {
 		switch method {
 		case http.MethodPut:
 			return h.handleAssociateAgentKB(ctx, c, agentID, agentVersion, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListAgentKBs(ctx, c, agentID, agentVersion)
 		}
 	}
@@ -483,11 +496,15 @@ func (h *Handler) dispatchAgentAliases(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/agentaliases")
 
+	// CreateAgentAlias (PUT) and ListAgentAliases (POST) share this exact
+	// collection path on the real wire, distinguished only by method -- POST
+	// is NOT a Create synonym here. GET is accepted too as harmless extra
+	// leniency (no real client sends it).
 	if rest == "" {
 		switch method {
-		case http.MethodPost, http.MethodPut:
+		case http.MethodPut:
 			return h.handleCreateAgentAlias(ctx, c, agentID, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListAgentAliases(ctx, c, agentID)
 		}
 	}
@@ -556,11 +573,15 @@ func (h *Handler) dispatchDataSources(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/datasources")
 
+	// CreateDataSource (PUT) and ListDataSources (POST) share this exact
+	// collection path on the real wire, distinguished only by method -- POST
+	// is NOT a Create synonym here. GET is accepted too as harmless extra
+	// leniency (no real client sends it).
 	if rest == "" {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return h.handleCreateDS(ctx, c, kbID, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListDS(ctx, c, kbID)
 		}
 	}
@@ -600,11 +621,15 @@ func (h *Handler) dispatchIngestionJobs(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/ingestionjobs")
 
+	// StartIngestionJob (PUT) and ListIngestionJobs (POST) share this exact
+	// collection path on the real wire, distinguished only by method -- POST
+	// is NOT a Start synonym here. GET is accepted too as harmless extra
+	// leniency (no real client sends it).
 	if rest == "" {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return h.handleStartIngestionJob(ctx, c, kbID, dsID, body)
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return h.handleListIngestionJobs(ctx, c, kbID, dsID)
 		}
 	}
@@ -969,23 +994,6 @@ func (h *Handler) handlePrepareAgent(ctx context.Context, c *echo.Context, agent
 // ---------------------------------------------------------------------------
 // Agent version handlers
 // ---------------------------------------------------------------------------
-
-func (h *Handler) handleCreateAgentVersion(
-	ctx context.Context, c *echo.Context, agentID string, body []byte,
-) error {
-	var req struct {
-		Description string `json:"description"`
-	}
-
-	_ = json.Unmarshal(body, &req)
-
-	av, err := h.Backend.CreateAgentVersion(ctx, agentID, req.Description)
-	if err != nil {
-		return handleErr(c, err)
-	}
-
-	return c.JSON(http.StatusAccepted, map[string]any{keyAgentVersion: av})
-}
 
 func (h *Handler) handleGetAgentVersion(
 	ctx context.Context, c *echo.Context, agentID, version string,
@@ -2316,9 +2324,9 @@ func classifyActionGroupPath(method string, segs []string) string {
 
 	if !hasID {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return opCreateAgentActionGroup
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListAgentActionGroups
 		}
 	}
@@ -2343,7 +2351,7 @@ func classifyCollabPath(method string, segs []string) string {
 		switch method {
 		case http.MethodPut:
 			return opAssociateAgentCollaborator
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListAgentCollaborators
 		}
 	}
@@ -2368,7 +2376,7 @@ func classifyAgentKBPath(method string, segs []string) string {
 		switch method {
 		case http.MethodPut:
 			return opAssociateAgentKnowledgeBase
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListAgentKnowledgeBases
 		}
 	}
@@ -2389,11 +2397,11 @@ func classifyAgentVersionPath(method string, segs []string) string {
 	idx := indexOf(segs, "agentversions")
 	hasVersionID := len(segs) > idx+1 && segs[idx+1] != ""
 
+	// No CreateAgentVersion case: it is not a real bedrockagent SDK
+	// operation. ListAgentVersions is a POST to this collection path.
 	if !hasVersionID {
 		switch method {
-		case http.MethodPost:
-			return opCreateAgentVersion
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListAgentVersions
 		}
 	}
@@ -2414,9 +2422,9 @@ func classifyAliasPath(method string, segs []string) string {
 
 	if !hasID {
 		switch method {
-		case http.MethodPost, http.MethodPut:
+		case http.MethodPut:
 			return opCreateAgentAlias
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListAgentAliases
 		}
 	}
@@ -2457,9 +2465,9 @@ func classifyDSPath(method string, segs []string) string {
 
 	if !hasDSID {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return opCreateDataSource
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListDataSources
 		}
 	}
@@ -2499,9 +2507,9 @@ func classifyJobPath(method string, segs []string) string {
 
 	if !hasJobID {
 		switch method {
-		case http.MethodPut, http.MethodPost:
+		case http.MethodPut:
 			return opStartIngestionJob
-		case http.MethodGet:
+		case http.MethodPost, http.MethodGet:
 			return opListIngestionJobs
 		}
 	}
