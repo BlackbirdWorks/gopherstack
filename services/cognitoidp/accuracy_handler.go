@@ -943,6 +943,21 @@ func (h *Handler) handleSignUpAccurate(
 			keyAttributeName:    attrEmail,
 			keyConfirmationCode: user.ConfirmCode,
 		}
+
+		message, subject, cmErr := h.Backend.InvokeCustomMessageTrigger(
+			in.ClientID, in.Username, user.ConfirmCode, triggerSourceCustomMessageSignUp,
+		)
+		if cmErr != nil {
+			return nil, cmErr
+		}
+
+		if message != "" {
+			out.CodeDeliveryDetails[keyCustomMessage] = message
+		}
+
+		if subject != "" {
+			out.CodeDeliveryDetails[keyCustomMessageSubject] = subject
+		}
 	}
 
 	return out, nil
@@ -1218,14 +1233,29 @@ func (h *Handler) handleForgotPasswordAccurate(
 		return nil, err
 	}
 
-	return &forgotPasswordAccurateOutput{
-		CodeDeliveryDetails: map[string]string{
-			keyDestination:      "mock@example.com",
-			keyDeliveryMedium:   medEmail,
-			keyAttributeName:    attrEmail,
-			keyConfirmationCode: code,
-		},
-	}, nil
+	details := map[string]string{
+		keyDestination:      "mock@example.com",
+		keyDeliveryMedium:   medEmail,
+		keyAttributeName:    attrEmail,
+		keyConfirmationCode: code,
+	}
+
+	message, subject, cmErr := h.Backend.InvokeCustomMessageTrigger(
+		in.ClientID, in.Username, code, triggerSourceCustomMessageForgotPwd,
+	)
+	if cmErr != nil {
+		return nil, cmErr
+	}
+
+	if message != "" {
+		details[keyCustomMessage] = message
+	}
+
+	if subject != "" {
+		details[keyCustomMessageSubject] = subject
+	}
+
+	return &forgotPasswordAccurateOutput{CodeDeliveryDetails: details}, nil
 }
 
 // ---- ConfirmForgotPassword with SECRET_HASH validation ----
@@ -1282,12 +1312,27 @@ func (h *Handler) handleResendConfirmationCodeAccurate(
 		return nil, err
 	}
 
-	return &resendConfirmationCodeAccurateOutput{
-		CodeDeliveryDetails: map[string]string{
-			keyDeliveryMedium:   medEmail,
-			keyDestination:      mockDestination,
-			keyAttributeName:    attrEmail,
-			keyConfirmationCode: code,
-		},
-	}, nil
+	details := map[string]string{
+		keyDeliveryMedium:   medEmail,
+		keyDestination:      mockDestination,
+		keyAttributeName:    attrEmail,
+		keyConfirmationCode: code,
+	}
+
+	message, subject, cmErr := h.Backend.InvokeCustomMessageTrigger(
+		in.ClientID, in.Username, code, triggerSourceCustomMessageResendCode,
+	)
+	if cmErr != nil {
+		return nil, cmErr
+	}
+
+	if message != "" {
+		details[keyCustomMessage] = message
+	}
+
+	if subject != "" {
+		details[keyCustomMessageSubject] = subject
+	}
+
+	return &resendConfirmationCodeAccurateOutput{CodeDeliveryDetails: details}, nil
 }

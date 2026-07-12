@@ -236,9 +236,13 @@ type InMemoryBackend struct {
 	webauthnCredentials map[string]map[string]*WebAuthnCredential
 	// authEvents maps poolID+":"+username → eventID → *AuthEvent (adaptive-auth event feedback tracking).
 	authEvents map[string]map[string]*AuthEvent
-	accountID  string
-	region     string
-	endpoint   string
+	// lambdaInvoker fires configured User Pool Lambda triggers (PreSignUp,
+	// PostConfirmation, PreTokenGeneration, CustomMessage, ...). nil disables
+	// trigger invocation entirely -- see lambda_triggers.go.
+	lambdaInvoker LambdaTriggerInvoker
+	accountID     string
+	region        string
+	endpoint      string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -572,7 +576,8 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
 	}
 
-	if _, poolOK := b.pools.Get(client.UserPoolID); !poolOK {
+	pool, poolOK := b.pools.Get(client.UserPoolID)
+	if !poolOK {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
 	}
 
@@ -608,6 +613,21 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 	user.Status = UserStatusConfirmed
 	user.ConfirmCode = ""
 	user.ConfirmCodeExpiresAt = time.Time{}
+
+	// PostConfirmation is fire-and-observe: the response carries no fields that
+	// mutate state, but real AWS still surfaces a trigger invocation error to the
+	// ConfirmSignUp caller (the user's confirmation itself is NOT rolled back --
+	// Cognito confirms first, then invokes the trigger, matching this ordering).
+	if _, err := b.invokeLambdaTrigger(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
+		clientID, username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(user.Attributes),
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{},
+	); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -742,7 +762,8 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 	b.mu.Lock("AdminConfirmSignUp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pools.Get(userPoolID); !ok {
+	pool, ok := b.pools.Get(userPoolID)
+	if !ok {
 		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
@@ -753,6 +774,22 @@ func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error 
 
 	user.Status = UserStatusConfirmed
 	user.ConfirmCode = ""
+
+	// Same trigger source and fire-and-observe semantics as ConfirmSignUp -- AWS
+	// uses a single PostConfirmation_ConfirmSignUp trigger source for both the
+	// self-service and admin confirmation paths. AdminConfirmSignUp has no app
+	// client in scope, so callerContext.clientId is left empty (matches the
+	// admin API not routing through a client).
+	if _, err := b.invokeLambdaTrigger(pool, triggerKeyPostConfirmation, triggerSourcePostConfirmationSignUp,
+		"", username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(user.Attributes),
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{},
+	); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -1210,42 +1247,77 @@ func (b *InMemoryBackend) authenticate(
 		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
 	}
 
-	return b.issueTokensLocked(pool, clientID, user)
+	return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
 }
 
-// issueTokensLocked issues tokens for a confirmed user. Caller must hold the write lock.
-func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, user *User) (*AuthResult, error) {
+// clientTokenSettings holds the per-app-client token issuance knobs derived
+// from UserPoolClient.AllowedOAuthScopes/*TokenValidity/TokenValidityUnits.
+type clientTokenSettings struct {
+	scopes            []string
+	accessTokenExpiry time.Duration
+	idTokenExpiry     time.Duration
+	refreshTokenTTL   time.Duration
+}
+
+// resolveClientTokenSettings looks up clientID and returns its token issuance
+// settings, falling back to AWS defaults (no custom scopes, default token
+// lifetimes, defaultRefreshTokenTTL) when the client is not found -- token
+// issuance never fails solely because the client lookup misses here, matching
+// existing behavior in both of this helper's callers.
+func (b *InMemoryBackend) resolveClientTokenSettings(clientID string) clientTokenSettings {
+	settings := clientTokenSettings{refreshTokenTTL: defaultRefreshTokenTTL}
+
+	client, ok := b.clients.Get(clientID)
+	if !ok {
+		return settings
+	}
+
+	settings.scopes = client.AllowedOAuthScopes
+	if d := tokenExpiryFor(client, "AccessToken"); d > 0 {
+		settings.accessTokenExpiry = d
+	}
+
+	if d := tokenExpiryFor(client, "IdToken"); d > 0 {
+		settings.idTokenExpiry = d
+	}
+
+	if d := tokenExpiryFor(client, "RefreshToken"); d > 0 {
+		settings.refreshTokenTTL = d
+	}
+
+	return settings
+}
+
+// issueTokensLocked issues tokens for a confirmed user. Caller must hold the write
+// lock. triggerSource identifies which authentication path is issuing tokens
+// (TokenGeneration_Authentication, TokenGeneration_NewPasswordChallenge, ...) for
+// the PreTokenGeneration Lambda trigger's event envelope.
+func (b *InMemoryBackend) issueTokensLocked(
+	pool *UserPool, clientID string, user *User, triggerSource string,
+) (*AuthResult, error) {
 	now := time.Now()
 	user.LastAuthTime = now
 
 	groups := b.userGroupsLocked(pool.ID, user.Username)
+	settings := b.resolveClientTokenSettings(clientID)
 
-	var scopes []string
-	refreshTTL := defaultRefreshTokenTTL
-	var accessExpiry, idExpiry time.Duration
-	if client, ok := b.clients.Get(clientID); ok {
-		scopes = client.AllowedOAuthScopes
-		if d := tokenExpiryFor(client, "AccessToken"); d > 0 {
-			accessExpiry = d
-		}
-		if d := tokenExpiryFor(client, "IdToken"); d > 0 {
-			idExpiry = d
-		}
-		if d := tokenExpiryFor(client, "RefreshToken"); d > 0 {
-			refreshTTL = d
-		}
+	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverride(pool, clientID, user, groups, triggerSource)
+	if err != nil {
+		return nil, err
 	}
 
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID:          clientID,
-		Username:          user.Username,
-		UserSub:           user.Sub,
-		Groups:            groups,
-		AuthTime:          now.Unix(),
-		Scopes:            scopes,
-		Attributes:        user.Attributes,
-		AccessTokenExpiry: accessExpiry,
-		IDTokenExpiry:     idExpiry,
+		ClientID:              clientID,
+		Username:              user.Username,
+		UserSub:               user.Sub,
+		Groups:                groups,
+		AuthTime:              now.Unix(),
+		Scopes:                settings.scopes,
+		Attributes:            user.Attributes,
+		AccessTokenExpiry:     settings.accessTokenExpiry,
+		IDTokenExpiry:         settings.idTokenExpiry,
+		ClaimsToAddOrOverride: claimsToAdd,
+		ClaimsToSuppress:      claimsToSuppress,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1257,7 +1329,7 @@ func (b *InMemoryBackend) issueTokensLocked(pool *UserPool, clientID string, use
 		ClientID:  clientID,
 		Username:  user.Username,
 		AuthTime:  now.Unix(),
-		ExpiresAt: now.UTC().Add(refreshTTL),
+		ExpiresAt: now.UTC().Add(settings.refreshTokenTTL),
 	})
 
 	return &AuthResult{Tokens: tokens}, nil
@@ -1302,22 +1374,7 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	now := time.Now()
 	groups := b.userGroupsLocked(entry.PoolID, user.Username)
-
-	var scopes []string
-	refreshTTL := defaultRefreshTokenTTL
-	var accessExpiry, idExpiry time.Duration
-	if c, cok := b.clients.Get(clientID); cok {
-		scopes = c.AllowedOAuthScopes
-		if d := tokenExpiryFor(c, "AccessToken"); d > 0 {
-			accessExpiry = d
-		}
-		if d := tokenExpiryFor(c, "IdToken"); d > 0 {
-			idExpiry = d
-		}
-		if d := tokenExpiryFor(c, "RefreshToken"); d > 0 {
-			refreshTTL = d
-		}
-	}
+	settings := b.resolveClientTokenSettings(clientID)
 
 	// Preserve the original authentication time across refresh; AWS Cognito
 	// does not reset auth_time on REFRESH_TOKEN_AUTH. Legacy entries minted
@@ -1328,15 +1385,24 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		entry.AuthTime = authTime
 	}
 
+	claimsToAdd, claimsToSuppress, err := b.preTokenGenerationOverride(
+		pool, clientID, user, groups, triggerSourceTokenGenRefreshTokens,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	tokens, err := pool.issuer.Issue(TokenParams{
-		ClientID:          clientID,
-		Username:          user.Username,
-		UserSub:           user.Sub,
-		Groups:            groups,
-		AuthTime:          authTime,
-		Scopes:            scopes,
-		AccessTokenExpiry: accessExpiry,
-		IDTokenExpiry:     idExpiry,
+		ClientID:              clientID,
+		Username:              user.Username,
+		UserSub:               user.Sub,
+		Groups:                groups,
+		AuthTime:              authTime,
+		Scopes:                settings.scopes,
+		AccessTokenExpiry:     settings.accessTokenExpiry,
+		IDTokenExpiry:         settings.idTokenExpiry,
+		ClaimsToAddOrOverride: claimsToAdd,
+		ClaimsToSuppress:      claimsToSuppress,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("issuing tokens: %w", err)
@@ -1344,7 +1410,7 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 
 	// Rotate the refresh token: invalidate old, store new.
 	b.deleteRefreshTokenLocked(refreshToken)
-	entry.ExpiresAt = now.UTC().Add(refreshTTL)
+	entry.ExpiresAt = now.UTC().Add(settings.refreshTokenTTL)
 	b.storeRefreshTokenLocked(tokens.RefreshToken, entry)
 
 	return tokens, nil
@@ -1423,7 +1489,7 @@ func (b *InMemoryBackend) RespondToMFAChallenge(clientID, session, code string) 
 	// Consume the session (one-time use).
 	delete(b.mfaSessions, session)
 
-	result, err := b.issueTokensLocked(pool, clientID, user)
+	result, err := b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
 	if err != nil {
 		return nil, err
 	}

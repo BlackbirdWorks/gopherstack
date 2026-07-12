@@ -720,6 +720,32 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		}
 	}
 
+	// PreSignUp also fires for AdminCreateUser. Unlike the self-service SignUp flow,
+	// autoConfirmUser has no meaningful target state here (admin-created users start
+	// in FORCE_CHANGE_PASSWORD, not UNCONFIRMED, and are never in the SignUp
+	// confirmation flow), so only autoVerifyEmail/autoVerifyPhone are applied.
+	preSignUpResp, err := b.invokeLambdaTrigger(
+		pool, triggerKeyPreSignUp, triggerSourcePreSignUpAdminCreateUser, "", username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(attrs),
+			"validationData":       map[string]any{},
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	_, lambdaAutoVerifyEmail, lambdaAutoVerifyPhone := parsePreSignUpResponse(preSignUpResp)
+	if lambdaAutoVerifyEmail {
+		attrs[attrEmail+"_verified"] = attrVerifiedTrue
+	}
+
+	if lambdaAutoVerifyPhone {
+		attrs["phone_number_verified"] = attrVerifiedTrue
+	}
+
 	_ = desiredDeliveryMediums
 	_ = forceAliasCreation
 

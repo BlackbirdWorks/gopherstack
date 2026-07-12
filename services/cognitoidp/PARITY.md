@@ -6,10 +6,10 @@ last_audit_date: 2026-07-12
 overall: A                # ~17 LOC genuine fix (backend.go) + 107 LOC new tests this pass (PreventUserExistenceErrors masking gap closed); no local drift since ce30166a (prior sweep 3), SDK pinned at same v1.59.1
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 ops:
-  InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/USER_SRP_AUTH(simplified)/REFRESH_TOKEN_AUTH real; PreventUserExistenceErrors masking added this pass (gopherstack-2sp)"}
-  AdminInitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "never masks UserNotFoundException, matching AWS (admin API)"}
-  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA now real RFC6238 TOTP (was disguised stub accepting any 6 digits); SMS_MFA/EMAIL_OTP now require the generated one-time code (was also any 6 digits); PASSWORD_VERIFIER/NEW_PASSWORD_REQUIRED unchanged, real"}
-  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as RespondToAuthChallenge (shared backend method)"}
+  InitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH/USER_SRP_AUTH(simplified)/REFRESH_TOKEN_AUTH real; PreventUserExistenceErrors masking added prior pass (gopherstack-2sp); PreTokenGeneration trigger now fires on token issuance (this pass, gopherstack-8fw)"}
+  AdminInitiateAuth: {wire: ok, errors: ok, state: ok, persist: ok, note: "never masks UserNotFoundException, matching AWS (admin API); PreTokenGeneration trigger now fires (this pass)"}
+  RespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "SOFTWARE_TOKEN_MFA now real RFC6238 TOTP (was disguised stub accepting any 6 digits); SMS_MFA/EMAIL_OTP now require the generated one-time code (was also any 6 digits); PASSWORD_VERIFIER/NEW_PASSWORD_REQUIRED unchanged, real; PreTokenGeneration trigger now fires on token issuance (this pass)"}
+  AdminRespondToAuthChallenge: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as RespondToAuthChallenge (shared backend method); PreTokenGeneration trigger now fires (this pass)"}
   AssociateSoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok}
   VerifySoftwareToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies a real RFC 6238 TOTP code against the associated secret (was: any 6 digits accepted) — gopherstack-2sp"}
   SetUserMFAPreference: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -25,11 +25,11 @@ ops:
   ListUserPoolClients: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteUserPoolClient: {wire: ok, errors: ok, state: ok, persist: ok}
   AddUserPoolClientSecret: {wire: ok, errors: ok, state: ok, persist: ok}
-  SignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "password policy enforced, real confirm code generated"}
-  ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException"}
-  AdminConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok}
-  ResendConfirmationCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (this pass, closes gopherstack-aib)"}
-  AdminCreateUser: {wire: ok, errors: ok, state: ok, persist: ok}
+  SignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "password policy enforced, real confirm code generated; PreSignUp trigger now fires and applies autoConfirmUser/autoVerifyEmail/autoVerifyPhone, CustomMessage trigger now fires (this pass, gopherstack-8fw)"}
+  ConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "expiring codes, CodeMismatchException/ExpiredCodeException; PostConfirmation trigger now fires fire-and-observe (this pass) -- invocation errors surface but do not roll back confirmation, matching AWS"}
+  AdminConfirmSignUp: {wire: ok, errors: ok, state: ok, persist: ok, note: "PostConfirmation trigger now fires (this pass), same source/semantics as ConfirmSignUp"}
+  ResendConfirmationCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (this pass)"}
+  AdminCreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreSignUp trigger now fires (source PreSignUp_AdminCreateUser); only autoVerifyEmail/autoVerifyPhone applied, autoConfirmUser has no target state for admin-created users (this pass)"}
   AdminSetUserPassword: {wire: ok, errors: ok, state: ok, persist: ok}
   AdminGetUser: {wire: ok, errors: ok, state: ok, persist: ok}
   AdminDeleteUser: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -43,7 +43,7 @@ ops:
   RevokeToken: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUsers: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/page-style pagination"}
   ListUsersInGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED now masks unknown-user UserNotFoundException as a fabricated success (this pass, closes gopherstack-aib)"}
+  ForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok, note: "PreventUserExistenceErrors=ENABLED masks unknown-user UserNotFoundException as a fabricated success (prior pass, closes gopherstack-aib); CustomMessage trigger now fires (this pass, gopherstack-8fw)"}
   ConfirmForgotPassword: {wire: ok, errors: ok, state: ok, persist: ok}
   ChangePassword: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUser: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -69,7 +69,7 @@ families:
   log_delivery: {status: ok, note: "GetLogDeliveryConfiguration/SetLogDeliveryConfiguration — family level"}
 gaps:
   - "USER_SRP_AUTH does not implement real SRP-6a: InitiateAuth requires AuthParameters[PASSWORD] directly (server-side bcrypt check), then returns a PASSWORD_VERIFIER challenge that RespondToAuthChallenge completes without any zero-knowledge proof exchange. A real SRP client never sends PASSWORD and cannot authenticate here. Investigated in depth this pass; not fixed because a byte-perfect implementation of Cognito's SRP variant (3072-bit N, HKDF-SHA256 with the \"Caldera Derived Key\" info string, HMAC-SHA256 M1 proof) could not be verified against a real client/reference vectors in this session, and a subtly-wrong crypto implementation would be worse than the current honestly-documented simplification. (bd: gopherstack-p8i)"
-  - "LambdaConfig (PreSignUp, PostConfirmation, PreTokenGeneration, CustomMessage, etc.) is stored/returned but no trigger is ever invoked — would require cross-service invocation into the lambda service. Confirmed again this pass: no interconnect call into services/lambda exists anywhere in services/cognitoidp; delivery would have to be wired through cli.go or a shared interconnect layer, both out of this service's edit scope. (bd: gopherstack-8fw)"
+  - "LambdaConfig trigger invocation: PreSignUp (SignUp + AdminCreateUser), PostConfirmation (ConfirmSignUp + AdminConfirmSignUp), PreTokenGeneration (InitiateAuth/AdminInitiateAuth/RespondToAuthChallenge/AdminRespondToAuthChallenge + REFRESH_TOKEN_AUTH), and CustomMessage (SignUp/ForgotPassword/ResendConfirmationCode) now fire for real via a new `LambdaTriggerInvoker` interface (services/cognitoidp/lambda_triggers.go) that cli.go wires to the lambda service's Invoke; nil/unwired-invoker or unset LambdaConfig preserves prior no-op behavior exactly. PreAuthentication, PostAuthentication, DefineAuthChallenge, CreateAuthChallenge, VerifyAuthChallengeResponse, and UserMigration are still stored/returned but never invoked — their invocation points/response contracts were not verified against the AWS custom-auth-challenge state machine this pass; each needs its own bd follow-up. (bd: gopherstack-8fw, now partially closed)"
   - "PreventUserExistenceErrors=ENABLED still only masks user-existence at InitiateAuth/ForgotPassword/ResendConfirmationCode (this pass closed the latter two — see 'What this pass fixed'). ConfirmSignUp and ConfirmForgotPassword do not mask an unknown username behind CodeMismatchException the way AWS does; not fixed this pass to keep the change scoped to the ledger's existing gap (gopherstack-aib) — worth a follow-up bd issue if stricter parity is wanted."
 deferred:
   - "Identity providers, resource servers, user import jobs, devices, WebAuthn, managed login branding, risk config, domains, terms, log delivery: verified at a family/smoke level (dispatch wired, backend mutates real maps, persisted in backendSnapshot, no bare stubs found), not re-walked op-by-op field-by-field this pass — unchanged since the prior two sweeps (parity sweep 1 & 2) which already covered these in depth."

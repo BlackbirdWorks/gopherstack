@@ -179,15 +179,83 @@ type TokenResult struct {
 
 // TokenParams holds the inputs for token issuance.
 type TokenParams struct {
-	Attributes        map[string]string `json:"attributes,omitempty"`
-	ClientID          string            `json:"clientID,omitempty"`
-	Username          string            `json:"username,omitempty"`
-	UserSub           string            `json:"userSub,omitempty"`
-	Scopes            []string          `json:"scopes,omitempty"`
-	Groups            []string          `json:"groups,omitempty"`
-	AuthTime          int64             `json:"authTime,omitempty"`
-	AccessTokenExpiry time.Duration     `json:"accessTokenExpiry,omitempty"`
-	IDTokenExpiry     time.Duration     `json:"idTokenExpiry,omitempty"`
+	Attributes            map[string]string `json:"attributes,omitempty"`
+	ClaimsToAddOrOverride map[string]string `json:"claimsToAddOrOverride,omitempty"`
+	ClientID              string            `json:"clientID,omitempty"`
+	Username              string            `json:"username,omitempty"`
+	UserSub               string            `json:"userSub,omitempty"`
+	Scopes                []string          `json:"scopes,omitempty"`
+	Groups                []string          `json:"groups,omitempty"`
+	ClaimsToSuppress      []string          `json:"claimsToSuppress,omitempty"`
+	AuthTime              int64             `json:"authTime,omitempty"`
+	AccessTokenExpiry     time.Duration     `json:"accessTokenExpiry,omitempty"`
+	IDTokenExpiry         time.Duration     `json:"idTokenExpiry,omitempty"`
+}
+
+// JWT/Cognito claim names, factored into constants so the id-token map, the
+// access-token map, and protectedTokenClaims below all reference the same
+// literal exactly once (avoids triplicated "sub"/"iss"/... string literals).
+const (
+	claimSub             = "sub"
+	claimAud             = "aud"
+	claimIss             = "iss"
+	claimExp             = "exp"
+	claimIat             = "iat"
+	claimAuthTime        = "auth_time"
+	claimTokenUse        = "token_use"
+	claimCognitoUsername = "cognito:username"
+	claimCognitoGroups   = "cognito:groups"
+	claimJTI             = "jti"
+	claimEventID         = "event_id"
+	claimScope           = "scope"
+	claimClientID        = "client_id"
+	claimUsername        = "username"
+	claimOriginJTI       = "origin_jti"
+	tokenUseID           = "id"
+	tokenUseAccess       = "access"
+)
+
+// protectedTokenClaims lists claim names a PreTokenGeneration trigger's
+// claimsOverrideDetails cannot add, override, or suppress because they are
+// structural to the JWT or to how gopherstack itself validates tokens (e.g.
+// ParseAccessToken's token_use check). AWS Cognito documents an equivalent
+// protected-claim list and silently ignores attempts to touch them.
+var protectedTokenClaims = map[string]struct{}{ //nolint:gochecknoglobals // static lookup table
+	claimSub:             {},
+	claimAud:             {},
+	claimIss:             {},
+	claimExp:             {},
+	claimIat:             {},
+	claimAuthTime:        {},
+	claimTokenUse:        {},
+	claimCognitoUsername: {},
+	claimCognitoGroups:   {},
+	claimJTI:             {},
+	claimEventID:         {},
+	claimScope:           {},
+	claimClientID:        {},
+	claimUsername:        {},
+	claimOriginJTI:       {},
+}
+
+// applyClaimsOverride merges addOrOverride into claims and deletes claims named in
+// suppress, skipping any protectedTokenClaims entry either list names.
+func applyClaimsOverride(claims jwt.MapClaims, addOrOverride map[string]string, suppress []string) {
+	for k, v := range addOrOverride {
+		if _, protected := protectedTokenClaims[k]; protected {
+			continue
+		}
+
+		claims[k] = v
+	}
+
+	for _, k := range suppress {
+		if _, protected := protectedTokenClaims[k]; protected {
+			continue
+		}
+
+		delete(claims, k)
+	}
 }
 
 // defaultAccessScope is the default scope on access tokens when the client has no configured scopes.
@@ -215,17 +283,17 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	exp := now.Add(idExpiry)
 
 	idClaims := jwt.MapClaims{
-		"sub":              p.UserSub,
-		"iss":              t.issuerURL,
-		"aud":              p.ClientID,
-		"token_use":        "id",
-		"cognito:username": p.Username,
-		"iat":              now.Unix(),
-		"exp":              exp.Unix(),
-		"auth_time":        p.AuthTime,
+		claimSub:             p.UserSub,
+		claimIss:             t.issuerURL,
+		claimAud:             p.ClientID,
+		claimTokenUse:        tokenUseID,
+		claimCognitoUsername: p.Username,
+		claimIat:             now.Unix(),
+		claimExp:             exp.Unix(),
+		claimAuthTime:        p.AuthTime,
 	}
 	if len(p.Groups) > 0 {
-		idClaims["cognito:groups"] = p.Groups
+		idClaims[claimCognitoGroups] = p.Groups
 	}
 
 	// Include standard user attributes in the ID token (email, phone_number, name, etc.)
@@ -240,6 +308,8 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 			idClaims[attr] = val
 		}
 	}
+
+	applyClaimsOverride(idClaims, p.ClaimsToAddOrOverride, p.ClaimsToSuppress)
 
 	idToken := jwt.NewWithClaims(jwt.SigningMethodRS256, idClaims)
 	idToken.Header["kid"] = t.keyID
@@ -274,19 +344,21 @@ func (t *tokenIssuer) Issue(p TokenParams) (*TokenResult, error) {
 	}
 
 	accessClaims := jwt.MapClaims{
-		"sub":       p.UserSub,
-		"iss":       t.issuerURL,
-		"client_id": p.ClientID,
-		"token_use": "access",
-		"username":  p.Username,
-		"scope":     scope,
-		"iat":       now.Unix(),
-		"exp":       now.Add(accessExpiry).Unix(),
-		"auth_time": p.AuthTime,
+		claimSub:      p.UserSub,
+		claimIss:      t.issuerURL,
+		claimClientID: p.ClientID,
+		claimTokenUse: tokenUseAccess,
+		claimUsername: p.Username,
+		claimScope:    scope,
+		claimIat:      now.Unix(),
+		claimExp:      now.Add(accessExpiry).Unix(),
+		claimAuthTime: p.AuthTime,
 	}
 	if len(p.Groups) > 0 {
-		accessClaims["cognito:groups"] = p.Groups
+		accessClaims[claimCognitoGroups] = p.Groups
 	}
+
+	applyClaimsOverride(accessClaims, p.ClaimsToAddOrOverride, p.ClaimsToSuppress)
 
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodRS256, accessClaims)
 	accessToken.Header["kid"] = t.keyID
@@ -333,7 +405,7 @@ func (t *tokenIssuer) ParseAccessToken(tokenString string) (jwt.MapClaims, error
 	// "id"). Access-token operations (GetUser, GlobalSignOut, etc.) must reject
 	// an ID token presented in place of an access token, otherwise an ID token
 	// is silently accepted where an access token is required.
-	if tu, _ := claims["token_use"].(string); tu != "access" {
+	if tu, _ := claims[claimTokenUse].(string); tu != tokenUseAccess {
 		return nil, fmt.Errorf("%w: token is not an access token", ErrInvalidToken)
 	}
 
