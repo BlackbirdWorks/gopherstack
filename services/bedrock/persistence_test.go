@@ -322,6 +322,22 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	snap := original.Snapshot(ctx)
 	require.NotNil(t, snap)
 
+	// Byte-identical re-snapshot: the automated completeness proof that
+	// Restore drops NOTHING Snapshot captured. Restore into a pristine
+	// backend, immediately re-Snapshot, and require byte equality -- done
+	// FIRST, before the assertion helpers below (which create post-restore
+	// resources that would legitimately mutate the backend). If any field
+	// persistence.go's Snapshot writes is not faithfully reloaded by Restore,
+	// the re-snapshot diverges here, so a future field added to a store.Table
+	// or to backendSnapshot that is snapshotted but not restored fails this
+	// test without anyone having to remember to add a bespoke assertion for
+	// it. Snapshot output is deterministic (store.Table.Snapshot is key-sorted
+	// and encoding/json sorts map keys), so equal state always yields equal
+	// bytes.
+	clean := bedrock.NewInMemoryBackend(testAccountID, testRegion)
+	require.NoError(t, clean.Restore(ctx, snap))
+	require.Equal(t, string(snap), string(clean.Snapshot(ctx)))
+
 	fresh := bedrock.NewInMemoryBackend(testAccountID, testRegion)
 	require.NoError(t, fresh.Restore(ctx, snap))
 
