@@ -2591,8 +2591,19 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SQS → CloudWatch metric emission for NumberOfMessagesSent/Received/Deleted.
 	wireSQSMetrics(byName["SQS"], byName["CloudWatch"])
 
-	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
-	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
+	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS, Kinesis,
+	// Firehose, ECS, Step Functions, CloudWatch Logs, and API Destination targets.
+	wireEventBridgeDelivery(
+		byName["EventBridge"],
+		byName["Lambda"],
+		byName["SQS"],
+		byName["SNS"],
+		byName["Kinesis"],
+		byName["Firehose"],
+		byName["ECS"],
+		byName["StepFunctions"],
+		byName["CloudWatchLogs"],
+	)
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
 	wireS3Notifications(
@@ -2606,12 +2617,15 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
-	// Wire Step Functions → SQS/SNS/DynamoDB service integrations.
+	// Wire Step Functions → SQS/SNS/DynamoDB/ECS/Glue/EventBridge service integrations.
 	wireStepFunctionsServiceIntegrations(
 		byName["StepFunctions"],
 		byName["SQS"],
 		byName["SNS"],
 		byName["DynamoDB"],
+		byName["ECS"],
+		byName["Glue"],
+		byName["EventBridge"],
 	)
 
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
@@ -3232,10 +3246,13 @@ func wireSQSMetrics(sqsReg, cwReg service.Registerable) {
 	)
 }
 
-// wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
-// ebReg, lambdaReg, sqsReg, snsReg must be the service.Registerable values returned
-// by their respective providers (indices 10, 9, 6, 5 in the services slice).
-func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerable) {
+// wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, SNS, Kinesis Data Streams,
+// Kinesis Data Firehose, ECS, Step Functions, CloudWatch Logs, and API Destination targets.
+// ebReg, lambdaReg, sqsReg, snsReg, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg must be the
+// service.Registerable values returned by their respective providers.
+func wireEventBridgeDelivery(
+	ebReg, lambdaReg, sqsReg, snsReg, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg service.Registerable,
+) {
 	ebH, ok := ebReg.(*ebbackend.Handler)
 	if !ok {
 		return
@@ -3248,25 +3265,71 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 
 	dt := &ebbackend.DeliveryTargets{}
 
+	wireEventBridgeCoreTargets(dt, lambdaReg, sqsReg, snsReg)
+	wireEventBridgeExtendedTargets(dt, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg)
+
+	// EventBridge itself resolves and rate-limits API destinations, so the backend
+	// satisfies eventbridge.APIDestinationResolver directly.
+	dt.APIDestinations = ebBk
+
+	ebBk.SetDeliveryTargets(dt)
+}
+
+// wireEventBridgeCoreTargets populates the Lambda, SQS, and SNS delivery targets.
+func wireEventBridgeCoreTargets(dt *ebbackend.DeliveryTargets, lambdaReg, sqsReg, snsReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
-		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
 			dt.Lambda = lambdaBk
 		}
 	}
 
 	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
-		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
+		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
 			dt.SQS = &sqsSenderAdapter{backend: sqsBk}
 		}
 	}
 
 	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
-		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
+		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
 			dt.SNS = &snsPublisherAdapter{backend: snsBk}
 		}
 	}
+}
 
-	ebBk.SetDeliveryTargets(dt)
+// wireEventBridgeExtendedTargets populates the Kinesis Data Streams, Kinesis Data Firehose,
+// ECS, Step Functions, and CloudWatch Logs delivery targets.
+func wireEventBridgeExtendedTargets(
+	dt *ebbackend.DeliveryTargets, kinesisReg, firehoseReg, ecsReg, sfnReg, cwlogsReg service.Registerable,
+) {
+	if kinesisH, kinesisOk := kinesisReg.(*kinesisbackend.Handler); kinesisOk {
+		if kinesisBk, bkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); bkOk {
+			dt.KinesisStream = &ebKinesisStreamAdapter{backend: kinesisBk}
+		}
+	}
+
+	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
+		if firehoseBk, bkOk := firehoseH.Backend.(*firehosebackend.InMemoryBackend); bkOk {
+			dt.KinesisFirehose = &ebFirehoseAdapter{backend: firehoseBk}
+		}
+	}
+
+	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
+		if ecsBk, bkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); bkOk {
+			dt.ECS = &ebECSTaskRunnerAdapter{backend: ecsBk}
+		}
+	}
+
+	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
+		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+			dt.StepFunctions = &sfnbackend.EBStartExecutionAdapter{B: sfnBk}
+		}
+	}
+
+	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
+		if cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); bkOk {
+			dt.CloudWatchLogs = &ebCloudWatchLogsAdapter{backend: cwlogsBk}
+		}
+	}
 }
 
 // sqsSenderAdapter adapts the SQS backend to the eventbridge.SQSSender interface.
@@ -3295,6 +3358,91 @@ type snsPublisherAdapter struct {
 
 func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, message string) error {
 	_, err := a.backend.Publish(topicARN, message, "", "", nil)
+
+	return err
+}
+
+// ebKinesisStreamAdapter adapts the Kinesis backend to the eventbridge.KinesisStreamPublisher interface.
+type ebKinesisStreamAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *ebKinesisStreamAdapter) PutRecord(ctx context.Context, streamARN, partitionKey, data string) error {
+	// Convert Kinesis stream ARN to stream name (last segment after '/').
+	parts := strings.Split(streamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	_, err := a.backend.PutRecord(ctx, &kinesisbackend.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: partitionKey,
+		Data:         []byte(data),
+	})
+
+	return err
+}
+
+// ebFirehoseAdapter adapts the Firehose backend to the eventbridge.KinesisFirehosePublisher interface.
+type ebFirehoseAdapter struct {
+	backend *firehosebackend.InMemoryBackend
+}
+
+func (a *ebFirehoseAdapter) PutRecord(ctx context.Context, deliveryStreamARN, data string) error {
+	// Convert Firehose delivery stream ARN to stream name (last segment after '/').
+	parts := strings.Split(deliveryStreamARN, "/")
+	streamName := parts[len(parts)-1]
+
+	return a.backend.PutRecord(ctx, streamName, []byte(data))
+}
+
+// ebECSTaskRunnerAdapter adapts the ECS backend to the eventbridge.ECSTaskRunner interface.
+// The payload is the delivered event JSON (subject to the target's Input/InputPath/
+// InputTransformer configuration); it is parsed for a "TaskDefinition" (and optional
+// "LaunchType") field, mirroring how the Step Functions ECS integration (SFNRunTask)
+// derives RunTaskInput from its input map, since EventBridge does not otherwise thread
+// the target's EcsParameters.TaskDefinitionArn through to delivery.
+type ebECSTaskRunnerAdapter struct {
+	backend *ecsbackend.InMemoryBackend
+}
+
+func (a *ebECSTaskRunnerAdapter) RunTask(_ context.Context, clusterARN string, payload []byte) error {
+	var input map[string]any
+	_ = json.Unmarshal(payload, &input)
+
+	taskDefinition, _ := input["TaskDefinition"].(string)
+	launchType, _ := input["LaunchType"].(string)
+
+	_, err := a.backend.RunTask(ecsbackend.RunTaskInput{
+		Cluster:        clusterARN,
+		TaskDefinition: taskDefinition,
+		LaunchType:     launchType,
+	})
+
+	return err
+}
+
+// ebCloudWatchLogsAdapter adapts the CloudWatch Logs backend to the
+// eventbridge.CloudWatchLogsPublisher interface.
+type ebCloudWatchLogsAdapter struct {
+	backend *cwlogsbackend.InMemoryBackend
+}
+
+func (a *ebCloudWatchLogsAdapter) PutLogEvents(
+	ctx context.Context,
+	logGroupName, logStreamName string,
+	logEvents []any,
+) error {
+	now := time.Now().UnixMilli()
+	events := make([]cwlogsbackend.InputLogEvent, 0, len(logEvents))
+
+	for _, e := range logEvents {
+		message, _ := e.(string)
+		events = append(events, cwlogsbackend.InputLogEvent{
+			Message:   message,
+			Timestamp: now,
+		})
+	}
+
+	_, err := a.backend.PutLogEvents(ctx, logGroupName, logStreamName, "", events)
 
 	return err
 }
@@ -3489,9 +3637,12 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 	}
 }
 
-// wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, and DynamoDB backends
-// so that Task states with service integration resources can invoke those services.
-func wireStepFunctionsServiceIntegrations(sfnReg, sqsReg, snsReg, ddbReg service.Registerable) {
+// wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, DynamoDB,
+// ECS, Glue, and EventBridge backends so that Task states with service integration resources can
+// invoke those services.
+func wireStepFunctionsServiceIntegrations(
+	sfnReg, sqsReg, snsReg, ddbReg, ecsReg, glueReg, ebReg service.Registerable,
+) {
 	sfnH, ok := sfnReg.(*sfnbackend.Handler)
 	if !ok {
 		return
@@ -3512,6 +3663,24 @@ func wireStepFunctionsServiceIntegrations(sfnReg, sqsReg, snsReg, ddbReg service
 
 	if ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler); ddbOk {
 		sfnBk.SetDynamoDBIntegration(sfnbackend.NewDynamoDBIntegration(ddbH.Backend))
+	}
+
+	if ecsH, ecsOk := ecsReg.(*ecsbackend.Handler); ecsOk {
+		if ecsBk, ecsBkOk := ecsH.Backend.(*ecsbackend.InMemoryBackend); ecsBkOk {
+			sfnBk.SetECSIntegration(ecsBk)
+		}
+	}
+
+	if glueH, glueOk := glueReg.(*gluebackend.Handler); glueOk {
+		if glueBk, glueBkOk := glueH.Backend.(*gluebackend.InMemoryBackend); glueBkOk {
+			sfnBk.SetGlueIntegration(glueBk)
+		}
+	}
+
+	if ebH, ebOk := ebReg.(*ebbackend.Handler); ebOk {
+		if ebBk, ebBkOk := ebH.Backend.(*ebbackend.InMemoryBackend); ebBkOk {
+			sfnBk.SetEventBridgeIntegration(ebBk)
+		}
 	}
 }
 
