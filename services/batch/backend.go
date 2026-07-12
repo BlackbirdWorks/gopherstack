@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -484,10 +485,33 @@ type EksProperties struct {
 	PodProperties *EksPodProperties `json:"podProperties,omitempty"`
 }
 
-// ConsumableResourceProperty specifies a consumable resource requirement for a job.
+// ConsumableResourceProperty specifies a single consumable resource requirement.
 type ConsumableResourceProperty struct {
 	ConsumableResource string  `json:"consumableResource"`
 	Quantity           float64 `json:"quantity"`
+}
+
+// ConsumableResourceProperties holds the consumable resources required by a
+// job or job definition. The real Batch API nests the requirement list under
+// "consumableResourceList" rather than serialising it as a bare array; wrap
+// it here so the wire shape matches (see aws-sdk-go-v2/service/batch/types.
+// ConsumableResourceProperties).
+type ConsumableResourceProperties struct {
+	ConsumableResourceList []ConsumableResourceProperty `json:"consumableResourceList,omitempty"`
+}
+
+// newConsumableResourceProperties wraps a non-empty requirement list in the
+// AWS-shaped ConsumableResourceProperties envelope, returning nil for an
+// empty list so the field is omitted from the wire response.
+func newConsumableResourceProperties(list []ConsumableResourceProperty) *ConsumableResourceProperties {
+	if len(list) == 0 {
+		return nil
+	}
+
+	listCopy := make([]ConsumableResourceProperty, len(list))
+	copy(listCopy, list)
+
+	return &ConsumableResourceProperties{ConsumableResourceList: listCopy}
 }
 
 // JobDefinition represents a Batch job definition.
@@ -499,19 +523,22 @@ type JobDefinition struct {
 	NodeProperties      *NodeProperties      `json:"nodeProperties,omitempty"`
 	EksProperties       *EksProperties       `json:"eksProperties,omitempty"`
 	RuntimePlatform     *RuntimePlatform     `json:"runtimePlatform,omitempty"`
+	// Timeout is nested (wire key "timeout": {"attemptDurationSeconds": N}) to
+	// match aws-sdk-go-v2/service/batch/types.JobDefinition.Timeout; it must
+	// NOT be a flat "timeoutSeconds" integer.
+	Timeout *JobTimeout `json:"timeout,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
 	region                       string
-	ConsumableResourceProperties []ConsumableResourceProperty `json:"consumableResourceProperties,omitempty"`
-	JobDefinitionName            string                       `json:"jobDefinitionName"`
-	JobDefinitionArn             string                       `json:"jobDefinitionArn"`
-	Type                         string                       `json:"type"`
-	Status                       string                       `json:"status"`
-	PlatformCapabilities         []string                     `json:"platformCapabilities,omitempty"`
-	Revision                     int32                        `json:"revision"`
-	TimeoutSeconds               int32                        `json:"timeoutSeconds,omitempty"`
-	SchedulingPriority           int32                        `json:"schedulingPriority,omitempty"`
-	PropagateTags                bool                         `json:"propagateTags,omitempty"`
+	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
+	JobDefinitionName            string                        `json:"jobDefinitionName"`
+	JobDefinitionArn             string                        `json:"jobDefinitionArn"`
+	Type                         string                        `json:"type"`
+	Status                       string                        `json:"status"`
+	PlatformCapabilities         []string                      `json:"platformCapabilities,omitempty"`
+	Revision                     int32                         `json:"revision"`
+	SchedulingPriority           int32                         `json:"schedulingPriority,omitempty"`
+	PropagateTags                bool                          `json:"propagateTags,omitempty"`
 }
 
 // --- RetryStrategy ---
@@ -584,20 +611,20 @@ type Job struct {
 	// region is the store.Table composite-key qualifier (see regionKey); see
 	// ComputeEnvironment.region for why it is unexported.
 	region                       string
-	JobDefinition                string                       `json:"jobDefinition"`
-	ShareIdentifier              string                       `json:"shareIdentifier,omitempty"`
-	StatusReason                 string                       `json:"statusReason,omitempty"`
-	JobID                        string                       `json:"jobId"`
-	JobARN                       string                       `json:"jobArn"`
-	JobName                      string                       `json:"jobName"`
-	JobQueue                     string                       `json:"jobQueue"`
-	Status                       string                       `json:"status"`
-	DependsOn                    []JobDependency              `json:"dependsOn,omitempty"`
-	ConsumableResourceProperties []ConsumableResourceProperty `json:"consumableResourceProperties,omitempty"`
-	Attempts                     []JobAttempt                 `json:"attempts,omitempty"`
-	CreatedAt                    int64                        `json:"createdAt"`
-	SchedulingPriorityOverride   int32                        `json:"schedulingPriorityOverride,omitempty"`
-	PropagateTags                bool                         `json:"propagateTags,omitempty"`
+	JobDefinition                string                        `json:"jobDefinition"`
+	ShareIdentifier              string                        `json:"shareIdentifier,omitempty"`
+	StatusReason                 string                        `json:"statusReason,omitempty"`
+	JobID                        string                        `json:"jobId"`
+	JobARN                       string                        `json:"jobArn"`
+	JobName                      string                        `json:"jobName"`
+	JobQueue                     string                        `json:"jobQueue"`
+	Status                       string                        `json:"status"`
+	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
+	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
+	Attempts                     []JobAttempt                  `json:"attempts,omitempty"`
+	CreatedAt                    int64                         `json:"createdAt"`
+	SchedulingPriorityOverride   int32                         `json:"schedulingPriorityOverride,omitempty"`
+	PropagateTags                bool                          `json:"propagateTags,omitempty"`
 }
 
 // ConsumableResource represents a Batch consumable resource.
@@ -860,6 +887,65 @@ func (b *InMemoryBackend) lookupJobByIDOrARN(region, idOrARN string) (*Job, bool
 	}
 
 	return nil, false
+}
+
+// parseJobDefRevision splits a short job definition reference into its name
+// and (if present) numeric revision, e.g. "my-jd:3" -> ("my-jd", 3, true) and
+// "my-jd" -> ("my-jd", 0, false). A non-numeric suffix after the colon is
+// treated as part of the name (hasRevision is false) since job definition
+// names never contain a colon themselves.
+func parseJobDefRevision(ref string) (string, int32, bool) {
+	base, revStr, found := strings.Cut(ref, ":")
+	if !found {
+		return ref, 0, false
+	}
+
+	rev, err := strconv.ParseInt(revStr, 10, 32)
+	if err != nil {
+		return ref, 0, false
+	}
+
+	return base, int32(rev), true
+}
+
+// lookupJobDefinitionForSubmit resolves the jobDefinition parameter accepted
+// by SubmitJob: a full ARN, "name:revision", or a bare name. A bare name
+// resolves to the newest ACTIVE revision, matching AWS Batch's documented
+// behavior ("If the revision is not specified, then the latest active
+// revision is used."). An explicit revision must match exactly and must be
+// ACTIVE. Caller must hold at least a read lock.
+func (b *InMemoryBackend) lookupJobDefinitionForSubmit(region, ref string) (*JobDefinition, bool) {
+	if jd, ok := b.jobDefinitions.Get(regionKey(region, ref)); ok {
+		return jd, true
+	}
+
+	name, revision, hasRevision := parseJobDefRevision(ref)
+
+	var latest *JobDefinition
+
+	for _, jd := range b.jobDefinitionsByRegion.Get(region) {
+		if jd.JobDefinitionName != name || jd.Status != jobDefStatusActive {
+			continue
+		}
+
+		if hasRevision {
+			if jd.Revision == revision {
+				return jd, true
+			}
+
+			continue
+		}
+
+		if latest == nil || jd.Revision > latest.Revision {
+			latest = jd
+		}
+	}
+
+	if hasRevision {
+		return nil, false
+	}
+
+	return latest, latest != nil
 }
 
 // CreateComputeEnvironment creates a new compute environment.
@@ -1380,10 +1466,9 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
-	var crpCopy []ConsumableResourceProperty
-	if len(consumableResourceProperties) > 0 {
-		crpCopy = make([]ConsumableResourceProperty, len(consumableResourceProperties))
-		copy(crpCopy, consumableResourceProperties)
+	var timeout *JobTimeout
+	if timeoutSeconds > 0 {
+		timeout = &JobTimeout{AttemptDurationSeconds: timeoutSeconds}
 	}
 
 	jd := &JobDefinition{
@@ -1395,13 +1480,13 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		Revision:                     revision,
 		Tags:                         tagsCopy,
 		PlatformCapabilities:         platformCapabilities,
-		TimeoutSeconds:               timeoutSeconds,
+		Timeout:                      timeout,
 		SchedulingPriority:           schedulingPriority,
 		ContainerProperties:          containerProps,
 		NodeProperties:               nodeProps,
 		EksProperties:                eksProps,
 		RuntimePlatform:              runtimePlatform,
-		ConsumableResourceProperties: crpCopy,
+		ConsumableResourceProperties: newConsumableResourceProperties(consumableResourceProperties),
 		Parameters:                   maps.Clone(parameters),
 		PropagateTags:                propagateTags,
 	}
@@ -1485,25 +1570,22 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(region string, names []s
 
 	for _, nameOrARN := range names {
 		if jd, ok := b.jobDefinitions.Get(regionKey(region, nameOrARN)); ok {
-			if !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
-				seen[jd.JobDefinitionArn] = true
-				cp := *jd
-				cp.Tags = tagsCloneOrEmpty(jd.Tags)
-				list = append(list, &cp)
-			}
+			list = appendJobDefinitionMatch(list, seen, jd, status)
 
 			continue
 		}
 
-		baseName, _, _ := strings.Cut(nameOrARN, ":")
+		// Not a stored ARN: treat nameOrARN as "name" or "name:revision". A
+		// caller-supplied revision must be matched exactly -- AWS returns only
+		// the requested revision, not every revision of that name.
+		baseName, revision, hasRevision := parseJobDefRevision(nameOrARN)
 
 		for _, jd := range b.jobDefinitionsByRegion.Get(region) {
-			if jd.JobDefinitionName == baseName && !seen[jd.JobDefinitionArn] && (status == "" || jd.Status == status) {
-				seen[jd.JobDefinitionArn] = true
-				cp := *jd
-				cp.Tags = tagsCloneOrEmpty(jd.Tags)
-				list = append(list, &cp)
+			if jd.JobDefinitionName != baseName || (hasRevision && jd.Revision != revision) {
+				continue
 			}
+
+			list = appendJobDefinitionMatch(list, seen, jd, status)
 		}
 	}
 
@@ -1512,6 +1594,24 @@ func (b *InMemoryBackend) describeJobDefinitionsByNames(region string, names []s
 	})
 
 	return list
+}
+
+// appendJobDefinitionMatch appends a tag-cloned copy of jd to list, unless it
+// was already added (tracked by ARN in seen, since an ARN lookup and a
+// name/name:revision lookup can resolve to the same definition) or it fails
+// the optional status filter.
+func appendJobDefinitionMatch(
+	list []*JobDefinition, seen map[string]bool, jd *JobDefinition, status string,
+) []*JobDefinition {
+	if seen[jd.JobDefinitionArn] || (status != "" && jd.Status != status) {
+		return list
+	}
+
+	seen[jd.JobDefinitionArn] = true
+	cp := *jd
+	cp.Tags = tagsCloneOrEmpty(jd.Tags)
+
+	return append(list, &cp)
 }
 
 // DeregisterJobDefinition marks a job definition as INACTIVE by ARN or name:revision.
@@ -1799,6 +1899,11 @@ func (b *InMemoryBackend) SubmitJob(
 		return nil, fmt.Errorf("%w: job queue %s is %s", ErrValidation, queue, stateDisabled)
 	}
 
+	jd, ok := b.lookupJobDefinitionForSubmit(region, jobDefinition)
+	if !ok {
+		return nil, fmt.Errorf("%w: job definition %s not found", ErrNotFound, jobDefinition)
+	}
+
 	if err := validateTags(tags); err != nil {
 		return nil, err
 	}
@@ -1844,23 +1949,20 @@ func (b *InMemoryBackend) SubmitJob(
 		overridesCopy = &co
 	}
 
-	var crpCopy []ConsumableResourceProperty
-	if len(consumableResourceProperties) > 0 {
-		crpCopy = make([]ConsumableResourceProperty, len(consumableResourceProperties))
-		copy(crpCopy, consumableResourceProperties)
-	}
-
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
 	jobARN := arn.Build("batch", region, b.accountID, "job/"+jobID)
 
 	j := &Job{
-		region:                       region,
-		JobID:                        jobID,
-		JobARN:                       jobARN,
-		JobName:                      name,
-		JobQueue:                     jq.JobQueueName,
-		JobDefinition:                jobDefinition,
+		region:   region,
+		JobID:    jobID,
+		JobARN:   jobARN,
+		JobName:  name,
+		JobQueue: jq.JobQueueName,
+		// AWS resolves the jobDefinition parameter (name, name:revision, or
+		// ARN with/without revision) to the definition's ARN; DescribeJobs
+		// always returns the ARN here, never the caller's short reference.
+		JobDefinition:                jd.JobDefinitionArn,
 		Status:                       jobStatusSubmitted,
 		CreatedAt:                    now,
 		Tags:                         tagsCopy,
@@ -1870,7 +1972,7 @@ func (b *InMemoryBackend) SubmitJob(
 		Timeout:                      timeoutCopy,
 		ArrayProperties:              arrayPropsCopy,
 		ContainerOverrides:           overridesCopy,
-		ConsumableResourceProperties: crpCopy,
+		ConsumableResourceProperties: newConsumableResourceProperties(consumableResourceProperties),
 		ShareIdentifier:              shareIdentifier,
 		SchedulingPriorityOverride:   schedulingPriorityOverride,
 		PropagateTags:                propagateTags,
@@ -2668,7 +2770,11 @@ func (b *InMemoryBackend) ListJobsByConsumableResource(
 // jobReferencesConsumableResource reports whether a job's ConsumableResourceProperties
 // references the named consumable resource.
 func jobReferencesConsumableResource(j *Job, consumableResource string) bool {
-	for _, crp := range j.ConsumableResourceProperties {
+	if j.ConsumableResourceProperties == nil {
+		return false
+	}
+
+	for _, crp := range j.ConsumableResourceProperties.ConsumableResourceList {
 		if crp.ConsumableResource == consumableResource {
 			return true
 		}

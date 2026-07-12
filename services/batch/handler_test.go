@@ -885,8 +885,11 @@ func TestHandler_Tags_OnJobDefinition(t *testing.T) {
 func TestHandler_JobOperations(t *testing.T) {
 	t.Parallel()
 
-	// Helper: set up a handler with a queue pre-created.
-	newHandlerWithQueue := func(t *testing.T, queueName string) *batch.Handler {
+	// Helper: set up a handler with a queue and job definition pre-created.
+	// jdName is registered as a container job definition (revision 1) so that
+	// SubmitJob's jobDefinition resolution (see backend.go
+	// lookupJobDefinitionForSubmit) succeeds.
+	newHandlerWithQueue := func(t *testing.T, queueName, jdName string) *batch.Handler {
 		t.Helper()
 
 		h := newTestHandler(t)
@@ -909,13 +912,19 @@ func TestHandler_JobOperations(t *testing.T) {
 		rec = post(t, h, "/v1/createjobqueue", jqBody)
 		require.Equal(t, http.StatusOK, rec.Code, "create job queue")
 
+		rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+			"jobDefinitionName": jdName,
+			"type":              "container",
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "register job definition")
+
 		return h
 	}
 
 	t.Run("submit_list_describe_terminate", func(t *testing.T) {
 		t.Parallel()
 
-		h := newHandlerWithQueue(t, "my-queue")
+		h := newHandlerWithQueue(t, "my-queue", "my-jd")
 
 		// SubmitJob succeeds when queue exists.
 		submitRec := post(t, h, "/v1/submitjob", map[string]any{
@@ -956,7 +965,7 @@ func TestHandler_JobOperations(t *testing.T) {
 	t.Run("cancel_job", func(t *testing.T) {
 		t.Parallel()
 
-		h := newHandlerWithQueue(t, "q2")
+		h := newHandlerWithQueue(t, "q2", "jd")
 
 		submitRec := post(t, h, "/v1/submitjob", map[string]any{
 			"jobName":       "j",
@@ -1297,6 +1306,12 @@ func TestHandler_DeleteJobQueue_CleansUpJobs(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd1",
+		"type":              "container",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	// Submit a job.
 	rec = post(t, h, "/v1/submitjob", map[string]any{
 		"jobName":       "job1",
@@ -1353,6 +1368,12 @@ func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd1",
+		"type":              "container",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
 	rec = post(t, h, "/v1/submitjob", map[string]any{
 		"jobName":       "my-job",
 		"jobQueue":      "q-arn",
@@ -1363,6 +1384,7 @@ func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
 	var submitResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
 	jobID := submitResp["jobId"].(string)
+	assert.NotEmpty(t, submitResp["jobArn"], "SubmitJob response should include jobArn")
 
 	// DescribeJobs should return the job ARN.
 	rec = post(t, h, "/v1/describejobs", map[string]any{
@@ -2987,6 +3009,12 @@ func TestHandler_CancelJob_NonCancellable(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+				"jobDefinitionName": "jd",
+				"type":              "container",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
 			rec = post(t, h, "/v1/submitjob", map[string]any{
 				"jobName":       "test-job",
 				"jobQueue":      "q1",
@@ -3056,6 +3084,12 @@ func TestHandler_TerminateJob_Terminal(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+				"jobDefinitionName": "jd",
+				"type":              "container",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
 			rec = post(t, h, "/v1/submitjob", map[string]any{
 				"jobName":       "test-job",
 				"jobQueue":      "q1",
@@ -3111,6 +3145,12 @@ func TestHandler_SubmitJob_InvalidName(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
+			rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+				"jobDefinitionName": "jd",
+				"type":              "container",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
 			rec = post(t, h, "/v1/submitjob", map[string]any{
 				"jobName":       tt.jobName,
 				"jobQueue":      "q1",
@@ -3136,6 +3176,12 @@ func TestHandler_ListJobs_NoQueue(t *testing.T) {
 	rec = post(t, h, "/v1/createjobqueue", map[string]any{
 		"jobQueueName": "q1",
 		"priority":     1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "jd",
+		"type":              "container",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

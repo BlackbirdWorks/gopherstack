@@ -931,6 +931,13 @@ type consumableResourcePropertyInput struct {
 	Quantity           float64 `json:"quantity"`
 }
 
+// consumableResourcePropertiesInput mirrors aws-sdk-go-v2/service/batch/
+// types.ConsumableResourceProperties: the requirement list is nested under
+// "consumableResourceList", not serialized as a bare array.
+type consumableResourcePropertiesInput struct {
+	ConsumableResourceList []consumableResourcePropertyInput `json:"consumableResourceList,omitempty"`
+}
+
 type nodeRangePropertyInput struct {
 	ContainerProperties *containerPropertiesInput `json:"containerProperties,omitempty"`
 	TargetNodes         string                    `json:"targetNodes"`
@@ -943,25 +950,26 @@ type nodePropertiesInput struct {
 }
 
 type registerJobDefinitionInput struct {
-	Tags                         map[string]string                 `json:"tags"`
-	Parameters                   map[string]string                 `json:"parameters,omitempty"`
-	Timeout                      *jobDefinitionTimeout             `json:"timeout,omitempty"`
-	ContainerProperties          *containerPropertiesInput         `json:"containerProperties,omitempty"`
-	NodeProperties               *nodePropertiesInput              `json:"nodeProperties,omitempty"`
-	RuntimePlatform              *runtimePlatformInput             `json:"runtimePlatform,omitempty"`
-	ConsumableResourceProperties []consumableResourcePropertyInput `json:"consumableResourceProperties,omitempty"`
-	JobDefinitionName            string                            `json:"jobDefinitionName"`
-	Type                         string                            `json:"type"`
-	PlatformCapabilities         []string                          `json:"platformCapabilities,omitempty"`
-	SchedulingPriority           int32                             `json:"schedulingPriority,omitempty"`
-	PropagateTags                bool                              `json:"propagateTags,omitempty"`
+	Tags                         map[string]string                  `json:"tags"`
+	Parameters                   map[string]string                  `json:"parameters,omitempty"`
+	Timeout                      *jobDefinitionTimeout              `json:"timeout,omitempty"`
+	ContainerProperties          *containerPropertiesInput          `json:"containerProperties,omitempty"`
+	NodeProperties               *nodePropertiesInput               `json:"nodeProperties,omitempty"`
+	RuntimePlatform              *runtimePlatformInput              `json:"runtimePlatform,omitempty"`
+	ConsumableResourceProperties *consumableResourcePropertiesInput `json:"consumableResourceProperties,omitempty"`
+	JobDefinitionName            string                             `json:"jobDefinitionName"`
+	Type                         string                             `json:"type"`
+	PlatformCapabilities         []string                           `json:"platformCapabilities,omitempty"`
+	SchedulingPriority           int32                              `json:"schedulingPriority,omitempty"`
+	PropagateTags                bool                               `json:"propagateTags,omitempty"`
 }
 
+// registerJobDefinitionOutput mirrors aws-sdk-go-v2/service/batch's
+// RegisterJobDefinitionOutput exactly: only these three fields are returned.
 type registerJobDefinitionOutput struct {
 	JobDefinitionArn  string `json:"jobDefinitionArn"`
 	JobDefinitionName string `json:"jobDefinitionName"`
 	Revision          int32  `json:"revision"`
-	TimeoutSeconds    int32  `json:"timeout,omitempty"`
 }
 
 //nolint:cyclop,funlen // Too complex to refactor given time constraints
@@ -1105,13 +1113,13 @@ func runtimePlatformFromInput(in *runtimePlatformInput) *RuntimePlatform {
 	}
 }
 
-func consumableResourcePropertiesFromInput(in []consumableResourcePropertyInput) []ConsumableResourceProperty {
-	if len(in) == 0 {
+func consumableResourcePropertiesFromInput(in *consumableResourcePropertiesInput) []ConsumableResourceProperty {
+	if in == nil || len(in.ConsumableResourceList) == 0 {
 		return nil
 	}
 
-	out := make([]ConsumableResourceProperty, len(in))
-	for i, c := range in {
+	out := make([]ConsumableResourceProperty, len(in.ConsumableResourceList))
+	for i, c := range in.ConsumableResourceList {
 		out[i] = ConsumableResourceProperty(c)
 	}
 
@@ -1151,7 +1159,6 @@ func (h *Handler) handleRegisterJobDefinition(
 		JobDefinitionArn:  jd.JobDefinitionArn,
 		JobDefinitionName: jd.JobDefinitionName,
 		Revision:          jd.Revision,
-		TimeoutSeconds:    jd.TimeoutSeconds,
 	}, nil
 }
 
@@ -1301,18 +1308,33 @@ type describeJobsInput struct {
 	Jobs []string `json:"jobs"`
 }
 
+// jobDetail mirrors aws-sdk-go-v2/service/batch/types.JobDetail's field names
+// and nesting (see deserializers.go's awsRestjson1_deserializeDocumentJobDetail
+// case list). Notably: "schedulingPriority" not "schedulingPriorityOverride"
+// on the wire, and there is no top-level "containerOverrides" in real output
+// -- overrides are merged into "container" instead, which this emulator does
+// not yet model, so it is intentionally omitted here rather than faked.
 type jobDetail struct {
-	StoppedAt     *int64            `json:"stoppedAt,omitempty"`
-	StartedAt     *int64            `json:"startedAt,omitempty"`
-	Tags          map[string]string `json:"tags"`
-	JobID         string            `json:"jobId"`
-	JobARN        string            `json:"jobArn,omitempty"`
-	JobName       string            `json:"jobName"`
-	JobQueue      string            `json:"jobQueue"`
-	JobDefinition string            `json:"jobDefinition"`
-	Status        string            `json:"status"`
-	StatusReason  string            `json:"statusReason,omitempty"`
-	CreatedAt     int64             `json:"createdAt"`
+	StoppedAt                    *int64                        `json:"stoppedAt,omitempty"`
+	StartedAt                    *int64                        `json:"startedAt,omitempty"`
+	RetryStrategy                *RetryStrategy                `json:"retryStrategy,omitempty"`
+	Timeout                      *JobTimeout                   `json:"timeout,omitempty"`
+	ArrayProperties              *ArrayProperties              `json:"arrayProperties,omitempty"`
+	ConsumableResourceProperties *ConsumableResourceProperties `json:"consumableResourceProperties,omitempty"`
+	Tags                         map[string]string             `json:"tags"`
+	Parameters                   map[string]string             `json:"parameters,omitempty"`
+	JobARN                       string                        `json:"jobArn,omitempty"`
+	JobID                        string                        `json:"jobId"`
+	JobName                      string                        `json:"jobName"`
+	JobQueue                     string                        `json:"jobQueue"`
+	JobDefinition                string                        `json:"jobDefinition"`
+	Status                       string                        `json:"status"`
+	StatusReason                 string                        `json:"statusReason,omitempty"`
+	ShareIdentifier              string                        `json:"shareIdentifier,omitempty"`
+	DependsOn                    []JobDependency               `json:"dependsOn,omitempty"`
+	CreatedAt                    int64                         `json:"createdAt"`
+	SchedulingPriorityOverride   int32                         `json:"schedulingPriority,omitempty"`
+	PropagateTags                bool                          `json:"propagateTags,omitempty"`
 }
 
 type describeJobsOutput struct {
@@ -1325,17 +1347,26 @@ func (h *Handler) handleDescribeJobs(ctx context.Context, in *describeJobsInput)
 	details := make([]jobDetail, 0, len(jobs))
 	for _, j := range jobs {
 		details = append(details, jobDetail{
-			JobID:         j.JobID,
-			JobARN:        j.JobARN,
-			JobName:       j.JobName,
-			JobQueue:      j.JobQueue,
-			JobDefinition: j.JobDefinition,
-			Status:        j.Status,
-			StatusReason:  j.StatusReason,
-			CreatedAt:     j.CreatedAt,
-			StartedAt:     j.StartedAt,
-			StoppedAt:     j.StoppedAt,
-			Tags:          tagsOrEmpty(j.Tags),
+			JobID:                        j.JobID,
+			JobARN:                       j.JobARN,
+			JobName:                      j.JobName,
+			JobQueue:                     j.JobQueue,
+			JobDefinition:                j.JobDefinition,
+			Status:                       j.Status,
+			StatusReason:                 j.StatusReason,
+			CreatedAt:                    j.CreatedAt,
+			StartedAt:                    j.StartedAt,
+			StoppedAt:                    j.StoppedAt,
+			Tags:                         tagsOrEmpty(j.Tags),
+			RetryStrategy:                j.RetryStrategy,
+			Timeout:                      j.Timeout,
+			ArrayProperties:              j.ArrayProperties,
+			ConsumableResourceProperties: j.ConsumableResourceProperties,
+			Parameters:                   j.Parameters,
+			DependsOn:                    j.DependsOn,
+			ShareIdentifier:              j.ShareIdentifier,
+			SchedulingPriorityOverride:   j.SchedulingPriorityOverride,
+			PropagateTags:                j.PropagateTags,
 		})
 	}
 
@@ -1352,20 +1383,36 @@ type keyValuePair struct {
 	Value string `json:"value"`
 }
 
-type submitJobInput struct {
-	Tags               map[string]string        `json:"tags"`
-	Parameters         map[string]string        `json:"parameters,omitempty"`
-	RetryStrategy      *RetryStrategy           `json:"retryStrategy,omitempty"`
-	Timeout            *JobTimeout              `json:"timeout,omitempty"`
-	ContainerOverrides *containerOverridesInput `json:"containerOverrides,omitempty"`
-	JobName            string                   `json:"jobName"`
-	JobQueue           string                   `json:"jobQueue"`
-	JobDefinition      string                   `json:"jobDefinition"`
-	DependsOn          []JobDependency          `json:"dependsOn,omitempty"`
+// arrayPropertiesInput mirrors aws-sdk-go-v2/service/batch/types.
+// ArrayProperties as accepted on SubmitJobInput: only "size" is settable by
+// the caller (statusSummary/index are describe-side, output-only fields).
+type arrayPropertiesInput struct {
+	Size int32 `json:"size,omitempty"`
 }
 
+type submitJobInput struct {
+	Tags                       map[string]string                  `json:"tags"`
+	Parameters                 map[string]string                  `json:"parameters,omitempty"`
+	RetryStrategy              *RetryStrategy                     `json:"retryStrategy,omitempty"`
+	Timeout                    *JobTimeout                        `json:"timeout,omitempty"`
+	ArrayProperties            *arrayPropertiesInput              `json:"arrayProperties,omitempty"`
+	ContainerOverrides         *containerOverridesInput           `json:"containerOverrides,omitempty"`
+	ConsumableOverride         *consumableResourcePropertiesInput `json:"consumableResourcePropertiesOverride,omitempty"`
+	JobName                    string                             `json:"jobName"`
+	JobQueue                   string                             `json:"jobQueue"`
+	JobDefinition              string                             `json:"jobDefinition"`
+	ShareIdentifier            string                             `json:"shareIdentifier,omitempty"`
+	DependsOn                  []JobDependency                    `json:"dependsOn,omitempty"`
+	SchedulingPriorityOverride int32                              `json:"schedulingPriorityOverride,omitempty"`
+	PropagateTags              bool                               `json:"propagateTags,omitempty"`
+}
+
+// submitJobOutput mirrors aws-sdk-go-v2/service/batch's SubmitJobOutput:
+// jobArn is part of the real response and must be echoed back, not just
+// available via a follow-up DescribeJobs call.
 type submitJobOutput struct {
 	JobID   string `json:"jobId"`
+	JobARN  string `json:"jobArn,omitempty"`
 	JobName string `json:"jobName"`
 }
 
@@ -1382,6 +1429,11 @@ func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*sub
 		}
 	}
 
+	var arrayProps *ArrayProperties
+	if in.ArrayProperties != nil {
+		arrayProps = &ArrayProperties{Size: in.ArrayProperties.Size}
+	}
+
 	j, err := h.Backend.SubmitJob(
 		ctx,
 		in.JobName,
@@ -1392,12 +1444,12 @@ func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*sub
 		in.DependsOn,
 		in.RetryStrategy,
 		in.Timeout,
-		nil, // arrayProperties
+		arrayProps,
 		overrides,
-		nil,   // consumableResourceProperties
-		"",    // shareIdentifier
-		0,     // schedulingPriorityOverride
-		false, // propagateTags
+		consumableResourcePropertiesFromInput(in.ConsumableOverride),
+		in.ShareIdentifier,
+		in.SchedulingPriorityOverride,
+		in.PropagateTags,
 	)
 	if err != nil {
 		return nil, err
@@ -1405,6 +1457,7 @@ func (h *Handler) handleSubmitJob(ctx context.Context, in *submitJobInput) (*sub
 
 	return &submitJobOutput{
 		JobID:   j.JobID,
+		JobARN:  j.JobARN,
 		JobName: j.JobName,
 	}, nil
 }
