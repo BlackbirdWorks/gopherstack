@@ -120,6 +120,38 @@ func TestOpenSearchHandler_CreateDomain(t *testing.T) {
 	}
 }
 
+// Test_DomainStatus_DomainID verifies CreateDomain/DescribeDomain responses
+// include the required DomainStatus.DomainId field (aws-sdk-go-v2
+// types.DomainStatus.DomainId, "This member is required."), formatted as
+// AWS does: "{accountId}/{domainName}".
+func Test_DomainStatus_DomainID(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain",
+		map[string]any{"DomainName": "domainid-test"})
+	defer createResp.Body.Close()
+	require.Equal(t, http.StatusOK, createResp.StatusCode)
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	createStatus, ok := createOut["DomainStatus"].(map[string]any)
+	require.True(t, ok, "DomainStatus missing")
+	assert.Equal(t, "123456789012/domainid-test", createStatus["DomainId"])
+
+	describeResp := doRequest(t, h, http.MethodGet,
+		"/2021-01-01/opensearch/domain/domainid-test", nil)
+	defer describeResp.Body.Close()
+	require.Equal(t, http.StatusOK, describeResp.StatusCode)
+
+	var describeOut map[string]any
+	require.NoError(t, json.NewDecoder(describeResp.Body).Decode(&describeOut))
+	describeStatus, ok := describeOut["DomainStatus"].(map[string]any)
+	require.True(t, ok, "DomainStatus missing")
+	assert.Equal(t, "123456789012/domainid-test", describeStatus["DomainId"])
+}
+
 func TestOpenSearchHandler_DescribeDomain(t *testing.T) {
 	t.Parallel()
 

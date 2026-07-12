@@ -56,6 +56,7 @@ const (
 	jsonKeyAppName          = "Name"
 	jsonKeyAppArn           = "Arn"
 	jsonKeyDataSource       = "DataSource"
+	jsonKeyDomainConfig     = "DomainConfig"
 	// Index data-plane operation segments and document response keys.
 	indexOpDoc      = "_doc"
 	indexOpSearch   = "_search"
@@ -582,11 +583,18 @@ type windowStartTimeJSON struct {
 	Minutes int `json:"Minutes"`
 }
 
-// iamIdentityCenterOptionsJSON is the JSON representation of IAM Identity Center options.
-type iamIdentityCenterOptionsJSON struct {
-	IamIdentityCenterArn                   string `json:"IamIdentityCenterArn,omitempty"`
-	IamRoleForIdentityCenterApplicationArn string `json:"IamRoleForIdentityCenterApplicationArn,omitempty"`
-	EnabledAPIAccess                       bool   `json:"EnabledAPIAccess"`
+// identityCenterOptionsJSON is the JSON representation of IAM Identity Center
+// options. Field names match aws-sdk-go-v2's current IdentityCenterOptions /
+// IdentityCenterOptionsInput shapes (IdentityCenterInstanceARN/RolesKey/
+// SubjectKey), which replaced the deprecated IamIdentityCenterOptions shape
+// for CreateDomain/UpdateDomainConfig/DescribeDomain*.
+type identityCenterOptionsJSON struct {
+	IdentityCenterInstanceARN    string `json:"IdentityCenterInstanceARN,omitempty"`
+	IdentityCenterApplicationARN string `json:"IdentityCenterApplicationARN,omitempty"`
+	IdentityStoreID              string `json:"IdentityStoreId,omitempty"`
+	RolesKey                     string `json:"RolesKey,omitempty"`
+	SubjectKey                   string `json:"SubjectKey,omitempty"`
+	EnabledAPIAccess             bool   `json:"EnabledAPIAccess"`
 }
 
 // enableSoftwareUpdateOptionsJSON is the JSON representation of enable software update options.
@@ -636,13 +644,18 @@ type domainJSON struct {
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
-	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions"`
+	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
 	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	Tags                        map[string]string                   `json:"TagList,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	EngineVersion               string                              `json:"EngineVersion"`
 	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
+	DryRunMode                  string                              `json:"DryRunMode,omitempty"`
+	// DryRun applies only to UpdateDomainConfig: when true the request must be
+	// validated without mutating the domain (see aws-sdk-go-v2
+	// UpdateDomainConfigInput.DryRun).
+	DryRun bool `json:"DryRun,omitempty"`
 }
 
 // domainStatusJSON is the JSON response for domain operations.
@@ -656,11 +669,12 @@ type domainStatusJSON struct {
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
-	IamIdentityCenterOptions    *iamIdentityCenterOptionsJSON       `json:"IamIdentityCenterOptions"`
+	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
 	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	ARN                         string                              `json:"ARN"`
+	DomainID                    string                              `json:"DomainId"`
 	EngineVersion               string                              `json:"EngineVersion"`
 	Endpoint                    string                              `json:"Endpoint"`
 	DomainProcessingStatus      string                              `json:"DomainProcessingStatus"`
@@ -699,10 +713,14 @@ type domainListJSON struct {
 	DomainNames []domainNameEntry `json:"DomainNames"`
 }
 
-// domainNameEntry is an element of the ListDomainNames response.
+// domainNameEntry is an element of the ListDomainNames response. Matches
+// aws-sdk-go-v2 types.DomainInfo, which carries the coarse engine family
+// ("OpenSearch"/"Elasticsearch") under the wire key "EngineType" -- NOT the
+// full version string ("OpenSearch_2.11") that DescribeDomain returns under
+// "EngineVersion".
 type domainNameEntry struct {
-	DomainName    string `json:"DomainName"`
-	EngineVersion string `json:"EngineVersion"`
+	DomainName string `json:"DomainName"`
+	EngineType string `json:"EngineType"`
 }
 
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
@@ -892,6 +910,12 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 
 	input := applyReqToUpdateInput(&req)
 
+	if req.DryRun {
+		h.handleUpdateDomainConfigDryRun(w, r, name, input)
+
+		return
+	}
+
 	domain, err := h.Backend.UpdateDomainConfig(name, input)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
@@ -903,7 +927,42 @@ func (h *Handler) dispatchDomainPutRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainConfig": toDomainConfigJSON(domain)})
+	h.writeJSON(r, w, map[string]any{jsonKeyDomainConfig: toDomainConfigJSON(domain)})
+}
+
+// dryRunResultsJSON mirrors aws-sdk-go-v2 types.DryRunResults.
+type dryRunResultsJSON struct {
+	DeploymentType string `json:"DeploymentType"`
+	Message        string `json:"Message"`
+}
+
+// handleUpdateDomainConfigDryRun serves UpdateDomainConfig requests with
+// DryRun=true: it previews the resulting config without mutating the domain,
+// matching real AWS's validate-only behavior for dry runs.
+func (h *Handler) handleUpdateDomainConfigDryRun(
+	w http.ResponseWriter,
+	r *http.Request,
+	name string,
+	input UpdateDomainConfigInput,
+) {
+	domain, err := h.Backend.PreviewDomainConfig(name, input)
+	if err != nil {
+		if errors.Is(err, ErrDomainNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
+		}
+
+		return
+	}
+
+	h.writeJSON(r, w, map[string]any{
+		jsonKeyDomainConfig: toDomainConfigJSON(domain),
+		"DryRunResults": dryRunResultsJSON{
+			DeploymentType: "DynamicUpdate",
+			Message:        "Deployment type is not fully validated in this dry run.",
+		},
+	})
 }
 
 // dispatchDomainGetRoutes handles GET requests under a domain path.
@@ -1106,11 +1165,12 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 		input.OffPeakWindowOptions = parseOffPeakWindowOptionsFromReq(req.OffPeakWindowOptions)
 	}
 
-	if req.IamIdentityCenterOptions != nil {
-		input.IamIdentityCenterOptions = &IamIdentityCenterOptions{
-			EnabledAPIAccess:                       req.IamIdentityCenterOptions.EnabledAPIAccess,
-			IamIdentityCenterArn:                   req.IamIdentityCenterOptions.IamIdentityCenterArn,
-			IamRoleForIdentityCenterApplicationArn: req.IamIdentityCenterOptions.IamRoleForIdentityCenterApplicationArn,
+	if req.IdentityCenterOptions != nil {
+		input.IdentityCenterOptions = &IdentityCenterOptions{
+			EnabledAPIAccess:          req.IdentityCenterOptions.EnabledAPIAccess,
+			IdentityCenterInstanceARN: req.IdentityCenterOptions.IdentityCenterInstanceARN,
+			RolesKey:                  req.IdentityCenterOptions.RolesKey,
+			SubjectKey:                req.IdentityCenterOptions.SubjectKey,
 		}
 	}
 
@@ -1186,7 +1246,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		VPCOptions:                  upd.VPCOptions,
 		CognitoOptions:              upd.CognitoOptions,
 		OffPeakWindowOptions:        upd.OffPeakWindowOptions,
-		IamIdentityCenterOptions:    upd.IamIdentityCenterOptions,
+		IdentityCenterOptions:       upd.IdentityCenterOptions,
 		EnableSoftwareUpdateOptions: upd.EnableSoftwareUpdateOptions,
 		LogPublishingOptions:        upd.LogPublishingOptions,
 	}
@@ -1247,9 +1307,14 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) 
 	entries := make([]domainNameEntry, 0, len(domainEntries))
 
 	for _, de := range domainEntries {
+		engineType := engineTypeElasticsearch
+		if isOpenSearchEngine(de.EngineVersion) {
+			engineType = engineTypeOpenSearch
+		}
+
 		entries = append(entries, domainNameEntry{
-			DomainName:    de.Name,
-			EngineVersion: de.EngineVersion,
+			DomainName: de.Name,
+			EngineType: engineType,
 		})
 	}
 
@@ -1440,6 +1505,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 	out := domainStatusJSON{
 		DomainName:             d.Name,
 		ARN:                    d.ARN,
+		DomainID:               d.DomainID,
 		EngineVersion:          d.EngineVersion,
 		Endpoint:               d.Endpoint,
 		Processing:             processing,
@@ -1523,11 +1589,14 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 		out.OffPeakWindowOptions = toOffPeakWindowOptionsJSON(d.OffPeakWindowOptions)
 	}
 
-	if d.IamIdentityCenterOptions != nil {
-		out.IamIdentityCenterOptions = &iamIdentityCenterOptionsJSON{
-			EnabledAPIAccess:                       d.IamIdentityCenterOptions.EnabledAPIAccess,
-			IamIdentityCenterArn:                   d.IamIdentityCenterOptions.IamIdentityCenterArn,
-			IamRoleForIdentityCenterApplicationArn: d.IamIdentityCenterOptions.IamRoleForIdentityCenterApplicationArn,
+	if d.IdentityCenterOptions != nil {
+		out.IdentityCenterOptions = &identityCenterOptionsJSON{
+			EnabledAPIAccess:             d.IdentityCenterOptions.EnabledAPIAccess,
+			IdentityCenterInstanceARN:    d.IdentityCenterOptions.IdentityCenterInstanceARN,
+			IdentityCenterApplicationARN: d.IdentityCenterOptions.IdentityCenterApplicationARN,
+			IdentityStoreID:              d.IdentityCenterOptions.IdentityStoreID,
+			RolesKey:                     d.IdentityCenterOptions.RolesKey,
+			SubjectKey:                   d.IdentityCenterOptions.SubjectKey,
 		}
 	}
 
@@ -1632,9 +1701,9 @@ func toDomainConfigJSON(d *Domain) domainConfigFields {
 		}
 	}
 
-	if st.IamIdentityCenterOptions != nil {
-		cfg.IamIdentityCenterOptions = opensearchConfigValue{
-			Options: st.IamIdentityCenterOptions,
+	if st.IdentityCenterOptions != nil {
+		cfg.IdentityCenterOptions = opensearchConfigValue{
+			Options: st.IdentityCenterOptions,
 			Status:  active,
 		}
 	}
@@ -1694,7 +1763,7 @@ type domainConfigFields struct {
 	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
 	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
 	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions"`
-	IamIdentityCenterOptions    opensearchConfigValue `json:"IamIdentityCenterOptions"`
+	IdentityCenterOptions       opensearchConfigValue `json:"IdentityCenterOptions"`
 	EnableSoftwareUpdateOptions opensearchConfigValue `json:"EnableSoftwareUpdateOptions"`
 }
 
@@ -1800,7 +1869,7 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"DomainConfig": toDomainConfigJSON(domain)})
+	h.writeJSON(r, w, map[string]any{jsonKeyDomainConfig: toDomainConfigJSON(domain)})
 }
 
 // handleDomainSubRoutes handles POST requests under /2021-01-01/opensearch/domain/{name}/...

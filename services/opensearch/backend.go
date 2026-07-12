@@ -348,11 +348,18 @@ type WindowStartTime struct {
 	Minutes int `json:"minutes"`
 }
 
-// IamIdentityCenterOptions holds IAM Identity Center integration settings.
-type IamIdentityCenterOptions struct {
-	IamIdentityCenterArn                   string `json:"iamIdentityCenterArn,omitempty"`
-	IamRoleForIdentityCenterApplicationArn string `json:"iamRoleForIdentityCenterApplicationArn,omitempty"`
-	EnabledAPIAccess                       bool   `json:"enabledAPIAccess"`
+// IdentityCenterOptions holds IAM Identity Center integration settings. Field
+// names match the current aws-sdk-go-v2 IdentityCenterOptions/-Input shapes
+// (IdentityCenterInstanceARN/RolesKey/SubjectKey), which superseded the older
+// IamIdentityCenterOptions shape (IamIdentityCenterArn/IamRoleFor...) that AWS
+// no longer wires into CreateDomain/UpdateDomainConfig.
+type IdentityCenterOptions struct {
+	IdentityCenterInstanceARN    string `json:"identityCenterInstanceARN,omitempty"`
+	IdentityCenterApplicationARN string `json:"identityCenterApplicationARN,omitempty"`
+	IdentityStoreID              string `json:"identityStoreId,omitempty"`
+	RolesKey                     string `json:"rolesKey,omitempty"`
+	SubjectKey                   string `json:"subjectKey,omitempty"`
+	EnabledAPIAccess             bool   `json:"enabledAPIAccess"`
 }
 
 // EnableSoftwareUpdateOptions holds settings for automatic software updates.
@@ -447,7 +454,7 @@ type Domain struct {
 	VPCOptions                  *VPCOptions                     `json:"vpcOptions,omitempty"`
 	CognitoOptions              *CognitoOptions                 `json:"cognitoOptions,omitempty"`
 	OffPeakWindowOptions        *OffPeakWindowOptions           `json:"offPeakWindowOptions,omitempty"`
-	IamIdentityCenterOptions    *IamIdentityCenterOptions       `json:"iamIdentityCenterOptions,omitempty"`
+	IdentityCenterOptions       *IdentityCenterOptions          `json:"identityCenterOptions,omitempty"`
 	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions    `json:"enableSoftwareUpdateOptions,omitempty"`
 	LogPublishingOptions        map[string]*LogPublishingOption `json:"logPublishingOptions,omitempty"`
 	EBSOptions                  *EBSOptions                     `json:"ebsOptions,omitempty"`
@@ -455,15 +462,19 @@ type Domain struct {
 	ServiceSoftware             *ServiceSoftwareOptions         `json:"serviceSoftware,omitempty"`
 	Name                        string                          `json:"name"`
 	ARN                         string                          `json:"arn"`
-	EngineVersion               string                          `json:"engineVersion"`
-	Endpoint                    string                          `json:"endpoint"`
-	Status                      string                          `json:"status"`
-	LastChangeID                string                          `json:"lastChangeID,omitempty"`
-	ProcessingStatus            string                          `json:"processingStatus,omitempty"`
-	AccessPolicies              string                          `json:"accessPolicies,omitempty"`
-	ClusterConfig               ClusterConfig                   `json:"clusterConfig"`
-	Created                     bool                            `json:"created,omitempty"`
-	Deleted                     bool                            `json:"deleted,omitempty"`
+	// DomainID is the AWS-format unique domain identifier ("{accountId}/{name}"),
+	// a required field on DomainStatus (see aws-sdk-go-v2/service/opensearch
+	// types.DomainStatus.DomainId) that real AWS always returns alongside ARN.
+	DomainID         string        `json:"domainID"`
+	EngineVersion    string        `json:"engineVersion"`
+	Endpoint         string        `json:"endpoint"`
+	Status           string        `json:"status"`
+	LastChangeID     string        `json:"lastChangeID,omitempty"`
+	ProcessingStatus string        `json:"processingStatus,omitempty"`
+	AccessPolicies   string        `json:"accessPolicies,omitempty"`
+	ClusterConfig    ClusterConfig `json:"clusterConfig"`
+	Created          bool          `json:"created,omitempty"`
+	Deleted          bool          `json:"deleted,omitempty"`
 }
 
 // CreateDomainInput holds all options for creating a new OpenSearch domain.
@@ -477,7 +488,7 @@ type CreateDomainInput struct {
 	VPCOptions                  *VPCOptions
 	CognitoOptions              *CognitoOptions
 	OffPeakWindowOptions        *OffPeakWindowOptions
-	IamIdentityCenterOptions    *IamIdentityCenterOptions
+	IdentityCenterOptions       *IdentityCenterOptions
 	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
 	LogPublishingOptions        map[string]*LogPublishingOption
 	Tags                        map[string]string
@@ -498,7 +509,7 @@ type UpdateDomainConfigInput struct {
 	VPCOptions                  *VPCOptions
 	CognitoOptions              *CognitoOptions
 	OffPeakWindowOptions        *OffPeakWindowOptions
-	IamIdentityCenterOptions    *IamIdentityCenterOptions
+	IdentityCenterOptions       *IdentityCenterOptions
 	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
 	LogPublishingOptions        map[string]*LogPublishingOption
 	ClusterConfig               *ClusterConfig
@@ -624,6 +635,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+input.Name)
 	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", input.Name, b.accountID, b.region)
+	domainID := fmt.Sprintf("%s/%s", b.accountID, input.Name)
 
 	if input.ClusterConfig.InstanceCount == 0 {
 		input.ClusterConfig.InstanceCount = 1
@@ -636,6 +648,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 	d := &Domain{
 		Name:                        input.Name,
 		ARN:                         domainARN,
+		DomainID:                    domainID,
 		EngineVersion:               input.EngineVersion,
 		Endpoint:                    endpoint,
 		Status:                      "Active",
@@ -650,7 +663,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 		VPCOptions:                  input.VPCOptions,
 		CognitoOptions:              input.CognitoOptions,
 		OffPeakWindowOptions:        input.OffPeakWindowOptions,
-		IamIdentityCenterOptions:    input.IamIdentityCenterOptions,
+		IdentityCenterOptions:       input.IdentityCenterOptions,
 		EnableSoftwareUpdateOptions: input.EnableSoftwareUpdateOptions,
 		LogPublishingOptions:        input.LogPublishingOptions,
 		AccessPolicies:              input.AccessPolicies,
@@ -2417,8 +2430,8 @@ func applyOperationalConfig(d *Domain, input UpdateDomainConfigInput) {
 		d.OffPeakWindowOptions = input.OffPeakWindowOptions
 	}
 
-	if input.IamIdentityCenterOptions != nil {
-		d.IamIdentityCenterOptions = input.IamIdentityCenterOptions
+	if input.IdentityCenterOptions != nil {
+		d.IdentityCenterOptions = input.IdentityCenterOptions
 	}
 
 	if input.EnableSoftwareUpdateOptions != nil {
@@ -2458,6 +2471,33 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 	b.beginProcessing(d, dpsModifying)
 
 	cp := *d
+
+	return &cp, nil
+}
+
+// PreviewDomainConfig computes the domain configuration that UpdateDomainConfig
+// would produce for input, without mutating stored state or advancing the
+// processing/change-ID bookkeeping. This backs UpdateDomainConfig's
+// DryRun=true mode (aws-sdk-go-v2 UpdateDomainConfigInput.DryRun): AWS
+// validates and previews the change but never applies it.
+func (b *InMemoryBackend) PreviewDomainConfig(
+	name string,
+	input UpdateDomainConfigInput,
+) (*Domain, error) {
+	b.mu.RLock("PreviewDomainConfig")
+	defer b.mu.RUnlock()
+
+	d, exists := b.domains.Get(name)
+	if !exists || deleteWindowElapsed(d, b.clock()) {
+		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
+	}
+
+	cp := *d
+	applyClusterConfig(&cp, input)
+	applyStorageConfig(&cp, input)
+	applySecurityConfig(&cp, input)
+	applyNetworkConfig(&cp, input)
+	applyOperationalConfig(&cp, input)
 
 	return &cp, nil
 }
