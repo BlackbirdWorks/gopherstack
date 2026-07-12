@@ -307,7 +307,7 @@ func TestAudit1_WorkMail_Organizations_Lifecycle(t *testing.T) {
 				require.NotEmpty(t, domains)
 				d := domains[0].(map[string]any)
 				assert.Contains(t, d["DomainName"].(string), "domaintest")
-				assert.Equal(t, true, d["IsDefault"])
+				assert.Equal(t, true, d["DefaultDomain"])
 			},
 		},
 		{
@@ -679,7 +679,7 @@ func TestAudit1_WorkMail_Groups_Lifecycle(t *testing.T) {
 				groups, ok := m["Groups"].([]any)
 				require.True(t, ok)
 				assert.Len(t, groups, 1)
-				assert.Equal(t, groupID, groups[0].(map[string]any)["Id"])
+				assert.Equal(t, groupID, groups[0].(map[string]any)["GroupId"])
 			},
 		},
 	}
@@ -1062,7 +1062,7 @@ func TestAudit1_WorkMail_MailDomains(t *testing.T) {
 				assert.GreaterOrEqual(t, len(domains), 2)
 				d := domains[0].(map[string]any)
 				assert.NotEmpty(t, d["DomainName"])
-				_, hasDefault := d["IsDefault"]
+				_, hasDefault := d["DefaultDomain"]
 				assert.True(t, hasDefault)
 			},
 		},
@@ -1205,7 +1205,7 @@ func TestAudit1_WorkMail_ImpersonationRoles(t *testing.T) {
 				rec := a1Do(t, h, "ListImpersonationRoles", fmt.Sprintf(`{"OrganizationId":%q}`, orgID))
 				require.Equal(t, http.StatusOK, rec.Code)
 				m := a1JSON(t, rec)
-				items, ok := m["Items"].([]any)
+				items, ok := m["Roles"].([]any)
 				require.True(t, ok)
 				assert.Len(t, items, 2)
 				item := items[0].(map[string]any)
