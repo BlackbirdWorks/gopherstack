@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ============================================================
@@ -18,9 +20,9 @@ import (
 
 func (h *Handler) createMulticastGroup(c *echo.Context) error {
 	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		Name        string            `json:"Name"`
-		Description string            `json:"Description"`
+		Name        string    `json:"Name"`
+		Description string    `json:"Description"`
+		Tags        []tags.KV `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -31,7 +33,7 @@ func (h *Handler) createMulticastGroup(c *echo.Context) error {
 		h.DefaultRegion,
 		req.Name,
 		req.Description,
-		req.Tags,
+		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
@@ -174,11 +176,11 @@ func (h *Handler) startMulticastGroupSession(c *echo.Context, id string) error {
 
 func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 	var req struct {
-		Tags             map[string]string `json:"Tags"`
-		Description      string            `json:"Description"`
-		Name             string            `json:"Name"`
-		WirelessDevices  []string          `json:"WirelessDevices"`
-		WirelessGateways []string          `json:"WirelessGateways"`
+		Description      string    `json:"Description"`
+		Name             string    `json:"Name"`
+		WirelessDevices  []string  `json:"WirelessDevices"`
+		WirelessGateways []string  `json:"WirelessGateways"`
+		Tags             []tags.KV `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -188,7 +190,7 @@ func (h *Handler) createNetworkAnalyzerConfiguration(c *echo.Context) error {
 		h.AccountID, h.DefaultRegion,
 		req.Name, req.Description,
 		req.WirelessDevices, req.WirelessGateways,
-		req.Tags,
+		tagKVsToMap(req.Tags),
 	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())

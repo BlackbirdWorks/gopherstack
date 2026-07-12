@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -270,13 +271,13 @@ func TestHandler_ListTagsTagUntagResource(t *testing.T) {
 	}{
 		{
 			name:      "tag_and_list",
-			addTags:   `{"Tags":{"env":"prod","team":"platform"}}`,
+			addTags:   `{"Tags":[{"Key":"env","Value":"prod"},{"Key":"team","Value":"platform"}]}`,
 			wantKey:   "env",
 			wantValue: "prod",
 		},
 		{
 			name:       "tag_then_untag",
-			addTags:    `{"Tags":{"env":"staging","team":"infra"}}`,
+			addTags:    `{"Tags":[{"Key":"env","Value":"staging"},{"Key":"team","Value":"infra"}]}`,
 			removeTags: []string{"team"},
 			wantKey:    "env",
 			wantValue:  "staging",
@@ -299,27 +300,25 @@ func TestHandler_ListTagsTagUntagResource(t *testing.T) {
 			arn := createResp["Arn"].(string)
 			require.NotEmpty(t, arn)
 
-			// Encode the ARN for URL path.
-			encodedARN := strings.ReplaceAll(arn, ":", "%3A")
-			encodedARN = strings.ReplaceAll(encodedARN, "/", "%2F")
+			// Real AWS binds all three tag ops to the bare "/tags" path with
+			// the resource ARN as the "resourceArn" query parameter (never a
+			// path segment).
+			encodedARN := url.QueryEscape(arn)
 
 			// TagResource
-			rec = doIoTWRequest(t, h, http.MethodPost, "/tags/"+encodedARN, tt.addTags)
+			rec = doIoTWRequest(t, h, http.MethodPost, "/tags?resourceArn="+encodedARN, tt.addTags)
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 
 			// Untag if specified.
 			if len(tt.removeTags) > 0 {
-				queryStr := ""
+				var queryStr strings.Builder
+				queryStr.WriteString("resourceArn=" + encodedARN)
 				for _, k := range tt.removeTags {
-					if queryStr != "" {
-						queryStr += "&"
-					}
-
-					queryStr += "tagKeys=" + k
+					queryStr.WriteString("&tagKeys=" + k)
 				}
 
 				e := echo.New()
-				req := httptest.NewRequest(http.MethodDelete, "/tags/"+encodedARN+"?"+queryStr, http.NoBody)
+				req := httptest.NewRequest(http.MethodDelete, "/tags?"+queryStr.String(), http.NoBody)
 				recDel := httptest.NewRecorder()
 				c := e.NewContext(req, recDel)
 				require.NoError(t, h.Handler()(c))
@@ -327,17 +326,26 @@ func TestHandler_ListTagsTagUntagResource(t *testing.T) {
 			}
 
 			// ListTags
-			rec = doIoTWRequest(t, h, http.MethodGet, "/tags/"+encodedARN, "")
+			rec = doIoTWRequest(t, h, http.MethodGet, "/tags?resourceArn="+encodedARN, "")
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var tagsResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
-			tags, ok := tagsResp["Tags"].(map[string]any)
+			tagList, ok := tagsResp["Tags"].([]any)
 			require.True(t, ok)
-			assert.Equal(t, tt.wantValue, tags[tt.wantKey])
+
+			got := make(map[string]string, len(tagList))
+
+			for _, kv := range tagList {
+				m, kvOK := kv.(map[string]any)
+				require.True(t, kvOK)
+				got[m["Key"].(string)] = m["Value"].(string)
+			}
+
+			assert.Equal(t, tt.wantValue, got[tt.wantKey])
 
 			if tt.wantGone != "" {
-				_, present := tags[tt.wantGone]
+				_, present := got[tt.wantGone]
 				assert.False(t, present, "tag %q should be removed", tt.wantGone)
 			}
 		})
@@ -687,13 +695,19 @@ func TestHandler_AssociateAwsAccountWithPartnerAccount(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandlerHTTP()
-			body := `{"Tags":{"env":"prod"}}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/partner-accounts/"+tt.partnerAccountID, body)
+			// Real AWS binds this op to POST /partner-accounts (no path
+			// parameter): the partner account ID is Sidewalk.AmazonId in the
+			// body, and Tags is a []Tag{Key,Value} list.
+			body := `{"Sidewalk":{"AmazonId":"` + tt.partnerAccountID + `"},"Tags":[{"Key":"env","Value":"prod"}]}`
+			rec := doIoTWRequest(t, h, http.MethodPost, "/partner-accounts", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.NotEmpty(t, resp["Arn"])
+			sidewalk, ok := resp["Sidewalk"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tt.partnerAccountID, sidewalk["AmazonId"])
 		})
 	}
 }

@@ -296,8 +296,9 @@ func TestRefinement1_DeviceProfile_RoundTrip(t *testing.T) {
 
 			h := newTestHandlerHTTP()
 
-			// Create
-			body := `{"Name":"` + tt.profileName + `","Tags":{"env":"test"}}`
+			// Create. Tags travel as []Tag{Key,Value}, matching real IoT
+			// Wireless's wire shape (never a bare {"k":"v"} map).
+			body := `{"Name":"` + tt.profileName + `","Tags":[{"Key":"env","Value":"test"}]}`
 			rec := doIoTWRequest(t, h, http.MethodPost, "/device-profiles", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
