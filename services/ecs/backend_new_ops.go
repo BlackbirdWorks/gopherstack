@@ -333,9 +333,12 @@ func (b *InMemoryBackend) DeleteCapacityProvider(nameOrArn string) (*CapacityPro
 }
 
 // DescribeCapacityProviders returns capacity providers, optionally filtered by name/ARN.
+// Names/ARNs that don't resolve to a known or built-in capacity provider are reported in
+// the returned Failures slice (reason MISSING), matching AWS's DescribeCapacityProviders
+// behavior of partial success rather than failing the whole call.
 func (b *InMemoryBackend) DescribeCapacityProviders(
 	nameOrArns []string,
-) ([]CapacityProvider, error) {
+) ([]CapacityProvider, []Failure, error) {
 	b.mu.RLock("DescribeCapacityProviders")
 	defer b.mu.RUnlock()
 
@@ -348,10 +351,11 @@ func (b *InMemoryBackend) DescribeCapacityProviders(
 			out = append(out, c)
 		}
 
-		return out, nil
+		return out, nil, nil
 	}
 
 	out := make([]CapacityProvider, 0, len(nameOrArns))
+	failures := make([]Failure, 0, len(nameOrArns))
 
 	for _, ref := range nameOrArns {
 		_, cp := b.findCapacityProviderLocked(ref)
@@ -359,7 +363,13 @@ func (b *InMemoryBackend) DescribeCapacityProviders(
 			// Fall back to built-in FARGATE / FARGATE_SPOT providers.
 			builtin := builtinCapacityProvider(ref)
 			if builtin == nil {
-				return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, ref)
+				failures = append(failures, Failure{
+					Arn:    ref,
+					Reason: statusMissing,
+					Detail: fmt.Sprintf("capacity provider %s not found", ref),
+				})
+
+				continue
 			}
 
 			out = append(out, *builtin)
@@ -372,7 +382,7 @@ func (b *InMemoryBackend) DescribeCapacityProviders(
 		out = append(out, c)
 	}
 
-	return out, nil
+	return out, failures, nil
 }
 
 // findCapacityProviderLocked returns the map key and pointer for a capacity provider by name or ARN.

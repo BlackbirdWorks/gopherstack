@@ -167,7 +167,7 @@ func TestRefinement1_DeepCopy_CapacityProviderTags(t *testing.T) {
 				cp.Tags[0].Value = "mutated"
 			}
 
-			cps, err := b.DescribeCapacityProviders([]string{"deep-copy-test"})
+			cps, _, err := b.DescribeCapacityProviders([]string{"deep-copy-test"})
 			require.NoError(t, err)
 			require.Len(t, cps, 1)
 
@@ -389,7 +389,7 @@ func TestRefinement1_NonNilEmptySlices(t *testing.T) {
 			t.Parallel()
 
 			b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-			cps, err := b.DescribeCapacityProviders(nil)
+			cps, _, err := b.DescribeCapacityProviders(nil)
 			require.NoError(t, err)
 			assert.NotNil(t, cps)
 			assert.Empty(t, cps)

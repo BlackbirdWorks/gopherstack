@@ -1,8 +1,8 @@
 ---
 service: ecs
-sdk_module: aws-sdk-go-v2/service/ecs@v1.86.2
-last_audit_commit: 86c2f9af
-last_audit_date: 2026-07-05
+sdk_module: aws-sdk-go-v2/service/ecs@v1.88.0
+last_audit_commit: 95dfa093
+last_audit_date: 2026-07-11
 overall: A
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response"}
@@ -47,7 +47,7 @@ ops:
   UpdateContainerAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeCapacityProviders: {wire: partial, errors: ok, state: ok, persist: ok, note: "no include=[TAGS] gating, no Cluster filter param, no Failures for unknown names (gap)"}
+  DescribeCapacityProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep: unknown names now report a Failures[] entry (reason MISSING) instead of failing the whole call — was a wire-shape bug, see Notes. Remaining gap: no include=[TAGS] gating, no Cluster filter param (see gaps list)."}
   UpdateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAccountSettings: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -75,7 +75,8 @@ families:
 gaps:
   - "PutClusterCapacityProviders/CreateService/UpdateService/RunTask do not validate that a referenced capacityProviderStrategy name is a real (created or FARGATE/FARGATE_SPOT builtin) capacity provider. AWS rejects unknown providers; this backend accepts any string. Not fixed this sweep to limit blast radius (many call sites, risk of breaking existing tests that use ad-hoc provider names). File follow-up bd issue before next ecs sweep."
   - "DescribeCapacityProviders/DescribeContainerInstances/DescribeTaskSets/DescribeExpressGatewayService do not support include=[TAGS] gating (tags are simply never returned by these four; DescribeClusters and DescribeTaskDefinition now/already do). Lower priority: unlike the DescribeClusters gap, no create path lets users set these tags in a way that becomes invisible, since ListTagsForResource still exposes them; it is purely a wire-shape completeness gap."
-  - "DescribeCapacityProviders additionally lacks the Cluster filter parameter and per-name Failures (unknown names are silently ok, not a discrete SDK gap but a shape simplification)."
+  - "DescribeCapacityProviders still lacks the Cluster filter parameter (when Cluster is specified, AWS returns only capacity providers associated with that cluster). Not fixed this sweep: purely additive/optional-param gap, no client breaks by its absence today, and no test in this repo exercises it. The per-name Failures gap noted in a previous sweep's ledger entry WAS fixed this sweep (see ops table + Notes) — that prior description (\"unknown names are silently ok\") undersold it: the actual prior behavior was a hard 400 for the *whole* request on any unknown name, a real partial-success/whole-request-failure wire bug, not just a shape simplification."
+  - "SDK bumped v1.86.2 -> v1.88.0 this sweep (no local services/ecs/ drift; SDK-only). New surface: ServiceRevision.Overrides -> ServiceRevisionOverrides.RuntimePlatform (types.RuntimePlatformOverride, CpuArchitecture only) — an output-only field AWS populates when it auto-detects an architecture mismatch during an ECS Express deployment (doc: \"You can't set this value\"). Not modeled (DescribeServiceRevisions never populates Overrides); no client-visible regression since the field is optional/omitempty and no test or codepath claims architecture-mismatch detection. Niche, deferred."
   - "ContinueServiceDeployment always returns ClientException (no paused lifecycle hook) because PAUSE-stage lifecycle hooks for blue/green deployments are not modeled at all (no hookId tracking, no pause state in the ECS_SERVICE_DEPLOYMENT / EXTERNAL deployment controllers). Implementing real hook pausing is a substantial feature (Lambda-invocation simulation, TEST_TRAFFIC_SHIFT/BAKE_TIME lifecycle stages) out of scope for this sweep; the op is real (validates ARN/hookId, returns AWS-shaped errors) rather than a stub."
   - "ECS -> ELB/ELBv2 target registration is config-only: Service.LoadBalancers/ServiceRegistries are stored and echoed back on Describe/Update, but nothing calls services/elbv2 to register/deregister targets in a target group, and ELB health does not feed back into ECS task/service health. Cross-service, lives outside services/ecs/ — reported, not fixed. No bd issue found for this in the tracker at time of writing; recommend filing one scoped to services/elbv2 + services/ecs integration."
   - "ECS -> Auto Scaling Group capacity providers are config-only: AutoScalingGroupProvider (ARN, ManagedScaling, ManagedTerminationProtection, ManagedDraining) is stored/echoed but never calls services/autoscaling to validate the ASG exists or to actually scale it in response to managed-scaling target utilization. Cross-service, lives outside services/ecs/ — reported, not fixed."
@@ -88,7 +89,60 @@ leaks: {status: found, note: "DeleteService leaked one ServiceDeployment map ent
 
 ## Notes
 
-Freeform findings from this sweep (gopherstack-7wu), for the next auditor.
+### 2026-07-11 re-audit (parity-4 branch, commit 95dfa093)
+
+Re-audit protocol: `git diff ce30166a..HEAD -- services/ecs/` showed **zero
+local drift** (the ledger's stated `last_audit_commit` 86c2f9af was not an
+ancestor of HEAD — it's a cloudformation commit on an unrelated,
+unmerged-at-audit-time branch `parity-sweep-3`; fell back to `ce30166a`, the
+commit that actually authored this ledger, as baseline per protocol). The
+only change in scope was an SDK bump, `aws-sdk-go-v2/service/ecs`
+v1.86.2 -> v1.88.0 (no new/removed operations, no new enums/errors, only
+doc-comment rewording plus one output-only field — see gaps list). Audit
+therefore focused on the three previously-flagged `partial` rows.
+
+**Fixed: `DescribeCapacityProviders` returned a whole-request 400 error
+when *any* requested name/ARN was unknown**, instead of AWS's documented
+partial-success behavior (`DescribeCapacityProvidersOutput.Failures
+[]types.Failure`). This is the same `Arn`/`Reason: MISSING`/`Detail` pattern
+already used correctly by `DescribeClusters`, `DescribeContainerInstances`,
+`DescribeTasks`, `DescribeServices`, and `DeleteTaskDefinitions` in this same
+package — `DescribeCapacityProviders` was the outlier, and had a test
+(`TestECS_DescribeCapacityProviders` "unknown capacity provider returns
+400") and a second test (`TestBatch3_CapacityProvider_Unknown_ReturnsError`)
+that encoded the wrong behavior as the expected contract. A real client
+calling `DescribeCapacityProviders(["my-cp", "typo-cp"])` to bulk-check
+several providers would get a total failure instead of `my-cp`'s data plus
+a `Failures` entry for `typo-cp` — this is a real behavioral divergence, not
+just a missing optional field.
+
+Fixed by changing `InMemoryBackend.DescribeCapacityProviders` (and the
+`Backend` interface) from `([]CapacityProvider, error)` to
+`([]CapacityProvider, []Failure, error)`, building a `Failure{Reason:
+"MISSING"}` entry per unresolved name/ARN (after the existing
+FARGATE/FARGATE_SPOT builtin fallback) instead of returning early with
+`ErrCapacityProviderNotFound`. `handleDescribeCapacityProviders` now emits
+`failures` in the JSON body (was entirely absent from the wire shape before).
+Rewrote the two tests that asserted the old (wrong) all-or-nothing behavior
+to assert the correct 200+Failures behavior, added a
+"mix of known and unknown returns partial success" case. `ErrCapacityProviderNotFound`
+is unchanged and still used correctly by `DeleteCapacityProvider` (single-resource
+delete, where AWS *does* 400 on not-found) and `UpdateCapacityProvider`.
+
+Files touched: `backend_iface.go`, `backend_new_ops.go`, `handler_new_ops.go`,
+`handler_new_ops_test.go`, `handler_batch3_test.go`, `handler_refinement1_test.go`
+(2-value call-site updates), `persistence_internal_test.go` (same). ~66 LOC.
+
+Re-verified `PutClusterCapacityProviders` (still no existence validation of
+referenced capacity-provider names — deliberate prior-sweep decision, see
+gaps list, not re-litigated: fixing it touches `CreateService`/
+`UpdateService`/`RunTask` too and risks breaking ad-hoc-named strategies used
+throughout the test suite; out of scope for a targeted bug-fix pass) and
+`ContinueServiceDeployment` (still an honest, real, ARN/hookId-validating
+`ClientException` — no regression, ledger description remains accurate) —
+both confirmed unchanged from the prior sweep's assessment.
+
+### Prior sweep (gopherstack-7wu)
 
 ### Severe, fixed this sweep
 

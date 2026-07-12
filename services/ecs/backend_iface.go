@@ -73,7 +73,7 @@ type Backend interface {
 
 	CreateCapacityProvider(input CreateCapacityProviderInput) (*CapacityProvider, error)
 	DeleteCapacityProvider(nameOrArn string) (*CapacityProvider, error)
-	DescribeCapacityProviders(nameOrArns []string) ([]CapacityProvider, error)
+	DescribeCapacityProviders(nameOrArns []string) ([]CapacityProvider, []Failure, error)
 
 	// Account settings
 

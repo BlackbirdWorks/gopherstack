@@ -845,15 +845,27 @@ func TestBatch3_CapacityProvider_FARGATE_BuiltIn_WithCreated(t *testing.T) {
 	assert.Contains(t, names, "my-asg-cp")
 }
 
-func TestBatch3_CapacityProvider_Unknown_ReturnsError(t *testing.T) {
+func TestBatch3_CapacityProvider_Unknown_ReturnsFailure(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch3Handler(t)
 
+	// AWS reports unknown capacity providers via the Failures list (reason
+	// MISSING) with a 200 response, not a whole-request error.
 	resp := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{
 		"capacityProviders": []string{"nonexistent-cp"},
 	})
-	assert.NotEqual(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	assert.Empty(t, out["capacityProviders"])
+
+	failures := out["failures"].([]any)
+	require.Len(t, failures, 1)
+	f := failures[0].(map[string]any)
+	assert.Equal(t, "nonexistent-cp", f["arn"])
+	assert.Equal(t, "MISSING", f["reason"])
 }
 
 // ================================================================
