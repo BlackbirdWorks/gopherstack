@@ -135,13 +135,15 @@ type Alias struct {
 
 // CreateKeyInput is the request payload for CreateKey.
 type CreateKeyInput struct {
-	Description string `json:"Description,omitempty"`
-	KeyUsage    string `json:"KeyUsage,omitempty"`
-	KeySpec     string `json:"KeySpec,omitempty"`
-	Origin      string `json:"Origin,omitempty"`
-	Region      string `json:"-"`
-	Tags        []Tag  `json:"Tags,omitempty"`
-	MultiRegion bool   `json:"MultiRegion,omitempty"`
+	Description                    string `json:"Description,omitempty"`
+	KeyUsage                       string `json:"KeyUsage,omitempty"`
+	KeySpec                        string `json:"KeySpec,omitempty"`
+	Origin                         string `json:"Origin,omitempty"`
+	Policy                         string `json:"Policy,omitempty"`
+	Region                         string `json:"-"`
+	Tags                           []Tag  `json:"Tags,omitempty"`
+	MultiRegion                    bool   `json:"MultiRegion,omitempty"`
+	BypassPolicyLockoutSafetyCheck bool   `json:"BypassPolicyLockoutSafetyCheck,omitempty"`
 }
 
 // CreateKeyOutput is the response payload for CreateKey.

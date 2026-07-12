@@ -728,6 +728,11 @@ func (b *InMemoryBackend) CreateKey(
 		region = input.Region
 	}
 
+	// An inline policy, if supplied, must be a well-formed key policy document.
+	if input.Policy != "" && !validKeyPolicyDoc(input.Policy) {
+		return nil, ErrMalformedPolicyDocument
+	}
+
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
 	keySpec := input.KeySpec
@@ -788,6 +793,13 @@ func (b *InMemoryBackend) CreateKey(
 	}
 
 	b.keysStore(region).Put(key)
+
+	// Persist the caller-supplied policy so GetKeyPolicy returns it verbatim
+	// rather than synthesizing the default (Terraform's aws_kms_key polls
+	// GetKeyPolicy after create until the configured policy propagates).
+	if input.Policy != "" {
+		b.policiesStore(region)[keyID] = input.Policy
+	}
 
 	out := &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
@@ -2833,20 +2845,28 @@ func (b *InMemoryBackend) PutKeyPolicy(ctx context.Context, input *PutKeyPolicyI
 		return ErrKeyNotFound
 	}
 
-	var policyDoc struct {
-		Statement any    `json:"Statement"`
-		Version   string `json:"Version"`
-	}
-	if uerr := json.Unmarshal([]byte(input.Policy), &policyDoc); uerr != nil {
-		return ErrMalformedPolicyDocument
-	}
-	if policyDoc.Version == "" || policyDoc.Statement == nil {
+	if !validKeyPolicyDoc(input.Policy) {
 		return ErrMalformedPolicyDocument
 	}
 
 	b.policiesStore(region)[keyID] = input.Policy
 
 	return nil
+}
+
+// validKeyPolicyDoc reports whether s is a well-formed KMS key policy document
+// (valid JSON with non-empty Version and a Statement). Used by both PutKeyPolicy
+// and CreateKey (which accepts an inline Policy).
+func validKeyPolicyDoc(s string) bool {
+	var policyDoc struct {
+		Statement any    `json:"Statement"`
+		Version   string `json:"Version"`
+	}
+	if err := json.Unmarshal([]byte(s), &policyDoc); err != nil {
+		return false
+	}
+
+	return policyDoc.Version != "" && policyDoc.Statement != nil
 }
 
 // GetKeyPolicy retrieves the key policy for a KMS key.
