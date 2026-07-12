@@ -709,6 +709,14 @@ func (b *InMemoryBackend) scheduleEndpointTransition(
 		if ep, ok := b.endpointsStore(region).Get(name); ok {
 			ep.EndpointStatus = nextStatus
 			ep.LastModifiedTime = time.Now()
+
+			if nextStatus == statusInService {
+				for i := range ep.ProductionVariants {
+					ep.ProductionVariants[i].CurrentWeight = ep.ProductionVariants[i].DesiredWeight
+					ep.ProductionVariants[i].CurrentInstanceCount = ep.ProductionVariants[i].DesiredInstanceCount
+					ep.ProductionVariants[i].VariantStatus = []ProductionVariantStatus{{Status: statusInService}}
+				}
+			}
 		}
 	})
 }
@@ -773,10 +781,12 @@ func (b *InMemoryBackend) UpdateEndpointWeightsAndCapacitiesFull(
 		for i := range ep.ProductionVariants {
 			if ep.ProductionVariants[i].VariantName == change.VariantName {
 				if change.DesiredWeight != nil {
-					ep.ProductionVariants[i].InitialVariantWeight = *change.DesiredWeight
+					w := *change.DesiredWeight
+					ep.ProductionVariants[i].DesiredWeight = &w
 				}
 				if change.DesiredInstanceCount != nil {
-					ep.ProductionVariants[i].InitialInstanceCount = *change.DesiredInstanceCount
+					c := *change.DesiredInstanceCount
+					ep.ProductionVariants[i].DesiredInstanceCount = &c
 				}
 				found = true
 

@@ -492,6 +492,40 @@ func TestHandler_DescribeEndpoint_FullResponse(t *testing.T) {
 	assert.NotEmpty(t, descResp["EndpointArn"])
 	// Status is Creating initially (FSM transitions async)
 	assert.Contains(t, []any{"Creating", "InService"}, descResp["EndpointStatus"])
+
+	// ProductionVariants must be populated from the endpoint config, using
+	// the AWS DescribeEndpoint wire shape (Desired*/Current*, not Initial*).
+	variants, ok := descResp["ProductionVariants"].([]any)
+	require.True(t, ok, "ProductionVariants must be present in DescribeEndpoint response")
+	require.Len(t, variants, 1)
+	variant, ok := variants[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "main", variant["VariantName"])
+	assert.InDelta(t, 1.0, variant["DesiredWeight"], 0.0001)
+	assert.InDelta(t, float64(1), variant["DesiredInstanceCount"], 0.0001)
+	assert.Nil(t, variant["CurrentWeight"])
+	assert.Nil(t, variant["CurrentInstanceCount"])
+}
+
+func TestHandler_CreateEndpoint_UnknownEndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateEndpoint", map[string]any{
+		"EndpointName":       "ep-missing-config",
+		"EndpointConfigName": "does-not-exist",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ValidationException", errResp["__type"])
+
+	rec = doSageMakerRequest(t, h, "DescribeEndpoint", map[string]any{
+		"EndpointName": "ep-missing-config",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_DescribeEndpoint_EventuallyInService(t *testing.T) {
@@ -526,6 +560,15 @@ func TestHandler_DescribeEndpoint_EventuallyInService(t *testing.T) {
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	assert.Equal(t, "InService", descResp["EndpointStatus"])
+
+	variants, ok := descResp["ProductionVariants"].([]any)
+	require.True(t, ok)
+	require.Len(t, variants, 1)
+	variant, ok := variants[0].(map[string]any)
+	require.True(t, ok)
+	// Once InService, Current* mirrors Desired*.
+	assert.InDelta(t, 1.0, variant["CurrentWeight"], 0.0001)
+	assert.InDelta(t, float64(1), variant["CurrentInstanceCount"], 0.0001)
 }
 
 // ---------------------------------------------------------------------------
