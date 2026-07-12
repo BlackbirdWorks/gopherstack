@@ -1816,6 +1816,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 	var body struct {
 		AttributePayload *AttributePayload `json:"attributePayload"`
 		ThingTypeName    string            `json:"thingTypeName"`
+		BillingGroupName string            `json:"billingGroupName"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -1827,6 +1828,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 		ThingName:        thingName,
 		ThingTypeName:    body.ThingTypeName,
 		AttributePayload: body.AttributePayload,
+		BillingGroupName: body.BillingGroupName,
 	})
 	if err != nil {
 		return h.handleError(c, err)
@@ -1847,7 +1849,7 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyThingName:      t.ThingName,
 		keyThingArn:       t.ARN,
 		"thingId":         t.ThingID,
@@ -1855,7 +1857,12 @@ func (h *Handler) handleDescribeThing(c *echo.Context) error {
 		keyAttributes:     t.Attributes,
 		keyVersion:        t.Version,
 		"defaultClientId": t.ThingName,
-	})
+	}
+	if t.BillingGroupName != "" {
+		resp["billingGroupName"] = t.BillingGroupName
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteThing(c *echo.Context) error {
@@ -1945,7 +1952,7 @@ func (h *Handler) handleAttachPrincipalPolicy(c *echo.Context) error {
 		PolicyName: policyName,
 		Principal:  principal,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -1984,7 +1991,7 @@ func (h *Handler) handleDescribeEndpoint(c *echo.Context) error {
 
 	out, err := h.Backend.DescribeEndpoint(endpointType)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -2008,7 +2015,7 @@ func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 		CertificateID: certID,
 		SetAsActive:   body.SetAsActive,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2023,7 +2030,7 @@ func (h *Handler) handleAddThingToBillingGroup(c *echo.Context) error {
 	}
 
 	if err := h.Backend.AddThingToBillingGroup(&body); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2038,7 +2045,7 @@ func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
 	}
 
 	if err := h.Backend.AddThingToThingGroup(&body); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2080,7 +2087,7 @@ func (h *Handler) handleAssociateSbomWithPackageVersion(c *echo.Context) error {
 		Sbom:        body.Sbom,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -2109,7 +2116,7 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 		NamespaceID: body.NamespaceID,
 	})
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, out)
@@ -2131,7 +2138,7 @@ func (h *Handler) handleAttachPolicy(c *echo.Context) error {
 		PolicyName: policyName,
 		Target:     body.Target,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2147,7 +2154,7 @@ func (h *Handler) handleAttachSecurityProfile(c *echo.Context) error {
 		SecurityProfileName:      profileName,
 		SecurityProfileTargetArn: targetArn,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2163,7 +2170,7 @@ func (h *Handler) handleAttachThingPrincipal(c *echo.Context) error {
 		ThingName: thingName,
 		Principal: principal,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2177,7 +2184,7 @@ func (h *Handler) handleCancelAuditMitigationActionsTask(c *echo.Context) error 
 	if err := h.Backend.CancelAuditMitigationActionsTask(&CancelAuditMitigationActionsTaskInput{
 		TaskID: taskID,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2191,7 +2198,7 @@ func (h *Handler) handleCancelAuditTask(c *echo.Context) error {
 	if err := h.Backend.CancelAuditTask(&CancelAuditTaskInput{
 		AuditTaskID: taskID,
 	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyError: err.Error()})
+		return h.handleError(c, err)
 	}
 
 	return c.NoContent(http.StatusOK)
@@ -2728,10 +2735,12 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 
 	desc := ""
 	var attrs map[string]string
+	var merge *bool
 	if body.ThingGroupProperties != nil {
 		desc = body.ThingGroupProperties.ThingGroupDescription
 		if body.ThingGroupProperties.AttributePayload != nil {
 			attrs = body.ThingGroupProperties.AttributePayload.Attributes
+			merge = body.ThingGroupProperties.AttributePayload.Merge
 		}
 	}
 
@@ -2739,6 +2748,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		ThingGroupName:  thingGroupName,
 		Description:     desc,
 		Attributes:      attrs,
+		Merge:           merge,
 		ExpectedVersion: body.ExpectedVersion,
 	})
 	if err != nil {
