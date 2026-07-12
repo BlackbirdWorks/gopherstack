@@ -1066,37 +1066,49 @@ const (
 	awsErrInvalidCiphertext = "InvalidCiphertextException"
 )
 
-// kmsErrorEntry maps a sentinel error to its AWS error type string.
+// kmsErrorEntry maps a sentinel error to its AWS error type string and HTTP status.
+// httpStatus is 0 for the common case (400 Bad Request, i.e. a client-fault exception);
+// set it explicitly only for server-fault exceptions (ErrorFault: Server in the real SDK).
 type kmsErrorEntry struct {
-	sentinel error
-	awsType  string
+	sentinel   error
+	awsType    string
+	httpStatus int
 }
 
 // kmsErrorTable returns the ordered error-to-AWS-type mapping for KMS error classification.
 // Defined as a function to satisfy gochecknoglobals.
 func kmsErrorTable() []kmsErrorEntry {
 	return []kmsErrorEntry{
-		{ErrKeyNotFound, awsErrNotFound},
-		{ErrMalformedPolicyDocument, "MalformedPolicyDocumentException"},
-		{ErrAliasNotFound, awsErrNotFound},
-		{ErrGrantNotFound, awsErrNotFound},
-		{ErrCustomKeyStoreNotFound, "CustomKeyStoreNotFoundException"},
-		{ErrKeyDisabled, "DisabledException"},
-		{ErrKeyInvalidState, "KMSInvalidStateException"},
-		{ErrInvalidKeyUsage, "InvalidKeyUsageException"},
-		{ErrAliasAlreadyExists, "AlreadyExistsException"},
-		{ErrCustomKeyStoreAlreadyExists, "CustomKeyStoreNameInUseException"},
-		{ErrIncorrectKey, "IncorrectKeyException"},
-		{ErrInvalidCiphertext, awsErrInvalidCiphertext},
-		{ErrCiphertextTooShort, awsErrInvalidCiphertext},
-		{ErrInvalidSignature, "KMSInvalidSignatureException"},
-		{ErrUnsupportedOrigin, "UnsupportedOperationException"},
-		{ErrValidation, awsErrValidation},
-		{ErrInvalidDataKeySize, awsErrValidation},
-		{ErrInvalidGrantToken, "InvalidGrantTokenException"},
-		{ErrLimitExceeded, "LimitExceededException"},
-		{ErrInvalidAlgorithm, "InvalidAlgorithmException"},
-		{ErrUnknownOperation, "UnknownOperationException"},
+		{sentinel: ErrKeyNotFound, awsType: awsErrNotFound},
+		{sentinel: ErrMalformedPolicyDocument, awsType: "MalformedPolicyDocumentException"},
+		{sentinel: ErrAliasNotFound, awsType: awsErrNotFound},
+		{sentinel: ErrGrantNotFound, awsType: awsErrNotFound},
+		{sentinel: ErrCustomKeyStoreNotFound, awsType: "CustomKeyStoreNotFoundException"},
+		{sentinel: ErrKeyDisabled, awsType: "DisabledException"},
+		{sentinel: ErrKeyInvalidState, awsType: "KMSInvalidStateException"},
+		{sentinel: ErrInvalidKeyUsage, awsType: "InvalidKeyUsageException"},
+		{sentinel: ErrAliasAlreadyExists, awsType: "AlreadyExistsException"},
+		{sentinel: ErrCustomKeyStoreAlreadyExists, awsType: "CustomKeyStoreNameInUseException"},
+		{sentinel: ErrIncorrectKey, awsType: "IncorrectKeyException"},
+		{sentinel: ErrInvalidCiphertext, awsType: awsErrInvalidCiphertext},
+		{sentinel: ErrCiphertextTooShort, awsType: awsErrInvalidCiphertext},
+		{sentinel: ErrInvalidSignature, awsType: "KMSInvalidSignatureException"},
+		{sentinel: ErrUnsupportedOrigin, awsType: "UnsupportedOperationException"},
+		{sentinel: ErrValidation, awsType: awsErrValidation},
+		{sentinel: ErrInvalidDataKeySize, awsType: awsErrValidation},
+		{sentinel: ErrInvalidGrantToken, awsType: "InvalidGrantTokenException"},
+		{sentinel: ErrLimitExceeded, awsType: "LimitExceededException"},
+		{sentinel: ErrInvalidAlgorithm, awsType: "InvalidAlgorithmException"},
+		{sentinel: ErrUnknownOperation, awsType: "UnknownOperationException"},
+		{sentinel: ErrExpiredKeyMaterial, awsType: "ExpiredImportTokenException"},
+		// KeyUnavailableException is a server-fault exception in the real SDK
+		// (ErrorFault: Server) — real AWS returns it with a 500 status, unlike the
+		// client-fault exceptions above which are all 400.
+		{
+			sentinel:   ErrKeyMaterialUnavailable,
+			awsType:    "KeyUnavailableException",
+			httpStatus: http.StatusInternalServerError,
+		},
 	}
 }
 
@@ -1124,11 +1136,19 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 func classifyKMSError(reqErr error) (string, int) {
 	for _, m := range kmsErrorTable() {
 		if errors.Is(reqErr, m.sentinel) {
+			if m.httpStatus != 0 {
+				return m.awsType, m.httpStatus
+			}
+
 			return m.awsType, http.StatusBadRequest
 		}
 	}
 
-	return "InternalServiceError", http.StatusInternalServerError
+	// KMSInternalException is the real AWS KMS type for an unclassified server-side
+	// failure; "InternalServiceError" is not a KMS exception name at all and would
+	// deserialize client-side as an opaque *smithy.GenericAPIError instead of the
+	// real types.KMSInternalException.
+	return "KMSInternalException", http.StatusInternalServerError
 }
 
 // TaggedKeyInfo contains a KMS key's ARN and tag snapshot.

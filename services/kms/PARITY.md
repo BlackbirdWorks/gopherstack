@@ -1,15 +1,18 @@
 ---
 service: kms
-sdk_module: aws-sdk-go-v2/service/kms@v1.53.6
-last_audit_commit: ede7169a
-last_audit_date: 2026-07-05
-overall: B            # already-accurate op-by-op; this pass found and fixed 5 genuine gaps
+sdk_module: aws-sdk-go-v2/service/kms@v1.54.0
+last_audit_commit: eb94f3c3
+last_audit_date: 2026-07-11
+overall: A-           # re-audit; local surface unchanged since last sweep (sdk bumped
+                       # 1.53.6->1.54.0, additive-only: request serialization snapshot
+                       # tests, no new ops/fields). Found + fixed 2 missing errCodeLookup
+                       # entries and 1 made-up default exception name.
 ops:
   CreateKey: {wire: ok, errors: fixed, state: ok, persist: ok, note: "invalid KeySpec now classifies as ValidationException (400), not InternalServiceError (500); tags now validated before the key is created (was: orphan-leak on bad tag)"}
   DescribeKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ListKeys: {wire: ok, errors: ok, state: ok, persist: ok}
-  Encrypt: {wire: ok, errors: ok, state: ok, persist: ok, note: "real AES-256-GCM / RSA-OAEP-SHA-256, AAD-bound encryption context, grant-token constraint check already present"}
-  Decrypt: {wire: ok, errors: ok, state: ok, persist: ok, note: "key ID embedded in blob prefix; mismatched context fails AES-GCM auth -> InvalidCiphertextException; history fallback for post-rotation ciphertexts"}
+  Encrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "real AES-256-GCM / RSA-OAEP-SHA-256, AAD-bound encryption context, grant-token constraint check already present; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
+  Decrypt: {wire: ok, errors: fixed, state: ok, persist: ok, note: "key ID embedded in blob prefix; mismatched context fails AES-GCM auth -> InvalidCiphertextException; history fallback for post-rotation ciphertexts; expired imported material now classifies as ExpiredImportTokenException (400), not 500"}
   ReEncrypt: {wire: ok, errors: ok, state: ok, persist: ok}
   GenerateDataKey: {wire: ok, errors: ok, state: ok, persist: ok}
   GenerateDataKeyWithoutPlaintext: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -61,6 +64,7 @@ ops:
   ListResourceTags: {wire: ok, errors: ok, state: ok, persist: n/a}
 families:
   crypto_core: {status: ok, note: "AES-256-GCM (real Seal/Open, AAD = keyID + sorted encryption-context pairs), RSA-OAEP-SHA-256/SHA-1 fallback, RSASSA-PSS/PKCS1v15, ECDSA P-256/384/521, ECDH (crypto/ecdh), HMAC-SHA-256/384/512 — all real crypto/*, no mock byte-flipping anywhere in crypto.go"}
+  error_classification: {status: fixed, note: "kmsErrorTable was missing entries for ErrExpiredKeyMaterial and ErrKeyMaterialUnavailable (raised by checkKeyMaterialExpiry/requireKeyMaterial, reachable from every crypto op: Encrypt, Decrypt, ReEncrypt, Sign, Verify, GetPublicKey, GenerateMac, VerifyMac, DeriveSharedSecret, GenerateDataKeyPair(WithoutPlaintext)), so both fell through to the generic 500 default. Also, that generic default itself emitted the type string \"InternalServiceError\", which is not a real KMS exception name (the real SDK's unclassified-server-error type is KMSInternalException) -- a caller's errors.As(&types.KMSInternalException{}) would never match. Fixed: added both sentinels to the table (ExpiredImportTokenException/400 client-fault, KeyUnavailableException/500 server-fault per the real SDK's ErrorFault), and changed the default-branch type string to KMSInternalException."}
   key_state_machine: {status: ok, note: "Enabled/Disabled/PendingDeletion/PendingImport transitions all gated; keyStateError() maps Disabled->DisabledException, everything else->KMSInvalidStateException"}
   multi_region: {status: ok, note: "ReplicateKey/UpdatePrimaryRegion primary<->replica promotion verified by existing TestUpdatePrimaryRegion_RoleSwap; DescribeKey MultiRegionConfiguration built correctly for both primary and replica sides"}
 gaps:
@@ -174,3 +178,47 @@ Every fix in this pass was proven with a negative control: the corresponding fix
 reverted locally, the new test was confirmed to fail (or fail to compile, for the wire-shape
 field additions) against the reverted code, then the fix was reapplied and the full suite
 re-run green. See `parity_sweep3_test.go`.
+
+## 2026-07-11 re-audit (bd: none filed yet — see report)
+
+Per the re-audit protocol: `git diff ede7169a..eb94f3c3 -- services/kms/` showed only the
+sweep-3 commit itself touching this service (no drift since the ledger above was written),
+and `aws-sdk-go-v2/service/kms` bumped v1.53.6 -> v1.54.0 with only "Add request
+serialization snapshot tests" in the changelog (no new ops/fields). So this pass audited the
+`kmsErrorTable()` / `classifyKMSError` machinery specifically (an area the sweep-3 notes
+already flagged as a recurring bug class) rather than re-walking every already-`ok` row.
+
+### Fixed this pass
+
+1. **Two sentinel errors missing from `kmsErrorTable()` (moderate, same bug class as
+   sweep 3's `ValidationException` gap).** `ErrExpiredKeyMaterial` (raised by
+   `checkKeyMaterialExpiry`, reachable from `Encrypt`/`Decrypt`/etc. on a key whose
+   imported material has passed its `ValidTo`) and `ErrKeyMaterialUnavailable` (raised by
+   `requireKeyMaterial` when key material is absent, e.g. after restoring an old-format
+   snapshot) both had no entry in the table, so `classifyKMSError` fell through to the
+   generic default branch and returned a 500 for both — even though `ErrExpiredKeyMaterial`
+   is a genuine 400 client-fault scenario (bad/expired import, not a server problem). Fixed
+   by adding both to the table: `ErrExpiredKeyMaterial` -> `ExpiredImportTokenException`
+   (400, confirmed a client-fault exception in the real SDK), `ErrKeyMaterialUnavailable`
+   -> `KeyUnavailableException` (500, confirmed `ErrorFault: Server` in the real SDK).
+   Required extending `kmsErrorEntry` with an optional `httpStatus` field (0 = default 400)
+   since this is the first table entry that isn't a plain client-fault 400.
+2. **The default/unclassified-error branch emitted a type string that isn't a real KMS
+   exception (minor but structural).** `classifyKMSError`'s fallback returned
+   `"InternalServiceError"`, which does not appear anywhere in
+   `aws-sdk-go-v2/service/kms/types/errors.go` — the real type for an unclassified
+   server-side failure is `KMSInternalException`. A caller doing
+   `errors.As(err, &types.KMSInternalException{})` (a real, documented pattern for
+   distinguishing retryable server errors) would never match against this emulator's
+   output. Fixed by changing the fallback's type string to `"KMSInternalException"`.
+   Verified no test asserted the literal string `"InternalServiceError"` (only comments
+   did) before making the change.
+
+Both fixes proven with the same negative-control method as sweep 3: see
+`Test_KMS_ErrorClassification_MissingTableEntries` in `parity_sweep3_test.go` — reverting
+`handler.go` alone (via `git stash`) was confirmed to fail both subtests with
+`InternalServiceError` in place of the expected exception type, then the fix was reapplied
+and the full suite re-run green.
+
+No other gaps found this pass. The three deferred items and the previously-fixed leak in the
+`ops`/`gaps`/`leaks` block above are unchanged and still accurate.
