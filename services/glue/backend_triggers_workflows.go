@@ -9,10 +9,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// TriggerAction represents an action for a Glue trigger.
+// TriggerAction represents an action for a Glue trigger. An action fires either a
+// job (JobName) or a crawler (CrawlerName) — real AWS triggers support both.
 type TriggerAction struct {
-	Arguments map[string]string `json:"Arguments,omitempty"`
-	JobName   string            `json:"JobName,omitempty"`
+	Arguments   map[string]string `json:"Arguments,omitempty"`
+	JobName     string            `json:"JobName,omitempty"`
+	CrawlerName string            `json:"CrawlerName,omitempty"`
 }
 
 // TriggerPredicate represents a predicate for a conditional trigger.
@@ -38,7 +40,19 @@ type Trigger struct {
 	State     string            `json:"State,omitempty"`
 	Schedule  string            `json:"Schedule,omitempty"`
 	Actions   []TriggerAction   `json:"Actions,omitempty"`
+	// StartOnCreation mirrors CreateTriggerInput.StartOnCreation: when true, a
+	// SCHEDULED or CONDITIONAL trigger is activated immediately on creation. It is
+	// not part of the Trigger wire shape itself (hence json:"-"), only of the
+	// create request, matching the real CreateTriggerInput/Trigger type split.
+	StartOnCreation bool `json:"-"`
 }
+
+// triggerTypeOnDemand is the TriggerType wire value for on-demand triggers. Per AWS
+// docs (about-triggers.html): "On-demand triggers never enter the ACTIVATED or
+// DEACTIVATED state. They always remain in the CREATED state," and firing one
+// (StartTrigger) immediately runs its actions rather than switching to a
+// long-lived "active" monitoring state like SCHEDULED/CONDITIONAL/EVENT triggers do.
+const triggerTypeOnDemand = "ON_DEMAND"
 
 // Workflow represents a Glue workflow.
 type Workflow struct {
@@ -180,6 +194,15 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 		stored.State = "CREATED"
 	}
 
+	// StartOnCreation only applies to SCHEDULED/CONDITIONAL/EVENT triggers; AWS
+	// docs state it is "not supported for ON_DEMAND triggers" (which never leave
+	// CREATED anyway).
+	if stored.StartOnCreation && stored.Type != triggerTypeOnDemand {
+		stored.State = "ACTIVATED"
+	}
+
+	stored.StartOnCreation = false
+
 	b.triggers.Put(stored)
 
 	return cloneTrigger(stored), nil
@@ -265,22 +288,56 @@ func (b *InMemoryBackend) DeleteTrigger(name string) error {
 	return nil
 }
 
-// StartTrigger activates a Glue trigger.
+// StartTrigger activates a Glue trigger. Per AWS docs (about-triggers.html),
+// on-demand triggers never enter the ACTIVATED state — they always remain CREATED —
+// and firing one immediately runs its actions (job runs / crawler runs) rather than
+// switching to a long-lived "active" monitoring state the way SCHEDULED/CONDITIONAL/
+// EVENT triggers do.
 func (b *InMemoryBackend) StartTrigger(name string) error {
 	b.mu.Lock("StartTrigger")
-	defer b.mu.Unlock()
 
 	t, ok := b.triggers.Get(name)
 	if !ok {
+		b.mu.Unlock()
+
 		return ErrNotFound
 	}
 
-	t.State = "ACTIVATED"
+	onDemand := t.Type == triggerTypeOnDemand
+	if !onDemand {
+		t.State = "ACTIVATED"
+	}
+
+	actions := append([]TriggerAction(nil), t.Actions...)
+	b.mu.Unlock()
+
+	if onDemand {
+		// Fire outside the trigger lock: StartJobRun/StartCrawler take the same
+		// coarse backend lock, and it is not reentrant.
+		b.fireTriggerActions(actions)
+	}
 
 	return nil
 }
 
-// StopTrigger deactivates a Glue trigger.
+// fireTriggerActions starts the job run or crawler run for each action of a fired
+// on-demand trigger. Per-action errors are not propagated: AWS's StartTrigger
+// returns as soon as the trigger fires, before the resulting job runs/crawls
+// complete or are even guaranteed to start successfully.
+func (b *InMemoryBackend) fireTriggerActions(actions []TriggerAction) {
+	for _, a := range actions {
+		switch {
+		case a.JobName != "":
+			_, _ = b.StartJobRun(a.JobName, a.Arguments)
+		case a.CrawlerName != "":
+			_ = b.StartCrawler(a.CrawlerName)
+		}
+	}
+}
+
+// StopTrigger deactivates a Glue trigger. On-demand triggers never enter the
+// DEACTIVATED state (AWS: they always remain CREATED), so StopTrigger is a no-op
+// for them beyond existence-checking.
 func (b *InMemoryBackend) StopTrigger(name string) error {
 	b.mu.Lock("StopTrigger")
 	defer b.mu.Unlock()
@@ -290,7 +347,9 @@ func (b *InMemoryBackend) StopTrigger(name string) error {
 		return ErrNotFound
 	}
 
-	t.State = "DEACTIVATED"
+	if t.Type != triggerTypeOnDemand {
+		t.State = "DEACTIVATED"
+	}
 
 	return nil
 }

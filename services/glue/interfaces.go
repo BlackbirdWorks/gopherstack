@@ -306,7 +306,7 @@ type StorageBackend interface {
 	) error
 
 	// Resource policy operations.
-	PutResourcePolicy(policy, resourceARN string) (string, error)
+	PutResourcePolicy(policy, resourceARN, existsCondition, hashCondition string) (string, error)
 	GetResourcePolicy(resourceARN string) (string, string, error)
 	DeleteResourcePolicy(resourceARN, policyHash string) error
 	ListResourcePolicies() []*resourcePolicyEntry

@@ -1290,12 +1290,13 @@ func (h *Handler) handleCreateTableOptimizer(
 
 // createTriggerInput holds input for CreateTrigger.
 type createTriggerInput struct {
-	Tags      map[string]string `json:"Tags,omitempty"`
-	Predicate *TriggerPredicate `json:"Predicate,omitempty"`
-	Schedule  string            `json:"Schedule,omitempty"`
-	Name      string            `json:"Name"`
-	Type      string            `json:"Type,omitempty"`
-	Actions   []TriggerAction   `json:"Actions,omitempty"`
+	Tags            map[string]string `json:"Tags,omitempty"`
+	Predicate       *TriggerPredicate `json:"Predicate,omitempty"`
+	Schedule        string            `json:"Schedule,omitempty"`
+	Name            string            `json:"Name"`
+	Type            string            `json:"Type,omitempty"`
+	Actions         []TriggerAction   `json:"Actions,omitempty"`
+	StartOnCreation bool              `json:"StartOnCreation,omitempty"`
 }
 
 // createTriggerOutput holds the result for CreateTrigger.
@@ -1308,11 +1309,12 @@ func (h *Handler) handleCreateTrigger(
 	in *createTriggerInput,
 ) (*createTriggerOutput, error) {
 	t := Trigger{
-		Name:      in.Name,
-		Type:      in.Type,
-		Schedule:  in.Schedule,
-		Actions:   in.Actions,
-		Predicate: in.Predicate,
+		Name:            in.Name,
+		Type:            in.Type,
+		Schedule:        in.Schedule,
+		Actions:         in.Actions,
+		Predicate:       in.Predicate,
+		StartOnCreation: in.StartOnCreation,
 	}
 
 	created, err := h.Backend.CreateTrigger(t, in.Tags)
@@ -4621,8 +4623,10 @@ func (h *Handler) handlePutDataQualityProfileAnnotation(
 
 // putResourcePolicyInput holds input for PutResourcePolicy.
 type putResourcePolicyInput struct {
-	PolicyInJSON string `json:"PolicyInJson"`
-	ResourceArn  string `json:"ResourceArn,omitempty"`
+	PolicyInJSON          string `json:"PolicyInJson"`
+	ResourceArn           string `json:"ResourceArn,omitempty"`
+	PolicyExistsCondition string `json:"PolicyExistsCondition,omitempty"`
+	PolicyHashCondition   string `json:"PolicyHashCondition,omitempty"`
 }
 
 // putResourcePolicyOutput holds the result for PutResourcePolicy.
@@ -4634,7 +4638,12 @@ func (h *Handler) handlePutResourcePolicy(
 	_ context.Context,
 	in *putResourcePolicyInput,
 ) (*putResourcePolicyOutput, error) {
-	hash, err := h.Backend.PutResourcePolicy(in.PolicyInJSON, in.ResourceArn)
+	hash, err := h.Backend.PutResourcePolicy(
+		in.PolicyInJSON,
+		in.ResourceArn,
+		in.PolicyExistsCondition,
+		in.PolicyHashCondition,
+	)
 	if err != nil {
 		return nil, err
 	}

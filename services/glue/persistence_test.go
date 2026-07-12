@@ -92,7 +92,9 @@ func seedFullState(t *testing.T, b *glue.InMemoryBackend) {
 	}))
 	require.NoError(t, b.UpdateColumnStatisticsForPartition("db1", "tbl1", []string{"2024"}, // raw partitionColumnStats
 		[]*glue.ColumnStatistics{{ColumnName: "col1"}}))
-	_, err = b.PutResourcePolicy("policy-doc", "arn:aws:glue:us-east-1:123456789012:catalog") // raw resourcePolicies
+	_, err = b.PutResourcePolicy( // raw resourcePolicies
+		"policy-doc", "arn:aws:glue:us-east-1:123456789012:catalog", "", "",
+	)
 	require.NoError(t, err)
 	mlTransform, err := b.CreateMLTransform("mlt1", "desc", "role1", nil, glue.MLTransformParameter{}, nil)
 	require.NoError(t, err)

@@ -247,7 +247,7 @@ func TestBatch4_ExtendedStateSnapshotRestore(t *testing.T) {
 						{ColumnName: "id", StatisticsData: glue.ColumnStatisticsData{Type: "LONG"}},
 					},
 				))
-				_, err = b.PutResourcePolicy("policy", "")
+				_, err = b.PutResourcePolicy("policy", "", "", "")
 				require.NoError(t, err)
 			},
 			check: func(t *testing.T, b *glue.InMemoryBackend) {
