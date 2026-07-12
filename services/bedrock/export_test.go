@@ -3,6 +3,7 @@ package bedrock
 import (
 	"encoding/json"
 	"strconv"
+	"time"
 )
 
 // AppendFoundationModelsForTest appends additional foundation models to the backend.
@@ -34,10 +35,10 @@ func (b *InMemoryBackend) AddBuildWorkflowForTest(policyARN string) *AutomatedRe
 // SnapshotTablesForTest returns a snapshot of every store.Table registered on
 // b.registry, keyed by table name (including per-parent lazy tables such as
 // "flowVersions:<flowID>"). It is a test-only bridge to the unexported
-// registry so blackbox tests can exercise a full Snapshot->Restore round trip
-// of the Phase 3.3 pkgs/store conversion; bedrock has no persistence.go of
-// its own (see store_setup.go), so there is no production Snapshot to call
-// through instead.
+// registry so blackbox tests can exercise the Phase 3.3 pkgs/store
+// conversion's registry mechanics directly, independent of the production
+// Snapshot/Restore pair added in persistence.go (see persistence_test.go for
+// black-box tests of that production path).
 func (b *InMemoryBackend) SnapshotTablesForTest() (map[string]json.RawMessage, error) {
 	b.mu.RLock("SnapshotTablesForTest")
 	defer b.mu.RUnlock()
@@ -62,4 +63,54 @@ func (b *InMemoryBackend) ResetTablesForTest() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+}
+
+// GuardrailVersionCounterForTest returns guardrailID's current versionCounter
+// (0 if the guardrail is absent). Guardrail.versionCounter is unexported --
+// see persistence.go's backendSnapshot doc comment for why -- so black-box
+// tests need this bridge to assert it survives a Snapshot/Restore round trip.
+func (b *InMemoryBackend) GuardrailVersionCounterForTest(guardrailID string) int {
+	b.mu.RLock("GuardrailVersionCounterForTest")
+	defer b.mu.RUnlock()
+
+	g, ok := b.guardrails.Get(guardrailID)
+	if !ok {
+		return 0
+	}
+
+	return g.versionCounter
+}
+
+// AgentPreparationDueAtForTest returns agentID's current preparationDueAt
+// (the zero Time if the agent is absent). Agent.preparationDueAt is
+// unexported -- see persistence.go's backendSnapshot doc comment for why --
+// so black-box tests need this bridge to assert it survives a
+// Snapshot/Restore round trip.
+func (b *InMemoryBackend) AgentPreparationDueAtForTest(agentID string) time.Time {
+	b.mu.RLock("AgentPreparationDueAtForTest")
+	defer b.mu.RUnlock()
+
+	a, ok := b.agents.Get(agentID)
+	if !ok {
+		return time.Time{}
+	}
+
+	return a.preparationDueAt
+}
+
+// IngestionJobCompletionDueAtForTest returns the current completionDueAt for
+// the ingestion job identified by (kbID, dsID, jobID) (the zero Time if
+// absent). IngestionJob.completionDueAt is unexported -- see persistence.go's
+// backendSnapshot doc comment for why -- so black-box tests need this bridge
+// to assert it survives a Snapshot/Restore round trip.
+func (b *InMemoryBackend) IngestionJobCompletionDueAtForTest(kbID, dsID, jobID string) time.Time {
+	b.mu.RLock("IngestionJobCompletionDueAtForTest")
+	defer b.mu.RUnlock()
+
+	j, ok := b.ingestionJobs.Get(ingestionJobKey(kbID, dsID, jobID))
+	if !ok {
+		return time.Time{}
+	}
+
+	return j.completionDueAt
 }
