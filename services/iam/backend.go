@@ -2143,6 +2143,7 @@ type RoleDetail struct {
 
 	AttachedPolicies []AttachedPolicy    `json:"attachedPolicies,omitempty"`
 	InlinePolicies   []InlinePolicyEntry `json:"inlinePolicies,omitempty"`
+	InstanceProfiles []InstanceProfile   `json:"instanceProfiles,omitempty"`
 }
 
 // AccountSummary holds summary counts for GetAccountSummary.
@@ -2198,6 +2199,23 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		}
 	}
 
+	// Build reverse instance-profile map: roleName → []InstanceProfile, mirroring
+	// ListInstanceProfilesForRole (same real backend now feeds both), so
+	// RoleDetail.InstanceProfileList is populated instead of always empty.
+	roleInstanceProfiles := make(map[string][]InstanceProfile)
+	for _, ip := range b.instanceProfiles.All() {
+		for _, roleName := range ip.Roles {
+			roleInstanceProfiles[roleName] = append(roleInstanceProfiles[roleName], *ip)
+		}
+	}
+
+	for roleName, profiles := range roleInstanceProfiles {
+		sort.Slice(profiles, func(i, j int) bool {
+			return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName
+		})
+		roleInstanceProfiles[roleName] = profiles
+	}
+
 	// Build user details.
 	users := make([]UserDetail, 0, b.users.Len())
 	for _, u := range b.users.All() {
@@ -2234,9 +2252,10 @@ func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationD
 		role := *r
 		attached := attachedFromARNs(b.rolePolicies[r.RoleName])
 		inline := inlineEntries(b.roleInlinePolicies[r.RoleName])
+		profiles := roleInstanceProfiles[r.RoleName]
 		roles = append(
 			roles,
-			RoleDetail{Role: role, AttachedPolicies: attached, InlinePolicies: inline},
+			RoleDetail{Role: role, AttachedPolicies: attached, InlinePolicies: inline, InstanceProfiles: profiles},
 		)
 	}
 

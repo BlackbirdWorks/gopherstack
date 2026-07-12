@@ -1116,7 +1116,7 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 
 			roles := make([]RoleDetailXML, 0, len(details.Roles))
 			for _, r := range details.Roles {
-				roles = append(roles, toRoleDetailXML(r))
+				roles = append(roles, h.toRoleDetailXML(r))
 			}
 
 			policies := make([]ManagedPolicyDetailXML, 0, len(details.Policies))
@@ -2046,7 +2046,22 @@ func toGroupDetailXML(g GroupDetail) GroupDetailXML {
 	}
 }
 
-func toRoleDetailXML(r RoleDetail) RoleDetailXML {
+// toRoleDetailXML converts a RoleDetail to its XML shape for
+// GetAccountAuthorizationDetails, including the role's instance profiles
+// (each with its own resolved Roles list, matching ListInstanceProfilesForRole
+// and GetInstanceProfile). It is a Handler method (not a free function) because
+// resolving each instance profile's member roles requires backend lookups —
+// safe here since the backend's read lock, held only inside
+// InMemoryBackend.GetAccountAuthorizationDetails, has already been released by
+// the time the handler converts the result to XML.
+func (h *Handler) toRoleDetailXML(r RoleDetail) RoleDetailXML {
+	profiles := make([]InstanceProfileXML, 0, len(r.InstanceProfiles))
+
+	for i := range r.InstanceProfiles {
+		ip := &r.InstanceProfiles[i]
+		profiles = append(profiles, toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)))
+	}
+
 	return RoleDetailXML{
 		Path:                     r.Path,
 		RoleName:                 r.RoleName,
@@ -2056,6 +2071,7 @@ func toRoleDetailXML(r RoleDetail) RoleDetailXML {
 		AssumeRolePolicyDocument: encodePolicyDocument(r.AssumeRolePolicyDocument),
 		RolePolicyList:           toInlinePolicyEntriesXML(r.InlinePolicies),
 		AttachedManagedPolicies:  toAttachedPoliciesXML(r.AttachedPolicies),
+		InstanceProfileList:      profiles,
 	}
 }
 
