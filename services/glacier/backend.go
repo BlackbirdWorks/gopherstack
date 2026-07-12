@@ -579,7 +579,15 @@ func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *
 	if action == jobTypeArchiveRetrieval {
 		if a, archiveFound := v.Archives[req.ArchiveID]; archiveFound {
 			j.ArchiveSizeInBytes = a.Size
-			j.SHA256TreeHash = a.SHA256TreeHash
+			j.ArchiveDescription = a.Description
+			// ArchiveSHA256TreeHash is archive metadata: available immediately,
+			// regardless of job completion (matches AWS). SHA256TreeHash is the
+			// retrieved-range hash and must stay unset until the job completes --
+			// promoteJobIfReady sets it when the job transitions to Succeeded.
+			j.ArchiveSHA256TreeHash = a.SHA256TreeHash
+			if ready {
+				j.SHA256TreeHash = a.SHA256TreeHash
+			}
 		}
 	}
 
@@ -628,6 +636,13 @@ func promoteJobIfReady(j *Job) {
 	j.StatusCode = jobStatusSucceeded
 	j.StatusMessage = jobStatusSucceeded
 	j.CompletionDate = formatDate(time.Now())
+
+	// SHA256TreeHash (the retrieved-range hash) only becomes available once the
+	// job completes; ArchiveSHA256TreeHash (the whole-archive hash) was already
+	// set at InitiateJob time. For whole-archive retrievals they are equal.
+	if j.Action == jobTypeArchiveRetrieval {
+		j.SHA256TreeHash = j.ArchiveSHA256TreeHash
+	}
 }
 
 // ListJobs returns all jobs for the given vault.
