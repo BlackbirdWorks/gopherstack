@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
 // testCertPEM is a self-signed RSA 2048-bit certificate used by certificate parity tests.
@@ -380,3 +382,185 @@ func TestParity_ListTagsForResource_CreationTagsVisible(t *testing.T) {
 		"creation-time tags must be visible via ListTagsForResource")
 	assert.Equal(t, "platform", tagMap["Owner"])
 }
+
+// TestParity_ListTagsForResource_CreationTagsVisibleAcrossResources extends the
+// Server-only coverage above to every other taggable Transfer resource type.
+// Real AWS returns creation-time tags from ListTagsForResource for Agreement,
+// Profile, User, WebApp, Certificate, and HostKey without a separate TagResource
+// call, exactly as it does for Server.
+func TestParity_ListTagsForResource_CreationTagsVisibleAcrossResources(t *testing.T) {
+	t.Parallel()
+
+	creationTags := []map[string]any{{"Key": "Env", "Value": "test"}}
+
+	tests := []struct {
+		setup func(t *testing.T, h *transfer.Handler) string // returns resource ARN
+		name  string
+	}{
+		{
+			name: "Agreement",
+			setup: func(t *testing.T, h *transfer.Handler) string {
+				t.Helper()
+
+				serverID := mustCreateServer(t, h)
+
+				rec := doTransferRequest(t, h, "CreateAgreement", map[string]any{
+					"ServerId": serverID,
+					"Tags":     creationTags,
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var out struct {
+					AgreementID string `json:"AgreementId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return "arn:aws:transfer:us-east-1:123456789012:server/" + serverID + "/agreement/" + out.AgreementID
+			},
+		},
+		{
+			name: "Profile",
+			setup: func(t *testing.T, h *transfer.Handler) string {
+				t.Helper()
+
+				rec := doTransferRequest(t, h, "CreateProfile", map[string]any{
+					"ProfileType": "LOCAL",
+					"Tags":        creationTags,
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var out struct {
+					ProfileID string `json:"ProfileId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return "arn:aws:transfer:us-east-1:123456789012:profile/" + out.ProfileID
+			},
+		},
+		{
+			name: "User",
+			setup: func(t *testing.T, h *transfer.Handler) string {
+				t.Helper()
+
+				serverID := mustCreateServer(t, h)
+
+				rec := doTransferRequest(t, h, "CreateUser", map[string]any{
+					"ServerId":      serverID,
+					"UserName":      "alice",
+					"Role":          "arn:aws:iam::123456789012:role/test",
+					"HomeDirectory": "/alice",
+					"Tags":          creationTags,
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				return "arn:aws:transfer:us-east-1:123456789012:user/" + serverID + "/alice"
+			},
+		},
+		{
+			name: "WebApp",
+			setup: func(t *testing.T, h *transfer.Handler) string {
+				t.Helper()
+
+				rec := doTransferRequest(t, h, "CreateWebApp", map[string]any{"Tags": creationTags})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var out struct {
+					WebAppID string `json:"WebAppId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return "arn:aws:transfer:us-east-1:123456789012:webapp/" + out.WebAppID
+			},
+		},
+		{
+			name: "Certificate",
+			setup: func(t *testing.T, h *transfer.Handler) string {
+				t.Helper()
+
+				rec := doTransferRequest(t, h, "ImportCertificate", map[string]any{
+					"Usage": "SIGNING",
+					"Tags":  creationTags,
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var out struct {
+					CertificateID string `json:"CertificateId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return "arn:aws:transfer:us-east-1:123456789012:certificate/" + out.CertificateID
+			},
+		},
+		{
+			name: "HostKey",
+			setup: func(t *testing.T, h *transfer.Handler) string {
+				t.Helper()
+
+				serverID := mustCreateServer(t, h)
+
+				rec := doTransferRequest(t, h, "ImportHostKey", map[string]any{
+					"ServerId":    serverID,
+					"HostKeyBody": testSSHHostKeyBody,
+					"Tags":        creationTags,
+				})
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+				var out struct {
+					HostKeyID string `json:"HostKeyId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+				return "arn:aws:transfer:us-east-1:123456789012:host-key/" + serverID + "/" + out.HostKeyID
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceARN := tt.setup(t, h)
+
+			listRec := doTransferRequest(t, h, "ListTagsForResource", map[string]any{"Arn": resourceARN})
+			require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
+
+			var listOut struct {
+				Tags []struct {
+					Key   string `json:"Key"`
+					Value string `json:"Value"`
+				} `json:"Tags"`
+			}
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+
+			tagMap := make(map[string]string, len(listOut.Tags))
+			for _, tag := range listOut.Tags {
+				tagMap[tag.Key] = tag.Value
+			}
+
+			assert.Equal(t, "test", tagMap["Env"],
+				"creation-time tags must be visible via ListTagsForResource for "+tt.name)
+		})
+	}
+}
+
+// mustCreateServer creates a server and returns its ServerId.
+func mustCreateServer(t *testing.T, h *transfer.Handler) string {
+	t.Helper()
+
+	rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var out struct {
+		ServerID string `json:"ServerId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	return out.ServerID
+}
+
+// testSSHHostKeyBody is a syntactically valid (but not cryptographically
+// meaningful) ed25519 SSH host key body, sufficient for ImportHostKey which
+// does not validate key authenticity.
+const testSSHHostKeyBody = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl " +
+	"test@example"

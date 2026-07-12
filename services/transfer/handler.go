@@ -44,6 +44,7 @@ const (
 	keyTags               = "Tags"
 	keyWebAppID           = "WebAppId"
 	keySecurityPolicyName = "SecurityPolicyName"
+	keyRole               = "Role"
 )
 
 var (
@@ -1686,7 +1687,7 @@ func (h *Handler) handleDescribeAccess(
 	accessMap := map[string]any{
 		"ExternalId":        a.ExternalID,
 		"ServerId":          a.ServerID,
-		"Role":              a.Role,
+		keyRole:             a.Role,
 		"HomeDirectory":     a.HomeDir,
 		"HomeDirectoryType": a.HomeDirectoryType,
 		"Policy":            a.Policy,
@@ -1748,9 +1749,10 @@ func (h *Handler) handleListAccesses(
 
 	for i, a := range page {
 		out[i] = map[string]any{
-			"ExternalId":    a.ExternalID,
-			"HomeDirectory": a.HomeDir,
-			"Role":          a.Role,
+			"ExternalId":        a.ExternalID,
+			"HomeDirectory":     a.HomeDir,
+			"HomeDirectoryType": a.HomeDirectoryType,
+			keyRole:             a.Role,
 		}
 	}
 
@@ -1951,6 +1953,11 @@ func workflowARN(accountID, region, workflowID string) string {
 // certificateARN builds the ARN for a Transfer certificate.
 func certificateARN(accountID, region, certificateID string) string {
 	return arn.Build("transfer", region, accountID, "certificate/"+certificateID)
+}
+
+// webAppARN builds the ARN for a Transfer web app.
+func webAppARN(accountID, region, webAppID string) string {
+	return arn.Build("transfer", region, accountID, "webapp/"+webAppID)
 }
 
 // hostKeyARN builds the ARN for a Transfer host key.
@@ -2246,11 +2253,24 @@ func (h *Handler) handleDescribeWebApp(
 		return nil, err
 	}
 
-	return &describeWebAppOutput{
-		WebApp: map[string]any{
-			"WebAppId": w.WebAppID,
-		},
-	}, nil
+	webAppMap := map[string]any{
+		"WebAppId": w.WebAppID,
+		keyArn:     webAppARN(w.AccountID, w.Region, w.WebAppID),
+		keyTags:    tagsToList(w.Tags),
+	}
+
+	if w.IdentityProviderDetails != nil {
+		webAppMap["IdentityProviderDetails"] = map[string]any{
+			"IdentityProviderType": w.IdentityProviderDetails.IdentityProviderType,
+			"InstanceArn":          w.IdentityProviderDetails.InstanceArn,
+			keyRole:                w.IdentityProviderDetails.Role,
+			keyURL:                 w.IdentityProviderDetails.URL,
+			"Directory":            w.IdentityProviderDetails.Directory,
+			"Function":             w.IdentityProviderDetails.Function,
+		}
+	}
+
+	return &describeWebAppOutput{WebApp: webAppMap}, nil
 }
 
 type listWebAppsInput struct {
@@ -2274,6 +2294,7 @@ func (h *Handler) handleListWebApps(
 	for i, w := range page {
 		out[i] = map[string]any{
 			"WebAppId": w.WebAppID,
+			keyArn:     webAppARN(w.AccountID, w.Region, w.WebAppID),
 		}
 	}
 

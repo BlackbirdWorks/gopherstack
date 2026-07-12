@@ -62,7 +62,8 @@ func TestInMemoryBackend_CreateServer(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, s.ServerID)
-			assert.Equal(t, "ONLINE", s.State)
+			// AWS creates servers OFFLINE; StartServer is required to bring them ONLINE.
+			assert.Equal(t, "OFFLINE", s.State)
 
 			if len(tt.protocols) == 0 {
 				assert.Equal(t, []string{"SFTP"}, s.Protocols)
@@ -116,7 +117,8 @@ func TestInMemoryBackend_DescribeServer(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, serverID, got.ServerID)
-			assert.Equal(t, "ONLINE", got.State)
+			// AWS creates servers OFFLINE; StartServer is required to bring them ONLINE.
+			assert.Equal(t, "OFFLINE", got.State)
 		})
 	}
 }
