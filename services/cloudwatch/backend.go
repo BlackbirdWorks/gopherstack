@@ -422,9 +422,10 @@ func (b *InMemoryBackend) SetAutoScalingExecutor(e AutoScalingPolicyExecutor) {
 func (b *InMemoryBackend) validatePutMetricDataBatch(namespace string, data []MetricDatum) error {
 	existing := len(b.metrics[namespace])
 	newKeys := make(map[string]bool)
+	now := time.Now().UTC()
 
 	for _, d := range data {
-		if err := validateMetricDatum(d); err != nil {
+		if err := validateMetricDatum(d, now); err != nil {
 			return err
 		}
 

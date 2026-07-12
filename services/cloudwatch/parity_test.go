@@ -356,10 +356,13 @@ func TestSweepExpiredMetrics_TwoPhase(t *testing.T) {
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			ts := time.Now().UTC().Add(-tc.putAge)
-			err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{
-				{MetricName: "M", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts},
+			// putAge may exceed PutMetricData's write-time Timestamp acceptance
+			// window (two weeks); StoreDatumForTest seeds already-aged data
+			// directly, modeling a point that was valid when written and has
+			// since aged past retention.
+			b.StoreDatumForTest("NS/Sweep", cloudwatch.MetricDatum{
+				MetricName: "M", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: ts,
 			})
-			require.NoError(t, err)
 
 			b.SweepExpiredMetrics()
 

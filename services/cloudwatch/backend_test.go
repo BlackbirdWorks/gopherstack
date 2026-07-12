@@ -1471,7 +1471,12 @@ func TestCloudWatchBackend_SweepExpiredMetrics(t *testing.T) {
 		Timestamp: recentTimestamp,
 	}
 
-	err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{oldDatum, recentDatum})
+	// oldTimestamp predates PutMetricData's write-time Timestamp acceptance
+	// window, so seed it directly (models a point that was valid when written
+	// and has since aged past retention); recentDatum goes through the normal
+	// validated path.
+	b.StoreDatumForTest("NS/Sweep", oldDatum)
+	err := b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{recentDatum})
 	require.NoError(t, err)
 
 	b.SweepExpiredMetrics()
@@ -1499,13 +1504,15 @@ func TestCloudWatchBackend_SweepExpiredMetrics_OutOfOrder(t *testing.T) {
 	old := time.Now().UTC().AddDate(0, 0, -(cloudwatch.CwMetricRetentionDays + 5))
 	recent := time.Now().UTC()
 
-	// Intentionally store points out of order: recent first, then old.
-	pts := []cloudwatch.MetricDatum{
+	// Intentionally store points out of order: recent first, then old. old
+	// predates PutMetricData's write-time Timestamp acceptance window, so seed
+	// it directly via StoreDatumForTest.
+	err := b.PutMetricData("NS/OutOfOrder", []cloudwatch.MetricDatum{
 		{MetricName: "Mixed", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: recent},
-		{MetricName: "Mixed", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: old},
-	}
-	err := b.PutMetricData("NS/OutOfOrder", pts)
+	})
 	require.NoError(t, err)
+	b.StoreDatumForTest("NS/OutOfOrder",
+		cloudwatch.MetricDatum{MetricName: "Mixed", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: old})
 
 	b.SweepExpiredMetrics()
 

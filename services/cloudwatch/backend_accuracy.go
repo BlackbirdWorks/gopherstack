@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 )
 
 // ErrInvalidNextToken is returned when a pagination NextToken is invalid or expired.
@@ -43,6 +44,15 @@ var ErrInvalidMetricValue = errors.New(
 // ErrMetricSeriesLimitExceeded is returned when storing a batch of MetricDatum
 // entries would push the namespace or account past its distinct-time-series cap.
 var ErrMetricSeriesLimitExceeded = errors.New("LimitExceeded: metric series limit reached")
+
+// ErrMetricTimestampOutOfRange is returned when a MetricDatum's Timestamp falls
+// outside CloudWatch's documented PutMetricData acceptance window: no more than
+// cwMetricTimestampPastWindow in the past, and no more than
+// cwMetricTimestampFutureWindow in the future, relative to now.
+var ErrMetricTimestampOutOfRange = errors.New(
+	"InvalidParameterValue: Timestamp must not be more than two weeks before or " +
+		"two hours after the current time",
+)
 
 // tokenSecret is used to HMAC-sign pagination tokens so we can reject spoofed ones.
 // In a real system this would be loaded from config; here we use a deterministic value.
@@ -139,6 +149,26 @@ func validMetricValue(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= -metricValueBound && v <= metricValueBound
 }
 
+// cwMetricTimestampPastWindow is the maximum age (relative to now) CloudWatch
+// accepts for a PutMetricData datapoint's Timestamp before rejecting it with
+// InvalidParameterValue.
+const cwMetricTimestampPastWindow = 14 * 24 * time.Hour
+
+// cwMetricTimestampFutureWindow is the maximum distance into the future
+// (relative to now) CloudWatch accepts for a PutMetricData datapoint's
+// Timestamp before rejecting it with InvalidParameterValue.
+const cwMetricTimestampFutureWindow = 2 * time.Hour
+
+// validMetricTimestamp reports whether ts falls within CloudWatch's documented
+// PutMetricData acceptance window relative to now: no more than two weeks in
+// the past, and no more than two hours in the future.
+func validMetricTimestamp(ts, now time.Time) bool {
+	earliest := now.Add(-cwMetricTimestampPastWindow)
+	latest := now.Add(cwMetricTimestampFutureWindow)
+
+	return !ts.Before(earliest) && !ts.After(latest)
+}
+
 // validateMetricDatum enforces the shape and range rules AWS applies to a single
 // PutMetricData MetricDatum entry:
 //   - Value, StatisticValues, and the Values/Counts array are mutually exclusive
@@ -147,10 +177,16 @@ func validMetricValue(v float64) bool {
 //     have the same length (InvalidParameterValue)
 //   - every numeric value (Value, Sum, Min, Max, or a Values entry) must be
 //     finite and within +/-2^360 (InvalidParameterValue)
+//   - Timestamp must be no more than two weeks in the past and no more than two
+//     hours in the future, relative to now (InvalidParameterValue)
 //
 // This must be called before the handler normalizes the datum (before
 // Count/Sum/Min/Max are derived from Value for single-value points).
-func validateMetricDatum(d MetricDatum) error {
+func validateMetricDatum(d MetricDatum, now time.Time) error {
+	if !validMetricTimestamp(d.Timestamp, now) {
+		return fmt.Errorf("%w: MetricName=%s", ErrMetricTimestampOutOfRange, d.MetricName)
+	}
+
 	if datumShapeCount(d) > 1 {
 		return fmt.Errorf("%w: MetricName=%s", ErrValueAndStatisticSet, d.MetricName)
 	}
