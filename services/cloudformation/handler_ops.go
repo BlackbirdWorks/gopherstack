@@ -772,7 +772,7 @@ func (h *Handler) handleCreateGeneratedTemplate(form url.Values, c *echo.Context
 func (h *Handler) handleUpdateGeneratedTemplate(form url.Values, c *echo.Context) error {
 	id := form.Get("GeneratedTemplateId")
 	if err := h.Backend.UpdateGeneratedTemplate(id, form.Get("NewGeneratedTemplateName")); err != nil {
-		return h.xmlError(c, "GeneratedTemplateNotFoundException", err.Error())
+		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"UpdateGeneratedTemplateResponse"`
@@ -785,7 +785,7 @@ func (h *Handler) handleUpdateGeneratedTemplate(form url.Values, c *echo.Context
 
 func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context) error {
 	if err := h.Backend.DeleteGeneratedTemplate(form.Get("GeneratedTemplateId")); err != nil {
-		return h.xmlError(c, "GeneratedTemplateNotFoundException", err.Error())
+		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DeleteGeneratedTemplateResponse"`
@@ -799,7 +799,7 @@ func (h *Handler) handleDeleteGeneratedTemplate(form url.Values, c *echo.Context
 func (h *Handler) handleDescribeGeneratedTemplate(form url.Values, c *echo.Context) error {
 	gt, err := h.Backend.DescribeGeneratedTemplate(form.Get("GeneratedTemplateId"))
 	if err != nil {
-		return h.xmlError(c, "GeneratedTemplateNotFoundException", err.Error())
+		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
 	type result struct {
 		GeneratedTemplateID   string `xml:"GeneratedTemplateId"`
@@ -823,7 +823,7 @@ func (h *Handler) handleDescribeGeneratedTemplate(form url.Values, c *echo.Conte
 func (h *Handler) handleGetGeneratedTemplate(form url.Values, c *echo.Context) error {
 	body, err := h.Backend.GetGeneratedTemplate(form.Get("GeneratedTemplateId"))
 	if err != nil {
-		return h.xmlError(c, "GeneratedTemplateNotFoundException", err.Error())
+		return h.xmlError(c, "GeneratedTemplateNotFound", err.Error())
 	}
 	type result struct {
 		TemplateBody string `xml:"TemplateBody"`
@@ -915,7 +915,7 @@ func (h *Handler) handleStartResourceScan(_ url.Values, c *echo.Context) error {
 func (h *Handler) handleDescribeResourceScan(form url.Values, c *echo.Context) error {
 	rs, err := h.Backend.DescribeResourceScan(form.Get("ResourceScanId"))
 	if err != nil {
-		return h.xmlError(c, "ResourceScanNotFoundException", err.Error())
+		return h.xmlError(c, "ResourceScanNotFound", err.Error())
 	}
 	type result struct {
 		ResourceScanID      string  `xml:"ResourceScanId"`
@@ -968,7 +968,10 @@ func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) erro
 }
 
 func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Context) error {
-	scanned, _ := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
+	scanned, err := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
+	if err != nil {
+		return h.xmlError(c, "ResourceScanNotFound", err.Error())
+	}
 	type resourceXML = ScannedResource
 	members := append([]resourceXML(nil), scanned...)
 	type result struct {
@@ -992,7 +995,10 @@ func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleListResourceScanRelatedResources(form url.Values, c *echo.Context) error {
-	related, _ := h.Backend.ListResourceScanRelatedResources(form.Get("ResourceScanId"), nil)
+	related, err := h.Backend.ListResourceScanRelatedResources(form.Get("ResourceScanId"), nil)
+	if err != nil {
+		return h.xmlError(c, "ResourceScanNotFound", err.Error())
+	}
 	// related is []string (legacy plain identifiers).
 	type result struct {
 		RelatedResources []string `xml:"RelatedResources>member"`
@@ -1334,7 +1340,10 @@ func (h *Handler) handleCreateStackRefactor(form url.Values, c *echo.Context) er
 }
 
 func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) error {
-	status, _ := h.Backend.DescribeStackRefactor(form.Get("StackRefactorId"))
+	status, err := h.Backend.DescribeStackRefactor(form.Get("StackRefactorId"))
+	if err != nil {
+		return h.xmlError(c, "StackRefactorNotFoundException", err.Error())
+	}
 	type result struct {
 		Status string `xml:"Status"`
 	}

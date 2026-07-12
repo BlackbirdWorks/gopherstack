@@ -232,6 +232,27 @@ func TestCFN_StackRefactor(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// TestCFN_DescribeStackRefactor_NotFound verifies that DescribeStackRefactor
+// returns StackRefactorNotFoundException for an unknown ID, matching the SDK's
+// modeled error for this op — unlike CreateStackRefactor/ExecuteStackRefactor/
+// List*, which have no modeled errors at all (verified against
+// deserializers.go) and so are correctly fire-and-forget. Previously
+// DescribeStackRefactor silently returned 200 with an empty Status.
+func TestCFN_DescribeStackRefactor_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, url.Values{
+		"Action":          []string{"DescribeStackRefactor"},
+		"StackRefactorId": []string{"does-not-exist"},
+	}.Encode())
+
+	assert.NotEqual(t, http.StatusOK, rec.Code,
+		"DescribeStackRefactor on an unknown ID must fail")
+	assert.Contains(t, rec.Body.String(), "StackRefactorNotFoundException")
+}
+
 // TestCFN_OrganizationsAccess covers Activate/Deactivate/DescribeOrganizationsAccess.
 func TestCFN_OrganizationsAccess(t *testing.T) {
 	t.Parallel()
@@ -454,13 +475,16 @@ func TestCFN_ResourceScanResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "AWS::S3::Bucket")
 
-	// ListResourceScanResources — invalid scan should fail
+	// ListResourceScanResources — invalid scan should fail with the SDK-modeled
+	// (unsuffixed) ResourceScanNotFound code, matching DescribeResourceScan.
 	rec = postForm(t, h, url.Values{
 		"Action":         []string{"ListResourceScanResources"},
 		"ResourceScanId": []string{"nonexistent-scan"},
 	}.Encode())
-	// handler ignores error for this endpoint currently, just verify no panic
-	assert.GreaterOrEqual(t, rec.Code, 200)
+	assert.NotEqual(t, http.StatusOK, rec.Code,
+		"ListResourceScanResources on an unknown scan must fail")
+	assert.Contains(t, rec.Body.String(), "<Code>ResourceScanNotFound</Code>",
+		"error code must be the SDK-modeled unsuffixed ResourceScanNotFound, not ...NotFoundException")
 
 	// ListResourceScanRelatedResources — valid scan
 	rec = postForm(t, h, url.Values{
