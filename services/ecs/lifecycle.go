@@ -172,6 +172,7 @@ func (b *InMemoryBackend) advanceStopLocked(
 
 	b.unindexTaskFromInstance(lc.clusterName, task.ContainerInstanceArn, task.TaskArn)
 	b.taskProtections.Delete(task.TaskArn)
+	b.deregisterTaskFromELBv2Locked(task, lc.clusterName)
 
 	return true
 }
@@ -194,6 +195,8 @@ func (b *InMemoryBackend) advanceStartLocked(task *Task, lc *taskLifecycle, now 
 			c.PendingTasksCount--
 			c.RunningTasksCount++
 		}
+
+		b.registerTaskWithELBv2Locked(task, lc.clusterName)
 
 		return true
 	}

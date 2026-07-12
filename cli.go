@@ -2667,6 +2667,17 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// fabricating instance IDs with no EC2-side record.
 	wireAutoScalingEC2(byName["Autoscaling"], byName["EC2"])
 
+	// Wire Auto Scaling → ELBv2 so TargetGroupARNs membership changes
+	// register/deregister real ELBv2 targets, instead of TargetGroupARNs
+	// being stored and echoed with no effect on DescribeTargetHealth.
+	wireAutoScalingELBv2(byName["Autoscaling"], byName["ELBv2"])
+
+	// Wire ECS → ELBv2 so tasks belonging to a service with LoadBalancers
+	// configured register/deregister as real ELBv2 targets as they
+	// reach/leave RUNNING, instead of Service.LoadBalancers being stored and
+	// echoed with no effect on DescribeTargetHealth.
+	wireECSELBv2(byName["ECS"], byName["ELBv2"])
+
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
@@ -4308,6 +4319,154 @@ func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
 	}
 
 	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{backend: ec2Bk})
+}
+
+// elbv2TargetRegistrarAdapter holds the ELBv2 backend and target-port
+// resolution logic shared by the Auto Scaling and ECS ELBv2 registrar
+// adapters below. Both need to translate a package-local ELBTarget (ID +
+// optional port) into an elbv2.Target, defaulting an omitted (zero) port to
+// the target group's own configured port: the elbv2 backend's
+// RegisterTargets/DeregisterTargets methods, unlike its HTTP handlers (see
+// defaultTargetPorts in services/elbv2/handler.go), do not default the port
+// themselves, and these adapters call the backend methods directly.
+type elbv2TargetRegistrarAdapter struct {
+	backend *elbv2backend.InMemoryBackend
+}
+
+func (a *elbv2TargetRegistrarAdapter) port(tgArn string, targetPort int) int32 {
+	if targetPort != 0 {
+		return int32(targetPort) //nolint:gosec // container/instance ports fit in int32
+	}
+
+	tgs, err := a.backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	if err != nil || len(tgs) == 0 {
+		return 0
+	}
+
+	return tgs[0].Port
+}
+
+// wireAutoScalingELBv2 wires Auto Scaling to the ELBv2 backend so instances
+// added to or removed from a group's TargetGroupARNs (via scale-out/in,
+// TerminateInstanceInAutoScalingGroup, Attach/DetachInstances, and
+// Attach/DetachLoadBalancerTargetGroups) register/deregister as real ELBv2
+// targets, instead of TargetGroupARNs being stored and echoed with no effect
+// on ELBv2 DescribeTargetHealth.
+func wireAutoScalingELBv2(asgReg, elbv2Reg service.Registerable) {
+	asgH, ok := asgReg.(*autoscalingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	asgBk, ok := asgH.Backend.(*autoscalingbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	elbv2H, ok := elbv2Reg.(*elbv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	elbv2Bk, ok := elbv2H.Backend.(*elbv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	asgBk.SetELBv2Registrar(&autoscalingELBv2RegistrarAdapter{
+		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
+	})
+}
+
+// autoscalingELBv2RegistrarAdapter adapts the ELBv2 backend to the
+// autoscaling.ELBv2TargetRegistrar interface.
+type autoscalingELBv2RegistrarAdapter struct {
+	elbv2TargetRegistrarAdapter
+}
+
+func (a *autoscalingELBv2RegistrarAdapter) RegisterTargets(
+	_ context.Context, tgArn string, targets []autoscalingbackend.ELBTarget,
+) error {
+	return a.backend.RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *autoscalingELBv2RegistrarAdapter) DeregisterTargets(
+	_ context.Context, tgArn string, targets []autoscalingbackend.ELBTarget,
+) error {
+	return a.backend.DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *autoscalingELBv2RegistrarAdapter) toELBv2Targets(
+	tgArn string, targets []autoscalingbackend.ELBTarget,
+) []elbv2backend.Target {
+	out := make([]elbv2backend.Target, len(targets))
+	for i, t := range targets {
+		out[i] = elbv2backend.Target{ID: t.ID, Port: a.port(tgArn, t.Port)}
+	}
+
+	return out
+}
+
+// wireECSELBv2 wires ECS to the ELBv2 backend so tasks belonging to a
+// service with LoadBalancers configured register/deregister as real ELBv2
+// targets when they reach/leave RUNNING, instead of Service.LoadBalancers
+// being stored and echoed with no effect on ELBv2 DescribeTargetHealth. Only
+// awsvpc-mode (Fargate) tasks resolve to a usable target identity (their ENI
+// private IP) — see ecs.privateIPFromAttachments; EC2-launch-type tasks are
+// skipped rather than registered with a fabricated identity.
+func wireECSELBv2(ecsReg, elbv2Reg service.Registerable) {
+	ecsH, ok := ecsReg.(*ecsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecsBk, ok := ecsH.Backend.(*ecsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	elbv2H, ok := elbv2Reg.(*elbv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	elbv2Bk, ok := elbv2H.Backend.(*elbv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ecsBk.SetELBv2Registrar(&ecsELBv2RegistrarAdapter{
+		elbv2TargetRegistrarAdapter{backend: elbv2Bk},
+	})
+}
+
+// ecsELBv2RegistrarAdapter adapts the ELBv2 backend to the
+// ecs.ELBv2TargetRegistrar interface.
+type ecsELBv2RegistrarAdapter struct {
+	elbv2TargetRegistrarAdapter
+}
+
+func (a *ecsELBv2RegistrarAdapter) RegisterTargets(
+	_ context.Context, tgArn string, targets []ecsbackend.ELBTarget,
+) error {
+	return a.backend.RegisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *ecsELBv2RegistrarAdapter) DeregisterTargets(
+	_ context.Context, tgArn string, targets []ecsbackend.ELBTarget,
+) error {
+	return a.backend.DeregisterTargets(tgArn, a.toELBv2Targets(tgArn, targets))
+}
+
+func (a *ecsELBv2RegistrarAdapter) toELBv2Targets(
+	tgArn string, targets []ecsbackend.ELBTarget,
+) []elbv2backend.Target {
+	out := make([]elbv2backend.Target, len(targets))
+	for i, t := range targets {
+		out[i] = elbv2backend.Target{ID: t.ID, Port: a.port(tgArn, t.Port)}
+	}
+
+	return out
 }
 
 // ec2AutoScalingLauncherAdapter adapts the EC2 backend to the

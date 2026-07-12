@@ -302,6 +302,11 @@ type InMemoryBackend struct {
 	// DescribeInstances. Nil preserves the historical fabricated-instance-ID
 	// behavior.
 	ec2Launcher EC2Launcher
+	// elbv2Registrar, when set (see SetELBv2Registrar), registers/deregisters
+	// real ELBv2 targets as group membership and TargetGroupARNs change. Nil
+	// preserves the historical behavior of TargetGroupARNs/LoadBalancerNames
+	// being stored and echoed with no effect on ELBv2.
+	elbv2Registrar ELBv2TargetRegistrar
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -869,6 +874,8 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 		az = g.AvailabilityZones[0]
 	}
 
+	added := make([]string, 0, len(instanceIDs))
+
 	for _, id := range instanceIDs {
 		if existing[id] {
 			continue
@@ -882,7 +889,10 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 			LaunchConfigurationName: g.LaunchConfigurationName,
 			InstanceType:            "t2.micro",
 		})
+		added = append(added, id)
 	}
+
+	b.registerELBTargets(added, g.TargetGroupARNs)
 
 	return nil
 }
@@ -902,11 +912,18 @@ func (b *InMemoryBackend) AttachLoadBalancerTargetGroups(groupName string, targe
 		existing[arn] = true
 	}
 
+	added := make([]string, 0, len(targetGroupARNs))
+
 	for _, arn := range targetGroupARNs {
 		if !existing[arn] {
 			g.TargetGroupARNs = append(g.TargetGroupARNs, arn)
+			added = append(added, arn)
 		}
 	}
+
+	// Newly attached target groups pick up every instance currently in the
+	// group, mirroring real AWS registering existing members immediately on attach.
+	b.registerELBTargets(instanceIDsOf(g.Instances), added)
 
 	return nil
 }
@@ -1285,6 +1302,7 @@ func (b *InMemoryBackend) applyScaleIn(g *AutoScalingGroup, targetCount int) {
 	}
 
 	b.terminateInEC2(removedIDs)
+	b.deregisterELBTargets(removedIDs, g.TargetGroupARNs)
 }
 
 // SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.
@@ -1377,6 +1395,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	targetGroup.Instances = newInstances
 	delete(b.instanceIndex, instanceID)
 	b.terminateInEC2([]string{instanceID})
+	b.deregisterELBTargets([]string{instanceID}, targetGroup.TargetGroupARNs)
 
 	if shouldDecrement {
 		if targetGroup.DesiredCapacity > 0 {
@@ -1871,6 +1890,7 @@ func (b *InMemoryBackend) removeInstanceByID(g *AutoScalingGroup, instanceID str
 
 	delete(b.instanceIndex, instanceID)
 	b.terminateInEC2([]string{instanceID})
+	b.deregisterELBTargets([]string{instanceID}, g.TargetGroupARNs)
 }
 
 // finishTermination completes a deferred termination once its Terminating:Wait hook
@@ -2263,14 +2283,24 @@ func (b *InMemoryBackend) DetachInstances(
 	}
 
 	newInstances := make([]Instance, 0, len(g.Instances))
+	detachedIDs := make([]string, 0, len(instanceIDs))
+
 	for _, inst := range g.Instances {
-		if !idSet[inst.InstanceID] {
-			newInstances = append(newInstances, inst)
+		if idSet[inst.InstanceID] {
+			detachedIDs = append(detachedIDs, inst.InstanceID)
+
+			continue
 		}
+
+		newInstances = append(newInstances, inst)
 	}
 
 	detached := len(g.Instances) - len(newInstances)
 	g.Instances = newInstances
+
+	// Detached instances stop being ASG-managed, including their target group
+	// membership, mirroring real AWS's default deregister-on-detach behavior.
+	b.deregisterELBTargets(detachedIDs, g.TargetGroupARNs)
 
 	if shouldDecrement && detached > 0 {
 		delta := int32(detached) //nolint:gosec // detached <= len(g.Instances), bounded by maxDesiredCapacity
@@ -2315,13 +2345,21 @@ func (b *InMemoryBackend) DetachLoadBalancerTargetGroups(groupName string, targe
 	}
 
 	newARNs := make([]string, 0, len(g.TargetGroupARNs))
+	removedARNs := make([]string, 0, len(targetGroupARNs))
+
 	for _, arn := range g.TargetGroupARNs {
-		if !removeSet[arn] {
-			newARNs = append(newARNs, arn)
+		if removeSet[arn] {
+			removedARNs = append(removedARNs, arn)
+
+			continue
 		}
+
+		newARNs = append(newARNs, arn)
 	}
 
 	g.TargetGroupARNs = newARNs
+
+	b.deregisterELBTargets(instanceIDsOf(g.Instances), removedARNs)
 
 	return nil
 }

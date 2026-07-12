@@ -86,12 +86,18 @@ func (b *InMemoryBackend) makeInstances(g *AutoScalingGroup, count int32) []Inst
 					"autoscaling: EC2 launch failed, falling back to synthetic instances",
 					"error", err, "group", g.AutoScalingGroupName)
 			} else {
-				return instancesFromIDs(ids, az, g.LaunchConfigurationName, instanceType)
+				instances := instancesFromIDs(ids, az, g.LaunchConfigurationName, instanceType)
+				b.registerELBTargets(ids, g.TargetGroupARNs)
+
+				return instances
 			}
 		}
 	}
 
-	return fabricateInstances(n, az, g.LaunchConfigurationName, instanceType)
+	instances := fabricateInstances(n, az, g.LaunchConfigurationName, instanceType)
+	b.registerELBTargets(instanceIDsOf(instances), g.TargetGroupARNs)
+
+	return instances
 }
 
 // adjustInstances adjusts g's existing instance slice to match the new desired
