@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -294,4 +295,44 @@ func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion(t *testing.T
 
 	assert.False(t, securityhub.IsHubEnabled(b), "backend must start empty after discarding an incompatible snapshot")
 	assert.Equal(t, 0, securityhub.ActionTargetCount(b))
+}
+
+// Test_Handler_SnapshotRestore verifies Handler.Snapshot/Restore
+// (persistence.go) delegate to the backend -- the shape persistence.Manager
+// actually drives. cli.go's setupPersistence registers a
+// service.Registerable (the *Handler returned by Provider.Init) in the
+// persistence.Manager only if that Handler itself satisfies
+// Snapshot(ctx)/Restore(ctx, []byte); InMemoryBackend implementing the same
+// two methods (verified above by every TestInMemoryBackend_* case) is not
+// enough on its own, since Handler.Backend is the StorageBackend interface
+// and does not promote them. Mirrors services/appsync and services/athena's
+// Test_Handler_SnapshotRestore.
+func Test_Handler_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	h := securityhub.NewHandler(b)
+
+	// Compile-time proof Handler satisfies the persistence layer's contract.
+	var _ persistence.Persistable = h
+
+	require.NoError(t, b.EnableHub(false, nil))
+
+	actionTargetArn, err := b.CreateActionTarget("my-action", "desc", "custom-action-1")
+	require.NoError(t, err)
+
+	data := h.Snapshot(ctx)
+	require.NotEmpty(t, data)
+
+	restoredBackend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
+	restoredHandler := securityhub.NewHandler(restoredBackend)
+	require.NoError(t, restoredHandler.Restore(ctx, data))
+
+	assert.True(t, securityhub.IsHubEnabled(restoredBackend))
+	assert.Equal(t, 1, securityhub.ActionTargetCount(restoredBackend))
+
+	ats, _ := restoredBackend.DescribeActionTargets([]string{actionTargetArn}, "", 10)
+	require.Len(t, ats, 1)
+	assert.Equal(t, "my-action", ats[0].Name)
 }
