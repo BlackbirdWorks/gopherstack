@@ -285,7 +285,10 @@ func TestElasticsearchHandler_ListDomainNames(t *testing.T) {
 		r.Body.Close()
 	}
 
-	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain", nil)
+	// ListDomainNames is served at the distinct "/2015-01-01/domain" resource
+	// (no "es/" segment), per the real aws-sdk-go-v2 elasticsearchservice
+	// serializer -- it is NOT the same path as CreateElasticsearchDomain.
+	resp := doRequest(t, h, http.MethodGet, "/2015-01-01/domain", nil)
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -636,7 +639,7 @@ func TestElasticsearchHandler_ExtractOperation(t *testing.T) {
 		{
 			name:   "list_domain_names",
 			method: http.MethodGet,
-			path:   "/2015-01-01/es/domain",
+			path:   "/2015-01-01/domain",
 			want:   "ListDomainNames",
 		},
 		{

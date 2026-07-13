@@ -107,7 +107,8 @@ func (h *Handler) buildOps() map[string]http.HandlerFunc {
 		http.MethodPost + " " + elasticsearchTagsRemove:                 h.handleRemoveTags,
 		http.MethodDelete + " " + elasticsearchServiceRole:              h.handleDeleteElasticsearchServiceRole,
 		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/cancel": h.handleCancelElasticsearchServiceSoftwareUpdate,
-		http.MethodPost + " " + elasticsearchSoftwareUpdate:             h.handleStartElasticsearchServiceSoftwareUpdate,
+		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/start":  h.handleStartElasticsearchServiceSoftwareUpdate,
+		http.MethodGet + " " + elasticsearchDomainPackages:              h.handleListDomainNames,
 		http.MethodPost + " " + elasticsearchCCSOutbound:                h.handleCreateOutboundCrossClusterSearchConnection,
 		http.MethodPost + " " + elasticsearchVpcEndpoints:               h.handleCreateVpcEndpoint,
 		http.MethodPost + " " + elasticsearchPackages:                   h.handleCreatePackage,
@@ -170,6 +171,7 @@ func matchElasticsearchCorePaths(path string) bool {
 // matchElasticsearchExtPaths returns true if path matches extended Elasticsearch paths.
 func matchElasticsearchExtPaths(path string) bool {
 	return strings.HasPrefix(path, elasticsearchPackages) ||
+		path == elasticsearchDomainPackages ||
 		strings.HasPrefix(path, elasticsearchDomainPackages+"/") ||
 		strings.HasPrefix(path, elasticsearchUpgradeDomain) ||
 		path == elasticsearchCompatibleVersions ||
@@ -411,6 +413,8 @@ func extractPackageDomainOp(path, method string) string {
 		strings.HasSuffix(path, "/packages") &&
 		method == http.MethodGet:
 		return "ListPackagesForDomain"
+	case path == elasticsearchDomainPackages && method == http.MethodGet:
+		return "ListDomainNames"
 	}
 
 	return ""
@@ -460,7 +464,7 @@ func extractUpgradeOp(path, method string) string {
 		strings.HasSuffix(path, "/status") &&
 		method == http.MethodGet:
 		return "GetUpgradeStatus"
-	case path == elasticsearchSoftwareUpdate && method == http.MethodPost:
+	case path == elasticsearchSoftwareUpdate+"/start" && method == http.MethodPost:
 		return "StartElasticsearchServiceSoftwareUpdate"
 	}
 
@@ -545,12 +549,14 @@ func extractSubDomainMethodOp(method string) string {
 	return opUnknown
 }
 
+// extractRootDomainOperation returns the operation for the bare domain-prefix
+// path. Note: ListDomainNames is NOT here -- AWS routes it at the distinct
+// "/2015-01-01/domain" resource (no "es/" segment), handled separately in
+// extractPackageDomainOp. A bare GET on "/2015-01-01/es/domain" is not a real
+// AWS operation.
 func extractRootDomainOperation(method string) string {
-	switch method {
-	case http.MethodPost:
+	if method == http.MethodPost {
 		return "CreateElasticsearchDomain"
-	case http.MethodGet:
-		return "ListDomainNames"
 	}
 
 	return opUnknown
@@ -899,8 +905,9 @@ func (h *Handler) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
 		h.handleCreateDomain(w, r)
-	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
-		h.handleListDomainNames(w, r)
+	// Note: a bare GET here is NOT ListDomainNames -- AWS routes that at the
+	// distinct "/2015-01-01/domain" resource (see the fixed-path entry in
+	// buildOps and extractRootDomainOperation's doc comment).
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
 		h.handleGetDomainRoute(w, r, rest)
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:

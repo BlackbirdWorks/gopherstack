@@ -133,7 +133,7 @@ func testStatefulUpgrade(t *testing.T) {
 	resp = doRequest(t, h, http.MethodGet, "/2015-01-01/es/domain/upgrade-state-domain", nil)
 	assert.Equal(t, "7.11", esCoverageReadBody(t, resp)["DomainStatus"].(map[string]any)["ElasticsearchVersion"])
 
-	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/es/serviceSoftwareUpdate", map[string]any{
+	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/es/serviceSoftwareUpdate/start", map[string]any{
 		"DomainName": "missing-domain",
 	})
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
