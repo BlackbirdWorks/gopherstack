@@ -23,7 +23,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateTableBucket("mybucket")
+	_, err := b.CreateTableBucket("mybucket", s3tables.CreateTableBucketOptions{})
 	require.NoError(t, err)
 
 	require.Equal(t, 1, s3tables.BucketCount(b))
@@ -621,13 +621,13 @@ func TestRefinement1_Snapshot_Restore(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	tb, err := b.CreateTableBucket("snap-bucket")
+	tb, err := b.CreateTableBucket("snap-bucket", s3tables.CreateTableBucketOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
 	require.NoError(t, err)
 
-	_, err = b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG")
+	_, err = b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
 	require.NoError(t, err)
 
 	s3tables.AddBucketReplicationInternal(b, tb.ARN, &s3tables.BucketReplicationConfig{
@@ -676,7 +676,7 @@ func TestRefinement1_BucketReplicationRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-			tb, err := b.CreateTableBucket("rr-bucket")
+			tb, err := b.CreateTableBucket("rr-bucket", s3tables.CreateTableBucketOptions{})
 			require.NoError(t, err)
 
 			cfg := &s3tables.BucketReplicationConfig{
@@ -716,13 +716,13 @@ func TestRefinement1_TableReplicationRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-			tb, err := b.CreateTableBucket("tr-bucket")
+			tb, err := b.CreateTableBucket("tr-bucket", s3tables.CreateTableBucketOptions{})
 			require.NoError(t, err)
 
 			_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
 			require.NoError(t, err)
 
-			table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG")
+			table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
 			require.NoError(t, err)
 
 			require.NoError(t, b.PutTableReplication(table.ARN))
@@ -759,13 +759,13 @@ func TestRefinement1_TableRecordExpiryRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-			tb, err := b.CreateTableBucket("exp-bucket")
+			tb, err := b.CreateTableBucket("exp-bucket", s3tables.CreateTableBucketOptions{})
 			require.NoError(t, err)
 
 			_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
 			require.NoError(t, err)
 
-			table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG")
+			table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
 			require.NoError(t, err)
 
 			cfg := &s3tables.TableRecordExpiryConfig{Status: tt.status}
@@ -782,13 +782,13 @@ func TestRefinement1_TableRecordExpiryDefaultDisabled(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	tb, err := b.CreateTableBucket("exp-default-bucket")
+	tb, err := b.CreateTableBucket("exp-default-bucket", s3tables.CreateTableBucketOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
 	require.NoError(t, err)
 
-	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG")
+	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
 	require.NoError(t, err)
 
 	got, err := b.GetTableRecordExpirationConfiguration(table.ARN)
@@ -953,13 +953,13 @@ func TestRefinement1_SnapshotRestoreNewFields(t *testing.T) {
 	t.Parallel()
 
 	b := s3tables.NewInMemoryBackend("000000000000", "us-east-1")
-	tb, err := b.CreateTableBucket("snap2-bucket")
+	tb, err := b.CreateTableBucket("snap2-bucket", s3tables.CreateTableBucketOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateNamespace(tb.ARN, []string{"ns1"})
 	require.NoError(t, err)
 
-	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG")
+	table, err := b.CreateTable(tb.ARN, []string{"ns1"}, "t1", "ICEBERG", s3tables.CreateTableOptions{})
 	require.NoError(t, err)
 
 	require.NoError(t, b.PutTableReplication(table.ARN))
