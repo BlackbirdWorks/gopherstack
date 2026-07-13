@@ -228,9 +228,14 @@ func TestAccuracy_NewIdentity_EnabledByDefault(t *testing.T) {
 	assert.Equal(t, identity.IdentityID, result.Identities[0].IdentityID)
 }
 
-// ---- Gap 7: Expiration timestamp uses milliseconds ----
-
-func TestAccuracy_GetCredentials_ExpirationIsMilliseconds(t *testing.T) {
+// ---- Gap 7: Expiration timestamp uses epoch seconds ----
+//
+// aws-sdk-go-v2's cognitoidentity deserializer parses Credentials.Expiration with
+// smithytime.ParseEpochSeconds, which treats the wire value as seconds (with
+// optional fractional component) since the Unix epoch -- not milliseconds. A
+// prior pass got this backwards; the correct wire value for "~1 hour from now"
+// is a 10-digit number of seconds, not a 13-digit number of milliseconds.
+func TestAccuracy_GetCredentials_ExpirationIsEpochSeconds(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -265,20 +270,23 @@ func TestAccuracy_GetCredentials_ExpirationIsMilliseconds(t *testing.T) {
 	expiration, ok := creds["Expiration"].(float64)
 	require.True(t, ok, "Expiration must be a number")
 
-	// Millisecond epoch is 13 digits; second epoch is 10 digits.
-	// Threshold: 1e12 ms corresponds to roughly year 2001, well before any valid future expiry.
-	const minMillisEpoch = 1e12
-	assert.Greater(
-		t,
-		expiration,
-		minMillisEpoch,
-		"Expiration must be in milliseconds (13-digit epoch)",
-	)
+	// Second epoch is 10 digits; millisecond epoch is 13 digits.
+	// Threshold: 1e11 seconds corresponds to roughly year 5138, well after any
+	// valid ~1-hour-from-now expiry, so anything at or above it must be in
+	// milliseconds by mistake.
+	const maxSecondsEpoch = 1e11
 	assert.Less(
 		t,
 		expiration,
-		float64(time.Now().Add(2*time.Hour).UnixMilli()+1000),
-		"Expiration must be ~1 hour from now in ms",
+		maxSecondsEpoch,
+		"Expiration must be in seconds (10-digit epoch), not milliseconds",
+	)
+	assert.InDelta(
+		t,
+		float64(time.Now().Add(time.Hour).Unix()),
+		expiration,
+		float64(2*time.Minute/time.Second),
+		"Expiration must be ~1 hour from now in seconds",
 	)
 }
 
