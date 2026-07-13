@@ -153,6 +153,51 @@ func TestParity_StartStopStack(t *testing.T) {
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
+		{
+			// StartStack must commit its instances to the terminal "online"
+			// status. Previously it parked them in "starting" with nothing to
+			// ever advance them, so DescribeInstances pollers waiting for
+			// "online" spun forever.
+			name: "StartStack transitions stopped instances to online",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				layerID := createTestLayer(t, h, stackID)
+				instanceID := createTestInstance(t, h, stackID, layerID)
+
+				rec := doTarget(t, h, "StartStack", map[string]any{"StackId": stackID})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doTarget(t, h, "DescribeInstances", map[string]any{
+					"InstanceIds": []string{instanceID},
+				})
+				resp := parseJSON(t, rec.Body.Bytes())
+				inst := resp["Instances"].([]any)[0].(map[string]any)
+				assert.Equal(t, "online", inst["Status"])
+			},
+		},
+		{
+			// StopStack must commit its instances to the terminal "stopped"
+			// status rather than leaving them stuck in "stopping".
+			name: "StopStack transitions online instances to stopped",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				layerID := createTestLayer(t, h, stackID)
+				instanceID := createTestInstance(t, h, stackID, layerID)
+				doTarget(t, h, "StartStack", map[string]any{"StackId": stackID})
+
+				rec := doTarget(t, h, "StopStack", map[string]any{"StackId": stackID})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doTarget(t, h, "DescribeInstances", map[string]any{
+					"InstanceIds": []string{instanceID},
+				})
+				resp := parseJSON(t, rec.Body.Bytes())
+				inst := resp["Instances"].([]any)[0].(map[string]any)
+				assert.Equal(t, "stopped", inst["Status"])
+			},
+		},
 	}
 
 	for _, tt := range tests {

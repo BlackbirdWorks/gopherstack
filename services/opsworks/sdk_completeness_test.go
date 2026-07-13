@@ -1,8 +1,14 @@
 package opsworks_test
 
-// OpsWorks was not migrated to AWS SDK v2 — it was deprecated and removed from
-// the SDK. There is no aws-sdk-go-v2/service/opsworks package to compare against.
-// Instead, this file verifies internal consistency between GetSupportedOperations()
+// AWS did generate an aws-sdk-go-v2/service/opsworks client (every op/type in
+// this backend has a real counterpart there, all flagged
+// "Deprecated: AWS has deprecated this service"), but this repo's go.mod does
+// not depend on it, so there is no import path here to compare against at
+// compile time. A future wire-shape audit should still fetch that module
+// (`go doc github.com/aws/aws-sdk-go-v2/service/opsworks/types.<Type>`, or
+// read it straight from the module cache) rather than trusting only this
+// backend's own output — see .claude/memories/parity-principles.md rule 2.
+// This file verifies internal consistency between GetSupportedOperations()
 // and the handler dispatch table.
 
 import (

@@ -427,7 +427,11 @@ func TestAudit1_Instance(t *testing.T) {
 				})
 				resp := parseJSON(t, rec.Body.Bytes())
 				inst := resp["Instances"].([]any)[0].(map[string]any)
-				assert.Equal(t, "starting", inst["Status"])
+				// StartInstance commits directly to the terminal "online" status
+				// rather than parking the instance in a transient status that
+				// nothing ever advances (that used to leave DescribeInstances
+				// pollers spinning on "starting" forever).
+				assert.Equal(t, "online", inst["Status"])
 			},
 		},
 		{
@@ -449,7 +453,57 @@ func TestAudit1_Instance(t *testing.T) {
 				})
 				resp := parseJSON(t, rec.Body.Bytes())
 				inst := resp["Instances"].([]any)[0].(map[string]any)
-				assert.Equal(t, "stopping", inst["Status"])
+				// StopInstance commits directly to the terminal "stopped" status
+				// rather than parking the instance in a transient status that
+				// nothing ever advances.
+				assert.Equal(t, "stopped", inst["Status"])
+			},
+		},
+		{
+			name: "RebootInstance transitions status back to online",
+			check: func(t *testing.T, h *opsworks.Handler, stackID, layerID string) {
+				t.Helper()
+				rec := doTarget(t, h, "CreateInstance", map[string]any{
+					"StackId":      stackID,
+					"LayerIds":     []string{layerID},
+					"InstanceType": "t2.micro",
+				})
+				instanceID := parseJSON(t, rec.Body.Bytes())["InstanceId"].(string)
+
+				doTarget(t, h, "StartInstance", map[string]any{"InstanceId": instanceID})
+
+				rec = doTarget(t, h, "RebootInstance", map[string]any{"InstanceId": instanceID})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doTarget(t, h, "DescribeInstances", map[string]any{
+					"InstanceIds": []string{instanceID},
+				})
+				resp := parseJSON(t, rec.Body.Bytes())
+				inst := resp["Instances"].([]any)[0].(map[string]any)
+				assert.Equal(t, "online", inst["Status"])
+			},
+		},
+		{
+			name: "StartInstance is idempotent when already online",
+			check: func(t *testing.T, h *opsworks.Handler, stackID, layerID string) {
+				t.Helper()
+				rec := doTarget(t, h, "CreateInstance", map[string]any{
+					"StackId":      stackID,
+					"LayerIds":     []string{layerID},
+					"InstanceType": "t2.micro",
+				})
+				instanceID := parseJSON(t, rec.Body.Bytes())["InstanceId"].(string)
+
+				doTarget(t, h, "StartInstance", map[string]any{"InstanceId": instanceID})
+				rec = doTarget(t, h, "StartInstance", map[string]any{"InstanceId": instanceID})
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec = doTarget(t, h, "DescribeInstances", map[string]any{
+					"InstanceIds": []string{instanceID},
+				})
+				resp := parseJSON(t, rec.Body.Bytes())
+				inst := resp["Instances"].([]any)[0].(map[string]any)
+				assert.Equal(t, "online", inst["Status"])
 			},
 		},
 	}
