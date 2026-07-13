@@ -169,7 +169,8 @@ func TestRefinement2_ShadowDocumentValidation_BackendSizeCheck(t *testing.T) {
 	oversize := fmt.Appendf(nil, `{"k":%q}`, value)
 
 	_, err := b.UpdateThingShadow("thing1", "", oversize)
-	require.ErrorIs(t, err, iotdataplane.ErrValidation)
+	require.ErrorIs(t, err, iotdataplane.ErrRequestTooLarge,
+		"oversized shadow doc must be RequestEntityTooLargeException, not InvalidRequestException")
 }
 
 // --- Version overflow protection ---

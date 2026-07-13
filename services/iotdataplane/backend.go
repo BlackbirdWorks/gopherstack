@@ -27,10 +27,18 @@ var ErrRetainedMessageNotFound = errors.New("retained message not found")
 
 // ErrVersionConflict is returned when a shadow update specifies a version
 // that does not match the current shadow version (optimistic locking violation).
-var ErrVersionConflict = errors.New("VersionConflictException")
+// The wire error code is "ConflictException" (real AWS iotdataplane exception
+// name; see aws-sdk-go-v2/service/iotdataplane/types.ConflictException) --
+// there is no "VersionConflictException" in the real API.
+var ErrVersionConflict = errors.New("ConflictException")
 
 // ErrValidation is returned for invalid input parameters.
 var ErrValidation = errors.New("InvalidRequestException")
+
+// ErrRequestTooLarge is returned when a shadow document exceeds the maximum
+// allowed size. Wire error code "RequestEntityTooLargeException" (real AWS
+// iotdataplane exception, modeled only for UpdateThingShadow).
+var ErrRequestTooLarge = errors.New("RequestEntityTooLargeException")
 
 // ErrConnectionExists is returned when trying to register a clientID that is already connected.
 var ErrConnectionExists = errors.New("connection already exists")
@@ -125,6 +133,13 @@ type shadowEntry struct {
 	thingName    string
 	shadowName   string
 	version      int
+	// deleted marks a tombstoned shadow: state has been cleared by
+	// DeleteThingShadow but the row is kept (instead of removed from the
+	// table) so a later UpdateThingShadow that recreates this shadow
+	// continues the version counter rather than resetting to 1. Real AWS
+	// explicitly documents that deleting a shadow does not reset its version
+	// number. Deleted entries are excluded from Get/List-style reads.
+	deleted bool
 }
 
 // connectionEntry holds the state for a registered MQTT client connection.
@@ -255,7 +270,7 @@ func validateShadowDocument(doc []byte) error {
 	}
 
 	if len(doc) > maxShadowDocumentBytes {
-		return fmt.Errorf("%w: shadow document exceeds %d bytes", ErrValidation, maxShadowDocumentBytes)
+		return fmt.Errorf("%w: shadow document exceeds %d bytes", ErrRequestTooLarge, maxShadowDocumentBytes)
 	}
 
 	var obj map[string]json.RawMessage
@@ -433,7 +448,7 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 	defer b.mu.RUnlock()
 
 	entry, ok := b.shadows.Get(shadowKey(thingName, shadowName))
-	if !ok {
+	if !ok || entry.deleted {
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
@@ -540,7 +555,10 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 
 	current, _ := b.shadows.Get(shadowKey(thingName, shadowName))
 
-	if current == nil && len(b.shadowsByThing.Get(thingName)) >= maxShadowsPerThing {
+	// A tombstoned (deleted) entry counts the same as "no shadow yet" for the
+	// purposes of the per-thing shadow limit -- it doesn't represent a live
+	// shadow, so recreating it must not be blocked by stale tombstone rows.
+	if (current == nil || current.deleted) && liveShadowCount(b.shadowsByThing.Get(thingName)) >= maxShadowsPerThing {
 		return nil, fmt.Errorf("%w: shadow limit (%d) per thing exceeded for %s",
 			ErrValidation, maxShadowsPerThing, thingName)
 	}
@@ -623,8 +641,15 @@ func nextShadowVersion(current *shadowEntry) int {
 	return current.version + 1
 }
 
-// DeleteThingShadow removes the document for the named shadow of a thing and
-// returns the last known shadow state (AWS DeleteThingShadow response contract).
+// DeleteThingShadow removes the document for the named shadow of a thing.
+// Per AWS docs, the response is an "empty response state document" -- only
+// version and timestamp, no state/metadata/clientToken (see
+// device-shadow-document.html #device-shadow-example-response-json).
+//
+// The shadow row is tombstoned (kept with state cleared) rather than
+// physically removed: AWS explicitly documents that deleting a shadow does
+// not reset its version number, so a later UpdateThingShadow that recreates
+// this shadow must continue incrementing from the pre-delete version.
 func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byte, error) {
 	if err := validateThingName(thingName); err != nil {
 		return nil, err
@@ -636,22 +661,40 @@ func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) ([]byt
 	key := shadowKey(thingName, shadowName)
 
 	entry, ok := b.shadows.Get(key)
-	if !ok {
+	if !ok || entry.deleted {
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
-	payload, err := buildShadowResponse(entry, "")
+	payload, err := json.Marshal(map[string]any{
+		"version":    entry.version,
+		keyTimestamp: entry.updatedAt.Unix(),
+	})
 	if err != nil {
-		// Fallback: return a minimal valid response.
-		payload, _ = json.Marshal(map[string]any{
-			"version":    entry.version,
-			keyTimestamp: entry.updatedAt.Unix(),
-		})
+		return nil, fmt.Errorf("iotdataplane: marshal delete response: %w", err)
 	}
 
-	b.shadows.Delete(key)
+	b.shadows.Put(&shadowEntry{
+		thingName:  thingName,
+		shadowName: shadowName,
+		version:    entry.version,
+		updatedAt:  time.Now(),
+		deleted:    true,
+	})
 
 	return payload, nil
+}
+
+// liveShadowCount returns the number of non-tombstoned entries in group.
+func liveShadowCount(group []*shadowEntry) int {
+	n := 0
+
+	for _, e := range group {
+		if !e.deleted {
+			n++
+		}
+	}
+
+	return n
 }
 
 // ListNamedShadowsForThing returns the sorted list of named shadow names for the given thing.
@@ -668,7 +711,7 @@ func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, 
 
 	names := make([]string, 0, len(group))
 	for _, entry := range group {
-		if entry.shadowName != "" {
+		if entry.shadowName != "" && !entry.deleted {
 			names = append(names, entry.shadowName)
 		}
 	}
@@ -685,6 +728,10 @@ func (b *InMemoryBackend) ListThingsWithShadows() []string {
 
 	seen := make(map[string]struct{})
 	for _, entry := range b.shadows.All() {
+		if entry.deleted {
+			continue
+		}
+
 		seen[entry.thingName] = struct{}{}
 	}
 

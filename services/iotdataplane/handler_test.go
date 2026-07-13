@@ -441,7 +441,7 @@ func TestHandler_ShadowVersionConflict(t *testing.T) {
 	docBadVer := []byte(`{"state":{"desired":{"color":"blue"}},"version":99}`)
 	rec = doRequest(t, h, http.MethodPost, "/things/myThing/shadow", docBadVer)
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "VersionConflictException")
+	assert.Contains(t, rec.Body.String(), "ConflictException")
 }
 
 func TestHandler_ShadowResponseContainsVersionAndTimestamp(t *testing.T) {
@@ -904,6 +904,39 @@ func TestHandler_RouteMatcher_NewOps(t *testing.T) {
 			h := newTestHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
+
+// TestHandler_RouteMatcher_DeleteConnectionRealPath verifies the RouteMatcher
+// (which real HTTP traffic goes through, unlike doRequest's direct Handler()
+// call) recognizes the real AWS DeleteConnection wire path "DELETE
+// /connections/{clientId}", while GET/POST on the same bare prefix -- which
+// have no real AWS equivalent -- do not match.
+func TestHandler_RouteMatcher_DeleteConnectionRealPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		wantMatch bool
+	}{
+		{name: "delete_matches", method: http.MethodDelete, path: "/connections/client-001", wantMatch: true},
+		{name: "get_does_not_match", method: http.MethodGet, path: "/connections/client-001", wantMatch: false},
+		{name: "post_does_not_match", method: http.MethodPost, path: "/connections/client-001", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
 			c := e.NewContext(req, httptest.NewRecorder())
 			matcher := h.RouteMatcher()
 			assert.Equal(t, tt.wantMatch, matcher(c))

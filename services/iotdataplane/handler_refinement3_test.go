@@ -801,7 +801,11 @@ func TestRefinement3_AdminConnectionsPath_BasicFlow(t *testing.T) {
 	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
 }
 
-func TestRefinement3_AdminConnectionsPath_OldPathReturns404(t *testing.T) {
+// TestRefinement3_ConnectionsPath_NonAWSOpsReturn404 verifies that
+// RegisterConnection and ListConnections -- which have no real AWS
+// iotdataplane equivalent -- are unreachable at the bare /connections path
+// (they only exist under the gopherstack-only /_admin/connections alias).
+func TestRefinement3_ConnectionsPath_NonAWSOpsReturn404(t *testing.T) {
 	t.Parallel()
 
 	h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
@@ -812,7 +816,6 @@ func TestRefinement3_AdminConnectionsPath_OldPathReturns404(t *testing.T) {
 	}{
 		{http.MethodGet, "/connections"},
 		{http.MethodPost, "/connections/device-x"},
-		{http.MethodDelete, "/connections/device-x"},
 	}
 
 	for _, tt := range tests {
@@ -821,9 +824,28 @@ func TestRefinement3_AdminConnectionsPath_OldPathReturns404(t *testing.T) {
 
 			rec := doRequest(t, h, tt.method, tt.path, nil)
 			assert.Equal(t, http.StatusNotFound, rec.Code,
-				"old /connections path must return 404 after move to /_admin")
+				"RegisterConnection/ListConnections have no real AWS path and stay 404 outside /_admin")
 		})
 	}
+}
+
+// TestRefinement3_DeleteConnection_RealAWSPath verifies that DeleteConnection
+// -- unlike RegisterConnection/ListConnections -- IS a real, published AWS
+// iotdataplane operation (aws-sdk-go-v2/service/iotdataplane.DeleteConnection,
+// wire path "DELETE /connections/{clientId}") and so must remain reachable at
+// its real wire path, not just the gopherstack /_admin alias.
+func TestRefinement3_DeleteConnection_RealAWSPath(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	h := iotdataplane.NewHandler(b)
+
+	doRequest(t, h, http.MethodPost, "/_admin/connections/device-x", nil)
+	assert.Equal(t, 1, iotdataplane.ConnectionCount(b))
+
+	rec := doRequest(t, h, http.MethodDelete, "/connections/device-x", nil)
+	assert.Equal(t, http.StatusOK, rec.Code, "real AWS DeleteConnection wire path must work")
+	assert.Equal(t, 0, iotdataplane.ConnectionCount(b))
 }
 
 // ── Content-Type gate for unwrapPublishPayload (issue #22) ───────────────────

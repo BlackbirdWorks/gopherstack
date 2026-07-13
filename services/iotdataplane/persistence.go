@@ -40,6 +40,11 @@ type shadowEntrySnap struct {
 	ThingName    string                     `json:"thingName"`
 	ShadowName   string                     `json:"shadowName"`
 	Version      int                        `json:"version"`
+	// Deleted round-trips the tombstone flag (see shadowEntry.deleted) so a
+	// restored snapshot preserves delete-then-recreate version continuity.
+	// Omitted (defaults to false) for pre-existing snapshots, which is the
+	// correct interpretation since tombstones didn't exist before this field.
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 func shadowEntrySnapKeyFn(v *shadowEntrySnap) string { return shadowKey(v.ThingName, v.ShadowName) }
@@ -110,6 +115,7 @@ func entryToSnap(entry *shadowEntry) *shadowEntrySnap {
 		Reported:     copyRawMessages(entry.reported),
 		MetaDesired:  copyInt64Map(entry.metaDesired),
 		MetaReported: copyInt64Map(entry.metaReported),
+		Deleted:      entry.deleted,
 	}
 }
 
@@ -124,6 +130,7 @@ func snapToEntry(es *shadowEntrySnap) *shadowEntry {
 		reported:     copyRawMessages(es.Reported),
 		metaDesired:  copyInt64Map(es.MetaDesired),
 		metaReported: copyInt64Map(es.MetaReported),
+		deleted:      es.Deleted,
 	}
 }
 
