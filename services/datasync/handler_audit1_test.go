@@ -522,7 +522,8 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	rec = doRequest(t, h, "CancelTaskExecution", map[string]any{"TaskExecutionArn": execArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// List after cancel - execution persists with CANCELLED status
+	// List after cancel - execution persists with ERROR status (AWS has no
+	// CANCELLED TaskExecutionStatus enum value).
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	execs, ok := listResp["TaskExecutions"].([]any)
@@ -530,7 +531,7 @@ func TestDataSync_TaskExecution(t *testing.T) {
 	require.Len(t, execs, 1)
 	execEntry, ok := execs[0].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "CANCELLED", execEntry["Status"])
+	assert.Equal(t, "ERROR", execEntry["Status"])
 
 	// StartTaskExecution unknown task returns 404
 	rec = doRequest(

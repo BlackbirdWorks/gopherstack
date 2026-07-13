@@ -105,10 +105,16 @@ func TestDataSync_UpdateTaskExecution(t *testing.T) {
 
 	// The Options applied via UpdateTaskExecution must be observable on
 	// DescribeTaskExecution (the round-trip the prior stub broke).
-	// Use a fresh execution so the Describe call (which auto-advances state)
-	// does not race with the parallel table subtests that expect execArn to
-	// remain updatable (LAUNCHING).
-	rec2 := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	// Use a fresh execution on a second, independent task so the Describe
+	// call (which auto-advances state) does not race with the parallel table
+	// subtests that expect execArn to remain updatable (LAUNCHING); AWS only
+	// allows one in-progress execution per task at a time, so reusing taskArn
+	// here would be rejected while execArn is still LAUNCHING.
+	src2Arn := createTestLocationS3(t, h)
+	dst2Arn := createTestLocationS3(t, h)
+	taskArn2 := createTestTask(t, h, src2Arn, dst2Arn)
+
+	rec2 := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn2})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var startResp2 map[string]any
@@ -175,7 +181,8 @@ func TestDataSync_AzureBlob(t *testing.T) {
 	assert.Equal(t, "BLOCK", descResp["BlobType"])
 	assert.Equal(t, "HOT", descResp["AccessTier"])
 	assert.Contains(t, descResp["LocationUri"].(string), "azure-blob://")
-	assert.NotNil(t, descResp["SasConfiguration"])
+	// AWS never echoes the SAS token back on Describe.
+	assert.Nil(t, descResp["SasConfiguration"])
 
 	// Update
 	rec = doRequest(t, h, "UpdateLocationAzureBlob", map[string]any{
@@ -377,7 +384,7 @@ func TestDataSync_FsxOpenZfs(t *testing.T) {
 
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Contains(t, descResp["LocationUri"].(string), "openzfs://")
+	assert.Contains(t, descResp["LocationUri"].(string), "fsxz://")
 	assert.NotEmpty(t, descResp["FsxFilesystemArn"])
 
 	// Update

@@ -189,7 +189,8 @@ func TestParity_TagsRoundTrip(t *testing.T) {
 }
 
 // TestParity_CancelTaskExecution_StatusChange verifies that CancelTaskExecution
-// transitions a LAUNCHING execution to CANCELLED rather than deleting it.
+// transitions a LAUNCHING execution to ERROR (AWS has no CANCELLED
+// TaskExecutionStatus enum value) rather than deleting it.
 func TestParity_CancelTaskExecution_StatusChange(t *testing.T) {
 	t.Parallel()
 
@@ -209,7 +210,7 @@ func TestParity_CancelTaskExecution_StatusChange(t *testing.T) {
 	rec = doRequest(t, h, "CancelTaskExecution", map[string]any{"TaskExecutionArn": execArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Execution should now appear as CANCELLED in the list, not absent.
+	// Execution should now appear as ERROR in the list, not absent.
 	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{"TaskArn": taskArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -219,7 +220,7 @@ func TestParity_CancelTaskExecution_StatusChange(t *testing.T) {
 	execs, ok := listResp["TaskExecutions"].([]any)
 	require.True(t, ok)
 	require.Len(t, execs, 1)
-	assert.Equal(t, "CANCELLED", execs[0].(map[string]any)["Status"])
+	assert.Equal(t, "ERROR", execs[0].(map[string]any)["Status"])
 }
 
 // TestParity_DescribeTaskExecution_LazyAdvance verifies that DescribeTaskExecution
@@ -269,4 +270,104 @@ func TestParity_ListTaskExecutions_UnknownTask(t *testing.T) {
 		"TaskArn": "arn:aws:datasync:us-east-1:000000000000:task/notexist",
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestParity_StartTaskExecution_RejectsConcurrent verifies that starting a
+// second execution while one is still in progress is rejected, matching the
+// documented AWS behavior ("For each task, you can only run one task
+// execution at a time.").
+func TestParity_StartTaskExecution_RejectsConcurrent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	srcArn := createTestLocationS3(t, h)
+	dstArn := createTestLocationS3(t, h)
+	taskArn := createTestTask(t, h, srcArn, dstArn)
+
+	rec := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	execArn := startResp["TaskExecutionArn"].(string)
+
+	// Second start while the first execution is still LAUNCHING must fail.
+	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	// Once the first execution settles into a terminal state, starting a new
+	// one is allowed again.
+	rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestParity_TaskStatus_RunningWhileExecuting verifies that a task's Status
+// reports RUNNING for the duration of an in-progress execution and reverts
+// to AVAILABLE once that execution finishes, matching AWS (task Status is
+// distinct from -- but driven by -- task execution status).
+func TestParity_TaskStatus_RunningWhileExecuting(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	srcArn := createTestLocationS3(t, h)
+	dstArn := createTestLocationS3(t, h)
+	taskArn := createTestTask(t, h, srcArn, dstArn)
+
+	rec := doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var taskResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	assert.Equal(t, "AVAILABLE", taskResp["Status"])
+
+	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": taskArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	execArn := startResp["TaskExecutionArn"].(string)
+
+	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	assert.Equal(t, "RUNNING", taskResp["Status"])
+
+	// Settling the execution (lazy advance on Describe) reverts the task.
+	rec = doRequest(t, h, "DescribeTaskExecution", map[string]any{"TaskExecutionArn": execArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeTask", map[string]any{"TaskArn": taskArn})
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	assert.Equal(t, "AVAILABLE", taskResp["Status"])
+}
+
+// TestParity_ListTaskExecutions_AllTasks verifies that omitting TaskArn lists
+// executions across every task, since TaskArn is an optional filter on the
+// real ListTaskExecutions API rather than a required parameter.
+func TestParity_ListTaskExecutions_AllTasks(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	src1, dst1 := createTestLocationS3(t, h), createTestLocationS3(t, h)
+	task1 := createTestTask(t, h, src1, dst1)
+	rec := doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": task1})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	src2, dst2 := createTestLocationS3(t, h), createTestLocationS3(t, h)
+	task2 := createTestTask(t, h, src2, dst2)
+	rec = doRequest(t, h, "StartTaskExecution", map[string]any{"TaskArn": task2})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "ListTaskExecutions", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+
+	execs, ok := listResp["TaskExecutions"].([]any)
+	require.True(t, ok)
+	assert.Len(t, execs, 2)
 }

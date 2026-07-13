@@ -24,6 +24,7 @@ const (
 
 	agentStatusOnline   = "ONLINE"
 	taskStatusAvailable = "AVAILABLE"
+	taskStatusRunning   = "RUNNING"
 
 	executionStatusLaunching = "LAUNCHING"
 	executionStatusSuccess   = "SUCCESS"
@@ -706,7 +707,20 @@ func (b *InMemoryBackend) ListTasks(maxResults int32, nextToken string) ([]*Task
 	return pg.Data, pg.Next, nil
 }
 
+// isTerminalExecutionStatus reports whether a task execution status is a
+// terminal (finished) state. AWS only allows one task execution in progress
+// per task at a time, so StartTaskExecution consults this to decide whether
+// the task's current execution has actually finished.
+func isTerminalExecutionStatus(status string) bool {
+	return status == executionStatusSuccess || status == executionStatusError
+}
+
 // StartTaskExecution starts a new task execution.
+//
+// AWS allows only one task execution in progress per task at a time
+// ("For each task, you can only run one task execution at a time.", per the
+// StartTaskExecution API docs); attempting to start another while one is
+// still running is rejected as an invalid request.
 func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, error) {
 	b.mu.Lock("StartTaskExecution")
 	defer b.mu.Unlock()
@@ -714,6 +728,15 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 	t, ok := b.tasks.Get(taskArn)
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	if t.CurrentTaskExecutionArn != "" {
+		if cur, found := b.executions.Get(t.CurrentTaskExecutionArn); found && !isTerminalExecutionStatus(cur.Status) {
+			return nil, fmt.Errorf(
+				"%w: task %s already has an execution in progress (%s)",
+				ErrInvalidParameter, taskArn, t.CurrentTaskExecutionArn,
+			)
+		}
 	}
 
 	id := newID()
@@ -728,6 +751,7 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 
 	b.executions.Put(e)
 	t.CurrentTaskExecutionArn = execArn
+	t.Status = taskStatusRunning
 
 	cp := e.toTaskExecution()
 
@@ -735,6 +759,13 @@ func (b *InMemoryBackend) StartTaskExecution(taskArn string) (*TaskExecution, er
 }
 
 // CancelTaskExecution cancels a running task execution.
+//
+// AWS has no CANCELLED task-execution status (see types.TaskExecutionStatus);
+// a cancelled execution settles into ERROR, matching the documented
+// "some transient states... interrupt a task execution" behavior. Unlike a
+// truly "current" (actively running) marker, CurrentTaskExecutionArn on the
+// parent task is documented as "the ARN of the most recent task execution",
+// so it is left pointing at the cancelled execution rather than cleared.
 func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 	b.mu.Lock("CancelTaskExecution")
 	defer b.mu.Unlock()
@@ -749,17 +780,20 @@ func (b *InMemoryBackend) CancelTaskExecution(taskExecutionArn string) error {
 		return ErrNotFound
 	}
 
-	e.Status = "CANCELLED"
+	e.Status = executionStatusError
 
 	if t, found := b.tasks.Get(taskArn); found && t.CurrentTaskExecutionArn == taskExecutionArn {
-		t.CurrentTaskExecutionArn = ""
+		t.Status = taskStatusAvailable
 	}
 
 	return nil
 }
 
 // DescribeTaskExecution returns task execution details.
-// Executions in LAUNCHING state are lazily advanced to SUCCESS on first describe.
+// Executions in LAUNCHING state are lazily advanced to SUCCESS on first
+// describe. When the execution that finishes is still the task's current
+// one, the parent task's Status reverts from RUNNING to AVAILABLE, matching
+// AWS (task Status is RUNNING only while a task execution is in progress).
 func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskExecution, error) {
 	b.mu.Lock("DescribeTaskExecution")
 	defer b.mu.Unlock()
@@ -776,6 +810,10 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 
 	if e.Status == executionStatusLaunching {
 		e.Status = executionStatusSuccess
+
+		if t, found := b.tasks.Get(taskArn); found && t.CurrentTaskExecutionArn == taskExecutionArn {
+			t.Status = taskStatusAvailable
+		}
 	}
 
 	cp := e.toTaskExecution()
@@ -783,7 +821,9 @@ func (b *InMemoryBackend) DescribeTaskExecution(taskExecutionArn string) (*TaskE
 	return &cp, nil
 }
 
-// ListTaskExecutions returns executions for a task, sorted by ARN.
+// ListTaskExecutions returns executions for a task (or, when taskArn is
+// empty, every execution across all tasks -- TaskArn is an optional filter
+// per the real ListTaskExecutions API), sorted by ARN.
 func (b *InMemoryBackend) ListTaskExecutions(
 	taskArn string,
 	maxResults int32,
@@ -792,13 +832,17 @@ func (b *InMemoryBackend) ListTaskExecutions(
 	b.mu.RLock("ListTaskExecutions")
 	defer b.mu.RUnlock()
 
+	var execs []*storedTaskExecution
 	if taskArn != "" {
 		if !b.tasks.Has(taskArn) {
 			return nil, "", ErrNotFound
 		}
+
+		execs = slices.Clone(b.executionsByTask.Get(taskArn))
+	} else {
+		execs = b.executions.Snapshot()
 	}
 
-	execs := slices.Clone(b.executionsByTask.Get(taskArn))
 	slices.SortFunc(execs, func(a, b *storedTaskExecution) int {
 		return strings.Compare(a.TaskExecutionArn, b.TaskExecutionArn)
 	})
@@ -1505,7 +1549,10 @@ func (b *InMemoryBackend) CreateLocationFsxOpenZfs(
 	now := time.Now().UTC()
 
 	sub := strings.TrimPrefix(subdirectory, "/")
-	locationURI := fmt.Sprintf("openzfs://%s/%s", fsxFilesystemArn, sub)
+	// AWS uses the "fsxz://" scheme for FSx OpenZFS location URIs (e.g.
+	// "fsxz://us-west-2.fs-1234567890abcdef02/fsx/folderA/folder" per the
+	// DescribeLocationFsxOpenZfs API docs), not "openzfs://".
+	locationURI := fmt.Sprintf("fsxz://%s/%s", fsxFilesystemArn, sub)
 
 	locationTags := make(map[string]string)
 	maps.Copy(locationTags, tags)
@@ -1571,7 +1618,7 @@ func (b *InMemoryBackend) UpdateLocationFsxOpenZfs(locationArn, subdirectory str
 		}
 
 		sub := strings.TrimPrefix(subdirectory, "/")
-		l.LocationURI = fmt.Sprintf("openzfs://%s/%s", fsArn, sub)
+		l.LocationURI = fmt.Sprintf("fsxz://%s/%s", fsArn, sub)
 	}
 
 	if protocol != nil && l.FsxOpenZfs != nil {
