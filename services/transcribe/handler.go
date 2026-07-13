@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -260,9 +260,9 @@ type transcriptionJobOutput struct {
 	Subtitles                 *SubtitlesOutput            `json:"Subtitles,omitempty"`
 	Media                     *Media                      `json:"Media,omitempty"`
 	Transcript                transcriptOutput            `json:"Transcript"`
-	CreationTime              *string                     `json:"CreationTime,omitempty"`
-	StartTime                 *string                     `json:"StartTime,omitempty"`
-	CompletionTime            *string                     `json:"CompletionTime,omitempty"`
+	CreationTime              *float64                    `json:"CreationTime,omitempty"`
+	StartTime                 *float64                    `json:"StartTime,omitempty"`
+	CompletionTime            *float64                    `json:"CompletionTime,omitempty"`
 	TranscriptionJobName      string                      `json:"TranscriptionJobName"`
 	TranscriptionJobStatus    string                      `json:"TranscriptionJobStatus"`
 	LanguageCode              string                      `json:"LanguageCode,omitempty"`
@@ -413,17 +413,17 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 	}
 
 	if !job.CreationTime.IsZero() {
-		s := job.CreationTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CreationTime)
 		out.CreationTime = &s
 	}
 
 	if !job.StartTime.IsZero() {
-		s := job.StartTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.StartTime)
 		out.StartTime = &s
 	}
 
 	if !job.CompletionTime.IsZero() {
-		s := job.CompletionTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CompletionTime)
 		out.CompletionTime = &s
 	}
 
@@ -431,12 +431,12 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 }
 
 type transcriptionJobSummary struct {
-	CreationTime           *string `json:"CreationTime,omitempty"`
-	CompletionTime         *string `json:"CompletionTime,omitempty"`
-	TranscriptionJobName   string  `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string  `json:"TranscriptionJobStatus"`
-	LanguageCode           string  `json:"LanguageCode,omitempty"`
-	FailureReason          string  `json:"FailureReason,omitempty"`
+	CreationTime           *float64 `json:"CreationTime,omitempty"`
+	CompletionTime         *float64 `json:"CompletionTime,omitempty"`
+	TranscriptionJobName   string   `json:"TranscriptionJobName"`
+	TranscriptionJobStatus string   `json:"TranscriptionJobStatus"`
+	LanguageCode           string   `json:"LanguageCode,omitempty"`
+	FailureReason          string   `json:"FailureReason,omitempty"`
 }
 
 type listTranscriptionJobsOutput struct {
@@ -465,12 +465,12 @@ func (h *Handler) handleListTranscriptionJobs(
 		}
 
 		if !j.CreationTime.IsZero() {
-			ts := j.CreationTime.Format(time.RFC3339)
+			ts := awstime.Epoch(j.CreationTime)
 			s.CreationTime = &ts
 		}
 
 		if !j.CompletionTime.IsZero() {
-			ts := j.CompletionTime.Format(time.RFC3339)
+			ts := awstime.Epoch(j.CompletionTime)
 			s.CompletionTime = &ts
 		}
 
@@ -497,6 +497,7 @@ func (h *Handler) handleDeleteTranscriptionJob(
 // --- CreateCallAnalyticsCategory ---
 
 type createCallAnalyticsCategoryInput struct {
+	Tags         map[string]string   `json:"Tags"`
 	CategoryName string              `json:"CategoryName"`
 	InputType    string              `json:"InputType"`
 	Rules        []CallAnalyticsRule `json:"Rules"`
@@ -519,6 +520,7 @@ func (h *Handler) handleCreateCallAnalyticsCategory(
 		CategoryName: in.CategoryName,
 		InputType:    in.InputType,
 		Rules:        in.Rules,
+		Tags:         in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -552,10 +554,11 @@ func (h *Handler) handleDeleteCallAnalyticsCategory(
 // --- CreateLanguageModel ---
 
 type createLanguageModelInput struct {
-	InputDataConfig *InputDataConfig `json:"InputDataConfig"`
-	ModelName       string           `json:"ModelName"`
-	BaseModelName   string           `json:"BaseModelName"`
-	LanguageCode    string           `json:"LanguageCode"`
+	InputDataConfig *InputDataConfig  `json:"InputDataConfig"`
+	Tags            map[string]string `json:"Tags"`
+	ModelName       string            `json:"ModelName"`
+	BaseModelName   string            `json:"BaseModelName"`
+	LanguageCode    string            `json:"LanguageCode"`
 }
 
 type createLanguageModelOutput struct {
@@ -574,6 +577,7 @@ func (h *Handler) handleCreateLanguageModel(
 		BaseModelName:   in.BaseModelName,
 		LanguageCode:    in.LanguageCode,
 		InputDataConfig: in.InputDataConfig,
+		Tags:            in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -607,9 +611,10 @@ func (h *Handler) handleDeleteLanguageModel(
 // --- CreateMedicalVocabulary ---
 
 type createMedicalVocabularyInput struct {
-	VocabularyName    string `json:"VocabularyName"`
-	LanguageCode      string `json:"LanguageCode"`
-	VocabularyFileURI string `json:"VocabularyFileUri"`
+	Tags              map[string]string `json:"Tags"`
+	VocabularyName    string            `json:"VocabularyName"`
+	LanguageCode      string            `json:"LanguageCode"`
+	VocabularyFileURI string            `json:"VocabularyFileUri"`
 }
 
 type createMedicalVocabularyOutput struct {
@@ -622,7 +627,7 @@ func (h *Handler) handleCreateMedicalVocabulary(
 	_ context.Context,
 	in *createMedicalVocabularyInput,
 ) (*createMedicalVocabularyOutput, error) {
-	v, err := h.Backend.CreateMedicalVocabulary(in.VocabularyName, in.LanguageCode, in.VocabularyFileURI)
+	v, err := h.Backend.CreateMedicalVocabulary(in.VocabularyName, in.LanguageCode, in.VocabularyFileURI, in.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -637,10 +642,11 @@ func (h *Handler) handleCreateMedicalVocabulary(
 // --- CreateVocabulary ---
 
 type createVocabularyInput struct {
-	VocabularyName    string   `json:"VocabularyName"`
-	LanguageCode      string   `json:"LanguageCode"`
-	VocabularyFileURI string   `json:"VocabularyFileUri"`
-	Phrases           []string `json:"Phrases"`
+	Tags              map[string]string `json:"Tags"`
+	VocabularyName    string            `json:"VocabularyName"`
+	LanguageCode      string            `json:"LanguageCode"`
+	VocabularyFileURI string            `json:"VocabularyFileUri"`
+	Phrases           []string          `json:"Phrases"`
 }
 
 type createVocabularyOutput struct {
@@ -658,6 +664,7 @@ func (h *Handler) handleCreateVocabulary(
 		LanguageCode:      in.LanguageCode,
 		Phrases:           in.Phrases,
 		VocabularyFileURI: in.VocabularyFileURI,
+		Tags:              in.Tags,
 	})
 	if err != nil {
 		return nil, err
@@ -673,10 +680,11 @@ func (h *Handler) handleCreateVocabulary(
 // --- CreateVocabularyFilter ---
 
 type createVocabularyFilterInput struct {
-	VocabularyFilterName    string   `json:"VocabularyFilterName"`
-	LanguageCode            string   `json:"LanguageCode"`
-	VocabularyFilterFileURI string   `json:"VocabularyFilterFileUri"`
-	Words                   []string `json:"Words"`
+	Tags                    map[string]string `json:"Tags"`
+	VocabularyFilterName    string            `json:"VocabularyFilterName"`
+	LanguageCode            string            `json:"LanguageCode"`
+	VocabularyFilterFileURI string            `json:"VocabularyFilterFileUri"`
+	Words                   []string          `json:"Words"`
 }
 
 type createVocabularyFilterOutput struct {
@@ -693,6 +701,7 @@ func (h *Handler) handleCreateVocabularyFilter(
 		LanguageCode:            in.LanguageCode,
 		Words:                   in.Words,
 		VocabularyFilterFileURI: in.VocabularyFilterFileURI,
+		Tags:                    in.Tags,
 	})
 	if err != nil {
 		return nil, err

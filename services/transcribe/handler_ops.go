@@ -2,7 +2,8 @@ package transcribe
 
 import (
 	"context"
-	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- GetCallAnalyticsJob ---
@@ -16,9 +17,9 @@ type callAnalyticsJobOutput struct {
 	Settings               *CallAnalyticsSettings `json:"Settings,omitempty"`
 	Media                  *Media                 `json:"Media,omitempty"`
 	Transcript             *transcriptOutput      `json:"Transcript,omitempty"`
-	CreationTime           *string                `json:"CreationTime,omitempty"`
-	StartTime              *string                `json:"StartTime,omitempty"`
-	CompletionTime         *string                `json:"CompletionTime,omitempty"`
+	CreationTime           *float64               `json:"CreationTime,omitempty"`
+	StartTime              *float64               `json:"StartTime,omitempty"`
+	CompletionTime         *float64               `json:"CompletionTime,omitempty"`
 	CallAnalyticsJobName   string                 `json:"CallAnalyticsJobName"`
 	CallAnalyticsJobStatus string                 `json:"CallAnalyticsJobStatus"`
 	LanguageCode           string                 `json:"LanguageCode,omitempty"`
@@ -43,15 +44,15 @@ func buildCallAnalyticsJobOutput(job *CallAnalyticsJob) *callAnalyticsJobOutput 
 		Tags:                   job.Tags,
 	}
 	if !job.CreationTime.IsZero() {
-		s := job.CreationTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CreationTime)
 		out.CreationTime = &s
 	}
 	if !job.StartTime.IsZero() {
-		s := job.StartTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.StartTime)
 		out.StartTime = &s
 	}
 	if !job.CompletionTime.IsZero() {
-		s := job.CompletionTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CompletionTime)
 		out.CompletionTime = &s
 	}
 	if job.Media.MediaFileURI != "" || job.Media.RedactedMediaFileURI != "" {
@@ -132,12 +133,12 @@ type listCallAnalyticsJobsInput struct {
 }
 
 type callAnalyticsJobSummary struct {
-	CreationTime           *string `json:"CreationTime,omitempty"`
-	CompletionTime         *string `json:"CompletionTime,omitempty"`
-	CallAnalyticsJobName   string  `json:"CallAnalyticsJobName"`
-	CallAnalyticsJobStatus string  `json:"CallAnalyticsJobStatus"`
-	LanguageCode           string  `json:"LanguageCode,omitempty"`
-	FailureReason          string  `json:"FailureReason,omitempty"`
+	CreationTime           *float64 `json:"CreationTime,omitempty"`
+	CompletionTime         *float64 `json:"CompletionTime,omitempty"`
+	CallAnalyticsJobName   string   `json:"CallAnalyticsJobName"`
+	CallAnalyticsJobStatus string   `json:"CallAnalyticsJobStatus"`
+	LanguageCode           string   `json:"LanguageCode,omitempty"`
+	FailureReason          string   `json:"FailureReason,omitempty"`
 }
 
 type listCallAnalyticsJobsOutput struct {
@@ -160,11 +161,11 @@ func (h *Handler) handleListCallAnalyticsJobs(
 			FailureReason:          j.FailureReason,
 		}
 		if !j.CreationTime.IsZero() {
-			ts := j.CreationTime.Format(time.RFC3339)
+			ts := awstime.Epoch(j.CreationTime)
 			s.CreationTime = &ts
 		}
 		if !j.CompletionTime.IsZero() {
-			ts := j.CompletionTime.Format(time.RFC3339)
+			ts := awstime.Epoch(j.CompletionTime)
 			s.CompletionTime = &ts
 		}
 		summaries = append(summaries, s)
@@ -278,9 +279,9 @@ type medicalScribeJobOutput struct {
 	Media                          *Media                           `json:"Media,omitempty"`
 	ClinicalNoteGenerationSettings *ClinicalNoteGenerationSettings  `json:"ClinicalNoteGenerationSettings,omitempty"`
 	Tags                           map[string]string                `json:"Tags,omitempty"`
-	CreationTime                   *string                          `json:"CreationTime,omitempty"`
-	StartTime                      *string                          `json:"StartTime,omitempty"`
-	CompletionTime                 *string                          `json:"CompletionTime,omitempty"`
+	CreationTime                   *float64                         `json:"CreationTime,omitempty"`
+	StartTime                      *float64                         `json:"StartTime,omitempty"`
+	CompletionTime                 *float64                         `json:"CompletionTime,omitempty"`
 	MedicalScribeJobName           string                           `json:"MedicalScribeJobName"`
 	MedicalScribeJobStatus         string                           `json:"MedicalScribeJobStatus"`
 	LanguageCode                   string                           `json:"LanguageCode,omitempty"`
@@ -304,15 +305,15 @@ func buildMedicalScribeJobOutput(job *MedicalScribeJob) *medicalScribeJobOutput 
 		Tags:                           job.Tags,
 	}
 	if !job.CreationTime.IsZero() {
-		s := job.CreationTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CreationTime)
 		out.CreationTime = &s
 	}
 	if !job.StartTime.IsZero() {
-		s := job.StartTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.StartTime)
 		out.StartTime = &s
 	}
 	if !job.CompletionTime.IsZero() {
-		s := job.CompletionTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CompletionTime)
 		out.CompletionTime = &s
 	}
 	if job.Media.MediaFileURI != "" {
@@ -421,9 +422,9 @@ type medicalTranscriptionJobOutput struct {
 	Media                            *Media                        `json:"Media,omitempty"`
 	Transcript                       *transcriptOutput             `json:"Transcript,omitempty"`
 	Tags                             map[string]string             `json:"Tags,omitempty"`
-	CreationTime                     *string                       `json:"CreationTime,omitempty"`
-	StartTime                        *string                       `json:"StartTime,omitempty"`
-	CompletionTime                   *string                       `json:"CompletionTime,omitempty"`
+	CreationTime                     *float64                      `json:"CreationTime,omitempty"`
+	StartTime                        *float64                      `json:"StartTime,omitempty"`
+	CompletionTime                   *float64                      `json:"CompletionTime,omitempty"`
 	MedicalTranscriptionJobName      string                        `json:"MedicalTranscriptionJobName"`
 	TranscriptionJobStatus           string                        `json:"TranscriptionJobStatus"`
 	LanguageCode                     string                        `json:"LanguageCode,omitempty"`
@@ -468,15 +469,15 @@ func buildMedicalTranscriptionJobOutput(job *MedicalTranscriptionJob) *medicalTr
 		Transcript:                       &transcriptOutput{TranscriptFileURI: buildMedicalTranscriptURI(job)},
 	}
 	if !job.CreationTime.IsZero() {
-		s := job.CreationTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CreationTime)
 		out.CreationTime = &s
 	}
 	if !job.StartTime.IsZero() {
-		s := job.StartTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.StartTime)
 		out.StartTime = &s
 	}
 	if !job.CompletionTime.IsZero() {
-		s := job.CompletionTime.Format(time.RFC3339)
+		s := awstime.Epoch(job.CompletionTime)
 		out.CompletionTime = &s
 	}
 	if job.Media.MediaFileURI != "" {
@@ -613,7 +614,7 @@ func (h *Handler) handleGetVocabulary(
 	}
 
 	if !v.LastModifiedTime.IsZero() {
-		t := float64(v.LastModifiedTime.Unix())
+		t := awstime.Epoch(v.LastModifiedTime)
 		out.LastModifiedTime = &t
 	}
 
@@ -851,7 +852,7 @@ func (h *Handler) handleGetMedicalVocabulary(
 	}
 
 	if !v.LastModifiedTime.IsZero() {
-		t := float64(v.LastModifiedTime.Unix())
+		t := awstime.Epoch(v.LastModifiedTime)
 		out.LastModifiedTime = &t
 	}
 
@@ -956,8 +957,8 @@ type describeLanguageModelInput struct {
 
 type languageModelOutput struct {
 	InputDataConfig     *InputDataConfig `json:"InputDataConfig,omitempty"`
-	CreateTime          *string          `json:"CreateTime,omitempty"`
-	LastModifiedTime    *string          `json:"LastModifiedTime,omitempty"`
+	CreateTime          *float64         `json:"CreateTime,omitempty"`
+	LastModifiedTime    *float64         `json:"LastModifiedTime,omitempty"`
 	ModelName           string           `json:"ModelName"`
 	BaseModelName       string           `json:"BaseModelName"`
 	LanguageCode        string           `json:"LanguageCode"`
@@ -980,12 +981,12 @@ func toLanguageModelOutput(m *LanguageModel) languageModelOutput {
 	}
 
 	if !m.CreateTime.IsZero() {
-		s := m.CreateTime.Format(time.RFC3339)
+		s := awstime.Epoch(m.CreateTime)
 		out.CreateTime = &s
 	}
 
 	if !m.LastModifiedTime.IsZero() {
-		s := m.LastModifiedTime.Format(time.RFC3339)
+		s := awstime.Epoch(m.LastModifiedTime)
 		out.LastModifiedTime = &s
 	}
 

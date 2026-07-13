@@ -20,7 +20,9 @@ type StorageBackend interface {
 	DeleteLanguageModel(modelName string) error
 
 	// Vocabularies
-	CreateMedicalVocabulary(vocabularyName, languageCode, vocabularyFileURI string) (*MedicalVocabulary, error)
+	CreateMedicalVocabulary(
+		vocabularyName, languageCode, vocabularyFileURI string, tags map[string]string,
+	) (*MedicalVocabulary, error)
 	CreateVocabulary(vocab *Vocabulary) (*Vocabulary, error)
 	CreateVocabularyFilter(vf *VocabularyFilter) (*VocabularyFilter, error)
 
