@@ -150,7 +150,7 @@ func TestACMPCAHandler_IssueCertAndRevoke(t *testing.T) {
 	// IssueCertificate using the actual CSR
 	rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
 		"CertificateAuthorityArn": ca.ARN,
-		"Csr":                     csrPEM,
+		"Csr":                     b64(csrPEM),
 		"SigningAlgorithm":        "SHA256WITHRSA",
 		"Validity":                map[string]any{"Type": "DAYS", "Value": 365},
 	})

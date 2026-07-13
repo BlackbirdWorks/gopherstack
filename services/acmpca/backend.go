@@ -47,6 +47,9 @@ var (
 	ErrInvalidState = errors.New("InvalidStateException")
 	// ErrPermissionNotFound is returned when a CA permission is not found.
 	ErrPermissionNotFound = errors.New("ResourceNotFoundException")
+	// ErrPermissionAlreadyExists is returned when a permission for the same
+	// principal/source-account pair already exists on the CA.
+	ErrPermissionAlreadyExists = errors.New("PermissionAlreadyExistsException")
 	// ErrPolicyNotFound is returned when a CA policy is not found.
 	ErrPolicyNotFound = errors.New("ResourceNotFoundException")
 	// ErrAuditReportNotFound is returned when a CA audit report is not found.
@@ -58,29 +61,30 @@ var (
 )
 
 const (
-	caStatusCreating           = "CREATING"
-	caStatusActive             = "ACTIVE"
-	caStatusDisabled           = "DISABLED"
-	caStatusDeleted            = "DELETED"
-	caStatusPendingCertificate = "PENDING_CERTIFICATE"
-	caTypePRoot                = "ROOT"
-	caTypeSubordinate          = "SUBORDINATE"
-	defaultMaxItems            = 100
-	certStatusActive           = "ACTIVE"
-	certStatusRevoked          = "REVOKED"
-	defaultKeyAlgorithm        = "EC_prime256v1"
-	defaultSignAlgorithm       = "SHA256WITHECDSA"
-	caResourceIDPrefix         = "certificate-authority/"
-	certResourceIDPrefix       = "certificate/"
-	reportResourcePrefix       = "audit-report/"
-	auditReportStatus          = "SUCCESS"
-	auditReportFormatCSV       = "CSV"
-	auditReportFormatJSON      = "JSON"
-	actionGetCertificate       = "GetCertificate"
-	actionIssueCertificate     = "IssueCertificate"
-	actionListPermissions      = "ListPermissions"
-	permanentDeletionMinDays   = int32(7)
-	permanentDeletionMaxDays   = int32(30)
+	caStatusCreating             = "CREATING"
+	caStatusActive               = "ACTIVE"
+	caStatusDisabled             = "DISABLED"
+	caStatusDeleted              = "DELETED"
+	caStatusPendingCertificate   = "PENDING_CERTIFICATE"
+	caTypePRoot                  = "ROOT"
+	caTypeSubordinate            = "SUBORDINATE"
+	defaultMaxItems              = 100
+	certStatusActive             = "ACTIVE"
+	certStatusRevoked            = "REVOKED"
+	defaultKeyAlgorithm          = "EC_prime256v1"
+	defaultSignAlgorithm         = "SHA256WITHECDSA"
+	caResourceIDPrefix           = "certificate-authority/"
+	certResourceIDPrefix         = "certificate/"
+	reportResourcePrefix         = "audit-report/"
+	auditReportStatus            = "SUCCESS"
+	auditReportFormatCSV         = "CSV"
+	auditReportFormatJSON        = "JSON"
+	actionGetCertificate         = "GetCertificate"
+	actionIssueCertificate       = "IssueCertificate"
+	actionListPermissions        = "ListPermissions"
+	permanentDeletionMinDays     = int32(7)
+	permanentDeletionMaxDays     = int32(30)
+	defaultPermanentDeletionDays = int32(30)
 
 	// serialBitLen is the number of bits for a random serial number.
 	serialBitLen = 128
@@ -116,9 +120,12 @@ type CertificateAuthorityConfiguration struct {
 
 // CertificateAuthority represents an ACM PCA Certificate Authority.
 type CertificateAuthority struct {
-	CreatedAt                         time.Time `json:"createdAt"`
-	NotBefore                         time.Time `json:"notBefore"`
-	NotAfter                          time.Time `json:"notAfter"`
+	CreatedAt time.Time `json:"createdAt"`
+	NotBefore time.Time `json:"notBefore"`
+	NotAfter  time.Time `json:"notAfter"`
+	// RestorableUntil is the end of the restoration window while the CA is
+	// DELETED (see DeleteCertificateAuthority); zero once the CA is not DELETED.
+	RestorableUntil                   time.Time `json:"restorableUntil"`
 	privKey                           *ecdsa.PrivateKey
 	CertificateAuthorityConfiguration CertificateAuthorityConfiguration `json:"certificateAuthorityConfiguration"`
 	ARN                               string                            `json:"arn"`
@@ -483,6 +490,14 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(
 		)
 	}
 
+	// AWS defaults PermanentDeletionTimeInDays to 30 when unset; DescribeCertificateAuthority
+	// reports the remaining restoration window via RestorableUntil.
+	days := permanentDeletionDays
+	if days == 0 {
+		days = defaultPermanentDeletionDays
+	}
+
+	ca.RestorableUntil = time.Now().UTC().AddDate(0, 0, int(days))
 	ca.Status = caStatusDeleted
 
 	return nil
@@ -878,6 +893,12 @@ func (b *InMemoryBackend) CreatePermission(
 		return nil, fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
+	if _, exists := b.permissionGet(region, permissionKey(caARN, principal, sourceAccount)); exists {
+		return nil, fmt.Errorf(
+			"%w: permission for principal %s already exists on CA %s", ErrPermissionAlreadyExists, principal, caARN,
+		)
+	}
+
 	permission := &Permission{
 		CreatedAt:               time.Now().UTC(),
 		Actions:                 append([]string(nil), actions...),
@@ -1049,6 +1070,7 @@ func (b *InMemoryBackend) RestoreCertificateAuthority(ctx context.Context, caARN
 	}
 
 	ca.Status = caStatusDisabled
+	ca.RestorableUntil = time.Time{}
 
 	return nil
 }

@@ -159,7 +159,7 @@ func TestACMPCA_Accuracy_GetCertificateAuthorityCertificate_AfterImport(t *testi
 	// end-entity cert here to keep the test self-contained.
 	importRec := doACMPCARequest(t, h, "ImportCertificateAuthorityCertificate", map[string]any{
 		"CertificateAuthorityArn": subCA.ARN,
-		"Certificate":             gotCert.CertBody,
+		"Certificate":             b64(gotCert.CertBody),
 	})
 	require.Equal(t, http.StatusOK, importRec.Code)
 
@@ -347,7 +347,7 @@ func TestACMPCA_Accuracy_IssueCertificate_ValidityTypes(t *testing.T) {
 
 			rec := doACMPCARequest(t, h, "IssueCertificate", map[string]any{
 				"CertificateAuthorityArn": rootCA.ARN,
-				"Csr":                     csrPEM,
+				"Csr":                     b64(csrPEM),
 				"SigningAlgorithm":        "SHA256WITHECDSA",
 				"Validity":                map[string]any{"Type": tt.validityType, "Value": tt.validityValue},
 			})
