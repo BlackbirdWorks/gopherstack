@@ -219,7 +219,9 @@ func TestHandler_CreateResource(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateResource_DuplicateReturns409(t *testing.T) {
+// TestHandler_CreateResource_DuplicateReturns400 verifies AlreadyExistsException maps to
+// HTTP 400, per the real API reference -- not 409, which real CloudControl never returns.
+func TestHandler_CreateResource_DuplicateReturns400(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -232,7 +234,7 @@ func TestHandler_CreateResource_DuplicateReturns409(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doRequest(t, h, "CreateResource", body)
-	assert.Equal(t, http.StatusConflict, rec2.Code)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
 
 func TestHandler_GetResource(t *testing.T) {
@@ -258,13 +260,13 @@ func TestHandler_GetResource(t *testing.T) {
 			wantProps:  `{"LogGroupName":"get-test"}`,
 		},
 		{
-			name:  "not found returns 404",
+			name:  "not found returns 400",
 			setup: nil,
 			body: map[string]any{
 				"TypeName":   "AWS::Logs::LogGroup",
 				"Identifier": "nonexistent",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:  "missing TypeName returns 400",
@@ -389,13 +391,13 @@ func TestHandler_DeleteResource(t *testing.T) {
 			wantOp:     "DELETE",
 		},
 		{
-			name:  "not found returns 404",
+			name:  "not found returns 400",
 			setup: nil,
 			body: map[string]any{
 				"TypeName":   "AWS::Logs::LogGroup",
 				"Identifier": "nonexistent",
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:  "missing TypeName returns 400",
@@ -467,14 +469,14 @@ func TestHandler_UpdateResource(t *testing.T) {
 			wantOp:     "UPDATE",
 		},
 		{
-			name:  "not found returns 404",
+			name:  "not found returns 400",
 			setup: nil,
 			body: map[string]any{
 				"TypeName":      "AWS::Logs::LogGroup",
 				"Identifier":    "nonexistent",
 				"PatchDocument": `[]`,
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:  "missing TypeName returns 400",
@@ -540,11 +542,11 @@ func TestHandler_GetResourceRequestStatus(t *testing.T) {
 			wantOp:     "CREATE",
 		},
 		{
-			name: "not found returns 404",
+			name: "not found returns 400 RequestTokenNotFoundException",
 			setup: func(_ *cloudcontrol.Handler) string {
 				return "nonexistent-token"
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing RequestToken returns 400",
@@ -604,20 +606,25 @@ func TestHandler_CancelResourceRequest(t *testing.T) {
 			wantOpStatus: "CANCEL_COMPLETE",
 		},
 		{
-			name: "cancelling terminal request returns 400",
+			// Real AWS returns ConcurrentModificationException (HTTP 500) for a
+			// terminal-status request, not a client validation error -- see the
+			// CancelResourceRequest API reference's Errors section.
+			name: "cancelling terminal request returns 500 ConcurrentModificationException",
 			setup: func(h *cloudcontrol.Handler) string {
 				event, _ := h.Backend.CreateResource("AWS::Logs::LogGroup", `{"LogGroupName":"terminal-test"}`, "")
 
 				return event.RequestToken
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 		},
 		{
-			name: "not found returns 404",
+			// RequestTokenNotFoundException is HTTP 400, the only error this
+			// operation declares for an unrecognized token.
+			name: "not found returns 400 RequestTokenNotFoundException",
 			setup: func(_ *cloudcontrol.Handler) string {
 				return "nonexistent-token"
 			},
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing RequestToken returns 400",
