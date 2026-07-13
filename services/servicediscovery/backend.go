@@ -44,6 +44,9 @@ var (
 	// ErrCustomHealthNotFound is returned when UpdateInstanceCustomHealthStatus is called on a
 	// service that has no HealthCheckCustomConfig.
 	ErrCustomHealthNotFound = awserr.New("CustomHealthNotFound", awserr.ErrNotFound)
+	// ErrTooManyTags is returned when a request would leave a resource with more than
+	// maxTagCount tags.
+	ErrTooManyTags = awserr.New("TooManyTagsException", awserr.ErrInvalidParameter)
 )
 
 const (
@@ -62,6 +65,9 @@ const (
 
 	instanceHealthStatusHealthy   = "HEALTHY"
 	instanceHealthStatusUnhealthy = "UNHEALTHY"
+
+	healthStatusFilterAll              = "ALL"
+	healthStatusFilterHealthyOrElseAll = "HEALTHY_OR_ELSE_ALL"
 
 	serviceTypeHTTP    = "HTTP"
 	serviceTypeDNS     = "DNS"
@@ -728,32 +734,20 @@ func (b *InMemoryBackend) DiscoverInstances(
 
 	revision := b.instanceRevision
 	insts := b.instancesByService.Get(svcID)
-	result := make([]DiscoveredInstance, 0, len(insts))
+
+	// Query-parameter filtering narrows the candidate set first; health
+	// filtering (including the HEALTHY_OR_ELSE_ALL fail-open case, which
+	// needs to see the whole matched set to decide whether to fall back to
+	// "all") is applied on top of it.
+	candidates := make([]*Instance, 0, len(insts))
 
 	for _, inst := range insts {
-		key := instanceKey(svcID, inst.ID)
-
-		if !b.instanceMatchesHealth(key, healthStatus) {
-			continue
+		if instanceMatchesQueryParams(inst, queryParams) {
+			candidates = append(candidates, inst)
 		}
-
-		if !instanceMatchesQueryParams(inst, queryParams) {
-			continue
-		}
-
-		hs := b.instanceHealthStatuses[key]
-		if hs == "" {
-			hs = instanceHealthStatusHealthy
-		}
-
-		result = append(result, DiscoveredInstance{
-			InstanceID:    inst.ID,
-			NamespaceName: namespaceName,
-			ServiceName:   serviceName,
-			HealthStatus:  hs,
-			Attributes:    copyAttrs(inst.Attributes),
-		})
 	}
+
+	result := b.filterInstancesByHealth(svcID, namespaceName, serviceName, candidates, healthStatus)
 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].InstanceID < result[j].InstanceID
@@ -762,19 +756,76 @@ func (b *InMemoryBackend) DiscoverInstances(
 	return result, revision, nil
 }
 
-// instanceMatchesHealth returns true when the instance matches the health filter.
-// An empty or "ALL" health status always matches.
-func (b *InMemoryBackend) instanceMatchesHealth(key, healthStatus string) bool {
-	if healthStatus == "" || healthStatus == "ALL" {
-		return true
+// discoveredInstance builds the DiscoverInstances response entry for inst,
+// resolving its stored health status (defaulting to HEALTHY when unset).
+func (b *InMemoryBackend) discoveredInstance(
+	svcID, namespaceName, serviceName string,
+	inst *Instance,
+) DiscoveredInstance {
+	hs := b.instanceHealthStatuses[instanceKey(svcID, inst.ID)]
+	if hs == "" {
+		hs = instanceHealthStatusHealthy
 	}
 
-	stored := b.instanceHealthStatuses[key]
-	if stored == "" {
-		stored = instanceHealthStatusHealthy
+	return DiscoveredInstance{
+		InstanceID:    inst.ID,
+		NamespaceName: namespaceName,
+		ServiceName:   serviceName,
+		HealthStatus:  hs,
+		Attributes:    copyAttrs(inst.Attributes),
+	}
+}
+
+// filterInstancesByHealth applies the DiscoverInstances HealthStatus filter to
+// candidates. An empty value or "ALL" returns every candidate. HEALTHY_OR_ELSE_ALL
+// returns only healthy instances unless none are healthy, in which case it "fails
+// open" and returns every candidate -- matching real Cloud Map semantics. Any
+// other value (HEALTHY, UNHEALTHY) is matched exactly against the stored status.
+func (b *InMemoryBackend) filterInstancesByHealth(
+	svcID, namespaceName, serviceName string,
+	candidates []*Instance,
+	healthStatus string,
+) []DiscoveredInstance {
+	all := func() []DiscoveredInstance {
+		result := make([]DiscoveredInstance, 0, len(candidates))
+		for _, inst := range candidates {
+			result = append(result, b.discoveredInstance(svcID, namespaceName, serviceName, inst))
+		}
+
+		return result
 	}
 
-	return stored == healthStatus
+	if healthStatus == "" || healthStatus == healthStatusFilterAll {
+		return all()
+	}
+
+	if healthStatus == healthStatusFilterHealthyOrElseAll {
+		healthy := make([]DiscoveredInstance, 0, len(candidates))
+
+		for _, inst := range candidates {
+			d := b.discoveredInstance(svcID, namespaceName, serviceName, inst)
+			if d.HealthStatus == instanceHealthStatusHealthy {
+				healthy = append(healthy, d)
+			}
+		}
+
+		if len(healthy) > 0 {
+			return healthy
+		}
+
+		return all()
+	}
+
+	result := make([]DiscoveredInstance, 0, len(candidates))
+
+	for _, inst := range candidates {
+		d := b.discoveredInstance(svcID, namespaceName, serviceName, inst)
+		if d.HealthStatus == healthStatus {
+			result = append(result, d)
+		}
+	}
+
+	return result
 }
 
 // instanceMatchesQueryParams returns true when the instance attributes satisfy
@@ -1106,13 +1157,22 @@ func (b *InMemoryBackend) UpdateInstanceCustomHealthStatus(serviceID, instanceID
 		)
 	}
 
-	if !b.services.Has(serviceID) {
+	svc, ok := b.services.Get(serviceID)
+	if !ok {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
 	key := instanceKey(serviceID, instanceID)
 	if !b.instances.Has(key) {
 		return fmt.Errorf("%w: instance %s in service %s not found", ErrInstanceNotFound, instanceID, serviceID)
+	}
+
+	if svc.HealthCheckCustomConfig == nil {
+		return fmt.Errorf(
+			"%w: service %s has no custom health check configured",
+			ErrCustomHealthNotFound,
+			serviceID,
+		)
 	}
 
 	b.instanceHealthStatuses[key] = status

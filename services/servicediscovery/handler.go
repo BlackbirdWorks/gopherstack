@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -371,6 +372,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return h.errorResponse(c, "NamespaceAlreadyExists", err)
 	case errors.Is(err, ErrResourceInUse):
 		return h.errorResponse(c, "ResourceInUse", err)
+	case errors.Is(err, ErrTooManyTags):
+		return h.errorResponse(c, "TooManyTagsException", err)
 	case errors.Is(err, ErrInvalidInput):
 		return h.errorResponse(c, errInvalidInput, err)
 	case errors.Is(err, errUnknownAction):
@@ -398,7 +401,7 @@ func (h *Handler) errorResponse(c *echo.Context, errType string, err error) erro
 // validateTags enforces AWS Cloud Map tag limits and reserved key rules.
 func validateTags(tags []tagEntry) error {
 	if len(tags) > maxTagCount {
-		return fmt.Errorf("%w: cannot have more than %d tags", ErrInvalidInput, maxTagCount)
+		return fmt.Errorf("%w: cannot have more than %d tags", ErrTooManyTags, maxTagCount)
 	}
 
 	for _, t := range tags {
@@ -750,6 +753,11 @@ type deleteServiceRequest struct {
 	ID string `json:"Id"`
 }
 
+// handleDeleteService deletes a service. It intentionally does NOT deregister
+// instances on the caller's behalf: real Cloud Map's DeleteService "fails if
+// the service still contains one or more registered instances" -- the caller
+// must deregister every instance first. h.Backend.DeleteService already
+// enforces this (returns ErrResourceInUse).
 func (h *Handler) handleDeleteService(_ context.Context, body []byte) error {
 	var req deleteServiceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -758,17 +766,6 @@ func (h *Handler) handleDeleteService(_ context.Context, body []byte) error {
 
 	if req.ID == "" {
 		return fmt.Errorf("%w: Id is required", errInvalidRequest)
-	}
-
-	insts, err := h.Backend.ListInstances(req.ID)
-	if err != nil {
-		return err
-	}
-
-	for _, inst := range insts {
-		if _, derr := h.Backend.DeregisterInstance(req.ID, inst.ID); derr != nil {
-			return derr
-		}
 	}
 
 	return h.Backend.DeleteService(req.ID)
@@ -1282,7 +1279,7 @@ func namespaceToMap(ns *Namespace) map[string]any {
 		keyType:        ns.Type,
 		"Description":  ns.Description,
 		keyTags:        mapToTagEntries(ns.Tags),
-		keyCreateDate:  ns.CreatedAt.Unix(),
+		keyCreateDate:  awstime.Epoch(ns.CreatedAt),
 		"ServiceCount": ns.ServiceCount,
 	}
 
@@ -1302,7 +1299,7 @@ func serviceToMap(svc *Service) map[string]any {
 		keyNamespaceID:  svc.NamespaceID,
 		"Description":   svc.Description,
 		keyTags:         mapToTagEntries(svc.Tags),
-		keyCreateDate:   svc.CreatedAt.Unix(),
+		keyCreateDate:   awstime.Epoch(svc.CreatedAt),
 		"InstanceCount": svc.InstanceCount,
 	}
 
@@ -1351,8 +1348,8 @@ func operationToMap(op *Operation) map[string]any {
 		"Id":           op.ID,
 		keyType:        op.Type,
 		keyStatusField: op.Status,
-		keyCreateDate:  op.CreateDate.Unix(),
-		"UpdateDate":   op.UpdateDate.Unix(),
+		keyCreateDate:  awstime.Epoch(op.CreateDate),
+		"UpdateDate":   awstime.Epoch(op.UpdateDate),
 	}
 
 	if len(op.Targets) > 0 {
