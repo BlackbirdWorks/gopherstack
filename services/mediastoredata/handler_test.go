@@ -529,7 +529,10 @@ func TestMediaStoreData_StorageClassValidation(t *testing.T) {
 		wantStatus   int
 	}{
 		{name: "temporal_valid", storageClass: "TEMPORAL", wantStatus: http.StatusOK},
-		{name: "standard_valid", storageClass: "STANDARD", wantStatus: http.StatusOK},
+		// "STANDARD" is an UploadAvailability value, not a StorageClass -- real
+		// MediaStore Data's only StorageClass is "TEMPORAL", so this must be
+		// rejected the same as any other unknown storage class.
+		{name: "standard_rejected_not_a_storage_class", storageClass: "STANDARD", wantStatus: http.StatusBadRequest},
 		{name: "empty_defaults_to_temporal", storageClass: "", wantStatus: http.StatusOK},
 		{name: "unknown_rejected", storageClass: "GLACIER", wantStatus: http.StatusBadRequest},
 	}
