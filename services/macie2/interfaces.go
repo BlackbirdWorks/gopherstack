@@ -20,7 +20,7 @@ type StorageBackend interface {
 		tags map[string]string,
 		samplingPercentage int32,
 		initialRun bool,
-	) (string, error)
+	) (id, jobArn string, err error)
 	DescribeClassificationJob(jobID string) (*ClassificationJob, error)
 	ListClassificationJobs(
 		filterCriteria map[string]any,
@@ -122,7 +122,7 @@ type StorageBackend interface {
 		maxResults int,
 		nextToken, sortBy string,
 	) ([]UsageRecord, string, error)
-	GetUsageTotals(currencyCode string) ([]UsageTotal, error)
+	GetUsageTotals(timeRange string) ([]UsageTotal, error)
 
 	// Managed data identifiers
 	ListManagedDataIdentifiers() ([]ManagedDataIdentifier, error)
@@ -341,6 +341,7 @@ type ClassificationJob struct {
 	ScheduleFrequency  map[string]any    `json:"scheduleFrequency,omitempty"`
 	LastRunTime        *time.Time        `json:"lastRunTime,omitempty"`
 	CreatedAt          time.Time         `json:"createdAt"`
+	Arn                string            `json:"jobArn"`
 	ClientToken        string            `json:"clientToken,omitempty"`
 	Description        string            `json:"description,omitempty"`
 	JobID              string            `json:"jobId"`
@@ -368,10 +369,11 @@ type Member struct {
 	Tags                   map[string]string `json:"tags,omitempty"`
 	InvitedAt              time.Time         `json:"invitedAt"`
 	UpdatedAt              time.Time         `json:"updatedAt"`
+	Arn                    string            `json:"arn"`
 	AccountID              string            `json:"accountId"`
 	AdministratorAccountID string            `json:"administratorAccountId,omitempty"`
 	Email                  string            `json:"email"`
-	MasteredBy             string            `json:"masteredBy,omitempty"`
+	MasteredBy             string            `json:"masterAccountId,omitempty"`
 	RelationshipStatus     string            `json:"relationshipStatus"`
 }
 

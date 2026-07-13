@@ -127,7 +127,7 @@ func seedFullState(t *testing.T, original *macie2.InMemoryBackend) restoredIDs {
 		Region:     "us-east-1",
 	})
 
-	jobID, err := original.CreateClassificationJob(
+	jobID, _, err := original.CreateClassificationJob(
 		"job1", "desc", "ONE_TIME", "token1", nil, nil, nil, 100, true,
 	)
 	require.NoError(t, err)

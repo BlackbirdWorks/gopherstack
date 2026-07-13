@@ -377,7 +377,7 @@ func (h *Handler) dispatch( //nolint:cyclop // existing issue.
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchBucketOps(op, query, body); ok {
+	if result, code, ok, err := h.dispatchBucketOps(op, body); ok {
 		return result, code, err
 	}
 
@@ -503,7 +503,7 @@ func parseAllowListPath(method string, parts []string) (string, string) {
 		switch method {
 		case http.MethodGet:
 			return opGetAllowList, id
-		case http.MethodPatch:
+		case http.MethodPut:
 			return opUpdateAllowList, id
 		case http.MethodDelete:
 			return opDeleteAllowList, id

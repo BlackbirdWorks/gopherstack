@@ -1,6 +1,7 @@
 package macie2
 
 import (
+	"fmt"
 	"maps"
 	"sort"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -37,11 +39,12 @@ func (b *InMemoryBackend) CreateClassificationJob(
 	tags map[string]string,
 	samplingPercentage int32,
 	initialRun bool,
-) (string, error) {
+) (string, string, error) {
 	b.mu.Lock("CreateClassificationJob")
 	defer b.mu.Unlock()
 
 	id := uuid.New().String()
+	jobArn := arn.Build("macie2", b.region, b.accountID, fmt.Sprintf("classification-job/%s", id))
 	now := time.Now().UTC()
 
 	status := "RUNNING"
@@ -56,6 +59,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 
 	b.classificationJobs.Put(&ClassificationJob{
 		JobID:              id,
+		Arn:                jobArn,
 		Name:               name,
 		Description:        description,
 		JobType:            jobType,
@@ -69,7 +73,7 @@ func (b *InMemoryBackend) CreateClassificationJob(
 		ClientToken:        clientToken,
 	})
 
-	return id, nil
+	return id, jobArn, nil
 }
 
 // DescribeClassificationJob returns a classification job by ID.
@@ -145,6 +149,7 @@ func (b *InMemoryBackend) CreateMember(accountID, email string, tags map[string]
 	now := time.Now().UTC()
 	b.members.Put(&Member{
 		AccountID:              accountID,
+		Arn:                    arn.Build("macie2", b.region, accountID, ""),
 		AdministratorAccountID: b.accountID,
 		Email:                  email,
 		MasteredBy:             b.accountID,
