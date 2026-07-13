@@ -12,12 +12,21 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const codedeployTargetPrefix = "CodeDeploy_20141006."
+
+// stopStatusSucceeded is the StopDeploymentOutput.status value for a
+// synchronously-completed stop request. This is distinct from the
+// Deployment's own status (which becomes "Stopped", see statusStopped in
+// backend.go): the real StopStatus enum only ever holds "Pending" or
+// "Succeeded" -- it describes the outcome of the stop *operation* itself,
+// never the deployment's resulting lifecycle status.
+const stopStatusSucceeded = "Succeeded"
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -243,6 +252,7 @@ var errorMappings = []errorMapping{
 	{ErrDeploymentNotFound, "DeploymentDoesNotExistException", http.StatusNotFound},
 	{ErrDeploymentConfigNotFound, "DeploymentConfigDoesNotExistException", http.StatusNotFound},
 	{ErrGitHubAccountTokenNotFound, "GitHubAccountTokenDoesNotExistException", http.StatusNotFound},
+	{ErrOnPremisesInstanceNotFound, "InstanceDoesNotExistException", http.StatusNotFound},
 	{ErrAlreadyExists, "ApplicationAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentGroupAlreadyExists, "DeploymentGroupAlreadyExistsException", http.StatusConflict},
 	{ErrDeploymentConfigAlreadyExists, "DeploymentConfigAlreadyExistsException", http.StatusConflict},
@@ -318,10 +328,10 @@ type getApplicationInput struct {
 }
 
 type applicationInfo struct {
-	ApplicationID   string `json:"applicationId"`
-	ApplicationName string `json:"applicationName"`
-	ComputePlatform string `json:"computePlatform"`
-	CreateTime      int64  `json:"createTime"`
+	ApplicationID   string  `json:"applicationId"`
+	ApplicationName string  `json:"applicationName"`
+	ComputePlatform string  `json:"computePlatform"`
+	CreateTime      float64 `json:"createTime"`
 }
 
 type getApplicationOutput struct {
@@ -346,7 +356,7 @@ func (h *Handler) handleGetApplication(
 			ApplicationID:   app.ApplicationID,
 			ApplicationName: app.ApplicationName,
 			ComputePlatform: app.ComputePlatform,
-			CreateTime:      app.CreationTime.UnixMilli(),
+			CreateTime:      awstime.Epoch(app.CreationTime),
 		},
 	}, nil
 }
@@ -983,7 +993,7 @@ type deploymentOverview struct {
 type deploymentInfo struct {
 	DeploymentOverview            *deploymentOverview    `json:"deploymentOverview,omitempty"`
 	Revision                      *revisionLocationInput `json:"revision,omitempty"`
-	CompleteTime                  *int64                 `json:"completeTime,omitempty"`
+	CompleteTime                  *float64               `json:"completeTime,omitempty"`
 	DeploymentID                  string                 `json:"deploymentId"`
 	ApplicationName               string                 `json:"applicationName"`
 	DeploymentGroupName           string                 `json:"deploymentGroupName"`
@@ -992,7 +1002,7 @@ type deploymentInfo struct {
 	Creator                       string                 `json:"creator"`
 	Description                   string                 `json:"description,omitempty"`
 	FileExistsBehavior            string                 `json:"fileExistsBehavior,omitempty"`
-	CreateTime                    int64                  `json:"createTime"`
+	CreateTime                    float64                `json:"createTime"`
 	UpdateOutdatedInstancesOnly   bool                   `json:"updateOutdatedInstancesOnly,omitempty"`
 	IgnoreApplicationStopFailures bool                   `json:"ignoreApplicationStopFailures,omitempty"`
 }
@@ -1021,7 +1031,7 @@ func (h *Handler) handleGetDeployment(
 		DeploymentConfigName:          d.DeploymentConfigName,
 		Status:                        d.Status,
 		Creator:                       d.Creator,
-		CreateTime:                    d.CreateTime.UnixMilli(),
+		CreateTime:                    awstime.Epoch(d.CreateTime),
 		Description:                   d.Description,
 		FileExistsBehavior:            d.FileExistsBehavior,
 		UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
@@ -1031,17 +1041,27 @@ func (h *Handler) handleGetDeployment(
 	}
 
 	if d.CompleteTime != nil {
-		ms := d.CompleteTime.UnixMilli()
-		info.CompleteTime = &ms
+		ct := awstime.Epoch(*d.CompleteTime)
+		info.CompleteTime = &ct
 	}
 
 	return &getDeploymentOutput{DeploymentInfo: info}, nil
 }
 
-// timeRangeEntry is the wire format for a create-time range filter.
+// timeRangeEntry is the wire format for a create-time range filter. The AWS
+// json-1.1 protocol serializes Timestamp shapes as epoch-seconds JSON numbers
+// (see smithytime.FormatEpochSeconds in the real SDK's serializers), not
+// epoch milliseconds, so these must be float64 to preserve sub-second
+// precision the same way awstime.Epoch does on the response side.
 type timeRangeEntry struct {
-	Start *int64 `json:"start,omitempty"`
-	End   *int64 `json:"end,omitempty"`
+	Start *float64 `json:"start,omitempty"`
+	End   *float64 `json:"end,omitempty"`
+}
+
+// epochSecondsToTime converts a wire-format epoch-seconds value (as produced
+// by smithytime.FormatEpochSeconds / awstime.Epoch) back into a time.Time.
+func epochSecondsToTime(sec float64) time.Time {
+	return time.Unix(0, int64(sec*float64(time.Second))).UTC()
 }
 
 type listDeploymentsInput struct {
@@ -1067,11 +1087,11 @@ func (h *Handler) handleListDeployments(
 
 	if in.CreateTimeRange != nil {
 		if in.CreateTimeRange.Start != nil {
-			t := time.UnixMilli(*in.CreateTimeRange.Start).UTC()
+			t := epochSecondsToTime(*in.CreateTimeRange.Start)
 			filter.CreateTimeStart = &t
 		}
 		if in.CreateTimeRange.End != nil {
-			t := time.UnixMilli(*in.CreateTimeRange.End).UTC()
+			t := epochSecondsToTime(*in.CreateTimeRange.End)
 			filter.CreateTimeEnd = &t
 		}
 	}
@@ -1382,7 +1402,7 @@ func (h *Handler) handleBatchGetApplications(
 			ApplicationID:   app.ApplicationID,
 			ApplicationName: app.ApplicationName,
 			ComputePlatform: app.ComputePlatform,
-			CreateTime:      app.CreationTime.UnixMilli(),
+			CreateTime:      awstime.Epoch(app.CreationTime),
 		})
 	}
 
@@ -1505,7 +1525,7 @@ func (h *Handler) handleBatchGetDeployments(
 			DeploymentConfigName:          d.DeploymentConfigName,
 			Status:                        d.Status,
 			Creator:                       d.Creator,
-			CreateTime:                    d.CreateTime.UnixMilli(),
+			CreateTime:                    awstime.Epoch(d.CreateTime),
 			Description:                   d.Description,
 			FileExistsBehavior:            d.FileExistsBehavior,
 			UpdateOutdatedInstancesOnly:   d.UpdateOutdatedInstancesOnly,
@@ -1515,8 +1535,8 @@ func (h *Handler) handleBatchGetDeployments(
 		}
 
 		if d.CompleteTime != nil {
-			ms := d.CompleteTime.UnixMilli()
-			info.CompleteTime = &ms
+			ct := awstime.Epoch(*d.CompleteTime)
+			info.CompleteTime = &ct
 		}
 
 		infos = append(infos, info)
@@ -1526,12 +1546,12 @@ func (h *Handler) handleBatchGetDeployments(
 }
 
 type onPremisesInstanceInfo struct {
-	DeregisterTime *int64     `json:"deregisterTime,omitempty"`
+	DeregisterTime *float64   `json:"deregisterTime,omitempty"`
 	InstanceName   string     `json:"instanceName"`
 	IamSessionArn  string     `json:"iamSessionArn,omitempty"`
 	IamUserArn     string     `json:"iamUserArn,omitempty"`
 	Tags           []tagEntry `json:"tags"`
-	RegisterTime   int64      `json:"registerTime"`
+	RegisterTime   float64    `json:"registerTime"`
 }
 
 type batchGetOnPremisesInstancesInput struct {
@@ -1556,14 +1576,14 @@ func (h *Handler) handleBatchGetOnPremisesInstances(
 	for _, inst := range instances {
 		info := onPremisesInstanceInfo{
 			InstanceName:  inst.InstanceName,
-			RegisterTime:  inst.RegisterTime.UnixMilli(),
+			RegisterTime:  awstime.Epoch(inst.RegisterTime),
 			IamSessionArn: inst.IamSessionArn,
 			IamUserArn:    inst.IamUserArn,
 		}
 
 		if inst.DeregisterTime != nil {
-			ms := inst.DeregisterTime.UnixMilli()
-			info.DeregisterTime = &ms
+			dt := awstime.Epoch(*inst.DeregisterTime)
+			info.DeregisterTime = &dt
 		}
 
 		if inst.Tags != nil {
@@ -1796,7 +1816,7 @@ func (h *Handler) handleStopDeployment(
 		return nil, err
 	}
 
-	return &stopDeploymentOutput{Status: statusStopped}, nil
+	return &stopDeploymentOutput{Status: stopStatusSucceeded}, nil
 }
 
 type skipWaitTimeInput struct {
@@ -1813,6 +1833,10 @@ func (h *Handler) handleSkipWaitTimeForInstanceTermination(
 		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
 	}
 
+	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+		return nil, err
+	}
+
 	return &skipWaitTimeOutput{}, nil
 }
 
@@ -1827,7 +1851,7 @@ type deploymentConfigInfo struct {
 	DeploymentConfigID   string                     `json:"deploymentConfigId"`
 	DeploymentConfigName string                     `json:"deploymentConfigName"`
 	ComputePlatform      string                     `json:"computePlatform"`
-	CreateTime           int64                      `json:"createTime"`
+	CreateTime           float64                    `json:"createTime"`
 }
 
 type getDeploymentConfigOutput struct {
@@ -1839,7 +1863,7 @@ func deploymentConfigToInfo(cfg *DeploymentConfig) deploymentConfigInfo {
 		DeploymentConfigID:   cfg.DeploymentConfigID,
 		DeploymentConfigName: cfg.DeploymentConfigName,
 		ComputePlatform:      cfg.ComputePlatform,
-		CreateTime:           cfg.CreateTime.UnixMilli(),
+		CreateTime:           awstime.Epoch(cfg.CreateTime),
 	}
 
 	if cfg.MinimumHealthyHosts != nil {
@@ -2027,14 +2051,14 @@ func (h *Handler) handleGetOnPremisesInstance(
 
 	info := onPremisesInstanceInfo{
 		InstanceName:  inst.InstanceName,
-		RegisterTime:  inst.RegisterTime.UnixMilli(),
+		RegisterTime:  awstime.Epoch(inst.RegisterTime),
 		IamSessionArn: inst.IamSessionArn,
 		IamUserArn:    inst.IamUserArn,
 	}
 
 	if inst.DeregisterTime != nil {
-		ms := inst.DeregisterTime.UnixMilli()
-		info.DeregisterTime = &ms
+		dt := awstime.Epoch(*inst.DeregisterTime)
+		info.DeregisterTime = &dt
 	}
 
 	if inst.Tags != nil {
@@ -2266,6 +2290,10 @@ func (h *Handler) handlePutLifecycleEventHookExecutionStatus(
 ) (*putLifecycleEventHookExecutionStatusOutput, error) {
 	if in.DeploymentID == "" {
 		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
+	}
+
+	if _, err := h.Backend.GetDeployment(in.DeploymentID); err != nil {
+		return nil, err
 	}
 
 	return &putLifecycleEventHookExecutionStatusOutput{

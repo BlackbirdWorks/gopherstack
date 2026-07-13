@@ -58,7 +58,7 @@ var (
 	ErrDeploymentGroupAlreadyExists  = awserr.New("DeploymentGroupAlreadyExistsException", awserr.ErrConflict)
 	ErrDeploymentConfigNotFound      = awserr.New("DeploymentConfigDoesNotExistException", awserr.ErrNotFound)
 	ErrDeploymentConfigAlreadyExists = awserr.New("DeploymentConfigAlreadyExistsException", awserr.ErrConflict)
-	ErrOnPremisesInstanceNotFound    = awserr.New("InstanceNameRequiredException", awserr.ErrNotFound)
+	ErrOnPremisesInstanceNotFound    = awserr.New("InstanceDoesNotExistException", awserr.ErrNotFound)
 	ErrValidation                    = awserr.New("InvalidParameterValueException", awserr.ErrInvalidParameter)
 	ErrTagLimitExceeded              = awserr.New("TagLimitExceededException", awserr.ErrInvalidParameter)
 	ErrInvalidComputePlatform        = awserr.New("InvalidComputePlatformException", awserr.ErrInvalidParameter)
