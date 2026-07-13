@@ -261,7 +261,7 @@ func TestRefinement1_GetInsightSummariesStateFilter(t *testing.T) {
 				body["States"] = tt.states
 			}
 
-			rec := doXrayRequest(t, h, "/GetInsightSummaries", body)
+			rec := doXrayRequest(t, h, "/InsightSummaries", body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -572,7 +572,7 @@ func TestRefinement1_GetInsightImpactGraphNotFound(t *testing.T) {
 		"EndTime":   1700001000.0,
 	}
 
-	rec := doXrayRequest(t, h, "/GetInsightImpactGraph", body)
+	rec := doXrayRequest(t, h, "/InsightImpactGraph", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 

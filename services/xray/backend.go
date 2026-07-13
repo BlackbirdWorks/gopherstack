@@ -1018,6 +1018,7 @@ func (b *InMemoryBackend) Reset() {
 	b.indexingRules = defaultIndexingRules()
 	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: statusActive}
 	b.lastRuleModification = time.Time{}
+	b.traceSegmentDest = ""
 }
 
 // GetEncryptionConfig returns the current X-Ray encryption configuration.

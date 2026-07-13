@@ -91,6 +91,60 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{name: "matches Groups POST", method: http.MethodPost, path: "/Groups", want: true},
 		{name: "rejects GET", method: http.MethodGet, path: "/CreateGroup", want: false},
 		{name: "rejects unknown path", method: http.MethodPost, path: "/Unknown", want: false},
+		// GetInsight, GetInsightEvents, GetInsightImpactGraph, GetInsightSummaries,
+		// GetSamplingStatisticSummaries, and GetSamplingTargets are the six
+		// operations whose "Get..." names do NOT match their REST paths (verified
+		// against aws-sdk-go-v2/service/xray serializers.go). A real SDK client
+		// sends these exact paths; the "/Get..." spellings are never sent on the
+		// wire and must NOT match.
+		{
+			name: "matches GetInsight POST at real SDK path", method: http.MethodPost,
+			path: "/Insight", want: true,
+		},
+		{
+			name: "rejects GetInsight at its op-name-shaped path", method: http.MethodPost,
+			path: "/GetInsight", want: false,
+		},
+		{
+			name: "matches GetInsightEvents POST at real SDK path", method: http.MethodPost,
+			path: "/InsightEvents", want: true,
+		},
+		{
+			name: "rejects GetInsightEvents at its op-name-shaped path", method: http.MethodPost,
+			path: "/GetInsightEvents", want: false,
+		},
+		{
+			name: "matches GetInsightImpactGraph POST at real SDK path", method: http.MethodPost,
+			path: "/InsightImpactGraph", want: true,
+		},
+		{
+			name: "rejects GetInsightImpactGraph at its op-name-shaped path", method: http.MethodPost,
+			path: "/GetInsightImpactGraph", want: false,
+		},
+		{
+			name: "matches GetInsightSummaries POST at real SDK path", method: http.MethodPost,
+			path: "/InsightSummaries", want: true,
+		},
+		{
+			name: "rejects GetInsightSummaries at its op-name-shaped path", method: http.MethodPost,
+			path: "/GetInsightSummaries", want: false,
+		},
+		{
+			name: "matches GetSamplingStatisticSummaries POST at real SDK path", method: http.MethodPost,
+			path: "/SamplingStatisticSummaries", want: true,
+		},
+		{
+			name: "rejects GetSamplingStatisticSummaries at its op-name-shaped path", method: http.MethodPost,
+			path: "/GetSamplingStatisticSummaries", want: false,
+		},
+		{
+			name: "matches GetSamplingTargets POST at real SDK path", method: http.MethodPost,
+			path: "/SamplingTargets", want: true,
+		},
+		{
+			name: "rejects GetSamplingTargets at its op-name-shaped path", method: http.MethodPost,
+			path: "/GetSamplingTargets", want: false,
+		},
 	}
 
 	for _, tt := range tests {

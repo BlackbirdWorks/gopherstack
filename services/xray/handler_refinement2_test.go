@@ -352,7 +352,7 @@ func TestRefinement2_GetSamplingTargets_EmptyClientID(t *testing.T) {
 	h, b := newTestHandlerWithBackend(t)
 	b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, Priority: 1})
 
-	rec := doXrayRequest(t, h, "/GetSamplingTargets", map[string]any{
+	rec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
 		"SamplingStatisticsDocuments": []map[string]any{
 			{
 				"RuleName":     "my-rule",
