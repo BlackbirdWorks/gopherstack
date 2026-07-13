@@ -69,6 +69,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
+	accountbackend "github.com/blackbirdworks/gopherstack/services/account"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -2971,6 +2972,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&accessanalyzerbackend.Provider{},
+		&accountbackend.Provider{},
 		&rambackend.Provider{},
 		&rolesanywherebackend.Provider{},
 		&rdsdatabackend.Provider{},
