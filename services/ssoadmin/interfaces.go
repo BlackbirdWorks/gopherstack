@@ -25,11 +25,11 @@ type StorageBackend interface {
 	ListPermissionSetsProvisionedToAccount(instanceArn, accountID string) []string
 	DeletePermissionSet(instanceArn, permissionSetArn string) error
 	UpdatePermissionSet(instanceArn, permissionSetArn, description, sessionDuration, relayState string) error
-	CreateAccountAssignment(instanceArn, permissionSetArn, accountID, principalType, principalID string) (string, error)
+	CreateAccountAssignment(instanceArn, permissionSetArn, accountID, principalID, principalType string) (string, error)
 	DescribeAccountAssignmentCreationStatus(instanceArn, requestID string) (*ProvisioningStatus, error)
 	ListAccountAssignments(instanceArn, permissionSetArn, accountID string) []*AccountAssignment
 	ListAccountAssignmentsForPrincipal(instanceArn, principalID, principalType string) []*AccountAssignment
-	DeleteAccountAssignment(instanceArn, permissionSetArn, accountID, principalType, principalID string) (string, error)
+	DeleteAccountAssignment(instanceArn, permissionSetArn, accountID, principalID, principalType string) (string, error)
 	DescribeAccountAssignmentDeletionStatus(instanceArn, requestID string) (*ProvisioningStatus, error)
 	AttachManagedPolicyToPermissionSet(instanceArn, permissionSetArn, managedPolicyARN, name string) error
 	DetachManagedPolicyFromPermissionSet(instanceArn, permissionSetArn, managedPolicyARN string) error
@@ -43,7 +43,9 @@ type StorageBackend interface {
 	TagResource(instanceArn, resourceARN string, tags map[string]string) error
 	UntagResource(instanceArn, resourceARN string, tagKeys []string) error
 	ListTagsForResource(instanceArn, resourceARN string) (map[string]string, error)
-	AddRegion(instanceArn, regionName string) error
+	// AddRegion returns the region's status (ADDING, or the existing status if
+	// already present), matching AddRegionOutput.Status.
+	AddRegion(instanceArn, regionName string) (string, error)
 	AttachCustomerManagedPolicyReferenceToPermissionSet(instanceArn, permissionSetArn, name, path string) error
 	DeleteApplicationGrant(applicationArn, grantType string) error
 	DeleteInstanceAccessControlAttributeConfiguration(instanceArn string) error
@@ -59,7 +61,7 @@ type StorageBackend interface {
 	ListAccountAssignmentCreationStatus(instanceArn, filterStatus string) []*ProvisioningStatus
 	// ListAccountAssignmentDeletionStatus accepts an optional filterStatus.
 	ListAccountAssignmentDeletionStatus(instanceArn, filterStatus string) []*ProvisioningStatus
-	ListApplicationAccessScopes(applicationArn string) ([]string, error)
+	ListApplicationAccessScopes(applicationArn string) ([]ScopeDetails, error)
 	ListApplicationAssignments(applicationArn string) ([]*ApplicationAssignment, error)
 	ListApplicationAuthenticationMethods(applicationArn string) ([]AuthMethod, error)
 	ListApplicationGrants(applicationArn string) ([]ApplicationGrant, error)
@@ -69,7 +71,7 @@ type StorageBackend interface {
 	ListPermissionSetProvisioningStatus(instanceArn, filterStatus string) []*ProvisioningStatus
 	ListRegions(instanceArn string) ([]RegionMetadata, error)
 	ListTrustedTokenIssuers(instanceArn string) []*TrustedTokenIssuer
-	PutApplicationAccessScope(applicationArn, scope string) error
+	PutApplicationAccessScope(applicationArn, scope string, authorizedTargets []string) error
 	PutApplicationAssignmentConfiguration(applicationArn string, assignmentRequired bool) error
 	// PutApplicationAuthenticationMethod stores a structured auth method body; authMethodType must be IAM.
 	PutApplicationAuthenticationMethod(applicationArn, authMethodType string, body json.RawMessage) error
@@ -109,13 +111,17 @@ type StorageBackend interface {
 	DetachCustomerManagedPolicyReferenceFromPermissionSet(instanceArn, permissionSetArn, name, path string) error
 	GetApplicationAssignmentConfiguration(applicationArn string) (bool, error)
 	GetApplicationSessionConfiguration(applicationArn string) (string, error)
-	GetApplicationAccessScope(applicationArn, scope string) (string, error)
+	GetApplicationAccessScope(applicationArn, scope string) ([]string, error)
 	GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (json.RawMessage, error)
 	GetApplicationGrant(applicationArn, grantType string) (json.RawMessage, error)
 	ListCustomerManagedPolicyReferencesInPermissionSet(
 		instanceArn, permissionSetArn string,
 	) ([]CustomerManagedPolicyReference, error)
-	RemoveRegion(instanceArn, regionName string) error
+	// RemoveRegion returns the region's status (REMOVING), matching
+	// RemoveRegionOutput.Status.
+	RemoveRegion(instanceArn, regionName string) (string, error)
+	// DescribeRegion returns metadata for a region previously added via AddRegion.
+	DescribeRegion(instanceArn, regionName string) (*RegionMetadata, error)
 	UpdateInstance(instanceArn, name string) error
 	UpdateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
 	ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn string) ([]string, error)

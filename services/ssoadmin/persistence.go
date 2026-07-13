@@ -19,7 +19,7 @@ import (
 // format had no version field at all, so an old snapshot decodes with
 // Version == 0, which is guaranteed to mismatch ssoadminSnapshotVersion and
 // is discarded the same way any other incompatible snapshot is.
-const ssoadminSnapshotVersion = 1
+const ssoadminSnapshotVersion = 2
 
 // instanceACASnapshot and permissionsBoundarySnapshot are DTOs used only for
 // Snapshot/Restore of the "dirty" tables -- see store_setup.go's file doc
@@ -73,7 +73,7 @@ type backendSnapshot struct {
 	InstanceRegions         map[string][]RegionMetadata                 `json:"instanceRegions"`
 	CustomerManagedPolicies map[string][]CustomerManagedPolicyReference `json:"customerManagedPolicies"`
 	ApplicationAssignments  map[string][]*ApplicationAssignment         `json:"applicationAssignments"`
-	ApplicationScopes       map[string][]string                         `json:"applicationScopes"`
+	ApplicationScopes       map[string]map[string][]string              `json:"applicationScopes"`
 	ApplicationAuthMethods  map[string]map[string]json.RawMessage       `json:"applicationAuthMethods"`
 	ApplicationGrants       map[string]map[string]json.RawMessage       `json:"applicationGrants"`
 	ApplicationAssignConfig map[string]bool                             `json:"applicationAssignConfig"`
@@ -171,7 +171,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.instanceRegions = make(map[string][]RegionMetadata)
 		b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 		b.applicationAssignments = make(map[string][]*ApplicationAssignment)
-		b.applicationScopes = make(map[string][]string)
+		b.applicationScopes = make(map[string]map[string][]string)
 		b.applicationAuthMethods = make(map[string]map[string]json.RawMessage)
 		b.applicationGrants = make(map[string]map[string]json.RawMessage)
 		b.applicationAssignConfig = make(map[string]bool)

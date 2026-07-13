@@ -44,7 +44,8 @@ package ssoadmin
 //   - instanceRegions: map[string][]RegionMetadata (slice-valued)
 //   - customerManagedPolicies: map[string][]CustomerManagedPolicyReference (slice-valued)
 //   - applicationAssignments: map[string][]*ApplicationAssignment (slice-valued)
-//   - applicationScopes: map[string][]string (slice-valued)
+//   - applicationScopes: map[string]map[string][]string (nested-map-valued;
+//     appArn -> scope name -> authorized target ARNs)
 //   - applicationAuthMethods: map[string]map[string]json.RawMessage (nested-map-valued)
 //   - applicationGrants: map[string]map[string]json.RawMessage (nested-map-valued)
 //   - applicationAssignConfig: map[string]bool (scalar-valued)

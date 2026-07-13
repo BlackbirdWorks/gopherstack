@@ -1113,8 +1113,8 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.TagResource(req.InstanceArn, req.ResourceArn, tags); err != nil {
-		if errors.Is(err, ErrTooManyTagsException) {
-			return writeError(c, http.StatusBadRequest, "TooManyTagsException",
+		if errors.Is(err, ErrServiceQuotaExceeded) {
+			return writeError(c, http.StatusBadRequest, "ServiceQuotaExceededException",
 				"you have exceeded the maximum number of tags (50) for this resource")
 		}
 
@@ -1257,11 +1257,14 @@ func (h *Handler) handleAddRegion(c *echo.Context, body []byte) error {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	if err := h.Backend.AddRegion(req.InstanceArn, req.RegionName); err != nil {
+	status, err := h.Backend.AddRegion(req.InstanceArn, req.RegionName)
+	if err != nil {
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{})
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyStatus: status,
+	})
 }
 
 func (h *Handler) handleAttachCustomerManagedPolicyReferenceToPermissionSet(c *echo.Context, body []byte) error {
@@ -1800,13 +1803,14 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 
 func (h *Handler) handlePutApplicationAccessScope(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn string `json:"ApplicationArn"`
-		Scope          string `json:"Scope"`
+		ApplicationArn    string   `json:"ApplicationArn"`
+		Scope             string   `json:"Scope"`
+		AuthorizedTargets []string `json:"AuthorizedTargets"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
-	if err := h.Backend.PutApplicationAccessScope(req.ApplicationArn, req.Scope); err != nil {
+	if err := h.Backend.PutApplicationAccessScope(req.ApplicationArn, req.Scope, req.AuthorizedTargets); err != nil {
 		return handleBackendError(c, err, "application not found: "+req.ApplicationArn)
 	}
 
@@ -2353,11 +2357,14 @@ func (h *Handler) handleRemoveRegion(c *echo.Context, body []byte) error {
 	if req.RegionName == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
 	}
-	if err := h.Backend.RemoveRegion(req.InstanceArn, req.RegionName); err != nil {
+	status, err := h.Backend.RemoveRegion(req.InstanceArn, req.RegionName)
+	if err != nil {
 		return handleBackendError(c, err, "region not found: "+req.RegionName)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{})
+	return writeJSON(c, http.StatusOK, map[string]any{
+		keyStatus: status,
+	})
 }
 
 func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
@@ -2377,10 +2384,7 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 
 	out := make([]map[string]any, 0, len(regions))
 	for _, r := range regions {
-		out = append(out, map[string]any{
-			"Region":          r.Region,
-			"RegionScopeType": r.RegionScopeType,
-		})
+		out = append(out, regionMetadataView(r))
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -2389,12 +2393,38 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 	})
 }
 
-func (h *Handler) handleDescribeRegion(c *echo.Context, _ []byte) error {
-	// DescribeRegion returns metadata about a region for an SSO instance.
-	// In-process simulation returns a minimal stub response.
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"Region": map[string]any{},
-	})
+// regionMetadataView renders a RegionMetadata using the real
+// ssoadmin.RegionMetadata wire field names (AddedDate as epoch seconds).
+func regionMetadataView(r RegionMetadata) map[string]any {
+	return map[string]any{
+		"RegionName":      r.RegionName,
+		keyStatus:         r.Status,
+		"IsPrimaryRegion": r.IsPrimaryRegion,
+		"AddedDate":       float64(r.AddedDate.Unix()),
+	}
+}
+
+func (h *Handler) handleDescribeRegion(c *echo.Context, body []byte) error {
+	var req struct {
+		InstanceArn string `json:"InstanceArn"`
+		RegionName  string `json:"RegionName"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
+	}
+	if req.InstanceArn == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
+	}
+	if req.RegionName == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException", "RegionName is required")
+	}
+
+	region, err := h.Backend.DescribeRegion(req.InstanceArn, req.RegionName)
+	if err != nil {
+		return handleBackendError(c, err, "region not found: "+req.RegionName)
+	}
+
+	return writeJSON(c, http.StatusOK, regionMetadataView(*region))
 }
 
 func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
@@ -2558,14 +2588,14 @@ func (h *Handler) handleGetApplicationAccessScope(c *echo.Context, body []byte) 
 		return writeError(c, http.StatusBadRequest, "ValidationException", "Scope is required")
 	}
 
-	scope, err := h.Backend.GetApplicationAccessScope(req.ApplicationArn, req.Scope)
+	authorizedTargets, err := h.Backend.GetApplicationAccessScope(req.ApplicationArn, req.Scope)
 	if err != nil {
 		return handleBackendError(c, err, "scope not found: "+req.Scope)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
-		"Scope":             scope,
-		"AuthorizedTargets": []string{},
+		"Scope":             req.Scope,
+		"AuthorizedTargets": authorizedTargets,
 	})
 }
 
