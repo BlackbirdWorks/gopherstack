@@ -61,7 +61,7 @@ func TestUpdateEnvironment_RejectsEmptyNetworkConfig(t *testing.T) {
 	_, _ = b.GetEnvironment(context.Background(), "nc-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment(context.Background(), "nc-env", &mwaa.ExportedUpdateEnvironmentRequest{
-		NetworkConfiguration: &mwaa.NetworkConfig{},
+		NetworkConfiguration: &mwaa.UpdateNetworkConfig{},
 	})
 	require.Error(t, err)
 }

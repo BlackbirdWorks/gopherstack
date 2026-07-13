@@ -73,6 +73,9 @@ const (
 	// Worker limits.
 	maxWorkersAllowed = int32(25)
 
+	// NetworkConfiguration.SecurityGroupIds bounds (AWS: 1-5 entries).
+	maxSecurityGroupIDs = 5
+
 	// Tag limit per resource.
 	maxTagsPerResource = 50
 
@@ -93,6 +96,18 @@ func validEnvironmentClasses() map[string]struct{} {
 		"mw1.large":   {},
 		"mw1.xlarge":  {},
 		"mw1.2xlarge": {},
+	}
+}
+
+// validRestAPIMethods returns the set of HTTP methods accepted by InvokeRestApi's
+// Method field (AWS: "Valid Values: GET | PUT | POST | PATCH | DELETE").
+func validRestAPIMethods() map[string]struct{} {
+	return map[string]struct{}{
+		"GET":    {},
+		"PUT":    {},
+		"POST":   {},
+		"PATCH":  {},
+		"DELETE": {},
 	}
 }
 
@@ -853,7 +868,15 @@ func (b *InMemoryBackend) UpdateEnvironment(
 			return nil, err
 		}
 
-		env.NetworkConfiguration = req.NetworkConfiguration
+		// AWS's UpdateEnvironment can only replace SecurityGroupIds; SubnetIds
+		// are immutable after creation and are not part of the update wire
+		// shape (see UpdateNetworkConfig), so the existing NetworkConfiguration
+		// is merged in place rather than replaced wholesale.
+		if env.NetworkConfiguration == nil {
+			env.NetworkConfiguration = &NetworkConfig{}
+		}
+
+		env.NetworkConfiguration.SecurityGroupIDs = req.NetworkConfiguration.SecurityGroupIDs
 	}
 
 	if req.AirflowConfigurationOptions != nil {
@@ -1200,6 +1223,13 @@ func (b *InMemoryBackend) InvokeRestAPI(
 		return nil, fmt.Errorf("%w: Method is required", ErrInvalidParameter)
 	}
 
+	if _, ok := validRestAPIMethods()[req.Method]; !ok {
+		return nil, fmt.Errorf(
+			"%w: Method must be one of GET/PUT/POST/PATCH/DELETE, got %q",
+			ErrInvalidParameter, req.Method,
+		)
+	}
+
 	if req.Path == "" {
 		return nil, fmt.Errorf("%w: Path is required", ErrInvalidParameter)
 	}
@@ -1336,20 +1366,24 @@ func cloneEnvironment(env *Environment) *Environment {
 	return &clone
 }
 
-// validateNetworkConfigUpdate enforces basic shape rules on a network update.
-// AWS rejects updates that drop subnets/security groups; we mirror that to
-// surface obvious user errors early.
-func validateNetworkConfigUpdate(nc *NetworkConfig) error {
+// validateNetworkConfigUpdate enforces AWS's UpdateNetworkConfigurationInput
+// bounds: SecurityGroupIds is required and accepts 1-5 entries. Unlike
+// CreateEnvironment's NetworkConfiguration, there is no SubnetIds member here
+// -- subnets are immutable after environment creation.
+func validateNetworkConfigUpdate(nc *UpdateNetworkConfig) error {
 	if nc == nil {
 		return nil
 	}
 
-	if len(nc.SubnetIDs) == 0 {
-		return fmt.Errorf("%w: NetworkConfiguration.SubnetIds must not be empty", ErrInvalidParameter)
-	}
-
 	if len(nc.SecurityGroupIDs) == 0 {
 		return fmt.Errorf("%w: NetworkConfiguration.SecurityGroupIds must not be empty", ErrInvalidParameter)
+	}
+
+	if len(nc.SecurityGroupIDs) > maxSecurityGroupIDs {
+		return fmt.Errorf(
+			"%w: NetworkConfiguration.SecurityGroupIds cannot exceed %d entries",
+			ErrInvalidParameter, maxSecurityGroupIDs,
+		)
 	}
 
 	return nil

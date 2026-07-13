@@ -312,13 +312,13 @@ func (h *Handler) dispatchEnvironment(c *echo.Context, path string) error {
 func decodeJSONBody(c *echo.Context, target any) bool {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		_ = writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
 
 		return false
 	}
 
 	if jsonErr := json.Unmarshal(body, target); jsonErr != nil {
-		_ = writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		_ = writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 
 		return false
 	}
@@ -327,13 +327,16 @@ func decodeJSONBody(c *echo.Context, target any) bool {
 }
 
 // writeEnvironmentResult maps a backend environment error to an MWAA error
-// response, or writes the environment ARN on success. It mirrors AWS, treating
-// ErrAlreadyExists as a 409 Conflict (only produced by CreateEnvironment).
+// response, or writes the environment ARN on success. MWAA has no
+// AlreadyExistsException in its API model at all (CreateEnvironment's only
+// documented errors are InternalServerException, ServiceUnavailableException,
+// and ValidationException), so a duplicate-name create is surfaced the same
+// way AWS does: a 400 ValidationException, not a fabricated 409 Conflict.
 func writeEnvironmentResult(c *echo.Context, env *Environment, err error) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, awserr.ErrAlreadyExists):
-			return writeErrorResponse(c, http.StatusConflict, "AlreadyExistsException", err.Error())
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
 		case errors.Is(err, awserr.ErrNotFound):
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		case errors.Is(err, awserr.ErrInvalidParameter):
@@ -346,6 +349,27 @@ func writeEnvironmentResult(c *echo.Context, env *Environment, err error) error 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]string{
 		keyArn: env.ARN,
 	})
+
+	return nil
+}
+
+// writeEnvironmentVoidResult maps a backend environment error to an MWAA error
+// response, or writes an empty success body. DeleteEnvironment's response
+// shape (unlike Create/Update) carries no members at all -- AWS returns HTTP
+// 200 with an empty body, so the ARN must not be echoed back here.
+func writeEnvironmentVoidResult(c *echo.Context, _ *Environment, err error) error {
+	if err != nil {
+		switch {
+		case errors.Is(err, awserr.ErrNotFound):
+			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		case errors.Is(err, awserr.ErrInvalidParameter):
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
+		default:
+			return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
+		}
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, map[string]any{})
 
 	return nil
 }
@@ -381,7 +405,7 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, name string) error {
 func (h *Handler) handleDeleteEnvironment(c *echo.Context, name string) error {
 	env, err := h.Backend.DeleteEnvironment(h.contextWithRegion(c), name)
 
-	return writeEnvironmentResult(c, env, err)
+	return writeEnvironmentVoidResult(c, env, err)
 }
 
 func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
@@ -453,7 +477,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
 	}
 
 	var req struct {
@@ -461,7 +485,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
 	if tagErr := h.Backend.TagResource(h.contextWithRegion(c), resourceARN, req.Tags); tagErr != nil {
@@ -545,13 +569,13 @@ func (h *Handler) dispatchRestAPI(c *echo.Context, path string) error {
 func (h *Handler) handleInvokeRestAPI(c *echo.Context, name string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
 	}
 
 	var req invokeRestAPIRequest
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
 	resp, err := h.Backend.InvokeRestAPI(h.contextWithRegion(c), name, &req)
@@ -609,13 +633,13 @@ func (h *Handler) handleGetMetrics(c *echo.Context, name string) error {
 func (h *Handler) handlePublishMetrics(c *echo.Context, name string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "failed to read request body")
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "failed to read request body")
 	}
 
 	var req publishMetricsRequest
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
-		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
+		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
 	if pubErr := h.Backend.PublishMetrics(h.contextWithRegion(c), name, &req); pubErr != nil {

@@ -778,15 +778,19 @@ func TestAudit_NetworkConfig_UpdateValidNetworkConfig(t *testing.T) {
 	_, _ = b.GetEnvironment(context.Background(), "nc-upd-env") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment(context.Background(), "nc-upd-env", &mwaa.ExportedUpdateEnvironmentRequest{
-		NetworkConfiguration: &mwaa.NetworkConfig{
-			SubnetIDs:        []string{"subnet-new1", "subnet-new2"},
+		NetworkConfiguration: &mwaa.UpdateNetworkConfig{
 			SecurityGroupIDs: []string{"sg-new1"},
 		},
 	})
 	require.NoError(t, err)
 }
 
-func TestAudit_NetworkConfig_UpdateEmptySubnetsRejected(t *testing.T) {
+// TestAudit_NetworkConfig_UpdateSecurityGroupsOnlyAccepted verifies that
+// UpdateEnvironment accepts a NetworkConfiguration carrying only
+// SecurityGroupIds. AWS's UpdateNetworkConfigurationInput wire shape has no
+// SubnetIds member at all -- subnets are immutable after creation -- so a
+// real client updating just the security groups must not be rejected.
+func TestAudit_NetworkConfig_UpdateSecurityGroupsOnlyAccepted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
@@ -795,12 +799,11 @@ func TestAudit_NetworkConfig_UpdateEmptySubnetsRejected(t *testing.T) {
 	_, _ = b.GetEnvironment(context.Background(), "nc-empty-sn") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment(context.Background(), "nc-empty-sn", &mwaa.ExportedUpdateEnvironmentRequest{
-		NetworkConfiguration: &mwaa.NetworkConfig{
+		NetworkConfiguration: &mwaa.UpdateNetworkConfig{
 			SecurityGroupIDs: []string{"sg-1"},
 		},
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SubnetIds")
+	require.NoError(t, err)
 }
 
 func TestAudit_NetworkConfig_UpdateEmptySecurityGroupsRejected(t *testing.T) {
@@ -812,28 +815,33 @@ func TestAudit_NetworkConfig_UpdateEmptySecurityGroupsRejected(t *testing.T) {
 	_, _ = b.GetEnvironment(context.Background(), "nc-empty-sg") // promote CREATING → AVAILABLE
 
 	_, err = b.UpdateEnvironment(context.Background(), "nc-empty-sg", &mwaa.ExportedUpdateEnvironmentRequest{
-		NetworkConfiguration: &mwaa.NetworkConfig{
-			SubnetIDs: []string{"subnet-1"},
-		},
+		NetworkConfiguration: &mwaa.UpdateNetworkConfig{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SecurityGroupIds")
 }
 
+// TestAudit_NetworkConfig_UpdatePersisted verifies that updating
+// SecurityGroupIds via UpdateEnvironment leaves the original SubnetIds
+// (set at creation) untouched, since AWS's update wire shape cannot carry
+// subnets at all.
 func TestAudit_NetworkConfig_UpdatePersisted(t *testing.T) {
 	t.Parallel()
 
 	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
-	_, err := b.CreateEnvironment(context.Background(), "nc-persist-env", newCreateReq())
+	req := newCreateReq()
+	req.NetworkConfiguration = &mwaa.NetworkConfig{
+		SubnetIDs:        []string{"subnet-orig1", "subnet-orig2"},
+		SecurityGroupIDs: []string{"sg-orig1"},
+	}
+	_, err := b.CreateEnvironment(context.Background(), "nc-persist-env", req)
 	require.NoError(t, err)
 	_, _ = b.GetEnvironment(context.Background(), "nc-persist-env") // promote CREATING → AVAILABLE
 
-	newNC := &mwaa.NetworkConfig{
-		SubnetIDs:        []string{"subnet-x1", "subnet-x2"},
-		SecurityGroupIDs: []string{"sg-x1", "sg-x2"},
-	}
 	_, err = b.UpdateEnvironment(context.Background(), "nc-persist-env", &mwaa.ExportedUpdateEnvironmentRequest{
-		NetworkConfiguration: newNC,
+		NetworkConfiguration: &mwaa.UpdateNetworkConfig{
+			SecurityGroupIDs: []string{"sg-x1", "sg-x2"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -841,11 +849,12 @@ func TestAudit_NetworkConfig_UpdatePersisted(t *testing.T) {
 	env, err := b.GetEnvironment(context.Background(), "nc-persist-env")
 	require.NoError(t, err)
 	require.NotNil(t, env.NetworkConfiguration)
-	assert.Equal(t, []string{"subnet-x1", "subnet-x2"}, env.NetworkConfiguration.SubnetIDs)
+	assert.Equal(t, []string{"subnet-orig1", "subnet-orig2"}, env.NetworkConfiguration.SubnetIDs,
+		"SubnetIds must survive an update since AWS cannot change them via UpdateEnvironment")
 	assert.Equal(t, []string{"sg-x1", "sg-x2"}, env.NetworkConfiguration.SecurityGroupIDs)
 }
 
-func TestAudit_NetworkConfig_HTTP_UpdateEmptySubnetsRejected(t *testing.T) {
+func TestAudit_NetworkConfig_HTTP_UpdateSecurityGroupsOnlyAccepted(t *testing.T) {
 	t.Parallel()
 
 	h := newHandlerForTest(t)
@@ -854,12 +863,16 @@ func TestAudit_NetworkConfig_HTTP_UpdateEmptySubnetsRejected(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// Promote CREATING → AVAILABLE (UpdateEnvironment only accepts AVAILABLE envs).
+	getRec := doMWAARequest(t, h, http.MethodGet, "/environments/nc-http-upd", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
 	rec2 := doMWAARequest(t, h, http.MethodPatch, "/environments/nc-http-upd", map[string]any{
 		"NetworkConfiguration": map[string]any{
 			"SecurityGroupIds": []string{"sg-1"},
 		},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+	assert.Equal(t, http.StatusOK, rec2.Code)
 }
 
 // ─────────────────────────────────────────────────────────────
