@@ -100,6 +100,51 @@ func TestParity_InvokeModel_Claude2_LegacyCompletionFormat(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Parity: ARN-style modelId with an embedded '/' (e.g. an inference-profile
+// ARN) must still resolve to the correct model-family response envelope.
+// ---------------------------------------------------------------------------
+
+func TestParity_InvokeModel_ARNModelIDWithEmbeddedSlash(t *testing.T) {
+	t.Parallel()
+
+	// A cross-region inference-profile ARN embeds a literal '/' between the
+	// resource type and the underlying model id. The AWS SDK percent-encodes
+	// it as %2F on the wire (modelId is a non-greedy {modelId} URI label),
+	// and net/http decodes it back to a literal '/' server-side -- so a
+	// naive "cut at first slash" extraction truncates the modelId, losing
+	// the "claude" family marker and silently falling back to the wrong
+	// (legacy/default) response envelope instead of the Claude 3 Messages
+	// API format.
+	modelID := "arn:aws:bedrock:us-east-1:111122223333:inference-profile/" +
+		"us.anthropic.claude-3-sonnet-20240229-v1:0"
+
+	h := newTestHandler(t)
+	userContent := []map[string]any{{"type": "text", "text": "Hello"}}
+	rec := doRequest(t, h, http.MethodPost, "/model/"+modelID+"/invoke",
+		map[string]any{
+			"messages":          []map[string]any{{"role": "user", "content": userContent}},
+			"max_tokens":        1024,
+			"anthropic_version": "bedrock-2023-05-31",
+		})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	// Claude 3 Messages API format fields (not the legacy `completion` field
+	// that the truncated-ARN bug would have produced).
+	assert.Equal(t, "message", out["type"], "Claude 3 response type must be 'message'")
+	assert.Contains(t, out, "content", "Claude 3 response must include 'content' array")
+	assert.NotContains(t, out, "completion", "must NOT fall back to legacy 'completion' format")
+	assert.Equal(t, modelID, out["model"], "response 'model' field must echo the full, untruncated ARN")
+
+	invocations := h.Backend.ListInvocations()
+	require.Len(t, invocations, 1)
+	assert.Equal(t, modelID, invocations[0].ModelID, "recorded invocation must use the full, untruncated ARN")
+}
+
+// ---------------------------------------------------------------------------
 // Parity: InvokeModel token-count response headers
 // ---------------------------------------------------------------------------
 
