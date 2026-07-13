@@ -20,7 +20,6 @@ const (
 	matchPriority         = service.PriorityPathVersioned
 	pathAnalyzer          = "analyzer"
 	pathArchiveRule       = "archive-rule"
-	pathFindings          = "findings"
 	pathFinding           = "finding"
 	pathTags              = "tags"
 	pathResource          = "resource"
@@ -51,14 +50,17 @@ const (
 	segmentDepthSubResource  = 3
 	segmentDepthLeafResource = 4
 
-	keyCreatedAt   = "createdAt"
-	keyUpdatedAt   = "updatedAt"
-	keyAnalyzer    = "analyzer"
-	keyArchiveRule = "archiveRule"
-	keyFinding     = "finding"
-	keyFindings    = "findings"
-	keyARN         = "arn"
-	keyTags        = "tags"
+	keyCreatedAt         = "createdAt"
+	keyUpdatedAt         = "updatedAt"
+	keyAnalyzer          = "analyzer"
+	keyArchiveRule       = "archiveRule"
+	keyFinding           = "finding"
+	keyFindings          = "findings"
+	keyARN               = "arn"
+	keyTags              = "tags"
+	keyResource          = "resource"
+	keyResourceOwnerAcct = "resourceOwnerAccount"
+	keyAnalyzedAt        = "analyzedAt"
 )
 
 // Handler handles Access Analyzer HTTP requests.
@@ -85,6 +87,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		if strings.HasPrefix(path, "/"+pathAnalyzer) {
+			return true
+		}
+
+		// GetFinding/ListFindings/UpdateFindings live at /finding and
+		// /finding/{id} (NOT nested under /analyzer/{name}/...); match on a
+		// segment boundary so this does not also swallow /findingv2, which is
+		// handled by its own prefix entry below.
+		if path == "/"+pathFinding || strings.HasPrefix(path, "/"+pathFinding+"/") {
 			return true
 		}
 
@@ -198,7 +208,7 @@ func (h *Handler) dispatch(
 		return result, code, err
 	}
 
-	if result, code, ok, err := h.dispatchFindingOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchFindingOps(op, path, query, body); ok {
 		return result, code, err
 	}
 
@@ -252,18 +262,18 @@ func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any,
 	return nil, 0, false, nil
 }
 
-func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchFindingOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opGetFinding:
-		r, c, e := h.handleGetFinding(path)
+		r, c, e := h.handleGetFinding(path, query)
 
 		return r, c, true, e
 	case opListFindings:
-		r, c, e := h.handleListFindings(path, body)
+		r, c, e := h.handleListFindings(body)
 
 		return r, c, true, e
 	case opUpdateFindings:
-		c, e := h.handleUpdateFindings(path, body)
+		c, e := h.handleUpdateFindings(body)
 
 		return nil, c, true, e
 	case opStartResourceScan:
@@ -437,20 +447,27 @@ func (h *Handler) handleUpdateArchiveRule(path string, body []byte) (int, error)
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleGetFinding(path string) (any, int, error) {
-	analyzerName, findingID := extractAnalyzerAndSubName(path, pathFinding)
+// handleGetFinding serves GET /finding/{id}?analyzerArn=... . Unlike the
+// analyzer/archive-rule/finding-family ops nested under /analyzer/{name}/...,
+// the real GetFinding endpoint carries the owning analyzer as an ARN query
+// parameter, not a path segment (see aws-sdk-go-v2's
+// awsRestjson1_serializeOpHttpBindingsGetFindingInput).
+func (h *Handler) handleGetFinding(path, query string) (any, int, error) {
+	findingID := extractLastSegment(path, pathFinding)
+	analyzerArn := queryParamValue(query, "analyzerArn")
+	analyzerName := analyzerNameFromArn(analyzerArn)
 
 	f, err := h.Backend.GetFinding(analyzerName, findingID)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return map[string]any{keyFinding: findingToJSON(f)}, http.StatusOK, nil
+	return map[string]any{keyFinding: findingToJSON(f, h.Backend.AccountID())}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListFindings(path string, body []byte) (any, int, error) {
-	analyzerName := extractAnalyzerName(path)
-
+// handleListFindings serves POST /finding. The owning analyzer is carried as
+// an ARN in the JSON body (analyzerArn), not a path segment.
+func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 	var req struct {
 		Filter      map[string]FilterCriterion `json:"filter"`
 		AnalyzerArn string                     `json:"analyzerArn"`
@@ -459,7 +476,15 @@ func (h *Handler) handleListFindings(path string, body []byte) (any, int, error)
 		MaxResults  int                        `json:"maxResults"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	if req.AnalyzerArn == "" {
+		return nil, 0, ErrValidation
+	}
+
+	analyzerName := analyzerNameFromArn(req.AnalyzerArn)
 
 	findings, nextToken, err := h.Backend.ListFindings(
 		analyzerName, req.Filter, req.Status, req.MaxResults, req.NextToken,
@@ -468,10 +493,11 @@ func (h *Handler) handleListFindings(path string, body []byte) (any, int, error)
 		return nil, 0, err
 	}
 
+	accountID := h.Backend.AccountID()
 	list := make([]any, 0, len(findings))
 
 	for _, f := range findings {
-		list = append(list, findingToJSON(f))
+		list = append(list, findingToJSON(f, accountID))
 	}
 
 	resp := map[string]any{keyFindings: list}
@@ -483,9 +509,9 @@ func (h *Handler) handleListFindings(path string, body []byte) (any, int, error)
 	return resp, http.StatusOK, nil
 }
 
-func (h *Handler) handleUpdateFindings(path string, body []byte) (int, error) {
-	analyzerName := extractAnalyzerName(path)
-
+// handleUpdateFindings serves PUT /finding. The owning analyzer is carried as
+// an ARN in the JSON body (analyzerArn), not a path segment.
+func (h *Handler) handleUpdateFindings(body []byte) (int, error) {
 	var req struct {
 		AnalyzerArn string   `json:"analyzerArn"`
 		Status      string   `json:"status"`
@@ -495,6 +521,12 @@ func (h *Handler) handleUpdateFindings(path string, body []byte) (int, error) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return 0, ErrValidation
 	}
+
+	if req.AnalyzerArn == "" {
+		return 0, ErrValidation
+	}
+
+	analyzerName := analyzerNameFromArn(req.AnalyzerArn)
 
 	if err := h.Backend.UpdateFindings(analyzerName, req.IDs, FindingStatus(req.Status)); err != nil {
 		return 0, err
@@ -606,6 +638,8 @@ func parseRESTPath(method, path string) (string, string) {
 	switch segments[0] {
 	case pathAnalyzer:
 		return parseAnalyzerPath(method, segments)
+	case pathFinding:
+		return parseFindingPath(method, segments)
 	case pathTags:
 		return parseTagsPath(method, segments)
 	case pathResource:
@@ -669,13 +703,6 @@ func parseAnalyzerSubResource(method string, segments []string) (string, string)
 		case http.MethodGet:
 			return opListArchiveRules, name
 		}
-	case pathFindings:
-		switch method {
-		case http.MethodPost:
-			return opListFindings, name
-		case http.MethodPut:
-			return opUpdateFindings, name
-		}
 	case pathStatistics:
 		// /analyzer/findings/statistics (name == "findings" here)
 		if method == http.MethodPost {
@@ -686,11 +713,34 @@ func parseAnalyzerSubResource(method string, segments []string) (string, string)
 	return opUnknown, ""
 }
 
+// parseFindingPath parses GetFinding/ListFindings/UpdateFindings paths.
+// Unlike the analyzer/archive-rule family, these live at the top-level
+// /finding and /finding/{id} -- the owning analyzer is carried as an ARN in
+// the query string (Get) or JSON body (List/Update), never as a path
+// segment. See aws-sdk-go-v2's serializers.go for GetFinding ("/finding/{id}"
+// GET), ListFindings ("/finding" POST), UpdateFindings ("/finding" PUT).
+func parseFindingPath(method string, segments []string) (string, string) {
+	switch len(segments) {
+	case 1:
+		switch method {
+		case http.MethodPost:
+			return opListFindings, ""
+		case http.MethodPut:
+			return opUpdateFindings, ""
+		}
+	case segmentDepthResource:
+		if method == http.MethodGet {
+			return opGetFinding, segments[1]
+		}
+	}
+
+	return opUnknown, ""
+}
+
 func parseAnalyzerLeafResource(method string, segments []string) (string, string) {
 	name := segments[1]
 
-	switch segments[2] {
-	case pathArchiveRule:
+	if segments[2] == pathArchiveRule {
 		switch method {
 		case http.MethodGet:
 			return opGetArchiveRule, name
@@ -698,10 +748,6 @@ func parseAnalyzerLeafResource(method string, segments []string) (string, string
 			return opDeleteArchiveRule, name
 		case http.MethodPut:
 			return opUpdateArchiveRule, name
-		}
-	case pathFinding:
-		if method == http.MethodGet {
-			return opGetFinding, name
 		}
 	}
 
@@ -763,6 +809,20 @@ func extractAnalyzerAndSubName(path, subKey string) (string, string) {
 	return first, second
 }
 
+// queryParamValue returns the first value of the given "&"-delimited query
+// parameter, or "" if absent.
+func queryParamValue(query, key string) string {
+	prefix := key + "="
+
+	for part := range strings.SplitSeq(query, "&") {
+		if v, ok := strings.CutPrefix(part, prefix); ok {
+			return v
+		}
+	}
+
+	return ""
+}
+
 // ---- JSON serialization ----
 
 func analyzerToJSON(a *Analyzer) map[string]any {
@@ -794,15 +854,25 @@ func archiveRuleToJSON(r *ArchiveRule) map[string]any {
 	}
 }
 
-func findingToJSON(f *Finding) map[string]any {
+// findingToJSON builds the wire shape for the (v1) Finding type. The real API
+// serializes the owning resource under "resource" (not "resourceArn" --
+// that's only correct for AnalyzedResource) and requires
+// "resourceOwnerAccount"/"analyzedAt", neither of which InMemoryBackend
+// tracks per-finding; resourceOwnerAccount defaults to the backend's own
+// account (emulated resources belong to the same test account) and
+// analyzedAt mirrors updatedAt, matching the GetFindingV2/ListFindingsV2
+// convention already used for the same data.
+func findingToJSON(f *Finding, accountID string) map[string]any {
 	m := map[string]any{
-		"id":           f.ID,
-		"analyzerArn":  f.AnalyzerArn, //nolint:goconst // existing issue.
-		"status":       string(f.Status),
-		"resourceType": f.ResourceType, //nolint:goconst // existing issue.
-		"resourceArn":  f.ResourceArn,  //nolint:goconst // existing issue.
-		keyUpdatedAt:   f.UpdatedAt.Format(time.RFC3339),
-		keyCreatedAt:   f.CreatedAt.Format(time.RFC3339),
+		"id":                 f.ID,
+		"analyzerArn":        f.AnalyzerArn, //nolint:goconst // existing issue.
+		"status":             string(f.Status),
+		"resourceType":       f.ResourceType, //nolint:goconst // existing issue.
+		keyResource:          f.ResourceArn,
+		keyResourceOwnerAcct: accountID,
+		keyAnalyzedAt:        f.UpdatedAt.Format(time.RFC3339),
+		keyUpdatedAt:         f.UpdatedAt.Format(time.RFC3339),
+		keyCreatedAt:         f.CreatedAt.Format(time.RFC3339),
 	}
 
 	if len(f.Action) > 0 {
