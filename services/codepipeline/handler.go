@@ -329,6 +329,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		{ErrResourceNotFound, "ResourceNotFoundException"},
 		{ErrStageNotFound, "StageNotFoundException"},
 		{ErrInvalidStructure, "InvalidStructureException"},
+		{ErrExecutionNotFound, "PipelineExecutionNotFoundException"},
+		{ErrVersionNotFound, "PipelineVersionNotFoundException"},
 		{errUnknownAction, "InvalidActionException"},
 		{errInvalidRequest, "ValidationException"},
 	}
@@ -450,7 +452,7 @@ func (h *Handler) handleGetPipeline(
 
 	if in.Version != 0 && in.Version != p.Declaration.Version {
 		return nil, fmt.Errorf("%w: pipeline %q version %d not found (current: %d)",
-			ErrNotFound, in.Name, in.Version, p.Declaration.Version)
+			ErrVersionNotFound, in.Name, in.Version, p.Declaration.Version)
 	}
 
 	return &getPipelineOutput{
@@ -1120,7 +1122,9 @@ func (h *Handler) handleStopPipelineExecution(
 		return nil, fmt.Errorf("%w: pipelineName is required", errInvalidRequest)
 	}
 
-	exec, err := h.Backend.StopPipelineExecution(ctx, in.PipelineName, in.PipelineExecutionID, in.Reason)
+	exec, err := h.Backend.StopPipelineExecution(
+		ctx, in.PipelineName, in.PipelineExecutionID, in.Reason, in.Abandon,
+	)
 	if err != nil {
 		return nil, err
 	}

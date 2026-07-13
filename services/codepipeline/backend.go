@@ -70,6 +70,9 @@ const (
 	// statusSucceeded is the terminal success status for executions and actions.
 	statusSucceeded = "Succeeded"
 
+	// statusStopped is the terminal status for a manually stopped pipeline execution.
+	statusStopped = "Stopped"
+
 	// ruleOwnerAWS is the owner value for AWS-managed CodePipeline rule types.
 	ruleOwnerAWS = "AWS"
 )
@@ -99,6 +102,10 @@ var (
 	ErrStageNotFound = awserr.New("StageNotFoundException", awserr.ErrNotFound)
 	// ErrInvalidStructure is returned for structural pipeline validation errors.
 	ErrInvalidStructure = awserr.New("InvalidStructureException", awserr.ErrInvalidParameter)
+	// ErrExecutionNotFound is returned when a requested pipeline execution ID does not exist.
+	ErrExecutionNotFound = awserr.New("PipelineExecutionNotFoundException", awserr.ErrNotFound)
+	// ErrVersionNotFound is returned when a requested pipeline version does not exist.
+	ErrVersionNotFound = awserr.New("PipelineVersionNotFoundException", awserr.ErrNotFound)
 )
 
 // EncryptionKey represents a KMS or custom encryption key for an artifact store.
@@ -598,6 +605,7 @@ func (b *InMemoryBackend) DeletePipeline(ctx context.Context, name string) error
 
 	b.pipelines.Delete(key)
 	delete(b.executionsStore(region), name)
+	delete(b.actionExecutionsStore(region), name)
 
 	// Cascade: remove disabled stage transitions for this pipeline.
 	for _, st := range slices.Clone(b.stageTransitionsByPipeline.Get(regionKey(region, name))) {
@@ -1269,6 +1277,16 @@ func (b *InMemoryBackend) StartPipelineExecution(ctx context.Context, pipelineNa
 		}
 	}
 
+	// gopherstack runs every action synchronously and instantaneously (the
+	// loop above already marks each action execution Succeeded), so the
+	// pipeline execution itself is done by the time this call returns.
+	// Leaving Status at statusInProgress here left every execution stuck
+	// InProgress forever: GetPipelineExecution/ListPipelineExecutions would
+	// never report a terminal status, so any client polling for completion
+	// (as the real, asynchronous AWS service expects callers to do) would
+	// spin indefinitely.
+	exec.Status = statusSucceeded
+
 	cp := *exec
 
 	return &cp, nil
@@ -1296,18 +1314,22 @@ func (b *InMemoryBackend) GetPipelineExecution(
 		}
 	}
 
-	// Return a stub for unknown execution IDs to maintain backward compatibility.
-	return &PipelineExecution{
-		PipelineName:        pipelineName,
-		PipelineExecutionID: executionID,
-		Status:              "Succeeded",
-	}, nil
+	return nil, fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
 }
 
-// StopPipelineExecution stops an in-progress pipeline execution.
+// StopPipelineExecution stops a pipeline execution. Real AWS transitions
+// through a transient "Stopping" state while in-progress actions finish (or
+// are abandoned, if abandon is true) before reaching the terminal "Stopped"
+// state. gopherstack runs every action synchronously and instantaneously (see
+// StartPipelineExecution), so there is never an in-progress action left to
+// wait for by the time a client can call this -- the execution goes straight
+// to "Stopped" regardless of abandon. Leaving it at "Stopping" left every
+// stopped execution stuck there forever, indistinguishable (to a polling
+// client) from a stop request that never completed.
 func (b *InMemoryBackend) StopPipelineExecution(
 	ctx context.Context,
 	pipelineName, executionID, reason string,
+	abandon bool,
 ) (*PipelineExecution, error) {
 	b.mu.Lock("StopPipelineExecution")
 	defer b.mu.Unlock()
@@ -1318,22 +1340,18 @@ func (b *InMemoryBackend) StopPipelineExecution(
 		return nil, ErrNotFound
 	}
 
-	_ = reason
+	_, _ = reason, abandon
 
 	for _, exec := range b.executionsStore(region)[pipelineName] {
 		if exec.PipelineExecutionID == executionID {
-			exec.Status = "Stopping"
+			exec.Status = statusStopped
 			cp := *exec
 
 			return &cp, nil
 		}
 	}
 
-	return &PipelineExecution{
-		PipelineName:        pipelineName,
-		PipelineExecutionID: executionID,
-		Status:              "Stopping",
-	}, nil
+	return nil, fmt.Errorf("%w: pipeline %q execution %q", ErrExecutionNotFound, pipelineName, executionID)
 }
 
 // ListPipelineExecutions returns stored executions for a pipeline, most recent first.
