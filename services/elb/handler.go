@@ -1066,15 +1066,7 @@ func (h *Handler) handleCreateLoadBalancerPolicy(ctx context.Context, vals url.V
 	}
 
 	if _, ok := knownPolicyTypes[policyTypeName]; !ok {
-		const validTypes = "AppCookieStickinessPolicyType, LBCookieStickinessPolicyType, " +
-			"ProxyProtocolPolicyType, SSLNegotiationPolicyType, BackendServerAuthenticationPolicyType"
-
-		return nil, fmt.Errorf(
-			"%w: unknown PolicyTypeName %q; must be one of %s",
-			ErrInvalidParameter,
-			policyTypeName,
-			validTypes,
-		)
+		return nil, fmt.Errorf("%w: %q", ErrPolicyTypeNotFound, policyTypeName)
 	}
 
 	attrs := parsePolicyAttributes(vals)
@@ -1242,6 +1234,7 @@ func elbErrorCode(opErr error) (string, int) {
 
 	// Order matters: more-specific sentinels must come before generic ones.
 	mappings := []errorMapping{
+		{ErrPolicyTypeNotFound, "PolicyTypeNotFound", http.StatusNotFound},
 		{ErrPolicyNotFound, "PolicyNotFound", http.StatusNotFound},
 		{ErrPolicyAlreadyExists, "DuplicatePolicyName", http.StatusConflict},
 		{ErrDuplicateListener, "DuplicateListener", http.StatusConflict},
@@ -1251,6 +1244,11 @@ func elbErrorCode(opErr error) (string, int) {
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
 		{ErrInvalidConfiguration, "InvalidConfigurationRequest", http.StatusBadRequest},
+		{ErrTooManyLoadBalancers, "TooManyLoadBalancers", http.StatusBadRequest},
+		{ErrTooManyTags, "TooManyTags", http.StatusBadRequest},
+		{ErrDuplicateTagKeys, "DuplicateTagKeys", http.StatusBadRequest},
+		{ErrInvalidScheme, "InvalidScheme", http.StatusBadRequest},
+		{ErrUnsupportedProtocol, "UnsupportedProtocol", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
 
@@ -1449,7 +1447,7 @@ func parseOneListener(vals url.Values, i int) (*Listener, error) {
 	default:
 		return nil, fmt.Errorf(
 			"%w: Protocol must be one of HTTP, HTTPS, TCP, SSL",
-			ErrInvalidParameter,
+			ErrUnsupportedProtocol,
 		)
 	}
 
@@ -2032,10 +2030,13 @@ type createLoadBalancerResponse struct {
 
 // DeleteLoadBalancer response.
 
+type deleteLoadBalancerResult struct{}
+
 type deleteLoadBalancerResponse struct {
-	XMLName          xml.Name            `xml:"DeleteLoadBalancerResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                 `xml:"DeleteLoadBalancerResponse"`
+	Xmlns            string                   `xml:"xmlns,attr"`
+	Result           deleteLoadBalancerResult `xml:"DeleteLoadBalancerResult"`
+	ResponseMetadata xmlResponseMetadata      `xml:"ResponseMetadata"`
 }
 
 // DescribeLoadBalancers response.
@@ -2276,58 +2277,79 @@ type disableAvailabilityZonesResponse struct {
 
 // SetLoadBalancerListenerSSLCertificate response.
 
+type setLoadBalancerListenerSSLCertificateResult struct{}
+
 type setLoadBalancerListenerSSLCertificateResponse struct {
-	XMLName          xml.Name            `xml:"SetLoadBalancerListenerSSLCertificateResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                                    `xml:"SetLoadBalancerListenerSSLCertificateResponse"`
+	Xmlns            string                                      `xml:"xmlns,attr"`
+	Result           setLoadBalancerListenerSSLCertificateResult `xml:"SetLoadBalancerListenerSSLCertificateResult"`
+	ResponseMetadata xmlResponseMetadata                         `xml:"ResponseMetadata"`
 }
 
 // SetLoadBalancerPoliciesOfListener response.
 
+type setLoadBalancerPoliciesOfListenerResult struct{}
+
 type setLoadBalancerPoliciesOfListenerResponse struct {
-	XMLName          xml.Name            `xml:"SetLoadBalancerPoliciesOfListenerResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                                `xml:"SetLoadBalancerPoliciesOfListenerResponse"`
+	Xmlns            string                                  `xml:"xmlns,attr"`
+	Result           setLoadBalancerPoliciesOfListenerResult `xml:"SetLoadBalancerPoliciesOfListenerResult"`
+	ResponseMetadata xmlResponseMetadata                     `xml:"ResponseMetadata"`
 }
 
 // SetLoadBalancerPoliciesForBackendServer response.
 
+type setLoadBalancerPoliciesForBackendServerResult struct{}
+
 type setLoadBalancerPoliciesForBackendServerResponse struct {
-	XMLName          xml.Name            `xml:"SetLoadBalancerPoliciesForBackendServerResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                                      `xml:"SetLoadBalancerPoliciesForBackendServerResponse"`
+	Xmlns            string                                        `xml:"xmlns,attr"`
+	Result           setLoadBalancerPoliciesForBackendServerResult `xml:"SetLoadBalancerPoliciesForBackendServerResult"`
+	ResponseMetadata xmlResponseMetadata                           `xml:"ResponseMetadata"`
 }
 
 // CreateAppCookieStickinessPolicy response.
 
+type createAppCookieStickinessPolicyResult struct{}
+
 type createAppCookieStickinessPolicyResponse struct {
-	XMLName          xml.Name            `xml:"CreateAppCookieStickinessPolicyResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                              `xml:"CreateAppCookieStickinessPolicyResponse"`
+	Xmlns            string                                `xml:"xmlns,attr"`
+	Result           createAppCookieStickinessPolicyResult `xml:"CreateAppCookieStickinessPolicyResult"`
+	ResponseMetadata xmlResponseMetadata                   `xml:"ResponseMetadata"`
 }
 
 // CreateLBCookieStickinessPolicy response.
 
+type createLBCookieStickinessPolicyResult struct{}
+
 type createLBCookieStickinessPolicyResponse struct {
-	XMLName          xml.Name            `xml:"CreateLBCookieStickinessPolicyResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                             `xml:"CreateLBCookieStickinessPolicyResponse"`
+	Xmlns            string                               `xml:"xmlns,attr"`
+	Result           createLBCookieStickinessPolicyResult `xml:"CreateLBCookieStickinessPolicyResult"`
+	ResponseMetadata xmlResponseMetadata                  `xml:"ResponseMetadata"`
 }
 
 // CreateLoadBalancerPolicy response.
 
+type createLoadBalancerPolicyResult struct{}
+
 type createLoadBalancerPolicyResponse struct {
-	XMLName          xml.Name            `xml:"CreateLoadBalancerPolicyResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                       `xml:"CreateLoadBalancerPolicyResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	Result           createLoadBalancerPolicyResult `xml:"CreateLoadBalancerPolicyResult"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
 }
 
 // DeleteLoadBalancerPolicy response.
 
+type deleteLoadBalancerPolicyResult struct{}
+
 type deleteLoadBalancerPolicyResponse struct {
-	XMLName          xml.Name            `xml:"DeleteLoadBalancerPolicyResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                       `xml:"DeleteLoadBalancerPolicyResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	Result           deleteLoadBalancerPolicyResult `xml:"DeleteLoadBalancerPolicyResult"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
 }
 
 // DescribeAccountLimits response.

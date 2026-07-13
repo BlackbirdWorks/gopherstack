@@ -98,6 +98,25 @@ var (
 	ErrDuplicateListener = awserr.New("DuplicateListener", awserr.ErrAlreadyExists)
 	// ErrInvalidConfiguration is returned when an operation is not valid for the LB's configuration.
 	ErrInvalidConfiguration = awserr.New("InvalidConfigurationRequest", awserr.ErrInvalidParameter)
+	// ErrTooManyLoadBalancers is returned when creating a load balancer would exceed the
+	// per-region account limit (AWS: TooManyAccessPointsException / "TooManyLoadBalancers").
+	ErrTooManyLoadBalancers = awserr.New("TooManyLoadBalancers", awserr.ErrInvalidParameter)
+	// ErrTooManyTags is returned when tagging a load balancer would exceed the per-resource
+	// tag limit (AWS: TooManyTagsException / "TooManyTags").
+	ErrTooManyTags = awserr.New("TooManyTags", awserr.ErrInvalidParameter)
+	// ErrDuplicateTagKeys is returned when a single AddTags/CreateLoadBalancer request
+	// specifies the same tag key more than once (AWS: DuplicateTagKeysException).
+	ErrDuplicateTagKeys = awserr.New("DuplicateTagKeys", awserr.ErrInvalidParameter)
+	// ErrInvalidScheme is returned when the Scheme parameter is not 'internet-facing' or
+	// 'internal' (AWS: InvalidSchemeException).
+	ErrInvalidScheme = awserr.New("InvalidScheme", awserr.ErrInvalidParameter)
+	// ErrPolicyTypeNotFound is returned when the requested policy type name does not exist
+	// (AWS: PolicyTypeNotFoundException). Distinct from ErrPolicyNotFound, which is for
+	// policy *instances*, not policy *types*.
+	ErrPolicyTypeNotFound = awserr.New("PolicyTypeNotFound", awserr.ErrNotFound)
+	// ErrUnsupportedProtocol is returned when a listener specifies a protocol other than
+	// HTTP, HTTPS, TCP, or SSL (AWS: UnsupportedProtocolException).
+	ErrUnsupportedProtocol = awserr.New("UnsupportedProtocol", awserr.ErrInvalidParameter)
 
 	// lbNameRe matches valid Classic ELB names: 1-32 chars, alphanumeric + hyphens,
 	// must start and end with alphanumeric.
@@ -115,6 +134,7 @@ var (
 		policyTypeAppCookie:                     {},
 		policyTypeLBCookie:                      {},
 		"ProxyProtocolPolicyType":               {},
+		"PublicKeyPolicyType":                   {},
 		policyTypeSSLNeg:                        {},
 		"BackendServerAuthenticationPolicyType": {},
 	}
@@ -537,7 +557,7 @@ func resolveScheme(scheme string) (string, error) {
 	if scheme != "internet-facing" && scheme != "internal" {
 		return "", fmt.Errorf(
 			"%w: Scheme must be 'internet-facing' or 'internal'",
-			ErrInvalidParameter,
+			ErrInvalidScheme,
 		)
 	}
 
@@ -625,7 +645,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 	if len(b.lbsByRegion.Get(region)) >= maxLBs {
 		return nil, fmt.Errorf(
 			"%w: classic-load-balancers limit of %d exceeded",
-			ErrValidation, maxLBs,
+			ErrTooManyLoadBalancers, maxLBs,
 		)
 	}
 
@@ -855,18 +875,17 @@ func (b *InMemoryBackend) ConfigureHealthCheck(
 	return &cp, nil
 }
 
-// AddTags adds or updates tags on one or more load balancers.
-func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tags.KV) error {
-	b.mu.Lock("AddTags")
-	defer b.mu.Unlock()
-
-	region := getRegion(ctx, b.region)
-
+// validateAddTagsKVs validates tag key/value lengths and rejects a request that
+// specifies the same tag key more than once (AWS: DuplicateTagKeysException).
+// The duplicate-key check is a same-request check, distinct from overwriting an
+// existing tag value across separate AddTags calls, which is the documented
+// "add or update" behavior and remains allowed.
+func validateAddTagsKVs(kvs []tags.KV) error {
 	const maxTagKeyLen = 128
 	const maxTagValueLen = 256
-	const maxTagsPerLB = 10
 
-	// Validate tag key/value lengths before mutating any LB.
+	seenKeys := make(map[string]struct{}, len(kvs))
+
 	for _, kv := range kvs {
 		if kv.Key == "" || len(kv.Key) > maxTagKeyLen {
 			return fmt.Errorf("%w: tag key must be 1-%d characters", ErrInvalidParameter, maxTagKeyLen)
@@ -875,7 +894,29 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tag
 		if len(kv.Value) > maxTagValueLen {
 			return fmt.Errorf("%w: tag value must be 0-%d characters", ErrInvalidParameter, maxTagValueLen)
 		}
+
+		if _, dup := seenKeys[kv.Key]; dup {
+			return fmt.Errorf("%w: %q", ErrDuplicateTagKeys, kv.Key)
+		}
+
+		seenKeys[kv.Key] = struct{}{}
 	}
+
+	return nil
+}
+
+// AddTags adds or updates tags on one or more load balancers.
+func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tags.KV) error {
+	if err := validateAddTagsKVs(kvs); err != nil {
+		return err
+	}
+
+	b.mu.Lock("AddTags")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	const maxTagsPerLB = 10
 
 	for _, name := range names {
 		lb, ok := b.lbs.Get(lbTableKey(region, name))
@@ -899,7 +940,7 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, names []string, kvs []tag
 		})
 
 		if existingCount+len(newKeys) > maxTagsPerLB {
-			return fmt.Errorf("%w: cannot have more than %d tags on a load balancer", ErrInvalidParameter, maxTagsPerLB)
+			return fmt.Errorf("%w: cannot have more than %d tags on a load balancer", ErrTooManyTags, maxTagsPerLB)
 		}
 
 		for _, kv := range kvs {
@@ -1908,7 +1949,7 @@ func (b *InMemoryBackend) DescribeLoadBalancerPolicyTypes(
 	for _, typeName := range policyTypeNames {
 		pt, ok := byName[typeName]
 		if !ok {
-			return nil, fmt.Errorf("%w: policy type %q not found", ErrPolicyNotFound, typeName)
+			return nil, fmt.Errorf("%w: policy type %q not found", ErrPolicyTypeNotFound, typeName)
 		}
 
 		result = append(result, pt)
