@@ -307,11 +307,13 @@ type Rule struct {
 
 // RuleSummary is a rule entry for list responses.
 type RuleSummary struct {
-	ARN       string
-	ID        string
-	Name      string
-	Priority  int32
-	IsDefault bool
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time
+	ARN           string
+	ID            string
+	Name          string
+	Priority      int32
+	IsDefault     bool
 }
 
 // RuleUpdate is an update spec for BatchUpdateRule.
@@ -384,16 +386,19 @@ type TargetGroup struct {
 
 // TargetGroupSummary is a target group entry for list responses.
 type TargetGroupSummary struct {
-	CreatedAt   time.Time
-	ARN         string
-	ID          string
-	Name        string
-	Type        string
-	Status      string
-	Protocol    string
-	VpcID       string
-	ServiceARNs []string
-	Port        int32
+	CreatedAt                   time.Time
+	LastUpdatedAt               time.Time
+	ARN                         string
+	ID                          string
+	Name                        string
+	Type                        string
+	Status                      string
+	Protocol                    string
+	VpcID                       string
+	IPAddressType               string
+	LambdaEventStructureVersion string
+	ServiceARNs                 []string
+	Port                        int32
 }
 
 // TargetGroupConfig is the configuration for a target group.
