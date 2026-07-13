@@ -349,7 +349,11 @@ func resourceSpecs() map[string]resourceSpec {
 			nameField:    "FlywheelName",
 			arnField:     fieldFlywheelARN,
 			objectField:  "FlywheelProperties",
-			listField:    "FlywheelPropertiesList",
+			// ListFlywheelsOutput wraps items as FlywheelSummaryList (FlywheelSummary
+			// shape), unlike every other List*Output here which reuses the Properties
+			// name -- DescribeFlywheelOutput/UpdateFlywheelOutput still use
+			// FlywheelProperties (objectField above), only the List response differs.
+			listField: "FlywheelSummaryList",
 		},
 		"Dataset": {
 			resourceType: resourceTypeDataset,
@@ -363,7 +367,7 @@ func resourceSpecs() map[string]resourceSpec {
 
 func (h *Handler) startJob(spec jobSpec) operation {
 	return func(input map[string]any) (map[string]any, error) {
-		job, err := h.Backend.StartJob(spec.jobType, stringValue(input, "JobName", ""), input)
+		job, err := h.Backend.StartJob(spec.jobType, stringValue(input, "JobName", ""), input, inputTags(input))
 		if err != nil {
 			return nil, err
 		}
@@ -486,12 +490,30 @@ func (h *Handler) deleteResource(spec resourceSpec) operation {
 	}
 }
 
+// resourceMap renders a Resource as its AWS wire-shape Properties object.
+// The timestamp field names are NOT uniform across resource types in the
+// real API: DocumentClassifier(Version) and EntityRecognizer(Version)
+// properties use SubmitTime/EndTime, Endpoint and Flywheel properties use
+// CreationTime/LastModifiedTime, and Dataset properties use
+// CreationTime/EndTime. Emitting the wrong field name means the real SDK's
+// client-side unmarshal leaves that field nil, so callers of, e.g.,
+// DescribeEndpoint always saw a nil CreationTime/LastModifiedTime before
+// this switch existed.
 func resourceMap(resource *Resource, spec resourceSpec) map[string]any {
 	out := cloneMap(resource.Configuration)
 	out[spec.arnField] = resource.Arn
 	out["Status"] = resource.Status
-	out["SubmitTime"] = awstime.Epoch(resource.CreatedAt)
-	out["EndTime"] = awstime.Epoch(resource.UpdatedAt)
+	switch resource.Type {
+	case resourceTypeEndpoint, resourceTypeFlywheel:
+		out["CreationTime"] = awstime.Epoch(resource.CreatedAt)
+		out["LastModifiedTime"] = awstime.Epoch(resource.UpdatedAt)
+	case resourceTypeDataset:
+		out["CreationTime"] = awstime.Epoch(resource.CreatedAt)
+		out["EndTime"] = awstime.Epoch(resource.UpdatedAt)
+	default:
+		out["SubmitTime"] = awstime.Epoch(resource.CreatedAt)
+		out["EndTime"] = awstime.Epoch(resource.UpdatedAt)
+	}
 	if resource.VersionName != "" {
 		out["VersionName"] = resource.VersionName
 	}
@@ -1081,12 +1103,22 @@ func (h *Handler) putResourcePolicy(input map[string]any) (map[string]any, error
 }
 
 func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
-	// ImportModel effectively creates a resource modeled after a source model.
-	// For simplicity in emulation, we map it to creating a new DocumentClassifier (or EntityRecognizer).
-	// We'll assume DocumentClassifier by default as AWS docs specify it can be either based on source.
+	// ImportModel creates a resource modeled after SourceModelArn (required):
+	// the imported model is a DocumentClassifier or an EntityRecognizer
+	// depending on which kind of model SourceModelArn identifies, so the
+	// resource type must be derived from the ARN rather than hardcoded.
+	sourceArn := stringValue(input, "SourceModelArn", "")
+	resourceType := resourceTypeDocClassifier
+	if strings.Contains(sourceArn, resourceTypeEntityRecognizer) {
+		resourceType = resourceTypeEntityRecognizer
+	}
+	name := stringValue(input, "ModelName", "")
+	if name == "" {
+		name = modelNameFromArn(sourceArn)
+	}
 	resource, err := h.Backend.CreateResource(
-		resourceTypeDocClassifier,
-		stringValue(input, "ModelName", ""),
+		resourceType,
+		name,
 		stringValue(input, "VersionName", ""),
 		input,
 		inputTags(input),
@@ -1098,6 +1130,21 @@ func (h *Handler) importModel(input map[string]any) (map[string]any, error) {
 	return map[string]any{
 		"ModelArn": resource.Arn,
 	}, nil
+}
+
+// modelNameFromArn extracts the resource name segment from a Comprehend
+// model ARN (e.g. ".../document-classifier/my-model" or
+// ".../entity-recognizer/my-model/version/v1" both yield "my-model"), used
+// as a fallback when ImportModel's optional ModelName is omitted.
+const minArnNameSegments = 2
+
+func modelNameFromArn(sourceArn string) string {
+	parts := strings.Split(sourceArn, "/")
+	if len(parts) < minArnNameSegments {
+		return ""
+	}
+
+	return parts[1]
 }
 
 func (h *Handler) listDocumentClassifierSummaries(input map[string]any) (map[string]any, error) {
