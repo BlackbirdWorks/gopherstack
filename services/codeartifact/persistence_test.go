@@ -89,7 +89,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.DescribePackage(ctx, "domain-1", "repo-1", "npm", "", "pkg-1")
 	require.NoError(t, err)
 
-	pv, err := original.PublishPackageVersion(ctx, "domain-1", "repo-1", "npm", "", "pkg-1", "1.0.0")
+	pv, err := original.PublishPackageVersion(ctx, "domain-1", "repo-1", "npm", "", "pkg-1", "1.0.0",
+		codeartifact.AssetInfo{Name: "pkg-1-1.0.0.tgz", Size: 4, SHA256: "abcd", Content: []byte("data")})
 	require.NoError(t, err)
 
 	_, err = original.AssociateExternalConnection(ctx, "domain-1", "repo-1", "public:npmjs")
@@ -154,6 +155,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, versions, 1)
 	assert.Equal(t, pv.Version, versions[0].Version)
 	assert.Equal(t, "Published", versions[0].Status)
+	require.Len(t, versions[0].Assets, 1)
+	assert.Equal(t, "pkg-1-1.0.0.tgz", versions[0].Assets[0].Name)
 
 	// externalConnections plain map (unconverted).
 	conns := fresh.GetExternalConnections(ctx, "domain-1", "repo-1")

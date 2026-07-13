@@ -51,6 +51,27 @@ func doRequest(t *testing.T, h *codeartifact.Handler, method, path string, body 
 	return rec
 }
 
+// doRawRequest POSTs body as the raw HTTP payload (application/octet-stream), unlike
+// doRequest which always JSON-marshals it. PublishPackageVersion's httpPayload is the
+// raw asset content, not a JSON document -- see handler.go's Handler() doc comment. It
+// is always POST because PublishPackageVersion, the only op with a binary payload, is
+// always POST.
+func doRawRequest(t *testing.T, h *codeartifact.Handler, path string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
@@ -1054,7 +1075,7 @@ func TestHandler_PackageGroupCRUD(t *testing.T) {
 	assert.Equal(t, "test group", pg["description"])
 
 	// Describe
-	descRec := doRequest(t, h, http.MethodGet, "/v1/package-group?domain=crud-domain&packageGroup=/npm/mygroup/*", nil)
+	descRec := doRequest(t, h, http.MethodGet, "/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*", nil)
 	assert.Equal(t, http.StatusOK, descRec.Code)
 
 	// Delete
@@ -1062,13 +1083,15 @@ func TestHandler_PackageGroupCRUD(t *testing.T) {
 		t,
 		h,
 		http.MethodDelete,
-		"/v1/package-group?domain=crud-domain&packageGroup=/npm/mygroup/*",
+		"/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, delRec.Code)
 
 	// Verify gone
-	descRec2 := doRequest(t, h, http.MethodGet, "/v1/package-group?domain=crud-domain&packageGroup=/npm/mygroup/*", nil)
+	descRec2 := doRequest(
+		t, h, http.MethodGet, "/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*", nil,
+	)
 	assert.Equal(t, http.StatusNotFound, descRec2.Code)
 }
 
@@ -1323,7 +1346,7 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 	)
 
 	copyURL := "/v1/package/versions/copy" +
-		"?domain=copy-domain&sourceRepository=src-repo&destinationRepository=dst-repo&format=pypi&package=boto3"
+		"?domain=copy-domain&source-repository=src-repo&destination-repository=dst-repo&format=pypi&package=boto3"
 
 	// Copy existing + nonexistent version.
 	rec := doRequest(t, h, http.MethodPost, copyURL, map[string]any{
@@ -1347,7 +1370,7 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, descRec.Code)
 
 	noSrcURL := "/v1/package/versions/copy" +
-		"?domain=copy-domain&sourceRepository=nope&destinationRepository=dst-repo&format=pypi&package=boto3"
+		"?domain=copy-domain&source-repository=nope&destination-repository=dst-repo&format=pypi&package=boto3"
 
 	// Missing source repo.
 	recNoSrc := doRequest(t, h, http.MethodPost, noSrcURL, map[string]any{
@@ -1360,7 +1383,8 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 		t,
 		h,
 		http.MethodPost,
-		"/v1/package/versions/copy?domain=copy-domain&sourceRepository=src-repo&destinationRepository=dst-repo&package=boto3",
+		"/v1/package/versions/copy?domain=copy-domain&source-repository=src-repo"+
+			"&destination-repository=dst-repo&package=boto3",
 		map[string]any{
 			"versions": []string{"1.26.0"},
 		},
@@ -1383,7 +1407,8 @@ func TestHandler_AssociateExternalConnection(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=ec-domain", nil)
 				doRequest(t, h, http.MethodPost, "/v1/repository?domain=ec-domain&repository=ec-repo", nil)
 			},
-			path:       "/v1/repository/external-connection?domain=ec-domain&repository=ec-repo&externalConnection=public:npmjs",
+			path: "/v1/repository/external-connection" +
+				"?domain=ec-domain&repository=ec-repo&external-connection=public:npmjs",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -1395,21 +1420,21 @@ func TestHandler_AssociateExternalConnection(t *testing.T) {
 					t,
 					h,
 					http.MethodPost,
-					"/v1/repository/external-connection?domain=ec-dup&repository=ec-repo2&externalConnection=public:npmjs",
+					"/v1/repository/external-connection?domain=ec-dup&repository=ec-repo2&external-connection=public:npmjs",
 					nil,
 				)
 			},
-			path:       "/v1/repository/external-connection?domain=ec-dup&repository=ec-repo2&externalConnection=public:npmjs",
+			path:       "/v1/repository/external-connection?domain=ec-dup&repository=ec-repo2&external-connection=public:npmjs",
 			wantStatus: http.StatusConflict,
 		},
 		{
 			name:       "missing_domain",
-			path:       "/v1/repository/external-connection?repository=ec-repo&externalConnection=public:npmjs",
+			path:       "/v1/repository/external-connection?repository=ec-repo&external-connection=public:npmjs",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_repo",
-			path:       "/v1/repository/external-connection?domain=ec-domain&externalConnection=public:npmjs",
+			path:       "/v1/repository/external-connection?domain=ec-domain&external-connection=public:npmjs",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -1419,7 +1444,7 @@ func TestHandler_AssociateExternalConnection(t *testing.T) {
 		},
 		{
 			name:       "repo_not_found",
-			path:       "/v1/repository/external-connection?domain=ec-domain&repository=nope&externalConnection=public:npmjs",
+			path:       "/v1/repository/external-connection?domain=ec-domain&repository=nope&external-connection=public:npmjs",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -1490,12 +1515,13 @@ func TestHandler_RepositoryPermissionsPolicy(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, getRec2.Code)
 
-	// Delete.
+	// Delete. Real AWS serves DeleteRepositoryPermissionsPolicy on its own plural
+	// "/v1/repository/permissions/policies" path, distinct from Get/Put's singular path.
 	delRec := doRequest(
 		t,
 		h,
 		http.MethodDelete,
-		"/v1/repository/permissions/policy?domain=rp-domain&repository=rp-repo",
+		"/v1/repository/permissions/policies?domain=rp-domain&repository=rp-repo",
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, delRec.Code)
@@ -1505,7 +1531,7 @@ func TestHandler_RepositoryPermissionsPolicy(t *testing.T) {
 		t,
 		h,
 		http.MethodDelete,
-		"/v1/repository/permissions/policy?domain=rp-domain&repository=rp-repo",
+		"/v1/repository/permissions/policies?domain=rp-domain&repository=rp-repo",
 		nil,
 	)
 	assert.Equal(t, http.StatusNotFound, delRec2.Code)
@@ -1514,12 +1540,12 @@ func TestHandler_RepositoryPermissionsPolicy(t *testing.T) {
 	assert.Equal(
 		t,
 		http.StatusBadRequest,
-		doRequest(t, h, http.MethodDelete, "/v1/repository/permissions/policy?repository=rp-repo", nil).Code,
+		doRequest(t, h, http.MethodDelete, "/v1/repository/permissions/policies?repository=rp-repo", nil).Code,
 	)
 	assert.Equal(
 		t,
 		http.StatusBadRequest,
-		doRequest(t, h, http.MethodDelete, "/v1/repository/permissions/policy?domain=rp-domain", nil).Code,
+		doRequest(t, h, http.MethodDelete, "/v1/repository/permissions/policies?domain=rp-domain", nil).Code,
 	)
 }
 
@@ -1580,7 +1606,7 @@ func TestHandler_NewOperations_Persistence(t *testing.T) {
 		t,
 		h,
 		http.MethodPost,
-		"/v1/repository/external-connection?domain=persist2-domain&repository=persist2-repo&externalConnection=public:npmjs",
+		"/v1/repository/external-connection?domain=persist2-domain&repository=persist2-repo&external-connection=public:npmjs",
 		nil,
 	)
 
@@ -1603,7 +1629,7 @@ func TestHandler_NewOperations_Persistence(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify package group survived.
-	pgRec := doRequest(t, h2, http.MethodGet, "/v1/package-group?domain=persist2-domain&packageGroup=/npm/*", nil)
+	pgRec := doRequest(t, h2, http.MethodGet, "/v1/package-group?domain=persist2-domain&package-group=/npm/*", nil)
 	assert.Equal(t, http.StatusOK, pgRec.Code)
 
 	// Verify package version survived.
@@ -1830,7 +1856,7 @@ func TestHandler_ExternalConnectionFormat(t *testing.T) {
 				t,
 				h,
 				http.MethodPost,
-				"/v1/repository/external-connection?domain=fmt-domain&repository=fmt-repo&externalConnection="+tt.connectionName,
+				"/v1/repository/external-connection?domain=fmt-domain&repository=fmt-repo&external-connection="+tt.connectionName,
 				nil,
 			)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -1916,7 +1942,7 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		)
 
 		copyPath := "/v1/package/versions/copy" +
-			"?domain=cv-domain&sourceRepository=src-repo&destinationRepository=dst-repo" +
+			"?domain=cv-domain&source-repository=src-repo&destination-repository=dst-repo" +
 			"&format=npm&package=mypkg"
 		rec := doRequest(
 			t,
@@ -2016,8 +2042,8 @@ func TestHandler_PackageVersionMap(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	pv, _ := resp["packageVersion"].(map[string]any)
 
-	publishedAt, _ := pv["publishedAt"].(float64)
-	assert.Greater(t, publishedAt, float64(0))
+	publishedTime, _ := pv["publishedTime"].(float64)
+	assert.Greater(t, publishedTime, float64(0))
 	assert.NotEmpty(t, pv["revision"])
 	assert.Equal(t, "npm", pv["format"])
 }
@@ -2064,14 +2090,16 @@ func TestHandler_ErrValidationMapsTo400(t *testing.T) {
 			t,
 			h,
 			http.MethodPost,
-			"/v1/repository/external-connection?domain=dup-conn-domain&repository=dup-conn-repo&externalConnection=public:npmjs",
+			"/v1/repository/external-connection"+
+				"?domain=dup-conn-domain&repository=dup-conn-repo&external-connection=public:npmjs",
 			nil,
 		)
 		rec := doRequest(
 			t,
 			h,
 			http.MethodPost,
-			"/v1/repository/external-connection?domain=dup-conn-domain&repository=dup-conn-repo&externalConnection=public:npmjs",
+			"/v1/repository/external-connection"+
+				"?domain=dup-conn-domain&repository=dup-conn-repo&external-connection=public:npmjs",
 			nil,
 		)
 		assert.Equal(t, http.StatusConflict, rec.Code)
@@ -2092,27 +2120,27 @@ func TestHandler_GetAssociatedPackageGroup(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=apg-domain", nil)
 			},
-			path:       "/v1/associated-package-group?domain=apg-domain&format=npm&package=mypkg",
+			path:       "/v1/get-associated-package-group?domain=apg-domain&format=npm&package=mypkg",
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "missing_domain",
-			path:       "/v1/associated-package-group?format=npm&package=mypkg",
+			path:       "/v1/get-associated-package-group?format=npm&package=mypkg",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_format",
-			path:       "/v1/associated-package-group?domain=apg-domain&package=mypkg",
+			path:       "/v1/get-associated-package-group?domain=apg-domain&package=mypkg",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_package",
-			path:       "/v1/associated-package-group?domain=apg-domain&format=npm",
+			path:       "/v1/get-associated-package-group?domain=apg-domain&format=npm",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "domain_not_found",
-			path:       "/v1/associated-package-group?domain=nope&format=npm&package=mypkg",
+			path:       "/v1/get-associated-package-group?domain=nope&format=npm&package=mypkg",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -2168,7 +2196,7 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 					map[string]any{"pattern": "/pypi/*"},
 				)
 			},
-			path:       "/v1/sub-package-groups?domain=lspg-domain&packageGroup=/npm/*",
+			path:       "/v1/package-groups/sub-groups?domain=lspg-domain&package-group=/npm/*",
 			wantStatus: http.StatusOK,
 			wantCount:  1,
 		},
@@ -2184,23 +2212,23 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 					map[string]any{"pattern": "/npm/*"},
 				)
 			},
-			path:       "/v1/sub-package-groups?domain=lspg2-domain&packageGroup=/npm/*",
+			path:       "/v1/package-groups/sub-groups?domain=lspg2-domain&package-group=/npm/*",
 			wantStatus: http.StatusOK,
 			wantCount:  0,
 		},
 		{
 			name:       "missing_domain",
-			path:       "/v1/sub-package-groups?packageGroup=/npm/*",
+			path:       "/v1/package-groups/sub-groups?package-group=/npm/*",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_package_group",
-			path:       "/v1/sub-package-groups?domain=lspg-domain",
+			path:       "/v1/package-groups/sub-groups?domain=lspg-domain",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "domain_not_found",
-			path:       "/v1/sub-package-groups?domain=nope&packageGroup=/npm/*",
+			path:       "/v1/package-groups/sub-groups?domain=nope&package-group=/npm/*",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -2328,21 +2356,19 @@ func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pub-list-domain", nil)
 	doRequest(t, h, http.MethodPost, "/v1/repository?domain=pub-list-domain&repository=pub-list-repo", nil)
 
-	doRequest(
+	doRawRequest(
 		t,
 		h,
-		http.MethodPost,
 		"/v1/package/versions/publish?domain=pub-list-domain"+
-			"&repository=pub-list-repo&format=npm&package=react&version=18.0.0",
-		nil,
+			"&repository=pub-list-repo&format=npm&package=react&version=18.0.0&asset=react-18.0.0.tgz",
+		[]byte("asset-content-18"),
 	)
-	doRequest(
+	doRawRequest(
 		t,
 		h,
-		http.MethodPost,
 		"/v1/package/versions/publish?domain=pub-list-domain"+
-			"&repository=pub-list-repo&format=npm&package=react&version=19.0.0",
-		nil,
+			"&repository=pub-list-repo&format=npm&package=react&version=19.0.0&asset=react-19.0.0.tgz",
+		[]byte("asset-content-19"),
 	)
 
 	listRec := doRequest(
@@ -2393,19 +2419,20 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	setupRepo(t, h, "lifecycle-domain", "lifecycle-repo")
 
 	// Publish version.
-	pubRec := doRequest(
+	pubRec := doRawRequest(
 		t,
 		h,
-		http.MethodPost,
 		"/v1/package/versions/publish?domain=lifecycle-domain"+
-			"&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0",
-		nil,
+			"&repository=lifecycle-repo&format=npm&package=mylib&version=1.0.0&asset=mylib-1.0.0.tgz",
+		[]byte("mylib-asset-content"),
 	)
 	require.Equal(t, http.StatusOK, pubRec.Code)
 	var pubResp map[string]any
 	require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &pubResp))
 	assert.Equal(t, "1.0.0", pubResp["version"])
 	assert.Equal(t, "Published", pubResp["status"])
+	asset, _ := pubResp["asset"].(map[string]any)
+	assert.Equal(t, "mylib-1.0.0.tgz", asset["name"])
 
 	// Describe version.
 	descRec := doRequest(
@@ -2501,7 +2528,9 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 	assert.Len(t, allGroups, 4)
 
 	// ListSubPackageGroups for /npm/* should return 2 sub-groups.
-	subRec := doRequest(t, h, http.MethodGet, "/v1/sub-package-groups?domain=hier-domain&packageGroup=/npm/*", nil)
+	subRec := doRequest(
+		t, h, http.MethodGet, "/v1/package-groups/sub-groups?domain=hier-domain&package-group=/npm/*", nil,
+	)
 	require.Equal(t, http.StatusOK, subRec.Code)
 	var subResp map[string]any
 	require.NoError(t, json.Unmarshal(subRec.Body.Bytes(), &subResp))
@@ -2509,7 +2538,9 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 	assert.Len(t, subGroups, 2)
 
 	// ListSubPackageGroups for /pypi/* should return 0 sub-groups.
-	subRec2 := doRequest(t, h, http.MethodGet, "/v1/sub-package-groups?domain=hier-domain&packageGroup=/pypi/*", nil)
+	subRec2 := doRequest(
+		t, h, http.MethodGet, "/v1/package-groups/sub-groups?domain=hier-domain&package-group=/pypi/*", nil,
+	)
 	require.Equal(t, http.StatusOK, subRec2.Code)
 	var subResp2 map[string]any
 	require.NoError(t, json.Unmarshal(subRec2.Body.Bytes(), &subResp2))
@@ -2533,11 +2564,11 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 		{"pypi", "boto3", "1.28.0"},
 		{"maven", "spring-boot", "3.0.0"},
 	} {
-		doRequest(
-			t, h, http.MethodPost,
+		doRawRequest(
+			t, h,
 			"/v1/package/versions/publish?domain=fmt-multi-domain&repository=fmt-multi-repo&format="+
-				tc.format+"&package="+tc.pkg+"&version="+tc.version,
-			nil,
+				tc.format+"&package="+tc.pkg+"&version="+tc.version+"&asset="+tc.pkg+"-"+tc.version,
+			[]byte("content"),
 		)
 	}
 
@@ -2591,7 +2622,7 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 			t,
 			h,
 			http.MethodPost,
-			"/v1/repository/external-connection?domain=multi-conn-domain&repository=multi-conn-repo&externalConnection="+conn,
+			"/v1/repository/external-connection?domain=multi-conn-domain&repository=multi-conn-repo&external-connection="+conn,
 			nil,
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -2616,7 +2647,7 @@ func TestHandler_ExternalConnections_MultipleConnections(t *testing.T) {
 		h,
 		http.MethodDelete,
 		"/v1/repository/external-connection?domain=multi-conn-domain"+
-			"&repository=multi-conn-repo&externalConnection=public:pypi",
+			"&repository=multi-conn-repo&external-connection=public:pypi",
 		nil,
 	)
 	require.Equal(t, http.StatusOK, disRec.Code)
@@ -2637,22 +2668,22 @@ func TestHandler_AssociatedPackageGroup_ValidationErrors(t *testing.T) {
 	}{
 		{
 			name:       "missing_domain",
-			path:       "/v1/associated-package-group?format=npm&package=lodash",
+			path:       "/v1/get-associated-package-group?format=npm&package=lodash",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_format",
-			path:       "/v1/associated-package-group?domain=d&package=lodash",
+			path:       "/v1/get-associated-package-group?domain=d&package=lodash",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_package",
-			path:       "/v1/associated-package-group?domain=d&format=npm",
+			path:       "/v1/get-associated-package-group?domain=d&format=npm",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "domain_not_found",
-			path:       "/v1/associated-package-group?domain=nope&format=npm&package=lodash",
+			path:       "/v1/get-associated-package-group?domain=nope&format=npm&package=lodash",
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -2689,7 +2720,7 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/v1/package/versions/copy?domain=self-copy-domain"+
-			"&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
+			"&source-repository=src&destination-repository=dst&format=npm&package=react",
 		map[string]any{"versions": []string{"18.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, copyRec.Code)
@@ -2700,7 +2731,7 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 		h,
 		http.MethodPost,
 		"/v1/package/versions/copy?domain=self-copy-domain"+
-			"&sourceRepository=src&destinationRepository=dst&format=npm&package=react",
+			"&source-repository=src&destination-repository=dst&format=npm&package=react",
 		map[string]any{"versions": []string{"18.0.0"}},
 	)
 	require.Equal(t, http.StatusOK, copyRec2.Code)

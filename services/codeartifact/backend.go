@@ -96,6 +96,12 @@ type Package struct {
 	Format      string `json:"format"`
 	Namespace   string `json:"namespace,omitempty"`
 	Name        string `json:"name"`
+	// OriginConfigPublish and OriginConfigUpstream mirror
+	// PackageOriginRestrictions.Publish/Upstream ("ALLOW" or "BLOCK"), set via
+	// PutPackageOriginConfiguration. Both default to "ALLOW", matching a package
+	// that has never had its origin configuration explicitly set.
+	OriginConfigPublish  string `json:"originConfigPublish,omitempty"`
+	OriginConfigUpstream string `json:"originConfigUpstream,omitempty"`
 	// region is the store.Table composite-key qualifier (see regionKey).
 	region string
 }
@@ -111,8 +117,18 @@ type PackageVersion struct {
 	Version     string    `json:"version"`
 	Status      string    `json:"status"`
 	Revision    string    `json:"revision"`
-	// region is the store.Table composite-key qualifier (see regionKey).
-	region string
+	region      string
+	Assets      []AssetInfo `json:"assets,omitempty"`
+}
+
+// AssetInfo represents an asset (file) uploaded to a package version via
+// PublishPackageVersion. Content holds the raw bytes so GetPackageVersionAsset can
+// serve back exactly what was published, instead of always returning an empty stub.
+type AssetInfo struct {
+	Name    string `json:"name"`
+	SHA256  string `json:"sha256"`
+	Content []byte `json:"content,omitempty"`
+	Size    int64  `json:"size"`
 }
 
 // ExternalConnection represents a connection of a repository to an external package source.
@@ -1477,22 +1493,24 @@ func (b *InMemoryBackend) ListPackageVersions(
 	return result, nil
 }
 
-// ListPackageVersionAssets is a stub returning asset list for a package version.
+// ListPackageVersionAssets lists the assets actually uploaded to a package version via
+// PublishPackageVersion.
 func (b *InMemoryBackend) ListPackageVersionAssets(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
-) ([]map[string]any, error) {
+) ([]AssetInfo, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("ListPackageVersionAssets")
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if !b.packageVersions.Has(regionKey(region, key)) {
+	pv, ok := b.packageVersions.Get(regionKey(region, key))
+	if !ok {
 		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
-	return []map[string]any{}, nil
+	return slices.Clone(pv.Assets), nil
 }
 
 // ListPackageVersionDependencies is a stub returning empty dependencies.
@@ -1513,7 +1531,8 @@ func (b *InMemoryBackend) ListPackageVersionDependencies(
 	return []map[string]any{}, nil
 }
 
-// GetPackageVersionAsset is a stub that returns empty asset data.
+// GetPackageVersionAsset returns the content of an asset previously uploaded via
+// PublishPackageVersion.
 func (b *InMemoryBackend) GetPackageVersionAsset(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version, asset string,
@@ -1524,13 +1543,18 @@ func (b *InMemoryBackend) GetPackageVersionAsset(
 	defer b.mu.RUnlock()
 
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
-	if !b.packageVersions.Has(regionKey(region, key)) {
+	pv, ok := b.packageVersions.Get(regionKey(region, key))
+	if !ok {
 		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
-	_ = asset
+	for _, a := range pv.Assets {
+		if a.Name == asset {
+			return slices.Clone(a.Content), nil
+		}
+	}
 
-	return []byte{}, nil
+	return nil, fmt.Errorf("%w: asset %s not found", ErrNotFound, asset)
 }
 
 // GetPackageVersionReadme is a stub that returns empty README content.
@@ -1551,41 +1575,77 @@ func (b *InMemoryBackend) GetPackageVersionReadme(
 	return "", nil
 }
 
-// PublishPackageVersion creates or updates a package version in the backend.
+// PublishPackageVersion creates or updates a package version in the backend and
+// upserts the uploaded asset (by name) into its Assets list. Unlike
+// DescribePackageVersion's auto-create fallback, this is the real entry point AWS
+// clients use to create a version, so it validates the repository exists first.
 func (b *InMemoryBackend) PublishPackageVersion(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
+	asset AssetInfo,
 ) (*PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("PublishPackageVersion")
 	defer b.mu.Unlock()
 
+	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
+		return nil, fmt.Errorf("%w: repository %s not found in domain %s", ErrNotFound, repoName, domainName)
+	}
+
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
 
-	if existing, ok := b.packageVersions.Get(regionKey(region, key)); ok {
-		cp := *existing
-
-		return &cp, nil
+	pv, ok := b.packageVersions.Get(regionKey(region, key))
+	if !ok {
+		pv = &PackageVersion{
+			DomainName:  domainName,
+			Repository:  repoName,
+			Format:      format,
+			Namespace:   namespace,
+			PackageName: name,
+			Version:     version,
+			Status:      "Published",
+			Revision:    uuid.NewString()[:8],
+			PublishedAt: time.Now().UTC(),
+			region:      region,
+		}
+		b.packageVersions.Put(pv)
 	}
 
-	pv := &PackageVersion{
-		DomainName:  domainName,
-		Repository:  repoName,
-		Format:      format,
-		Namespace:   namespace,
-		PackageName: name,
-		Version:     version,
-		Status:      "Published",
-		Revision:    uuid.NewString()[:8],
-		PublishedAt: time.Now().UTC(),
-		region:      region,
+	if asset.Name != "" {
+		upsertAsset(pv, asset)
 	}
-	b.packageVersions.Put(pv)
+
+	pKey := packageKey(domainName, repoName, format, namespace, name)
+	if !b.packages.Has(regionKey(region, pKey)) {
+		b.packages.Put(&Package{
+			DomainName:  domainName,
+			DomainOwner: b.accountID,
+			Repository:  repoName,
+			Format:      format,
+			Namespace:   namespace,
+			Name:        name,
+			region:      region,
+		})
+	}
 
 	cp := *pv
 
 	return &cp, nil
+}
+
+// upsertAsset replaces the named asset if it already exists on pv (re-publishing the
+// same file, e.g. a corrected POM), or appends it otherwise.
+func upsertAsset(pv *PackageVersion, asset AssetInfo) {
+	for i := range pv.Assets {
+		if pv.Assets[i].Name == asset.Name {
+			pv.Assets[i] = asset
+
+			return
+		}
+	}
+
+	pv.Assets = append(pv.Assets, asset)
 }
 
 // UpdatePackageVersionsStatus updates the status of specified package versions.
@@ -1614,28 +1674,49 @@ func (b *InMemoryBackend) UpdatePackageVersionsStatus(
 	return results, nil
 }
 
-// PutPackageOriginConfiguration is a stub accepting package origin configuration.
+// PutPackageOriginConfiguration sets a package's publish/upstream origin restrictions
+// and persists the (possibly newly created) package record. publish/upstream default to
+// "ALLOW" when the caller passes an empty string, matching an unconfigured package.
 func (b *InMemoryBackend) PutPackageOriginConfiguration(
 	ctx context.Context,
-	domainName, repoName, format, namespace, name string,
+	domainName, repoName, format, namespace, name, publish, upstream string,
 ) (*Package, error) {
 	region := getRegion(ctx, b.region)
 
-	b.mu.RLock("PutPackageOriginConfiguration")
-	defer b.mu.RUnlock()
+	b.mu.Lock("PutPackageOriginConfiguration")
+	defer b.mu.Unlock()
 
 	if !b.repositories.Has(regionKey(region, repoKey(domainName, repoName))) {
 		return nil, fmt.Errorf("%w: repository %s/%s not found", ErrNotFound, domainName, repoName)
 	}
 
-	return &Package{
-		DomainName:  domainName,
-		DomainOwner: b.accountID,
-		Repository:  repoName,
-		Format:      format,
-		Namespace:   namespace,
-		Name:        name,
-	}, nil
+	if publish == "" {
+		publish = "ALLOW"
+	}
+	if upstream == "" {
+		upstream = "ALLOW"
+	}
+
+	key := packageKey(domainName, repoName, format, namespace, name)
+	pkg, ok := b.packages.Get(regionKey(region, key))
+	if !ok {
+		pkg = &Package{
+			DomainName:  domainName,
+			DomainOwner: b.accountID,
+			Repository:  repoName,
+			Format:      format,
+			Namespace:   namespace,
+			Name:        name,
+			region:      region,
+		}
+	}
+	pkg.OriginConfigPublish = publish
+	pkg.OriginConfigUpstream = upstream
+	b.packages.Put(pkg)
+
+	cp := *pkg
+
+	return &cp, nil
 }
 
 // UpdateRepository updates repository description or upstreams.
