@@ -57,6 +57,28 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+	// ErrResourceInUse is returned when a host cannot be deleted because a
+	// connection still references it. The real DeleteHost operation documents
+	// no dedicated typed error for this case ("Before you delete a host, all
+	// connections associated to the host must be deleted."), so the closest
+	// real, generic type is used instead of a fabricated name.
+	ErrResourceInUse = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrSyncConfigStillExists is returned when a repository link cannot be
+	// deleted because a sync configuration still references it. The real
+	// DeleteRepositoryLink operation documents SyncConfigurationStillExistsException
+	// for exactly this case.
+	ErrSyncConfigStillExists = awserr.New("SyncConfigurationStillExistsException", awserr.ErrConflict)
+	// ErrSyncBlockerNotFound is returned by UpdateSyncBlocker when the blocker ID
+	// does not exist (or was created in a different region). The real operation
+	// documents SyncBlockerDoesNotExistException for this case; it does NOT
+	// resolve unknown IDs gracefully.
+	ErrSyncBlockerNotFound = awserr.New("SyncBlockerDoesNotExistException", awserr.ErrNotFound)
+)
+
+// SyncBlocker status values (real AWS BlockerStatus enum).
+const (
+	SyncBlockerStatusActive   = "ACTIVE"
+	SyncBlockerStatusResolved = "RESOLVED"
 )
 
 // validProviderTypes is the set of provider types accepted by AWS CodeConnections.
@@ -67,6 +89,7 @@ func validProviderTypes() map[string]bool {
 		"GitHubEnterpriseServer": true,
 		"GitLab":                 true,
 		"GitLabSelfManaged":      true,
+		"AzureDevOps":            true,
 	}
 }
 
@@ -128,6 +151,9 @@ type InMemoryBackend struct {
 	syncConfigurations         *store.Table[SyncConfiguration]
 	syncConfigurationsByRegion *store.Index[SyncConfiguration]
 
+	syncBlockers           *store.Table[SyncBlocker]
+	syncBlockersByResource *store.Index[SyncBlocker]
+
 	accountID     string
 	defaultRegion string
 }
@@ -152,10 +178,12 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
-	// repositoryLinks/syncConfigurations (see store_setup.go's registerAllTables
-	// doc) are deliberately NOT on b.registry, so each needs its own Reset() call.
+	// repositoryLinks/syncConfigurations/syncBlockers (see store_setup.go's
+	// registerAllTables doc) are deliberately NOT on b.registry, so each needs
+	// its own Reset() call.
 	b.repositoryLinks.Reset()
 	b.syncConfigurations.Reset()
+	b.syncBlockers.Reset()
 }
 
 // Region returns the AWS region this backend is configured for.
@@ -463,15 +491,34 @@ func (b *InMemoryBackend) GetHost(ctx context.Context, hostArn string) (*Host, e
 	return &cp, nil
 }
 
-// DeleteHost removes a host by ARN.
+// connectionHasReferenceToHostLocked returns true if any connection in region
+// references hostArn. Must be called with at least an RLock held.
+func (b *InMemoryBackend) connectionHasReferenceToHostLocked(region, hostArn string) bool {
+	for _, conn := range b.connectionsByRegion.Get(region) {
+		if conn.HostArn == hostArn {
+			return true
+		}
+	}
+
+	return false
+}
+
+// DeleteHost removes a host by ARN. The real operation documents that all
+// connections associated to a host must be deleted before the host itself
+// can be deleted.
 func (b *InMemoryBackend) DeleteHost(ctx context.Context, hostArn string) error {
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("DeleteHost")
 	defer b.mu.Unlock()
 
-	if !b.hosts.Has(hostArn) || regionFromARN(hostArn) != region {
+	host, ok := b.hosts.Get(hostArn)
+	if !ok || regionFromARN(hostArn) != region {
 		return ErrNotFound
+	}
+
+	if b.connectionHasReferenceToHostLocked(region, hostArn) {
+		return fmt.Errorf("%w: host %q has active connections; delete them first", ErrResourceInUse, host.Name)
 	}
 
 	b.hosts.Delete(hostArn)
@@ -526,6 +573,17 @@ func (b *InMemoryBackend) CreateRepositoryLink(
 		providerType = conn.ProviderType
 	}
 
+	// Check for duplicate: same connection + owner + repo, within this region.
+	for _, existing := range b.repositoryLinksByRegion.Get(region) {
+		if existing.ConnectionArn == connectionArn &&
+			existing.OwnerID == ownerID &&
+			existing.RepositoryName == repoName {
+			return nil, fmt.Errorf(
+				"%w: repository link for %s/%s already exists", ErrAlreadyExists, ownerID, repoName,
+			)
+		}
+	}
+
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
@@ -576,6 +634,18 @@ func (b *InMemoryBackend) GetRepositoryLink(
 	return &cp, nil
 }
 
+// syncConfigHasReferenceToLinkLocked returns true if any sync configuration in
+// region references repositoryLinkID. Must be called with at least an RLock held.
+func (b *InMemoryBackend) syncConfigHasReferenceToLinkLocked(region, repositoryLinkID string) bool {
+	for _, cfg := range b.syncConfigurationsByRegion.Get(region) {
+		if cfg.RepositoryLinkID == repositoryLinkID {
+			return true
+		}
+	}
+
+	return false
+}
+
 // DeleteRepositoryLink removes a repository link by ID.
 func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLinkID string) error {
 	region := getRegion(ctx, b.defaultRegion)
@@ -586,6 +656,11 @@ func (b *InMemoryBackend) DeleteRepositoryLink(ctx context.Context, repositoryLi
 	key := regionKey(region, repositoryLinkID)
 	if !b.repositoryLinks.Has(key) {
 		return ErrNotFound
+	}
+
+	if b.syncConfigHasReferenceToLinkLocked(region, repositoryLinkID) {
+		return fmt.Errorf("%w: repository link %q has active sync configurations; delete them first",
+			ErrSyncConfigStillExists, repositoryLinkID)
 	}
 
 	b.repositoryLinks.Delete(key)
@@ -664,6 +739,15 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		ownerID = link.OwnerID
 		providerType = link.ProviderType
 		repoName = link.RepositoryName
+	}
+
+	// Check for duplicate: the real CreateSyncConfiguration operation registers
+	// a dedicated ResourceAlreadyExistsException for an existing ResourceName+SyncType.
+	key := regionKey(region, syncConfigKey(resourceName, syncType))
+	if b.syncConfigurations.Has(key) {
+		return nil, fmt.Errorf(
+			"%w: sync configuration for %q/%q already exists", ErrAlreadyExists, resourceName, syncType,
+		)
 	}
 
 	cfg := &SyncConfiguration{
@@ -988,7 +1072,8 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 	return &cp, nil
 }
 
-// RepositorySyncDefinition is a stub definition for a repository sync.
+// RepositorySyncDefinition describes a mapping from a repository branch to an
+// Amazon Web Services resource that is being synced from that branch.
 type RepositorySyncDefinition struct {
 	Branch    string
 	Directory string
@@ -996,7 +1081,9 @@ type RepositorySyncDefinition struct {
 	Target    string
 }
 
-// ListRepositorySyncDefinitions returns stub sync definitions for a repository link and sync type.
+// ListRepositorySyncDefinitions returns the sync definitions derived from the
+// repository link's sync configurations. Real AWS docs state that "for
+// CFN_STACK_SYNC the parent and target resource are the same".
 func (b *InMemoryBackend) ListRepositorySyncDefinitions(
 	ctx context.Context,
 	repositoryLinkID, syncType string,
@@ -1010,28 +1097,60 @@ func (b *InMemoryBackend) ListRepositorySyncDefinitions(
 		return nil, ErrNotFound
 	}
 
-	_ = syncType
+	cfgs := b.syncConfigurationsByRegion.Get(region)
+	result := make([]RepositorySyncDefinition, 0, len(cfgs))
 
-	return []RepositorySyncDefinition{}, nil
+	for _, cfg := range cfgs {
+		if cfg.RepositoryLinkID != repositoryLinkID {
+			continue
+		}
+
+		if syncType != "" && cfg.SyncType != syncType {
+			continue
+		}
+
+		result = append(result, RepositorySyncDefinition{
+			Branch:    cfg.Branch,
+			Directory: cfg.ConfigFile,
+			Parent:    cfg.ResourceName,
+			Target:    cfg.ResourceName,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Target < result[j].Target
+	})
+
+	return result, nil
 }
 
-// SyncBlockerSummary is a stub summary of sync blockers for a resource.
+// SyncBlockerSummary is a summary of sync blockers for a resource.
 type SyncBlockerSummary struct {
 	ResourceName       string
 	ParentResourceName string
 	LatestBlockers     []SyncBlocker
 }
 
-// SyncBlocker represents a single sync blocker.
+// SyncBlocker represents a single sync blocker entry.
 type SyncBlocker struct {
-	ID            string
-	Type          string
-	Status        string
-	CreatedAt     time.Time
-	CreatedReason string
+	ID             string
+	Type           string
+	Status         string
+	CreatedAt      time.Time
+	CreatedReason  string
+	ResolvedAt     *time.Time
+	ResolvedReason string
+	ResourceName   string
+	SyncType       string
+	// region qualifies the byResource secondary index (see
+	// syncBlockerResourceIndexKeyFn in store_setup.go): ResourceName+SyncType
+	// alone is not region-unique, and UpdateSyncBlocker's lookup by ID must
+	// still be scoped to the caller's context region, so region is captured
+	// at creation time and re-checked on every ID-based lookup.
+	region string
 }
 
-// GetSyncBlockerSummary returns a stub sync blocker summary for a resource.
+// GetSyncBlockerSummary returns the real sync blocker summary for a resource.
 func (b *InMemoryBackend) GetSyncBlockerSummary(
 	ctx context.Context,
 	resourceName, syncType string,
@@ -1046,25 +1165,104 @@ func (b *InMemoryBackend) GetSyncBlockerSummary(
 		return nil, ErrNotFound
 	}
 
+	group := b.syncBlockersByResource.Get(key)
+	blockers := make([]SyncBlocker, 0, len(group))
+
+	for _, blocker := range group {
+		blockers = append(blockers, *blocker)
+	}
+
+	sort.Slice(blockers, func(i, j int) bool {
+		return blockers[i].CreatedAt.After(blockers[j].CreatedAt)
+	})
+
 	return &SyncBlockerSummary{
 		ResourceName:   resourceName,
-		LatestBlockers: []SyncBlocker{},
+		LatestBlockers: blockers,
 	}, nil
 }
 
-// UpdateSyncBlocker is a stub that accepts blocker resolution and returns the resource summary.
-func (b *InMemoryBackend) UpdateSyncBlocker(
-	_ context.Context,
-	id, resolvedReason, resourceName, syncType string,
-) (*SyncBlockerSummary, error) {
-	_ = id
-	_ = resolvedReason
-	_ = syncType
+// CreateSyncBlocker creates a new sync blocker for a resource (test helper + internal use).
+func (b *InMemoryBackend) CreateSyncBlocker(
+	ctx context.Context,
+	resourceName, syncType, blockerType, createdReason string,
+) (*SyncBlocker, error) {
+	if !validSyncTypes()[syncType] {
+		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
 
-	return &SyncBlockerSummary{
-		ResourceName:   resourceName,
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("CreateSyncBlocker")
+	defer b.mu.Unlock()
+
+	key := regionKey(region, syncConfigKey(resourceName, syncType))
+	if !b.syncConfigurations.Has(key) {
+		return nil, fmt.Errorf("%w: sync configuration not found: %s/%s", ErrNotFound, resourceName, syncType)
+	}
+
+	id := uuid.NewString()
+	blocker := &SyncBlocker{
+		ID:            id,
+		Type:          blockerType,
+		Status:        SyncBlockerStatusActive,
+		CreatedAt:     time.Now().UTC(),
+		CreatedReason: createdReason,
+		ResourceName:  resourceName,
+		SyncType:      syncType,
+		region:        region,
+	}
+
+	b.syncBlockers.Put(blocker)
+
+	cp := *blocker
+
+	return &cp, nil
+}
+
+// UpdateSyncBlocker resolves a sync blocker by ID. If the blocker ID is not
+// found (or was created in a different region than the caller's context),
+// returns ErrSyncBlockerNotFound -- the real operation documents
+// SyncBlockerDoesNotExistException for exactly this case, it does not resolve
+// unknown IDs gracefully.
+func (b *InMemoryBackend) UpdateSyncBlocker(
+	ctx context.Context,
+	id, resolvedReason string,
+) (*SyncBlockerSummary, error) {
+	region := getRegion(ctx, b.defaultRegion)
+
+	b.mu.Lock("UpdateSyncBlocker")
+	defer b.mu.Unlock()
+
+	blocker, ok := b.syncBlockers.Get(id)
+	if !ok || blocker.region != region {
+		return nil, fmt.Errorf("%w: sync blocker not found: %s", ErrSyncBlockerNotFound, id)
+	}
+
+	now := time.Now().UTC()
+	// Status/ResolvedReason/ResolvedAt are not part of any index key
+	// (syncBlockers is keyed by ID; byResource derives from
+	// region/ResourceName/SyncType, none of which change here), so mutating
+	// the stored *SyncBlocker in place is safe -- no Delete+Put needed.
+	blocker.Status = SyncBlockerStatusResolved
+	blocker.ResolvedReason = resolvedReason
+	blocker.ResolvedAt = &now
+
+	key := regionKey(region, syncConfigKey(blocker.ResourceName, blocker.SyncType))
+	summary := &SyncBlockerSummary{
+		ResourceName:   blocker.ResourceName,
 		LatestBlockers: []SyncBlocker{},
-	}, nil
+	}
+
+	for _, b2 := range b.syncBlockersByResource.Get(key) {
+		summary.LatestBlockers = append(summary.LatestBlockers, *b2)
+	}
+
+	sort.Slice(summary.LatestBlockers, func(i, j int) bool {
+		return summary.LatestBlockers[i].CreatedAt.After(summary.LatestBlockers[j].CreatedAt)
+	})
+
+	return summary, nil
 }
 
 // sortedTagKeys returns the keys of the tags map in sorted order.

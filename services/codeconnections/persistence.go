@@ -45,11 +45,11 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 //
 // Tables holds one JSON-encoded array per store.Table: "connections" and
 // "hosts" come straight from b.registry.SnapshotAll() (clean, no DTO
-// needed); "repositoryLinks" and "syncConfigurations" come from an ephemeral
-// DTO registry built fresh in Snapshot/Restore (dirty -- see
-// store_setup.go), merged into the same map. Version guards against decoding
-// a snapshot from an incompatible (older or newer) build of this backend as
-// though it were the current shape; see Restore.
+// needed); "repositoryLinks", "syncConfigurations", and "syncBlockers" come
+// from an ephemeral DTO registry built fresh in Snapshot/Restore (dirty --
+// see store_setup.go), merged into the same map. Version guards against
+// decoding a snapshot from an incompatible (older or newer) build of this
+// backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
 	Tables    map[string]json.RawMessage `json:"tables"`
 	AccountID string                     `json:"accountID"`
@@ -64,6 +64,7 @@ type persistenceDTOTables struct {
 	registry           *store.Registry
 	repositoryLinks    *store.Table[regionalDTO[RepositoryLink]]
 	syncConfigurations *store.Table[regionalDTO[SyncConfiguration]]
+	syncBlockers       *store.Table[regionalDTO[SyncBlocker]]
 }
 
 // buildPersistenceDTORegistry constructs the ephemeral DTO registry used by
@@ -80,6 +81,9 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 		),
 		syncConfigurations: store.Register(
 			dtoReg, "syncConfigurations", store.New(regionalDTOKeyFn[SyncConfiguration]),
+		),
+		syncBlockers: store.Register(
+			dtoReg, "syncBlockers", store.New(regionalDTOKeyFn[SyncBlocker]),
 		),
 	}
 }
@@ -107,6 +111,10 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		dtos.syncConfigurations.Put(&regionalDTO[SyncConfiguration]{
 			Value: v, Region: v.region, ID: syncConfigKey(v.ResourceName, v.SyncType),
 		})
+	}
+
+	for _, v := range b.syncBlockers.Snapshot() {
+		dtos.syncBlockers.Put(&regionalDTO[SyncBlocker]{Value: v, Region: v.region, ID: v.ID})
 	}
 
 	dtoTables, err := dtos.registry.SnapshotAll()
@@ -154,6 +162,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.registry.ResetAll()
 		b.repositoryLinks.Reset()
 		b.syncConfigurations.Reset()
+		b.syncBlockers.Reset()
 		b.accountID = snap.AccountID
 		b.defaultRegion = snap.Region
 
@@ -174,10 +183,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// restoreDirtyTables rebuilds the two dirty tables (repositoryLinks,
-// syncConfigurations; see store_setup.go's registerAllTables doc) from
-// tables via the ephemeral DTO registry, factored out of Restore to keep
-// Restore's own cognitive complexity low. Callers must hold b.mu.Lock.
+// restoreDirtyTables rebuilds the three dirty tables (repositoryLinks,
+// syncConfigurations, syncBlockers; see store_setup.go's registerAllTables
+// doc) from tables via the ephemeral DTO registry, factored out of Restore to
+// keep Restore's own cognitive complexity low. Callers must hold b.mu.Lock.
 func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) error {
 	dtos := buildPersistenceDTORegistry()
 	if err := dtos.registry.RestoreAll(tables); err != nil {
@@ -204,6 +213,17 @@ func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) 
 
 		d.Value.region = d.Region
 		b.syncConfigurations.Put(d.Value)
+	}
+
+	b.syncBlockers.Reset()
+
+	for _, d := range dtos.syncBlockers.Snapshot() {
+		if d.Value == nil {
+			continue
+		}
+
+		d.Value.region = d.Region
+		b.syncBlockers.Put(d.Value)
 	}
 
 	return nil

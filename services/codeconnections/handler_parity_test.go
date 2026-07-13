@@ -967,19 +967,29 @@ func TestParity_GetSyncBlockerSummary(t *testing.T) {
 
 // --- UpdateSyncBlocker parity ---
 
-// TestParity_UpdateSyncBlocker verifies UpdateSyncBlocker validates Id is required.
+// TestParity_UpdateSyncBlocker verifies UpdateSyncBlocker validates Id is required,
+// resolves a real pre-existing blocker under the singular "SyncBlocker" wire key
+// (not "SyncBlockerSummary"), and rejects an unknown ID with
+// SyncBlockerDoesNotExistException -- the real operation documents this
+// exception and does not resolve unknown IDs gracefully.
 func TestParity_UpdateSyncBlocker(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		id         string
+		preCreate  bool
 		wantStatus int
 	}{
 		{
-			name:       "success_with_id",
-			id:         "some-blocker-id",
+			name:       "success_with_real_blocker",
+			preCreate:  true,
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "unknown_id_not_found",
+			id:         "some-blocker-id",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_id",
@@ -993,17 +1003,51 @@ func TestParity_UpdateSyncBlocker(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
+			connArn := createConn(t, h, "sb-conn", "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "my-repo")
+			rec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "sync.yaml",
+				"RepositoryLinkId": linkID,
+				"ResourceName":     "my-stack",
+				"RoleArn":          "arn:aws:iam::123456789012:role/r",
+				"SyncType":         "CFN_STACK_SYNC",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			id := tt.id
+			if tt.preCreate {
+				blocker, err := h.Backend.CreateSyncBlocker(
+					context.Background(), "my-stack", "CFN_STACK_SYNC", "AUTOMATED", "blocked",
+				)
+				require.NoError(t, err)
+				id = blocker.ID
+			}
+
 			body := map[string]any{
 				"ResolvedReason": "issue fixed",
 				"ResourceName":   "my-stack",
 				"SyncType":       "CFN_STACK_SYNC",
 			}
-			if tt.id != "" {
-				body["Id"] = tt.id
+			if id != "" {
+				body["Id"] = id
 			}
 
-			rec := doJSON(t, h, "UpdateSyncBlocker", body)
+			rec = doJSON(t, h, "UpdateSyncBlocker", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus == http.StatusOK {
+				resp := parseResp(t, rec)
+				blockerResp, ok := resp["SyncBlocker"].(map[string]any)
+				require.True(t, ok, "real UpdateSyncBlockerOutput wraps the resolved blocker "+
+					"under the singular 'SyncBlocker' key, not 'SyncBlockerSummary'")
+				assert.Equal(t, id, blockerResp["Id"])
+				assert.Equal(t, "RESOLVED", blockerResp["Status"])
+				assert.Equal(t, "issue fixed", blockerResp["ResolvedReason"])
+				assert.Equal(t, "my-stack", resp["ResourceName"])
+				_, hasSummary := resp["SyncBlockerSummary"]
+				assert.False(t, hasSummary, "response must not contain the fabricated SyncBlockerSummary key")
+			}
 		})
 	}
 }
