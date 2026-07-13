@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -46,27 +48,58 @@ func TestHandlerStartWorker(t *testing.T) {
 
 func TestHandlerRouteMatcher(t *testing.T) {
 	t.Parallel()
+
+	const databrewAuth = "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20240101/us-east-1/databrew/aws4_request"
+	const otherAuth = "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20240101/us-east-1/s3/aws4_request"
+
 	tests := []struct {
 		path  string
+		auth  string
 		match bool
 	}{
-		{"/databrew/v1/datasets", true},
-		{"/databrew/v1", true},
-		{"/databrew/v1/recipes/foo", true},
-		{"/other/path", false},
+		{path: "/databrew/v1/datasets", match: true},
+		{path: "/databrew/v1", match: true},
+		{path: "/databrew/v1/recipes/foo", match: true},
+		{path: "/other/path", match: false},
+		// Unambiguous top-level segments match unconditionally.
+		{path: "/recipes/foo", match: true},
+		{path: "/profileJobs/foo", match: true},
+		{path: "/recipeJobs/foo", match: true},
+		{path: "/rulesets/foo", match: true},
+		{path: "/projects/foo", match: true},
+		// Ambiguous top-level segments require a SigV4 databrew credential
+		// scope. These are real bare AWS paths (no "/databrew/v1/" prefix):
+		// TagResource/UntagResource/ListTagsForResource at /tags/{arn} and
+		// ListRecipeVersions at /recipeVersions?name=...
+		{path: "/datasets", auth: databrewAuth, match: true},
+		{path: "/datasets", auth: otherAuth, match: false},
+		{path: "/datasets", match: false},
+		{path: "/schedules/foo", auth: databrewAuth, match: true},
+		{path: "/jobs/foo", auth: databrewAuth, match: true},
+		{path: "/tags/arn:aws:databrew:us-east-1:111111111111:job/myjob", auth: databrewAuth, match: true},
+		{path: "/tags/arn:aws:databrew:us-east-1:111111111111:job/myjob", auth: otherAuth, match: false},
+		{path: "/tags/arn:aws:databrew:us-east-1:111111111111:job/myjob", match: false},
+		{path: "/recipeVersions", auth: databrewAuth, match: true},
+		{path: "/recipeVersions", match: false},
 	}
+
 	h := newTestHandler()
 	matcher := h.RouteMatcher()
 	for _, tc := range tests {
-		t.Run(tc.path, func(t *testing.T) {
+		t.Run(tc.path+"/"+tc.auth, func(t *testing.T) {
 			t.Parallel()
-			req, _ := http.NewRequest(http.MethodGet, tc.path, nil)
-			// We can't call the matcher directly without an echo context,
-			// so validate via HTTP request behavior instead.
-			_ = req
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.auth != "" {
+				req.Header.Set("Authorization", tc.auth)
+			}
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tc.match, matcher(c))
 		})
 	}
-	assert.NotNil(t, matcher)
 }
 
 func TestHandlerMatchPriority(t *testing.T) {
@@ -89,13 +122,40 @@ func TestHandlerExtractOperation(t *testing.T) {
 		{"list jobs", http.MethodGet, "/databrew/v1/jobs", "ListJobs"},
 		{"unknown", http.MethodGet, "/other", "Unknown"},
 	}
+	h := newTestHandler()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			h := newTestHandler()
-			// Use the handler dispatch to verify routing works end-to-end.
-			// ExtractOperation is tested via the handler itself.
-			_ = h
+
+			assert.Equal(t, tc.wantOp, extractOp(t, h, tc.method, tc.path))
+		})
+	}
+}
+
+func TestHandlerExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		wantResource string
+	}{
+		{"describe dataset", http.MethodGet, "/databrew/v1/datasets/foo", "foo"},
+		{"list datasets has no resource", http.MethodGet, "/databrew/v1/datasets", ""},
+		{"describe job", http.MethodGet, "/databrew/v1/jobs/myjob", "myjob"},
+	}
+
+	h := newTestHandler()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			e := echo.New()
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tc.wantResource, h.ExtractResource(c))
 		})
 	}
 }
@@ -172,7 +232,7 @@ func TestListRulesets(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateRuleset(context.Background(), "rs2", "", "arn:y", nil, nil)
 	require.NoError(t, err)
-	list, _ := b.ListRulesets(context.Background(), 100, "")
+	list, _ := b.ListRulesets(context.Background(), 100, "", "")
 	assert.Len(t, list, 2)
 }
 
@@ -184,10 +244,10 @@ func TestListRulesets_Pagination(t *testing.T) {
 		_, err := b.CreateRuleset(context.Background(), name, "", "arn:x", nil, nil)
 		require.NoError(t, err)
 	}
-	page1, next := b.ListRulesets(context.Background(), 2, "")
+	page1, next := b.ListRulesets(context.Background(), 2, "", "")
 	assert.Len(t, page1, 2)
 	assert.NotEmpty(t, next)
-	page2, next2 := b.ListRulesets(context.Background(), 2, next)
+	page2, next2 := b.ListRulesets(context.Background(), 2, next, "")
 	assert.NotEmpty(t, page2)
 	_ = next2
 }
@@ -975,6 +1035,10 @@ func TestHandlerTagResource(t *testing.T) {
 		"Tags": map[string]string{"newkey": "newval"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	tags, err := b.FindTagsByArn(context.Background(), ds.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "newval", tags["newkey"])
 }
 
 func TestHandlerListTagsForResource(t *testing.T) {
@@ -1020,6 +1084,13 @@ func TestHandlerUntagResource(t *testing.T) {
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// TagKeys travels as a repeated "tagKeys" query param on the real DELETE
+	// /tags/{ResourceArn} wire request (there is normally no request body), so
+	// this must actually remove the tag, not just return 200.
+	tags, err := b.FindTagsByArn(context.Background(), ds.Arn)
+	require.NoError(t, err)
+	assert.NotContains(t, tags, "remove-me")
 }
 
 // ---- Handler: Recipe versions ----
@@ -1054,11 +1125,23 @@ func TestHandlerBatchDeleteRecipeVersion(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler()
 	databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes", map[string]any{"Name": "bdrv-r"})
-	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipeVersions", map[string]any{
-		"Name":           "bdrv-r",
+	// Real AWS path: POST /recipes/{Name}/batchDeleteRecipeVersion (a recipe
+	// sub-op), not a bare /recipeVersions endpoint -- see
+	// aws-sdk-go-v2/service/databrew's serializers.go SplitURI call for
+	// awsRestjson1_serializeOpBatchDeleteRecipeVersion.
+	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes/bdrv-r/batchDeleteRecipeVersion", map[string]any{
 		"RecipeVersions": []string{"1.0"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerBatchDeleteRecipeVersion_NotFound(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	rec := databrewReq(t, h, http.MethodPost, "/databrew/v1/recipes/no-such/batchDeleteRecipeVersion", map[string]any{
+		"RecipeVersions": []string{"1.0"},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ---- Handler: Project session operations ----

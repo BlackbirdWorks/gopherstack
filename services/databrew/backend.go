@@ -41,10 +41,18 @@ var (
 )
 
 // DatasetFormatOptions holds format-specific options for a dataset.
+//
+// The JSON field's wire key is "Json" (mixed case), NOT "JSON" -- confirmed
+// against aws-sdk-go-v2/service/databrew's deserializer
+// (awsRestjson1_deserializeDocumentFormatOptions switches on the exact,
+// case-sensitive key "Json"). A response emitting the Go-idiomatic "JSON"
+// falls through that switch's default case and the client silently drops the
+// field, so a dataset created with JSON format options would appear to have
+// none on describe/list.
 type DatasetFormatOptions struct {
 	Csv   map[string]any `json:"Csv,omitempty"`
 	Excel map[string]any `json:"Excel,omitempty"`
-	JSON  map[string]any `json:"JSON,omitempty"`
+	JSON  map[string]any `json:"Json,omitempty"`
 }
 
 // DatasetInput holds the data source for a dataset.
@@ -993,7 +1001,7 @@ func (b *InMemoryBackend) DescribeRuleset(ctx context.Context, name string) (*Ru
 func (b *InMemoryBackend) ListRulesets(
 	ctx context.Context,
 	maxResults int,
-	nextToken string,
+	nextToken, targetArn string,
 ) ([]*Ruleset, string) {
 	b.mu.RLock("ListRulesets")
 	defer b.mu.RUnlock()
@@ -1001,7 +1009,17 @@ func (b *InMemoryBackend) ListRulesets(
 	region := getRegion(ctx, b.defaultRegion)
 	t := b.rulesetsTable(region)
 	keys := snapshotKeys(t, rulesetKeyFn)
-	pageKeys, next := paginateKeys(keys, maxResults, nextToken)
+	filtered := keys
+	if targetArn != "" {
+		filtered = make([]string, 0, len(keys))
+		for _, k := range keys {
+			v, _ := t.Get(k)
+			if v.TargetArn == targetArn {
+				filtered = append(filtered, k)
+			}
+		}
+	}
+	pageKeys, next := paginateKeys(filtered, maxResults, nextToken)
 	out := make([]*Ruleset, 0, len(pageKeys))
 	for _, k := range pageKeys {
 		v, _ := t.Get(k)

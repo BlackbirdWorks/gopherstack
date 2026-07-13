@@ -86,10 +86,8 @@ const (
 	opUnknown = "Unknown"
 
 	minPathSegments = 2
-	minTagsSegments = 5
 
-	keyName    = "Name"
-	keyMessage = "Message"
+	keyName = "Name"
 )
 
 var (
@@ -154,12 +152,16 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		// Match paths sent by the SDK. Unambiguous segments match unconditionally;
-		// ambiguous segments (datasets, schedules, jobs) require a SigV4 service check.
+		// ambiguous segments (datasets, schedules, jobs, tags, recipeVersions)
+		// require a SigV4 service check. tags/{ResourceArn} and recipeVersions
+		// are top-level real AWS paths (TagResource/UntagResource/
+		// ListTagsForResource and ListRecipeVersions), not just the
+		// /databrew/v1/ convenience prefix.
 		firstSeg, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
 		switch firstSeg {
 		case segRecipes, segProfileJobs, segRecipeJobs, segRulesets, segProjects:
 			return true
-		case segDatasets, segSchedules, segJobs:
+		case segDatasets, segSchedules, segJobs, segTags, segRecipeVersions:
 			return httputils.ExtractServiceFromRequest(c.Request()) == "databrew"
 		}
 
@@ -210,10 +212,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleError(c, err)
 		}
 
-		// For tags and job runs, we might need a third parameter, but let's pass it in the body.
-		if len(strings.Split(c.Request().URL.Path, "/")) >= minTagsSegments {
-			body = enrichDataBrewSubOpBody(c.Request().URL.Path, body)
-		}
+		// For tags, job runs, and recipe versions, the resource identifier
+		// travels as an extra path segment beyond resource/name; pull it into
+		// the body so handlers can read it uniformly. This must run
+		// unconditionally (not gated by a minimum segment count): every
+		// DataBrew ARN embeds a "/" in its resource part (e.g.
+		// "job/myjob"), so a bare (non-/databrew/v1/-prefixed) tag path like
+		// /tags/arn:aws:databrew:us-east-1:111111111111:job/myjob only has 4
+		// "/"-separated segments -- a fixed threshold tuned for the
+		// convenience prefix would silently skip ResourceArn extraction for
+		// real SDK traffic.
+		body = enrichDataBrewSubOpBody(c.Request().URL.Path, body)
 
 		result, dispErr := h.dispatch(ctx, action, body)
 		if dispErr != nil {
@@ -228,26 +237,36 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// databrewErrorResponse is the restjson1 error envelope. The real SDK's error
+// deserializer (aws-sdk-go-v2/aws/protocol/restjson.GetErrorInfo) identifies
+// the concrete exception type solely from the X-Amzn-ErrorType header or a
+// "code"/"__type" JSON field -- HTTP status is NOT consulted. A body of just
+// {"Message": "..."} (no code/__type) is silently downgraded by the SDK to a
+// generic smithy.GenericAPIError, so callers doing errors.As(err,
+// &types.ResourceNotFoundException{}) never match. __type must carry the
+// exception name for typed error handling to work.
+type databrewErrorResponse struct {
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+}
+
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	status, code := http.StatusInternalServerError, "InternalFailure"
+
 	switch {
 	case errors.Is(err, ErrNotFound):
-
-		return c.JSON(http.StatusNotFound, map[string]string{keyMessage: err.Error()})
+		status, code = http.StatusNotFound, "ResourceNotFoundException"
 	case errors.Is(err, ErrAlreadyExists):
-
-		return c.JSON(http.StatusConflict, map[string]string{keyMessage: err.Error()})
+		status, code = http.StatusConflict, "ConflictException"
 	case errors.Is(err, ErrValidation):
-
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessage: err.Error()})
+		status, code = http.StatusBadRequest, "ValidationException"
 	case errors.Is(err, errUnknownAction):
-
-		return c.JSON(http.StatusNotFound, map[string]string{keyMessage: err.Error()})
+		status, code = http.StatusNotFound, "ResourceNotFoundException"
 	case errors.Is(err, errInvalidRequest):
-
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessage: err.Error()})
+		status, code = http.StatusBadRequest, "ValidationException"
 	}
 
-	return c.JSON(http.StatusInternalServerError, map[string]string{keyMessage: err.Error()})
+	return c.JSON(status, databrewErrorResponse{Type: code, Message: err.Error()})
 }
 
 func parseDataBrewRESTPath(method, path string) (string, string) {
@@ -305,11 +324,16 @@ func mapResourceOp(resource, method, name, subOp string) (string, string) {
 
 		return parseTagsOp(method, name), name
 	case segRecipeVersions:
+		// The real AWS ListRecipeVersions op is GET /recipeVersions?name=...
+		// (RecipeName travels as a query param, not a path segment; see
+		// enrichDataBrewBody). BatchDeleteRecipeVersion is a recipe sub-op at
+		// POST /recipes/{Name}/batchDeleteRecipeVersion (see
+		// parseRecipeSubOp) -- there is no real AWS op at POST /recipeVersions.
 		if method == http.MethodGet {
 			return opListRecipeVersions, name
 		}
 
-		return opBatchDeleteRecipeVersion, name
+		return opUnknown, ""
 	}
 
 	return opUnknown, ""
@@ -344,9 +368,19 @@ func parseRecipeSubOp(method, subOp string) string {
 	switch {
 	case subOp == "publishRecipe":
 		return opPublishRecipe
+	// Convenience aliases: /recipes/{Name}/recipeVersions is not a real AWS
+	// path (the real ListRecipeVersions op is GET /recipeVersions?name=...,
+	// handled by mapResourceOp's segRecipeVersions case, and the real
+	// BatchDeleteRecipeVersion op is POST
+	// /recipes/{Name}/batchDeleteRecipeVersion below), but both GET and POST
+	// forms are kept here so callers using the /databrew/v1/ nested
+	// convenience path keep working.
 	case subOp == segRecipeVersions && method == http.MethodGet:
 		return opListRecipeVersions
 	case subOp == segRecipeVersions && method == http.MethodPost:
+		return opBatchDeleteRecipeVersion
+	// Real AWS path: POST /recipes/{Name}/batchDeleteRecipeVersion.
+	case subOp == "batchDeleteRecipeVersion" && method == http.MethodPost:
 		return opBatchDeleteRecipeVersion
 	case strings.HasPrefix(subOp, "recipeVersion/") && method == http.MethodDelete:
 		return opDeleteRecipeVersion
@@ -500,6 +534,27 @@ func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, e
 	}
 	if v := c.QueryParam("projectName"); v != "" {
 		m["ProjectName"], _ = json.Marshal(v)
+	}
+	if v := c.QueryParam("targetArn"); v != "" {
+		m["TargetArn"], _ = json.Marshal(v)
+	}
+	// UntagResource is DELETE /tags/{ResourceArn}?tagKeys=a&tagKeys=b -- TagKeys
+	// travels as a repeated query param, never in the (typically absent) DELETE
+	// body. Confirmed against aws-sdk-go-v2's serializer
+	// (awsRestjson1_serializeOpHttpBindingsUntagResourceInput calls
+	// encoder.AddQuery("tagKeys") per key). Without this, UntagResource always
+	// silently no-ops.
+	if tagKeys := c.QueryParams()["tagKeys"]; len(tagKeys) > 0 {
+		m["TagKeys"], _ = json.Marshal(tagKeys)
+	}
+	// ListRecipeVersions is GET /recipeVersions?name=... (top-level, no path
+	// segment for the recipe name); only set when name isn't already known
+	// from a path segment (e.g. the /recipes/{Name}/recipeVersions convenience
+	// alias already populated "Name" above).
+	if _, ok := m["Name"]; !ok {
+		if v := c.QueryParam("name"); v != "" {
+			m["Name"], _ = json.Marshal(v)
+		}
 	}
 
 	result, _ := json.Marshal(m)
@@ -776,8 +831,12 @@ func (h *Handler) dispatchJob(
 		r, e := h.handleListJobs(ctx, body)
 
 		return r, true, e
-	case opUpdateProfileJob, opUpdateRecipeJob:
-		r, e := h.handleUpdateJob(ctx, body)
+	case opUpdateProfileJob:
+		r, e := h.handleUpdateProfileJob(ctx, body)
+
+		return r, true, e
+	case opUpdateRecipeJob:
+		r, e := h.handleUpdateRecipeJob(ctx, body)
 
 		return r, true, e
 	case opDeleteJob:
@@ -1135,15 +1194,22 @@ func (h *Handler) handleDeleteProject(ctx context.Context, body []byte) ([]byte,
 }
 
 func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]byte, error) {
+	// CreateProfileJobInput's output field is a single "OutputLocation"
+	// (S3Location), NOT the "Outputs" list CreateRecipeJobInput uses --
+	// confirmed against aws-sdk-go-v2/service/databrew's serializer
+	// (awsRestjson1_serializeOpDocumentCreateProfileJobInput writes the
+	// "OutputLocation" JSON key). The Job entity itself still exposes this as
+	// an Outputs list (see backend.Job.Outputs / DescribeJob), so it's
+	// converted to a one-element Output slice for storage.
 	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		Name        string            `json:"Name"`
-		DatasetName string            `json:"DatasetName"`
-		RoleArn     string            `json:"RoleArn"`
-		Outputs     []Output          `json:"Outputs"`
-		MaxCapacity int               `json:"MaxCapacity"`
-		MaxRetries  int               `json:"MaxRetries"`
-		Timeout     int               `json:"Timeout"`
+		Tags           map[string]string `json:"Tags"`
+		OutputLocation *S3Location       `json:"OutputLocation"`
+		Name           string            `json:"Name"`
+		DatasetName    string            `json:"DatasetName"`
+		RoleArn        string            `json:"RoleArn"`
+		MaxCapacity    int               `json:"MaxCapacity"`
+		MaxRetries     int               `json:"MaxRetries"`
+		Timeout        int               `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -1156,7 +1222,7 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 		"",
 		"",
 		req.RoleArn,
-		req.Outputs,
+		outputLocationToOutputs(req.OutputLocation),
 		req.Tags,
 	)
 	if err != nil {
@@ -1164,6 +1230,17 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 	}
 
 	return json.Marshal(map[string]string{keyName: j.Name})
+}
+
+// outputLocationToOutputs converts a CreateProfileJobInput/UpdateProfileJobInput
+// "OutputLocation" (a single S3Location) into the one-element Outputs slice
+// the Job entity stores/returns, or nil when loc is unset.
+func outputLocationToOutputs(loc *S3Location) []Output {
+	if loc == nil {
+		return nil
+	}
+
+	return []Output{{Location: *loc}}
 }
 
 func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -1234,7 +1311,34 @@ func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, erro
 	return json.Marshal(map[string]any{"Jobs": jobs, nextTokenKey: next})
 }
 
-func (h *Handler) handleUpdateJob(ctx context.Context, body []byte) ([]byte, error) {
+// handleUpdateProfileJob handles UpdateProfileJob, whose wire field for the
+// job's output destination is "OutputLocation" (a single S3Location), not
+// "Outputs" -- see the outputLocationToOutputs doc comment.
+func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		OutputLocation *S3Location `json:"OutputLocation"`
+		Name           string      `json:"Name"`
+		RoleArn        string      `json:"RoleArn"`
+		MaxCapacity    int         `json:"MaxCapacity"`
+		MaxRetries     int         `json:"MaxRetries"`
+		Timeout        int         `json:"Timeout"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if err := h.Backend.UpdateJob(
+		ctx, req.Name, req.RoleArn, outputLocationToOutputs(req.OutputLocation),
+		req.MaxCapacity, req.MaxRetries, req.Timeout,
+	); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyName: req.Name})
+}
+
+// handleUpdateRecipeJob handles UpdateRecipeJob, whose wire field for the
+// job's output destinations is "Outputs" (a list), matching CreateRecipeJob.
+func (h *Handler) handleUpdateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name        string   `json:"Name"`
 		RoleArn     string   `json:"RoleArn"`
@@ -1373,11 +1477,12 @@ func (h *Handler) handleListRulesets(ctx context.Context, body []byte) ([]byte, 
 	var req struct {
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
+		TargetArn  string `json:"TargetArn"`
 	}
 	_ = json.Unmarshal(body, &req)
 	maxResults, _ := strconv.Atoi(req.MaxResults)
 
-	rulesets, next := h.Backend.ListRulesets(ctx, maxResults, req.NextToken)
+	rulesets, next := h.Backend.ListRulesets(ctx, maxResults, req.NextToken, req.TargetArn)
 
 	return json.Marshal(map[string]any{"Rulesets": rulesets, nextTokenKey: next})
 }
@@ -1533,7 +1638,7 @@ func (h *Handler) handleListTagsForResource(ctx context.Context, body []byte) ([
 	return json.Marshal(map[string]any{"Tags": tags})
 }
 
-func (h *Handler) handleBatchDeleteRecipeVersion(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleBatchDeleteRecipeVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name           string   `json:"Name"`
 		RecipeVersions []string `json:"RecipeVersions"`
@@ -1541,14 +1646,17 @@ func (h *Handler) handleBatchDeleteRecipeVersion(_ context.Context, body []byte)
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if _, err := h.Backend.DescribeRecipe(ctx, req.Name); err != nil {
+		return nil, err
+	}
 	// We only emulate a single version "1.0", so any batch deletion for emulation
 	// will either do nothing or delete the recipe itself if it was the only version.
-	// For simplicity, return success.
+	// For simplicity, return success with no per-version errors.
 
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleDeleteRecipeVersion(_ context.Context, body []byte) ([]byte, error) {
+func (h *Handler) handleDeleteRecipeVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name          string `json:"Name"`
 		RecipeVersion string `json:"RecipeVersion"`
@@ -1556,8 +1664,11 @@ func (h *Handler) handleDeleteRecipeVersion(_ context.Context, body []byte) ([]b
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if _, err := h.Backend.DescribeRecipe(ctx, req.Name); err != nil {
+		return nil, err
+	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name, "RecipeVersion": req.RecipeVersion})
 }
 
 func (h *Handler) handleListRecipeVersions(ctx context.Context, body []byte) ([]byte, error) {
