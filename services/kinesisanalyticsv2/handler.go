@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -217,13 +218,39 @@ func (h *Handler) buildOps() map[string]func(context.Context, *echo.Context, []b
 // Request / response types
 // ----------------------------------------
 
+// sqlApplicationConfigInput mirrors real AWS's SqlApplicationConfiguration
+// request shape: the SQL-based inputs/outputs/reference-data-sources a
+// client can specify inline at CreateApplication time, instead of via the
+// separate AddApplicationInput/AddApplicationOutput/
+// AddApplicationReferenceDataSource calls.
+type sqlApplicationConfigInput struct {
+	Inputs               []*inputConfig         `json:"Inputs,omitempty"`
+	Outputs              []*outputConfig        `json:"Outputs,omitempty"`
+	ReferenceDataSources []*refDataSourceConfig `json:"ReferenceDataSources,omitempty"`
+}
+
+// applicationConfigurationInput mirrors real AWS's ApplicationConfiguration
+// request shape. Only the SQL-application and VPC portions are modeled --
+// gopherstack's Application has no state for application code artifacts or
+// Flink runtime settings, so ApplicationCodeConfiguration,
+// FlinkApplicationConfiguration, EnvironmentProperties,
+// ApplicationSnapshotConfiguration, ApplicationSystemRollbackConfiguration,
+// ApplicationEncryptionConfiguration, and ZeppelinApplicationConfiguration
+// are accepted (to avoid rejecting well-formed requests) but not modeled.
+type applicationConfigurationInput struct {
+	SQLApplicationConfiguration *sqlApplicationConfigInput `json:"SqlApplicationConfiguration,omitempty"` //nolint:lll,tagliatelle // AWS API name
+	VpcConfigurations           []*vpcConfigInput          `json:"VpcConfigurations,omitempty"`
+}
+
 type createApplicationInput struct {
-	ApplicationName        string `json:"ApplicationName"`
-	RuntimeEnvironment     string `json:"RuntimeEnvironment"`
-	ServiceExecutionRole   string `json:"ServiceExecutionRole,omitempty"`
-	ApplicationDescription string `json:"ApplicationDescription,omitempty"`
-	ApplicationMode        string `json:"ApplicationMode,omitempty"`
-	Tags                   []Tag  `json:"Tags,omitempty"`
+	ApplicationName          string                         `json:"ApplicationName"`
+	RuntimeEnvironment       string                         `json:"RuntimeEnvironment"`
+	ServiceExecutionRole     string                         `json:"ServiceExecutionRole,omitempty"`
+	ApplicationDescription   string                         `json:"ApplicationDescription,omitempty"`
+	ApplicationMode          string                         `json:"ApplicationMode,omitempty"`
+	ApplicationConfiguration *applicationConfigurationInput `json:"ApplicationConfiguration,omitempty"` //nolint:lll // AWS API name
+	CloudWatchLoggingOptions []*cwlOptionInput              `json:"CloudWatchLoggingOptions,omitempty"`
+	Tags                     []Tag                          `json:"Tags,omitempty"`
 }
 
 type applicationDetailOutput struct {
@@ -283,6 +310,7 @@ type updateApplicationInput struct {
 }
 
 type updateApplicationOutput struct {
+	OperationID       string                  `json:"OperationId,omitempty"`
 	ApplicationDetail applicationDetailOutput `json:"ApplicationDetail"`
 }
 
@@ -293,6 +321,14 @@ type deleteApplicationInput struct {
 
 type startStopApplicationInput struct {
 	ApplicationName string `json:"ApplicationName"`
+}
+
+// startStopApplicationOutput is the shared response shape for
+// StartApplication and StopApplication: both real AWS outputs carry only an
+// optional OperationId used to track the request via
+// DescribeApplicationOperation/ListApplicationOperations.
+type startStopApplicationOutput struct {
+	OperationID string `json:"OperationId,omitempty"`
 }
 
 type createSnapshotInput struct {
@@ -687,6 +723,7 @@ func (h *Handler) handleAddApplicationOutput(
 	})
 }
 
+//nolint:dupl // add input/reference-data-source handlers share structure but are semantically distinct operations
 func (h *Handler) handleAddApplicationReferenceDataSource(ctx context.Context, c *echo.Context, body []byte) error {
 	var in addApplicationRefDataSourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -697,16 +734,7 @@ func (h *Handler) handleAddApplicationReferenceDataSource(ctx context.Context, c
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "ReferenceDataSource is required")
 	}
 
-	ref := ReferenceDataSourceDescription{
-		TableName: in.ReferenceDataSource.TableName,
-	}
-
-	if in.ReferenceDataSource.S3ReferenceDataSource != nil {
-		ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
-			BucketARN: in.ReferenceDataSource.S3ReferenceDataSource.BucketARN,
-			FileKey:   in.ReferenceDataSource.S3ReferenceDataSource.FileKey,
-		}
-	}
+	ref := buildRefDataSourceDescription(in.ReferenceDataSource)
 
 	if err := h.Backend.AddApplicationReferenceDataSource(
 		ctx, in.ApplicationName, in.CurrentApplicationVersionID, ref,
@@ -736,10 +764,7 @@ func (h *Handler) handleAddApplicationVpcConfiguration(ctx context.Context, c *e
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "VpcConfiguration is required")
 	}
 
-	vpc := VpcConfigurationDescription{
-		SubnetIDs:        in.VpcConfiguration.SubnetIDs,
-		SecurityGroupIDs: in.VpcConfiguration.SecurityGroupIDs,
-	}
+	vpc := buildVpcConfigDescription(in.VpcConfiguration)
 
 	if err := h.Backend.AddApplicationVpcConfiguration(
 		ctx, in.ApplicationName, in.CurrentApplicationVersionID, vpc,
@@ -889,9 +914,84 @@ func (h *Handler) handleCreateApplication(ctx context.Context, c *echo.Context, 
 		return h.handleError(c, err)
 	}
 
+	// Real AWS clients (Terraform, CloudFormation, the console) overwhelmingly
+	// create fully-configured applications in one CreateApplication call
+	// rather than following up with AddApplicationInput/AddApplicationOutput/
+	// etc. -- seed that inline configuration now so it isn't silently
+	// dropped. This intentionally does not go through the Add* backend
+	// methods: those each bump ApplicationVersionId, but real AWS keeps a
+	// freshly created application (even with inline config) at version 1.
+	inputs, outputs, refs, vpcs, cwlOpts := buildInitialConfig(&in)
+	if len(inputs) > 0 || len(outputs) > 0 || len(refs) > 0 || len(vpcs) > 0 || len(cwlOpts) > 0 {
+		if seedErr := h.Backend.SeedApplicationConfiguration(
+			ctx, in.ApplicationName, inputs, outputs, refs, vpcs, cwlOpts,
+		); seedErr != nil {
+			return h.handleError(c, seedErr)
+		}
+
+		app, err = h.Backend.DescribeApplication(ctx, in.ApplicationName)
+		if err != nil {
+			return h.handleError(c, err)
+		}
+	}
+
 	return c.JSON(http.StatusOK, createApplicationOutput{
 		ApplicationDetail: toDetailOutput(app),
 	})
+}
+
+// buildInitialConfig extracts the inline SQL/VPC/CloudWatch-logging
+// configuration from a CreateApplicationInput, converting each entry with
+// the same buildInputDescription/buildOutputDescription/
+// buildRefDataSourceDescription/buildVpcConfigDescription helpers the
+// Add* handlers use, so the two paths always produce identical shapes.
+func buildInitialConfig(in *createApplicationInput) (
+	[]InputDescription,
+	[]OutputDescription,
+	[]ReferenceDataSourceDescription,
+	[]VpcConfigurationDescription,
+	[]CloudWatchLoggingOptionDesc,
+) {
+	var (
+		inputs  []InputDescription
+		outputs []OutputDescription
+		refs    []ReferenceDataSourceDescription
+		vpcs    []VpcConfigurationDescription
+		cwlOpts []CloudWatchLoggingOptionDesc
+	)
+
+	if in.ApplicationConfiguration != nil {
+		if sql := in.ApplicationConfiguration.SQLApplicationConfiguration; sql != nil {
+			for _, i := range sql.Inputs {
+				inputs = append(inputs, buildInputDescription(i))
+			}
+
+			for _, o := range sql.Outputs {
+				outputs = append(outputs, buildOutputDescription(o))
+			}
+
+			for _, r := range sql.ReferenceDataSources {
+				refs = append(refs, buildRefDataSourceDescription(r))
+			}
+		}
+
+		for _, v := range in.ApplicationConfiguration.VpcConfigurations {
+			vpcs = append(vpcs, buildVpcConfigDescription(v))
+		}
+	}
+
+	if len(in.CloudWatchLoggingOptions) > 0 {
+		cwlOpts = make([]CloudWatchLoggingOptionDesc, 0, len(in.CloudWatchLoggingOptions))
+	}
+
+	for _, c := range in.CloudWatchLoggingOptions {
+		cwlOpts = append(cwlOpts, CloudWatchLoggingOptionDesc{
+			LogStreamARN: c.LogStreamARN,
+			RoleARN:      c.RoleARN,
+		})
+	}
+
+	return inputs, outputs, refs, vpcs, cwlOpts
 }
 
 func (h *Handler) handleDescribeApplication(ctx context.Context, c *echo.Context, body []byte) error {
@@ -932,9 +1032,10 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, c *echo.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	app, err := h.Backend.UpdateApplication(
+	app, opID, err := h.Backend.UpdateApplication(
 		ctx,
 		in.ApplicationName,
+		in.CurrentApplicationVersionID,
 		in.ServiceExecutionRoleUpdate,
 		in.ApplicationDescription,
 	)
@@ -944,6 +1045,7 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, c *echo.Context, 
 
 	return c.JSON(http.StatusOK, updateApplicationOutput{
 		ApplicationDetail: toDetailOutput(app),
+		OperationID:       opID,
 	})
 }
 
@@ -966,11 +1068,12 @@ func (h *Handler) handleStartApplication(ctx context.Context, c *echo.Context, b
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.StartApplication(ctx, in.ApplicationName); err != nil {
+	opID, err := h.Backend.StartApplication(ctx, in.ApplicationName)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	return c.JSON(http.StatusOK, startStopApplicationOutput{OperationID: opID})
 }
 
 func (h *Handler) handleStopApplication(ctx context.Context, c *echo.Context, body []byte) error {
@@ -979,11 +1082,12 @@ func (h *Handler) handleStopApplication(ctx context.Context, c *echo.Context, bo
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	if err := h.Backend.StopApplication(ctx, in.ApplicationName); err != nil {
+	opID, err := h.Backend.StopApplication(ctx, in.ApplicationName)
+	if err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, struct{}{})
+	return c.JSON(http.StatusOK, startStopApplicationOutput{OperationID: opID})
 }
 
 // ----------------------------------------
@@ -1127,14 +1231,20 @@ type describeApplicationOperationInput struct {
 	OperationID     string `json:"OperationId"`
 }
 
-type applicationOperationOutput struct {
-	OperationID     string `json:"OperationId"`
-	Operation       string `json:"Operation"`
-	OperationStatus string `json:"OperationStatus"`
+// applicationOperationInfoDetails mirrors real AWS's
+// ApplicationOperationInfoDetails shape (DescribeApplicationOperation): it
+// does NOT carry OperationId (the caller already supplied it in the
+// request) but does require StartTime/EndTime, both awsjson1.1 epoch-seconds
+// numbers (see pkgs/awstime).
+type applicationOperationInfoDetails struct {
+	Operation       string  `json:"Operation"`
+	OperationStatus string  `json:"OperationStatus"`
+	StartTime       float64 `json:"StartTime"`
+	EndTime         float64 `json:"EndTime"`
 }
 
 type describeApplicationOperationOutput struct {
-	ApplicationOperationInfoDetails applicationOperationOutput `json:"ApplicationOperationInfoDetails"`
+	ApplicationOperationInfoDetails applicationOperationInfoDetails `json:"ApplicationOperationInfoDetails"`
 }
 
 type listApplicationOperationsInput struct {
@@ -1142,9 +1252,21 @@ type listApplicationOperationsInput struct {
 	NextToken       string `json:"NextToken,omitempty"`
 }
 
+// applicationOperationInfo mirrors real AWS's ApplicationOperationInfo shape
+// (ListApplicationOperations): unlike applicationOperationInfoDetails it does
+// carry OperationId, since list items need it to identify which operation to
+// describe next.
+type applicationOperationInfo struct {
+	OperationID     string  `json:"OperationId,omitempty"`
+	Operation       string  `json:"Operation,omitempty"`
+	OperationStatus string  `json:"OperationStatus,omitempty"`
+	StartTime       float64 `json:"StartTime,omitempty"`
+	EndTime         float64 `json:"EndTime,omitempty"`
+}
+
 type listApplicationOperationsOutput struct {
-	NextToken                    string                       `json:"NextToken,omitempty"`
-	ApplicationOperationInfoList []applicationOperationOutput `json:"ApplicationOperationInfoList"`
+	NextToken                    string                     `json:"NextToken,omitempty"`
+	ApplicationOperationInfoList []applicationOperationInfo `json:"ApplicationOperationInfoList"`
 }
 
 type describeApplicationVersionInput struct {
@@ -1177,6 +1299,7 @@ type rollbackApplicationInput struct {
 }
 
 type rollbackApplicationOutput struct {
+	OperationID       string                  `json:"OperationId,omitempty"`
 	ApplicationDetail applicationDetailOutput `json:"ApplicationDetail"`
 }
 
@@ -1279,10 +1402,11 @@ func (h *Handler) handleDescribeApplicationOperation(ctx context.Context, c *ech
 	}
 
 	return c.JSON(http.StatusOK, describeApplicationOperationOutput{
-		ApplicationOperationInfoDetails: applicationOperationOutput{
-			OperationID:     op.OperationID,
+		ApplicationOperationInfoDetails: applicationOperationInfoDetails{
 			Operation:       op.Operation,
 			OperationStatus: op.OperationStatus,
+			StartTime:       awstime.Epoch(op.StartTimestamp),
+			EndTime:         awstime.Epoch(op.EndTimestamp),
 		},
 	})
 }
@@ -1298,12 +1422,14 @@ func (h *Handler) handleListApplicationOperations(ctx context.Context, c *echo.C
 		return h.handleError(c, err)
 	}
 
-	items := make([]applicationOperationOutput, 0, len(ops))
+	items := make([]applicationOperationInfo, 0, len(ops))
 	for _, op := range ops {
-		items = append(items, applicationOperationOutput{
+		items = append(items, applicationOperationInfo{
 			OperationID:     op.OperationID,
 			Operation:       op.Operation,
 			OperationStatus: op.OperationStatus,
+			StartTime:       awstime.Epoch(op.StartTimestamp),
+			EndTime:         awstime.Epoch(op.EndTimestamp),
 		})
 	}
 
@@ -1360,13 +1486,14 @@ func (h *Handler) handleRollbackApplication(ctx context.Context, c *echo.Context
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	app, err := h.Backend.RollbackApplication(ctx, in.ApplicationName, in.CurrentApplicationVersionID)
+	app, opID, err := h.Backend.RollbackApplication(ctx, in.ApplicationName, in.CurrentApplicationVersionID)
 	if err != nil {
 		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, rollbackApplicationOutput{
 		ApplicationDetail: toDetailOutput(app),
+		OperationID:       opID,
 	})
 }
 
@@ -1427,7 +1554,7 @@ func toDetailOutput(app *Application) applicationDetailOutput {
 		ApplicationMode:        app.ApplicationMode,
 		ApplicationVersionID:   app.ApplicationVersionID,
 		Tags:                   app.Tags,
-		CreateTimestamp:        float64(app.CreatedAt.Unix()),
+		CreateTimestamp:        awstime.Epoch(app.CreatedAt),
 	}
 
 	if len(app.CloudWatchLoggingOptionDescs) > 0 {
@@ -1460,12 +1587,24 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 }
 
 // handleError maps a backend error to the appropriate HTTP response.
+//
+// ErrConcurrentModification wraps awserr.ErrInvalidParameter (see backend.go),
+// so its case must be checked before the generic ErrInvalidParameter case
+// below -- otherwise every optimistic-concurrency conflict would be reported
+// to the client as the generic "InvalidArgumentException" instead of
+// "ConcurrentModificationException", which is the exception name aws-sdk-go-v2
+// switches on (via the __type response field) to construct
+// *types.ConcurrentModificationException for caller retry logic. Sibling
+// service kinesisanalytics (v1) maps the same condition to
+// (400, "ConcurrentModificationException"); kinesisanalyticsv2 follows suit.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
+	case errors.Is(err, ErrConcurrentModification):
+		return h.writeError(c, http.StatusBadRequest, "ConcurrentModificationException", err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", err.Error())
 	}
@@ -1533,4 +1672,35 @@ func buildOutputDescription(out *outputConfig) OutputDescription {
 	}
 
 	return desc
+}
+
+// buildRefDataSourceDescription converts a refDataSourceConfig to a
+// ReferenceDataSourceDescription. Shared by handleAddApplicationReferenceDataSource
+// and buildInitialConfig (CreateApplication's inline
+// SqlApplicationConfiguration.ReferenceDataSources) so both paths produce
+// identical shapes.
+func buildRefDataSourceDescription(in *refDataSourceConfig) ReferenceDataSourceDescription {
+	ref := ReferenceDataSourceDescription{
+		TableName: in.TableName,
+	}
+
+	if in.S3ReferenceDataSource != nil {
+		ref.S3ReferenceDataSourceDescription = &S3ReferenceDataSourceDesc{
+			BucketARN: in.S3ReferenceDataSource.BucketARN,
+			FileKey:   in.S3ReferenceDataSource.FileKey,
+		}
+	}
+
+	return ref
+}
+
+// buildVpcConfigDescription converts a vpcConfigInput to a
+// VpcConfigurationDescription. Shared by handleAddApplicationVpcConfiguration
+// and buildInitialConfig (CreateApplication's inline VpcConfigurations) so
+// both paths produce identical shapes.
+func buildVpcConfigDescription(in *vpcConfigInput) VpcConfigurationDescription {
+	return VpcConfigurationDescription{
+		SubnetIDs:        in.SubnetIDs,
+		SecurityGroupIDs: in.SecurityGroupIDs,
+	}
 }

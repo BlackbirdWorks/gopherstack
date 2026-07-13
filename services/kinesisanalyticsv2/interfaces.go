@@ -11,12 +11,23 @@ type StorageBackend interface {
 	CreateApplication(
 		ctx context.Context, name, runtimeEnv, serviceRole, description, mode string, tags []Tag,
 	) (*Application, error)
+	SeedApplicationConfiguration(
+		ctx context.Context,
+		name string,
+		inputs []InputDescription,
+		outputs []OutputDescription,
+		refDataSources []ReferenceDataSourceDescription,
+		vpcConfigs []VpcConfigurationDescription,
+		cwlOptions []CloudWatchLoggingOptionDesc,
+	) error
 	DescribeApplication(ctx context.Context, name string) (*Application, error)
 	ListApplications(ctx context.Context, nextToken string) ([]*Application, string)
-	UpdateApplication(ctx context.Context, name string, serviceRole, description string) (*Application, error)
+	UpdateApplication(
+		ctx context.Context, name string, currentVersionID int64, serviceRole, description string,
+	) (*Application, string, error)
 	DeleteApplication(ctx context.Context, name string) error
-	StartApplication(ctx context.Context, name string) error
-	StopApplication(ctx context.Context, name string) error
+	StartApplication(ctx context.Context, name string) (string, error)
+	StopApplication(ctx context.Context, name string) (string, error)
 
 	CreateApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
 	DescribeApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
@@ -64,7 +75,7 @@ type StorageBackend interface {
 	ListApplicationOperations(ctx context.Context, name, nextToken string) ([]*ApplicationOperation, string, error)
 	DescribeApplicationVersion(ctx context.Context, name string, versionID int64) (*Application, error)
 	ListApplicationVersions(ctx context.Context, name, nextToken string) ([]*ApplicationVersionSummary, string, error)
-	RollbackApplication(ctx context.Context, name string, currentVersionID int64) (*Application, error)
+	RollbackApplication(ctx context.Context, name string, currentVersionID int64) (*Application, string, error)
 	UpdateApplicationMaintenanceConfiguration(
 		ctx context.Context, name string, maintenanceWindowStartTime string,
 	) (*Application, error)

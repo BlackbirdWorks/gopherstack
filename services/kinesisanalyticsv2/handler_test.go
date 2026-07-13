@@ -527,6 +527,21 @@ func TestKAV2_UpdateApplication(t *testing.T) {
 			rawBody:    []byte("bad json"),
 			wantStatus: http.StatusBadRequest,
 		},
+		{
+			name: "version_mismatch",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "upd-app-conflict",
+					"RuntimeEnvironment": "FLINK-1_18",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName":             "upd-app-conflict",
+				"ApplicationDescription":      "should not apply",
+				"CurrentApplicationVersionId": 99,
+			},
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1460,4 +1475,226 @@ func TestKAV2_GetSupportedOperations_NewOps(t *testing.T) {
 	for _, op := range newOps {
 		assert.Contains(t, ops, op, "expected %q in GetSupportedOperations", op)
 	}
+}
+
+// TestKAV2_StartStopUpdate_ReturnOperationId verifies that StartApplication,
+// StopApplication, and UpdateApplication surface a non-empty OperationId,
+// which real AWS clients use to poll DescribeApplicationOperation /
+// ListApplicationOperations for the request's outcome.
+func TestKAV2_StartStopUpdate_ReturnOperationId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":    "opid-app",
+		"RuntimeEnvironment": "FLINK-1_18",
+	})
+
+	startRec := doKAV2Request(t, h, "StartApplication", map[string]any{"ApplicationName": "opid-app"})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startOut map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	assert.NotEmpty(t, startOut["OperationId"])
+
+	stopRec := doKAV2Request(t, h, "StopApplication", map[string]any{"ApplicationName": "opid-app"})
+	require.Equal(t, http.StatusOK, stopRec.Code)
+
+	var stopOut map[string]any
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopOut))
+	assert.NotEmpty(t, stopOut["OperationId"])
+
+	updateRec := doKAV2Request(t, h, "UpdateApplication", map[string]any{
+		"ApplicationName":             "opid-app",
+		"ApplicationDescription":      "updated",
+		"CurrentApplicationVersionId": 1,
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	var updateOut map[string]any
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	assert.NotEmpty(t, updateOut["OperationId"])
+}
+
+// TestKAV2_ApplicationOperationsLifecycle exercises
+// DescribeApplicationOperation and ListApplicationOperations end to end.
+// Before recordOperation wired StartApplication/StopApplication/
+// UpdateApplication/RollbackApplication into the backend's operations map,
+// both of these read ops were permanently empty / not-found regardless of
+// how many lifecycle actions had run.
+func TestKAV2_ApplicationOperationsLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":    "ops-lifecycle-app",
+		"RuntimeEnvironment": "FLINK-1_18",
+	})
+
+	startRec := doKAV2Request(t, h, "StartApplication", map[string]any{"ApplicationName": "ops-lifecycle-app"})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startOut map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	opID, ok := startOut["OperationId"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, opID)
+
+	descRec := doKAV2Request(t, h, "DescribeApplicationOperation", map[string]any{
+		"ApplicationName": "ops-lifecycle-app",
+		"OperationId":     opID,
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	details, ok := descOut["ApplicationOperationInfoDetails"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "StartApplication", details["Operation"])
+	assert.Equal(t, "SUCCESSFUL", details["OperationStatus"])
+	assert.Positive(t, details["StartTime"])
+	assert.Positive(t, details["EndTime"])
+
+	listRec := doKAV2Request(t, h, "ListApplicationOperations", map[string]any{
+		"ApplicationName": "ops-lifecycle-app",
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	items, ok := listOut["ApplicationOperationInfoList"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, opID, item["OperationId"])
+	assert.Equal(t, "StartApplication", item["Operation"])
+
+	// Unknown OperationId must 404, not silently succeed.
+	missRec := doKAV2Request(t, h, "DescribeApplicationOperation", map[string]any{
+		"ApplicationName": "ops-lifecycle-app",
+		"OperationId":     "op-does-not-exist",
+	})
+	assert.Equal(t, http.StatusNotFound, missRec.Code)
+}
+
+// TestKAV2_CreateApplication_InlineConfiguration verifies that CreateApplication
+// seeds inputs/outputs/reference-data-sources/VPC configs/CloudWatch logging
+// options supplied inline via ApplicationConfiguration and
+// CloudWatchLoggingOptions -- the standard Terraform/CloudFormation
+// provisioning pattern (a single CreateApplication call, not a
+// CreateApplication followed by a series of Add* calls). Before this fix,
+// ApplicationConfiguration/CloudWatchLoggingOptions were silently discarded:
+// CreateApplication returned 200 OK but every application came back with
+// empty configuration.
+func TestKAV2_CreateApplication_InlineConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	rec := doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":      "inline-config-app",
+		"RuntimeEnvironment":   "SQL-1_0",
+		"ServiceExecutionRole": "arn:aws:iam::000000000000:role/svc",
+		"ApplicationConfiguration": map[string]any{
+			"SqlApplicationConfiguration": map[string]any{
+				"Inputs": []map[string]any{
+					{
+						"NamePrefix": "SOURCE_SQL_STREAM",
+						"KinesisStreamsInput": map[string]any{
+							"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/in",
+						},
+					},
+				},
+				"Outputs": []map[string]any{
+					{
+						"Name": "OUTPUT",
+						"KinesisStreamsOutput": map[string]any{
+							"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/out",
+						},
+					},
+				},
+				"ReferenceDataSources": []map[string]any{
+					{
+						"TableName": "REF_TABLE",
+						"S3ReferenceDataSource": map[string]any{
+							"BucketARN": "arn:aws:s3:::bucket",
+							"FileKey":   "key",
+						},
+					},
+				},
+			},
+			"VpcConfigurations": []map[string]any{
+				{
+					"SubnetIds":        []string{"subnet-1"},
+					"SecurityGroupIds": []string{"sg-1"},
+				},
+			},
+		},
+		"CloudWatchLoggingOptions": []map[string]any{
+			{"LogStreamARN": "arn:aws:logs:us-east-1:000000000000:log-group:g:log-stream:s"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	detail := out["ApplicationDetail"].(map[string]any)
+
+	// Inline config must not bump the version past 1 -- real AWS keeps a
+	// freshly created application, even with inline config, at version 1.
+	assert.InEpsilon(t, 1.0, detail["ApplicationVersionId"], 1e-9)
+
+	appConfig, ok := detail["ApplicationConfigurationDescription"].(map[string]any)
+	require.True(t, ok, "expected ApplicationConfigurationDescription to be populated")
+	sqlConfig, ok := appConfig["SqlApplicationConfigurationDescription"].(map[string]any)
+	require.True(t, ok)
+	assert.Len(t, sqlConfig["InputDescriptions"], 1)
+	assert.Len(t, sqlConfig["OutputDescriptions"], 1)
+	assert.Len(t, sqlConfig["ReferenceDataSourceDescriptions"], 1)
+
+	assert.Len(t, detail["VpcConfigurationDescriptions"], 1)
+	assert.Len(t, detail["CloudWatchLoggingOptionDescriptions"], 1)
+}
+
+// TestKAV2_RollbackApplication exercises RollbackApplication over HTTP --
+// previously untested at any layer, and (before the version-history fix in
+// backend.go) permanently broken: RollbackApplication requires at least 2
+// recorded versions, but nothing besides CreateApplication ever populated
+// the version history, so this call always failed with InvalidArgumentException.
+func TestKAV2_RollbackApplication(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":        "rollback-http-app",
+		"RuntimeEnvironment":     "FLINK-1_18",
+		"ApplicationDescription": "original",
+	})
+
+	updateRec := doKAV2Request(t, h, "UpdateApplication", map[string]any{
+		"ApplicationName":             "rollback-http-app",
+		"ApplicationDescription":      "changed",
+		"CurrentApplicationVersionId": 1,
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	rollbackRec := doKAV2Request(t, h, "RollbackApplication", map[string]any{
+		"ApplicationName":             "rollback-http-app",
+		"CurrentApplicationVersionId": 2,
+	})
+	require.Equal(t, http.StatusOK, rollbackRec.Code)
+
+	var rollbackOut map[string]any
+	require.NoError(t, json.Unmarshal(rollbackRec.Body.Bytes(), &rollbackOut))
+	assert.NotEmpty(t, rollbackOut["OperationId"])
+
+	detail, ok := rollbackOut["ApplicationDetail"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "original", detail["ApplicationDescription"])
+	assert.InEpsilon(t, 3.0, detail["ApplicationVersionId"], 1e-9)
 }
