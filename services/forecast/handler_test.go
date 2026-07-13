@@ -282,6 +282,68 @@ func TestHandler_MonitorEvaluationsAndErrors(t *testing.T) {
 	assert.Equal(t, "ResourceNotFoundException", response["__type"])
 }
 
+// TestHandler_TagOperations_UnknownResourceNotFound verifies that TagResource,
+// UntagResource, and ListTagsForResource return ResourceNotFoundException for
+// an ARN that was never created, matching the real Amazon Forecast API (which
+// models ResourceNotFoundException on all three operations). Previously these
+// operations accepted any ARN and silently wrote/read an orphaned tag map
+// entry instead of validating the resource exists.
+func TestHandler_TagOperations_UnknownResourceNotFound(t *testing.T) {
+	t.Parallel()
+
+	unknownARN := "arn:aws:forecast:us-east-1:000000000000:dataset-group/never-created"
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "tag_resource",
+			action: "TagResource",
+			body: map[string]any{
+				"ResourceArn": unknownARN,
+				"Tags":        []any{map[string]any{"Key": "env", "Value": "test"}},
+			},
+		},
+		{
+			name:   "untag_resource",
+			action: "UntagResource",
+			body:   map[string]any{"ResourceArn": unknownARN, "TagKeys": []any{"env"}},
+		},
+		{
+			name:   "list_tags_for_resource",
+			action: "ListTagsForResource",
+			body:   map[string]any{"ResourceArn": unknownARN},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			code, resp := request(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusBadRequest, code)
+			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
+		})
+	}
+}
+
+// TestHandler_ListOperations_InvalidNextToken verifies that a malformed
+// NextToken on a List* operation returns InvalidNextTokenException, matching
+// the real Amazon Forecast API (which models InvalidNextTokenException on
+// every List operation). Previously a malformed token silently decoded to 0
+// and restarted pagination from the beginning instead of erroring.
+func TestHandler_ListOperations_InvalidNextToken(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	code, resp := request(t, h, "ListDatasetGroups", map[string]any{"NextToken": "not-valid-base64!!"})
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "InvalidNextTokenException", resp["__type"])
+}
+
 func TestProvider(t *testing.T) {
 	t.Parallel()
 

@@ -73,6 +73,9 @@ var (
 	ErrAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
 	// ErrValidation is returned when a Forecast request is invalid.
 	ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
+	// ErrInvalidNextToken is returned when a List* NextToken cannot be decoded.
+	// Real Amazon Forecast models InvalidNextTokenException on every List operation.
+	ErrInvalidNextToken = awserr.New("InvalidNextTokenException", awserr.ErrInvalidParameter)
 )
 
 type resourceKind string
@@ -609,40 +612,59 @@ func averageQuantileLoss(losses []map[string]any) float64 {
 	return sum / float64(len(losses))
 }
 
-// TagResource adds tags to a resource.
-func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+// TagResource adds tags to a resource. Real Amazon Forecast returns
+// ResourceNotFoundException when resourceARN does not identify an existing
+// resource -- TagResource does not silently create tag state for ARNs no
+// resource ever owned.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.tags[arn] == nil {
-		b.tags[arn] = make(map[string]string)
+	if _, ok := b.arnIndex[resourceARN]; !ok {
+		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceARN)
 	}
-	maps.Copy(b.tags[arn], tags)
+
+	if b.tags[resourceARN] == nil {
+		b.tags[resourceARN] = make(map[string]string)
+	}
+	maps.Copy(b.tags[resourceARN], tags)
 
 	return nil
 }
 
-// UntagResource removes tags from a resource.
-func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
+// UntagResource removes tags from a resource. Real Amazon Forecast returns
+// ResourceNotFoundException when resourceARN does not identify an existing
+// resource.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.tags[arn] != nil {
+	if _, ok := b.arnIndex[resourceARN]; !ok {
+		return fmt.Errorf("%w: resource %q", ErrNotFound, resourceARN)
+	}
+
+	if b.tags[resourceARN] != nil {
 		for _, k := range tagKeys {
-			delete(b.tags[arn], k)
+			delete(b.tags[resourceARN], k)
 		}
 	}
 
 	return nil
 }
 
-// ListTagsForResource lists tags for a resource.
-func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
+// ListTagsForResource lists tags for a resource. Real Amazon Forecast returns
+// ResourceNotFoundException when resourceARN does not identify an existing
+// resource.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	if _, ok := b.arnIndex[resourceARN]; !ok {
+		return nil, fmt.Errorf("%w: resource %q", ErrNotFound, resourceARN)
+	}
+
 	result := make(map[string]string)
-	maps.Copy(result, b.tags[arn])
+	maps.Copy(result, b.tags[resourceARN])
 
 	return result, nil
 }
