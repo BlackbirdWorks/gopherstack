@@ -87,8 +87,8 @@ type certificateDetail struct {
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
 	// InUseBy is always present (possibly empty) matching real AWS DescribeCertificate behavior.
 	InUseBy          []string            `json:"InUseBy"`
-	KeyUsage         []keyUsageDetail    `json:"KeyUsage,omitempty"`
-	ExtendedKeyUsage []extKeyUsageDetail `json:"ExtendedKeyUsage,omitempty"`
+	KeyUsage         []keyUsageDetail    `json:"KeyUsages,omitempty"`
+	ExtendedKeyUsage []extKeyUsageDetail `json:"ExtendedKeyUsages,omitempty"`
 	CreatedAt        int64               `json:"CreatedAt"`
 	NotBefore        int64               `json:"NotBefore,omitempty"`
 	NotAfter         int64               `json:"NotAfter,omitempty"`
