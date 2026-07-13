@@ -46,12 +46,15 @@ type storedIngestEndpoint struct {
 }
 
 type storedChannel struct {
-	Tags            map[string]string      `json:"tags"`
-	LifecyclePolicy *string                `json:"lifecyclePolicy,omitempty"`
-	ARN             string                 `json:"arn"`
-	ID              string                 `json:"id"`
-	Description     string                 `json:"description"`
-	IngestEndpoints []storedIngestEndpoint `json:"ingestEndpoints"`
+	Tags                map[string]string      `json:"tags"`
+	LifecyclePolicy     *string                `json:"lifecyclePolicy,omitempty"`
+	EgressLogGroupName  *string                `json:"egressLogGroupName,omitempty"`
+	IngressLogGroupName *string                `json:"ingressLogGroupName,omitempty"`
+	ARN                 string                 `json:"arn"`
+	ID                  string                 `json:"id"`
+	Description         string                 `json:"description"`
+	CreatedAt           string                 `json:"createdAt"`
+	IngestEndpoints     []storedIngestEndpoint `json:"ingestEndpoints"`
 }
 
 func (c *storedChannel) toChannel() *Channel {
@@ -69,15 +72,23 @@ func (c *storedChannel) toChannel() *Channel {
 	}
 
 	return &Channel{
-		ARN:         c.ARN,
-		ID:          c.ID,
-		Description: c.Description,
-		HlsIngest:   &HlsIngest{IngestEndpoints: endpoints},
-		Tags:        tags,
+		ARN:                 c.ARN,
+		ID:                  c.ID,
+		Description:         c.Description,
+		CreatedAt:           c.CreatedAt,
+		HlsIngest:           &HlsIngest{IngestEndpoints: endpoints},
+		Tags:                tags,
+		EgressLogGroupName:  c.EgressLogGroupName,
+		IngressLogGroupName: c.IngressLogGroupName,
 	}
 }
 
 type storedOriginEndpoint struct {
+	Authorization          map[string]any    `json:"authorization,omitempty"`
+	CmafPackage            map[string]any    `json:"cmafPackage,omitempty"`
+	DashPackage            map[string]any    `json:"dashPackage,omitempty"`
+	HlsPackage             map[string]any    `json:"hlsPackage,omitempty"`
+	MssPackage             map[string]any    `json:"mssPackage,omitempty"`
 	Tags                   map[string]string `json:"tags"`
 	ARN                    string            `json:"arn"`
 	ChannelID              string            `json:"channelId"`
@@ -86,6 +97,7 @@ type storedOriginEndpoint struct {
 	ManifestName           string            `json:"manifestName"`
 	URL                    string            `json:"url"`
 	Origination            string            `json:"origination"`
+	CreatedAt              string            `json:"createdAt"`
 	Whitelist              []string          `json:"whitelist"`
 	StartoverWindowSeconds int               `json:"startoverWindowSeconds"`
 	TimeDelaySeconds       int               `json:"timeDelaySeconds"`
@@ -106,11 +118,32 @@ func (e *storedOriginEndpoint) toOriginEndpoint() *OriginEndpoint {
 		ManifestName:           e.ManifestName,
 		URL:                    e.URL,
 		Origination:            e.Origination,
+		CreatedAt:              e.CreatedAt,
 		StartoverWindowSeconds: e.StartoverWindowSeconds,
 		TimeDelaySeconds:       e.TimeDelaySeconds,
 		Whitelist:              whitelist,
 		Tags:                   tags,
+		Authorization:          copyAnyMap(e.Authorization),
+		CmafPackage:            copyAnyMap(e.CmafPackage),
+		DashPackage:            copyAnyMap(e.DashPackage),
+		HlsPackage:             copyAnyMap(e.HlsPackage),
+		MssPackage:             copyAnyMap(e.MssPackage),
 	}
+}
+
+// copyAnyMap returns a shallow copy of m, or nil if m is empty. Used for the
+// opaque packaging-protocol blocks (Authorization/CmafPackage/DashPackage/
+// HlsPackage/MssPackage) so callers of toOriginEndpoint cannot mutate the
+// backend's stored copy through the returned value.
+func copyAnyMap(m map[string]any) map[string]any {
+	if len(m) == 0 {
+		return nil
+	}
+
+	out := make(map[string]any, len(m))
+	maps.Copy(out, m)
+
+	return out
 }
 
 type storedS3Destination struct {
@@ -274,6 +307,7 @@ func (b *InMemoryBackend) CreateChannel(id, description string, tags map[string]
 		ARN:             b.buildChannelARN(id),
 		ID:              id,
 		Description:     description,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 		Tags:            tagsCopy,
 		IngestEndpoints: newIngestEndpoints(b.region, id),
 	}
@@ -354,8 +388,11 @@ func (b *InMemoryBackend) ListChannels(maxResults int, nextToken string) ([]*Cha
 	return channels, p.Next, nil
 }
 
-// ConfigureLogs updates the log group configuration for a channel.
-func (b *InMemoryBackend) ConfigureLogs(id, egressLogGroup, ingressLogGroup string) (*Channel, error) {
+// ConfigureLogs updates the egress/ingress log group configuration for a
+// channel. A nil pointer means the caller did not send that
+// egressAccessLogs/ingressAccessLogs block and leaves the existing
+// configuration untouched, matching AWS's optional-member semantics.
+func (b *InMemoryBackend) ConfigureLogs(id string, egressLogGroup, ingressLogGroup *string) (*Channel, error) {
 	b.mu.Lock("ConfigureLogs")
 	defer b.mu.Unlock()
 
@@ -364,14 +401,22 @@ func (b *InMemoryBackend) ConfigureLogs(id, egressLogGroup, ingressLogGroup stri
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
 
-	// Log groups are stored as metadata only; return the updated channel.
-	_ = egressLogGroup
-	_ = ingressLogGroup
+	if egressLogGroup != nil {
+		ch.EgressLogGroupName = egressLogGroup
+	}
+
+	if ingressLogGroup != nil {
+		ch.IngressLogGroupName = ingressLogGroup
+	}
 
 	return ch.toChannel(), nil
 }
 
-// RotateChannelCredentials rotates the ingest endpoint credentials for a channel.
+// RotateChannelCredentials changes the channel's first IngestEndpoint's
+// username and password (this legacy API only ever touches ingestEndpoints[0]
+// -- callers wanting to rotate a specific endpoint use
+// RotateIngestEndpointCredentials instead). The endpoint's ID and URL are
+// left unchanged; only the credentials are regenerated.
 func (b *InMemoryBackend) RotateChannelCredentials(id string) (*Channel, error) {
 	b.mu.Lock("RotateChannelCredentials")
 	defer b.mu.Unlock()
@@ -381,7 +426,12 @@ func (b *InMemoryBackend) RotateChannelCredentials(id string) (*Channel, error) 
 		return nil, fmt.Errorf("%w: channel %q not found", ErrNotFound, id)
 	}
 
-	ch.IngestEndpoints = newIngestEndpoints(b.region, id)
+	if len(ch.IngestEndpoints) == 0 {
+		return nil, fmt.Errorf("%w: channel %q has no ingest endpoints", ErrNotFound, id)
+	}
+
+	ch.IngestEndpoints[0].Username = uuid.NewString()
+	ch.IngestEndpoints[0].Password = uuid.NewString()
 
 	return ch.toChannel(), nil
 }
@@ -393,6 +443,7 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 	origination string,
 	whitelist []string,
 	tags map[string]string,
+	pkg PackagingConfig,
 ) (*OriginEndpoint, error) {
 	if channelID == "" {
 		return nil, fmt.Errorf("%w: ChannelId is required", ErrInvalidParameter)
@@ -440,10 +491,16 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 			manifestName,
 		),
 		Origination:            origination,
+		CreatedAt:              time.Now().UTC().Format(time.RFC3339),
 		StartoverWindowSeconds: startoverWindowSeconds,
 		TimeDelaySeconds:       timeDelaySeconds,
 		Whitelist:              wl,
 		Tags:                   tagsCopy,
+		Authorization:          copyAnyMap(pkg.Authorization),
+		CmafPackage:            copyAnyMap(pkg.CmafPackage),
+		DashPackage:            copyAnyMap(pkg.DashPackage),
+		HlsPackage:             copyAnyMap(pkg.HlsPackage),
+		MssPackage:             copyAnyMap(pkg.MssPackage),
 	}
 
 	b.originEndpoints.Put(ep)
@@ -475,6 +532,7 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 	startoverWindowSeconds, timeDelaySeconds int,
 	origination string,
 	whitelist []string,
+	pkg PackagingConfig,
 ) (*OriginEndpoint, error) {
 	b.mu.Lock("UpdateOriginEndpoint")
 	defer b.mu.Unlock()
@@ -508,6 +566,26 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 		wl := make([]string, len(whitelist))
 		copy(wl, whitelist)
 		ep.Whitelist = wl
+	}
+
+	if pkg.Authorization != nil {
+		ep.Authorization = copyAnyMap(pkg.Authorization)
+	}
+
+	if pkg.CmafPackage != nil {
+		ep.CmafPackage = copyAnyMap(pkg.CmafPackage)
+	}
+
+	if pkg.DashPackage != nil {
+		ep.DashPackage = copyAnyMap(pkg.DashPackage)
+	}
+
+	if pkg.HlsPackage != nil {
+		ep.HlsPackage = copyAnyMap(pkg.HlsPackage)
+	}
+
+	if pkg.MssPackage != nil {
+		ep.MssPackage = copyAnyMap(pkg.MssPackage)
 	}
 
 	return ep.toOriginEndpoint(), nil

@@ -9,7 +9,7 @@ type StorageBackend interface {
 	UpdateChannel(id, description string) (*Channel, error)
 	DeleteChannel(id string) (*Channel, error)
 	ListChannels(maxResults int, nextToken string) ([]*Channel, string, error)
-	ConfigureLogs(id string, egressLogGroup, ingressLogGroup string) (*Channel, error)
+	ConfigureLogs(id string, egressLogGroup, ingressLogGroup *string) (*Channel, error)
 	RotateChannelCredentials(id string) (*Channel, error)
 	RotateIngestEndpointCredentials(channelID, ingestEndpointID string) (*Channel, error)
 
@@ -19,6 +19,7 @@ type StorageBackend interface {
 		origination string,
 		whitelist []string,
 		tags map[string]string,
+		pkg PackagingConfig,
 	) (*OriginEndpoint, error)
 	DescribeOriginEndpoint(id string) (*OriginEndpoint, error)
 	UpdateOriginEndpoint(
@@ -26,6 +27,7 @@ type StorageBackend interface {
 		startoverWindowSeconds, timeDelaySeconds int,
 		origination string,
 		whitelist []string,
+		pkg PackagingConfig,
 	) (*OriginEndpoint, error)
 	DeleteOriginEndpoint(id string) (*OriginEndpoint, error)
 	ListOriginEndpoints(channelID string, maxResults int, nextToken string) ([]*OriginEndpoint, string, error)
@@ -77,15 +79,39 @@ type HlsIngest struct {
 
 // Channel represents a MediaPackage channel.
 type Channel struct {
-	HlsIngest   *HlsIngest
-	Tags        map[string]string
-	ARN         string
-	ID          string
-	Description string
+	HlsIngest           *HlsIngest
+	EgressLogGroupName  *string
+	IngressLogGroupName *string
+	Tags                map[string]string
+	ARN                 string
+	ID                  string
+	Description         string
+	CreatedAt           string
+}
+
+// PackagingConfig holds the CDN-authorization credentials and per-protocol
+// packaging blocks (HlsPackage/DashPackage/CmafPackage/MssPackage) accepted
+// by CreateOriginEndpoint/UpdateOriginEndpoint. Each block is stored verbatim
+// as the caller supplied it -- encryption/ad-marker semantics are not
+// interpreted -- so Describe/List echo back exactly what was configured.
+// Previously these fields were silently discarded on create/update, so a
+// Terraform/CDK OriginEndpoint configured with e.g. hlsPackage never
+// round-tripped through gopherstack.
+type PackagingConfig struct {
+	Authorization map[string]any
+	CmafPackage   map[string]any
+	DashPackage   map[string]any
+	HlsPackage    map[string]any
+	MssPackage    map[string]any
 }
 
 // OriginEndpoint represents a MediaPackage origin endpoint.
 type OriginEndpoint struct {
+	Authorization          map[string]any
+	CmafPackage            map[string]any
+	DashPackage            map[string]any
+	HlsPackage             map[string]any
+	MssPackage             map[string]any
 	Tags                   map[string]string
 	ARN                    string
 	ChannelID              string
@@ -94,6 +120,7 @@ type OriginEndpoint struct {
 	ManifestName           string
 	URL                    string
 	Origination            string
+	CreatedAt              string
 	Whitelist              []string
 	StartoverWindowSeconds int
 	TimeDelaySeconds       int

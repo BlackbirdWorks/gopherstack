@@ -281,7 +281,7 @@ func classifyChannelPath(method, path string) (string, string, bool) { //nolint:
 	}
 
 	switch {
-	case sub == "ingest_endpoints/credentials" && method == http.MethodPost:
+	case sub == "credentials" && method == http.MethodPut:
 		return opRotateChannelCred, id, true
 	case sub == "configure_logs" && method == http.MethodPut:
 		return opConfigureLogs, id, true
@@ -433,12 +433,21 @@ type hlsIngestOutput struct {
 	IngestEndpoints []ingestEndpointOutput `json:"ingestEndpoints"`
 }
 
+// logGroupOutput mirrors the AWS EgressAccessLogs/IngressAccessLogs shape:
+// a single-member object wrapping the configured CloudWatch Logs group name.
+type logGroupOutput struct {
+	LogGroupName string `json:"logGroupName"`
+}
+
 type channelOutput struct {
-	Tags        map[string]any  `json:"tags"`
-	Arn         string          `json:"arn"`
-	ID          string          `json:"id"`
-	Description string          `json:"description"`
-	HlsIngest   hlsIngestOutput `json:"hlsIngest"`
+	EgressAccessLogs  *logGroupOutput `json:"egressAccessLogs,omitempty"`
+	IngressAccessLogs *logGroupOutput `json:"ingressAccessLogs,omitempty"`
+	Tags              map[string]any  `json:"tags"`
+	Arn               string          `json:"arn"`
+	ID                string          `json:"id"`
+	Description       string          `json:"description"`
+	CreatedAt         string          `json:"createdAt"`
+	HlsIngest         hlsIngestOutput `json:"hlsIngest"`
 }
 
 func toChannelOutput(ch *Channel) channelOutput {
@@ -457,18 +466,34 @@ func toChannelOutput(ch *Channel) channelOutput {
 		tags[k] = v
 	}
 
-	return channelOutput{
+	out := channelOutput{
 		Arn:         ch.ARN,
 		ID:          ch.ID,
 		Description: ch.Description,
+		CreatedAt:   ch.CreatedAt,
 		HlsIngest:   hlsIngestOutput{IngestEndpoints: endpoints},
 		Tags:        tags,
 	}
+
+	if ch.EgressLogGroupName != nil {
+		out.EgressAccessLogs = &logGroupOutput{LogGroupName: *ch.EgressLogGroupName}
+	}
+
+	if ch.IngressLogGroupName != nil {
+		out.IngressAccessLogs = &logGroupOutput{LogGroupName: *ch.IngressLogGroupName}
+	}
+
+	return out
 }
 
 // --- origin endpoint output helper ---
 
 type originEndpointOutput struct {
+	Authorization          map[string]any `json:"authorization,omitempty"`
+	CmafPackage            map[string]any `json:"cmafPackage,omitempty"`
+	DashPackage            map[string]any `json:"dashPackage,omitempty"`
+	HlsPackage             map[string]any `json:"hlsPackage,omitempty"`
+	MssPackage             map[string]any `json:"mssPackage,omitempty"`
 	Tags                   map[string]any `json:"tags"`
 	Arn                    string         `json:"arn"`
 	ChannelID              string         `json:"channelId"`
@@ -477,6 +502,7 @@ type originEndpointOutput struct {
 	ManifestName           string         `json:"manifestName"`
 	URL                    string         `json:"url"`
 	Origination            string         `json:"origination"`
+	CreatedAt              string         `json:"createdAt"`
 	Whitelist              []string       `json:"whitelist"`
 	StartoverWindowSeconds int            `json:"startoverWindowSeconds"`
 	TimeDelaySeconds       int            `json:"timeDelaySeconds"`
@@ -501,10 +527,16 @@ func toOriginEndpointOutput(ep *OriginEndpoint) originEndpointOutput {
 		ManifestName:           ep.ManifestName,
 		URL:                    ep.URL,
 		Origination:            ep.Origination,
+		CreatedAt:              ep.CreatedAt,
 		StartoverWindowSeconds: ep.StartoverWindowSeconds,
 		TimeDelaySeconds:       ep.TimeDelaySeconds,
 		Whitelist:              whitelist,
 		Tags:                   tags,
+		Authorization:          ep.Authorization,
+		CmafPackage:            ep.CmafPackage,
+		DashPackage:            ep.DashPackage,
+		HlsPackage:             ep.HlsPackage,
+		MssPackage:             ep.MssPackage,
 	}
 }
 
@@ -573,15 +605,8 @@ func (h *Handler) handleListChannels(c *echo.Context) error {
 }
 
 func (h *Handler) handleConfigureLogs(c *echo.Context, id string, body map[string]any) error {
-	var egressLogGroup, ingressLogGroup string
-
-	if egress, ok := body["egressAccessLogs"].(map[string]any); ok {
-		egressLogGroup, _ = egress["logGroupName"].(string)
-	}
-
-	if ingress, ok := body["ingressAccessLogs"].(map[string]any); ok {
-		ingressLogGroup, _ = ingress["logGroupName"].(string)
-	}
+	egressLogGroup := logGroupNameFromBody(body, "egressAccessLogs")
+	ingressLogGroup := logGroupNameFromBody(body, "ingressAccessLogs")
 
 	ch, err := h.Backend.ConfigureLogs(id, egressLogGroup, ingressLogGroup)
 	if err != nil {
@@ -589,6 +614,21 @@ func (h *Handler) handleConfigureLogs(c *echo.Context, id string, body map[strin
 	}
 
 	return c.JSON(http.StatusOK, toChannelOutput(ch))
+}
+
+// logGroupNameFromBody extracts {key}.logGroupName as a *string, returning
+// nil when the request body did not include the key at all -- this
+// distinguishes "leave the existing log configuration untouched" (key
+// absent) from "configure with this log group name" (key present).
+func logGroupNameFromBody(body map[string]any, key string) *string {
+	raw, ok := body[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	name, _ := raw["logGroupName"].(string)
+
+	return &name
 }
 
 func (h *Handler) handleRotateChannelCredentials(c *echo.Context, id string) error {
@@ -612,6 +652,7 @@ func (h *Handler) handleCreateOriginEndpoint(c *echo.Context, body map[string]an
 	timeDelay := intFromBody(body, "timeDelaySeconds")
 	whitelist := stringsFromBody(body, "whitelist")
 	tags := extractTags(body)
+	pkg := packagingConfigFromBody(body)
 
 	ep, err := h.Backend.CreateOriginEndpoint(
 		channelID,
@@ -623,12 +664,36 @@ func (h *Handler) handleCreateOriginEndpoint(c *echo.Context, body map[string]an
 		origination,
 		whitelist,
 		tags,
+		pkg,
 	)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, toOriginEndpointOutput(ep))
+}
+
+// packagingConfigFromBody extracts the opaque CDN-authorization and
+// per-protocol packaging blocks from a CreateOriginEndpoint/
+// UpdateOriginEndpoint request body. Each block is passed through verbatim
+// (see PackagingConfig).
+func packagingConfigFromBody(body map[string]any) PackagingConfig {
+	return PackagingConfig{
+		Authorization: mapFromBody(body, "authorization"),
+		CmafPackage:   mapFromBody(body, "cmafPackage"),
+		DashPackage:   mapFromBody(body, "dashPackage"),
+		HlsPackage:    mapFromBody(body, "hlsPackage"),
+		MssPackage:    mapFromBody(body, "mssPackage"),
+	}
+}
+
+func mapFromBody(body map[string]any, key string) map[string]any {
+	raw, ok := body[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return raw
 }
 
 func (h *Handler) handleDescribeOriginEndpoint(c *echo.Context, id string) error {
@@ -647,6 +712,7 @@ func (h *Handler) handleUpdateOriginEndpoint(c *echo.Context, id string, body ma
 	startover := intFromBody(body, "startoverWindowSeconds")
 	timeDelay := intFromBody(body, "timeDelaySeconds")
 	whitelist := stringsFromBody(body, "whitelist")
+	pkg := packagingConfigFromBody(body)
 
 	ep, err := h.Backend.UpdateOriginEndpoint(
 		id,
@@ -656,6 +722,7 @@ func (h *Handler) handleUpdateOriginEndpoint(c *echo.Context, id string, body ma
 		timeDelay,
 		origination,
 		whitelist,
+		pkg,
 	)
 	if err != nil {
 		return h.mapError(c, err)

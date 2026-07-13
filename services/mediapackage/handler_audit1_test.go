@@ -247,7 +247,7 @@ func TestAudit1_Channel_NotFound(t *testing.T) {
 		{"describe unknown returns 404", http.MethodGet, "/channels/notexist"},
 		{"update unknown returns 404", http.MethodPut, "/channels/notexist"},
 		{"delete unknown returns 404", http.MethodDelete, "/channels/notexist"},
-		{"rotate creds unknown returns 404", http.MethodPost, "/channels/notexist/ingest_endpoints/credentials"},
+		{"rotate creds unknown returns 404", http.MethodPut, "/channels/notexist/credentials"},
 		{"configure logs unknown returns 404", http.MethodPut, "/channels/notexist/configure_logs"},
 	}
 
@@ -275,7 +275,7 @@ func TestAudit1_Channel_RotateCredentials(t *testing.T) {
 	originalPassword := eps[0].(map[string]any)["password"].(string)
 
 	// Rotate
-	rec = doRequest(t, h, http.MethodPost, "/channels/"+channelID+"/ingest_endpoints/credentials", nil)
+	rec = doRequest(t, h, http.MethodPut, "/channels/"+channelID+"/credentials", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var after map[string]any

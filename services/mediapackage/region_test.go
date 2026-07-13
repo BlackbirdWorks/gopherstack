@@ -27,7 +27,9 @@ func TestEndpointURLsFollowConfiguredRegion(t *testing.T) {
 		assert.NotContains(t, ep.URL, "us-east-1")
 	}
 
-	ep, err := b.CreateOriginEndpoint("chan1", "ep1", "d", "index", 0, 0, "ALLOW", nil, nil)
+	ep, err := b.CreateOriginEndpoint(
+		"chan1", "ep1", "d", "index", 0, 0, "ALLOW", nil, nil, mediapackage.PackagingConfig{},
+	)
 	require.NoError(t, err)
 	assert.Contains(t, ep.URL, "cf.mediapackage.eu-central-1.amazonaws.com",
 		"egress URL should carry the configured region")
