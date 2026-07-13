@@ -61,7 +61,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	// CreateMesh
 	rec := doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": "my-mesh"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	mesh := getBody(t, rec)
+	mesh := getBody(t, rec)["mesh"].(map[string]any)
 	assert.Equal(t, "my-mesh", mesh["meshName"])
 	assert.Equal(t, "ACTIVE", mesh["status"].(map[string]any)["status"])
 	meta := mesh["metadata"].(map[string]any)
@@ -73,7 +73,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	// DescribeMesh
 	rec = doRequest(t, h, http.MethodGet, "/meshes/my-mesh", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	mesh = getBody(t, rec)
+	mesh = getBody(t, rec)["mesh"].(map[string]any)
 	assert.Equal(t, "my-mesh", mesh["meshName"])
 
 	// ListMeshes
@@ -87,7 +87,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPut, "/meshes/my-mesh",
 		map[string]any{"spec": map[string]any{"egressFilter": map[string]any{"type": "ALLOW_ALL"}}})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	mesh = getBody(t, rec)
+	mesh = getBody(t, rec)["mesh"].(map[string]any)
 	assert.Equal(t, int64(2), int64(mesh["metadata"].(map[string]any)["version"].(float64)))
 
 	// DeleteMesh
@@ -136,7 +136,7 @@ func TestAppMesh_VirtualNodeCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualNodes",
 		map[string]any{"virtualNodeName": "vn1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vn := getBody(t, rec)
+	vn := getBody(t, rec)["virtualNode"].(map[string]any)
 	assert.Equal(t, "vn1", vn["virtualNodeName"])
 	assert.Contains(t, vn["metadata"].(map[string]any)["arn"].(string), "virtualNode/vn1")
 
@@ -176,14 +176,14 @@ func TestAppMesh_VirtualRouterAndRouteCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualRouters",
 		map[string]any{"virtualRouterName": "vr1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vr := getBody(t, rec)
+	vr := getBody(t, rec)["virtualRouter"].(map[string]any)
 	assert.Equal(t, "vr1", vr["virtualRouterName"])
 
 	// Create route (note singular /virtualRouter/ in path)
 	rec = doRequest(t, h, http.MethodPut, "/meshes/m1/virtualRouter/vr1/routes",
 		map[string]any{"routeName": "r1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	route := getBody(t, rec)
+	route := getBody(t, rec)["route"].(map[string]any)
 	assert.Equal(t, "r1", route["routeName"])
 	assert.Equal(t, "vr1", route["virtualRouterName"])
 	assert.Contains(t, route["metadata"].(map[string]any)["arn"].(string), "route/r1")
@@ -218,7 +218,7 @@ func TestAppMesh_VirtualServiceCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualServices",
 		map[string]any{"virtualServiceName": "svc.local"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vs := getBody(t, rec)
+	vs := getBody(t, rec)["virtualService"].(map[string]any)
 	assert.Equal(t, "svc.local", vs["virtualServiceName"])
 
 	rec = doRequest(t, h, http.MethodGet, "/meshes/m1/virtualServices", nil)
@@ -242,14 +242,14 @@ func TestAppMesh_VirtualGatewayAndGatewayRouteCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualGateways",
 		map[string]any{"virtualGatewayName": "gw1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vg := getBody(t, rec)
+	vg := getBody(t, rec)["virtualGateway"].(map[string]any)
 	assert.Equal(t, "gw1", vg["virtualGatewayName"])
 
 	// Create gateway route (singular /virtualGateway/ in path)
 	rec = doRequest(t, h, http.MethodPut, "/meshes/m1/virtualGateway/gw1/gatewayRoutes",
 		map[string]any{"gatewayRouteName": "gr1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	gr := getBody(t, rec)
+	gr := getBody(t, rec)["gatewayRoute"].(map[string]any)
 	assert.Equal(t, "gr1", gr["gatewayRouteName"])
 	assert.Equal(t, "gw1", gr["virtualGatewayName"])
 
@@ -284,7 +284,7 @@ func TestAppMesh_TagOperations(t *testing.T) {
 
 	// Get mesh ARN
 	rec := doRequest(t, h, http.MethodGet, "/meshes/tagged-mesh", nil)
-	arn := getBody(t, rec)["metadata"].(map[string]any)["arn"].(string)
+	arn := getBody(t, rec)["mesh"].(map[string]any)["metadata"].(map[string]any)["arn"].(string)
 
 	// ListTags
 	rec = doRequest(t, h, http.MethodGet, fmt.Sprintf("/tags?resourceArn=%s", arn), nil)
@@ -343,6 +343,36 @@ func TestAppMesh_NotFoundErrors(t *testing.T) {
 			assert.Equal(t, "NotFoundException", body["code"])
 		})
 	}
+}
+
+// ─── List "limit" query param ──────────────────────────────────────────────────
+
+// TestAppMesh_ListLimitQueryParam verifies that the client-supplied "limit"
+// query param (the real wire name for max page size on App Mesh List*
+// operations — see ListMeshesInput.Limit in aws-sdk-go-v2) is honored, not
+// silently ignored in favor of a fixed default page size.
+func TestAppMesh_ListLimitQueryParam(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	for _, name := range []string{"a", "b", "c"} {
+		doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": name})
+	}
+
+	rec := doRequest(t, h, http.MethodGet, "/meshes?limit=2", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := getBody(t, rec)
+	meshes := body["meshes"].([]any)
+	assert.Len(t, meshes, 2, "limit=2 must cap the page at 2 items")
+	assert.NotEmpty(t, body["nextToken"], "a capped page must return a nextToken")
+
+	// Second page via nextToken picks up the remainder.
+	rec = doRequest(t, h, http.MethodGet,
+		fmt.Sprintf("/meshes?limit=2&nextToken=%s", body["nextToken"]), nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body = getBody(t, rec)
+	assert.Len(t, body["meshes"].([]any), 1)
+	assert.Empty(t, body["nextToken"])
 }
 
 // ─── List empty results ───────────────────────────────────────────────────────

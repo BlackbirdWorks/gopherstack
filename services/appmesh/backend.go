@@ -7,12 +7,12 @@ import (
 	"maps"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -92,9 +92,9 @@ type InMemoryBackend struct {
 	gatewayRoutes          *store.Table[GatewayRoute]
 	gatewayRoutesByGateway *store.Index[GatewayRoute]
 	tags                   map[string]map[string]string
+	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
-	mu                     sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -104,6 +104,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:    region,
 		registry:  store.NewRegistry(),
 		tags:      make(map[string]map[string]string),
+		mu:        lockmetrics.New("appmesh"),
 	}
 	registerAllTables(b)
 
@@ -114,7 +115,7 @@ func (b *InMemoryBackend) AccountID() string { return b.accountID }
 func (b *InMemoryBackend) Region() string    { return b.region }
 
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
@@ -186,7 +187,7 @@ func normalizeSpec(spec json.RawMessage) json.RawMessage {
 // ─── Mesh ───────────────────────────────────────────────────────────────────
 
 func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map[string]string) (*Mesh, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateMesh")
 	defer b.mu.Unlock()
 	if b.meshes.Has(name) {
 		return nil, ErrMeshAlreadyExists
@@ -207,7 +208,7 @@ func (b *InMemoryBackend) CreateMesh(name string, spec json.RawMessage, tags map
 }
 
 func (b *InMemoryBackend) DescribeMesh(name string) (*Mesh, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeMesh")
 	defer b.mu.RUnlock()
 	m, ok := b.meshes.Get(name)
 	if !ok {
@@ -218,7 +219,7 @@ func (b *InMemoryBackend) DescribeMesh(name string) (*Mesh, error) {
 }
 
 func (b *InMemoryBackend) UpdateMesh(name string, spec json.RawMessage) (*Mesh, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateMesh")
 	defer b.mu.Unlock()
 	m, ok := b.meshes.Get(name)
 	if !ok {
@@ -232,7 +233,7 @@ func (b *InMemoryBackend) UpdateMesh(name string, spec json.RawMessage) (*Mesh, 
 }
 
 func (b *InMemoryBackend) DeleteMesh(name string) (*Mesh, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMesh")
 	defer b.mu.Unlock()
 	m, ok := b.meshes.Get(name)
 	if !ok {
@@ -249,7 +250,7 @@ func (b *InMemoryBackend) DeleteMesh(name string) (*Mesh, error) {
 }
 
 func (b *InMemoryBackend) ListMeshes(maxResults int32, nextToken string) ([]*MeshSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListMeshes")
 	defer b.mu.RUnlock()
 	all := b.meshes.Snapshot()
 	names := make([]string, len(all))
@@ -279,7 +280,7 @@ func (b *InMemoryBackend) ListMeshes(maxResults int32, nextToken string) ([]*Mes
 func (b *InMemoryBackend) CreateVirtualNode(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualNode, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateVirtualNode")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -305,7 +306,7 @@ func (b *InMemoryBackend) CreateVirtualNode(
 }
 
 func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNode, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeVirtualNode")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -319,7 +320,7 @@ func (b *InMemoryBackend) DescribeVirtualNode(meshName, name string) (*VirtualNo
 }
 
 func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.RawMessage) (*VirtualNode, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateVirtualNode")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -336,7 +337,7 @@ func (b *InMemoryBackend) UpdateVirtualNode(meshName, name string, spec json.Raw
 }
 
 func (b *InMemoryBackend) DeleteVirtualNode(meshName, name string) (*VirtualNode, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVirtualNode")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -356,7 +357,7 @@ func (b *InMemoryBackend) DeleteVirtualNode(meshName, name string) (*VirtualNode
 func (b *InMemoryBackend) ListVirtualNodes(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualNodeSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVirtualNodes")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
@@ -391,7 +392,7 @@ func (b *InMemoryBackend) ListVirtualNodes(
 func (b *InMemoryBackend) CreateVirtualRouter(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualRouter, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateVirtualRouter")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -417,7 +418,7 @@ func (b *InMemoryBackend) CreateVirtualRouter(
 }
 
 func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*VirtualRouter, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeVirtualRouter")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -431,7 +432,7 @@ func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*Virtual
 }
 
 func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.RawMessage) (*VirtualRouter, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateVirtualRouter")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -448,7 +449,7 @@ func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.R
 }
 
 func (b *InMemoryBackend) DeleteVirtualRouter(meshName, name string) (*VirtualRouter, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVirtualRouter")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -471,7 +472,7 @@ func (b *InMemoryBackend) DeleteVirtualRouter(meshName, name string) (*VirtualRo
 func (b *InMemoryBackend) ListVirtualRouters(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualRouterSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVirtualRouters")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
@@ -506,7 +507,7 @@ func (b *InMemoryBackend) ListVirtualRouters(
 func (b *InMemoryBackend) CreateRoute(
 	meshName, virtualRouterName, routeName string, spec json.RawMessage, tags map[string]string,
 ) (*Route, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -536,7 +537,7 @@ func (b *InMemoryBackend) CreateRoute(
 }
 
 func (b *InMemoryBackend) DescribeRoute(meshName, virtualRouterName, routeName string) (*Route, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeRoute")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -556,7 +557,7 @@ func (b *InMemoryBackend) UpdateRoute(
 	meshName, virtualRouterName, routeName string,
 	spec json.RawMessage,
 ) (*Route, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -576,7 +577,7 @@ func (b *InMemoryBackend) UpdateRoute(
 }
 
 func (b *InMemoryBackend) DeleteRoute(meshName, virtualRouterName, routeName string) (*Route, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -599,7 +600,7 @@ func (b *InMemoryBackend) DeleteRoute(meshName, virtualRouterName, routeName str
 func (b *InMemoryBackend) ListRoutes(
 	meshName, virtualRouterName string, maxResults int32, nextToken string,
 ) ([]*RouteSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRoutes")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
@@ -638,7 +639,7 @@ func (b *InMemoryBackend) ListRoutes(
 func (b *InMemoryBackend) CreateVirtualService(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualService, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateVirtualService")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -664,7 +665,7 @@ func (b *InMemoryBackend) CreateVirtualService(
 }
 
 func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*VirtualService, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeVirtualService")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -678,7 +679,7 @@ func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*Virtua
 }
 
 func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.RawMessage) (*VirtualService, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateVirtualService")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -695,7 +696,7 @@ func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.
 }
 
 func (b *InMemoryBackend) DeleteVirtualService(meshName, name string) (*VirtualService, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVirtualService")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -715,7 +716,7 @@ func (b *InMemoryBackend) DeleteVirtualService(meshName, name string) (*VirtualS
 func (b *InMemoryBackend) ListVirtualServices(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualServiceSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVirtualServices")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
@@ -750,7 +751,7 @@ func (b *InMemoryBackend) ListVirtualServices(
 func (b *InMemoryBackend) CreateVirtualGateway(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualGateway, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateVirtualGateway")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -776,7 +777,7 @@ func (b *InMemoryBackend) CreateVirtualGateway(
 }
 
 func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*VirtualGateway, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeVirtualGateway")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -790,7 +791,7 @@ func (b *InMemoryBackend) DescribeVirtualGateway(meshName, name string) (*Virtua
 }
 
 func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.RawMessage) (*VirtualGateway, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateVirtualGateway")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -807,7 +808,7 @@ func (b *InMemoryBackend) UpdateVirtualGateway(meshName, name string, spec json.
 }
 
 func (b *InMemoryBackend) DeleteVirtualGateway(meshName, name string) (*VirtualGateway, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVirtualGateway")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -830,7 +831,7 @@ func (b *InMemoryBackend) DeleteVirtualGateway(meshName, name string) (*VirtualG
 func (b *InMemoryBackend) ListVirtualGateways(
 	meshName string, maxResults int32, nextToken string,
 ) ([]*VirtualGatewaySummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVirtualGateways")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
@@ -865,7 +866,7 @@ func (b *InMemoryBackend) ListVirtualGateways(
 func (b *InMemoryBackend) CreateGatewayRoute(
 	meshName, virtualGatewayName, routeName string, spec json.RawMessage, tags map[string]string,
 ) (*GatewayRoute, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateGatewayRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -895,7 +896,7 @@ func (b *InMemoryBackend) CreateGatewayRoute(
 }
 
 func (b *InMemoryBackend) DescribeGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeGatewayRoute")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -914,7 +915,7 @@ func (b *InMemoryBackend) DescribeGatewayRoute(meshName, virtualGatewayName, rou
 func (b *InMemoryBackend) UpdateGatewayRoute(
 	meshName, virtualGatewayName, routeName string, spec json.RawMessage,
 ) (*GatewayRoute, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateGatewayRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -935,7 +936,7 @@ func (b *InMemoryBackend) UpdateGatewayRoute(
 }
 
 func (b *InMemoryBackend) DeleteGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteGatewayRoute")
 	defer b.mu.Unlock()
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
@@ -958,7 +959,7 @@ func (b *InMemoryBackend) DeleteGatewayRoute(meshName, virtualGatewayName, route
 func (b *InMemoryBackend) ListGatewayRoutes(
 	meshName, virtualGatewayName string, maxResults int32, nextToken string,
 ) ([]*GatewayRouteSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListGatewayRoutes")
 	defer b.mu.RUnlock()
 	if !b.meshes.Has(meshName) {
 		return nil, "", ErrMeshNotFound
@@ -995,7 +996,7 @@ func (b *InMemoryBackend) ListGatewayRoutes(
 // ─── Tags ─────────────────────────────────────────────────────────────────────
 
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 	if !b.arnExists(arn) {
 		return ErrResourceNotFound
@@ -1009,7 +1010,7 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 }
 
 func (b *InMemoryBackend) UntagResource(arn string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 	if !b.arnExists(arn) {
 		return ErrResourceNotFound
@@ -1026,7 +1027,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 	maxResults int32,
 	nextToken string,
 ) ([]TagRef, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 	if !b.arnExists(arn) {
 		return nil, "", ErrResourceNotFound

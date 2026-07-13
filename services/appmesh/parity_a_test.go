@@ -2,13 +2,18 @@ package appmesh_test
 
 // parity_a_test.go — §A parity fix: single-resource responses match AWS wire format.
 //
-// Real AWS App Mesh returns every Create/Describe/Update/Delete response with
-// the resource data at the top level of the JSON body (no wrapper key):
-//   CreateMesh → {"meshName": "...", "metadata": {...}, ...}
-//   CreateVirtualNode → {"meshName": "...", "virtualNodeName": "...", ...}
+// Real AWS App Mesh wraps every Create/Describe/Update/Delete response body in
+// a resource-type key, confirmed directly against the
+// aws-sdk-go-v2/service/appmesh deserializers (e.g.
+// awsRestjson1_deserializeOpDocumentCreateMeshOutput reads the "mesh" key;
+// awsRestjson1_deserializeOpDocumentCreateVirtualNodeOutput reads
+// "virtualNode"; etc.) — NOT flat at the top level:
+//   CreateMesh → {"mesh": {"meshName": "...", "metadata": {...}, ...}}
+//   CreateVirtualNode → {"virtualNode": {"meshName": "...", "virtualNodeName": "...", ...}}
 //   etc.
 //
-// This test verifies all 7 resource types return the expected top-level field.
+// This test verifies all 7 resource types wrap their response under the
+// expected key, with the identifying field nested inside it.
 
 import (
 	"net/http"
@@ -31,7 +36,8 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 		method   string
 		path     string
 		body     any
-		topField string // a field expected at the top level of the response
+		wrapKey  string // the resource-type key the response must be wrapped under
+		topField string // a field expected inside the wrapped resource object
 	}{
 		// ── Mesh ──────────────────────────────────────────────────────────────────
 		{
@@ -40,6 +46,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes",
 			body:     map[string]any{"meshName": "wrap-test"},
+			wrapKey:  "mesh",
 			topField: "meshName",
 		},
 		{
@@ -49,6 +56,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/wrap-test",
+			wrapKey:  "mesh",
 			topField: "meshName",
 		},
 		{
@@ -59,6 +67,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/wrap-test",
 			body:     map[string]any{},
+			wrapKey:  "mesh",
 			topField: "meshName",
 		},
 		{
@@ -68,6 +77,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/wrap-test",
+			wrapKey:  "mesh",
 			topField: "meshName",
 		},
 		// ── VirtualNode ───────────────────────────────────────────────────────────
@@ -79,6 +89,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualNodes",
 			body:     map[string]any{"virtualNodeName": "vn1"},
+			wrapKey:  "virtualNode",
 			topField: "virtualNodeName",
 		},
 		{
@@ -90,6 +101,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/m/virtualNodes/vn1",
+			wrapKey:  "virtualNode",
 			topField: "virtualNodeName",
 		},
 		{
@@ -102,6 +114,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualNodes/vn1",
 			body:     map[string]any{"spec": map[string]any{}},
+			wrapKey:  "virtualNode",
 			topField: "virtualNodeName",
 		},
 		{
@@ -113,6 +126,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/m/virtualNodes/vn1",
+			wrapKey:  "virtualNode",
 			topField: "virtualNodeName",
 		},
 		// ── VirtualRouter ─────────────────────────────────────────────────────────
@@ -124,6 +138,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualRouters",
 			body:     map[string]any{"virtualRouterName": "vr1"},
+			wrapKey:  "virtualRouter",
 			topField: "virtualRouterName",
 		},
 		{
@@ -135,6 +150,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/m/virtualRouters/vr1",
+			wrapKey:  "virtualRouter",
 			topField: "virtualRouterName",
 		},
 		{
@@ -147,6 +163,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualRouters/vr1",
 			body:     map[string]any{"spec": map[string]any{}},
+			wrapKey:  "virtualRouter",
 			topField: "virtualRouterName",
 		},
 		{
@@ -158,6 +175,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/m/virtualRouters/vr1",
+			wrapKey:  "virtualRouter",
 			topField: "virtualRouterName",
 		},
 		// ── Route ─────────────────────────────────────────────────────────────────
@@ -171,6 +189,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualRouter/vr1/routes",
 			body:     map[string]any{"routeName": "rt1", "spec": map[string]any{}},
+			wrapKey:  "route",
 			topField: "routeName",
 		},
 		{
@@ -184,6 +203,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/m/virtualRouter/vr1/routes/rt1",
+			wrapKey:  "route",
 			topField: "routeName",
 		},
 		{
@@ -198,6 +218,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualRouter/vr1/routes/rt1",
 			body:     map[string]any{"spec": map[string]any{}},
+			wrapKey:  "route",
 			topField: "routeName",
 		},
 		{
@@ -211,6 +232,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/m/virtualRouter/vr1/routes/rt1",
+			wrapKey:  "route",
 			topField: "routeName",
 		},
 		// ── VirtualService ────────────────────────────────────────────────────────
@@ -222,6 +244,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualServices",
 			body:     map[string]any{"virtualServiceName": "svc.local"},
+			wrapKey:  "virtualService",
 			topField: "virtualServiceName",
 		},
 		{
@@ -233,6 +256,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/m/virtualServices/svc.local",
+			wrapKey:  "virtualService",
 			topField: "virtualServiceName",
 		},
 		{
@@ -245,6 +269,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualServices/svc.local",
 			body:     map[string]any{"spec": map[string]any{}},
+			wrapKey:  "virtualService",
 			topField: "virtualServiceName",
 		},
 		{
@@ -256,6 +281,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/m/virtualServices/svc.local",
+			wrapKey:  "virtualService",
 			topField: "virtualServiceName",
 		},
 		// ── VirtualGateway ────────────────────────────────────────────────────────
@@ -267,6 +293,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualGateways",
 			body:     map[string]any{"virtualGatewayName": "gw1"},
+			wrapKey:  "virtualGateway",
 			topField: "virtualGatewayName",
 		},
 		{
@@ -278,6 +305,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/m/virtualGateways/gw1",
+			wrapKey:  "virtualGateway",
 			topField: "virtualGatewayName",
 		},
 		{
@@ -290,6 +318,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualGateways/gw1",
 			body:     map[string]any{"spec": map[string]any{}},
+			wrapKey:  "virtualGateway",
 			topField: "virtualGatewayName",
 		},
 		{
@@ -301,6 +330,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/m/virtualGateways/gw1",
+			wrapKey:  "virtualGateway",
 			topField: "virtualGatewayName",
 		},
 		// ── GatewayRoute ──────────────────────────────────────────────────────────
@@ -314,6 +344,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualGateway/gw1/gatewayRoutes",
 			body:     map[string]any{"gatewayRouteName": "gr1", "spec": map[string]any{}},
+			wrapKey:  "gatewayRoute",
 			topField: "gatewayRouteName",
 		},
 		{
@@ -327,6 +358,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodGet,
 			path:     "/meshes/m/virtualGateway/gw1/gatewayRoutes/gr1",
+			wrapKey:  "gatewayRoute",
 			topField: "gatewayRouteName",
 		},
 		{
@@ -341,6 +373,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			method:   http.MethodPut,
 			path:     "/meshes/m/virtualGateway/gw1/gatewayRoutes/gr1",
 			body:     map[string]any{"spec": map[string]any{}},
+			wrapKey:  "gatewayRoute",
 			topField: "gatewayRouteName",
 		},
 		{
@@ -354,6 +387,7 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			},
 			method:   http.MethodDelete,
 			path:     "/meshes/m/virtualGateway/gw1/gatewayRoutes/gr1",
+			wrapKey:  "gatewayRoute",
 			topField: "gatewayRouteName",
 		},
 	}
@@ -368,10 +402,14 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "%s: unexpected status", tt.name)
 
 			body := getBody(t, rec)
-			_, ok := body[tt.topField]
+			wrapped, ok := body[tt.wrapKey].(map[string]any)
+			require.True(t, ok,
+				"%s: response must be wrapped under %q; got keys: %v",
+				tt.name, tt.wrapKey, mapKeys(body))
+			_, ok = wrapped[tt.topField]
 			assert.True(t, ok,
-				"%s: response must have %q at top level; got keys: %v",
-				tt.name, tt.topField, mapKeys(body))
+				"%s: wrapped %q object must have %q; got keys: %v",
+				tt.name, tt.wrapKey, tt.topField, mapKeys(wrapped))
 		})
 	}
 }
