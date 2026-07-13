@@ -464,8 +464,11 @@ func TestRefinement4_GetTemporaryGlueTableCredentials_UniquePerCall(t *testing.T
 
 		var out map[string]any
 		require.NoError(t, jsonDecode(rec.Body, &out))
-		creds := out["Credentials"].(map[string]any)
-		sessions = append(sessions, creds["SessionToken"].(string))
+		// GetTemporaryGlueTableCredentialsOutput returns credential fields
+		// flat (no nested "Credentials" object), unlike
+		// GetTemporaryDataLocationCredentials -- see the real
+		// aws-sdk-go-v2 GetTemporaryGlueTableCredentialsOutput shape.
+		sessions = append(sessions, out["SessionToken"].(string))
 	}
 
 	// All session tokens must be distinct

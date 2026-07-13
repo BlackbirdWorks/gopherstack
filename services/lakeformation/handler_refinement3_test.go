@@ -534,8 +534,12 @@ func TestRefinement3_GetTemporaryDataLocationCredentials_Success(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, jsonDecode(rec.Body, &out))
-	assert.NotNil(t, out["Credentials"])
-	assert.NotEmpty(t, out["Expiration"])
+	require.NotNil(t, out["Credentials"])
+	// Real AWS nests Expiration inside Credentials for
+	// GetTemporaryDataLocationCredentials (unlike the Glue partition/table
+	// credential ops, which return it at the top level).
+	creds := out["Credentials"].(map[string]any)
+	assert.NotEmpty(t, creds["Expiration"])
 }
 
 func TestRefinement3_GetTemporaryDataLocationCredentials_MissingARN(t *testing.T) {

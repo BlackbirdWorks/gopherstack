@@ -1,6 +1,10 @@
 package lakeformation
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+)
 
 // DataLakeSettings contains the data lake settings for an account.
 type DataLakeSettings struct {
@@ -26,11 +30,74 @@ type PrincipalPermissions struct {
 	Permissions []string           `json:"Permissions,omitempty"`
 }
 
-// ResourceInfo holds registration info for a data lake resource.
+// ResourceInfo holds registration info for a data lake resource. This is the
+// internal/persisted representation -- LastModified is a *time.Time for
+// business-logic convenience. HTTP responses must go through
+// toResourceInfoWire, which re-encodes LastModified as epoch seconds to
+// match the real wire format (see resourceInfoWire).
 type ResourceInfo struct {
 	LastModified *time.Time `json:"LastModified,omitempty"`
 	ResourceArn  string     `json:"ResourceArn"`
 	RoleArn      string     `json:"RoleArn"`
+}
+
+// resourceInfoWire is the wire representation of ResourceInfo returned by
+// DescribeResource/ListResources. LastModified is emitted as epoch seconds
+// (a JSON number) via awstime.Epoch, matching the real
+// types.ResourceInfo.LastModified wire format -- the aws-sdk-go-v2
+// deserializer rejects Go's default RFC3339-string time.Time encoding here.
+type resourceInfoWire struct {
+	LastModified *float64 `json:"LastModified,omitempty"`
+	ResourceArn  string   `json:"ResourceArn"`
+	RoleArn      string   `json:"RoleArn"`
+}
+
+// toResourceInfoWire converts a ResourceInfo to its wire representation.
+func toResourceInfoWire(ri *ResourceInfo) *resourceInfoWire {
+	if ri == nil {
+		return nil
+	}
+
+	w := &resourceInfoWire{ResourceArn: ri.ResourceArn, RoleArn: ri.RoleArn}
+
+	if ri.LastModified != nil {
+		e := awstime.Epoch(*ri.LastModified)
+		w.LastModified = &e
+	}
+
+	return w
+}
+
+// toResourceInfoWireList converts a slice of ResourceInfo to their wire representation.
+func toResourceInfoWireList(list []*ResourceInfo) []*resourceInfoWire {
+	out := make([]*resourceInfoWire, len(list))
+	for i, ri := range list {
+		out[i] = toResourceInfoWire(ri)
+	}
+
+	return out
+}
+
+// rfc3339ToEpoch parses an RFC3339-formatted timestamp string (the internal
+// storage format used by several LakeFormation domain fields, e.g.
+// LFOptIn.LastModified and Transaction.TransactionStartTime/EndTime) and
+// returns its value as an epoch-seconds float, matching the wire format the
+// real SDK expects. Returns nil for an empty or unparseable string, matching
+// AWS's behavior of omitting a timestamp field that has no value yet (e.g. a
+// still-active transaction has no TransactionEndTime).
+func rfc3339ToEpoch(s string) *float64 {
+	if s == "" {
+		return nil
+	}
+
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+
+	e := awstime.Epoch(t)
+
+	return &e
 }
 
 // LFTag represents a Lake Formation tag with its allowed values.
@@ -142,7 +209,7 @@ type describeResourceInput struct {
 
 // describeResourceOutput is the response body for DescribeResource.
 type describeResourceOutput struct {
-	ResourceInfo *ResourceInfo `json:"ResourceInfo"`
+	ResourceInfo *resourceInfoWire `json:"ResourceInfo"`
 }
 
 // listResourcesInput is the request body for ListResources.
@@ -153,8 +220,8 @@ type listResourcesInput struct {
 
 // listResourcesOutput is the response body for ListResources.
 type listResourcesOutput struct {
-	NextToken        string          `json:"NextToken,omitempty"`
-	ResourceInfoList []*ResourceInfo `json:"ResourceInfoList"`
+	NextToken        string              `json:"NextToken,omitempty"`
+	ResourceInfoList []*resourceInfoWire `json:"ResourceInfoList"`
 }
 
 // grantPermissionsInput is the request body for GrantPermissions.
@@ -316,12 +383,51 @@ type LFTagExpression struct {
 	Expression  []LFTag `json:"Expression,omitempty"`
 }
 
-// Transaction represents an in-flight Lake Formation governed table transaction.
+// Transaction represents an in-flight Lake Formation governed table
+// transaction. This is the internal representation -- TransactionStartTime
+// and TransactionEndTime are RFC3339 strings for business-logic convenience.
+// HTTP responses must go through toTransactionWire, which re-encodes them as
+// epoch seconds to match the real wire format (see transactionWire).
 type Transaction struct {
 	TransactionID        string `json:"TransactionId"`
 	TransactionStatus    string `json:"TransactionStatus"`
 	TransactionStartTime string `json:"TransactionStartTime,omitempty"`
 	TransactionEndTime   string `json:"TransactionEndTime,omitempty"`
+}
+
+// transactionWire is the wire representation of Transaction returned by
+// DescribeTransaction/ListTransactions. TransactionStartTime/EndTime are
+// emitted as epoch seconds (JSON numbers) via rfc3339ToEpoch, matching the
+// real types.TransactionDescription wire format.
+type transactionWire struct {
+	TransactionStartTime *float64 `json:"TransactionStartTime,omitempty"`
+	TransactionEndTime   *float64 `json:"TransactionEndTime,omitempty"`
+	TransactionID        string   `json:"TransactionId"`
+	TransactionStatus    string   `json:"TransactionStatus"`
+}
+
+// toTransactionWire converts a Transaction to its wire representation.
+func toTransactionWire(t *Transaction) *transactionWire {
+	if t == nil {
+		return nil
+	}
+
+	return &transactionWire{
+		TransactionID:        t.TransactionID,
+		TransactionStatus:    t.TransactionStatus,
+		TransactionStartTime: rfc3339ToEpoch(t.TransactionStartTime),
+		TransactionEndTime:   rfc3339ToEpoch(t.TransactionEndTime),
+	}
+}
+
+// toTransactionWireList converts a slice of Transaction to their wire representation.
+func toTransactionWireList(list []*Transaction) []*transactionWire {
+	out := make([]*transactionWire, len(list))
+	for i, t := range list {
+		out[i] = toTransactionWire(t)
+	}
+
+	return out
 }
 
 // IdentityCenterConfiguration holds the IAM Identity Center integration configuration.
@@ -334,12 +440,51 @@ type IdentityCenterConfiguration struct {
 	ShareRecipients   []DataLakePrincipal             `json:"ShareRecipients,omitempty"`
 }
 
-// LFOptIn associates a principal and resource for opt-in enforcement.
+// LFOptIn associates a principal and resource for opt-in enforcement. This is
+// the internal representation -- LastModified is an RFC3339 string for
+// business-logic convenience. HTTP responses must go through
+// toLFOptInWire, which re-encodes it as epoch seconds to match the real wire
+// format (see lfOptInWire).
 type LFOptIn struct {
 	Principal     *DataLakePrincipal `json:"Principal,omitempty"`
 	Resource      *Resource          `json:"Resource,omitempty"`
 	LastModified  string             `json:"LastModified,omitempty"`
 	LastUpdatedBy string             `json:"LastUpdatedBy,omitempty"`
+}
+
+// lfOptInWire is the wire representation of LFOptIn returned by
+// ListLakeFormationOptIns. LastModified is emitted as epoch seconds (a JSON
+// number) via rfc3339ToEpoch, matching the real
+// types.LakeFormationOptInsInfo.LastModified wire format.
+type lfOptInWire struct {
+	Principal     *DataLakePrincipal `json:"Principal,omitempty"`
+	Resource      *Resource          `json:"Resource,omitempty"`
+	LastModified  *float64           `json:"LastModified,omitempty"`
+	LastUpdatedBy string             `json:"LastUpdatedBy,omitempty"`
+}
+
+// toLFOptInWire converts an LFOptIn to its wire representation.
+func toLFOptInWire(o *LFOptIn) *lfOptInWire {
+	if o == nil {
+		return nil
+	}
+
+	return &lfOptInWire{
+		Principal:     o.Principal,
+		Resource:      o.Resource,
+		LastModified:  rfc3339ToEpoch(o.LastModified),
+		LastUpdatedBy: o.LastUpdatedBy,
+	}
+}
+
+// toLFOptInWireList converts a slice of LFOptIn to their wire representation.
+func toLFOptInWireList(list []*LFOptIn) []*lfOptInWire {
+	out := make([]*lfOptInWire, len(list))
+	for i, o := range list {
+		out[i] = toLFOptInWire(o)
+	}
+
+	return out
 }
 
 // --- Request / Response types for new operations ---
@@ -365,11 +510,14 @@ type assumeDecoratedRoleWithSAMLInput struct {
 }
 
 // SAMLCredentials is the response body for AssumeDecoratedRoleWithSAML.
+// Expiration is emitted as epoch seconds (a JSON number) via awstime.Epoch,
+// matching the real AssumeDecoratedRoleWithSAMLOutput.Expiration wire format
+// -- the aws-sdk-go-v2 deserializer rejects an RFC3339 string here.
 type SAMLCredentials struct {
-	AccessKeyID     string `json:"AccessKeyId,omitempty"`
-	SecretAccessKey string `json:"SecretAccessKey,omitempty"`
-	SessionToken    string `json:"SessionToken,omitempty"`
-	Expiration      string `json:"Expiration,omitempty"`
+	AccessKeyID     string  `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string  `json:"SecretAccessKey,omitempty"`
+	SessionToken    string  `json:"SessionToken,omitempty"`
+	Expiration      float64 `json:"Expiration,omitempty"`
 }
 
 // cancelTransactionInput is the request body for CancelTransaction.
@@ -481,7 +629,7 @@ type describeTransactionInput struct {
 
 // describeTransactionOutput is the response body for DescribeTransaction.
 type describeTransactionOutput struct {
-	TransactionDescription *Transaction `json:"TransactionDescription,omitempty"`
+	TransactionDescription *transactionWire `json:"TransactionDescription,omitempty"`
 }
 
 // listTransactionsInput is the request body for ListTransactions.
@@ -493,8 +641,8 @@ type listTransactionsInput struct {
 
 // listTransactionsOutput is the response body for ListTransactions.
 type listTransactionsOutput struct {
-	NextToken    string         `json:"NextToken,omitempty"`
-	Transactions []*Transaction `json:"Transactions"`
+	NextToken    string             `json:"NextToken,omitempty"`
+	Transactions []*transactionWire `json:"Transactions"`
 }
 
 // removeLFTagsFromResourceInput is the request body for RemoveLFTagsFromResource.
@@ -568,8 +716,8 @@ type listLakeFormationOptInsInput struct {
 
 // listLakeFormationOptInsOutput is the response body for ListLakeFormationOptIns.
 type listLakeFormationOptInsOutput struct {
-	NextToken                   string     `json:"NextToken,omitempty"`
-	LakeFormationOptInsInfoList []*LFOptIn `json:"LakeFormationOptInsInfoList"`
+	NextToken                   string         `json:"NextToken,omitempty"`
+	LakeFormationOptInsInfoList []*lfOptInWire `json:"LakeFormationOptInsInfoList"`
 }
 
 // getDataLakePrincipalOutput is the response body for GetDataLakePrincipal.
@@ -610,11 +758,14 @@ type WriteOperation struct {
 	DeleteObject *VirtualObject `json:"DeleteObject,omitempty"`
 }
 
-// TemporaryCredentials holds temporary AWS credentials.
+// TemporaryCredentials holds temporary AWS credentials. Expiration is
+// emitted as epoch seconds (a JSON number) via awstime.Epoch, matching the
+// real types.TemporaryCredentials.Expiration wire format.
 type TemporaryCredentials struct {
-	AccessKeyID     string `json:"AccessKeyId,omitempty"`
-	SecretAccessKey string `json:"SecretAccessKey,omitempty"`
-	SessionToken    string `json:"SessionToken,omitempty"`
+	AccessKeyID     string  `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string  `json:"SecretAccessKey,omitempty"`
+	SessionToken    string  `json:"SessionToken,omitempty"`
+	Expiration      float64 `json:"Expiration,omitempty"`
 }
 
 // AuditContext carries audit information.
@@ -786,9 +937,14 @@ type getTemporaryDataLocationCredentialsInput struct {
 	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
 	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
 }
+
+// getTemporaryDataLocationCredentialsOutput is the response body for
+// GetTemporaryDataLocationCredentials. Real AWS nests Expiration inside
+// Credentials (see types.TemporaryCredentials) rather than at the top level
+// -- unlike GetTemporaryGluePartitionCredentials/GetTemporaryGlueTableCredentials,
+// which return the credential fields flat.
 type getTemporaryDataLocationCredentialsOutput struct {
 	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
-	Expiration  *string               `json:"Expiration,omitempty"`
 }
 
 type getTemporaryGluePartitionCredentialsInput struct {
@@ -799,9 +955,16 @@ type getTemporaryGluePartitionCredentialsInput struct {
 	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
 	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
 }
+
+// getTemporaryGluePartitionCredentialsOutput is the response body for
+// GetTemporaryGluePartitionCredentials. Real AWS returns these fields flat
+// (no nested "Credentials" object) with Expiration as epoch seconds -- see
+// GetTemporaryGluePartitionCredentialsOutput in the aws-sdk-go-v2 model.
 type getTemporaryGluePartitionCredentialsOutput struct {
-	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
-	Expiration  *string               `json:"Expiration,omitempty"`
+	AccessKeyID     string  `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string  `json:"SecretAccessKey,omitempty"`
+	SessionToken    string  `json:"SessionToken,omitempty"`
+	Expiration      float64 `json:"Expiration,omitempty"`
 }
 
 type getTemporaryGlueTableCredentialsInput struct {
@@ -811,9 +974,16 @@ type getTemporaryGlueTableCredentialsInput struct {
 	AuditContext             *AuditContext `json:"AuditContext,omitempty"`
 	SupportedPermissionTypes []string      `json:"SupportedPermissionTypes,omitempty"`
 }
+
+// getTemporaryGlueTableCredentialsOutput is the response body for
+// GetTemporaryGlueTableCredentials. Real AWS returns these fields flat (no
+// nested "Credentials" object) with Expiration as epoch seconds -- see
+// GetTemporaryGlueTableCredentialsOutput in the aws-sdk-go-v2 model.
 type getTemporaryGlueTableCredentialsOutput struct {
-	Credentials *TemporaryCredentials `json:"Credentials,omitempty"`
-	Expiration  *string               `json:"Expiration,omitempty"`
+	AccessKeyID     string  `json:"AccessKeyId,omitempty"`
+	SecretAccessKey string  `json:"SecretAccessKey,omitempty"`
+	SessionToken    string  `json:"SessionToken,omitempty"`
+	Expiration      float64 `json:"Expiration,omitempty"`
 }
 
 type getWorkUnitResultsInput struct {

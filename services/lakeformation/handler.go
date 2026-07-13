@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -337,6 +336,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "EntityNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return h.writeError(c, http.StatusConflict, "AlreadyExistsException", err.Error())
+	case errors.Is(err, errTransactionCommitted):
+		return h.writeError(c, http.StatusBadRequest, "TransactionCommittedException", err.Error())
 	case errors.Is(err, awserr.ErrConflict):
 		return h.writeError(c, http.StatusBadRequest, "TransactionCanceledException", err.Error())
 	default:
@@ -428,7 +429,7 @@ func (h *Handler) handleDescribeResource(_ context.Context, c *echo.Context, bod
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeResourceOutput{ResourceInfo: info})
+	return c.JSON(http.StatusOK, describeResourceOutput{ResourceInfo: toResourceInfoWire(info)})
 }
 
 func (h *Handler) handleListResources(_ context.Context, c *echo.Context, body []byte) error {
@@ -442,7 +443,7 @@ func (h *Handler) handleListResources(_ context.Context, c *echo.Context, body [
 	resources, nextToken := h.Backend.ListResources(in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, listResourcesOutput{
-		ResourceInfoList: resources,
+		ResourceInfoList: toResourceInfoWireList(resources),
 		NextToken:        nextToken,
 	})
 }
@@ -876,7 +877,7 @@ func (h *Handler) handleDescribeTransaction(_ context.Context, c *echo.Context, 
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeTransactionOutput{TransactionDescription: tx})
+	return c.JSON(http.StatusOK, describeTransactionOutput{TransactionDescription: toTransactionWire(tx)})
 }
 
 func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, body []byte) error {
@@ -890,7 +891,7 @@ func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, bod
 	txns, nextToken := h.Backend.ListTransactions(in.StatusFilter, in.MaxResults, in.NextToken)
 
 	return c.JSON(http.StatusOK, listTransactionsOutput{
-		Transactions: txns,
+		Transactions: toTransactionWireList(txns),
 		NextToken:    nextToken,
 	})
 }
@@ -1037,7 +1038,7 @@ func (h *Handler) handleListLakeFormationOptIns(_ context.Context, c *echo.Conte
 	)
 
 	return c.JSON(http.StatusOK, listLakeFormationOptInsOutput{
-		LakeFormationOptInsInfoList: optIns,
+		LakeFormationOptInsInfoList: toLFOptInWireList(optIns),
 		NextToken:                   nextToken,
 	})
 }
@@ -1209,16 +1210,6 @@ func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body
 	return c.JSON(http.StatusOK, getTableObjectsOutput{Objects: objects, NextToken: nextToken})
 }
 
-// credentialsExpiry computes the expiration time based on optional DurationSeconds (default 1 hour).
-func credentialsExpiry(durationSeconds *int32) string {
-	d := time.Hour
-	if durationSeconds != nil && *durationSeconds > 0 {
-		d = time.Duration(*durationSeconds) * time.Second
-	}
-
-	return time.Now().Add(d).UTC().Format(time.RFC3339)
-}
-
 func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c *echo.Context, body []byte) error {
 	var in getTemporaryDataLocationCredentialsInput
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -1228,9 +1219,8 @@ func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "ResourceArn is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
-	expiry := credentialsExpiry(in.DurationSeconds)
 
-	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{Credentials: creds, Expiration: &expiry})
+	return c.JSON(http.StatusOK, getTemporaryDataLocationCredentialsOutput{Credentials: creds})
 }
 
 func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, c *echo.Context, body []byte) error {
@@ -1242,9 +1232,13 @@ func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, 
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableArn is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
-	expiry := credentialsExpiry(in.DurationSeconds)
 
-	return c.JSON(http.StatusOK, getTemporaryGluePartitionCredentialsOutput{Credentials: creds, Expiration: &expiry})
+	return c.JSON(http.StatusOK, getTemporaryGluePartitionCredentialsOutput{
+		AccessKeyID:     creds.AccessKeyID,
+		SecretAccessKey: creds.SecretAccessKey,
+		SessionToken:    creds.SessionToken,
+		Expiration:      creds.Expiration,
+	})
 }
 
 func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *echo.Context, body []byte) error {
@@ -1256,9 +1250,13 @@ func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *e
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "TableArn is required")
 	}
 	creds := h.Backend.GetTemporaryCredentials(in.DurationSeconds)
-	expiry := credentialsExpiry(in.DurationSeconds)
 
-	return c.JSON(http.StatusOK, getTemporaryGlueTableCredentialsOutput{Credentials: creds, Expiration: &expiry})
+	return c.JSON(http.StatusOK, getTemporaryGlueTableCredentialsOutput{
+		AccessKeyID:     creds.AccessKeyID,
+		SecretAccessKey: creds.SecretAccessKey,
+		SessionToken:    creds.SessionToken,
+		Expiration:      creds.Expiration,
+	})
 }
 
 func (h *Handler) handleGetWorkUnitResults(_ context.Context, c *echo.Context, body []byte) error {
