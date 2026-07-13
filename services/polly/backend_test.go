@@ -123,7 +123,7 @@ func TestSynthesisTextLimits(t *testing.T) {
 			})
 			if test.wantErr {
 				require.Error(t, err)
-				assert.ErrorIs(t, err, polly.ErrValidation)
+				assert.ErrorIs(t, err, polly.ErrTextLengthExceeded)
 			} else {
 				assert.NoError(t, err)
 			}
@@ -140,7 +140,7 @@ func TestStartTaskTextLimit(t *testing.T) {
 		"bucket", "", "",
 	)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, polly.ErrValidation)
+	assert.ErrorIs(t, err, polly.ErrTextLengthExceeded)
 }
 
 func TestLexiconNamesLimit(t *testing.T) {

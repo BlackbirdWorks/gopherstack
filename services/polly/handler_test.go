@@ -189,6 +189,18 @@ func TestSynthesizeSpeechFormats(t *testing.T) {
 			bodyMagic: []byte("RIFF"),
 		},
 		{
+			name: "ogg_opus", format: "ogg_opus", rate: "48000", textType: "text", contentType: "audio/ogg",
+			bodyMagic: []byte("OggS"),
+		},
+		{
+			name: "mulaw", format: "mulaw", rate: "8000", textType: "text", contentType: "audio/mulaw",
+			bodyMagic: []byte{0xFF, 0xFF},
+		},
+		{
+			name: "alaw", format: "alaw", rate: "8000", textType: "text", contentType: "audio/alaw",
+			bodyMagic: []byte{0xD5, 0xD5},
+		},
+		{
 			name:         "word_mark",
 			format:       "json",
 			rate:         "22050",
@@ -241,12 +253,14 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body map[string]any
-		name string
+		body    map[string]any
+		name    string
+		wantErr string
 	}{
 		{
-			name: "json_requires_marks",
-			body: map[string]any{"OutputFormat": "json", "Text": "hello", "VoiceId": "Joanna"},
+			name:    "json_requires_marks",
+			body:    map[string]any{"OutputFormat": "json", "Text": "hello", "VoiceId": "Joanna"},
+			wantErr: "InvalidParameterValueException",
 		},
 		{
 			name: "marks_require_json",
@@ -256,14 +270,37 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 				"Text":            "hello",
 				"VoiceId":         "Joanna",
 			},
+			wantErr: "MarksNotSupportedForFormatException",
 		},
 		{
-			name: "invalid_rate",
-			body: map[string]any{"OutputFormat": "pcm", "SampleRate": "48000", "Text": "hello", "VoiceId": "Joanna"},
+			name:    "invalid_rate",
+			body:    map[string]any{"OutputFormat": "pcm", "SampleRate": "48000", "Text": "hello", "VoiceId": "Joanna"},
+			wantErr: "InvalidSampleRateException",
 		},
 		{
-			name: "unsupported_neural_voice",
-			body: map[string]any{"Engine": "neural", "Text": "hello", "VoiceId": "Aditi"},
+			name:    "unsupported_neural_voice",
+			body:    map[string]any{"Engine": "neural", "Text": "hello", "VoiceId": "Aditi"},
+			wantErr: "EngineNotSupportedException",
+		},
+		{
+			name: "unsupported_language_for_voice",
+			body: map[string]any{
+				"LanguageCode": "fr-FR", "Text": "hello", "VoiceId": "Joanna",
+			},
+			wantErr: "LanguageNotSupportedException",
+		},
+		{
+			name:    "unknown_voice_id",
+			body:    map[string]any{"Text": "hello", "VoiceId": "NotAVoice"},
+			wantErr: "InvalidParameterValueException",
+		},
+		{
+			name: "ssml_marks_require_ssml_text_type",
+			body: map[string]any{
+				"OutputFormat": "json", "SpeechMarkTypes": []string{"ssml"},
+				"Text": "hello", "TextType": "text", "VoiceId": "Joanna",
+			},
+			wantErr: "SsmlMarksNotSupportedForTextTypeException",
 		},
 	}
 
@@ -273,7 +310,7 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 
 			rec := request(t, newHandler(), http.MethodPost, "/v1/speech", test.body)
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
-			assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+			assert.Contains(t, rec.Body.String(), test.wantErr)
 		})
 	}
 }
@@ -339,13 +376,24 @@ func TestTaskListPaginationAndValidation(t *testing.T) {
 	require.Equal(t, http.StatusOK, second.Code)
 	assert.Len(t, responseMap(t, second)["SynthesisTasks"].([]any), 1)
 
-	for _, query := range []string{"?MaxResults=0", "?MaxResults=bad", "?Status=nope", "?NextToken=bad"} {
-		rec := request(t, handler, http.MethodGet, "/v1/synthesisTasks"+query, nil)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	invalidQueries := []struct {
+		query   string
+		wantErr string
+	}{
+		{query: "?MaxResults=0", wantErr: "InvalidParameterValueException"},
+		{query: "?MaxResults=bad", wantErr: "InvalidParameterValueException"},
+		{query: "?Status=nope", wantErr: "InvalidParameterValueException"},
+		{query: "?NextToken=bad", wantErr: "InvalidNextTokenException"},
+	}
+	for _, tc := range invalidQueries {
+		rec := request(t, handler, http.MethodGet, "/v1/synthesisTasks"+tc.query, nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, tc.query)
+		assert.Contains(t, rec.Body.String(), tc.wantErr, tc.query)
 	}
 
 	missing := request(t, handler, http.MethodGet, "/v1/synthesisTasks/not-created", nil)
-	assert.Equal(t, http.StatusNotFound, missing.Code)
+	// AWS models SynthesisTaskNotFoundException with httpStatusCode 400, not 404.
+	assert.Equal(t, http.StatusBadRequest, missing.Code)
 	assert.Contains(t, missing.Body.String(), "SynthesisTaskNotFoundException")
 }
 
