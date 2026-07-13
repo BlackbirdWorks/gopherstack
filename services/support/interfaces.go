@@ -27,7 +27,7 @@ type StorageBackend interface {
 	DescribeCreateCaseOptions(issueType, serviceCode, categoryCode, language string) *DescribeCreateCaseOptionsResult
 	DescribeServices(serviceCodeList []string, language string) []Service
 	DescribeSeverityLevels(language string) []SeverityLevel
-	DescribeSupportedLanguages(issueType, serviceCode, severityLevel string) []SupportedLanguage
+	DescribeSupportedLanguages(issueType, serviceCode, categoryCode string) []SupportedLanguage
 	DescribeTrustedAdvisorCheckRefreshStatuses(checkIDs []string) []TrustedAdvisorCheckRefreshStatus
 	DescribeTrustedAdvisorCheckResult(checkID, language string) *TrustedAdvisorCheckResult
 	DescribeTrustedAdvisorCheckSummaries(checkIDs []string) []TrustedAdvisorCheckSummary

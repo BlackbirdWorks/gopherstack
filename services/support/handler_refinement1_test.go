@@ -428,7 +428,11 @@ func TestRefinement1_CreateCase_ValidationError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestRefinement1_AlreadyResolved verifies double-resolve returns 400.
+// TestRefinement1_AlreadyResolved verifies double-resolve is idempotent: real
+// AWS Support's ResolveCase has no "already resolved" error (its modeled
+// exceptions are only CaseIdNotFound and InternalServerError), so resolving
+// an already-resolved case succeeds and reports "resolved" for both the
+// initial and final status.
 func TestRefinement1_AlreadyResolved(t *testing.T) {
 	t.Parallel()
 
@@ -450,7 +454,12 @@ func TestRefinement1_AlreadyResolved(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	rec3 := doSupportRequest(t, h, "ResolveCase", map[string]any{"caseId": caseID})
-	assert.Equal(t, http.StatusBadRequest, rec3.Code)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var resp3 map[string]any
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	assert.Equal(t, "resolved", resp3["initialCaseStatus"])
+	assert.Equal(t, "resolved", resp3["finalCaseStatus"])
 }
 
 // TestRefinement1_DescribeCommunications_MissingCaseId verifies validation.

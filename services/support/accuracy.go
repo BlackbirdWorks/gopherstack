@@ -185,6 +185,10 @@ func (b *InMemoryBackend) AddCommunicationWithOptions(in AddCommunicationOptions
 }
 
 // ResolveCaseWithStatus resolves a case and returns its real prior status.
+// Real AWS Support has no "already resolved" error for ResolveCase: the
+// operation's modeled exceptions are only CaseIdNotFound and
+// InternalServerError, and resolving an already-resolved case is a no-op that
+// reports resolved for both initialCaseStatus and finalCaseStatus.
 func (b *InMemoryBackend) ResolveCaseWithStatus(caseID string) (string, *Case, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -193,13 +197,12 @@ func (b *InMemoryBackend) ResolveCaseWithStatus(caseID string) (string, *Case, e
 	if !ok {
 		return "", nil, fmt.Errorf("%w: %s", ErrNotFound, caseID)
 	}
-	if cs.Status == caseStatusResolved {
-		return "", nil, fmt.Errorf("%w: %s", ErrAlreadyResolved, caseID)
-	}
 	initialStatus := cs.Status
-	now := time.Now()
-	cs.Status = caseStatusResolved
-	cs.ResolvedTime = &now
+	if cs.Status != caseStatusResolved {
+		now := time.Now()
+		cs.Status = caseStatusResolved
+		cs.ResolvedTime = &now
+	}
 	out := *cs
 
 	return initialStatus, &out, nil

@@ -237,9 +237,9 @@ func TestSupport_DescribeSupportedLanguages(t *testing.T) {
 		{
 			name: "all_params",
 			body: map[string]any{
-				"issueType":     "technical",
-				"serviceCode":   "amazon-s3",
-				"severityLevel": "low",
+				"issueType":    "technical",
+				"serviceCode":  "amazon-s3",
+				"categoryCode": "general-guidance",
 			},
 			wantCode: http.StatusOK,
 		},
