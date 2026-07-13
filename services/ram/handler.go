@@ -1013,25 +1013,53 @@ func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	// If specific ARNs requested, look them up individually.
+	var shares []resourceShareObject
+
+	// If specific ARNs requested, look them up individually but still apply
+	// the name/status filters -- AWS combines resourceShareArns with the
+	// other filters rather than treating it as an exclusive lookup mode.
 	if len(req.ResourceShareArns) > 0 {
-		shares := make([]resourceShareObject, 0, len(req.ResourceShareArns))
-
-		for _, shareARN := range req.ResourceShareArns {
-			rs, err := h.Backend.GetResourceShare(shareARN)
-			if err != nil {
-				continue
-			}
-
-			shares = append(shares, toResourceShareObject(rs))
-		}
-
-		return json.Marshal(getResourceSharesResponse{ResourceShares: shares})
+		shares = h.getResourceSharesByARN(req)
+	} else {
+		shares = h.getResourceSharesByFilter(req)
 	}
 
-	list := h.Backend.ListResourceShares(req.ResourceOwner, req.ResourceShareStatus)
+	page, nextToken, err := ramPaginate(shares, req.NextToken, req.MaxResults)
+	if err != nil {
+		return nil, err
+	}
 
-	// Filter by name if provided.
+	return json.Marshal(getResourceSharesResponse{NextToken: nextToken, ResourceShares: page})
+}
+
+// getResourceSharesByARN looks up each requested ARN individually, applying
+// the name/status filters to the results.
+func (h *Handler) getResourceSharesByARN(req getResourceSharesRequest) []resourceShareObject {
+	shares := make([]resourceShareObject, 0, len(req.ResourceShareArns))
+
+	for _, shareARN := range req.ResourceShareArns {
+		rs, err := h.Backend.GetResourceShare(shareARN)
+		if err != nil {
+			continue
+		}
+
+		if req.Name != "" && rs.Name != req.Name {
+			continue
+		}
+
+		if req.ResourceShareStatus != "" && rs.Status != req.ResourceShareStatus {
+			continue
+		}
+
+		shares = append(shares, toResourceShareObject(rs))
+	}
+
+	return shares
+}
+
+// getResourceSharesByFilter lists shares by owner/status, applying the name filter.
+func (h *Handler) getResourceSharesByFilter(req getResourceSharesRequest) []resourceShareObject {
+	list := h.Backend.ListResourceShares(req.ResourceOwner, req.ResourceShareStatus)
 	shares := make([]resourceShareObject, 0, len(list))
 
 	for _, rs := range list {
@@ -1042,12 +1070,7 @@ func (h *Handler) handleGetResourceShares(_ context.Context, body []byte) ([]byt
 		shares = append(shares, toResourceShareObject(rs))
 	}
 
-	page, nextToken, err := ramPaginate(shares, req.NextToken, req.MaxResults)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(getResourceSharesResponse{NextToken: nextToken, ResourceShares: page})
+	return shares
 }
 
 type updateResourceShareRequest struct {
@@ -1183,6 +1206,7 @@ func (h *Handler) handleDisassociateResourceShare(_ context.Context, body []byte
 type getResourceShareAssociationsRequest struct {
 	MaxResults        *int32   `json:"maxResults,omitempty"`
 	AssociationType   string   `json:"associationType"`
+	AssociationStatus string   `json:"associationStatus"`
 	Principal         string   `json:"principal"`
 	ResourceArn       string   `json:"resourceArn"`
 	NextToken         string   `json:"nextToken"`
@@ -1208,7 +1232,7 @@ func (h *Handler) handleGetResourceShareAssociations(
 		req.ResourceShareArns,
 	)
 
-	// Apply principal or resource ARN filter.
+	// Apply principal, resource ARN, or association status filter.
 	filtered := make([]associationObject, 0, len(associations))
 
 	for _, a := range associations {
@@ -1217,6 +1241,10 @@ func (h *Handler) handleGetResourceShareAssociations(
 		}
 
 		if req.ResourceArn != "" && a.AssociatedEntity != req.ResourceArn {
+			continue
+		}
+
+		if req.AssociationStatus != "" && a.Status != req.AssociationStatus {
 			continue
 		}
 
@@ -1349,8 +1377,8 @@ func (h *Handler) handleListResourceSharePermissions(
 	perms := h.Backend.ListResourceSharePermissions(req.ResourceShareArn)
 	objs := make([]permissionSummaryObject, 0, len(perms))
 
-	for _, p := range perms {
-		objs = append(objs, toPermissionSummaryObject(p))
+	for _, d := range perms {
+		objs = append(objs, toResourceSharePermissionSummaryObject(d))
 	}
 
 	page, nextToken, err := ramPaginate(objs, req.NextToken, req.MaxResults)
@@ -1377,6 +1405,11 @@ func (h *Handler) Reset() {
 	h.Backend.Reset()
 }
 
+// permissionStatusAttachable is the steady-state PermissionStatus for every
+// permission gopherstack models -- there is no async DELETING/UNATTACHABLE
+// transition, so non-deleted permissions are always ATTACHABLE.
+const permissionStatusAttachable = "ATTACHABLE"
+
 // permissionSummaryObject is the JSON representation of a RAM permission summary.
 type permissionSummaryObject struct {
 	Arn                   string      `json:"arn"`
@@ -1385,6 +1418,7 @@ type permissionSummaryObject struct {
 	PermissionType        string      `json:"permissionType"`
 	FeatureSet            string      `json:"featureSet"`
 	Version               string      `json:"version"`
+	Status                string      `json:"status,omitempty"`
 	ResourceRegionScope   string      `json:"resourceRegionScope,omitempty"`
 	Tags                  []tagObject `json:"tags,omitempty"`
 	CreationTime          float64     `json:"creationTime"`
@@ -1401,6 +1435,7 @@ type permissionDetailObject struct {
 	PermissionType        string      `json:"permissionType"`
 	FeatureSet            string      `json:"featureSet"`
 	Version               string      `json:"version"`
+	Status                string      `json:"status,omitempty"`
 	Permission            string      `json:"permission,omitempty"`
 	ResourceRegionScope   string      `json:"resourceRegionScope,omitempty"`
 	Tags                  []tagObject `json:"tags,omitempty"`
@@ -1422,6 +1457,7 @@ func toPermissionSummaryObject(p *Permission) permissionSummaryObject {
 		ResourceType:          p.ResourceType,
 		PermissionType:        permType,
 		FeatureSet:            permStandard,
+		Status:                permissionStatusAttachable,
 		CreationTime:          epochSeconds(p.CreationTime),
 		LastUpdatedTime:       epochSeconds(p.LastUpdatedTime),
 		Version:               strconv.Itoa(int(p.DefaultVersion)),
@@ -1433,6 +1469,17 @@ func toPermissionSummaryObject(p *Permission) permissionSummaryObject {
 	if len(p.Tags) > 0 {
 		obj.Tags = toTagObjects(p.Tags)
 	}
+
+	return obj
+}
+
+// toResourceSharePermissionSummaryObject builds a permission summary reflecting
+// the version actually associated with a specific resource share (which may not
+// be the permission's current default version), per AWS's ResourceSharePermissionSummary.
+func toResourceSharePermissionSummaryObject(d *ResourceSharePermissionDetail) permissionSummaryObject {
+	obj := toPermissionSummaryObject(d.Permission)
+	obj.Version = strconv.Itoa(int(d.Version))
+	obj.DefaultVersion = d.Version == d.Permission.DefaultVersion
 
 	return obj
 }
@@ -1449,6 +1496,7 @@ func toPermissionDetailObject(p *Permission, pv *PermissionVersion) permissionDe
 		ResourceType:          p.ResourceType,
 		PermissionType:        permType,
 		FeatureSet:            permStandard,
+		Status:                permissionStatusAttachable,
 		CreationTime:          epochSeconds(p.CreationTime),
 		LastUpdatedTime:       epochSeconds(p.LastUpdatedTime),
 		Version:               strconv.Itoa(int(pv.Version)),

@@ -33,7 +33,7 @@ type StorageBackend interface {
 	GetPermission(permissionARN string, permissionVersion *int32) (*Permission, *PermissionVersion, error)
 	AssociateResourceSharePermission(shareARN, permissionARN string, replace bool, permissionVersion *int32) error
 	DisassociateResourceSharePermission(shareARN, permissionARN string) error
-	ListResourceSharePermissions(shareARN string) []*Permission
+	ListResourceSharePermissions(shareARN string) []*ResourceSharePermissionDetail
 
 	// Invitation operations
 	AcceptResourceShareInvitation(invitationARN string) (*ResourceShareInvitation, error)

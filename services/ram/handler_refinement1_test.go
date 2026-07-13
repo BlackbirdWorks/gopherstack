@@ -373,6 +373,90 @@ func TestRefinement1_ListResourceSharePermissions_RequiresShareARN(t *testing.T)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestRefinement1_ListResourceSharePermissions_ReportsAssociatedVersion verifies that
+// the version and defaultVersion fields reflect the version actually associated with
+// the resource share, not the permission's current default version. AWS lets a share
+// pin a non-default permission version (via AssociateResourceSharePermission's
+// permissionVersion parameter); ListResourceSharePermissions must surface that pinned
+// version rather than always reporting the permission's latest default.
+func TestRefinement1_ListResourceSharePermissions_ReportsAssociatedVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	shareRec := doRAMRequest(t, h, "/createresourceshare", map[string]any{"name": "pinned-version-share"})
+	require.Equal(t, http.StatusOK, shareRec.Code)
+
+	var shareResp struct {
+		ResourceShare struct {
+			ResourceShareArn string `json:"resourceShareArn"`
+		} `json:"resourceShare"`
+	}
+	require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp))
+	shareARN := shareResp.ResourceShare.ResourceShareArn
+
+	permRec := doRAMRequest(t, h, "/createpermission", map[string]any{
+		"name":           "pinned-perm",
+		"resourceType":   "ec2:Subnet",
+		"policyTemplate": `{}`,
+	})
+	require.Equal(t, http.StatusOK, permRec.Code)
+
+	var permResp struct {
+		Permission struct {
+			Arn string `json:"arn"`
+		} `json:"permission"`
+	}
+	require.NoError(t, json.Unmarshal(permRec.Body.Bytes(), &permResp))
+	permARN := permResp.Permission.Arn
+
+	// Create a second version and make it the default, then pin the share to
+	// version 1 so the share's associated version diverges from the default.
+	verRec := doRAMRequest(t, h, "/createpermissionversion", map[string]any{
+		"permissionArn":  permARN,
+		"policyTemplate": `{"v":2}`,
+	})
+	require.Equal(t, http.StatusOK, verRec.Code)
+
+	setDefaultRec := doRAMRequest(t, h, "/setdefaultpermissionversion", map[string]any{
+		"permissionArn":     permARN,
+		"permissionVersion": int32(2),
+	})
+	require.Equal(t, http.StatusOK, setDefaultRec.Code)
+
+	pinnedVersion := int32(1)
+	assocRec := doRAMRequest(t, h, "/associateresourcesharepermission", map[string]any{
+		"resourceShareArn":  shareARN,
+		"permissionArn":     permARN,
+		"permissionVersion": pinnedVersion,
+	})
+	require.Equal(t, http.StatusOK, assocRec.Code)
+
+	listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+		"resourceShareArn": shareARN,
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp struct {
+		Permissions []struct {
+			Arn            string `json:"arn"`
+			Version        string `json:"version"`
+			DefaultVersion bool   `json:"defaultVersion"`
+		} `json:"permissions"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.Len(t, listResp.Permissions, 1)
+	assert.Equal(
+		t, "1", listResp.Permissions[0].Version,
+		"must report the version pinned to the share, not the permission's default",
+	)
+	assert.False(
+		t,
+		listResp.Permissions[0].DefaultVersion,
+		"pinned version 1 is no longer the permission's default (version 2 is)",
+	)
+}
+
 // TestRefinement1_GetResourceShares_StatusFilter verifies status filter via HTTP.
 func TestRefinement1_GetResourceShares_StatusFilter(t *testing.T) {
 	t.Parallel()

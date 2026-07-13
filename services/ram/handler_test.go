@@ -468,6 +468,49 @@ func TestHandler_GetResourceShareAssociations(t *testing.T) {
 	}
 }
 
+// TestHandler_GetResourceShareAssociations_AssociationStatusFilter verifies that
+// the associationStatus request field (supported by the real AWS API) filters
+// results, so a caller polling for DISASSOCIATED entries doesn't see ASSOCIATED
+// ones mixed in and vice versa.
+func TestHandler_GetResourceShareAssociations_AssociationStatusFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// One share stays active (its principal association stays ASSOCIATED);
+	// the other is deleted, which soft-deletes its association to DISASSOCIATED.
+	activeShare, err := h.Backend.CreateResourceShare(
+		"assoc-status-active", true, nil, []string{"111111111111"}, nil,
+	)
+	require.NoError(t, err)
+
+	deletedShare, err := h.Backend.CreateResourceShare(
+		"assoc-status-deleted", true, nil, []string{"222222222222"}, nil,
+	)
+	require.NoError(t, err)
+	require.NoError(t, h.Backend.DeleteResourceShare(deletedShare.ARN))
+
+	shareARNs := []string{activeShare.ARN, deletedShare.ARN}
+
+	rec := doRAMRequest(t, h, "/getresourceshareassociations", map[string]any{
+		"associationType":   "PRINCIPAL",
+		"associationStatus": "ASSOCIATED",
+		"resourceShareArns": shareARNs,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "111111111111")
+	assert.NotContains(t, rec.Body.String(), "222222222222")
+
+	rec = doRAMRequest(t, h, "/getresourceshareassociations", map[string]any{
+		"associationType":   "PRINCIPAL",
+		"associationStatus": "DISASSOCIATED",
+		"resourceShareArns": shareARNs,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "222222222222")
+	assert.NotContains(t, rec.Body.String(), "111111111111")
+}
+
 func TestHandler_TagResource(t *testing.T) {
 	t.Parallel()
 
@@ -779,6 +822,47 @@ func TestHandler_GetResourceShares_ByARN(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "by-arn-share")
+}
+
+// TestHandler_GetResourceShares_ByARN_AppliesNameAndStatusFilters verifies that
+// the resourceShareArns lookup path still honors the name and resourceShareStatus
+// filters combined in the same request, matching AWS's GetResourceShares behavior
+// of combining filters rather than treating resourceShareArns as an exclusive mode.
+func TestHandler_GetResourceShares_ByARN_AppliesNameAndStatusFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rs, err := h.Backend.CreateResourceShare("filtered-arn-share", true, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Name filter that doesn't match must exclude the share even when its ARN
+	// is explicitly requested.
+	rec := doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner":     "SELF",
+		"resourceShareArns": []string{rs.ARN},
+		"name":              "does-not-match",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "filtered-arn-share")
+
+	// Status filter that doesn't match (share is ACTIVE) must also exclude it.
+	rec = doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner":       "SELF",
+		"resourceShareArns":   []string{rs.ARN},
+		"resourceShareStatus": "DELETED",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.NotContains(t, rec.Body.String(), "filtered-arn-share")
+
+	// Matching status filter must include it.
+	rec = doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner":       "SELF",
+		"resourceShareArns":   []string{rs.ARN},
+		"resourceShareStatus": "ACTIVE",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "filtered-arn-share")
 }
 
 func TestHandler_TagResource_MissingARN(t *testing.T) {
