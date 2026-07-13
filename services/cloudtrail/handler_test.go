@@ -1071,7 +1071,9 @@ func TestCloudTrailTrailWithAllFields(t *testing.T) {
 				resp := parseCloudTrailResp(t, rec)
 				assert.Equal(t, "arn:aws:logs:us-east-1:123:log-group:test", resp["CloudWatchLogsLogGroupArn"])
 				assert.Equal(t, "arn:aws:iam::123:role/test", resp["CloudWatchLogsRoleArn"])
-				assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", resp["KMSKeyId"])
+				// The wire key is "KmsKeyId" (matching the real aws-sdk-go-v2
+				// deserializer's exact case), not "KMSKeyId".
+				assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", resp["KmsKeyId"])
 			},
 		},
 		{
@@ -1961,4 +1963,303 @@ func TestRefinement1_ProviderInitNilCtx(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reg)
 	assert.Equal(t, "CloudTrail", reg.Name())
+}
+
+// TestCloudTrailUpdateChannelRename verifies UpdateChannel applies the Name
+// parameter (renaming the channel), not just Destinations.
+func TestCloudTrailUpdateChannelRename(t *testing.T) {
+	t.Parallel()
+
+	h := newTestCloudTrailHandler()
+
+	createRec := doCloudTrailOp(t, h, "CreateChannel", map[string]any{
+		"Name":   "orig-channel",
+		"Source": "Custom",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	channelARN, _ := parseCloudTrailResp(t, createRec)["ChannelArn"].(string)
+	require.NotEmpty(t, channelARN)
+
+	rec := doCloudTrailOp(t, h, "UpdateChannel", map[string]any{
+		"Channel": channelARN,
+		"Name":    "renamed-channel",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp := parseCloudTrailResp(t, rec)
+	assert.Equal(t, "renamed-channel", resp["Name"])
+
+	getRec := doCloudTrailOp(t, h, "GetChannel", map[string]any{"Channel": channelARN})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	getResp := parseCloudTrailResp(t, getRec)
+	assert.Equal(t, "renamed-channel", getResp["Name"], "rename must persist and be visible via GetChannel")
+}
+
+// TestCloudTrailGenerateQuery exercises GenerateQuery: required-parameter
+// validation and the AWS response shape (QueryStatement/QueryAlias/
+// EventDataStoreOwnerAccountId -- not QueryId/QueryString).
+func TestCloudTrailGenerateQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "success",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "gq-eds"})
+				require.Equal(t, http.StatusOK, edsRec.Code)
+				edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+
+				rec := doCloudTrailOp(t, h, "GenerateQuery", map[string]any{
+					"EventDataStores": []string{edsARN},
+					"Prompt":          "show me all console logins",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+
+				stmt, ok := resp["QueryStatement"].(string)
+				require.True(t, ok, "QueryStatement must be present and a string")
+				assert.NotEmpty(t, stmt)
+				assert.NotEmpty(t, resp["QueryAlias"])
+				assert.Equal(t, "123456789012", resp["EventDataStoreOwnerAccountId"])
+
+				_, hasQueryID := resp["QueryId"]
+				assert.False(t, hasQueryID, "GenerateQueryOutput has no QueryId field")
+				_, hasQueryString := resp["QueryString"]
+				assert.False(t, hasQueryString, "GenerateQueryOutput has no QueryString field")
+			},
+		},
+		{
+			name: "missing_event_data_stores",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GenerateQuery", map[string]any{
+					"Prompt": "show me all console logins",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "missing_prompt",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GenerateQuery", map[string]any{
+					"EventDataStores": []string{"eds-000001"},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailEventConfiguration exercises GetEventConfiguration and
+// PutEventConfiguration for both trails and event data stores, verifying the
+// AWS wire shape (TrailARN/EventDataStoreArn, AggregationConfigurations,
+// ContextKeySelectors, MaxEventSize) and that settings persist across calls.
+func TestCloudTrailEventConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "trail_round_trip",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "evtcfg-trail",
+					"S3BucketName": "bucket",
+				})
+
+				putRec := doCloudTrailOp(t, h, "PutEventConfiguration", map[string]any{
+					"TrailName":    "evtcfg-trail",
+					"MaxEventSize": "Large",
+					"ContextKeySelectors": []map[string]any{
+						{"Type": "RequestContext", "Equals": []string{"authparams"}},
+					},
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+				putResp := parseCloudTrailResp(t, putRec)
+				assert.NotEmpty(t, putResp["TrailARN"])
+				assert.Equal(t, "Large", putResp["MaxEventSize"])
+				_, hasEDSArn := putResp["EventDataStoreArn"]
+				assert.False(t, hasEDSArn, "trail-scoped response must not include EventDataStoreArn")
+
+				getRec := doCloudTrailOp(t, h, "GetEventConfiguration", map[string]any{
+					"TrailName": "evtcfg-trail",
+				})
+				require.Equal(t, http.StatusOK, getRec.Code)
+				getResp := parseCloudTrailResp(t, getRec)
+				assert.Equal(t, "Large", getResp["MaxEventSize"])
+				selectors, ok := getResp["ContextKeySelectors"].([]any)
+				require.True(t, ok)
+				assert.Len(t, selectors, 1)
+			},
+		},
+		{
+			name: "event_data_store_round_trip",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "evtcfg-eds"})
+				require.Equal(t, http.StatusOK, edsRec.Code)
+				edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+
+				putRec := doCloudTrailOp(t, h, "PutEventConfiguration", map[string]any{
+					"EventDataStore": edsARN,
+					"MaxEventSize":   "Standard",
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+				putResp := parseCloudTrailResp(t, putRec)
+				assert.Equal(t, edsARN, putResp["EventDataStoreArn"])
+				_, hasTrailARN := putResp["TrailARN"]
+				assert.False(t, hasTrailARN, "EDS-scoped response must not include TrailARN")
+
+				getRec := doCloudTrailOp(t, h, "GetEventConfiguration", map[string]any{
+					"EventDataStore": edsARN,
+				})
+				require.Equal(t, http.StatusOK, getRec.Code)
+				getResp := parseCloudTrailResp(t, getRec)
+				assert.Equal(t, "Standard", getResp["MaxEventSize"])
+			},
+		},
+		{
+			name: "get_defaults_when_unset",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "evtcfg-unset-trail",
+					"S3BucketName": "bucket",
+				})
+
+				rec := doCloudTrailOp(t, h, "GetEventConfiguration", map[string]any{
+					"TrailName": "evtcfg-unset-trail",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.NotEmpty(t, resp["TrailARN"])
+				_, hasMaxSize := resp["MaxEventSize"]
+				assert.False(t, hasMaxSize, "MaxEventSize omitted when never configured")
+			},
+		},
+		{
+			name: "missing_both_resource_params",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GetEventConfiguration", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "trail_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GetEventConfiguration", map[string]any{
+					"TrailName": "does-not-exist",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
+}
+
+// TestCloudTrailInsightSelectorsEventDataStore verifies PutInsightSelectors
+// and GetInsightSelectors work against an EventDataStore (not just
+// TrailName), matching AWS's PutInsightSelectorsInput/GetInsightSelectorsInput
+// which accept either parameter.
+func TestCloudTrailInsightSelectorsEventDataStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "put_and_get_round_trip",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "insights-eds"})
+				require.Equal(t, http.StatusOK, edsRec.Code)
+				edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+
+				putRec := doCloudTrailOp(t, h, "PutInsightSelectors", map[string]any{
+					"EventDataStore": edsARN,
+					"InsightSelectors": []map[string]any{
+						{"InsightType": "ApiCallRateInsight"},
+					},
+				})
+				require.Equal(t, http.StatusOK, putRec.Code)
+				putResp := parseCloudTrailResp(t, putRec)
+				assert.Equal(t, edsARN, putResp["EventDataStoreArn"])
+
+				getRec := doCloudTrailOp(t, h, "GetInsightSelectors", map[string]any{
+					"EventDataStore": edsARN,
+				})
+				require.Equal(t, http.StatusOK, getRec.Code)
+				getResp := parseCloudTrailResp(t, getRec)
+				assert.Equal(t, edsARN, getResp["EventDataStoreArn"])
+				sels, ok := getResp["InsightSelectors"].([]any)
+				require.True(t, ok)
+				assert.Len(t, sels, 1)
+			},
+		},
+		{
+			name: "get_not_enabled",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "insights-eds-none"})
+				require.Equal(t, http.StatusOK, edsRec.Code)
+				edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+
+				rec := doCloudTrailOp(t, h, "GetInsightSelectors", map[string]any{
+					"EventDataStore": edsARN,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "put_missing_both_params",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "PutInsightSelectors", map[string]any{
+					"InsightSelectors": []map[string]any{{"InsightType": "ApiCallRateInsight"}},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "get_missing_both_params",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GetInsightSelectors", map[string]any{})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
 }

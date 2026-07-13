@@ -30,16 +30,17 @@ const cloudtrailSnapshotVersion = 1
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage `json:"tables"`
-	AccountID        string                     `json:"accountID"`
-	Region           string                     `json:"region"`
-	Events           []Event                    `json:"events,omitempty"`
-	Version          int                        `json:"version"`
-	ChannelCounter   int                        `json:"channelCounter"`
-	DashboardCounter int                        `json:"dashboardCounter"`
-	EDSCounter       int                        `json:"edsCounter"`
-	QueryCounter     int                        `json:"queryCounter"`
-	ImportCounter    int                        `json:"importCounter"`
+	Tables           map[string]json.RawMessage     `json:"tables"`
+	EventConfigs     map[string]*EventConfiguration `json:"eventConfigs,omitempty"`
+	AccountID        string                         `json:"accountID"`
+	Region           string                         `json:"region"`
+	Events           []Event                        `json:"events,omitempty"`
+	Version          int                            `json:"version"`
+	ChannelCounter   int                            `json:"channelCounter"`
+	DashboardCounter int                            `json:"dashboardCounter"`
+	EDSCounter       int                            `json:"edsCounter"`
+	QueryCounter     int                            `json:"queryCounter"`
+	ImportCounter    int                            `json:"importCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -63,10 +64,17 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	events := make([]Event, len(b.events))
 	copy(events, b.events)
 
+	eventConfigs := make(map[string]*EventConfiguration, len(b.eventConfigs))
+	for arn, cfg := range b.eventConfigs {
+		cp := *cfg
+		eventConfigs[arn] = &cp
+	}
+
 	snap := backendSnapshot{
 		Version:          cloudtrailSnapshotVersion,
 		Tables:           tables,
 		Events:           events,
+		EventConfigs:     eventConfigs,
 		AccountID:        b.accountID,
 		Region:           b.region,
 		ChannelCounter:   b.channelCounter,
@@ -104,6 +112,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.events = nil
+		b.eventConfigs = make(map[string]*EventConfiguration)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 		b.channelCounter = 0
@@ -120,6 +129,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.events = snap.Events
+	b.eventConfigs = snap.EventConfigs
+	if b.eventConfigs == nil {
+		b.eventConfigs = make(map[string]*EventConfiguration)
+	}
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.channelCounter = snap.ChannelCounter
