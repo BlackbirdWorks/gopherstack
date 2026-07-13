@@ -60,6 +60,10 @@ const (
 	maxTagValueLen           = 256
 	maxCreateMembersPerBatch = 50
 	accountIDLen             = 12
+
+	// iamARNPartsLen is the number of ":"-separated segments in a well-formed
+	// IAM entity ARN: "arn", partition, "iam", region (empty), account, resource.
+	iamARNPartsLen = 6
 )
 
 var (
@@ -247,21 +251,10 @@ func (b *InMemoryBackend) graphARN(id string) string {
 	return arn.Build("detective", b.region, b.accountID, fmt.Sprintf("graph:%s", id))
 }
 
-// CreateGraph creates a new behavior graph. Returns existing one if already created (idempotent).
-func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
-	if err := validateTags(tags); err != nil {
-		return nil, err
-	}
-
-	b.mu.Lock("CreateGraph")
-	defer b.mu.Unlock()
-
-	if existing := b.graphs.All(); len(existing) > 0 {
-		cp := existing[0].toGraph()
-
-		return &cp, nil
-	}
-
+// createGraphLocked creates and stores a new behavior graph. Callers must
+// hold b.mu for writing. Shared by CreateGraph and EnableOrganizationAdminAccount,
+// which both need to materialize a graph the first time an account uses Detective.
+func (b *InMemoryBackend) createGraphLocked(tags map[string]string) *storedGraph {
 	id := strings.ReplaceAll(uuid.NewString(), "-", "")
 	arn := b.graphARN(id)
 	now := time.Now().UTC()
@@ -281,7 +274,25 @@ func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
 		maps.Copy(b.tags[arn], graphTags)
 	}
 
-	cp := g.toGraph()
+	return g
+}
+
+// CreateGraph creates a new behavior graph. Returns existing one if already created (idempotent).
+func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
+	if err := validateTags(tags); err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("CreateGraph")
+	defer b.mu.Unlock()
+
+	if existing := b.graphs.All(); len(existing) > 0 {
+		cp := existing[0].toGraph()
+
+		return &cp, nil
+	}
+
+	cp := b.createGraphLocked(tags).toGraph()
 
 	return &cp, nil
 }
@@ -301,7 +312,13 @@ func (b *InMemoryBackend) DeleteGraph(graphARN string) error {
 		b.members.Delete(memberKey(m.GraphARN, m.AccountID))
 	}
 
+	for _, inv := range slices.Clone(b.investigationsByGraph.Get(graphARN)) {
+		b.investigations.Delete(investigationKey(inv.GraphARN, inv.InvestigationID))
+	}
+
 	delete(b.tags, graphARN)
+	delete(b.datasources, graphARN)
+	delete(b.orgConfigs, graphARN)
 
 	return nil
 }
@@ -466,9 +483,14 @@ func (b *InMemoryBackend) CreateMembers(
 			continue
 		}
 
-		if existing, ok := b.members.Get(memberKey(graphARN, acc.AccountID)); ok {
-			cp := existing.toMemberDetail()
-			members = append(members, &cp)
+		// AWS documents that CreateMembers cannot re-process an account that
+		// was already invited: it is reported back via UnprocessedAccounts,
+		// not silently returned as a freshly-processed member.
+		if b.members.Has(memberKey(graphARN, acc.AccountID)) {
+			unprocessed = append(unprocessed, UnprocessedAccount{
+				AccountID: acc.AccountID,
+				Reason:    "Account is already a member of the behavior graph",
+			})
 
 			continue
 		}
@@ -791,13 +813,36 @@ func (b *InMemoryBackend) ListInvitations(maxResults int32, nextToken string) ([
 	return result, outToken, nil
 }
 
+// deriveEntityType returns the IAM_ROLE or IAM_USER entity type for entityARN.
+// The real StartInvestigation request has no EntityType input member -- Detective
+// derives it server-side from the resource segment of the IAM entity ARN -- so
+// the emulator must do the same instead of trusting a client-supplied value.
+func deriveEntityType(entityARN string) (string, error) {
+	parts := strings.SplitN(entityARN, ":", iamARNPartsLen)
+	if len(parts) != iamARNPartsLen || parts[0] != "arn" || parts[2] != "iam" {
+		return "", fmt.Errorf("%w: EntityArn must be an IAM user or role ARN", ErrValidation)
+	}
+
+	resource := parts[iamARNPartsLen-1]
+
+	switch {
+	case strings.HasPrefix(resource, "role/"):
+		return entityTypeIAMRole, nil
+	case strings.HasPrefix(resource, "user/"):
+		return entityTypeIAMUser, nil
+	default:
+		return "", fmt.Errorf("%w: EntityArn must be an IAM user or role ARN", ErrValidation)
+	}
+}
+
 // StartInvestigation creates a new investigation for an entity within a graph.
 func (b *InMemoryBackend) StartInvestigation(
-	graphARN, entityARN, entityType string,
+	graphARN, entityARN string,
 	scopeStart, scopeEnd time.Time,
 ) (string, error) {
-	if _, ok := map[string]bool{entityTypeIAMRole: true, entityTypeIAMUser: true}[entityType]; entityType != "" && !ok {
-		return "", fmt.Errorf("%w: invalid EntityType %q", ErrValidation, entityType)
+	entityType, typeErr := deriveEntityType(entityARN)
+	if typeErr != nil {
+		return "", typeErr
 	}
 
 	b.mu.Lock("StartInvestigation")
@@ -1126,6 +1171,10 @@ func (b *InMemoryBackend) EnableOrganizationAdminAccount(accountID string) error
 	var graphARN string
 	if all := b.graphs.All(); len(all) > 0 {
 		graphARN = all[0].Arn
+	} else {
+		// AWS: "If the account does not have Detective enabled, then enables
+		// Detective for that account and creates a new behavior graph."
+		graphARN = b.createGraphLocked(nil).Arn
 	}
 
 	now := time.Now().UTC()

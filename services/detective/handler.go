@@ -944,7 +944,6 @@ func (h *Handler) handleStartInvestigation(c *echo.Context) error {
 	var req struct {
 		GraphArn       string `json:"GraphArn"`
 		EntityArn      string `json:"EntityArn"`
-		EntityType     string `json:"EntityType"`
 		ScopeStartTime string `json:"ScopeStartTime"`
 		ScopeEndTime   string `json:"ScopeEndTime"`
 	}
@@ -961,6 +960,14 @@ func (h *Handler) handleStartInvestigation(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "EntityArn is required"))
 	}
 
+	if req.ScopeStartTime == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "ScopeStartTime is required"))
+	}
+
+	if req.ScopeEndTime == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "ScopeEndTime is required"))
+	}
+
 	scopeStart, parseErr := parseTime(req.ScopeStartTime)
 	if parseErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid ScopeStartTime"))
@@ -971,7 +978,7 @@ func (h *Handler) handleStartInvestigation(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid ScopeEndTime"))
 	}
 
-	id, startErr := h.Backend.StartInvestigation(req.GraphArn, req.EntityArn, req.EntityType, scopeStart, scopeEnd)
+	id, startErr := h.Backend.StartInvestigation(req.GraphArn, req.EntityArn, scopeStart, scopeEnd)
 	if startErr != nil {
 		return h.mapError(c, startErr)
 	}
