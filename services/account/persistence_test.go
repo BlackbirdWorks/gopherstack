@@ -1,7 +1,6 @@
 package account_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,22 +69,52 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestInMemoryBackend_RestoreV1SnapshotDiscarded verifies that a v1 snapshot
+// (the shape used before the account-management wire-shape rewrite added
+// GetAccountInformation/AccountCreatedDate and dropped the fictitious
+// CloseAccount's "closed" scalar) is discarded like any other incompatible
+// version rather than partially decoded with a zero AccountCreatedDate.
+func TestInMemoryBackend_RestoreV1SnapshotDiscarded(t *testing.T) {
+	t.Parallel()
+
+	b := account.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b.PutAlternateContact(&account.AlternateContact{
+		AlternateContactType: account.ContactTypeBilling,
+		EmailAddress:         "billing@example.com",
+		Name:                 "Bill Ing",
+		PhoneNumber:          "555-0100",
+		Title:                "Manager",
+	}))
+
+	v1Snapshot := []byte(`{"version":1,"tables":{},"accountID":"999999999999","closed":true}`)
+	err := b.Restore(t.Context(), v1Snapshot)
+	require.NoError(t, err)
+
+	_, err = b.GetAlternateContact(account.ContactTypeBilling)
+	require.Error(t, err)
+
+	info, err := b.GetAccountInformation()
+	require.NoError(t, err)
+	assert.Equal(t, account.StateActive, info.AccountState)
+	assert.NotEmpty(t, info.AccountCreatedDate)
+}
+
 // seedState is every resource created by
 // TestInMemoryBackend_SnapshotRestore_FullState, kept together so the
 // post-restore assertions can refer back to the original values.
 type seedState struct {
-	billing      *account.AlternateContact
-	contactInfo  *account.ContactInformation
-	pendingEmail string
-	pendingOTP   string
+	billing            *account.AlternateContact
+	contactInfo        *account.ContactInformation
+	pendingEmail       string
+	pendingOTP         string
+	accountCreatedDate string
 }
 
 // seedFullState populates the alternateContacts store.Table, the raw
 // contactInfo pointer, the raw regions slice (via EnableRegion/DisableRegion
-// mutation), accountName, a pending primary-email update, and CloseAccount,
-// so TestInMemoryBackend_SnapshotRestore_FullState can exercise a Snapshot ->
-// Restore round trip across every stateful field the Phase 3.3 conversion
-// touched.
+// mutation), accountName, and a pending primary-email update, so
+// TestInMemoryBackend_SnapshotRestore_FullState can exercise a Snapshot ->
+// Restore round trip across every stateful field.
 func seedFullState(t *testing.T, b *account.InMemoryBackend) seedState {
 	t.Helper()
 
@@ -126,13 +155,15 @@ func seedFullState(t *testing.T, b *account.InMemoryBackend) seedState {
 	otp, err := b.StartPrimaryEmailUpdate("new-primary@example.com")
 	require.NoError(t, err)
 
-	require.NoError(t, b.CloseAccount())
+	info, err := b.GetAccountInformation()
+	require.NoError(t, err)
 
 	return seedState{
-		billing:      billing,
-		contactInfo:  contactInfo,
-		pendingEmail: "new-primary@example.com",
-		pendingOTP:   otp,
+		billing:            billing,
+		contactInfo:        contactInfo,
+		pendingEmail:       "new-primary@example.com",
+		pendingOTP:         otp,
+		accountCreatedDate: info.AccountCreatedDate,
 	}
 }
 
@@ -140,7 +171,7 @@ func seedFullState(t *testing.T, b *account.InMemoryBackend) seedState {
 // Restore round trip across every stateful field on InMemoryBackend: the
 // alternateContacts store.Table, the raw contactInfo pointer, the raw
 // regions slice, and the accountName/primaryEmail/pendingEmail/pendingOTP/
-// closed scalars.
+// accountCreatedDate scalars.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -209,39 +240,21 @@ func assertRegionsRestored(t *testing.T, fresh *account.InMemoryBackend) {
 	assert.Equal(t, account.RegionOptStatusEnabledDefault, status)
 }
 
-// assertScalarsRestored checks accountName (indirectly via DescribeAccount),
-// the pending primary-email update (accepted post-restore to prove
-// pendingEmail/pendingOTP round-tripped), and accountID/region.
+// assertScalarsRestored checks accountName/accountID (via
+// GetAccountInformation), that AccountCreatedDate round-trips exactly rather
+// than being regenerated, and the pending primary-email update (accepted
+// post-restore to prove pendingEmail/pendingOTP round-tripped).
 func assertScalarsRestored(t *testing.T, fresh *account.InMemoryBackend, seed seedState) {
 	t.Helper()
 
-	details, err := fresh.DescribeAccount()
+	info, err := fresh.GetAccountInformation()
 	require.NoError(t, err)
-	assert.Equal(t, "My Company", details.Name)
-	assert.Equal(t, "111122223333", details.ID)
+	assert.Equal(t, "My Company", info.AccountName)
+	assert.Equal(t, "111122223333", info.AccountID)
+	assert.Equal(t, seed.accountCreatedDate, info.AccountCreatedDate)
 
 	require.NoError(t, fresh.AcceptPrimaryEmailUpdate(seed.pendingOTP, seed.pendingEmail))
 	assert.Equal(t, seed.pendingEmail, fresh.GetPrimaryEmail())
-}
-
-// TestInMemoryBackend_SnapshotRestore_ClosedFlag checks the raw closed
-// scalar. CloseAccount has no other externally observable effect on this
-// backend (a preexisting quirk out of scope for this conversion), so the
-// only way to observe it round-tripping is through the JSON snapshot itself.
-func TestInMemoryBackend_SnapshotRestore_ClosedFlag(t *testing.T) {
-	t.Parallel()
-
-	b := account.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.CloseAccount())
-
-	snap := b.Snapshot(t.Context())
-	require.NotNil(t, snap)
-
-	var decoded struct {
-		Closed bool `json:"closed"`
-	}
-	require.NoError(t, json.Unmarshal(snap, &decoded))
-	assert.True(t, decoded.Closed)
 }
 
 // TestHandler_SnapshotRestore verifies Handler.Snapshot/Restore delegate to

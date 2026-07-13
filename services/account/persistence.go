@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -23,7 +24,15 @@ import (
 // snapshot shape to be compatible with -- any snapshot without a matching
 // Version (including one with no version field, which decodes as 0) is
 // discarded the same way any other incompatible snapshot is.
-const accountSnapshotVersion = 1
+//
+// Version 2 (current): the account-management wire-shape rewrite dropped the
+// fictitious CloseAccount/DescribeAccount operations (CloseAccount is an AWS
+// Organizations concept, not Account Management -- see
+// services/organizations) in favor of the real GetAccountInformation
+// operation, which added AccountCreatedDate and removed the now-meaningless
+// Closed scalar. A v1 snapshot is therefore discarded like any other
+// incompatible version rather than decoded with a zero AccountCreatedDate.
+const accountSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Account backend.
 //
@@ -38,17 +47,17 @@ const accountSnapshotVersion = 1
 // key on) and Regions is a plain (non-map) slice, so both stay raw; the
 // rest are scalars.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage `json:"tables"`
-	ContactInfo  *ContactInformation        `json:"contactInfo,omitempty"`
-	AccountID    string                     `json:"accountID"`
-	Region       string                     `json:"region"`
-	AccountName  string                     `json:"accountName"`
-	PrimaryEmail string                     `json:"primaryEmail"`
-	PendingEmail string                     `json:"pendingEmail"`
-	PendingOTP   string                     `json:"pendingOTP"`
-	Regions      []*Region                  `json:"regions"`
-	Version      int                        `json:"version"`
-	Closed       bool                       `json:"closed"`
+	AccountCreatedDate time.Time                  `json:"accountCreatedDate"`
+	Tables             map[string]json.RawMessage `json:"tables"`
+	ContactInfo        *ContactInformation        `json:"contactInfo,omitempty"`
+	AccountID          string                     `json:"accountID"`
+	Region             string                     `json:"region"`
+	AccountName        string                     `json:"accountName"`
+	PrimaryEmail       string                     `json:"primaryEmail"`
+	PendingEmail       string                     `json:"pendingEmail"`
+	PendingOTP         string                     `json:"pendingOTP"`
+	Regions            []*Region                  `json:"regions"`
+	Version            int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -65,17 +74,17 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:      accountSnapshotVersion,
-		Tables:       tables,
-		ContactInfo:  b.contactInfo,
-		Regions:      b.regions,
-		AccountID:    b.accountID,
-		Region:       b.region,
-		AccountName:  b.accountName,
-		PrimaryEmail: b.primaryEmail,
-		PendingEmail: b.pendingEmail,
-		PendingOTP:   b.pendingOTP,
-		Closed:       b.closed,
+		Version:            accountSnapshotVersion,
+		Tables:             tables,
+		ContactInfo:        b.contactInfo,
+		Regions:            b.regions,
+		AccountID:          b.accountID,
+		Region:             b.region,
+		AccountName:        b.accountName,
+		PrimaryEmail:       b.primaryEmail,
+		PendingEmail:       b.pendingEmail,
+		PendingOTP:         b.pendingOTP,
+		AccountCreatedDate: b.accountCreatedDate,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "account", snap)
@@ -109,7 +118,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.primaryEmail = defaultPrimaryEmail
 		b.pendingEmail = ""
 		b.pendingOTP = ""
-		b.closed = false
+		b.accountCreatedDate = time.Now().UTC()
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 		b.initDefaultRegions()
@@ -129,7 +138,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.primaryEmail = snap.PrimaryEmail
 	b.pendingEmail = snap.PendingEmail
 	b.pendingOTP = snap.PendingOTP
-	b.closed = snap.Closed
+	b.accountCreatedDate = snap.AccountCreatedDate
 
 	return nil
 }
