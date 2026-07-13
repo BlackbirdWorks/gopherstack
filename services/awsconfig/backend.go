@@ -3,6 +3,7 @@ package awsconfig
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -29,12 +30,12 @@ var (
 	// ErrNoSuchOrganizationConfigRule is returned when an organization config rule is not found.
 	ErrNoSuchOrganizationConfigRule = awserr.New("NoSuchOrganizationConfigRuleException", awserr.ErrNotFound)
 	// ErrNoSuchOrganizationConformancePack is returned when an org conformance pack is not found.
+	// The wire error type is NoSuchOrganizationConformancePackException (verified against
+	// aws-sdk-go-v2/service/configservice's DeleteOrganizationConformancePack deserializer).
 	ErrNoSuchOrganizationConformancePack = awserr.New(
-		"OrganizationConformancePackNotFoundException",
+		"NoSuchOrganizationConformancePackException",
 		awserr.ErrNotFound,
 	)
-	// ErrNoSuchAggregationAuthorization is returned when an aggregation authorization is not found.
-	ErrNoSuchAggregationAuthorization = awserr.New("NoSuchAggregationAuthorizationException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
 	// ErrNoDeliveryChannel is returned when starting a recorder with no delivery channel configured.
@@ -55,6 +56,7 @@ type RecordingGroup struct {
 // ConfigurationRecorder represents an AWS Config configuration recorder.
 type ConfigurationRecorder struct {
 	RecordingGroup *RecordingGroup `json:"recordingGroup,omitempty"`
+	Arn            string          `json:"arn,omitempty"`
 	Name           string          `json:"name"`
 	RoleARN        string          `json:"roleARN"`
 	Status         string          `json:"status,omitempty"` // PENDING or ACTIVE
@@ -337,6 +339,13 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string, recordi
 	return nil
 }
 
+// recorderArn builds the ARN for a configuration recorder owned by this backend,
+// matching the "arn" field the real service serializes on ConfigurationRecorder
+// (aws-sdk-go-v2/service/configservice/types.ConfigurationRecorder.Arn).
+func (b *InMemoryBackend) recorderArn(name string) string {
+	return fmt.Sprintf("arn:aws:config:%s:%s:config-recorder/%s", b.region, b.accountID, name)
+}
+
 // DescribeConfigurationRecorders returns configuration recorders filtered by the
 // provided name list.  An empty/nil names list returns all recorders sorted by name.
 func (b *InMemoryBackend) DescribeConfigurationRecorders(names []string) []ConfigurationRecorder {
@@ -347,12 +356,16 @@ func (b *InMemoryBackend) DescribeConfigurationRecorders(names []string) []Confi
 
 	if len(names) == 0 {
 		for _, r := range b.recorders.All() {
-			out = append(out, *r)
+			cp := *r
+			cp.Arn = b.recorderArn(r.Name)
+			out = append(out, cp)
 		}
 	} else {
 		for _, n := range names {
 			if r, ok := b.recorders.Get(n); ok {
-				out = append(out, *r)
+				cp := *r
+				cp.Arn = b.recorderArn(r.Name)
+				out = append(out, cp)
 			}
 		}
 	}
@@ -643,7 +656,11 @@ func (b *InMemoryBackend) DescribeAggregationAuthorizations() []AggregationAutho
 	return out
 }
 
-// DeleteAggregationAuthorization deletes an aggregation authorization by account ID and region.
+// DeleteAggregationAuthorization deletes an aggregation authorization by account ID
+// and region. Real AWS Config's DeleteAggregationAuthorization is idempotent -- its
+// error model (verified against aws-sdk-go-v2/service/configservice's deserializer)
+// only lists InvalidParameterValueException, never a not-found exception -- so
+// deleting a nonexistent authorization succeeds silently, matching AWS.
 func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region string) error {
 	if accountID == "" {
 		return fmt.Errorf("%w: AuthorizedAccountId is required", ErrValidation)
@@ -656,17 +673,7 @@ func (b *InMemoryBackend) DeleteAggregationAuthorization(accountID, region strin
 	b.mu.Lock("DeleteAggregationAuthorization")
 	defer b.mu.Unlock()
 
-	key := aggregationAuthKey(accountID, region)
-	if !b.aggregationAuths.Has(key) {
-		return fmt.Errorf(
-			"%w: aggregation authorization for account %s region %s not found",
-			ErrNoSuchAggregationAuthorization,
-			accountID,
-			region,
-		)
-	}
-
-	b.aggregationAuths.Delete(key)
+	b.aggregationAuths.Delete(aggregationAuthKey(accountID, region))
 
 	return nil
 }
@@ -758,18 +765,24 @@ func (b *InMemoryBackend) DeleteConfigRule(name string) error {
 	}
 
 	b.configRules.Delete(name)
-	delete(b.ruleEvaluations, name)
-
-	// ruleResourceEvals has no bulk "delete everything under this rule"
-	// operation (unlike the old map[string]map[string]*T's single outer-map
-	// delete); snapshot the rule's entries via slices.Clone first since
-	// Table.Delete mutates the very index slice ruleResourceEvalsByRule.Get
-	// returns.
-	for _, e := range slices.Clone(b.ruleResourceEvalsByRule.Get(name)) {
-		b.ruleResourceEvals.Delete(storedEvaluationKeyFn(e))
-	}
+	b.clearRuleEvaluationsLocked(name)
 
 	return nil
+}
+
+// clearRuleEvaluationsLocked removes every stored evaluation (rollup and
+// per-resource) for ruleName. The caller must hold the write lock.
+//
+// ruleResourceEvals has no bulk "delete everything under this rule" operation
+// (unlike the old map[string]map[string]*T's single outer-map delete);
+// snapshot the rule's entries via slices.Clone first since Table.Delete
+// mutates the very index slice ruleResourceEvalsByRule.Get returns.
+func (b *InMemoryBackend) clearRuleEvaluationsLocked(ruleName string) {
+	delete(b.ruleEvaluations, ruleName)
+
+	for _, e := range slices.Clone(b.ruleResourceEvalsByRule.Get(ruleName)) {
+		b.ruleResourceEvals.Delete(storedEvaluationKeyFn(e))
+	}
 }
 
 // PutConfigurationAggregator creates or updates a configuration aggregator.
@@ -864,9 +877,25 @@ func (b *InMemoryBackend) DeleteConformancePack(name string) error {
 	return nil
 }
 
-// DeleteEvaluationResults clears evaluation results for a config rule.
-// In this stub implementation the operation always succeeds (idempotent).
-func (b *InMemoryBackend) DeleteEvaluationResults(_ string) error {
+// DeleteEvaluationResults clears the rollup and per-resource evaluation results
+// recorded for a config rule (so a subsequent StartConfigRulesEvaluation starts
+// from a clean slate), matching real AWS Config which errors
+// NoSuchConfigRuleException for an unknown rule (verified against
+// aws-sdk-go-v2/service/configservice's DeleteEvaluationResults deserializer).
+func (b *InMemoryBackend) DeleteEvaluationResults(ruleName string) error {
+	if ruleName == "" {
+		return fmt.Errorf("%w: ConfigRuleName is required", ErrValidation)
+	}
+
+	b.mu.Lock("DeleteEvaluationResults")
+	defer b.mu.Unlock()
+
+	if !b.configRules.Has(ruleName) {
+		return fmt.Errorf("%w: %s", ErrNoSuchConfigRule, ruleName)
+	}
+
+	b.clearRuleEvaluationsLocked(ruleName)
+
 	return nil
 }
 
@@ -934,53 +963,155 @@ func (b *InMemoryBackend) DeleteOrganizationConformancePack(name string) error {
 	return nil
 }
 
-// AssociateResourceTypes associates resource types with a configuration recorder identified
-// by its ARN. The ARN is matched first by exact name, then falls back to a synthetic stub.
-// Returns the updated recorder.
+// recorderNameFromArn extracts a recorder's name from either a bare name or a
+// full "arn:aws:config:<region>:<account>:config-recorder/<name>" ARN, so
+// AssociateResourceTypes/DisassociateResourceTypes accept both forms (real
+// SDK callers always send the full ARN; unit tests exercise the bare name).
+func recorderNameFromArn(recorderARN string) string {
+	if idx := strings.LastIndex(recorderARN, "/"); idx >= 0 {
+		return recorderARN[idx+1:]
+	}
+
+	return recorderARN
+}
+
+// mergeResourceTypes returns existing with every type in added that is not
+// already present appended, preserving existing order and de-duplicating.
+func mergeResourceTypes(existing, added []string) []string {
+	seen := make(map[string]struct{}, len(existing))
+	for _, t := range existing {
+		seen[t] = struct{}{}
+	}
+
+	out := existing
+
+	for _, t := range added {
+		if _, ok := seen[t]; ok {
+			continue
+		}
+
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+
+	return out
+}
+
+// removeResourceTypes returns existing with every type in removed dropped.
+func removeResourceTypes(existing, removed []string) []string {
+	if len(existing) == 0 || len(removed) == 0 {
+		return existing
+	}
+
+	drop := make(map[string]struct{}, len(removed))
+	for _, t := range removed {
+		drop[t] = struct{}{}
+	}
+
+	out := existing[:0]
+
+	for _, t := range existing {
+		if _, ok := drop[t]; !ok {
+			out = append(out, t)
+		}
+	}
+
+	return out
+}
+
+// AssociateResourceTypes adds resourceTypes to a configuration recorder's
+// RecordingGroup, matching AssociateResourceTypesInput/Output
+// (aws-sdk-go-v2/service/configservice). recorderARN may be the recorder's
+// bare name or its full ARN. Errors with ErrNotFound (wire type
+// NoSuchConfigurationRecorderException) when no matching recorder exists,
+// matching the real API's declared error model instead of fabricating a
+// synthetic recorder for unknown input.
 func (b *InMemoryBackend) AssociateResourceTypes(
 	recorderARN string,
-	_ []string,
+	resourceTypes []string,
 ) (*ConfigurationRecorder, error) {
 	if recorderARN == "" {
 		return nil, fmt.Errorf("%w: ConfigurationRecorderArn is required", ErrValidation)
 	}
 
-	b.mu.RLock("AssociateResourceTypes")
-	defer b.mu.RUnlock()
+	b.mu.Lock("AssociateResourceTypes")
+	defer b.mu.Unlock()
 
-	// Match by exact recorder name first (most common for LocalStack compatibility).
-	if r, ok := b.recorders.Get(recorderARN); ok {
-		return &ConfigurationRecorder{Name: r.Name, RoleARN: r.RoleARN, Status: r.Status}, nil
+	name := recorderNameFromArn(recorderARN)
+
+	r, ok := b.recorders.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, recorderARN)
 	}
 
-	// Fall back to a synthetic recorder so callers don't error on a missing recorder.
-	return &ConfigurationRecorder{
-		Name:   recorderARN,
-		Status: recorderStatusPending,
-	}, nil
+	if r.RecordingGroup == nil {
+		r.RecordingGroup = &RecordingGroup{}
+	}
+
+	r.RecordingGroup.ResourceTypes = mergeResourceTypes(r.RecordingGroup.ResourceTypes, resourceTypes)
+
+	cp := *r
+	cp.Arn = b.recorderArn(r.Name)
+	rgCopy := *r.RecordingGroup
+	cp.RecordingGroup = &rgCopy
+
+	return &cp, nil
 }
 
-// BatchGetAggregateResourceConfig returns configuration items for aggregate resources.
-// In this stub, all requested identifiers are returned as unprocessed.
+// BatchGetAggregateResourceConfig returns configuration items for aggregate
+// resources. This emulator does not model multi-account aggregation
+// separately from the account's own resource-config state (mirroring
+// SelectAggregateResourceConfig), so each identifier is resolved against
+// b.resourceConfigs (populated by PutResourceConfig) instead of being
+// blanket-reported unprocessed; only identifiers with no matching discovered
+// resource are unprocessed.
 func (b *InMemoryBackend) BatchGetAggregateResourceConfig(
 	_ string,
 	identifiers []AggregateResourceIdentifier,
 ) ([]BaseConfigurationItem, []AggregateResourceIdentifier) {
-	if len(identifiers) == 0 {
-		return []BaseConfigurationItem{}, []AggregateResourceIdentifier{}
+	b.mu.RLock("BatchGetAggregateResourceConfig")
+	defer b.mu.RUnlock()
+
+	items := make([]BaseConfigurationItem, 0, len(identifiers))
+	unprocessed := make([]AggregateResourceIdentifier, 0, len(identifiers))
+
+	for _, id := range identifiers {
+		item, ok := b.resourceConfigs.Get(resourceConfigItemKey(id.ResourceType, id.ResourceID))
+		if !ok {
+			unprocessed = append(unprocessed, id)
+
+			continue
+		}
+
+		items = append(items, BaseConfigurationItem{ResourceType: item.ResourceType, ResourceID: item.ResourceID})
 	}
 
-	return []BaseConfigurationItem{}, identifiers
+	return items, unprocessed
 }
 
-// BatchGetResourceConfig returns configuration items for a list of resources.
-// In this stub, all requested keys are returned as unprocessed.
+// BatchGetResourceConfig returns configuration items for the requested resource
+// keys, resolving each against b.resourceConfigs (populated by PutResourceConfig)
+// instead of blanket-reporting every key unprocessed; only keys with no matching
+// discovered resource are unprocessed.
 func (b *InMemoryBackend) BatchGetResourceConfig(
 	keys []ResourceKey,
 ) ([]BaseConfigurationItem, []ResourceKey) {
-	if len(keys) == 0 {
-		return []BaseConfigurationItem{}, []ResourceKey{}
+	b.mu.RLock("BatchGetResourceConfig")
+	defer b.mu.RUnlock()
+
+	items := make([]BaseConfigurationItem, 0, len(keys))
+	unprocessed := make([]ResourceKey, 0, len(keys))
+
+	for _, k := range keys {
+		item, ok := b.resourceConfigs.Get(resourceConfigItemKey(k.ResourceType, k.ResourceID))
+		if !ok {
+			unprocessed = append(unprocessed, k)
+
+			continue
+		}
+
+		items = append(items, BaseConfigurationItem{ResourceType: item.ResourceType, ResourceID: item.ResourceID})
 	}
 
-	return []BaseConfigurationItem{}, keys
+	return items, unprocessed
 }

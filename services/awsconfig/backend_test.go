@@ -230,7 +230,6 @@ func TestAWSConfigBackend_DeleteAggregationAuthorization(t *testing.T) {
 		name      string
 		accountID string
 		region    string
-		wantErr   bool
 	}{
 		{
 			name: "success",
@@ -242,10 +241,12 @@ func TestAWSConfigBackend_DeleteAggregationAuthorization(t *testing.T) {
 			region:    "us-east-1",
 		},
 		{
-			name:      "not_found",
+			// Real AWS Config's DeleteAggregationAuthorization is idempotent (its
+			// declared error model has no not-found exception), so deleting a
+			// nonexistent authorization also succeeds.
+			name:      "not_found_is_idempotent",
 			accountID: "999999999999",
 			region:    "eu-west-1",
-			wantErr:   true,
 		},
 	}
 
@@ -258,13 +259,7 @@ func TestAWSConfigBackend_DeleteAggregationAuthorization(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			err := b.DeleteAggregationAuthorization(tt.accountID, tt.region)
-			if tt.wantErr {
-				require.Error(t, err)
-
-				return
-			}
-			require.NoError(t, err)
+			require.NoError(t, b.DeleteAggregationAuthorization(tt.accountID, tt.region))
 		})
 	}
 }
@@ -404,28 +399,41 @@ func TestAWSConfigBackend_DeleteConformancePack(t *testing.T) {
 func TestAWSConfigBackend_DeleteEvaluationResults(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name           string
-		configRuleName string
-	}{
-		{
-			name:           "success_always",
-			configRuleName: "my-rule",
-		},
-		{
-			name:           "nonexistent_rule_still_succeeds",
-			configRuleName: "nonexistent",
-		},
-	}
+	t.Run("existing_rule_clears_evaluations", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "my-rule"}))
+		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
+			{
+				ConfigRuleName: "my-rule", ResourceType: "AWS::S3::Bucket",
+				ResourceID: "b1", ComplianceType: "NON_COMPLIANT",
+			},
+		}))
+		require.Len(t, b.GetComplianceDetailsByConfigRule("my-rule", nil), 1)
 
-			b := awsconfig.NewInMemoryBackend()
-			require.NoError(t, b.DeleteEvaluationResults(tt.configRuleName))
-		})
-	}
+		require.NoError(t, b.DeleteEvaluationResults("my-rule"))
+		assert.Empty(t, b.GetComplianceDetailsByConfigRule("my-rule", nil))
+		assert.Empty(t, b.GetConfigRuleComplianceType("my-rule"))
+	})
+
+	t.Run("nonexistent_rule_errors", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		err := b.DeleteEvaluationResults("nonexistent")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNoSuchConfigRule)
+	})
+
+	t.Run("empty_name_is_validation_error", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		err := b.DeleteEvaluationResults("")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
 }
 
 func TestAWSConfigBackend_DeleteOrganizationConfigRule(t *testing.T) {
@@ -519,52 +527,111 @@ func TestAWSConfigBackend_DeleteOrganizationConformancePack(t *testing.T) {
 func TestAWSConfigBackend_AssociateResourceTypes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup         func(t *testing.T, b *awsconfig.InMemoryBackend)
-		name          string
-		recorderARN   string
-		wantName      string
-		resourceTypes []string
-	}{
-		{
-			name: "known_recorder_by_name",
-			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
-			},
-			recorderARN:   "default",
-			resourceTypes: []string{"AWS::EC2::Instance"},
-			wantName:      "default",
-		},
-		{
-			name:          "unknown_arn_returns_stub",
-			recorderARN:   "arn:aws:config:us-east-1:000000000000:config-recorder/unknown",
-			resourceTypes: []string{"AWS::S3::Bucket"},
-			wantName:      "arn:aws:config:us-east-1:000000000000:config-recorder/unknown",
-		},
-	}
+	t.Run("known_recorder_by_name_mutates_recording_group", func(t *testing.T) {
+		t.Parallel()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
 
-			b := awsconfig.NewInMemoryBackend()
-			if tt.setup != nil {
-				tt.setup(t, b)
-			}
+		recorder, err := b.AssociateResourceTypes("default", []string{"AWS::EC2::Instance"})
+		require.NoError(t, err)
+		require.NotNil(t, recorder)
+		assert.Equal(t, "default", recorder.Name)
+		assert.Contains(t, recorder.Arn, "config-recorder/default")
+		require.NotNil(t, recorder.RecordingGroup)
+		assert.Equal(t, []string{"AWS::EC2::Instance"}, recorder.RecordingGroup.ResourceTypes)
 
-			recorder, err := b.AssociateResourceTypes(tt.recorderARN, tt.resourceTypes)
-			require.NoError(t, err)
-			require.NotNil(t, recorder)
-			assert.Equal(t, tt.wantName, recorder.Name)
-		})
-	}
+		// The mutation is persisted on the backend, not just the returned copy.
+		recs := b.DescribeConfigurationRecorders([]string{"default"})
+		require.Len(t, recs, 1)
+		require.NotNil(t, recs[0].RecordingGroup)
+		assert.Equal(t, []string{"AWS::EC2::Instance"}, recs[0].RecordingGroup.ResourceTypes)
+	})
+
+	t.Run("known_recorder_by_full_arn", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackendWithMeta("000000000000", "us-east-1")
+		require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
+
+		recorder, err := b.AssociateResourceTypes(
+			"arn:aws:config:us-east-1:000000000000:config-recorder/default",
+			[]string{"AWS::S3::Bucket"},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, recorder)
+		assert.Equal(t, "default", recorder.Name)
+	})
+
+	t.Run("dedups_repeated_resource_types", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
+
+		_, err := b.AssociateResourceTypes("default", []string{"AWS::EC2::Instance"})
+		require.NoError(t, err)
+		recorder, err := b.AssociateResourceTypes("default", []string{"AWS::EC2::Instance", "AWS::S3::Bucket"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"AWS::EC2::Instance", "AWS::S3::Bucket"}, recorder.RecordingGroup.ResourceTypes)
+	})
+
+	t.Run("unknown_recorder_errors_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		_, err := b.AssociateResourceTypes(
+			"arn:aws:config:us-east-1:000000000000:config-recorder/unknown",
+			[]string{"AWS::S3::Bucket"},
+		)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNotFound)
+	})
+}
+
+func TestAWSConfigBackend_DisassociateResourceTypes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes_resource_types", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config", nil))
+		_, err := b.AssociateResourceTypes("default", []string{"AWS::EC2::Instance", "AWS::S3::Bucket"})
+		require.NoError(t, err)
+
+		require.NoError(t, b.DisassociateResourceTypes("default", []string{"AWS::EC2::Instance"}))
+
+		recs := b.DescribeConfigurationRecorders([]string{"default"})
+		require.Len(t, recs, 1)
+		require.NotNil(t, recs[0].RecordingGroup)
+		assert.Equal(t, []string{"AWS::S3::Bucket"}, recs[0].RecordingGroup.ResourceTypes)
+	})
+
+	t.Run("unknown_recorder_errors_not_found", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		err := b.DisassociateResourceTypes("unknown", []string{"AWS::EC2::Instance"})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrNotFound)
+	})
+
+	t.Run("empty_arn_is_validation_error", func(t *testing.T) {
+		t.Parallel()
+
+		b := awsconfig.NewInMemoryBackend()
+		err := b.DisassociateResourceTypes("", nil)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, awsconfig.ErrValidation)
+	})
 }
 
 func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup                func(t *testing.T, b *awsconfig.InMemoryBackend)
 		name                 string
 		aggregatorName       string
 		identifiers          []awsconfig.AggregateResourceIdentifier
@@ -572,7 +639,7 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 		wantUnprocessedCount int
 	}{
 		{
-			name:           "returns_all_as_unprocessed",
+			name:           "undiscovered_resource_is_unprocessed",
 			aggregatorName: "my-aggregator",
 			identifiers: []awsconfig.AggregateResourceIdentifier{
 				{
@@ -592,6 +659,25 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 			wantItemCount:        0,
 			wantUnprocessedCount: 0,
 		},
+		{
+			name: "discovered_resource_is_returned",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutResourceConfig("AWS::EC2::Instance", "i-abc", `{}`))
+			},
+			aggregatorName: "my-aggregator",
+			identifiers: []awsconfig.AggregateResourceIdentifier{
+				{
+					SourceAccountID: "000000000000",
+					SourceRegion:    "us-east-1",
+					ResourceID:      "i-abc",
+					ResourceType:    "AWS::EC2::Instance",
+				},
+				{ResourceID: "i-missing", ResourceType: "AWS::EC2::Instance"},
+			},
+			wantItemCount:        1,
+			wantUnprocessedCount: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -599,6 +685,10 @@ func TestAWSConfigBackend_BatchGetAggregateResourceConfig(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
 			items, unprocessed := b.BatchGetAggregateResourceConfig(tt.aggregatorName, tt.identifiers)
 			assert.Len(t, items, tt.wantItemCount)
 			assert.Len(t, unprocessed, tt.wantUnprocessedCount)
@@ -610,13 +700,14 @@ func TestAWSConfigBackend_BatchGetResourceConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup                func(t *testing.T, b *awsconfig.InMemoryBackend)
 		name                 string
 		keys                 []awsconfig.ResourceKey
 		wantItemCount        int
 		wantUnprocessedCount int
 	}{
 		{
-			name: "returns_all_as_unprocessed",
+			name: "undiscovered_resource_is_unprocessed",
 			keys: []awsconfig.ResourceKey{
 				{ResourceType: "AWS::EC2::Instance", ResourceID: "i-abc"},
 			},
@@ -629,6 +720,19 @@ func TestAWSConfigBackend_BatchGetResourceConfig(t *testing.T) {
 			wantItemCount:        0,
 			wantUnprocessedCount: 0,
 		},
+		{
+			name: "discovered_resource_is_returned",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutResourceConfig("AWS::EC2::Instance", "i-abc", `{}`))
+			},
+			keys: []awsconfig.ResourceKey{
+				{ResourceType: "AWS::EC2::Instance", ResourceID: "i-abc"},
+				{ResourceType: "AWS::EC2::Instance", ResourceID: "i-missing"},
+			},
+			wantItemCount:        1,
+			wantUnprocessedCount: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -636,6 +740,10 @@ func TestAWSConfigBackend_BatchGetResourceConfig(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
 			items, unprocessed := b.BatchGetResourceConfig(tt.keys)
 			assert.Len(t, items, tt.wantItemCount)
 			assert.Len(t, unprocessed, tt.wantUnprocessedCount)
@@ -1025,13 +1133,6 @@ func TestAWSConfigBackend_DeleteErrors_SpecificTypes(t *testing.T) {
 			name:    "delete_org_conformance_pack_not_found",
 			del:     func(b *awsconfig.InMemoryBackend) error { return b.DeleteOrganizationConformancePack("x") },
 			wantErr: awsconfig.ErrNoSuchOrganizationConformancePack,
-		},
-		{
-			name: "delete_aggregation_auth_not_found",
-			del: func(b *awsconfig.InMemoryBackend) error {
-				return b.DeleteAggregationAuthorization("123456789012", "us-east-1")
-			},
-			wantErr: awsconfig.ErrNoSuchAggregationAuthorization,
 		},
 	}
 

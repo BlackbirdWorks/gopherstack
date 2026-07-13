@@ -620,7 +620,7 @@ func TestAWSConfigHandler_AssociateResourceTypes(t *testing.T) {
 				"ResourceTypes":            []string{"AWS::EC2::Instance"},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"ConfigurationRecorder"},
+			wantContains: []string{"ConfigurationRecorder", "AWS::EC2::Instance"},
 		},
 		{
 			name: "empty_resource_types",
@@ -638,6 +638,8 @@ func TestAWSConfigHandler_AssociateResourceTypes(t *testing.T) {
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
+			require.NoError(t, h.Backend.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/r", nil))
+
 			rec := doAWSConfigRequest(t, h, "AssociateResourceTypes", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
@@ -646,6 +648,18 @@ func TestAWSConfigHandler_AssociateResourceTypes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAWSConfigHandler_AssociateResourceTypes_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestAWSConfigHandler(t)
+	rec := doAWSConfigRequest(t, h, "AssociateResourceTypes", map[string]any{
+		"ConfigurationRecorderArn": "arn:aws:config:us-east-1:000000000000:config-recorder/unknown",
+		"ResourceTypes":            []string{"AWS::EC2::Instance"},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchConfigurationRecorderException")
 }
 
 func TestAWSConfigHandler_BatchGetAggregateResourceConfig(t *testing.T) {
@@ -768,12 +782,14 @@ func TestAWSConfigHandler_DeleteAggregationAuthorization(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "not_found",
+			// Real AWS Config's DeleteAggregationAuthorization is idempotent, so
+			// deleting a nonexistent authorization also returns 200.
+			name: "not_found_is_idempotent",
 			body: map[string]any{
 				"AuthorizedAccountId": "999999999999",
 				"AuthorizedAwsRegion": "us-west-2",
 			},
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -916,19 +932,29 @@ func TestAWSConfigHandler_DeleteEvaluationResults(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup    func(t *testing.T, h *awsconfig.Handler)
 		body     any
 		name     string
 		wantCode int
 	}{
 		{
-			name:     "success_always",
+			name: "success_for_existing_rule",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				require.NoError(t, h.Backend.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "my-rule"}))
+			},
 			body:     map[string]any{"ConfigRuleName": "my-rule"},
 			wantCode: http.StatusOK,
 		},
 		{
+			name:     "nonexistent_rule_not_found",
+			body:     map[string]any{"ConfigRuleName": "my-rule"},
+			wantCode: http.StatusNotFound,
+		},
+		{
 			name:     "empty_rule_name",
 			body:     map[string]any{"ConfigRuleName": ""},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
@@ -937,6 +963,10 @@ func TestAWSConfigHandler_DeleteEvaluationResults(t *testing.T) {
 			t.Parallel()
 
 			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
 			rec := doAWSConfigRequest(t, h, "DeleteEvaluationResults", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -1307,6 +1337,13 @@ func TestAWSConfigHandler_ErrorTypes(t *testing.T) {
 		wantCode     int
 	}{
 		{
+			name:         "delete_configuration_recorder_not_found_type",
+			operation:    "DeleteConfigurationRecorder",
+			body:         map[string]any{"ConfigurationRecorderName": "nonexistent"},
+			wantCode:     http.StatusNotFound,
+			wantContains: "NoSuchConfigurationRecorderException",
+		},
+		{
 			name:         "delete_delivery_channel_not_found_type",
 			operation:    "DeleteDeliveryChannel",
 			body:         map[string]any{"DeliveryChannelName": "nonexistent"},
@@ -1346,21 +1383,14 @@ func TestAWSConfigHandler_ErrorTypes(t *testing.T) {
 			operation:    "DeleteOrganizationConformancePack",
 			body:         map[string]any{"OrganizationConformancePackName": "nonexistent"},
 			wantCode:     http.StatusNotFound,
-			wantContains: "OrganizationConformancePackNotFoundException",
-		},
-		{
-			name:         "delete_agg_auth_not_found_type",
-			operation:    "DeleteAggregationAuthorization",
-			body:         map[string]any{"AuthorizedAccountId": "123456789012", "AuthorizedAwsRegion": "us-east-1"},
-			wantCode:     http.StatusNotFound,
-			wantContains: "NoSuchAggregationAuthorizationException",
+			wantContains: "NoSuchOrganizationConformancePackException",
 		},
 		{
 			name:         "start_recorder_no_delivery_channel_400",
 			operation:    "StartConfigurationRecorder",
 			body:         map[string]any{"ConfigurationRecorderName": "default"},
 			wantCode:     http.StatusBadRequest,
-			wantContains: "ValidationException",
+			wantContains: "NoAvailableDeliveryChannelException",
 		},
 	}
 
