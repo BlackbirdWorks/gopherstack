@@ -2,6 +2,7 @@ package rdsdata
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,12 @@ const (
 	opExecuteSQL            = "ExecuteSql"
 	opExecuteStatement      = "ExecuteStatement"
 	opRollbackTransaction   = "RollbackTransaction"
+)
+
+// RecordsFormatType enum values (types.RecordsFormatType in the real SDK).
+const (
+	formatRecordsAsNone = "NONE"
+	formatRecordsAsJSON = "JSON"
 )
 
 const (
@@ -229,8 +236,21 @@ type executeStatementRequest struct {
 	Database              string         `json:"database"`
 	Schema                string         `json:"schema"`
 	TransactionID         string         `json:"transactionId"`
+	FormatRecordsAs       string         `json:"formatRecordsAs"`
 	Parameters            []SQLParameter `json:"parameters"`
 	IncludeResultMetadata bool           `json:"includeResultMetadata"`
+}
+
+// validateFormatRecordsAs reports an error for any formatRecordsAs value
+// other than the real API's two enum members ("" is treated as the default,
+// NONE).
+func validateFormatRecordsAs(v string) error {
+	switch v {
+	case "", formatRecordsAsNone, formatRecordsAsJSON:
+		return nil
+	default:
+		return fmt.Errorf("%w: invalid formatRecordsAs %q", ErrValidation, v)
+	}
 }
 
 type requiredField struct {
@@ -262,25 +282,83 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
+	if err := validateFormatRecordsAs(req.FormatRecordsAs); err != nil {
+		return nil, err
+	}
+
 	records, columns, updated, err := h.Backend.ExecuteStatement(
 		ctx, req.ResourceArn, req.SQL, req.TransactionID, req.Parameters...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use a map so columnMetadata can be conditionally included.
-	// Real AWS only adds columnMetadata to the response when includeResultMetadata=true.
+	// Use a map so columnMetadata/records/formattedRecords can be
+	// conditionally included, matching real AWS response shaping.
 	resp := map[string]any{
 		"generatedFields":        []Field{},
-		"records":                records,
 		"numberOfRecordsUpdated": updated,
 	}
 
-	if req.IncludeResultMetadata {
-		resp["columnMetadata"] = columns
+	// formatRecordsAs=JSON only applies to SELECT statements; real AWS
+	// ignores it for other statement types, which fall through to the
+	// normal records/columnMetadata shape (empty, since DML has no rows).
+	if req.FormatRecordsAs == formatRecordsAsJSON && isQuery(req.SQL) {
+		formatted, ferr := formatRecordsAsJSONString(records, columns)
+		if ferr != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, ferr)
+		}
+
+		resp["formattedRecords"] = formatted
+	} else {
+		resp["records"] = records
+
+		if req.IncludeResultMetadata {
+			resp["columnMetadata"] = columns
+		}
 	}
 
 	return json.Marshal(resp)
+}
+
+// formatRecordsAsJSONString renders records as the JSON string real AWS
+// returns in formattedRecords when formatRecordsAs=JSON: an array of row
+// objects keyed by column name, with each Field unwrapped to its native
+// JSON-representable value.
+func formatRecordsAsJSONString(records [][]Field, columns []ColumnMetadata) (string, error) {
+	rows := make([]map[string]any, len(records))
+
+	for i, record := range records {
+		row := make(map[string]any, len(record))
+
+		for j, field := range record {
+			name := fmt.Sprintf("column%d", j+1)
+			if j < len(columns) {
+				name = columns[j].Name
+			}
+
+			row[name] = fieldToJSONValue(field)
+		}
+
+		rows[i] = row
+	}
+
+	out, err := json.Marshal(rows)
+	if err != nil {
+		return "", fmt.Errorf("marshal formatted records: %w", err)
+	}
+
+	return string(out), nil
+}
+
+// fieldToJSONValue unwraps a Field union into its native JSON value. Blobs
+// are base64-encoded, matching how JSON (which has no binary type) must
+// represent them.
+func fieldToJSONValue(f Field) any {
+	if f.BlobValue != nil {
+		return base64.StdEncoding.EncodeToString(f.BlobValue)
+	}
+
+	return fieldToValue(f)
 }
 
 type batchExecuteStatementRequest struct {

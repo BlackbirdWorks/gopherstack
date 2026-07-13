@@ -333,6 +333,149 @@ func TestParityAccuracy_CommitThenReuse(t *testing.T) {
 	}
 }
 
+// TestParityAccuracy_FormatRecordsAs_JSON verifies that formatRecordsAs=JSON
+// on a SELECT returns formattedRecords (a JSON string of the result set) and
+// omits records/columnMetadata, matching real AWS RDS Data API behavior.
+func TestParityAccuracy_FormatRecordsAs_JSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+		"resourceArn":           parityResourceARN,
+		"secretArn":             paritySecretARN,
+		"sql":                   "SELECT 42",
+		"formatRecordsAs":       "JSON",
+		"includeResultMetadata": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	_, hasRecords := resp["records"]
+	assert.False(t, hasRecords, "records must be omitted when formatRecordsAs=JSON")
+	_, hasCols := resp["columnMetadata"]
+	assert.False(t, hasCols, "columnMetadata must be omitted when formatRecordsAs=JSON")
+
+	formatted, ok := resp["formattedRecords"].(string)
+	require.True(t, ok, "formattedRecords must be a JSON string")
+
+	var rows []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(formatted), &rows))
+	require.Len(t, rows, 1)
+	require.Len(t, rows[0], 1, "row must have exactly one column")
+
+	for _, v := range rows[0] {
+		assert.InDelta(t, float64(42), v, 0)
+	}
+}
+
+// TestParityAccuracy_FormatRecordsAs_IgnoredForDML verifies that
+// formatRecordsAs is ignored for non-SELECT statements, matching real AWS
+// behavior ("This parameter only applies to SELECT statements").
+func TestParityAccuracy_FormatRecordsAs_IgnoredForDML(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+		"resourceArn":     parityResourceARN,
+		"secretArn":       paritySecretARN,
+		"sql":             "INSERT INTO t VALUES (1)",
+		"formatRecordsAs": "JSON",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	_, hasFormatted := resp["formattedRecords"]
+	assert.False(t, hasFormatted, "formattedRecords must not appear for a DML statement")
+	_, hasRecords := resp["records"]
+	assert.True(t, hasRecords, "records must still be present for a DML statement")
+}
+
+// TestParityAccuracy_FormatRecordsAs_Invalid verifies that an unrecognized
+// formatRecordsAs value is rejected as a BadRequestException, matching real
+// AWS enum validation.
+func TestParityAccuracy_FormatRecordsAs_Invalid(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+		"resourceArn":     parityResourceARN,
+		"secretArn":       paritySecretARN,
+		"sql":             "SELECT 1",
+		"formatRecordsAs": "XML",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "BadRequestException", resp["__type"])
+}
+
+// TestParityAccuracy_ColumnMetadata_FullShape verifies that columnMetadata
+// entries carry the full real-AWS field set (not just name/typeName), and
+// that the JDBC-style type/nullable codes are populated per column.
+func TestParityAccuracy_ColumnMetadata_FullShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+		"resourceArn":           parityResourceARN,
+		"secretArn":             paritySecretARN,
+		"sql":                   "SELECT 42",
+		"includeResultMetadata": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	cols, ok := resp["columnMetadata"].([]any)
+	require.True(t, ok)
+	require.Len(t, cols, 1)
+
+	col, ok := cols[0].(map[string]any)
+	require.True(t, ok)
+
+	for _, key := range []string{
+		"arrayBaseColumnType", "isAutoIncrement", "isCaseSensitive", "isCurrency",
+		"isSigned", "label", "name", "nullable", "precision", "scale",
+		"schemaName", "tableName", "type", "typeName",
+	} {
+		_, present := col[key]
+		assert.True(t, present, "columnMetadata must include %q", key)
+	}
+}
+
+// TestParityAccuracy_SQLParameter_TypeHint verifies that a typeHint on a
+// parameter is accepted (not rejected as an unknown field) and the statement
+// still executes successfully, matching real AWS wire acceptance of typeHint.
+func TestParityAccuracy_SQLParameter_TypeHint(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRDSDataRequest(t, h, "/Execute", map[string]any{
+		"resourceArn": parityResourceARN,
+		"secretArn":   paritySecretARN,
+		"sql":         "SELECT :d",
+		"parameters": []any{
+			map[string]any{
+				"name":     "d",
+				"typeHint": "DECIMAL",
+				"value":    map[string]any{"stringValue": "3.14"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 // TestParityAccuracy_ExecuteStatement_WithTransaction verifies that ExecuteStatement
 // within a valid transaction succeeds, and that statementing outside the transaction
 // after commit fails — matching real AWS atomicity semantics.
