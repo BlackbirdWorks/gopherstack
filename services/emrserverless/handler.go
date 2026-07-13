@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -512,6 +513,8 @@ func applicationToMap(app *Application) map[string]any {
 		m["architecture"] = app.Architecture
 	}
 
+	maps.Copy(m, app.ExtraConfig)
+
 	return m
 }
 
@@ -538,18 +541,77 @@ func jobRunToMap(jr *JobRun) map[string]any {
 	if jr.ReleaseLabel != "" {
 		m[keyReleaseLabel] = jr.ReleaseLabel
 	}
+	if jr.JobDriver != nil {
+		m["jobDriver"] = jr.JobDriver
+	}
+	if jr.ConfigurationOverrides != nil {
+		m["configurationOverrides"] = jr.ConfigurationOverrides
+	}
 
 	return m
 }
 
 // --- Application handlers ---
 
+// applicationConfigFields holds the EMR Serverless application configuration
+// sub-objects this in-memory backend does not interpret (it doesn't actually
+// provision Spark/Hive workers) but must still store and echo back verbatim
+// on GetApplication/ListApplications -- see Application.ExtraConfig. Each
+// field is typed `any` so Go's JSON codec preserves whatever shape the
+// caller sent (object or, for runtimeConfiguration, array) without this
+// backend needing typed structs for every AWS sub-schema. Embedded (not
+// named) in createApplicationBody/updateApplicationBody so its JSON tags are
+// promoted to the top level of the request body.
+type applicationConfigFields struct {
+	InitialCapacity          any `json:"initialCapacity,omitempty"`
+	MaximumCapacity          any `json:"maximumCapacity,omitempty"`
+	AutoStartConfiguration   any `json:"autoStartConfiguration,omitempty"`
+	AutoStopConfiguration    any `json:"autoStopConfiguration,omitempty"`
+	NetworkConfiguration     any `json:"networkConfiguration,omitempty"`
+	ImageConfiguration       any `json:"imageConfiguration,omitempty"`
+	MonitoringConfiguration  any `json:"monitoringConfiguration,omitempty"`
+	WorkerTypeSpecifications any `json:"workerTypeSpecifications,omitempty"`
+	RuntimeConfiguration     any `json:"runtimeConfiguration,omitempty"`
+	InteractiveConfiguration any `json:"interactiveConfiguration,omitempty"`
+}
+
+// applicationConfigFieldCount is the number of sub-object fields in
+// applicationConfigFields, used to size the map toMap builds.
+const applicationConfigFieldCount = 10
+
+// toMap returns the subset of fields present in the request, keyed by their
+// AWS wire field name, ready to merge into Application.ExtraConfig.
+func (f applicationConfigFields) toMap() map[string]any {
+	m := make(map[string]any, applicationConfigFieldCount)
+
+	add := func(key string, val any) {
+		if val != nil {
+			m[key] = val
+		}
+	}
+
+	add("initialCapacity", f.InitialCapacity)
+	add("maximumCapacity", f.MaximumCapacity)
+	add("autoStartConfiguration", f.AutoStartConfiguration)
+	add("autoStopConfiguration", f.AutoStopConfiguration)
+	add("networkConfiguration", f.NetworkConfiguration)
+	add("imageConfiguration", f.ImageConfiguration)
+	add("monitoringConfiguration", f.MonitoringConfiguration)
+	add("workerTypeSpecifications", f.WorkerTypeSpecifications)
+	add("runtimeConfiguration", f.RuntimeConfiguration)
+	add("interactiveConfiguration", f.InteractiveConfiguration)
+
+	return m
+}
+
 type createApplicationBody struct {
+	applicationConfigFields
 	Tags         map[string]string `json:"tags"`
 	Name         string            `json:"name"`
 	Type         string            `json:"type"`
 	ReleaseLabel string            `json:"releaseLabel"`
 	Architecture string            `json:"architecture"`
+	ClientToken  string            `json:"clientToken"`
 }
 
 type createApplicationResponse struct {
@@ -566,7 +628,8 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		}
 	}
 
-	app, err := h.Backend.CreateApplication(in.Name, in.Type, in.ReleaseLabel, in.Architecture, in.Tags)
+	app, err := h.Backend.CreateApplication(in.Name, in.Type, in.ReleaseLabel, in.Architecture, in.Tags,
+		CreateApplicationOptions{ClientToken: in.ClientToken, ExtraConfig: in.toMap()})
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -630,6 +693,7 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 }
 
 type updateApplicationBody struct {
+	applicationConfigFields
 	ReleaseLabel string `json:"releaseLabel"`
 }
 
@@ -644,6 +708,14 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string,
 	app, err := h.Backend.UpdateApplication(applicationID, func(a *Application) {
 		if in.ReleaseLabel != "" {
 			a.ReleaseLabel = in.ReleaseLabel
+		}
+
+		if extra := in.toMap(); len(extra) > 0 {
+			if a.ExtraConfig == nil {
+				a.ExtraConfig = make(map[string]any, len(extra))
+			}
+
+			maps.Copy(a.ExtraConfig, extra)
 		}
 	})
 	if err != nil {
@@ -680,10 +752,13 @@ func (h *Handler) handleStopApplication(c *echo.Context, applicationID string) e
 // --- JobRun handlers ---
 
 type startJobRunBody struct {
-	Tags             map[string]string `json:"tags"`
-	ExecutionRoleArn string            `json:"executionRoleArn"`
-	Name             string            `json:"name"`
-	Mode             string            `json:"mode"`
+	Tags                   map[string]string `json:"tags"`
+	JobDriver              any               `json:"jobDriver"`
+	ConfigurationOverrides any               `json:"configurationOverrides"`
+	ExecutionRoleArn       string            `json:"executionRoleArn"`
+	Name                   string            `json:"name"`
+	Mode                   string            `json:"mode"`
+	ClientToken            string            `json:"clientToken"`
 }
 
 type startJobRunResponse struct {
@@ -700,7 +775,12 @@ func (h *Handler) handleStartJobRun(c *echo.Context, applicationID string, body 
 		}
 	}
 
-	jr, err := h.Backend.StartJobRun(applicationID, in.ExecutionRoleArn, in.Name, in.Mode, in.Tags)
+	jr, err := h.Backend.StartJobRun(applicationID, in.ExecutionRoleArn, in.Name, in.Mode, in.Tags,
+		StartJobRunOptions{
+			ClientToken:            in.ClientToken,
+			JobDriver:              in.JobDriver,
+			ConfigurationOverrides: in.ConfigurationOverrides,
+		})
 	if err != nil {
 		return h.handleError(c, err)
 	}

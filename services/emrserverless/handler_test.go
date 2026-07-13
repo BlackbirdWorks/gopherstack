@@ -1606,3 +1606,183 @@ func TestHandler_ListJobRunAttempts(t *testing.T) {
 		})
 	}
 }
+
+// --- CreateApplication / UpdateApplication configuration passthrough ---
+
+// TestHandler_CreateApplication_ConfigPassthrough verifies that application
+// configuration sub-objects (maximumCapacity, autoStopConfiguration, etc.)
+// supplied on CreateApplication are echoed back verbatim by GetApplication
+// instead of being silently discarded.
+func TestHandler_CreateApplication_ConfigPassthrough(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	maxCapacity := map[string]any{"cpu": "400 vCPU", "memory": "3000 GB"}
+	autoStop := map[string]any{"enabled": true, "idleTimeoutMinutes": float64(20)}
+
+	rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
+		"name":                  "config-passthrough-app",
+		"type":                  "SPARK",
+		"releaseLabel":          "emr-6.6.0",
+		"maximumCapacity":       maxCapacity,
+		"autoStopConfiguration": autoStop,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]string
+	mustUnmarshal(t, rec, &created)
+
+	getRec := doRequest(t, h, http.MethodGet, "/applications/"+created["applicationId"], nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, getRec, &out)
+	app := out["application"].(map[string]any)
+	assert.Equal(t, maxCapacity, app["maximumCapacity"])
+	assert.Equal(t, autoStop, app["autoStopConfiguration"])
+}
+
+// TestHandler_UpdateApplication_ConfigMerge verifies that UpdateApplication
+// merges newly supplied configuration keys with previously stored ones
+// rather than replacing the whole configuration (matching AWS's per-field
+// PATCH semantics), and that fields not present in the request body are left
+// untouched.
+func TestHandler_UpdateApplication_ConfigMerge(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	maxCapacity := map[string]any{"cpu": "200 vCPU", "memory": "1000 GB"}
+	rec := doRequest(t, h, http.MethodPost, "/applications", map[string]any{
+		"name":            "config-merge-app",
+		"type":            "SPARK",
+		"releaseLabel":    "emr-6.6.0",
+		"maximumCapacity": maxCapacity,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var created map[string]string
+	mustUnmarshal(t, rec, &created)
+	appID := created["applicationId"]
+
+	autoStop := map[string]any{"enabled": true}
+	updateRec := doRequest(t, h, http.MethodPatch, "/applications/"+appID, map[string]any{
+		"autoStopConfiguration": autoStop,
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet, "/applications/"+appID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, getRec, &out)
+	app := out["application"].(map[string]any)
+	assert.Equal(t, maxCapacity, app["maximumCapacity"], "update must not drop previously stored config")
+	assert.Equal(t, autoStop, app["autoStopConfiguration"])
+}
+
+// TestHandler_CreateApplication_ClientTokenIdempotent verifies that retrying
+// CreateApplication with the same clientToken (as an AWS SDK does on a
+// timed-out request) returns the already-created application instead of
+// erroring with ConflictException.
+func TestHandler_CreateApplication_ClientTokenIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"name":         "client-token-app",
+		"type":         "SPARK",
+		"releaseLabel": "emr-6.6.0",
+		"clientToken":  "retry-token-1",
+	}
+
+	rec1 := doRequest(t, h, http.MethodPost, "/applications", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	var out1 map[string]string
+	mustUnmarshal(t, rec1, &out1)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/applications", body)
+	require.Equal(t, http.StatusOK, rec2.Code, "retry with same clientToken must not conflict")
+	var out2 map[string]string
+	mustUnmarshal(t, rec2, &out2)
+
+	assert.Equal(t, out1["applicationId"], out2["applicationId"])
+}
+
+// --- StartJobRun jobDriver / configurationOverrides passthrough ---
+
+// TestHandler_StartJobRun_JobDriverWireShape verifies that jobDriver
+// (a required field on the real GetJobRun/ListJobRuns response shape) is
+// stored and echoed back rather than silently dropped, and that
+// configurationOverrides round-trips too.
+func TestHandler_StartJobRun_JobDriverWireShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createApp(t, h, "jobdriver-wire-app")
+
+	jobDriver := map[string]any{
+		"sparkSubmit": map[string]any{
+			"entryPoint": "s3://bucket/job.py",
+		},
+	}
+	configOverrides := map[string]any{
+		"monitoringConfiguration": map[string]any{"s3MonitoringConfiguration": map[string]any{"logUri": "s3://x"}},
+	}
+
+	rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", map[string]any{
+		"executionRoleArn":       "arn:aws:iam::000000000000:role/r",
+		"name":                   "jobdriver-run",
+		"jobDriver":              jobDriver,
+		"configurationOverrides": configOverrides,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var started map[string]string
+	mustUnmarshal(t, rec, &started)
+
+	getRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns/"+started["jobRunId"], nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, getRec, &out)
+	jr := out["jobRun"].(map[string]any)
+	assert.Equal(t, jobDriver, jr["jobDriver"])
+	assert.Equal(t, configOverrides, jr["configurationOverrides"])
+}
+
+// TestHandler_StartJobRun_ClientTokenIdempotent verifies that retrying
+// StartJobRun with the same clientToken returns the already-started job run
+// instead of creating a duplicate.
+func TestHandler_StartJobRun_ClientTokenIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	appID := createApp(t, h, "jobrun-token-app")
+
+	body := map[string]any{
+		"executionRoleArn": "arn:aws:iam::000000000000:role/r",
+		"name":             "token-run",
+		"clientToken":      "jr-retry-token-1",
+	}
+
+	rec1 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	var out1 map[string]string
+	mustUnmarshal(t, rec1, &out1)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var out2 map[string]string
+	mustUnmarshal(t, rec2, &out2)
+
+	assert.Equal(t, out1["jobRunId"], out2["jobRunId"])
+
+	listRec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+	var list map[string]any
+	mustUnmarshal(t, listRec, &list)
+	assert.Len(t, list["jobRuns"].([]any), 1, "retried StartJobRun must not create a duplicate job run")
+}
