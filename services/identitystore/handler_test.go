@@ -1230,14 +1230,20 @@ func TestValidationErrors(t *testing.T) {
 			},
 		},
 		{
-			name: "create_group_missing_display_name",
+			// DisplayName is NOT in CreateGroupRequest's "required" list in the
+			// real AWS smithy model -- only IdentityStoreId is. A group may be
+			// created with no DisplayName.
+			name: "create_group_missing_display_name_is_allowed",
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
 				rec := doRequest(t, h, "CreateGroup", map[string]any{
 					"IdentityStoreId": testStoreID,
 				})
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				resp := parseResponse(t, rec)
+				assert.NotEmpty(t, resp["GroupId"])
 			},
 		},
 		{

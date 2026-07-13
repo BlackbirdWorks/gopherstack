@@ -583,10 +583,10 @@ func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body [
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "IdentityStoreId is required")
 	}
 
-	if strings.TrimSpace(req.DisplayName) == "" {
-		return h.writeError(c, http.StatusBadRequest, "ValidationException", "DisplayName is required")
-	}
-
+	// DisplayName is NOT required by the real CreateGroup API (only
+	// IdentityStoreId is in the "required" list of the smithy model) -- see
+	// api-2.json's CreateGroupRequest. A group may be created with no
+	// DisplayName at all.
 	group, err := h.Backend.CreateGroup(ctx, req.IdentityStoreID, &CreateGroupRequest{
 		DisplayName: req.DisplayName,
 		Description: req.Description,
