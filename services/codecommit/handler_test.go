@@ -1542,7 +1542,7 @@ func TestBackend_Reset(t *testing.T) {
 	require.NoError(t, err)
 	_, err = b.CreateApprovalRuleTemplate("tmpl", "", "{}")
 	require.NoError(t, err)
-	_, err = b.CreateCommit("repo-a", "main", "Alice", "alice@test.com", "init", "", nil, nil)
+	_, _, err = b.CreateCommit("repo-a", "main", "Alice", "alice@test.com", "init", "", nil, nil)
 	require.NoError(t, err)
 	_, err = b.CreatePullRequest("My PR", "", "", []codecommit.PullRequestTarget{
 		{RepositoryName: "repo-a", SourceReference: "refs/heads/feature"},

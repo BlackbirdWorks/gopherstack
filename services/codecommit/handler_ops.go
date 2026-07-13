@@ -788,7 +788,7 @@ func (h *Handler) handlePutFile(body []byte) (any, error) {
 		content = []byte(req.FileContent)
 	}
 
-	commit, err := h.Backend.PutFile(req.RepositoryName, req.BranchName, req.FilePath, content)
+	commit, blobID, err := h.Backend.PutFile(req.RepositoryName, req.BranchName, req.FilePath, content)
 	if err != nil {
 		return nil, err
 	}
@@ -796,7 +796,7 @@ func (h *Handler) handlePutFile(body []byte) (any, error) {
 	return map[string]any{
 		keyCommitID: commit.CommitID,
 		keyTreeID:   commit.TreeID,
-		keyBlobID:   "",
+		keyBlobID:   blobID,
 		"filesAdded": []any{
 			map[string]any{keyFilePath: req.FilePath},
 		},
@@ -887,7 +887,7 @@ func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName and filePath are required", errInvalidRequest)
 	}
 
-	commit, err := h.Backend.DeleteFile(req.RepositoryName, req.BranchName, req.FilePath, req.ParentCommitID)
+	commit, blobID, err := h.Backend.DeleteFile(req.RepositoryName, req.BranchName, req.FilePath, req.ParentCommitID)
 	if err != nil {
 		return nil, err
 	}
@@ -895,7 +895,7 @@ func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 	return map[string]any{
 		keyCommitID: commit.CommitID,
 		keyTreeID:   commit.TreeID,
-		keyBlobID:   "",
+		keyBlobID:   blobID,
 		keyFilePath: req.FilePath,
 	}, nil
 }
@@ -1277,7 +1277,10 @@ func (h *Handler) handleDisassociateApprovalRuleTemplateFromRepository(body []by
 	)
 }
 
-// handleDescribeMergeConflicts is a stub that delegates to BatchDescribeMergeConflicts for a single file.
+// handleDescribeMergeConflicts describes merge conflicts for a single file by
+// delegating to the same backend logic BatchDescribeMergeConflicts uses,
+// scoped to one filePath. This validates the repository/required fields and
+// reads real backend state instead of echoing the request back unexamined.
 func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 	var req struct {
 		RepositoryName             string `json:"repositoryName"`
@@ -1290,15 +1293,53 @@ func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if req.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
+
+	if req.DestinationCommitSpecifier == "" {
+		return nil, fmt.Errorf("%w: destinationCommitSpecifier is required", errInvalidRequest)
+	}
+
+	if req.SourceCommitSpecifier == "" {
+		return nil, fmt.Errorf("%w: sourceCommitSpecifier is required", errInvalidRequest)
+	}
+
+	if req.FilePath == "" {
+		return nil, fmt.Errorf("%w: filePath is required", errInvalidRequest)
+	}
+
+	if req.MergeOption == "" {
+		return nil, fmt.Errorf("%w: mergeOption is required", errInvalidRequest)
+	}
+
+	if !isValidMergeOption(req.MergeOption) {
+		return nil, fmt.Errorf(
+			"%w: mergeOption must be FAST_FORWARD_MERGE, SQUASH_MERGE, or THREE_WAY_MERGE",
+			ErrValidation,
+		)
+	}
+
+	result, err := h.Backend.BatchDescribeMergeConflicts(
+		req.RepositoryName, req.DestinationCommitSpecifier, req.SourceCommitSpecifier,
+		req.MergeOption, []string{req.FilePath},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	meta := ConflictMetadata{FilePath: req.FilePath}
+	hunks := []MergeHunk{}
+	if len(result.Conflicts) > 0 {
+		meta = result.Conflicts[0].ConflictMetadata
+		hunks = result.Conflicts[0].MergeHunks
+	}
+
 	return map[string]any{
-		keyDestCommitID:   req.DestinationCommitSpecifier,
-		keySourceCommitID: req.SourceCommitSpecifier,
-		"mergeHunks":      []any{},
-		"conflictMetadata": map[string]any{
-			keyFilePath:         req.FilePath,
-			"numberOfConflicts": 0,
-			"contentConflict":   false,
-		},
+		keyDestCommitID:    result.DestinationCommitID,
+		keySourceCommitID:  result.SourceCommitID,
+		"mergeHunks":       hunks,
+		"conflictMetadata": meta,
 	}, nil
 }
 
