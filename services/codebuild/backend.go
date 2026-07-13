@@ -20,6 +20,7 @@ const (
 	buildStatusInProgress = "IN_PROGRESS"
 	buildStatusStopped    = "STOPPED"
 	phaseSubmitted        = "SUBMITTED"
+	phaseCompleted        = "COMPLETED"
 )
 
 var (
@@ -167,6 +168,7 @@ type Project struct {
 	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
 	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
 	LogsConfig              *LogsConfig            `json:"logsConfig,omitempty"`
+	Webhook                 *Webhook               `json:"webhook,omitempty"`
 	Name                    string                 `json:"name"`
 	Description             string                 `json:"description,omitempty"`
 	ServiceRole             string                 `json:"serviceRole,omitempty"`
@@ -878,7 +880,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 
 	build.BuildStatus = buildStatusStopped
 	build.EndTime = float64(time.Now().Unix())
-	build.CurrentPhase = "COMPLETED"
+	build.CurrentPhase = phaseCompleted
 	build.BuildComplete = true
 
 	out := *build
@@ -1702,6 +1704,10 @@ func (b *InMemoryBackend) DeleteWebhook(projectName string) error {
 		return ErrNotFound
 	}
 
+	if p, ok := b.projects.Get(projectName); ok {
+		p.Webhook = nil
+	}
+
 	return nil
 }
 
@@ -1725,6 +1731,11 @@ func (b *InMemoryBackend) UpdateWebhook(
 	}
 
 	out := *w
+
+	if p, projOK := b.projects.Get(projectName); projOK {
+		projCopy := out
+		p.Webhook = &projCopy
+	}
 
 	return &out, nil
 }
@@ -1998,13 +2009,19 @@ func (b *InMemoryBackend) ListCuratedEnvironmentImages() []map[string]any {
 // --- Webhook operations ---
 
 // CreateWebhook creates a webhook for a CodeBuild project.
+//
+// Real AWS surfaces the created webhook back on the project itself (the
+// Project.Webhook field returned by BatchGetProjects/GetProject), so the new
+// webhook is mirrored onto the project record here as well as stored in the
+// webhooks table.
 func (b *InMemoryBackend) CreateWebhook(
 	projectName, branchFilter, buildType string, filterGroups [][]WebhookFilter,
 ) (*Webhook, error) {
 	b.mu.Lock("CreateWebhook")
 	defer b.mu.Unlock()
 
-	if !b.projects.Has(projectName) {
+	p, ok := b.projects.Get(projectName)
+	if !ok {
 		return nil, ErrNotFound
 	}
 
@@ -2023,6 +2040,8 @@ func (b *InMemoryBackend) CreateWebhook(
 	b.webhooks.Put(w)
 
 	out := *w
+	projCopy := out
+	p.Webhook = &projCopy
 
 	return &out, nil
 }

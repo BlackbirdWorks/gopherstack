@@ -15,6 +15,7 @@ const (
 
 	codebuildWorkerServiceName = "codebuild"
 	buildSweeperComponent      = "CompletedBuildSweeper"
+	buildAdvancerComponent     = "InProgressBuildAdvancer"
 )
 
 // isTerminalBuild reports whether the given build status is terminal.
@@ -60,16 +61,24 @@ func (j *Janitor) Run(ctx context.Context) {
 		buildSweeperComponent,
 		j.Interval,
 		j.TaskTimeout,
-		j.sweepCompletedBuilds,
+		j.tick,
 	)
 
 	<-ctx.Done()
 	g.Stop()
 }
 
-// SweepOnce runs a single sweep pass. Exposed for testing.
+// SweepOnce runs a single janitor pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.tick(ctx)
+}
+
+// tick performs one full janitor pass: evict completed builds past their TTL,
+// then advance any still-IN_PROGRESS builds/build batches toward a terminal
+// state (see advanceInProgressBuilds).
+func (j *Janitor) tick(ctx context.Context) {
 	j.sweepCompletedBuilds(ctx)
+	j.advanceInProgressBuilds(ctx)
 }
 
 // sweepCompletedBuilds removes builds in terminal states whose EndTime is older than BuildTTL.
@@ -105,4 +114,71 @@ func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 	telemetry.RecordWorkerItems(codebuildWorkerServiceName, buildSweeperComponent, count)
 
 	logger.Load(ctx).InfoContext(ctx, "CodeBuild janitor: completed builds evicted", "count", count)
+}
+
+// advanceInProgressBuilds transitions builds and build batches that are still
+// IN_PROGRESS to a terminal SUCCEEDED state.
+//
+// Real CodeBuild builds run asynchronously against a fleet and eventually
+// complete on their own; StartBuild/StartBuildBatch only ever set the initial
+// IN_PROGRESS status. Without this advancement, nothing in the backend ever
+// mutates that status again (StopBuild/StopBuildBatch require an explicit
+// caller action), so a build would sit at IN_PROGRESS forever and any client
+// polling BatchGetBuilds/BatchGetBuildBatches to wait for completion would
+// spin indefinitely.
+func (j *Janitor) advanceInProgressBuilds(ctx context.Context) {
+	now := float64(time.Now().Unix())
+
+	var buildIDs, batchIDs []string
+
+	j.Backend.mu.RLock("CodeBuildJanitorAdvanceRead")
+	for _, build := range j.Backend.builds.All() {
+		if build.BuildStatus == buildStatusInProgress {
+			buildIDs = append(buildIDs, build.ID)
+		}
+	}
+
+	for _, batch := range j.Backend.buildBatches.All() {
+		if batch.BuildBatchStatus == buildStatusInProgress {
+			batchIDs = append(batchIDs, batch.ID)
+		}
+	}
+	j.Backend.mu.RUnlock()
+
+	if len(buildIDs) == 0 && len(batchIDs) == 0 {
+		return
+	}
+
+	j.Backend.mu.Lock("CodeBuildJanitorAdvance")
+
+	for _, id := range buildIDs {
+		if build, ok := j.Backend.builds.Get(id); ok && build.BuildStatus == buildStatusInProgress {
+			build.BuildStatus = buildStatusSucceeded
+			build.EndTime = now
+			build.CurrentPhase = phaseCompleted
+			build.BuildComplete = true
+		}
+	}
+
+	for _, id := range batchIDs {
+		if batch, ok := j.Backend.buildBatches.Get(id); ok && batch.BuildBatchStatus == buildStatusInProgress {
+			batch.BuildBatchStatus = buildStatusSucceeded
+			batch.EndTime = now
+		}
+	}
+
+	j.Backend.mu.Unlock()
+
+	count := len(buildIDs) + len(batchIDs)
+
+	telemetry.RecordWorkerTask(codebuildWorkerServiceName, buildAdvancerComponent, "success")
+
+	if count == 0 {
+		return
+	}
+
+	telemetry.RecordWorkerItems(codebuildWorkerServiceName, buildAdvancerComponent, count)
+
+	logger.Load(ctx).InfoContext(ctx, "CodeBuild janitor: in-progress builds advanced to SUCCEEDED",
+		"builds", len(buildIDs), "buildBatches", len(batchIDs))
 }

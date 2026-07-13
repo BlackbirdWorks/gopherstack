@@ -254,6 +254,59 @@ func TestParity_Webhook_FilterGroups(t *testing.T) {
 	}
 }
 
+// TestParity_CreateWebhook_MirroredOnProject verifies that a project's webhook
+// field (as returned by BatchGetProjects) reflects CreateWebhook, UpdateWebhook,
+// and DeleteWebhook, matching real AWS where Project.Webhook is populated once a
+// webhook exists for that project.
+func TestParity_CreateWebhook_MirroredOnProject(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	makeProject(t, h, "webhook-mirror-proj")
+
+	getProjectWebhook := func() map[string]any {
+		rec := doRequest(t, h, "BatchGetProjects", map[string]any{"names": []string{"webhook-mirror-proj"}})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			Projects []map[string]any `json:"projects"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.Len(t, out.Projects, 1)
+
+		w, _ := out.Projects[0]["webhook"].(map[string]any)
+
+		return w
+	}
+
+	assert.Nil(t, getProjectWebhook(), "project must have no webhook before CreateWebhook")
+
+	createRec := doRequest(t, h, "CreateWebhook", map[string]any{
+		"projectName":  "webhook-mirror-proj",
+		"branchFilter": "main",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	w := getProjectWebhook()
+	require.NotNil(t, w, "project must reflect webhook after CreateWebhook")
+	assert.Equal(t, "main", w["branchFilter"])
+
+	updateRec := doRequest(t, h, "UpdateWebhook", map[string]any{
+		"projectName":  "webhook-mirror-proj",
+		"branchFilter": "develop",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	w = getProjectWebhook()
+	require.NotNil(t, w, "project must still reflect webhook after UpdateWebhook")
+	assert.Equal(t, "develop", w["branchFilter"], "project webhook must reflect UpdateWebhook changes")
+
+	deleteRec := doRequest(t, h, "DeleteWebhook", map[string]any{"projectName": "webhook-mirror-proj"})
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+
+	assert.Nil(t, getProjectWebhook(), "project must have no webhook after DeleteWebhook")
+}
+
 // TestParity_StartBuild_OverrideFields verifies StartBuild applies override fields
 // beyond just environmentVariablesOverride, matching real AWS behavior.
 func TestParity_StartBuild_OverrideFields(t *testing.T) {
