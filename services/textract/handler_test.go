@@ -1005,3 +1005,100 @@ func TestHandler_Snapshot_Restore_WithAdapters(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_StartExpenseAnalysis_ClientRequestTokenIdempotency(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]any{
+		"DocumentLocation": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "receipt.pdf"},
+		},
+		"ClientRequestToken": "expense-token-xyz",
+	}
+
+	rec1 := doTextractRequest(t, h, "StartExpenseAnalysis", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 map[string]string
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	jobID1 := resp1["JobId"]
+	require.NotEmpty(t, jobID1)
+
+	rec2 := doTextractRequest(t, h, "StartExpenseAnalysis", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+	assert.Equal(t, jobID1, resp2["JobId"], "same ClientRequestToken must return same JobId")
+	assert.Equal(t, 1, textract.ExpenseJobCount(h.Backend.(*textract.InMemoryBackend)))
+}
+
+func TestHandler_StartLendingAnalysis_ClientRequestTokenIdempotency(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	body := map[string]any{
+		"DocumentLocation": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "loan.pdf"},
+		},
+		"ClientRequestToken": "lending-token-xyz",
+	}
+
+	rec1 := doTextractRequest(t, h, "StartLendingAnalysis", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 map[string]string
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	jobID1 := resp1["JobId"]
+	require.NotEmpty(t, jobID1)
+
+	rec2 := doTextractRequest(t, h, "StartLendingAnalysis", body)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+	assert.Equal(t, jobID1, resp2["JobId"], "same ClientRequestToken must return same JobId")
+	assert.Equal(t, 1, textract.LendingJobCount(h.Backend.(*textract.InMemoryBackend)))
+}
+
+func TestHandler_GetLendingAnalysisSummary_IncludesWarnings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	b := h.Backend.(*textract.InMemoryBackend)
+
+	startRec := doTextractRequest(t, h, "StartLendingAnalysis", map[string]any{
+		"DocumentLocation": map[string]any{
+			"S3Object": map[string]any{"Bucket": "b", "Name": "loan.pdf"},
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startResp map[string]string
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	jobID := startResp["JobId"]
+
+	textract.AddLendingJobInternal(b, &textract.LendingJob{
+		JobID:     jobID,
+		JobStatus: "SUCCEEDED",
+		Warnings: []textract.WarningBlock{
+			{ErrorCode: "InvalidPageException", Pages: []int{2}},
+		},
+	})
+
+	rec := doTextractRequest(t, h, "GetLendingAnalysisSummary", map[string]any{"JobId": jobID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Warnings []struct {
+			ErrorCode string `json:"ErrorCode"`
+			Pages     []int  `json:"Pages"`
+		} `json:"Warnings"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Warnings, 1)
+	assert.Equal(t, "InvalidPageException", resp.Warnings[0].ErrorCode)
+}

@@ -1145,7 +1145,22 @@ func (h *Handler) handleStartExpenseAnalysis(
 
 	uri := "s3://" + bucket + "/" + key
 
-	job, err := h.Backend.StartExpenseAnalysis(ctx, uri)
+	var job *ExpenseJob
+	var err error
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		job, err = b.StartExpenseAnalysisWithOptions(
+			ctx,
+			uri,
+			in.OutputConfig,
+			in.NotificationChannel,
+			in.JobTag,
+			in.ClientRequestToken,
+		)
+	} else {
+		job, err = h.Backend.StartExpenseAnalysis(ctx, uri)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -1208,6 +1223,7 @@ type getLendingAnalysisSummaryResponse struct {
 	AnalyzeLendingModelVersion string          `json:"AnalyzeLendingModelVersion"`
 	JobStatus                  string          `json:"JobStatus"`
 	StatusMessage              string          `json:"StatusMessage,omitempty"`
+	Warnings                   []WarningBlock  `json:"Warnings,omitempty"`
 	DocumentMetadata           struct {
 		Pages int `json:"Pages"`
 	} `json:"DocumentMetadata"`
@@ -1230,6 +1246,7 @@ func (h *Handler) handleGetLendingAnalysisSummary(
 		AnalyzeLendingModelVersion: modelVersion10,
 		JobStatus:                  job.JobStatus,
 		StatusMessage:              job.StatusMessage,
+		Warnings:                   job.Warnings,
 		Summary:                    job.Summary,
 	}
 	resp.DocumentMetadata.Pages = 1
@@ -1264,7 +1281,22 @@ func (h *Handler) handleStartLendingAnalysis(
 
 	uri := "s3://" + bucket + "/" + key
 
-	job, err := h.Backend.StartLendingAnalysis(ctx, uri)
+	var job *LendingJob
+	var err error
+
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		job, err = b.StartLendingAnalysisWithOptions(
+			ctx,
+			uri,
+			in.OutputConfig,
+			in.NotificationChannel,
+			in.JobTag,
+			in.ClientRequestToken,
+		)
+	} else {
+		job, err = h.Backend.StartLendingAnalysis(ctx, uri)
+	}
+
 	if err != nil {
 		return nil, err
 	}

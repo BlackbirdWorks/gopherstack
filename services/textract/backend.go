@@ -453,26 +453,28 @@ type ExpenseJob struct {
 // region-nested maps: their values are strings, not *T, so they do not fit
 // store.Table's keyed-by-identity-value shape.
 type InMemoryBackend struct {
-	svcCtx                   context.Context
-	adapterClientTokenToID   map[string]map[string]string // region → clientToken → adapterID
-	clientTokenToJobID       map[string]map[string]string // region → clientToken → jobID
-	jobs                     *store.Table[DocumentJob]
-	jobsByRegion             *store.Index[DocumentJob]
-	expenseJobs              *store.Table[ExpenseJob]
-	expenseJobsByRegion      *store.Index[ExpenseJob]
-	lendingJobs              *store.Table[LendingJob]
-	lendingJobsByRegion      *store.Index[LendingJob]
-	adapters                 *store.Table[Adapter]
-	adaptersByRegion         *store.Index[Adapter]
-	adapterVersions          *store.Table[AdapterVersion]
-	adapterVersionsByAdapter *store.Index[AdapterVersion]
-	mu                       *lockmetrics.RWMutex
-	cancel                   context.CancelFunc
-	accountID                string
-	region                   string // default region
-	wg                       sync.WaitGroup
-	asyncJobDelay            time.Duration
-	maxJobs                  int
+	svcCtx                    context.Context
+	adapterClientTokenToID    map[string]map[string]string // region → clientToken → adapterID
+	clientTokenToJobID        map[string]map[string]string // region → clientToken → jobID
+	expenseClientTokenToJobID map[string]map[string]string // region → clientToken → expense jobID
+	lendingClientTokenToJobID map[string]map[string]string // region → clientToken → lending jobID
+	jobs                      *store.Table[DocumentJob]
+	jobsByRegion              *store.Index[DocumentJob]
+	expenseJobs               *store.Table[ExpenseJob]
+	expenseJobsByRegion       *store.Index[ExpenseJob]
+	lendingJobs               *store.Table[LendingJob]
+	lendingJobsByRegion       *store.Index[LendingJob]
+	adapters                  *store.Table[Adapter]
+	adaptersByRegion          *store.Index[Adapter]
+	adapterVersions           *store.Table[AdapterVersion]
+	adapterVersionsByAdapter  *store.Index[AdapterVersion]
+	mu                        *lockmetrics.RWMutex
+	cancel                    context.CancelFunc
+	accountID                 string
+	region                    string // default region
+	wg                        sync.WaitGroup
+	asyncJobDelay             time.Duration
+	maxJobs                   int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a background lifecycle
@@ -493,15 +495,17 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	ctx, cancel := context.WithCancel(svcCtx)
 
 	b := &InMemoryBackend{
-		clientTokenToJobID:     make(map[string]map[string]string),
-		adapterClientTokenToID: make(map[string]map[string]string),
-		mu:                     lockmetrics.New("textract"),
-		accountID:              accountID,
-		region:                 region,
-		maxJobs:                maxJobHistory,
-		asyncJobDelay:          defaultAsyncJobDelay,
-		svcCtx:                 ctx,
-		cancel:                 cancel,
+		clientTokenToJobID:        make(map[string]map[string]string),
+		adapterClientTokenToID:    make(map[string]map[string]string),
+		expenseClientTokenToJobID: make(map[string]map[string]string),
+		lendingClientTokenToJobID: make(map[string]map[string]string),
+		mu:                        lockmetrics.New("textract"),
+		accountID:                 accountID,
+		region:                    region,
+		maxJobs:                   maxJobHistory,
+		asyncJobDelay:             defaultAsyncJobDelay,
+		svcCtx:                    ctx,
+		cancel:                    cancel,
 	}
 
 	registerAllTables(b)
@@ -557,8 +561,16 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.resetTablesLocked()
+	b.resetClientTokenMapsLocked()
+}
+
+// resetClientTokenMapsLocked reinitializes every ClientRequestToken dedup
+// map to empty. Caller must hold b.mu for writing.
+func (b *InMemoryBackend) resetClientTokenMapsLocked() {
 	b.clientTokenToJobID = make(map[string]map[string]string)
 	b.adapterClientTokenToID = make(map[string]map[string]string)
+	b.expenseClientTokenToJobID = make(map[string]map[string]string)
+	b.lendingClientTokenToJobID = make(map[string]map[string]string)
 }
 
 // The following lazy per-region store helpers return the resource map for the
@@ -578,6 +590,22 @@ func (b *InMemoryBackend) adapterClientTokenToIDStore(region string) map[string]
 	}
 
 	return b.adapterClientTokenToID[region]
+}
+
+func (b *InMemoryBackend) expenseClientTokenToJobIDStore(region string) map[string]string {
+	if b.expenseClientTokenToJobID[region] == nil {
+		b.expenseClientTokenToJobID[region] = make(map[string]string)
+	}
+
+	return b.expenseClientTokenToJobID[region]
+}
+
+func (b *InMemoryBackend) lendingClientTokenToJobIDStore(region string) map[string]string {
+	if b.lendingClientTokenToJobID[region] == nil {
+		b.lendingClientTokenToJobID[region] = make(map[string]string)
+	}
+
+	return b.lendingClientTokenToJobID[region]
 }
 
 const (
@@ -1712,20 +1740,54 @@ func syntheticLendingSummary() *LendingSummary {
 
 // StartExpenseAnalysis creates an async expense analysis job.
 func (b *InMemoryBackend) StartExpenseAnalysis(ctx context.Context, documentURI string) (*ExpenseJob, error) {
+	return b.StartExpenseAnalysisWithOptions(ctx, documentURI, nil, nil, "", "")
+}
+
+// StartExpenseAnalysisWithOptions creates an async expense analysis job with
+// full options, including ClientRequestToken dedup: real AWS returns the same
+// JobId when the same token is reused (see the docs on
+// StartExpenseAnalysisInput.ClientRequestToken).
+func (b *InMemoryBackend) StartExpenseAnalysisWithOptions(
+	ctx context.Context,
+	documentURI string,
+	outputConfig *OutputConfig,
+	notificationChannel *NotificationChannel,
+	jobTag, clientRequestToken string,
+) (*ExpenseJob, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("StartExpenseAnalysis")
 
+	// Idempotency: if token already seen, return existing job.
+	if clientRequestToken != "" {
+		if existingID, ok := b.expenseClientTokenToJobIDStore(region)[clientRequestToken]; ok {
+			if existing, ok2 := b.expenseJobs.Get(regionKey(region, existingID)); ok2 {
+				result := cloneExpenseJob(existing)
+				b.mu.Unlock()
+
+				return result, nil
+			}
+		}
+	}
+
 	jobID := uuid.NewString()
 	job := &ExpenseJob{
-		Region:           region,
-		JobID:            jobID,
-		JobStatus:        jobStatusInProgress,
-		CreationTime:     time.Now(),
-		ExpenseDocuments: []ExpenseDocument{syntheticExpenseDocument(documentURI)},
+		Region:              region,
+		JobID:               jobID,
+		JobStatus:           jobStatusInProgress,
+		CreationTime:        time.Now(),
+		ExpenseDocuments:    []ExpenseDocument{syntheticExpenseDocument(documentURI)},
+		OutputConfig:        outputConfig,
+		NotificationChannel: notificationChannel,
+		JobTag:              jobTag,
+		ClientRequestToken:  clientRequestToken,
 	}
 	b.expenseJobs.Put(job)
 	trimExpenseJobsIfNeeded(b.expenseJobs, b.expenseJobsByRegion, region, b.maxJobs)
+
+	if clientRequestToken != "" {
+		b.expenseClientTokenToJobIDStore(region)[clientRequestToken] = jobID
+	}
 
 	if b.asyncJobDelay == 0 {
 		job.JobStatus = jobStatusSucceeded
@@ -1773,22 +1835,56 @@ func (b *InMemoryBackend) GetExpenseAnalysis(ctx context.Context, jobID string) 
 }
 
 // StartLendingAnalysis creates an async lending analysis job.
-func (b *InMemoryBackend) StartLendingAnalysis(ctx context.Context, _ string) (*LendingJob, error) {
+func (b *InMemoryBackend) StartLendingAnalysis(ctx context.Context, documentURI string) (*LendingJob, error) {
+	return b.StartLendingAnalysisWithOptions(ctx, documentURI, nil, nil, "", "")
+}
+
+// StartLendingAnalysisWithOptions creates an async lending analysis job with
+// full options, including ClientRequestToken dedup: real AWS returns the same
+// JobId when the same token is reused (see the docs on
+// StartLendingAnalysisInput.ClientRequestToken).
+func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
+	ctx context.Context,
+	_ string,
+	outputConfig *OutputConfig,
+	notificationChannel *NotificationChannel,
+	jobTag, clientRequestToken string,
+) (*LendingJob, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("StartLendingAnalysis")
 
+	// Idempotency: if token already seen, return existing job.
+	if clientRequestToken != "" {
+		if existingID, ok := b.lendingClientTokenToJobIDStore(region)[clientRequestToken]; ok {
+			if existing, ok2 := b.lendingJobs.Get(regionKey(region, existingID)); ok2 {
+				result := cloneLendingJob(existing)
+				b.mu.Unlock()
+
+				return result, nil
+			}
+		}
+	}
+
 	jobID := uuid.NewString()
 	job := &LendingJob{
-		Region:       region,
-		JobID:        jobID,
-		JobStatus:    jobStatusInProgress,
-		CreationTime: time.Now(),
-		Results:      syntheticLendingResults(),
-		Summary:      syntheticLendingSummary(),
+		Region:              region,
+		JobID:               jobID,
+		JobStatus:           jobStatusInProgress,
+		CreationTime:        time.Now(),
+		Results:             syntheticLendingResults(),
+		Summary:             syntheticLendingSummary(),
+		OutputConfig:        outputConfig,
+		NotificationChannel: notificationChannel,
+		JobTag:              jobTag,
+		ClientRequestToken:  clientRequestToken,
 	}
 	b.lendingJobs.Put(job)
 	trimLendingJobsIfNeeded(b.lendingJobs, b.lendingJobsByRegion, region, b.maxJobs)
+
+	if clientRequestToken != "" {
+		b.lendingClientTokenToJobIDStore(region)[clientRequestToken] = jobID
+	}
 
 	if b.asyncJobDelay == 0 {
 		job.JobStatus = jobStatusSucceeded
