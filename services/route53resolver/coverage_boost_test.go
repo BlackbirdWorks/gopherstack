@@ -702,9 +702,12 @@ func TestResolverRuleAssociationOps(t *testing.T) {
 			items, _ := listResp["ResolverRuleAssociations"].([]any)
 			assert.Len(t, items, 1)
 
-			// DisassociateResolverRule.
+			// DisassociateResolverRule: the real API keys this by
+			// (ResolverRuleId, VPCId), not the opaque association ID
+			// returned by Associate/Get.
 			rec = doRequest(t, h, "DisassociateResolverRule", map[string]any{
-				"ResolverRuleAssociationId": assocID,
+				"ResolverRuleId": ruleID,
+				"VPCId":          "vpc-rule-assoc",
 			})
 			assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -745,9 +748,12 @@ func TestResolverRuleAssociationErrors(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "disassociate_not_found",
-			action:   "DisassociateResolverRule",
-			body:     map[string]any{"ResolverRuleAssociationId": "rslvr-rrassoc-notexist"},
+			name:   "disassociate_not_found",
+			action: "DisassociateResolverRule",
+			body: map[string]any{
+				"ResolverRuleId": "rslvr-rr-notexist",
+				"VPCId":          "vpc-notexist",
+			},
 			wantCode: http.StatusNotFound,
 		},
 	}

@@ -213,7 +213,10 @@ type FirewallDomainList struct {
 	Name             string `json:"name"`
 	CreatorRequestID string `json:"creatorRequestId"`
 	Status           string `json:"status"`
+	StatusMessage    string `json:"statusMessage,omitempty"`
 	ManagedOwnerName string `json:"managedOwnerName,omitempty"`
+	CreationTime     string `json:"creationTime,omitempty"`
+	ModificationTime string `json:"modificationTime,omitempty"`
 	// Region -- see FirewallRuleGroup.Region doc comment.
 	Region      string       `json:"region"`
 	Tags        []svcTags.KV `json:"tags,omitempty"`
@@ -1080,6 +1083,7 @@ func (b *InMemoryBackend) CreateFirewallDomainList(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	now := currentTime()
 	id := "rslvr-fdl-" + uuid.New().String()[:8]
 	listARN := arn.Build("route53resolver", region, b.accountID, "firewall-domain-list/"+id)
 	dl := &FirewallDomainList{
@@ -1088,6 +1092,8 @@ func (b *InMemoryBackend) CreateFirewallDomainList(
 		Name:             name,
 		CreatorRequestID: creatorRequestID,
 		Status:           statusComplete,
+		CreationTime:     now,
+		ModificationTime: now,
 		Region:           region,
 	}
 	b.firewallDomainLists.Put(dl)
@@ -1883,6 +1889,7 @@ func (b *InMemoryBackend) UpdateFirewallDomains(
 		)
 	}
 	dl.DomainCount = domainCount(dl.Domains)
+	dl.ModificationTime = currentTime()
 	cp := cloneFirewallDomainList(dl)
 
 	return cp, nil
@@ -1908,6 +1915,7 @@ func (b *InMemoryBackend) ImportFirewallDomains(
 		dl.DomainCount = 0
 	}
 	dl.Status = statusComplete
+	dl.ModificationTime = currentTime()
 	_ = domainFileURL
 	cp := cloneFirewallDomainList(dl)
 
@@ -2352,33 +2360,42 @@ func (b *InMemoryBackend) GetResolverQueryLogConfigAssociation(
 	return &cp, nil
 }
 
-// DisassociateResolverQueryLogConfig removes a query log config association.
+// DisassociateResolverQueryLogConfig removes a query log config association,
+// looked up by the (queryLogConfigID, resourceID) pair -- this matches the
+// real DisassociateResolverQueryLogConfig API, which takes
+// ResolverQueryLogConfigId + ResourceId (not an opaque association ID; that
+// only appears in Get/List responses).
 func (b *InMemoryBackend) DisassociateResolverQueryLogConfig(
 	ctx context.Context,
-	id string,
+	queryLogConfigID, resourceID string,
 ) (*ResolverQueryLogConfigAssociation, error) {
 	b.mu.Lock("DisassociateResolverQueryLogConfig")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	assoc, ok := b.queryLogConfigAssociations.Get(regionalKey(region, id))
-	if !ok {
-		return nil, fmt.Errorf(
-			"%w: resolver query log config association %s not found",
-			ErrNotFound,
-			id,
-		)
-	}
-	cp := *assoc
-	b.queryLogConfigAssociations.Delete(regionalKey(region, id))
 
-	// Decrement AssociationCount on the config.
-	cfg, ok := b.queryLogConfigs.Get(regionalKey(region, assoc.ResolverQueryLogConfigID))
-	if ok && cfg.AssociationCount > 0 {
-		cfg.AssociationCount--
+	for _, assoc := range b.queryLogConfigAssociationsByRegion.Get(region) {
+		if assoc.ResolverQueryLogConfigID != queryLogConfigID || assoc.ResourceID != resourceID {
+			continue
+		}
+
+		cp := *assoc
+		b.queryLogConfigAssociations.Delete(regionalKey(region, assoc.ID))
+
+		// Decrement AssociationCount on the config.
+		if cfg, ok := b.queryLogConfigs.Get(regionalKey(region, queryLogConfigID)); ok && cfg.AssociationCount > 0 {
+			cfg.AssociationCount--
+		}
+
+		return &cp, nil
 	}
 
-	return &cp, nil
+	return nil, fmt.Errorf(
+		"%w: resolver query log config association for config %s and resource %s not found",
+		ErrNotFound,
+		queryLogConfigID,
+		resourceID,
+	)
 }
 
 // ListResolverQueryLogConfigAssociations lists all query log config associations.
@@ -2438,20 +2455,36 @@ func (b *InMemoryBackend) GetResolverRuleAssociation(ctx context.Context, id str
 	return &cp, nil
 }
 
-// DisassociateResolverRule removes a resolver rule association.
-func (b *InMemoryBackend) DisassociateResolverRule(ctx context.Context, id string) (*ResolverRuleAssociation, error) {
+// DisassociateResolverRule removes a resolver rule association, looked up by
+// the (resolverRuleID, vpcID) pair -- this matches the real
+// DisassociateResolverRule API, which takes ResolverRuleId + VPCId (not an
+// opaque association ID; that only appears in Get/List responses).
+func (b *InMemoryBackend) DisassociateResolverRule(
+	ctx context.Context,
+	resolverRuleID, vpcID string,
+) (*ResolverRuleAssociation, error) {
 	b.mu.Lock("DisassociateResolverRule")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	assoc, ok := b.ruleAssociations.Get(regionalKey(region, id))
-	if !ok {
-		return nil, fmt.Errorf("%w: resolver rule association %s not found", ErrNotFound, id)
-	}
-	cp := *assoc
-	b.ruleAssociations.Delete(regionalKey(region, id))
 
-	return &cp, nil
+	for _, assoc := range b.ruleAssociationsByRegion.Get(region) {
+		if assoc.ResolverRuleID != resolverRuleID || assoc.VPCID != vpcID {
+			continue
+		}
+
+		cp := *assoc
+		b.ruleAssociations.Delete(regionalKey(region, assoc.ID))
+
+		return &cp, nil
+	}
+
+	return nil, fmt.Errorf(
+		"%w: resolver rule association for rule %s and VPC %s not found",
+		ErrNotFound,
+		resolverRuleID,
+		vpcID,
+	)
 }
 
 // ListResolverRuleAssociations lists all resolver rule associations.

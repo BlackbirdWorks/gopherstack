@@ -379,7 +379,7 @@ type resolverRuleOutput struct {
 	ShareStatus        string     `json:"ShareStatus"`
 	ResolverEndpointID string     `json:"ResolverEndpointId"`
 	CreatorRequestID   string     `json:"CreatorRequestId,omitempty"`
-	OwnerID            string     `json:"OwnerID,omitempty"`
+	OwnerID            string     `json:"OwnerId,omitempty"`
 	CreationTime       string     `json:"CreationTime,omitempty"`
 	ModificationTime   string     `json:"ModificationTime,omitempty"`
 	TargetIps          []targetIP `json:"TargetIps,omitempty"`
@@ -595,12 +595,13 @@ func (h *Handler) handleListResolverEndpointIPAddresses(
 }
 
 type handleCreateResolverRuleInput struct {
-	Name               string     `json:"Name"`
-	DomainName         string     `json:"DomainName"`
-	RuleType           string     `json:"RuleType"`
-	ResolverEndpointID string     `json:"ResolverEndpointId"`
-	CreatorRequestID   string     `json:"CreatorRequestId"`
-	TargetIps          []targetIP `json:"TargetIps"`
+	Name               string       `json:"Name"`
+	DomainName         string       `json:"DomainName"`
+	RuleType           string       `json:"RuleType"`
+	ResolverEndpointID string       `json:"ResolverEndpointId"`
+	CreatorRequestID   string       `json:"CreatorRequestId"`
+	TargetIps          []targetIP   `json:"TargetIps"`
+	Tags               []svcTags.KV `json:"Tags"`
 }
 
 func (h *Handler) handleCreateResolverRule(
@@ -626,6 +627,12 @@ func (h *Handler) handleCreateResolverRule(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if tagErr := h.Backend.TagResource(ctx, r.ARN, in.Tags); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &createResolverRuleOutput{ResolverRule: ruleToOutput(r)}, nil
@@ -737,7 +744,7 @@ type firewallRuleGroupOutput struct {
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Status           string `json:"Status"`
 	StatusMessage    string `json:"StatusMessage,omitempty"`
-	OwnerID          string `json:"OwnerID"`
+	OwnerID          string `json:"OwnerId"`
 	ShareStatus      string `json:"ShareStatus"`
 	CreationTime     string `json:"CreationTime,omitempty"`
 	ModificationTime string `json:"ModificationTime,omitempty"`
@@ -768,7 +775,10 @@ type firewallDomainListOutput struct {
 	Name             string `json:"Name"`
 	CreatorRequestID string `json:"CreatorRequestId"`
 	Status           string `json:"Status"`
+	StatusMessage    string `json:"StatusMessage,omitempty"`
 	ManagedOwnerName string `json:"ManagedOwnerName,omitempty"`
+	CreationTime     string `json:"CreationTime,omitempty"`
+	ModificationTime string `json:"ModificationTime,omitempty"`
 	DomainCount      int32  `json:"DomainCount"`
 }
 
@@ -812,7 +822,7 @@ type resolverQueryLogConfigOutput struct {
 	CreatorRequestID string `json:"CreatorRequestId"`
 	DestinationArn   string `json:"DestinationArn"`
 	Status           string `json:"Status"`
-	OwnerID          string `json:"OwnerID"`
+	OwnerID          string `json:"OwnerId"`
 	ShareStatus      string `json:"ShareStatus"`
 	CreationTime     string `json:"CreationTime,omitempty"`
 	AssociationCount int32  `json:"AssociationCount"`
@@ -891,12 +901,13 @@ func (h *Handler) handleCreateFirewallRuleGroup(
 // --- AssociateFirewallRuleGroup ---
 
 type associateFirewallRuleGroupInput struct {
-	FirewallRuleGroupID string `json:"FirewallRuleGroupId"`
-	Name                string `json:"Name"`
-	VpcID               string `json:"VpcId"`
-	CreatorRequestID    string `json:"CreatorRequestId"`
-	MutationProtection  string `json:"MutationProtection"`
-	Priority            int32  `json:"Priority"`
+	FirewallRuleGroupID string       `json:"FirewallRuleGroupId"`
+	Name                string       `json:"Name"`
+	VpcID               string       `json:"VpcId"`
+	CreatorRequestID    string       `json:"CreatorRequestId"`
+	MutationProtection  string       `json:"MutationProtection"`
+	Tags                []svcTags.KV `json:"Tags"`
+	Priority            int32        `json:"Priority"`
 }
 
 type associateFirewallRuleGroupOutput struct {
@@ -946,6 +957,12 @@ func (h *Handler) handleAssociateFirewallRuleGroup(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if tagErr := h.Backend.TagResource(ctx, assoc.ARN, in.Tags); tagErr != nil {
+			return nil, tagErr
+		}
 	}
 
 	return &associateFirewallRuleGroupOutput{
@@ -1163,8 +1180,11 @@ func firewallDomainListToOutput(dl *FirewallDomainList) firewallDomainListOutput
 		Name:             dl.Name,
 		CreatorRequestID: dl.CreatorRequestID,
 		Status:           dl.Status,
+		StatusMessage:    dl.StatusMessage,
 		DomainCount:      dl.DomainCount,
 		ManagedOwnerName: dl.ManagedOwnerName,
+		CreationTime:     dl.CreationTime,
+		ModificationTime: dl.ModificationTime,
 	}
 }
 
@@ -1370,7 +1390,7 @@ func (h *Handler) handleCreateOutpostResolver(
 // AWS does not return an ARN for FirewallConfig.
 type firewallConfigOutput struct {
 	ID               string `json:"Id"`
-	OwnerID          string `json:"OwnerID"`
+	OwnerID          string `json:"OwnerId"`
 	ResourceID       string `json:"ResourceId"`
 	FirewallFailOpen string `json:"FirewallFailOpen"`
 }
@@ -1388,7 +1408,7 @@ func firewallConfigToOutput(c *FirewallConfig) firewallConfigOutput {
 type resolverConfigOutput struct {
 	ID                 string `json:"Id"`
 	Arn                string `json:"Arn"`
-	OwnerID            string `json:"OwnerID"`
+	OwnerID            string `json:"OwnerId"`
 	ResourceID         string `json:"ResourceId"`
 	AutodefinedReverse string `json:"AutodefinedReverse"`
 }
@@ -1406,7 +1426,7 @@ func resolverConfigToOutput(c *ResolverConfig) resolverConfigOutput {
 // resolverDnssecConfigOutput is the JSON representation of a ResolverDnssecConfig.
 type resolverDnssecConfigOutput struct {
 	ID         string `json:"Id"`
-	OwnerID    string `json:"OwnerID"`
+	OwnerID    string `json:"OwnerId"`
 	ResourceID string `json:"ResourceId"`
 	Validation string `json:"Validation"`
 }
@@ -2235,8 +2255,13 @@ func (h *Handler) handleGetResolverQueryLogConfigAssociation(
 
 // --- DisassociateResolverQueryLogConfig ---
 
+// disassociateResolverQueryLogConfigInput matches the real
+// DisassociateResolverQueryLogConfig wire shape: ResolverQueryLogConfigId +
+// ResourceId, NOT an opaque association ID (that field only appears in
+// Get/List responses, never in this request).
 type disassociateResolverQueryLogConfigInput struct {
-	ResolverQueryLogConfigAssociationID string `json:"ResolverQueryLogConfigAssociationId"`
+	ResolverQueryLogConfigID string `json:"ResolverQueryLogConfigId"`
+	ResourceID               string `json:"ResourceId"`
 }
 
 type disassociateResolverQueryLogConfigOutput struct {
@@ -2247,12 +2272,16 @@ func (h *Handler) handleDisassociateResolverQueryLogConfig(
 	ctx context.Context,
 	in *disassociateResolverQueryLogConfigInput,
 ) (*disassociateResolverQueryLogConfigOutput, error) {
-	if in.ResolverQueryLogConfigAssociationID == "" {
-		return nil, fmt.Errorf("%w: ResolverQueryLogConfigAssociationId is required", ErrValidation)
+	if in.ResolverQueryLogConfigID == "" {
+		return nil, fmt.Errorf("%w: ResolverQueryLogConfigId is required", ErrValidation)
+	}
+	if in.ResourceID == "" {
+		return nil, fmt.Errorf("%w: ResourceId is required", ErrValidation)
 	}
 	assoc, err := h.Backend.DisassociateResolverQueryLogConfig(
 		ctx,
-		in.ResolverQueryLogConfigAssociationID,
+		in.ResolverQueryLogConfigID,
+		in.ResourceID,
 	)
 	if err != nil {
 		return nil, err
@@ -2371,8 +2400,12 @@ func (h *Handler) handleGetResolverRuleAssociation(
 
 // --- DisassociateResolverRule ---
 
+// disassociateResolverRuleInput matches the real DisassociateResolverRule
+// wire shape: ResolverRuleId + VPCId, NOT an opaque association ID (that
+// field only appears in Get/List responses, never in this request).
 type disassociateResolverRuleInput struct {
-	ResolverRuleAssociationID string `json:"ResolverRuleAssociationId"`
+	ResolverRuleID string `json:"ResolverRuleId"`
+	VPCId          string `json:"VPCId"`
 }
 
 type disassociateResolverRuleOutput struct {
@@ -2383,10 +2416,13 @@ func (h *Handler) handleDisassociateResolverRule(
 	ctx context.Context,
 	in *disassociateResolverRuleInput,
 ) (*disassociateResolverRuleOutput, error) {
-	if in.ResolverRuleAssociationID == "" {
-		return nil, fmt.Errorf("%w: ResolverRuleAssociationId is required", ErrValidation)
+	if in.ResolverRuleID == "" {
+		return nil, fmt.Errorf("%w: ResolverRuleId is required", ErrValidation)
 	}
-	assoc, err := h.Backend.DisassociateResolverRule(ctx, in.ResolverRuleAssociationID)
+	if in.VPCId == "" {
+		return nil, fmt.Errorf("%w: VPCId is required", ErrValidation)
+	}
+	assoc, err := h.Backend.DisassociateResolverRule(ctx, in.ResolverRuleID, in.VPCId)
 	if err != nil {
 		return nil, err
 	}
