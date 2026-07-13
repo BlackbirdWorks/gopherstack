@@ -2751,6 +2751,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
+	// Wire SecretsManager → KMS so secret values are encrypted/decrypted via
+	// the real KMS backend instead of stored opaquely.
+	wireSecretsManagerKMS(byName["SecretsManager"], byName["KMS"])
+
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
 
@@ -3585,6 +3589,107 @@ func (a *ssmKMSAdapter) DecryptSSM(ciphertext []byte) ([]byte, error) {
 	}
 
 	return out.Plaintext, nil
+}
+
+// wireSecretsManagerKMS connects the Secrets Manager backend to the KMS backend
+// so that secret values are encrypted/decrypted using real KMS keys instead of
+// being stored opaquely, mirroring wireSSMKMS above.
+func wireSecretsManagerKMS(smReg, kmsReg service.Registerable) {
+	smH, ok := smReg.(*secretsmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kmsBk, ok := kmsH.Backend.(*kmsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	smBk.SetKMSEncryptor(&secretsManagerKMSAdapter{backend: kmsBk})
+}
+
+// secretsManagerKMSAdapter adapts kms.InMemoryBackend to
+// secretsmanager.KMSEncryptor.
+type secretsManagerKMSAdapter struct {
+	backend *kmsbackend.InMemoryBackend
+	// defaultKeyID lazily caches a real KMS key ID created to back
+	// secretsmanager.DefaultKMSKeyAlias. Secrets Manager encrypts under the
+	// literal alias "alias/aws/secretsmanager" (its default managed key) when
+	// a secret has no KmsKeyId, but kms.InMemoryBackend.CreateAlias rejects
+	// any "alias/aws/" prefix (reserved for genuine AWS managed keys), so
+	// that alias can never be registered through the real KMS API surface.
+	// Substituting a dedicated backing key here reproduces the same
+	// behaviour -- every secret without an explicit key shares one
+	// account-level default key -- without touching services/kms.
+	defaultKeyID string
+	mu           sync.Mutex
+}
+
+func (a *secretsManagerKMSAdapter) Encrypt(ctx context.Context, keyID string, plaintext []byte) ([]byte, error) {
+	resolvedKeyID, err := a.resolveKeyID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := a.backend.Encrypt(ctx, &kmsbackend.EncryptInput{
+		KeyID:     resolvedKeyID,
+		Plaintext: plaintext,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return out.CiphertextBlob, nil
+}
+
+func (a *secretsManagerKMSAdapter) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
+	// No KeyId hint needed: the KMS backend derives the encrypting key from
+	// the ciphertext blob itself.
+	out, err := a.backend.Decrypt(ctx, &kmsbackend.DecryptInput{
+		CiphertextBlob: ciphertext,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return out.Plaintext, nil
+}
+
+// resolveKeyID substitutes secretsmanager.DefaultKMSKeyAlias with a lazily
+// created, cached backing key ID; any other key ID/ARN/alias (an explicit
+// customer-managed key) passes through unchanged.
+func (a *secretsManagerKMSAdapter) resolveKeyID(ctx context.Context, keyID string) (string, error) {
+	if keyID != secretsmanagerbackend.DefaultKMSKeyAlias {
+		return keyID, nil
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.defaultKeyID != "" {
+		return a.defaultKeyID, nil
+	}
+
+	out, err := a.backend.CreateKey(ctx, &kmsbackend.CreateKeyInput{
+		Description: "Default master key that protects my Secrets Manager secrets when no other key is defined",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	a.defaultKeyID = out.KeyMetadata.KeyID
+
+	return a.defaultKeyID, nil
 }
 
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend

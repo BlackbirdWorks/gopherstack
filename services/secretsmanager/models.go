@@ -29,7 +29,20 @@ type SecretVersion struct {
 	SecretBinary     []byte   `json:"SecretBinary,omitempty"`
 	StagingLabels    []string `json:"VersionStages,omitempty"`
 	KmsKeyIDs        []string `json:"KmsKeyIds,omitempty"`
-	CreatedDate      float64  `json:"CreatedDate"`
+	// Ciphertext, when non-nil, holds the KMS-encrypted secret value produced
+	// by InMemoryBackend.sealVersion; SecretString and SecretBinary are then
+	// both empty and the plaintext must be obtained via
+	// InMemoryBackend.openVersion. Populated only when the backend has a
+	// KMSEncryptor wired (see SetKMSEncryptor in kms.go) -- backends without
+	// one continue to store SecretString/SecretBinary directly, exactly as
+	// before KMS integration.
+	Ciphertext []byte `json:"Ciphertext,omitempty"`
+	// WasString records whether the plaintext sealed into Ciphertext came
+	// from SecretString (true) or SecretBinary (false), so openVersion
+	// restores it to the correct output field. Meaningless when Ciphertext
+	// is nil.
+	WasString   bool    `json:"WasStringValue,omitempty"`
+	CreatedDate float64 `json:"CreatedDate"`
 }
 
 // Secret represents a stored secret including all versions.
