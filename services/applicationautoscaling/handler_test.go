@@ -907,8 +907,8 @@ func TestHandler_GetPredictiveScalingForecast(t *testing.T) {
 				"ResourceId":        "service/default/my-svc",
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "predictive-policy",
-				"StartTime":         "2024-01-01T00:00:00Z",
-				"EndTime":           "2024-01-01T03:00:00Z",
+				"StartTime":         1704067200,
+				"EndTime":           1704078000,
 			},
 			wantCode: http.StatusOK,
 		},
@@ -920,8 +920,8 @@ func TestHandler_GetPredictiveScalingForecast(t *testing.T) {
 				"ResourceId":        "service/default/my-svc",
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "nonexistent-policy",
-				"StartTime":         "2024-01-01T00:00:00Z",
-				"EndTime":           "2024-01-01T03:00:00Z",
+				"StartTime":         1704067200,
+				"EndTime":           1704078000,
 			},
 			wantCode: http.StatusNotFound,
 		},
@@ -991,8 +991,8 @@ func TestHandler_GetPredictiveScalingForecast_DataPoints(t *testing.T) {
 		"ResourceId":        "service/default/my-svc",
 		"ScalableDimension": "ecs:service:DesiredCount",
 		"PolicyName":        "predictive-policy",
-		"StartTime":         "2024-01-01T00:00:00Z",
-		"EndTime":           "2024-01-01T02:00:00Z",
+		"StartTime":         1704067200,
+		"EndTime":           1704074400,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1007,8 +1007,8 @@ func TestHandler_GetPredictiveScalingForecast_DataPoints(t *testing.T) {
 	require.True(t, ok, "expected Timestamps in CapacityForecast")
 	// 00:00→02:00 = exactly 2 hourly timestamps (00:00 and 01:00); EndTime is excluded.
 	assert.Len(t, timestamps, 2, "expected exactly 2 hourly timestamps for 00:00→02:00 window")
-	assert.Equal(t, "2024-01-01T00:00:00Z", timestamps[0], "first timestamp should be start of window")
-	assert.Equal(t, "2024-01-01T01:00:00Z", timestamps[1], "second timestamp should be start+1h")
+	assert.InDelta(t, 1704067200, timestamps[0], 0.001, "first timestamp should be start of window")
+	assert.InDelta(t, 1704070800, timestamps[1], 0.001, "second timestamp should be start+1h")
 
 	values, ok := cf["Values"].([]any)
 	require.True(t, ok, "expected Values in CapacityForecast")
@@ -1019,10 +1019,10 @@ func TestHandler_GetPredictiveScalingForecast_DataPoints(t *testing.T) {
 	require.True(t, ok, "expected LoadForecast in response")
 	assert.NotEmpty(t, lf)
 
-	// UpdateTime should be a non-empty string
-	updateTime, ok := resp["UpdateTime"].(string)
-	require.True(t, ok, "expected UpdateTime in response")
-	assert.NotEmpty(t, updateTime)
+	// UpdateTime is an AWS JSON-protocol epoch-seconds timestamp (a JSON number).
+	updateTime, ok := resp["UpdateTime"].(float64)
+	require.True(t, ok, "expected UpdateTime as epoch-seconds number in response")
+	assert.NotZero(t, updateTime)
 }
 
 func TestHandler_RegisterScalableTarget_Validation(t *testing.T) {
@@ -1216,8 +1216,8 @@ func TestHandler_GetPredictiveScalingForecast_TimeValidation(t *testing.T) {
 				"ResourceId":        "service/default/my-svc",
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "predictive-policy",
-				"StartTime":         "2024-01-02T00:00:00Z",
-				"EndTime":           "2024-01-01T00:00:00Z",
+				"StartTime":         1704153600,
+				"EndTime":           1704067200,
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -1228,8 +1228,8 @@ func TestHandler_GetPredictiveScalingForecast_TimeValidation(t *testing.T) {
 				"ResourceId":        "service/default/my-svc",
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "predictive-policy",
-				"StartTime":         "2024-01-01T00:00:00Z",
-				"EndTime":           "2024-01-01T00:00:00Z",
+				"StartTime":         1704067200,
+				"EndTime":           1704067200,
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -1240,8 +1240,8 @@ func TestHandler_GetPredictiveScalingForecast_TimeValidation(t *testing.T) {
 				"ResourceId":        "service/default/my-svc",
 				"ScalableDimension": "ecs:service:DesiredCount",
 				"PolicyName":        "predictive-policy",
-				"StartTime":         "2024-01-01T00:00:00Z",
-				"EndTime":           "2024-01-16T00:00:00Z",
+				"StartTime":         1704067200,
+				"EndTime":           1705363200,
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -1678,7 +1678,9 @@ func TestHandler_PutScalingPolicy_DefaultPolicyType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	// Omit PolicyType — should default to TargetTrackingScaling
+	// Omit PolicyType — should default to StepScaling, matching real AWS/Terraform
+	// behavior (the aws_appautoscaling_policy resource documents "StepScaling"
+	// as its default policy_type).
 	rec := doRequest(t, h, "PutScalingPolicy", map[string]any{
 		"ServiceNamespace":  "ecs",
 		"ResourceId":        "service/default/my-svc",
@@ -1698,7 +1700,7 @@ func TestHandler_PutScalingPolicy_DefaultPolicyType(t *testing.T) {
 	policies, ok := resp["ScalingPolicies"].([]any)
 	require.True(t, ok)
 	require.Len(t, policies, 1)
-	assert.Equal(t, "TargetTrackingScaling", policies[0].(map[string]any)["PolicyType"])
+	assert.Equal(t, "StepScaling", policies[0].(map[string]any)["PolicyType"])
 }
 
 func TestHandler_TagResource_Validation(t *testing.T) {
@@ -1882,8 +1884,8 @@ func TestHandler_GetPredictiveScalingForecast_NonHourBoundaryStart(t *testing.T)
 		"ResourceId":        "service/default/my-svc",
 		"ScalableDimension": "ecs:service:DesiredCount",
 		"PolicyName":        "predictive-policy",
-		"StartTime":         "2024-01-01T00:30:00Z",
-		"EndTime":           "2024-01-01T03:00:00Z",
+		"StartTime":         1704069000, // 2024-01-01T00:30:00Z
+		"EndTime":           1704078000, // 2024-01-01T03:00:00Z
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1898,14 +1900,14 @@ func TestHandler_GetPredictiveScalingForecast_NonHourBoundaryStart(t *testing.T)
 
 	// All timestamps must be >= StartTime (no timestamp before 00:30)
 	for _, ts := range timestamps {
-		tsStr, isStr := ts.(string)
-		require.True(t, isStr)
-		assert.GreaterOrEqual(t, tsStr, "2024-01-01T00:30:00Z",
-			"timestamp %s must not precede StartTime 00:30", tsStr)
+		tsFloat, isFloat := ts.(float64)
+		require.True(t, isFloat)
+		assert.GreaterOrEqual(t, tsFloat, float64(1704069000),
+			"timestamp %v must not precede StartTime 00:30", tsFloat)
 	}
 	assert.Len(t, timestamps, 2, "expected 2 hourly points (01:00, 02:00) for 00:30→03:00 window")
-	assert.Equal(t, "2024-01-01T01:00:00Z", timestamps[0])
-	assert.Equal(t, "2024-01-01T02:00:00Z", timestamps[1])
+	assert.InDelta(t, 1704070800, timestamps[0], 0.001) // 2024-01-01T01:00:00Z
+	assert.InDelta(t, 1704074400, timestamps[1], 0.001) // 2024-01-01T02:00:00Z
 }
 
 func TestHandler_MaxResults_DescribeScalableTargets(t *testing.T) {
@@ -2053,8 +2055,8 @@ func TestHandler_PutScheduledAction_StartEndTimeTimezone(t *testing.T) {
 		"ScheduledActionName": "morning-scale",
 		"Schedule":            "cron(0 8 * * ? *)",
 		"Timezone":            "America/New_York",
-		"StartTime":           "2024-01-01T08:00:00Z",
-		"EndTime":             "2024-12-31T08:00:00Z",
+		"StartTime":           1704096000, // 2024-01-01T08:00:00Z
+		"EndTime":             1735632000, // 2024-12-31T08:00:00Z
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -2071,8 +2073,8 @@ func TestHandler_PutScheduledAction_StartEndTimeTimezone(t *testing.T) {
 
 	action := actions[0].(map[string]any)
 	assert.Equal(t, "America/New_York", action["Timezone"])
-	assert.NotNil(t, action["StartTime"], "expected StartTime in response")
-	assert.NotNil(t, action["EndTime"], "expected EndTime in response")
+	assert.InDelta(t, 1704096000, action["StartTime"], 0.001, "expected StartTime as epoch seconds in response")
+	assert.InDelta(t, 1735632000, action["EndTime"], 0.001, "expected EndTime as epoch seconds in response")
 }
 
 func TestHandler_PutScheduledAction_InvalidStartTime(t *testing.T) {
@@ -2409,8 +2411,8 @@ func TestHandler_GetPredictiveScalingForecast_WrongPolicyType(t *testing.T) {
 		"ResourceId":        "service/default/my-svc",
 		"ScalableDimension": "ecs:service:DesiredCount",
 		"PolicyName":        "tt-policy",
-		"StartTime":         "2024-01-01T00:00:00Z",
-		"EndTime":           "2024-01-02T00:00:00Z",
+		"StartTime":         1704067200,
+		"EndTime":           1704153600,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "expected 400 for non-PredictiveScaling policy")
 }

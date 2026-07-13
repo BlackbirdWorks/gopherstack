@@ -613,13 +613,19 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		return cloneScalingPolicy(p), nil
 	}
 
-	// Default PolicyType to TargetTrackingScaling for new policies only.
+	// Default PolicyType to StepScaling for new policies only -- this matches
+	// real AWS/Terraform behavior (the aws_appautoscaling_policy resource
+	// documents "StepScaling" as its default policy_type), not
+	// TargetTrackingScaling.
 	if policyType == "" {
-		policyType = "TargetTrackingScaling"
+		policyType = "StepScaling"
 	}
 
+	// Real AWS policy ARNs separate the policyName segment from the
+	// resource/namespace/resourceId segment with a colon, not a slash:
+	// scalingPolicy:{uuid}:resource/{namespace}/{resourceId}:policyName/{name}.
 	policyARN := arn.Build("autoscaling", b.region, b.accountID,
-		fmt.Sprintf("scalingPolicy:%s:resource/%s/%s/policyName/%s",
+		fmt.Sprintf("scalingPolicy:%s:resource/%s/%s:policyName/%s",
 			uuid.NewString(), serviceNamespace, resourceID, policyName))
 	p := &ScalingPolicy{
 		ServiceNamespace:     serviceNamespace,
@@ -813,8 +819,11 @@ func (b *InMemoryBackend) PutScheduledAction(
 		return &cp, nil
 	}
 
+	// Real AWS scheduled-action ARNs separate the scheduledActionName segment
+	// from the resource/namespace/resourceId segment with a colon, not a
+	// slash: scheduledAction:{uuid}:resource/{namespace}/{resourceId}:scheduledActionName/{name}.
 	actionARN := arn.Build("autoscaling", b.region, b.accountID,
-		fmt.Sprintf("scheduledAction:%s:resource/%s/%s/scheduledActionName/%s",
+		fmt.Sprintf("scheduledAction:%s:resource/%s/%s:scheduledActionName/%s",
 			uuid.NewString(), serviceNamespace, resourceID, scheduledActionName))
 	a := &ScheduledAction{
 		ServiceNamespace:     serviceNamespace,

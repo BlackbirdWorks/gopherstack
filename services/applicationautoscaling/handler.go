@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -174,9 +175,22 @@ func epochSecondsPtr(t time.Time) *float64 {
 		return nil
 	}
 
-	v := float64(t.Unix())
+	v := awstime.Epoch(t)
 
 	return &v
+}
+
+// parseEpochSeconds converts an AWS JSON-protocol epoch-seconds timestamp
+// (a JSON number, decoded here as *float64) to a UTC [time.Time]. Returns nil
+// when v is nil, so callers can distinguish "field absent" from "field zero".
+func parseEpochSeconds(v *float64) *time.Time {
+	if v == nil {
+		return nil
+	}
+
+	t := time.Unix(int64(*v), 0).UTC()
+
+	return &t
 }
 
 // --- Input/Output types ---
@@ -510,14 +524,14 @@ type scalableTargetActionInput struct {
 
 type putScheduledActionInput struct {
 	ScalableTargetAction *scalableTargetActionInput `json:"ScalableTargetAction,omitempty"`
+	StartTime            *float64                   `json:"StartTime,omitempty"`
+	EndTime              *float64                   `json:"EndTime,omitempty"`
 	ServiceNamespace     string                     `json:"ServiceNamespace"`
 	ResourceID           string                     `json:"ResourceId"`
 	ScalableDimension    string                     `json:"ScalableDimension"`
 	ScheduledActionName  string                     `json:"ScheduledActionName"`
 	Schedule             string                     `json:"Schedule"`
 	Timezone             string                     `json:"Timezone,omitempty"`
-	StartTime            string                     `json:"StartTime,omitempty"`
-	EndTime              string                     `json:"EndTime,omitempty"`
 }
 
 type putScheduledActionOutput struct {
@@ -528,8 +542,6 @@ func (h *Handler) handlePutScheduledAction(
 	_ context.Context,
 	in *putScheduledActionInput,
 ) (*putScheduledActionOutput, error) {
-	const timeLayout = time.RFC3339
-
 	var sta *ScalableTargetAction
 	if in.ScalableTargetAction != nil {
 		sta = &ScalableTargetAction{
@@ -538,25 +550,11 @@ func (h *Handler) handlePutScheduledAction(
 		}
 	}
 
-	var startTime, endTime *time.Time
-
-	if in.StartTime != "" {
-		t, err := time.Parse(timeLayout, in.StartTime)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid StartTime: %s", errInvalidRequest, in.StartTime)
-		}
-
-		startTime = &t
-	}
-
-	if in.EndTime != "" {
-		t, err := time.Parse(timeLayout, in.EndTime)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid EndTime: %s", errInvalidRequest, in.EndTime)
-		}
-
-		endTime = &t
-	}
+	// StartTime/EndTime are AWS JSON-protocol timestamps: the wire
+	// representation is a JSON number of Unix epoch seconds, not an ISO8601
+	// string, so in.StartTime/in.EndTime decode directly as *float64.
+	startTime := parseEpochSeconds(in.StartTime)
+	endTime := parseEpochSeconds(in.EndTime)
 
 	a, err := h.Backend.PutScheduledAction(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
@@ -726,46 +724,48 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 }
 
 type getPredictiveScalingForecastInput struct {
-	ServiceNamespace  string `json:"ServiceNamespace"`
-	ResourceID        string `json:"ResourceId"`
-	ScalableDimension string `json:"ScalableDimension"`
-	PolicyName        string `json:"PolicyName"`
-	StartTime         string `json:"StartTime"`
-	EndTime           string `json:"EndTime"`
+	// StartTime/EndTime are AWS JSON-protocol timestamps (Unix epoch-seconds
+	// JSON numbers, not ISO8601 strings) and are required by the real API, so
+	// they are pointers here to distinguish "field absent" from "field zero".
+	StartTime         *float64 `json:"StartTime"`
+	EndTime           *float64 `json:"EndTime"`
+	ServiceNamespace  string   `json:"ServiceNamespace"`
+	ResourceID        string   `json:"ResourceId"`
+	ScalableDimension string   `json:"ScalableDimension"`
+	PolicyName        string   `json:"PolicyName"`
 }
 
 type capacityForecastOutput struct {
-	Timestamps []string  `json:"Timestamps"`
+	Timestamps []float64 `json:"Timestamps"`
 	Values     []float64 `json:"Values"`
 }
 
 type loadForecastOutput struct {
 	MetricSpecification string    `json:"MetricSpecification"`
-	Timestamps          []string  `json:"Timestamps"`
+	Timestamps          []float64 `json:"Timestamps"`
 	Values              []float64 `json:"Values"`
 }
 
 type getPredictiveScalingForecastOutput struct {
 	CapacityForecast *capacityForecastOutput `json:"CapacityForecast"`
-	UpdateTime       string                  `json:"UpdateTime"`
 	LoadForecast     []loadForecastOutput    `json:"LoadForecast"`
+	UpdateTime       float64                 `json:"UpdateTime"`
 }
 
 func (h *Handler) handleGetPredictiveScalingForecast(
 	_ context.Context,
 	in *getPredictiveScalingForecastInput,
 ) (*getPredictiveScalingForecastOutput, error) {
-	const timeLayout = time.RFC3339
-
-	startTime, err := time.Parse(timeLayout, in.StartTime)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid StartTime: %s", errInvalidRequest, in.StartTime)
+	if in.StartTime == nil {
+		return nil, fmt.Errorf("%w: StartTime is required", ErrValidation)
 	}
 
-	endTime, err := time.Parse(timeLayout, in.EndTime)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid EndTime: %s", errInvalidRequest, in.EndTime)
+	if in.EndTime == nil {
+		return nil, fmt.Errorf("%w: EndTime is required", ErrValidation)
 	}
+
+	startTime := *parseEpochSeconds(in.StartTime)
+	endTime := *parseEpochSeconds(in.EndTime)
 
 	capacity, load, updateTime, err := h.Backend.GetPredictiveScalingForecast(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension, in.PolicyName,
@@ -775,16 +775,16 @@ func (h *Handler) handleGetPredictiveScalingForecast(
 		return nil, err
 	}
 
-	capTS := make([]string, len(capacity.Timestamps))
+	capTS := make([]float64, len(capacity.Timestamps))
 	for i, ts := range capacity.Timestamps {
-		capTS[i] = ts.UTC().Format(timeLayout)
+		capTS[i] = awstime.Epoch(ts)
 	}
 
 	loadOut := make([]loadForecastOutput, len(load))
 	for i, lf := range load {
-		ts := make([]string, len(lf.Timestamps))
+		ts := make([]float64, len(lf.Timestamps))
 		for j, t := range lf.Timestamps {
-			ts[j] = t.UTC().Format(timeLayout)
+			ts[j] = awstime.Epoch(t)
 		}
 
 		loadOut[i] = loadForecastOutput{
@@ -800,7 +800,7 @@ func (h *Handler) handleGetPredictiveScalingForecast(
 			Values:     capacity.Values,
 		},
 		LoadForecast: loadOut,
-		UpdateTime:   updateTime.UTC().Format(timeLayout),
+		UpdateTime:   awstime.Epoch(updateTime),
 	}, nil
 }
 
