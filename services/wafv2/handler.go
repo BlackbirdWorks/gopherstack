@@ -378,8 +378,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTagOperation):
 		errType = "WAFTagOperationException"
 		statusCode = http.StatusBadRequest
+	case errors.Is(err, ErrUnavailableEntity):
+		errType = "WAFUnavailableEntityException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(err, awserr.ErrConflict):
 		errType = "WAFDuplicateItemException"
+		statusCode = http.StatusBadRequest
+	case errors.Is(err, ErrConfigurationWarning):
+		errType = "WAFConfigurationWarningException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		errType = "WAFInvalidParameterException"
@@ -517,10 +523,11 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
-			"Id":         w.ID,
-			keyName:      w.Name,
-			keyARN:       arnStr,
-			keyLockToken: w.LockToken,
+			"Id":           w.ID,
+			keyName:        w.Name,
+			keyARN:         arnStr,
+			keyLockToken:   w.LockToken,
+			keyDescription: w.Description,
 		},
 	})
 }
@@ -868,10 +875,11 @@ func (h *Handler) handleCreateIPSet(ctx context.Context, body []byte) ([]byte, e
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
-			"Id":         s.ID,
-			keyName:      s.Name,
-			keyARN:       arnStr,
-			keyLockToken: s.LockToken,
+			"Id":           s.ID,
+			keyName:        s.Name,
+			keyARN:         arnStr,
+			keyLockToken:   s.LockToken,
+			keyDescription: s.Description,
 		},
 	})
 }
@@ -1458,10 +1466,11 @@ func (h *Handler) handleCreateRegexPatternSet(ctx context.Context, body []byte) 
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
-			"Id":         rps.ID,
-			keyName:      rps.Name,
-			keyARN:       arnStr,
-			keyLockToken: rps.LockToken,
+			"Id":           rps.ID,
+			keyName:        rps.Name,
+			keyARN:         arnStr,
+			keyLockToken:   rps.LockToken,
+			keyDescription: rps.Description,
 		},
 	})
 }
@@ -1596,10 +1605,11 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 
 	return json.Marshal(map[string]any{
 		keySummary: map[string]string{
-			"Id":         rg.ID,
-			keyName:      rg.Name,
-			keyARN:       arnStr,
-			keyLockToken: rg.LockToken,
+			"Id":           rg.ID,
+			keyName:        rg.Name,
+			keyARN:         arnStr,
+			keyLockToken:   rg.LockToken,
+			keyDescription: rg.Description,
 		},
 	})
 }
