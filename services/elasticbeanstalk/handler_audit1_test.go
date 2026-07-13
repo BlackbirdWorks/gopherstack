@@ -90,12 +90,14 @@ func TestAudit1_DateCreated_AppVersion(t *testing.T) {
 		action string
 	}{
 		{
-			name:   "create response includes DateCreated",
-			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app&VersionLabel=v1",
+			name: "create response includes DateCreated",
+			action: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app" +
+				"&VersionLabel=v1&AutoCreateApplication=true",
 		},
 		{
-			name:   "describe response includes DateCreated",
-			setup:  "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app&VersionLabel=v1",
+			name: "describe response includes DateCreated",
+			setup: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app" +
+				"&VersionLabel=v1&AutoCreateApplication=true",
 			action: "Version=2010-12-01&Action=DescribeApplicationVersions",
 		},
 	}

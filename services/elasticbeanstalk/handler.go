@@ -331,12 +331,13 @@ type appConfigTemplatesXML struct {
 
 // applicationDescType is used in XML responses.
 type applicationDescType struct {
-	ConfigurationTemplates *appConfigTemplatesXML `xml:"ConfigurationTemplates,omitempty"`
-	ApplicationName        string                 `xml:"ApplicationName"`
-	ApplicationArn         string                 `xml:"ApplicationArn"`
-	Description            string                 `xml:"Description,omitempty"`
-	DateCreated            string                 `xml:"DateCreated,omitempty"`
-	DateUpdated            string                 `xml:"DateUpdated,omitempty"`
+	ConfigurationTemplates  *appConfigTemplatesXML              `xml:"ConfigurationTemplates,omitempty"`
+	ResourceLifecycleConfig *applicationResourceLifecycleConfig `xml:"ResourceLifecycleConfig,omitempty"`
+	ApplicationName         string                              `xml:"ApplicationName"`
+	ApplicationArn          string                              `xml:"ApplicationArn"`
+	Description             string                              `xml:"Description,omitempty"`
+	DateCreated             string                              `xml:"DateCreated,omitempty"`
+	DateUpdated             string                              `xml:"DateUpdated,omitempty"`
 }
 
 func toApplicationDesc(app *Application, configTemplateNames []string) applicationDescType {
@@ -345,13 +346,24 @@ func toApplicationDesc(app *Application, configTemplateNames []string) applicati
 		templates = &appConfigTemplatesXML{Members: configTemplateNames}
 	}
 
+	// ResourceLifecycleConfig is only rendered once a lifecycle service role
+	// has been set via UpdateApplicationResourceLifecycle: the backend stores
+	// it on the Application, but until this field existed it was never
+	// surfaced back through CreateApplication/DescribeApplications/
+	// UpdateApplication, making the stored value permanently unreadable.
+	var lifecycleConfig *applicationResourceLifecycleConfig
+	if app.ResourceLifecycleServiceRole != "" {
+		lifecycleConfig = &applicationResourceLifecycleConfig{ServiceRole: app.ResourceLifecycleServiceRole}
+	}
+
 	return applicationDescType{
-		ApplicationName:        app.ApplicationName,
-		ApplicationArn:         app.ApplicationARN,
-		Description:            app.Description,
-		DateCreated:            app.DateCreated,
-		DateUpdated:            app.DateUpdated,
-		ConfigurationTemplates: templates,
+		ApplicationName:         app.ApplicationName,
+		ApplicationArn:          app.ApplicationARN,
+		Description:             app.Description,
+		DateCreated:             app.DateCreated,
+		DateUpdated:             app.DateUpdated,
+		ConfigurationTemplates:  templates,
+		ResourceLifecycleConfig: lifecycleConfig,
 	}
 }
 
@@ -1239,6 +1251,11 @@ func (h *Handler) handleOpError(c *echo.Context, opErr error) error {
 	}
 
 	mappings := []errorMapping{
+		// ErrResourceNotFound must be checked before ErrNotFound: it is the
+		// ARN-lookup-specific case (ListTagsForResource/UpdateTagsForResource)
+		// that AWS documents as a distinct ResourceNotFoundException, unlike
+		// the generic InvalidParameterValue used by name-based lookups.
+		{ErrResourceNotFound, "ResourceNotFoundException"},
 		{ErrNotFound, errInvalidParameterValue},
 		{ErrAlreadyExists, errInvalidParameterValue},
 		{ErrInvalidParameter, errInvalidParameterValue},

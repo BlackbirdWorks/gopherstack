@@ -415,8 +415,9 @@ func TestHandler_ApplicationVersion(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "create success",
-			body:       "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app&VersionLabel=v1",
+			name: "create success",
+			body: "Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=my-app" +
+				"&VersionLabel=v1&AutoCreateApplication=true",
 			wantStatus: http.StatusOK,
 			wantXML:    "CreateApplicationVersionResponse",
 		},
@@ -1339,6 +1340,7 @@ func TestHandler_DeleteApplicationVersionOp(t *testing.T) {
 			h := newTestHandler()
 
 			if tt.setup {
+				postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=my-app")
 				postEBForm(
 					t,
 					h,

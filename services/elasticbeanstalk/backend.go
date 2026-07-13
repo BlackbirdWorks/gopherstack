@@ -31,8 +31,17 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 }
 
 var (
-	// ErrNotFound is returned when a requested resource does not exist.
+	// ErrNotFound is returned when a requested resource does not exist. It is
+	// used by name-based lookups (application/environment/version/template),
+	// which AWS surfaces as the generic InvalidParameterValue sender error.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrResourceNotFound is returned specifically when a ListTagsForResource
+	// or UpdateTagsForResource ResourceArn does not match any known resource.
+	// Unlike ErrNotFound, AWS documents this ARN-lookup case as a distinct
+	// modeled exception (ResourceNotFoundException, HTTP 400) rather than
+	// the generic InvalidParameterValue used by name-based CRUD ops -- see
+	// handleOpError's mapping table.
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ClientException", awserr.ErrAlreadyExists)
 	// ErrUnknownAction is returned when an unknown action is requested.
@@ -553,6 +562,7 @@ func (b *InMemoryBackend) UpdateApplication(ctx context.Context, name, descripti
 	}
 
 	app.Description = description
+	app.DateUpdated = nowISO8601()
 
 	return cloneApplication(app), nil
 }
@@ -1022,16 +1032,23 @@ func (b *InMemoryBackend) CreateApplicationVersionWithParams(
 	vARN := arn.Build("elasticbeanstalk", region, b.accountID,
 		"applicationversion/"+appName+"/"+versionLabel)
 
-	if params.AutoCreateApplication {
-		if _, ok := b.applicationGet(region, appName); !ok {
-			appARN := arn.Build("elasticbeanstalk", region, b.accountID, "application/"+appName)
-			b.applicationPut(&Application{
-				ApplicationName: appName,
-				ApplicationARN:  appARN,
-				Tags:            map[string]string{},
-				region:          region,
-			})
+	if _, ok := b.applicationGet(region, appName); !ok {
+		// AWS: "The name of the application. If no application is found with
+		// this name, and AutoCreateApplication is false, returns an
+		// InvalidParameterValue error."
+		if !params.AutoCreateApplication {
+			return nil, fmt.Errorf("%w: no application found named %s", ErrInvalidParameter, appName)
 		}
+
+		appARN := arn.Build("elasticbeanstalk", region, b.accountID, "application/"+appName)
+		b.applicationPut(&Application{
+			ApplicationName: appName,
+			ApplicationARN:  appARN,
+			Tags:            map[string]string{},
+			DateCreated:     nowISO8601(),
+			DateUpdated:     nowISO8601(),
+			region:          region,
+		})
 	}
 
 	status := appVersionStatusUnprocessed
@@ -1132,7 +1149,7 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 		return copyTags(tags), nil
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN)
 }
 
 // UpdateTagsForResource updates tags on a resource identified by ARN.
@@ -1148,7 +1165,7 @@ func (b *InMemoryBackend) UpdateTagsForResource(
 
 	existing, ok := b.lookupTagsByARN(region, resourceARN)
 	if !ok {
-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+		return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceARN)
 	}
 
 	if existing == nil {
@@ -1165,7 +1182,33 @@ func (b *InMemoryBackend) UpdateTagsForResource(
 	return nil
 }
 
-// lookupTagsByARN looks up the tags map for a resource by ARN using O(1) index lookups.
+// configTemplateByARN finds a configuration template whose derived ARN
+// matches resourceARN. Unlike Application/Environment/ApplicationVersion,
+// ConfigurationTemplate carries no ARN field or ARN index (real AWS doesn't
+// return one in Create/DescribeConfigurationTemplate responses either -- see
+// https://docs.aws.amazon.com/elasticbeanstalk/latest/dg/AWSHowTo.iam.policies.arn.html),
+// so the ARN is reconstructed on demand from the documented
+// "configurationtemplate/{application-name}/{template-name}" resource path.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) configTemplateByARN(region, resourceARN string) (*ConfigurationTemplate, bool) {
+	for _, tmpl := range b.configTemplatesInRegion(region) {
+		candidate := arn.Build("elasticbeanstalk", region, b.accountID,
+			"configurationtemplate/"+tmpl.ApplicationName+"/"+tmpl.TemplateName)
+		if candidate == resourceARN {
+			return tmpl, true
+		}
+	}
+
+	return nil, false
+}
+
+// lookupTagsByARN looks up the tags map for a resource by ARN. Applications,
+// environments, and application versions use O(1) index lookups;
+// configuration templates and platform versions are supported too (AWS:
+// "Elastic Beanstalk supports tagging of all of its resources") since both
+// CreateConfigurationTemplate and CreatePlatformVersion accept a Tags
+// parameter that must remain reachable through ListTagsForResource /
+// UpdateTagsForResource.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) lookupTagsByARN(region, resourceARN string) (map[string]string, bool) {
 	if app, ok := b.applicationByARN(region, resourceARN); ok {
@@ -1178,6 +1221,16 @@ func (b *InMemoryBackend) lookupTagsByARN(region, resourceARN string) (map[strin
 
 	if ver, ok := b.appVersionByARN(region, resourceARN); ok {
 		return ver.Tags, true
+	}
+
+	if tmpl, ok := b.configTemplateByARN(region, resourceARN); ok {
+		return tmpl.Tags, true
+	}
+
+	// PlatformVersion is keyed directly by its own ARN (see platformVersionKeyFn),
+	// so no separate reverse index is needed.
+	if pv, ok := b.platformVersionGet(region, resourceARN); ok {
+		return pv.Tags, true
 	}
 
 	return nil, false
@@ -1205,6 +1258,22 @@ func (b *InMemoryBackend) ensureTagsByARN(region, resourceARN string) {
 	if ver, ok := b.appVersionByARN(region, resourceARN); ok {
 		if ver.Tags == nil {
 			ver.Tags = make(map[string]string)
+		}
+
+		return
+	}
+
+	if tmpl, ok := b.configTemplateByARN(region, resourceARN); ok {
+		if tmpl.Tags == nil {
+			tmpl.Tags = make(map[string]string)
+		}
+
+		return
+	}
+
+	if pv, ok := b.platformVersionGet(region, resourceARN); ok {
+		if pv.Tags == nil {
+			pv.Tags = make(map[string]string)
 		}
 	}
 }
@@ -1426,7 +1495,12 @@ func (b *InMemoryBackend) CreatePlatformVersion(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	platformARN := arn.Build("elasticbeanstalk", region, "", "platform/"+platformName+"/"+platformVersion)
+	// Custom platforms are account-owned resources, so the ARN carries the
+	// caller's account ID (matches the documented "platform/{name}/{version}"
+	// resource-path pattern: arn:aws:elasticbeanstalk:{region}:{account-id}:platform/...).
+	// An empty account ID here would produce a malformed "::platform/..." ARN
+	// that real clients constructing the ARN themselves would never match.
+	platformARN := arn.Build("elasticbeanstalk", region, b.accountID, "platform/"+platformName+"/"+platformVersion)
 
 	if _, ok := b.platformVersionGet(region, platformARN); ok {
 		return nil, fmt.Errorf(
@@ -1621,6 +1695,7 @@ func (b *InMemoryBackend) UpdateApplicationVersion(
 	}
 
 	ver.Description = description
+	ver.DateUpdated = nowISO8601()
 
 	return cloneApplicationVersion(ver), nil
 }
@@ -1641,6 +1716,7 @@ func (b *InMemoryBackend) UpdateConfigurationTemplate(
 	}
 
 	tmpl.Description = description
+	tmpl.DateUpdated = nowISO8601()
 
 	return cloneConfigurationTemplate(tmpl), nil
 }

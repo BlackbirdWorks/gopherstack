@@ -151,6 +151,9 @@ func TestRefinement1_SortedDescribeApplicationVersions(t *testing.T) {
 
 	h := newTestHandler()
 
+	setupRec := postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=app")
+	require.Equal(t, http.StatusOK, setupRec.Code)
+
 	for _, label := range []string{"v3", "v1", "v2"} {
 		rec := postEBForm(t, h,
 			"Version=2010-12-01&Action=CreateApplicationVersion&ApplicationName=app&VersionLabel="+label)
