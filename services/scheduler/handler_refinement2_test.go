@@ -291,7 +291,7 @@ func TestRefinement2_RESTTagResource(t *testing.T) {
 
 	// Tag via REST path.
 	rec2 := doRESTRequest(t, h, http.MethodPost, "/tags/"+schedARN, map[string]any{
-		"Tags": map[string]string{"env": "prod", "team": "platform"},
+		"Tags": wireTagsBody(map[string]string{"env": "prod", "team": "platform"}),
 	}, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
@@ -299,12 +299,11 @@ func TestRefinement2_RESTTagResource(t *testing.T) {
 	rec3 := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": schedARN})
 	require.Equal(t, http.StatusOK, rec3.Code)
 
-	var tagsOut struct {
-		Tags map[string]string `json:"Tags"`
-	}
+	var tagsOut map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut))
-	assert.Equal(t, "prod", tagsOut.Tags["env"])
-	assert.Equal(t, "platform", tagsOut.Tags["team"])
+	tags := wireTagsToMap(t, tagsOut["Tags"])
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "platform", tags["team"])
 }
 
 // TestRefinement2_RESTListTagsForResource verifies GET /tags/{resourceArn}.
@@ -329,17 +328,16 @@ func TestRefinement2_RESTListTagsForResource(t *testing.T) {
 	// Tag the resource first via the standard operation.
 	_ = doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": schedARN,
-		"Tags":        map[string]string{"key1": "val1"},
+		"Tags":        wireTagsBody(map[string]string{"key1": "val1"}),
 	})
 
 	rec2 := doRESTRequest(t, h, http.MethodGet, "/tags/"+schedARN, nil, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var tagsOut struct {
-		Tags map[string]string `json:"Tags"`
-	}
+	var tagsOut map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsOut))
-	assert.Equal(t, "val1", tagsOut.Tags["key1"])
+	tags := wireTagsToMap(t, tagsOut["Tags"])
+	assert.Equal(t, "val1", tags["key1"])
 }
 
 // TestRefinement2_RESTUntagResource verifies DELETE /tags/{resourceArn}?tagKeys=...
@@ -362,21 +360,64 @@ func TestRefinement2_RESTUntagResource(t *testing.T) {
 
 	_ = doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": schedARN,
-		"Tags":        map[string]string{"key1": "val1", "key2": "val2"},
+		"Tags":        wireTagsBody(map[string]string{"key1": "val1", "key2": "val2"}),
 	})
 
 	rec2 := doRESTRequest(t, h, http.MethodDelete, "/tags/"+schedARN, nil, map[string]string{
-		"tagKeys": "key1",
+		"TagKeys": "key1",
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	rec3 := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": schedARN})
-	var tagsOut struct {
-		Tags map[string]string `json:"Tags"`
-	}
+	var tagsOut map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut))
-	assert.NotContains(t, tagsOut.Tags, "key1")
-	assert.Equal(t, "val2", tagsOut.Tags["key2"])
+	tags := wireTagsToMap(t, tagsOut["Tags"])
+	assert.NotContains(t, tags, "key1")
+	assert.Equal(t, "val2", tags["key2"])
+}
+
+// TestRefinement2_RESTUntagResourceMultipleTagKeys verifies DELETE
+// /tags/{resourceArn}?TagKeys=a&TagKeys=b removes all listed keys in one call.
+// aws-sdk-go-v2's awsRestjson1_serializeOpHttpBindingsUntagResourceInput sends
+// TagKeys as a repeated query parameter (encoder.AddQuery("TagKeys", ...) per
+// key), not a single comma-separated value under a lowercase "tagKeys" name.
+func TestRefinement2_RESTUntagResourceMultipleTagKeys(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+
+	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+		"Name":               "untag-rest-multi",
+		"ScheduleExpression": "rate(1 minute)",
+		"Target":             map[string]string{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	schedARN := createOut["ScheduleArn"]
+
+	_ = doSchedulerRequest(t, h, "TagResource", map[string]any{
+		"ResourceArn": schedARN,
+		"Tags":        wireTagsBody(map[string]string{"key1": "val1", "key2": "val2", "key3": "val3"}),
+	})
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/tags/"+schedARN, nil)
+	req.URL.RawQuery = "TagKeys=key1&TagKeys=key2"
+	rec2 := httptest.NewRecorder()
+	c := e.NewContext(req, rec2)
+	require.NoError(t, h.Handler()(c))
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	rec3 := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": schedARN})
+	var tagsOut map[string]any
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsOut))
+	tags := wireTagsToMap(t, tagsOut["Tags"])
+	assert.NotContains(t, tags, "key1")
+	assert.NotContains(t, tags, "key2")
+	assert.Equal(t, "val3", tags["key3"])
 }
 
 // TestRefinement2_RESTNotFound verifies unknown REST path returns 404.
@@ -428,6 +469,75 @@ func TestRefinement2_ValidateState_CreateSchedule(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			} else {
 				assert.Equal(t, http.StatusOK, rec.Code)
+			}
+		})
+	}
+}
+
+// TestRefinement2_ValidateActionAfterCompletion verifies ActionAfterCompletion is
+// rejected unless it is NONE, DELETE, or omitted, on both CreateSchedule and
+// UpdateSchedule (AWS: aws-sdk-go-v2/service/scheduler/types.ActionAfterCompletion
+// only defines NONE and DELETE).
+func TestRefinement2_ValidateActionAfterCompletion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		action  string
+		wantErr bool
+	}{
+		{name: "none", action: "NONE", wantErr: false},
+		{name: "delete", action: "DELETE", wantErr: false},
+		{name: "empty_defaults", action: "", wantErr: false},
+		{name: "invalid", action: "TERMINATE", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+			body := map[string]any{
+				"Name":               "action-after-completion-test",
+				"ScheduleExpression": "rate(1 minute)",
+				"Target": map[string]string{
+					"Arn":     "arn:aws:sqs:us-east-1:0:q",
+					"RoleArn": "arn:aws:iam::0:role/r",
+				},
+				"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+			}
+
+			if tt.action != "" {
+				body["ActionAfterCompletion"] = tt.action
+			}
+
+			createRec := doSchedulerRequest(t, h, "CreateSchedule", body)
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, createRec.Code)
+			} else {
+				assert.Equal(t, http.StatusOK, createRec.Code)
+			}
+
+			// UpdateSchedule must reject the same invalid values on an existing schedule.
+			createScheduleViaHandler(t, h, "action-after-completion-update-test", "", "rate(1 minute)")
+			updateBody := map[string]any{
+				"Name":               "action-after-completion-update-test",
+				"ScheduleExpression": "rate(5 minutes)",
+				"Target": map[string]string{
+					"Arn":     "arn:aws:sqs:us-east-1:0:q",
+					"RoleArn": "arn:aws:iam::0:role/r",
+				},
+				"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+			}
+			if tt.action != "" {
+				updateBody["ActionAfterCompletion"] = tt.action
+			}
+
+			updateRec := doSchedulerRequest(t, h, "UpdateSchedule", updateBody)
+			if tt.wantErr {
+				assert.Equal(t, http.StatusBadRequest, updateRec.Code)
+			} else {
+				assert.Equal(t, http.StatusOK, updateRec.Code)
 			}
 		})
 	}
@@ -623,7 +733,7 @@ func TestRefinement2_GetScheduleGroupIncludesTags(t *testing.T) {
 
 	rec := doSchedulerRequest(t, h, "CreateScheduleGroup", map[string]any{
 		"Name": "grp-with-tags",
-		"Tags": map[string]string{"env": "test"},
+		"Tags": wireTagsBody(map[string]string{"env": "test"}),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -645,7 +755,7 @@ func TestRefinement2_ListScheduleGroupsIncludesTags(t *testing.T) {
 
 	rec := doSchedulerRequest(t, h, "CreateScheduleGroup", map[string]any{
 		"Name": "list-grp-tags",
-		"Tags": map[string]string{"x": "y"},
+		"Tags": wireTagsBody(map[string]string{"x": "y"}),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -685,6 +795,47 @@ func TestRefinement2_UpdateScheduleValidatesState(t *testing.T) {
 		"State":              "INVALID",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestRefinement2_UpdateScheduleOmittedStatePreservesExisting verifies that omitting
+// State on UpdateSchedule leaves the schedule's enabled/disabled status unchanged,
+// matching aws-sdk-go-v2's UpdateScheduleInput document serializer, which omits the
+// "State" JSON key entirely when the field is unset (`if len(v.State) > 0`) rather
+// than sending an empty string. Blindly overwriting State with the (empty) input
+// would leave the schedule in neither ENABLED nor DISABLED, silently halting the
+// runner (checkAndFireSchedules only fires schedules with State == "ENABLED").
+func TestRefinement2_UpdateScheduleOmittedStatePreservesExisting(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	createScheduleViaHandler(t, h, "upd-omit-state", "", "rate(1 minute)")
+
+	// Disable the schedule first.
+	disableRec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
+		"Name":               "upd-omit-state",
+		"ScheduleExpression": "rate(1 minute)",
+		"Target":             map[string]string{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+		"State":              "DISABLED",
+	})
+	require.Equal(t, http.StatusOK, disableRec.Code)
+
+	// Update again without a State field at all.
+	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
+		"Name":               "upd-omit-state",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target":             map[string]string{"Arn": "arn:aws:sqs:us-east-1:0:q", "RoleArn": "arn:aws:iam::0:role/r"},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "upd-omit-state"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	assert.Equal(t, "DISABLED", out["State"], "State must stay DISABLED, not be reset to empty/enabled")
+	assert.Equal(t, "rate(5 minutes)", out["ScheduleExpression"])
 }
 
 // TestRefinement2_RouteMatcherHandlesTagsPath verifies /tags/{arn} is routed to scheduler.

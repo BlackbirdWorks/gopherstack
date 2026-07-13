@@ -25,7 +25,7 @@ func TestSchedulerHandler_CreateScheduleGroup(t *testing.T) {
 	}{
 		{
 			name:     "success",
-			body:     map[string]any{"Name": "my-group", "Tags": map[string]string{"env": "test"}},
+			body:     map[string]any{"Name": "my-group", "Tags": wireTagsBody(map[string]string{"env": "test"})},
 			wantCode: http.StatusOK,
 			wantARN:  true,
 		},
@@ -267,7 +267,7 @@ func TestSchedulerHandler_UntagResource(t *testing.T) {
 				if len(tt.setupTags) > 0 {
 					doSchedulerRequest(t, h, "TagResource", map[string]any{
 						"ResourceArn": resourceARN,
-						"Tags":        tt.setupTags,
+						"Tags":        wireTagsBody(tt.setupTags),
 					})
 				}
 			} else {
@@ -285,7 +285,7 @@ func TestSchedulerHandler_UntagResource(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code)
 				var listResp map[string]any
 				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-				remaining, _ := listResp["Tags"].(map[string]any)
+				remaining := wireTagsToMap(t, listResp["Tags"])
 				for _, key := range tt.wantRemoved {
 					assert.NotContains(t, remaining, key)
 				}
@@ -304,7 +304,7 @@ func TestSchedulerHandler_UntagResource_ScheduleGroup(t *testing.T) {
 
 	doSchedulerRequest(t, h, "CreateScheduleGroup", map[string]any{
 		"Name": "tagged-group",
-		"Tags": map[string]string{"env": "test", "team": "platform"},
+		"Tags": wireTagsBody(map[string]string{"env": "test", "team": "platform"}),
 	})
 
 	getRec := doSchedulerRequest(t, h, "GetScheduleGroup", map[string]any{"Name": "tagged-group"})
@@ -324,7 +324,7 @@ func TestSchedulerHandler_UntagResource_ScheduleGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	remaining, _ := listResp["Tags"].(map[string]any)
+	remaining := wireTagsToMap(t, listResp["Tags"])
 	assert.NotContains(t, remaining, "env")
 	assert.Contains(t, remaining, "team")
 }
@@ -342,7 +342,7 @@ func TestSchedulerHandler_TagResource_ScheduleGroup(t *testing.T) {
 
 	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
 		"ResourceArn": groupARN,
-		"Tags":        map[string]string{"owner": "team-a"},
+		"Tags":        wireTagsBody(map[string]string{"owner": "team-a"}),
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -350,7 +350,7 @@ func TestSchedulerHandler_TagResource_ScheduleGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	tagsMap, _ := listResp["Tags"].(map[string]any)
+	tagsMap := wireTagsToMap(t, listResp["Tags"])
 	assert.Equal(t, "team-a", tagsMap["owner"])
 }
 
