@@ -24,7 +24,13 @@ func helperPutConfig(t *testing.T, h *mediatailor.Handler, name string) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Gap 1: PutPlaybackConfiguration requires AdDecisionServerUrl + VideoContentSourceUrl
+// Gap 1: PutPlaybackConfiguration requires only Name.
+//
+// A previous pass had this backwards: it required AdDecisionServerUrl and
+// VideoContentSourceUrl too. The real model's only required member is Name —
+// confirmed against aws-sdk-go-v2/service/mediatailor's validators.go and
+// botocore's service-2.json ("required": ["Name"]). Requiring the other two
+// rejects requests a real SDK client is allowed to send.
 // ─────────────────────────────────────────────────────────────
 
 func TestParity_PutPlaybackConfiguration_RequiredFields(t *testing.T) {
@@ -36,7 +42,7 @@ func TestParity_PutPlaybackConfiguration_RequiredFields(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "both_fields_required_ok",
+			name:       "all_fields_present_ok",
 			wantStatus: http.StatusOK,
 			body: map[string]any{
 				"Name":                  "cfg",
@@ -45,19 +51,26 @@ func TestParity_PutPlaybackConfiguration_RequiredFields(t *testing.T) {
 			},
 		},
 		{
-			name:       "missing_AdDecisionServerUrl_rejected",
-			wantStatus: http.StatusBadRequest,
+			name:       "missing_AdDecisionServerUrl_ok",
+			wantStatus: http.StatusOK,
 			body: map[string]any{
 				"Name":                  "cfg",
 				"VideoContentSourceUrl": "https://video.example.com",
 			},
 		},
 		{
-			name:       "missing_VideoContentSourceUrl_rejected",
-			wantStatus: http.StatusBadRequest,
+			name:       "missing_VideoContentSourceUrl_ok",
+			wantStatus: http.StatusOK,
 			body: map[string]any{
 				"Name":                "cfg",
 				"AdDecisionServerUrl": "https://ads.example.com",
+			},
+		},
+		{
+			name:       "name_only_ok",
+			wantStatus: http.StatusOK,
+			body: map[string]any{
+				"Name": "cfg",
 			},
 		},
 		{
@@ -91,14 +104,14 @@ func TestParity_PutPlaybackConfiguration_TagsReplacedOnUpdate(t *testing.T) {
 		"Name":                  "cfg",
 		"AdDecisionServerUrl":   "https://ads.example.com",
 		"VideoContentSourceUrl": "https://video.example.com",
-		"Tags":                  map[string]any{"old": "val"},
+		"tags":                  map[string]any{"old": "val"},
 	})
 
 	doRequest(t, h, http.MethodPut, "/playbackConfiguration", map[string]any{
 		"Name":                  "cfg",
 		"AdDecisionServerUrl":   "https://ads.example.com",
 		"VideoContentSourceUrl": "https://video.example.com",
-		"Tags":                  map[string]any{"new": "val"},
+		"tags":                  map[string]any{"new": "val"},
 	})
 
 	rec := doRequest(t, h, http.MethodGet, "/playbackConfiguration/cfg", nil)
@@ -106,7 +119,7 @@ func TestParity_PutPlaybackConfiguration_TagsReplacedOnUpdate(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	tags, _ := resp["Tags"].(map[string]any)
+	tags, _ := resp["tags"].(map[string]any)
 
 	assert.Contains(t, tags, "new", "new tag must be present after update")
 	assert.NotContains(t, tags, "old", "old tag must be removed on full tag replacement")
@@ -255,7 +268,7 @@ func TestParity_UntagResource_Idempotent(t *testing.T) {
 	h := newTestHandler(t)
 	unknownARN := "arn:aws:mediatailor:us-east-1:000000000000:playbackConfiguration/no-such-thing"
 
-	rec := doRequestWithQuery(t, h, http.MethodDelete, "/tags/"+unknownARN, "tagKeys=any-key", nil)
+	rec := doRequestWithQuery(t, h, http.MethodDelete, "/tags/"+unknownARN, "tagKeys=any-key")
 	assert.Equal(t, http.StatusNoContent, rec.Code, "untag on unknown ARN must be idempotent")
 }
 
@@ -333,14 +346,24 @@ func TestParity_CreatePrefetchSchedule_RetrievalAndConsumption(t *testing.T) {
 	h := newTestHandler(t)
 	helperPutConfig(t, h, "pc1")
 
+	// StartTime/EndTime are unixTimestamp shapes on the wire (JSON number of
+	// seconds since epoch), not RFC3339 strings — confirmed against
+	// aws-sdk-go-v2's (de)serializers and botocore's service-2.json.
+	const (
+		retrievalStart  float64 = 1_767_225_600 // 2026-01-01T00:00:00Z
+		retrievalEnd    float64 = 1_767_229_200 // 2026-01-01T01:00:00Z
+		consumptionEnd  float64 = 1_767_232_800 // 2026-01-01T02:00:00Z
+		consumptionSame         = retrievalEnd
+	)
+
 	rec := doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1/sched1", map[string]any{
 		"Retrieval": map[string]any{
-			"StartTime": "2026-01-01T00:00:00Z",
-			"EndTime":   "2026-01-01T01:00:00Z",
+			"StartTime": retrievalStart,
+			"EndTime":   retrievalEnd,
 		},
 		"Consumption": map[string]any{
-			"StartTime": "2026-01-01T01:00:00Z",
-			"EndTime":   "2026-01-01T02:00:00Z",
+			"StartTime": consumptionSame,
+			"EndTime":   consumptionEnd,
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -350,13 +373,13 @@ func TestParity_CreatePrefetchSchedule_RetrievalAndConsumption(t *testing.T) {
 
 	retrieval, ok := resp["Retrieval"].(map[string]any)
 	require.True(t, ok, "Retrieval must be present in response")
-	assert.Equal(t, "2026-01-01T00:00:00Z", retrieval["StartTime"])
-	assert.Equal(t, "2026-01-01T01:00:00Z", retrieval["EndTime"])
+	assert.InEpsilon(t, retrievalStart, retrieval["StartTime"], 0.001)
+	assert.InEpsilon(t, retrievalEnd, retrieval["EndTime"], 0.001)
 
 	consumption, ok := resp["Consumption"].(map[string]any)
 	require.True(t, ok, "Consumption must be present in response")
-	assert.Equal(t, "2026-01-01T01:00:00Z", consumption["StartTime"])
-	assert.Equal(t, "2026-01-01T02:00:00Z", consumption["EndTime"])
+	assert.InEpsilon(t, consumptionSame, consumption["StartTime"], 0.001)
+	assert.InEpsilon(t, consumptionEnd, consumption["EndTime"], 0.001)
 }
 
 // ─────────────────────────────────────────────────────────────

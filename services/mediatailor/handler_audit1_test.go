@@ -732,7 +732,7 @@ func TestAudit1_Tags(t *testing.T) {
 
 	// TagResource
 	rec = doRequest(t, h, http.MethodPost, "/tags/"+resourceARN, map[string]any{
-		"Tags": map[string]any{"env": "prod", "team": "media"},
+		"tags": map[string]any{"env": "prod", "team": "media"},
 	})
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -741,7 +741,7 @@ func TestAudit1_Tags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	tags := listResp["Tags"].(map[string]any)
+	tags := listResp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "media", tags["team"])
 
@@ -756,7 +756,7 @@ func TestAudit1_Tags(t *testing.T) {
 	// Verify tag removed
 	rec = doRequest(t, h, http.MethodGet, "/tags/"+resourceARN, nil)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	tags = listResp["Tags"].(map[string]any)
+	tags = listResp["tags"].(map[string]any)
 	assert.NotContains(t, tags, "env")
 	assert.Equal(t, "media", tags["team"])
 }

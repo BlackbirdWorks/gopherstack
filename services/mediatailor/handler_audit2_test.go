@@ -240,7 +240,7 @@ func TestAudit2_PrefetchSchedule_CRUD(t *testing.T) { //nolint:paralleltest // e
 	assert.Equal(t, "sched1", resp["Name"])
 
 	// list
-	rec = doRequest(t, h, http.MethodGet, "/prefetchSchedule/pc1", nil)
+	rec = doRequest(t, h, http.MethodPost, "/prefetchSchedule/pc1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any

@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -37,8 +38,14 @@ const (
 	// disambiguate it by the request's SigV4 service name.
 	sigV4Service = "mediatailor"
 
-	keyMessage            = "Message"
-	keyTags               = "Tags"
+	keyMessage = "Message"
+	// keyTags is the wire name for the Tags map on every MediaTailor operation.
+	// Unlike every other field (which is PascalCase), the real MediaTailor
+	// restjson1 model gives this member a "tags" (lowercase) locationName —
+	// confirmed against aws-sdk-go-v2/service/mediatailor's (de)serializers
+	// and botocore's service-2.json. Sending/expecting "Tags" here silently
+	// drops tags to/from a real SDK client.
+	keyTags               = "tags"
 	keyItems              = "Items"
 	keyArn                = "Arn"
 	keySourceLocationName = "SourceLocationName"
@@ -311,7 +318,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		opCreatePrefetchSchedule: func() error { return h.handleCreatePrefetchSchedule(c, resource, extra, body) },
 		opGetPrefetchSchedule:    func() error { return h.handleGetPrefetchSchedule(c, resource, extra) },
 		opDeletePrefetchSchedule: func() error { return h.handleDeletePrefetchSchedule(c, resource, extra) },
-		opListPrefetchSchedules:  func() error { return h.handleListPrefetchSchedules(c, resource) },
+		opListPrefetchSchedules:  func() error { return h.handleListPrefetchSchedules(c, resource, body) },
 
 		opCreateProgram:      func() error { return h.handleCreateProgram(c, resource, extra, body) },
 		opDescribeProgram:    func() error { return h.handleDescribeProgram(c, resource, extra) },
@@ -582,7 +589,12 @@ func classifyPrefetchSchedulePath(method, path string) (string, string, string, 
 	pcName := parts[0]
 
 	if len(parts) == 1 {
-		if method == http.MethodGet {
+		// ListPrefetchSchedules is POST (not GET) on the bare
+		// /prefetchSchedule/{PlaybackConfigurationName} path — confirmed
+		// against aws-sdk-go-v2's serializer and botocore's service-2.json.
+		// MaxResults/NextToken/ScheduleType/StreamId travel in the JSON
+		// request body, not the query string.
+		if method == http.MethodPost {
 			return opListPrefetchSchedules, pcName, "", true
 		}
 
@@ -866,12 +878,16 @@ func toChannelOutput(ch *Channel) map[string]any {
 		keyTags:        nilToEmpty(ch.Tags),
 	}
 
+	// CreationTime/LastModifiedTime are unixTimestamp shapes on the wire (JSON
+	// number of seconds since epoch), not RFC3339 strings — real SDK
+	// deserializers reject a string here with "expected __timestampUnix to be
+	// a JSON Number, got string instead".
 	if !ch.CreationTime.IsZero() {
-		result["CreationTime"] = ch.CreationTime.Format(time.RFC3339)
+		result["CreationTime"] = awstime.Epoch(ch.CreationTime)
 	}
 
 	if !ch.LastModified.IsZero() {
-		result["LastModifiedTime"] = ch.LastModified.Format(time.RFC3339)
+		result["LastModifiedTime"] = awstime.Epoch(ch.LastModified)
 	}
 
 	if ch.FillerSlate != nil {
@@ -1091,17 +1107,50 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error
 
 // --- helpers ---
 
+// extractPaginationParams reads MaxResults/NextToken from the query string.
+// The real MediaTailor model is inconsistent about casing: ListChannels,
+// ListSourceLocations, ListVodSources, ListLiveSources, and
+// GetChannelSchedule bind them as lowercase "maxResults"/"nextToken", while
+// ListPlaybackConfigurations and ListFunctions bind them PascalCase
+// "MaxResults"/"NextToken" (confirmed against aws-sdk-go-v2's httpbinding
+// serializers and botocore's service-2.json). Checking both keys makes this
+// helper correct for every query-string-based List op regardless of casing.
 func extractPaginationParams(c *echo.Context) (int, string) {
 	q := c.Request().URL.Query()
 	maxResults := 0
 
-	if s := q.Get("MaxResults"); s != "" {
+	s := q.Get("MaxResults")
+	if s == "" {
+		s = q.Get("maxResults")
+	}
+
+	if s != "" {
 		if n, err := strconv.Atoi(s); err == nil {
 			maxResults = n
 		}
 	}
 
-	return maxResults, q.Get("NextToken")
+	nextToken := q.Get("NextToken")
+	if nextToken == "" {
+		nextToken = q.Get("nextToken")
+	}
+
+	return maxResults, nextToken
+}
+
+// extractBodyPaginationParams reads MaxResults/NextToken from a decoded JSON
+// request body. ListPrefetchSchedules is a POST operation that carries its
+// pagination parameters in the request body rather than the query string
+// (confirmed against aws-sdk-go-v2's serializer), unlike every other List op.
+func extractBodyPaginationParams(body map[string]any) (int, string) {
+	maxResults := 0
+	if f, ok := body["MaxResults"].(float64); ok {
+		maxResults = int(f)
+	}
+
+	nextToken, _ := body["NextToken"].(string)
+
+	return maxResults, nextToken
 }
 
 func extractTags(body map[string]any) map[string]string {
@@ -1205,6 +1254,16 @@ func extractFillerSlate(body map[string]any) *SlateSource {
 	}
 }
 
+// epochSecondsToTime converts a wire-format epoch-seconds value (as produced
+// by smithytime.FormatEpochSeconds / awstime.Epoch) back into a time.Time.
+func epochSecondsToTime(sec float64) time.Time {
+	return time.Unix(0, int64(sec*float64(time.Second))).UTC()
+}
+
+// extractPrefetchRetrieval reads the Retrieval.StartTime/EndTime timestamps.
+// These are unixTimestamp shapes on the wire (JSON number of seconds since
+// epoch, per aws-sdk-go-v2's serializers and botocore's service-2.json), so a
+// real SDK client sends a JSON number here, not an RFC3339 string.
 func extractPrefetchRetrieval(body map[string]any) *PrefetchRetrieval {
 	raw, _ := body["Retrieval"].(map[string]any)
 	if raw == nil {
@@ -1213,16 +1272,12 @@ func extractPrefetchRetrieval(body map[string]any) *PrefetchRetrieval {
 
 	r := &PrefetchRetrieval{}
 
-	if s, _ := raw["StartTime"].(string); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			r.StartTime = t
-		}
+	if f, ok := raw["StartTime"].(float64); ok {
+		r.StartTime = epochSecondsToTime(f)
 	}
 
-	if s, _ := raw["EndTime"].(string); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			r.EndTime = t
-		}
+	if f, ok := raw["EndTime"].(float64); ok {
+		r.EndTime = epochSecondsToTime(f)
 	}
 
 	if dv, _ := raw["DynamicVariables"].(map[string]any); len(dv) > 0 {
@@ -1237,6 +1292,8 @@ func extractPrefetchRetrieval(body map[string]any) *PrefetchRetrieval {
 	return r
 }
 
+// extractPrefetchConsumption reads the Consumption.StartTime/EndTime
+// timestamps; see extractPrefetchRetrieval for the epoch-seconds wire format.
 func extractPrefetchConsumption(body map[string]any) *PrefetchConsumption {
 	raw, _ := body["Consumption"].(map[string]any)
 	if raw == nil {
@@ -1245,16 +1302,12 @@ func extractPrefetchConsumption(body map[string]any) *PrefetchConsumption {
 
 	c := &PrefetchConsumption{}
 
-	if s, _ := raw["StartTime"].(string); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			c.StartTime = t
-		}
+	if f, ok := raw["StartTime"].(float64); ok {
+		c.StartTime = epochSecondsToTime(f)
 	}
 
-	if s, _ := raw["EndTime"].(string); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			c.EndTime = t
-		}
+	if f, ok := raw["EndTime"].(float64); ok {
+		c.EndTime = epochSecondsToTime(f)
 	}
 
 	return c
@@ -1397,8 +1450,8 @@ func (h *Handler) handleDeletePrefetchSchedule(c *echo.Context, playbackConfigNa
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigName string) error {
-	maxResults, nextToken := extractPaginationParams(c)
+func (h *Handler) handleListPrefetchSchedules(c *echo.Context, playbackConfigName string, body map[string]any) error {
+	maxResults, nextToken := extractBodyPaginationParams(body)
 	schedules, nextToken, err := h.Backend.ListPrefetchSchedules(playbackConfigName, maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
@@ -1427,11 +1480,11 @@ func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
 	if ps.Retrieval != nil {
 		r := map[string]any{}
 		if !ps.Retrieval.StartTime.IsZero() {
-			r["StartTime"] = ps.Retrieval.StartTime.Format(time.RFC3339)
+			r["StartTime"] = awstime.Epoch(ps.Retrieval.StartTime)
 		}
 
 		if !ps.Retrieval.EndTime.IsZero() {
-			r["EndTime"] = ps.Retrieval.EndTime.Format(time.RFC3339)
+			r["EndTime"] = awstime.Epoch(ps.Retrieval.EndTime)
 		}
 
 		if len(ps.Retrieval.DynamicVariables) > 0 {
@@ -1444,11 +1497,11 @@ func toPrefetchScheduleOutput(ps *PrefetchSchedule) map[string]any {
 	if ps.Consumption != nil {
 		c := map[string]any{}
 		if !ps.Consumption.StartTime.IsZero() {
-			c["StartTime"] = ps.Consumption.StartTime.Format(time.RFC3339)
+			c["StartTime"] = awstime.Epoch(ps.Consumption.StartTime)
 		}
 
 		if !ps.Consumption.EndTime.IsZero() {
-			c["EndTime"] = ps.Consumption.EndTime.Format(time.RFC3339)
+			c["EndTime"] = awstime.Epoch(ps.Consumption.EndTime)
 		}
 
 		out["Consumption"] = c
@@ -1608,7 +1661,9 @@ func (h *Handler) handleDeleteFunction(c *echo.Context, functionID string) error
 }
 
 func (h *Handler) handleListFunctions(c *echo.Context) error {
-	summaries, nextToken, err := h.Backend.ListFunctions(0, "")
+	maxResults, nextToken := extractPaginationParams(c)
+
+	summaries, nextToken, err := h.Backend.ListFunctions(maxResults, nextToken)
 	if err != nil {
 		return respondErr(c, err)
 	}
