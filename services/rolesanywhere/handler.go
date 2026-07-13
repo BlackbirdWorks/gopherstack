@@ -279,7 +279,7 @@ func (h *Handler) dispatchTagOps(ctx context.Context, op, query string, body []b
 	case opTagResource:
 		return h.handleTagResource(ctx, body)
 	case opUntagResource:
-		return h.handleUntagResource(ctx, query)
+		return h.handleUntagResource(ctx, body)
 	case opListTagsForResource:
 		return h.handleListTagsForResource(ctx, query)
 	}
@@ -291,21 +291,22 @@ func (h *Handler) dispatchTagOps(ctx context.Context, op, query string, body []b
 
 func (h *Handler) handleCreateTrustAnchor(ctx context.Context, body []byte) (any, int, error) {
 	var req struct {
-		Name   string            `json:"name"`
-		Source TrustAnchorSource `json:"source"`
-		Tags   []TagEntry        `json:"tags"`
+		Enabled *bool             `json:"enabled"`
+		Name    string            `json:"name"`
+		Source  TrustAnchorSource `json:"source"`
+		Tags    []TagEntry        `json:"tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, 0, ErrValidation
 	}
 
-	ta, err := h.Backend.CreateTrustAnchor(ctx, req.Name, req.Source, req.Tags)
+	ta, err := h.Backend.CreateTrustAnchor(ctx, req.Name, req.Source, req.Tags, req.Enabled)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusCreated, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusCreated, nil
 }
 
 func (h *Handler) handleGetTrustAnchor(ctx context.Context, path string) (any, int, error) {
@@ -316,7 +317,7 @@ func (h *Handler) handleGetTrustAnchor(ctx context.Context, path string) (any, i
 		return nil, 0, err
 	}
 
-	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListTrustAnchors(ctx context.Context, query string) (any, int, error) {
@@ -333,7 +334,7 @@ func (h *Handler) handleListTrustAnchors(ctx context.Context, query string) (any
 	list := make([]any, 0, len(all))
 
 	for _, ta := range all {
-		list = append(list, trustAnchorToJSON(ta))
+		list = append(list, h.trustAnchorJSON(ctx, ta))
 	}
 
 	resp := map[string]any{keyTrustAnchors: list}
@@ -348,11 +349,12 @@ func (h *Handler) handleListTrustAnchors(ctx context.Context, query string) (any
 func (h *Handler) handleDeleteTrustAnchor(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathTrustanchor)
 
-	if err := h.Backend.DeleteTrustAnchor(ctx, id); err != nil {
+	ta, err := h.Backend.DeleteTrustAnchor(ctx, id)
+	if err != nil {
 		return nil, 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateTrustAnchor(ctx context.Context, path string, body []byte) (any, int, error) {
@@ -372,7 +374,7 @@ func (h *Handler) handleUpdateTrustAnchor(ctx context.Context, path string, body
 		return nil, 0, err
 	}
 
-	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleEnableTrustAnchor(ctx context.Context, path string) (any, int, error) {
@@ -383,7 +385,7 @@ func (h *Handler) handleEnableTrustAnchor(ctx context.Context, path string) (any
 		return nil, 0, err
 	}
 
-	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDisableTrustAnchor(ctx context.Context, path string) (any, int, error) {
@@ -394,7 +396,7 @@ func (h *Handler) handleDisableTrustAnchor(ctx context.Context, path string) (an
 		return nil, 0, err
 	}
 
-	return map[string]any{keyTrustAnchor: trustAnchorToJSON(ta)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 // ---- Profile handlers ----
@@ -423,7 +425,7 @@ func (h *Handler) handleCreateProfile(ctx context.Context, body []byte) (any, in
 		return nil, 0, err
 	}
 
-	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusCreated, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusCreated, nil
 }
 
 func (h *Handler) handleGetProfile(ctx context.Context, path string) (any, int, error) {
@@ -434,7 +436,7 @@ func (h *Handler) handleGetProfile(ctx context.Context, path string) (any, int, 
 		return nil, 0, err
 	}
 
-	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListProfiles(ctx context.Context, query string) (any, int, error) {
@@ -451,7 +453,7 @@ func (h *Handler) handleListProfiles(ctx context.Context, query string) (any, in
 	list := make([]any, 0, len(all))
 
 	for _, p := range all {
-		list = append(list, profileToJSON(p))
+		list = append(list, h.profileJSON(ctx, p))
 	}
 
 	resp := map[string]any{keyProfiles: list}
@@ -466,11 +468,12 @@ func (h *Handler) handleListProfiles(ctx context.Context, query string) (any, in
 func (h *Handler) handleDeleteProfile(ctx context.Context, path string) (any, int, error) {
 	id := extractID(path, pathProfile)
 
-	if err := h.Backend.DeleteProfile(ctx, id); err != nil {
+	p, err := h.Backend.DeleteProfile(ctx, id)
+	if err != nil {
 		return nil, 0, err
 	}
 
-	return nil, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleUpdateProfile(ctx context.Context, path string, body []byte) (any, int, error) {
@@ -498,7 +501,7 @@ func (h *Handler) handleUpdateProfile(ctx context.Context, path string, body []b
 		return nil, 0, err
 	}
 
-	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleEnableProfile(ctx context.Context, path string) (any, int, error) {
@@ -509,7 +512,7 @@ func (h *Handler) handleEnableProfile(ctx context.Context, path string) (any, in
 		return nil, 0, err
 	}
 
-	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDisableProfile(ctx context.Context, path string) (any, int, error) {
@@ -520,7 +523,7 @@ func (h *Handler) handleDisableProfile(ctx context.Context, path string) (any, i
 		return nil, 0, err
 	}
 
-	return map[string]any{keyProfile: profileToJSON(p)}, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 // ---- Tag handlers ----
@@ -542,22 +545,17 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) (any, int,
 	return nil, http.StatusOK, nil
 }
 
-func (h *Handler) handleUntagResource(ctx context.Context, query string) (any, int, error) {
-	var resourceARN string
-
-	var tagKeys []string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if after, ok := strings.CutPrefix(part, "resourceArn="); ok {
-			resourceARN = after
-		}
-
-		if after, ok := strings.CutPrefix(part, "tagKeys="); ok {
-			tagKeys = append(tagKeys, after)
-		}
+func (h *Handler) handleUntagResource(ctx context.Context, body []byte) (any, int, error) {
+	var req struct {
+		ResourceArn string   `json:"resourceArn"`
+		TagKeys     []string `json:"tagKeys"`
 	}
 
-	if err := h.Backend.UntagResource(ctx, resourceARN, tagKeys); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, 0, ErrValidation
+	}
+
+	if err := h.Backend.UntagResource(ctx, req.ResourceArn, req.TagKeys); err != nil {
 		return nil, 0, err
 	}
 
@@ -841,9 +839,7 @@ func (h *Handler) handlePutAttributeMapping(ctx context.Context, path string, bo
 		return nil, 0, err
 	}
 
-	mappings := h.Backend.GetAttributeMappings(ctx, profileID)
-
-	return map[string]any{keyProfile: profileWithMappingsToJSON(p, mappings)}, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleDeleteAttributeMapping(ctx context.Context, path, query string) (any, int, error) {
@@ -868,9 +864,7 @@ func (h *Handler) handleDeleteAttributeMapping(ctx context.Context, path, query 
 		return nil, 0, err
 	}
 
-	mappings := h.Backend.GetAttributeMappings(ctx, profileID)
-
-	return map[string]any{keyProfile: profileWithMappingsToJSON(p, mappings)}, http.StatusOK, nil
+	return map[string]any{keyProfile: h.profileJSON(ctx, p)}, http.StatusOK, nil
 }
 
 // ---- Notification settings handlers ----
@@ -890,9 +884,7 @@ func (h *Handler) handlePutNotificationSettings(ctx context.Context, body []byte
 		return nil, 0, err
 	}
 
-	settings := h.Backend.GetNotificationSettings(ctx, req.TrustAnchorID)
-
-	return map[string]any{keyTrustAnchor: trustAnchorWithSettingsToJSON(ta, settings)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 func (h *Handler) handleResetNotificationSettings(ctx context.Context, body []byte) (any, int, error) {
@@ -910,9 +902,7 @@ func (h *Handler) handleResetNotificationSettings(ctx context.Context, body []by
 		return nil, 0, err
 	}
 
-	settings := h.Backend.GetNotificationSettings(ctx, req.TrustAnchorID)
-
-	return map[string]any{keyTrustAnchor: trustAnchorWithSettingsToJSON(ta, settings)}, http.StatusOK, nil
+	return map[string]any{keyTrustAnchor: h.trustAnchorJSON(ctx, ta)}, http.StatusOK, nil
 }
 
 // handleError writes an error response.
@@ -1222,6 +1212,28 @@ func parsePageParams(query string) (string, int, error) {
 }
 
 // ---- JSON serialization ----
+
+// trustAnchorJSON renders ta together with its current notification settings.
+// AWS's TrustAnchorDetail carries notificationSettings on every read (Get,
+// List, Create, Update, Enable, Disable, Delete), not only on the dedicated
+// Put/ResetNotificationSettings responses, so every trust anchor handler
+// routes through this instead of the bare trustAnchorToJSON.
+func (h *Handler) trustAnchorJSON(ctx context.Context, ta *TrustAnchor) map[string]any {
+	settings := h.Backend.GetNotificationSettings(ctx, ta.TrustAnchorID)
+
+	return trustAnchorWithSettingsToJSON(ta, settings)
+}
+
+// profileJSON renders p together with its current attribute mappings. AWS's
+// ProfileDetail carries attributeMappings on every read (Get, List, Create,
+// Update, Enable, Disable, Delete), not only on the dedicated
+// Put/DeleteAttributeMapping responses, so every profile handler routes
+// through this instead of the bare profileToJSON.
+func (h *Handler) profileJSON(ctx context.Context, p *Profile) map[string]any {
+	mappings := h.Backend.GetAttributeMappings(ctx, p.ProfileID)
+
+	return profileWithMappingsToJSON(p, mappings)
+}
 
 func trustAnchorToJSON(ta *TrustAnchor) map[string]any {
 	m := map[string]any{

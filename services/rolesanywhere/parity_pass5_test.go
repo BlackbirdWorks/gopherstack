@@ -25,6 +25,7 @@ func TestParity_ListTrustAnchors_TokenWalk(t *testing.T) {
 			"anchor-"+string(rune('a'+i)),
 			rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"},
 			nil,
+			nil,
 		)
 		require.NoError(t, err)
 	}

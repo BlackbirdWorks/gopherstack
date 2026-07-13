@@ -283,12 +283,14 @@ func (b *InMemoryBackend) crlARN(region, id string) string {
 
 // ---- Trust Anchor operations ----
 
-// CreateTrustAnchor creates a new trust anchor.
+// CreateTrustAnchor creates a new trust anchor. enabled defaults to true when
+// nil, matching the AWS CreateTrustAnchorRequest.enabled default.
 func (b *InMemoryBackend) CreateTrustAnchor(
 	ctx context.Context,
 	name string,
 	source TrustAnchorSource,
 	tags []TagEntry,
+	enabled *bool,
 ) (*TrustAnchor, error) {
 	if name == "" {
 		return nil, ErrValidation
@@ -313,7 +315,7 @@ func (b *InMemoryBackend) CreateTrustAnchor(
 		Name:           name,
 		Source:         source,
 		region:         region,
-		Enabled:        true,
+		Enabled:        enabled == nil || *enabled,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 		Tags:           cloneTags(tags),
@@ -361,18 +363,23 @@ func (b *InMemoryBackend) ListTrustAnchors(
 	return items, token, nil
 }
 
-// DeleteTrustAnchor removes a trust anchor.
-func (b *InMemoryBackend) DeleteTrustAnchor(ctx context.Context, id string) error {
+// DeleteTrustAnchor removes a trust anchor and returns its state immediately
+// before deletion, matching AWS's DeleteTrustAnchorResponse.trustAnchor.
+func (b *InMemoryBackend) DeleteTrustAnchor(ctx context.Context, id string) (*TrustAnchor, error) {
 	b.mu.Lock("DeleteTrustAnchor")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	if !b.trustAnchors.Delete(regionKey(region, id)) {
-		return ErrTrustAnchorNotFound
+	ta, exists := b.trustAnchors.Get(regionKey(region, id))
+	if !exists {
+		return nil, ErrTrustAnchorNotFound
 	}
 
-	return nil
+	snap := copyTrustAnchor(ta)
+	b.trustAnchors.Delete(regionKey(region, id))
+
+	return snap, nil
 }
 
 // UpdateTrustAnchor updates name and/or source of a trust anchor.
@@ -519,18 +526,23 @@ func (b *InMemoryBackend) ListProfiles(
 	return items, token, nil
 }
 
-// DeleteProfile removes a profile.
-func (b *InMemoryBackend) DeleteProfile(ctx context.Context, id string) error {
+// DeleteProfile removes a profile and returns its state immediately before
+// deletion, matching AWS's DeleteProfileResponse.profile.
+func (b *InMemoryBackend) DeleteProfile(ctx context.Context, id string) (*Profile, error) {
 	b.mu.Lock("DeleteProfile")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
 
-	if !b.profiles.Delete(regionKey(region, id)) {
-		return ErrProfileNotFound
+	p, exists := b.profiles.Get(regionKey(region, id))
+	if !exists {
+		return nil, ErrProfileNotFound
 	}
 
-	return nil
+	snap := copyProfile(p)
+	b.profiles.Delete(regionKey(region, id))
+
+	return snap, nil
 }
 
 // UpdateProfile updates a profile's fields.
