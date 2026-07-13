@@ -1179,8 +1179,11 @@ func TestWAF_GetSampledRequests_EmptyStub(t *testing.T) {
 		"RuleId":   ruleID,
 		"MaxItems": 100,
 		"TimeWindow": map[string]any{
-			"StartTime": "2024-01-01T00:00:00Z",
-			"EndTime":   "2024-01-01T01:00:00Z",
+			// unixTimestamp shape: JSON number of seconds since the epoch,
+			// not an ISO8601 string -- see aws-sdk-go-v2/service/waf's
+			// serializeDocumentTimeWindow.
+			"StartTime": 1_704_067_200, // 2024-01-01T00:00:00Z
+			"EndTime":   1_704_070_800, // 2024-01-01T01:00:00Z
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

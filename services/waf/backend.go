@@ -492,14 +492,98 @@ func (b *InMemoryBackend) MarkChangeTokenUsed(token string) {
 	}
 }
 
+// validateChangeToken returns ErrStaleToken unless token was returned by an
+// earlier GetChangeToken call and has not yet been consumed by a mutation
+// (real AWS WAFStaleDataException: "you tried to create, update, or delete
+// an object by using a change token that has already been used"). It does
+// not itself consume the token -- the caller (Handler.dispatch) marks it
+// INSYNC once the mutation it guards has actually succeeded, via
+// MarkChangeTokenUsed. Callers must hold b.mu.
+func (b *InMemoryBackend) validateChangeToken(token string) error {
+	if status, ok := b.changeTokens[token]; !ok || status != changeTokenStatusPROVISIONED {
+		return ErrStaleToken
+	}
+
+	return nil
+}
+
+// ruleReferenced reports whether id (a Rule, RateBasedRule, or RuleGroup
+// identifier) is still activated in some WebACL or contained in some
+// RuleGroup -- the two containers that hold ActivatedRule.RuleId references
+// (WafRuleType REGULAR/RATE_BASED/GROUP all share the same RuleId shape).
+// Callers must hold b.mu.
+func (b *InMemoryBackend) ruleReferenced(id string) bool {
+	for _, acl := range b.webACLs.All() {
+		for _, r := range acl.Rules {
+			if r.RuleId == id {
+				return true
+			}
+		}
+	}
+
+	for _, rules := range b.ruleGroupRules {
+		for _, r := range rules {
+			if r.RuleId == id {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// matchSetReferenced reports whether id (an IPSet, ByteMatchSet,
+// SqlInjectionMatchSet, XssMatchSet, SizeConstraintSet, GeoMatchSet, or
+// RegexMatchSet identifier) is still used as a Predicate.DataId by any Rule
+// or RateBasedRule. Callers must hold b.mu.
+func (b *InMemoryBackend) matchSetReferenced(id string) bool {
+	for _, r := range b.rules.All() {
+		for _, p := range r.Predicates {
+			if p.DataId == id {
+				return true
+			}
+		}
+	}
+
+	for _, r := range b.rateBasedRules.All() {
+		for _, p := range r.MatchPredicates {
+			if p.DataId == id {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// regexPatternSetReferenced reports whether id is still used as a
+// RegexMatchTuple.RegexPatternSetId by any RegexMatchSet. Callers must hold
+// b.mu.
+func (b *InMemoryBackend) regexPatternSetReferenced(id string) bool {
+	for _, s := range b.regexMatchSets.All() {
+		for _, t := range s.RegexMatchTuples {
+			if t.RegexPatternSetId == id {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // CreateWebACL creates a new WebACL.
 func (b *InMemoryBackend) CreateWebACL(
 	name, metricName string,
 	defaultAction WafAction,
+	changeToken string,
 	tags map[string]string,
 ) (*WebACL, error) {
 	b.mu.Lock("CreateWebACL")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	acl := &WebACL{
@@ -534,12 +618,16 @@ func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 
 // UpdateWebACL updates a WebACL's default action and rules.
 func (b *InMemoryBackend) UpdateWebACL(
-	id, _ string,
+	id, changeToken string,
 	defaultAction *WafAction,
 	updates []WebACLUpdate,
 ) error {
 	b.mu.Lock("UpdateWebACL")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	acl, ok := b.webACLs.Get(id)
 	if !ok {
@@ -573,9 +661,13 @@ func (b *InMemoryBackend) UpdateWebACL(
 }
 
 // DeleteWebACL deletes a WebACL.
-func (b *InMemoryBackend) DeleteWebACL(id, _ string) error {
+func (b *InMemoryBackend) DeleteWebACL(id, changeToken string) error {
 	b.mu.Lock("DeleteWebACL")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	if !b.webACLs.Has(id) {
 		return ErrNotFound
@@ -604,11 +696,15 @@ func (b *InMemoryBackend) ListWebACLs() []WebACLSummary {
 
 // CreateRule creates a new Rule.
 func (b *InMemoryBackend) CreateRule(
-	name, metricName, _ string,
+	name, metricName, changeToken string,
 	tags map[string]string,
 ) (*Rule, error) {
 	b.mu.Lock("CreateRule")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	rule := &Rule{
@@ -640,9 +736,13 @@ func (b *InMemoryBackend) GetRule(id string) (*Rule, error) {
 }
 
 // UpdateRule updates a Rule's predicates.
-func (b *InMemoryBackend) UpdateRule(id, _ string, updates []RuleUpdate) error {
+func (b *InMemoryBackend) UpdateRule(id, changeToken string, updates []RuleUpdate) error {
 	b.mu.Lock("UpdateRule")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	rule, ok := b.rules.Get(id)
 	if !ok {
@@ -668,12 +768,20 @@ func (b *InMemoryBackend) UpdateRule(id, _ string, updates []RuleUpdate) error {
 }
 
 // DeleteRule deletes a Rule.
-func (b *InMemoryBackend) DeleteRule(id, _ string) error {
+func (b *InMemoryBackend) DeleteRule(id, changeToken string) error {
 	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.rules.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.ruleReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.rules.Delete(id)
@@ -698,9 +806,13 @@ func (b *InMemoryBackend) ListRules() []RuleSummary {
 }
 
 // CreateIPSet creates a new IPSet.
-func (b *InMemoryBackend) CreateIPSet(name, _ string, tags map[string]string) (*IPSet, error) {
+func (b *InMemoryBackend) CreateIPSet(name, changeToken string, tags map[string]string) (*IPSet, error) {
 	b.mu.Lock("CreateIPSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	ipSet := &IPSet{
@@ -731,9 +843,13 @@ func (b *InMemoryBackend) GetIPSet(id string) (*IPSet, error) {
 }
 
 // UpdateIPSet updates an IPSet's descriptors.
-func (b *InMemoryBackend) UpdateIPSet(id, _ string, updates []IPSetUpdate) error {
+func (b *InMemoryBackend) UpdateIPSet(id, changeToken string, updates []IPSetUpdate) error {
 	b.mu.Lock("UpdateIPSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	ipSet, ok := b.ipSets.Get(id)
 	if !ok {
@@ -759,12 +875,20 @@ func (b *InMemoryBackend) UpdateIPSet(id, _ string, updates []IPSetUpdate) error
 }
 
 // DeleteIPSet deletes an IPSet.
-func (b *InMemoryBackend) DeleteIPSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteIPSet(id, changeToken string) error {
 	b.mu.Lock("DeleteIPSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.ipSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.ipSets.Delete(id)
@@ -789,9 +913,13 @@ func (b *InMemoryBackend) ListIPSets() []IPSetSummary {
 }
 
 // CreateByteMatchSet creates a new ByteMatchSet.
-func (b *InMemoryBackend) CreateByteMatchSet(name, _ string) (*ByteMatchSet, error) {
+func (b *InMemoryBackend) CreateByteMatchSet(name, changeToken string) (*ByteMatchSet, error) {
 	b.mu.Lock("CreateByteMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	bms := &ByteMatchSet{
@@ -818,9 +946,13 @@ func (b *InMemoryBackend) GetByteMatchSet(id string) (*ByteMatchSet, error) {
 }
 
 // UpdateByteMatchSet updates a ByteMatchSet's tuples.
-func (b *InMemoryBackend) UpdateByteMatchSet(id, _ string, updates []ByteMatchSetUpdate) error {
+func (b *InMemoryBackend) UpdateByteMatchSet(id, changeToken string, updates []ByteMatchSetUpdate) error {
 	b.mu.Lock("UpdateByteMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	bms, ok := b.byteMatchSets.Get(id)
 	if !ok {
@@ -847,12 +979,20 @@ func (b *InMemoryBackend) UpdateByteMatchSet(id, _ string, updates []ByteMatchSe
 }
 
 // DeleteByteMatchSet deletes a ByteMatchSet.
-func (b *InMemoryBackend) DeleteByteMatchSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteByteMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteByteMatchSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.byteMatchSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.byteMatchSets.Delete(id)
@@ -880,9 +1020,13 @@ func (b *InMemoryBackend) ListByteMatchSets() []ByteMatchSetSummary {
 }
 
 // CreateSizeConstraintSet creates a new SizeConstraintSet.
-func (b *InMemoryBackend) CreateSizeConstraintSet(name, _ string) (*SizeConstraintSet, error) {
+func (b *InMemoryBackend) CreateSizeConstraintSet(name, changeToken string) (*SizeConstraintSet, error) {
 	b.mu.Lock("CreateSizeConstraintSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	scs := &SizeConstraintSet{
@@ -910,11 +1054,15 @@ func (b *InMemoryBackend) GetSizeConstraintSet(id string) (*SizeConstraintSet, e
 
 // UpdateSizeConstraintSet updates a SizeConstraintSet's constraints.
 func (b *InMemoryBackend) UpdateSizeConstraintSet(
-	id, _ string,
+	id, changeToken string,
 	updates []SizeConstraintSetUpdate,
 ) error {
 	b.mu.Lock("UpdateSizeConstraintSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	scs, ok := b.sizeConstraintSets.Get(id)
 	if !ok {
@@ -941,12 +1089,20 @@ func (b *InMemoryBackend) UpdateSizeConstraintSet(
 }
 
 // DeleteSizeConstraintSet deletes a SizeConstraintSet.
-func (b *InMemoryBackend) DeleteSizeConstraintSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteSizeConstraintSet(id, changeToken string) error {
 	b.mu.Lock("DeleteSizeConstraintSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.sizeConstraintSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.sizeConstraintSets.Delete(id)
@@ -979,10 +1135,14 @@ func (b *InMemoryBackend) ListSizeConstraintSets() []SizeConstraintSetSummary {
 //
 //nolint:revive,staticcheck // AWS SDK naming
 func (b *InMemoryBackend) CreateSqlInjectionMatchSet(
-	name, _ string,
+	name, changeToken string,
 ) (*SqlInjectionMatchSet, error) {
 	b.mu.Lock("CreateSqlInjectionMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	sims := &SqlInjectionMatchSet{
@@ -1014,11 +1174,15 @@ func (b *InMemoryBackend) GetSqlInjectionMatchSet(id string) (*SqlInjectionMatch
 //
 //nolint:revive,staticcheck // AWS SDK naming
 func (b *InMemoryBackend) UpdateSqlInjectionMatchSet(
-	id, _ string,
+	id, changeToken string,
 	updates []SqlInjectionMatchSetUpdate,
 ) error {
 	b.mu.Lock("UpdateSqlInjectionMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	sims, ok := b.sqlInjectionMatchSets.Get(id)
 	if !ok {
@@ -1050,12 +1214,20 @@ func (b *InMemoryBackend) UpdateSqlInjectionMatchSet(
 // DeleteSqlInjectionMatchSet deletes a SqlInjectionMatchSet.
 //
 //nolint:revive,staticcheck // AWS SDK naming
-func (b *InMemoryBackend) DeleteSqlInjectionMatchSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteSqlInjectionMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteSqlInjectionMatchSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.sqlInjectionMatchSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.sqlInjectionMatchSets.Delete(id)
@@ -1089,9 +1261,13 @@ func (b *InMemoryBackend) ListSqlInjectionMatchSets() []SqlInjectionMatchSetSumm
 // CreateXssMatchSet creates a new XssMatchSet.
 //
 //nolint:revive,staticcheck // AWS SDK naming
-func (b *InMemoryBackend) CreateXssMatchSet(name, _ string) (*XssMatchSet, error) {
+func (b *InMemoryBackend) CreateXssMatchSet(name, changeToken string) (*XssMatchSet, error) {
 	b.mu.Lock("CreateXssMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	xms := &XssMatchSet{
@@ -1122,9 +1298,13 @@ func (b *InMemoryBackend) GetXssMatchSet(id string) (*XssMatchSet, error) {
 // UpdateXssMatchSet updates an XssMatchSet's tuples.
 //
 //nolint:revive,staticcheck // AWS SDK naming
-func (b *InMemoryBackend) UpdateXssMatchSet(id, _ string, updates []XssMatchSetUpdate) error {
+func (b *InMemoryBackend) UpdateXssMatchSet(id, changeToken string, updates []XssMatchSetUpdate) error {
 	b.mu.Lock("UpdateXssMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	xms, ok := b.xssMatchSets.Get(id)
 	if !ok {
@@ -1153,12 +1333,20 @@ func (b *InMemoryBackend) UpdateXssMatchSet(id, _ string, updates []XssMatchSetU
 // DeleteXssMatchSet deletes an XssMatchSet.
 //
 //nolint:revive,staticcheck // AWS SDK naming
-func (b *InMemoryBackend) DeleteXssMatchSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteXssMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteXssMatchSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.xssMatchSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.xssMatchSets.Delete(id)
@@ -1188,9 +1376,13 @@ func (b *InMemoryBackend) ListXssMatchSets() []XssMatchSetSummary {
 }
 
 // CreateGeoMatchSet creates a new GeoMatchSet.
-func (b *InMemoryBackend) CreateGeoMatchSet(name, _ string) (*GeoMatchSet, error) {
+func (b *InMemoryBackend) CreateGeoMatchSet(name, changeToken string) (*GeoMatchSet, error) {
 	b.mu.Lock("CreateGeoMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	gms := &GeoMatchSet{
@@ -1217,9 +1409,13 @@ func (b *InMemoryBackend) GetGeoMatchSet(id string) (*GeoMatchSet, error) {
 }
 
 // UpdateGeoMatchSet updates a GeoMatchSet's constraints.
-func (b *InMemoryBackend) UpdateGeoMatchSet(id, _ string, updates []GeoMatchSetUpdate) error {
+func (b *InMemoryBackend) UpdateGeoMatchSet(id, changeToken string, updates []GeoMatchSetUpdate) error {
 	b.mu.Lock("UpdateGeoMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	gms, ok := b.geoMatchSets.Get(id)
 	if !ok {
@@ -1245,12 +1441,20 @@ func (b *InMemoryBackend) UpdateGeoMatchSet(id, _ string, updates []GeoMatchSetU
 }
 
 // DeleteGeoMatchSet deletes a GeoMatchSet.
-func (b *InMemoryBackend) DeleteGeoMatchSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteGeoMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteGeoMatchSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.geoMatchSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.geoMatchSets.Delete(id)
@@ -1281,11 +1485,15 @@ func (b *InMemoryBackend) ListGeoMatchSets() []GeoMatchSetSummary {
 func (b *InMemoryBackend) CreateRateBasedRule(
 	name, metricName, rateKey string,
 	rateLimit int64,
-	_ string,
+	changeToken string,
 	tags map[string]string,
 ) (*RateBasedRule, error) {
 	b.mu.Lock("CreateRateBasedRule")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	rule := &RateBasedRule{
@@ -1320,12 +1528,16 @@ func (b *InMemoryBackend) GetRateBasedRule(id string) (*RateBasedRule, error) {
 
 // UpdateRateBasedRule updates a RateBasedRule's predicates and rate limit.
 func (b *InMemoryBackend) UpdateRateBasedRule(
-	id, _ string,
+	id, changeToken string,
 	rateLimit int64,
 	updates []RuleUpdate,
 ) error {
 	b.mu.Lock("UpdateRateBasedRule")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	rule, ok := b.rateBasedRules.Get(id)
 	if !ok {
@@ -1355,12 +1567,20 @@ func (b *InMemoryBackend) UpdateRateBasedRule(
 }
 
 // DeleteRateBasedRule deletes a RateBasedRule.
-func (b *InMemoryBackend) DeleteRateBasedRule(id, _ string) error {
+func (b *InMemoryBackend) DeleteRateBasedRule(id, changeToken string) error {
 	b.mu.Lock("DeleteRateBasedRule")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.rateBasedRules.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.ruleReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.rateBasedRules.Delete(id)
@@ -1397,9 +1617,13 @@ func (b *InMemoryBackend) GetRateBasedRuleManagedKeys(id string) ([]string, erro
 }
 
 // CreateRegexPatternSet creates a new RegexPatternSet.
-func (b *InMemoryBackend) CreateRegexPatternSet(name, _ string) (*RegexPatternSet, error) {
+func (b *InMemoryBackend) CreateRegexPatternSet(name, changeToken string) (*RegexPatternSet, error) {
 	b.mu.Lock("CreateRegexPatternSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	rps := &RegexPatternSet{
@@ -1426,9 +1650,13 @@ func (b *InMemoryBackend) GetRegexPatternSet(id string) (*RegexPatternSet, error
 }
 
 // UpdateRegexPatternSet updates a RegexPatternSet's pattern strings.
-func (b *InMemoryBackend) UpdateRegexPatternSet(id, _ string, updates []RegexPatternSetUpdate) error {
+func (b *InMemoryBackend) UpdateRegexPatternSet(id, changeToken string, updates []RegexPatternSetUpdate) error {
 	b.mu.Lock("UpdateRegexPatternSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	rps, ok := b.regexPatternSets.Get(id)
 	if !ok {
@@ -1454,12 +1682,20 @@ func (b *InMemoryBackend) UpdateRegexPatternSet(id, _ string, updates []RegexPat
 }
 
 // DeleteRegexPatternSet deletes a RegexPatternSet.
-func (b *InMemoryBackend) DeleteRegexPatternSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteRegexPatternSet(id, changeToken string) error {
 	b.mu.Lock("DeleteRegexPatternSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.regexPatternSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.regexPatternSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.regexPatternSets.Delete(id)
@@ -1486,9 +1722,13 @@ func (b *InMemoryBackend) ListRegexPatternSets() []RegexPatternSetSummary {
 }
 
 // CreateRegexMatchSet creates a new RegexMatchSet.
-func (b *InMemoryBackend) CreateRegexMatchSet(name, _ string) (*RegexMatchSet, error) {
+func (b *InMemoryBackend) CreateRegexMatchSet(name, changeToken string) (*RegexMatchSet, error) {
 	b.mu.Lock("CreateRegexMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	rms := &RegexMatchSet{
@@ -1515,9 +1755,13 @@ func (b *InMemoryBackend) GetRegexMatchSet(id string) (*RegexMatchSet, error) {
 }
 
 // UpdateRegexMatchSet updates a RegexMatchSet's tuples.
-func (b *InMemoryBackend) UpdateRegexMatchSet(id, _ string, updates []RegexMatchSetUpdate) error {
+func (b *InMemoryBackend) UpdateRegexMatchSet(id, changeToken string, updates []RegexMatchSetUpdate) error {
 	b.mu.Lock("UpdateRegexMatchSet")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	rms, ok := b.regexMatchSets.Get(id)
 	if !ok {
@@ -1544,12 +1788,20 @@ func (b *InMemoryBackend) UpdateRegexMatchSet(id, _ string, updates []RegexMatch
 }
 
 // DeleteRegexMatchSet deletes a RegexMatchSet.
-func (b *InMemoryBackend) DeleteRegexMatchSet(id, _ string) error {
+func (b *InMemoryBackend) DeleteRegexMatchSet(id, changeToken string) error {
 	b.mu.Lock("DeleteRegexMatchSet")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.regexMatchSets.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.matchSetReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.regexMatchSets.Delete(id)
@@ -1577,11 +1829,15 @@ func (b *InMemoryBackend) ListRegexMatchSets() []RegexMatchSetSummary {
 
 // CreateRuleGroup creates a new RuleGroup.
 func (b *InMemoryBackend) CreateRuleGroup(
-	name, metricName, _ string,
+	name, metricName, changeToken string,
 	tags map[string]string,
 ) (*RuleGroup, error) {
 	b.mu.Lock("CreateRuleGroup")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return nil, err
+	}
 
 	id := uuid.New().String()
 	rg := &RuleGroup{
@@ -1613,9 +1869,13 @@ func (b *InMemoryBackend) GetRuleGroup(id string) (*RuleGroup, error) {
 }
 
 // UpdateRuleGroup updates a RuleGroup's activated rules.
-func (b *InMemoryBackend) UpdateRuleGroup(id, _ string, updates []ActivatedRuleUpdate) error {
+func (b *InMemoryBackend) UpdateRuleGroup(id, changeToken string, updates []ActivatedRuleUpdate) error {
 	b.mu.Lock("UpdateRuleGroup")
 	defer b.mu.Unlock()
+
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
 
 	if !b.ruleGroups.Has(id) {
 		return ErrNotFound
@@ -1644,12 +1904,20 @@ func (b *InMemoryBackend) UpdateRuleGroup(id, _ string, updates []ActivatedRuleU
 }
 
 // DeleteRuleGroup deletes a RuleGroup.
-func (b *InMemoryBackend) DeleteRuleGroup(id, _ string) error {
+func (b *InMemoryBackend) DeleteRuleGroup(id, changeToken string) error {
 	b.mu.Lock("DeleteRuleGroup")
 	defer b.mu.Unlock()
 
+	if err := b.validateChangeToken(changeToken); err != nil {
+		return err
+	}
+
 	if !b.ruleGroups.Has(id) {
 		return ErrNotFound
+	}
+
+	if b.ruleReferenced(id) {
+		return ErrReferencedItem
 	}
 
 	b.ruleGroups.Delete(id)

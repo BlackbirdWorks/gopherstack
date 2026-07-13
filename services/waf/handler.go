@@ -300,7 +300,7 @@ func (h *Handler) opCreateWebACL(body []byte) (any, error) {
 		return nil, err
 	}
 
-	acl, err := h.Backend.CreateWebACL(in.Name, in.MetricName, in.DefaultAction, tagsToMap(in.Tags))
+	acl, err := h.Backend.CreateWebACL(in.Name, in.MetricName, in.DefaultAction, in.ChangeToken, tagsToMap(in.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -1114,14 +1114,18 @@ func (h *Handler) opListTagsForResource(body []byte) (any, error) {
 // --- GetSampledRequests ---
 
 func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
+	// TimeWindow.StartTime/EndTime are unixTimestamp shapes: the awsjson1.1
+	// protocol serializes them as JSON numbers of seconds since the epoch
+	// (see aws-sdk-go-v2/service/waf's serializeDocumentTimeWindow), not
+	// ISO8601 strings, so the request-side fields must accept a JSON number.
 	var in struct {
+		WebAclId   string `json:"WebAclId"` //nolint:revive,staticcheck // AWS SDK field name
+		RuleId     string `json:"RuleId"`   //nolint:revive,staticcheck // AWS SDK field name
 		TimeWindow struct {
-			StartTime string `json:"StartTime"`
-			EndTime   string `json:"EndTime"`
+			StartTime float64 `json:"StartTime"`
+			EndTime   float64 `json:"EndTime"`
 		} `json:"TimeWindow"`
-		WebAclId string `json:"WebAclId"` //nolint:revive,staticcheck // AWS SDK field name
-		RuleId   string `json:"RuleId"`   //nolint:revive,staticcheck // AWS SDK field name
-		MaxItems int64  `json:"MaxItems"`
+		MaxItems int64 `json:"MaxItems"`
 	}
 
 	if err := unmarshal(body, &in); err != nil {

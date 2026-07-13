@@ -14,23 +14,28 @@ import (
 // Real AWS always includes TimeWindow in the response; the SDK's
 // GetSampledRequestsOutput has it as a required field — callers that access
 // output.TimeWindow.StartTime get a nil-pointer panic without it.
+//
+// TimeWindow.StartTime/EndTime are unixTimestamp shapes on the wire: the
+// awsjson1.1 protocol (aws-sdk-go-v2/service/waf's
+// serializeDocumentTimeWindow) always sends/expects a JSON number of seconds
+// since the epoch, never an ISO8601 string.
 func TestParity_GetSampledRequestsReturnsTimeWindow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		startTime string
-		endTime   string
 		name      string
+		startTime float64
+		endTime   float64
 	}{
 		{
-			name:      "iso8601_window",
-			startTime: "2024-01-01T00:00:00Z",
-			endTime:   "2024-01-01T01:00:00Z",
+			name:      "epoch_window",
+			startTime: 1_704_067_200, // 2024-01-01T00:00:00Z
+			endTime:   1_704_070_800, // 2024-01-01T01:00:00Z
 		},
 		{
 			name:      "different_window",
-			startTime: "2025-06-01T12:00:00Z",
-			endTime:   "2025-06-01T13:00:00Z",
+			startTime: 1_748_779_200, // 2025-06-01T12:00:00Z
+			endTime:   1_748_782_800, // 2025-06-01T13:00:00Z
 		},
 	}
 
@@ -58,9 +63,9 @@ func TestParity_GetSampledRequestsReturnsTimeWindow(t *testing.T) {
 
 			tw, ok := resp["TimeWindow"].(map[string]any)
 			require.True(t, ok, "TimeWindow must be present in response")
-			assert.Equal(t, tt.startTime, tw["StartTime"],
+			assert.InDelta(t, tt.startTime, tw["StartTime"], 0,
 				"TimeWindow.StartTime must match request")
-			assert.Equal(t, tt.endTime, tw["EndTime"],
+			assert.InDelta(t, tt.endTime, tw["EndTime"], 0,
 				"TimeWindow.EndTime must match request")
 		})
 	}

@@ -34,7 +34,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := waf.NewInMemoryBackend("123456789012", "us-east-1")
-	_, err := b.CreateWebACL("seed-acl", "seedMetric", waf.WafAction{Type: "ALLOW"}, nil)
+	_, err := b.CreateWebACL("seed-acl", "seedMetric", waf.WafAction{Type: "ALLOW"}, b.GetChangeToken(), nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-less/mismatched snapshot.
@@ -48,7 +48,9 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	t.Parallel()
 
 	h := waf.NewHandler(waf.NewInMemoryBackend("123456789012", "us-east-1"))
-	_, err := h.Backend.CreateWebACL("delegate-acl", "delegateMetric", waf.WafAction{Type: "ALLOW"}, nil)
+	_, err := h.Backend.CreateWebACL(
+		"delegate-acl", "delegateMetric", waf.WafAction{Type: "ALLOW"}, h.Backend.GetChangeToken(), nil,
+	)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())
@@ -69,12 +71,22 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := waf.NewInMemoryBackend("123456789012", "us-east-1")
 
+	// staleToken exercises the changeTokens map's INSYNC-persistence path
+	// (Snapshot/Restore) in isolation from the resource-creation calls
+	// below: InMemoryBackend now validates that a ChangeToken passed to a
+	// mutation was issued by GetChangeToken and is still PROVISIONED, so
+	// the token used to create/update resources must stay unconsumed --
+	// these direct backend calls bypass Handler.dispatch, which is the only
+	// thing that ever calls MarkChangeTokenUsed, so a single fresh token
+	// remains valid for reuse across every call below.
+	staleToken := original.GetChangeToken()
+	original.MarkChangeTokenUsed(staleToken)
+
 	token := original.GetChangeToken()
 	_ = original.GetChangeToken() // a second, still-PROVISIONED token
-	original.MarkChangeTokenUsed(token)
 
 	acl, err := original.CreateWebACL(
-		"acl1", "aclMetric", waf.WafAction{Type: "ALLOW"}, map[string]string{"env": "prod"},
+		"acl1", "aclMetric", waf.WafAction{Type: "ALLOW"}, token, map[string]string{"env": "prod"},
 	)
 	require.NoError(t, err)
 
@@ -214,7 +226,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	fresh := waf.NewInMemoryBackend("999999999999", "eu-west-1")
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	assert.Equal(t, "INSYNC", fresh.GetChangeTokenStatus(token))
+	assert.Equal(t, "INSYNC", fresh.GetChangeTokenStatus(staleToken))
+	assert.Equal(t, "PROVISIONED", fresh.GetChangeTokenStatus(token))
 
 	gotACL, err := fresh.GetWebACL(acl.WebACLId)
 	require.NoError(t, err)
