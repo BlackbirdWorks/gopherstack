@@ -23,7 +23,7 @@ func TestHandler_GetTagValues_NilKey_Returns400(t *testing.T) {
 	rec := doTaggingRequest(t, h, "GetTagValues", map[string]any{})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ValidationException")
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 	assert.Contains(t, rec.Body.String(), "Key is required")
 }
 
@@ -34,7 +34,7 @@ func TestHandler_GetTagValues_EmptyKey_Returns400(t *testing.T) {
 	rec := doTaggingRequest(t, h, "GetTagValues", map[string]any{"Key": ""})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ValidationException")
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }
 
 func TestHandler_GetTagValues_ValidKey_Returns200(t *testing.T) {
@@ -86,7 +86,7 @@ func TestHandler_GetComplianceSummary_InvalidGroupBy_Returns400(t *testing.T) {
 			rec := doTaggingRequest(t, h, "GetComplianceSummary", map[string]any{"GroupBy": tt.groupBy})
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
-			assert.Contains(t, rec.Body.String(), "ValidationException")
+			assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 		})
 	}
 }
@@ -325,25 +325,6 @@ func TestBackend_DescribeReportCreation_ExactBoundary(t *testing.T) {
 	out := b.DescribeReportCreation(context.Background())
 	require.NotNil(t, out.Status)
 	assert.Equal(t, "SUCCEEDED", *out.Status)
-}
-
-// ======================================================================
-// StartReportCreation — S3BucketRegion field
-// ======================================================================
-
-func TestBackend_StartReportCreation_S3BucketRegion_Accepted(t *testing.T) {
-	t.Parallel()
-
-	b := newBackend(t)
-	region := "eu-west-1"
-	_, err := b.StartReportCreation(context.Background(), &resourcegroupstaggingapi.StartReportCreationInput{
-		S3Bucket:       "cross-region-bucket",
-		S3BucketRegion: &region,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "RUNNING", resourcegroupstaggingapi.ReportStatus(b))
-	assert.Contains(t, resourcegroupstaggingapi.ReportS3Location(b), "cross-region-bucket")
 }
 
 // ======================================================================

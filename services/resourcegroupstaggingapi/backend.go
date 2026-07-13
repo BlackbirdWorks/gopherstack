@@ -35,11 +35,19 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 	return defaultRegion
 }
 
+// errCodeInvalidParameter is the wire error code real AWS resourcegroupstaggingapi uses
+// for parameter validation failures. The service's error model (see
+// aws-sdk-go-v2/service/resourcegroupstaggingapi/types/errors.go) has no
+// "ValidationException" shape at all, so this -- not ValidationException -- is the code
+// every parameter-validation failure in this package must carry.
+const errCodeInvalidParameter = "InvalidParameterException"
+
 // ErrMissingS3Bucket is returned when StartReportCreation is called without an S3 bucket.
 var ErrMissingS3Bucket = errors.New("S3Bucket is required")
 
-// ErrValidation is returned when a request fails parameter validation.
-var ErrValidation = errors.New("ValidationException")
+// ErrValidation is returned when a request fails parameter validation; its wire error
+// code is errCodeInvalidParameter.
+var ErrValidation = errors.New(errCodeInvalidParameter)
 
 // ErrConcurrentModification is returned when StartReportCreation is called while a report
 // is still running. AWS requires waiting for the current report to finish.
@@ -389,8 +397,40 @@ func validateTagFilter(i int, f TagFilter, seenKeys map[string]struct{}) error {
 	return nil
 }
 
+// validateResourceARNListExclusivity enforces the real API's constraint that
+// ResourceARNList cannot be combined with ResourceTypeFilters, TagFilters, or any of
+// the pagination parameters (ResourcesPerPage, TagsPerPage, PaginationToken) -- real AWS
+// returns InvalidParameterException ("You can't specify both this parameter and the ...
+// parameter in the same request") when they are combined.
+func validateResourceARNListExclusivity(input *GetResourcesInput) error {
+	if len(input.ResourceARNList) == 0 {
+		return nil
+	}
+
+	if len(input.ResourceTypeFilters) > 0 {
+		return fmt.Errorf("%w: ResourceARNList can't be specified together with ResourceTypeFilters", ErrValidation)
+	}
+
+	if len(input.TagFilters) > 0 {
+		return fmt.Errorf("%w: ResourceARNList can't be specified together with TagFilters", ErrValidation)
+	}
+
+	if input.ResourcesPerPage != nil || input.TagsPerPage != nil || input.PaginationToken != "" {
+		return fmt.Errorf(
+			"%w: ResourceARNList can't be specified together with ResourcesPerPage, TagsPerPage, or PaginationToken",
+			ErrValidation,
+		)
+	}
+
+	return nil
+}
+
 // validateGetResourcesInput validates the GetResources request parameters.
 func validateGetResourcesInput(input *GetResourcesInput) error {
+	if err := validateResourceARNListExclusivity(input); err != nil {
+		return err
+	}
+
 	if input.ExcludeCompliantResources && !input.IncludeComplianceDetails {
 		return fmt.Errorf(
 			"%w: ExcludeCompliantResources requires IncludeComplianceDetails to be true",
@@ -601,7 +641,9 @@ func (b *InMemoryBackend) GetResources(ctx context.Context, input *GetResourcesI
 
 	sort.Slice(all, func(i, j int) bool { return all[i].ResourceARN < all[j].ResourceARN })
 
-	page, nextToken := paginateResources(all, input.PaginationToken, resolvePageSize(input.ResourcesPerPage))
+	page, nextToken := paginateResources(
+		all, input.PaginationToken, resolvePageSize(input.ResourcesPerPage), resolveTagsPerPage(input.TagsPerPage),
+	)
 
 	return &GetResourcesOutput{
 		ResourceTagMappingList: buildTagMappings(page, input.IncludeComplianceDetails),
@@ -681,20 +723,67 @@ func resolvePageSize(perPage *int32) int {
 	return min(int(*perPage), maxResourcesPerPage)
 }
 
+// resolveTagsPerPage returns the effective TagsPerPage cap, or 0 when unset (no cap).
+// Real AWS uses TagsPerPage to additionally split pages by cumulative tag count instead
+// of by resource count alone; see [paginateResources] and [capByTagCount].
+func resolveTagsPerPage(tagsPerPage *int32) int {
+	if tagsPerPage == nil {
+		return 0
+	}
+
+	return int(*tagsPerPage)
+}
+
 // paginateResources applies cursor-based pagination and returns the current page and the
-// next pagination token (nil when there are no more results).
-func paginateResources(all []TaggedResource, token string, pageSize int) ([]TaggedResource, *string) {
+// next pagination token (nil when there are no more results). When tagsPerPage is
+// positive the page is additionally capped by [capByTagCount] so that TagsPerPage --
+// otherwise accepted and validated but never affecting output -- actually constrains
+// page splits the way real AWS documents it doing.
+func paginateResources(all []TaggedResource, token string, pageSize, tagsPerPage int) ([]TaggedResource, *string) {
 	start := findTokenStart(all, token)
 	page := all[start:]
+	truncated := len(page) > pageSize
 
-	if len(page) <= pageSize {
+	if truncated {
+		page = page[:pageSize]
+	}
+
+	if tagsPerPage > 0 {
+		if capped, hitLimit := capByTagCount(page, tagsPerPage); hitLimit {
+			page = capped
+			truncated = true
+		}
+	}
+
+	if !truncated {
 		return page, nil
 	}
 
-	page = page[:pageSize]
 	tok := page[len(page)-1].ResourceARN
 
 	return page, &tok
+}
+
+// capByTagCount returns the longest prefix of page whose cumulative tag count (each
+// resource counting max(1, len(tags)) tags -- matching real AWS's "a resource with no
+// tags is counted as having one tag") does not exceed tagsPerPage. At least one resource
+// is always kept: GetResources never splits a single resource and its tags across pages,
+// so an oversized first resource still gets returned alone. hitLimit reports whether the
+// returned prefix is shorter than page, i.e. whether tagsPerPage actually constrained it.
+func capByTagCount(page []TaggedResource, tagsPerPage int) ([]TaggedResource, bool) {
+	total := 0
+
+	for i, r := range page {
+		count := max(len(r.Tags), 1)
+
+		if i > 0 && total+count > tagsPerPage {
+			return page[:i], true
+		}
+
+		total += count
+	}
+
+	return page, false
 }
 
 // paginateStrings applies cursor-based pagination over a sorted string slice and returns
@@ -970,7 +1059,7 @@ func (b *InMemoryBackend) TagResources(ctx context.Context, input *TagResourcesI
 
 		if !handled {
 			failed[arn] = FailureInfo{
-				ErrorCode:    "InvalidParameterException",
+				ErrorCode:    errCodeInvalidParameter,
 				ErrorMessage: "no registered tagger handles ARN: " + arn,
 				StatusCode:   http.StatusBadRequest,
 			}
@@ -1052,7 +1141,7 @@ func (b *InMemoryBackend) UntagResources(
 
 		if !handled {
 			failed[arn] = FailureInfo{
-				ErrorCode:    "InvalidParameterException",
+				ErrorCode:    errCodeInvalidParameter,
 				ErrorMessage: "no registered untagger handles ARN: " + arn,
 				StatusCode:   http.StatusBadRequest,
 			}
@@ -1095,10 +1184,9 @@ type reportCreationState struct {
 }
 
 // StartReportCreationInput is the request payload for StartReportCreation.
+// The real AWS API (aws-sdk-go-v2/service/resourcegroupstaggingapi StartReportCreationInput)
+// has no S3BucketRegion member -- only S3Bucket -- so no field for it is modeled here either.
 type StartReportCreationInput struct {
-	// S3BucketRegion is the AWS region where the S3 bucket is located.
-	// When omitted, the current request region is assumed.
-	S3BucketRegion *string `json:"S3BucketRegion,omitempty"`
 	// S3Bucket is the Amazon S3 bucket to store the report in.
 	S3Bucket string `json:"S3Bucket"`
 }

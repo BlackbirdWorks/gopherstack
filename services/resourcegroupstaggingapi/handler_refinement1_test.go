@@ -432,7 +432,7 @@ func TestRefinement1_HandlerBadJSON(t *testing.T) {
 	rec := doTaggingRequestRaw(t, h, "GetResources", []byte("not-json"))
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ValidationException")
+	assert.Contains(t, rec.Body.String(), "SerializationException")
 }
 
 // ------------------------------------------------------------------ StorageBackend interface ---
