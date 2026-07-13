@@ -240,7 +240,26 @@ func (b *InMemoryBackend) DeleteImage(name string) error {
 	return nil
 }
 
-// DescribeImages returns images, optionally filtered by name.
+// findImage resolves id against Name (the primary key used by
+// CreateImportedImage/CopyImage/DeleteImage) or Arn. Real AWS's
+// DescribeImages accepts either an image Names filter or an Arns filter, so
+// callers on that wire path must resolve through this helper rather than
+// indexing b.images directly with the caller-supplied identifier.
+func (b *InMemoryBackend) findImage(id string) (*storedImage, bool) {
+	if img, ok := b.images.Get(id); ok {
+		return img, true
+	}
+
+	for _, img := range b.images.All() {
+		if img.Arn == id {
+			return img, true
+		}
+	}
+
+	return nil, false
+}
+
+// DescribeImages returns images, optionally filtered by name or ARN.
 func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
 	b.mu.RLock("DescribeImages")
 	defer b.mu.RUnlock()
@@ -249,7 +268,7 @@ func (b *InMemoryBackend) DescribeImages(names []string) ([]*Image, error) {
 		var result []*Image
 
 		for _, name := range names {
-			img, ok := b.images.Get(name)
+			img, ok := b.findImage(name)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -451,7 +470,10 @@ func (b *InMemoryBackend) StartImageBuilder(
 	return url, nil
 }
 
-// StopImageBuilder transitions an image builder to STOPPED.
+// StopImageBuilder transitions an image builder to STOPPED. Idempotent:
+// stopping an already-stopped builder succeeds (real AWS's StopImageBuilder
+// has no state-conflict exception -- only ConcurrentModificationException,
+// OperationNotPermittedException, and ResourceNotFoundException).
 func (b *InMemoryBackend) StopImageBuilder(name string) (*ImageBuilder, error) {
 	b.mu.Lock("StopImageBuilder")
 	defer b.mu.Unlock()
@@ -459,10 +481,6 @@ func (b *InMemoryBackend) StopImageBuilder(name string) (*ImageBuilder, error) {
 	ib, ok := b.imageBuilders.Get(name)
 	if !ok {
 		return nil, ErrNotFound
-	}
-
-	if ib.State == imageBuilderStateStopped {
-		return nil, ErrFleetNotStopped
 	}
 
 	ib.State = imageBuilderStateStopped

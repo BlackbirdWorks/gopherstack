@@ -463,7 +463,7 @@ func (b *InMemoryBackend) UpdateFleet(
 	return f.toFleet(), nil
 }
 
-// DeleteFleet removes a fleet. Returns ErrFleetNotStopped if fleet is running.
+// DeleteFleet removes a fleet. Returns ErrResourceInUse if fleet is running.
 func (b *InMemoryBackend) DeleteFleet(name string) error {
 	b.mu.Lock("DeleteFleet")
 	defer b.mu.Unlock()
@@ -474,7 +474,7 @@ func (b *InMemoryBackend) DeleteFleet(name string) error {
 	}
 
 	if f.State == fleetStateRunning {
-		return ErrFleetNotStopped
+		return ErrResourceInUse
 	}
 
 	delete(b.tags, f.Arn)
@@ -506,7 +506,9 @@ func (b *InMemoryBackend) StartFleet(name string) error {
 	return nil
 }
 
-// StopFleet transitions a fleet to STOPPED.
+// StopFleet transitions a fleet to STOPPED. Idempotent: stopping an
+// already-stopped fleet succeeds (real AWS's StopFleet has no state-conflict
+// exception -- only ResourceNotFoundException and ConcurrentModificationException).
 func (b *InMemoryBackend) StopFleet(name string) error {
 	b.mu.Lock("StopFleet")
 	defer b.mu.Unlock()
@@ -514,10 +516,6 @@ func (b *InMemoryBackend) StopFleet(name string) error {
 	f, ok := b.fleets.Get(name)
 	if !ok {
 		return ErrNotFound
-	}
-
-	if f.State == fleetStateStopped {
-		return ErrFleetNotStopped
 	}
 
 	f.State = fleetStateStopped

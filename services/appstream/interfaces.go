@@ -39,7 +39,7 @@ type StorageBackend interface {
 	// AppBlocks
 	CreateAppBlock(name, description string, tags map[string]string) (*AppBlock, error)
 	DeleteAppBlock(name string) error
-	DescribeAppBlocks(names []string) ([]*AppBlock, error)
+	DescribeAppBlocks(arns []string) ([]*AppBlock, error)
 
 	// AppBlockBuilders
 	CreateAppBlockBuilder(
@@ -53,25 +53,27 @@ type StorageBackend interface {
 	UpdateAppBlockBuilder(name, description, instanceType string) (*AppBlockBuilder, error)
 	CreateAppBlockBuilderStreamingURL(name string) (string, error)
 
-	// AppBlockBuilder-AppBlock associations
-	AssociateAppBlockBuilderAppBlock(builderName, appBlockName string) error
-	DisassociateAppBlockBuilderAppBlock(builderName, appBlockName string) error
+	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
+	// app block Name or its Arn (real AWS's request carries AppBlockArn).
+	AssociateAppBlockBuilderAppBlock(builderName, appBlockID string) error
+	DisassociateAppBlockBuilderAppBlock(builderName, appBlockID string) error
 	DescribeAppBlockBuilderAppBlockAssociations(
-		builderName, appBlockName string,
+		builderName, appBlockID string,
 	) ([]*AppBlockBuilderAppBlockAssociation, error)
 
 	// Applications
 	CreateApplication(name, displayName, description, launchPath, appBlockArn string,
 		platforms []string, tags map[string]string) (*Application, error)
 	DeleteApplication(name string) error
-	DescribeApplications(names []string) ([]*Application, error)
+	DescribeApplications(arns []string) ([]*Application, error)
 	UpdateApplication(name, displayName, description, launchPath string) (*Application, error)
 	DescribeAppLicenseUsage() ([]map[string]string, error)
 
-	// Application-Fleet associations
-	AssociateApplicationFleet(appName, fleetName string) error
-	DisassociateApplicationFleet(appName, fleetName string) error
-	DescribeApplicationFleetAssociations(appName, fleetName string) ([]*ApplicationFleetAssociation, error)
+	// Application-Fleet associations. appID accepts either the application
+	// Name or its Arn (real AWS's request carries ApplicationArn).
+	AssociateApplicationFleet(appID, fleetName string) error
+	DisassociateApplicationFleet(appID, fleetName string) error
+	DescribeApplicationFleetAssociations(appID, fleetName string) ([]*ApplicationFleetAssociation, error)
 
 	// Entitlements
 	CreateEntitlement(name, stackName, description, appVisibility string,

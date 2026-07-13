@@ -148,16 +148,36 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	return nil
 }
 
-// DescribeApplications returns applications, optionally filtered by name.
-func (b *InMemoryBackend) DescribeApplications(names []string) ([]*Application, error) {
+// findApplication resolves id against Name (the primary key used by
+// CreateApplication/DeleteApplication/UpdateApplication) or Arn. Real AWS
+// identifies applications by ARN in DescribeApplications and in the
+// ApplicationArn member of the Application-Fleet association operations, so
+// callers on those wire paths must resolve through this helper rather than
+// indexing b.applications directly with the caller-supplied identifier.
+func (b *InMemoryBackend) findApplication(id string) (*storedApplication, bool) {
+	if app, ok := b.applications.Get(id); ok {
+		return app, true
+	}
+
+	for _, app := range b.applications.All() {
+		if app.Arn == id {
+			return app, true
+		}
+	}
+
+	return nil, false
+}
+
+// DescribeApplications returns applications, optionally filtered by ARN.
+func (b *InMemoryBackend) DescribeApplications(arns []string) ([]*Application, error) {
 	b.mu.RLock("DescribeApplications")
 	defer b.mu.RUnlock()
 
-	if len(names) > 0 {
+	if len(arns) > 0 {
 		var result []*Application
 
-		for _, name := range names {
-			app, ok := b.applications.Get(name)
+		for _, id := range arns {
+			app, ok := b.findApplication(id)
 			if !ok {
 				return nil, ErrNotFound
 			}
@@ -206,12 +226,15 @@ func (b *InMemoryBackend) DescribeAppLicenseUsage() ([]map[string]string, error)
 	return []map[string]string{}, nil
 }
 
-// AssociateApplicationFleet links an application to a fleet.
-func (b *InMemoryBackend) AssociateApplicationFleet(appName, fleetName string) error {
+// AssociateApplicationFleet links an application to a fleet. appID accepts
+// either the application Name or its Arn -- real AWS's
+// AssociateApplicationFleet request carries the ApplicationArn.
+func (b *InMemoryBackend) AssociateApplicationFleet(appID, fleetName string) error {
 	b.mu.Lock("AssociateApplicationFleet")
 	defer b.mu.Unlock()
 
-	if !b.applications.Has(appName) {
+	app, ok := b.findApplication(appID)
+	if !ok {
 		return ErrNotFound
 	}
 
@@ -219,21 +242,24 @@ func (b *InMemoryBackend) AssociateApplicationFleet(appName, fleetName string) e
 		return ErrNotFound
 	}
 
-	if b.appFleetAssoc[appName] == nil {
-		b.appFleetAssoc[appName] = make(map[string]bool)
+	if b.appFleetAssoc[app.Name] == nil {
+		b.appFleetAssoc[app.Name] = make(map[string]bool)
 	}
 
-	b.appFleetAssoc[appName][fleetName] = true
+	b.appFleetAssoc[app.Name][fleetName] = true
 
 	return nil
 }
 
-// DisassociateApplicationFleet removes an application-fleet link.
-func (b *InMemoryBackend) DisassociateApplicationFleet(appName, fleetName string) error {
+// DisassociateApplicationFleet removes an application-fleet link. appID
+// accepts either the application Name or its Arn, matching
+// AssociateApplicationFleet.
+func (b *InMemoryBackend) DisassociateApplicationFleet(appID, fleetName string) error {
 	b.mu.Lock("DisassociateApplicationFleet")
 	defer b.mu.Unlock()
 
-	if !b.applications.Has(appName) {
+	app, ok := b.findApplication(appID)
+	if !ok {
 		return ErrNotFound
 	}
 
@@ -241,24 +267,38 @@ func (b *InMemoryBackend) DisassociateApplicationFleet(appName, fleetName string
 		return ErrNotFound
 	}
 
-	if b.appFleetAssoc[appName] != nil {
-		delete(b.appFleetAssoc[appName], fleetName)
+	if b.appFleetAssoc[app.Name] != nil {
+		delete(b.appFleetAssoc[app.Name], fleetName)
 	}
 
 	return nil
 }
 
 // DescribeApplicationFleetAssociations returns application-fleet links.
+// appID accepts either the application Name or its Arn, matching
+// AssociateApplicationFleet. A non-matching filter yields an empty result
+// (real AWS's Describe op has no ResourceNotFoundException).
 func (b *InMemoryBackend) DescribeApplicationFleetAssociations(
-	appName, fleetName string,
+	appID, fleetName string,
 ) ([]*ApplicationFleetAssociation, error) {
 	b.mu.RLock("DescribeApplicationFleetAssociations")
 	defer b.mu.RUnlock()
 
+	targetName := ""
+
+	if appID != "" {
+		app, ok := b.findApplication(appID)
+		if !ok {
+			return nil, nil
+		}
+
+		targetName = app.Name
+	}
+
 	var result []*ApplicationFleetAssociation
 
 	for aName, fleets := range b.appFleetAssoc {
-		if appName != "" && aName != appName {
+		if targetName != "" && aName != targetName {
 			continue
 		}
 

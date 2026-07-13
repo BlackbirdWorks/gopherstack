@@ -11,11 +11,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
-// TestAppStream_Batch2Accuracy covers AWS-accuracy gaps fixed in batch-2:
+// TestAppStream_Batch2Accuracy covers AWS-accuracy gaps fixed in batch-2 (as
+// corrected by a later audit against the real aws-sdk-go-v2 operation-scoped
+// error deserializers, which only recognize a subset of exception shapes per
+// operation):
 //  1. ErrAlreadyExists __type: ResourceAlreadyExistsException (not InvalidParameterCombinationException)
-//  2. ErrFleetNotStopped __type: InvalidAccountStatusException (not InvalidParameterCombinationException)
-//  3. StartFleet on already-RUNNING fleet → InvalidAccountStatusException
-//  4. StopFleet on already-STOPPED fleet → InvalidAccountStatusException
+//  2. DeleteFleet on running fleet: ResourceInUseException (not InvalidAccountStatusException,
+//     which DeleteFleet's deserializer does not recognize)
+//  3. StartFleet on already-RUNNING fleet → InvalidAccountStatusException (StartFleet's
+//     deserializer does recognize this exception)
+//  4. StopFleet on already-STOPPED fleet succeeds (idempotent; StopFleet's deserializer
+//     has no state-conflict exception at all)
 //  5. DeleteStack with associated fleets → ResourceInUseException
 //  6. CreateFleet with invalid FleetType → InvalidParameterCombinationException
 //  7. CreateFleet missing InstanceType → InvalidParameterCombinationException
@@ -55,9 +61,12 @@ func TestAppStream_Batch2Accuracy(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 			wantType: "ResourceAlreadyExistsException",
 		},
-		// Gap 2: DeleteFleet on running fleet → InvalidAccountStatusException
+		// Gap 2: DeleteFleet on running fleet → ResourceInUseException (the real
+		// DeleteFleet deserializer only recognizes ConcurrentModificationException,
+		// ResourceInUseException, and ResourceNotFoundException -- confirmed against
+		// aws-sdk-go-v2/service/appstream deserializers.go).
 		{
-			name:   "DeleteFleet on running fleet returns InvalidAccountStatusException",
+			name:   "DeleteFleet on running fleet returns ResourceInUseException",
 			action: "DeleteFleet",
 			setup: func(h *appstream.Handler) {
 				createFleet(t, h, "running-fleet")
@@ -66,7 +75,7 @@ func TestAppStream_Batch2Accuracy(t *testing.T) {
 			},
 			body:     map[string]any{"Name": "running-fleet"},
 			wantCode: http.StatusBadRequest,
-			wantType: "InvalidAccountStatusException",
+			wantType: "ResourceInUseException",
 		},
 		// Gap 3: StartFleet on already-RUNNING fleet → InvalidAccountStatusException
 		{
@@ -81,14 +90,15 @@ func TestAppStream_Batch2Accuracy(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 			wantType: "InvalidAccountStatusException",
 		},
-		// Gap 4: StopFleet on already-STOPPED fleet → InvalidAccountStatusException
+		// Gap 4: StopFleet on already-STOPPED fleet succeeds (idempotent). Real
+		// AWS's StopFleet deserializer only recognizes ConcurrentModificationException
+		// and ResourceNotFoundException -- there is no state-conflict exception.
 		{
-			name:     "StopFleet on stopped fleet returns InvalidAccountStatusException",
+			name:     "StopFleet on stopped fleet succeeds",
 			action:   "StopFleet",
 			setup:    func(h *appstream.Handler) { createFleet(t, h, "stopped-fleet") },
 			body:     map[string]any{"Name": "stopped-fleet"},
-			wantCode: http.StatusBadRequest,
-			wantType: "InvalidAccountStatusException",
+			wantCode: http.StatusOK,
 		},
 		// Gap 5: DeleteStack with associated fleet → ResourceInUseException
 		{
