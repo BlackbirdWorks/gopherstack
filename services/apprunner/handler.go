@@ -192,17 +192,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyType:    "InvalidParameterException",
+			keyType:    resourceNotFoundType,
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrAlreadyExists):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyType:    "ServiceQuotaExceededException",
+			keyType:    invalidRequestType,
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrConflict):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyType:    "InvalidStateException",
+			keyType:    invalidStateType,
 			keyMessage: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrInvalidParameter),
@@ -211,12 +211,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			keyType:    "InvalidRequestException",
+			keyType:    invalidRequestType,
 			keyMessage: err.Error(),
 		})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{
-			keyType:    "InternalServiceError",
+			keyType:    internalServiceErrorType,
 			keyMessage: err.Error(),
 		})
 	}
