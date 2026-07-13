@@ -61,14 +61,15 @@ const (
 	groupingErrResourceNotFound = "RESOURCE_NOT_FOUND"
 )
 
-// TagSyncTask status constants.
+// TagSyncTask status constants. AWS documents only these two values for
+// TagSyncTaskStatus; there is no CANCELLED status because cancelling a task
+// deletes it outright (see CancelTagSyncTask).
 const (
-	tagSyncTaskStatusActive    = "ACTIVE"
-	tagSyncTaskStatusCancelled = "CANCELLED"
+	tagSyncTaskStatusActive = "ACTIVE"
 )
 
-// tagSyncTaskTTL is the maximum age of a completed or cancelled tag-sync task
-// before it is evicted from memory during list operations.
+// tagSyncTaskTTL is the maximum age of a non-active (e.g. errored) tag-sync
+// task before it is evicted from memory during list operations.
 const tagSyncTaskTTL = 24 * time.Hour
 
 // AccountLifecycleEventStatus constants.
@@ -141,17 +142,26 @@ type ResourceQuery struct {
 }
 
 // Group represents a Resource Group.
-// Field names use PascalCase JSON tags to match what the AWS SDK expects in responses.
+//
+// This is the internal backend representation, not an AWS wire shape: the
+// real types.Group has no Tags or ResourceQuery members (those travel as
+// separate top-level response fields -- see createGroupOutput/getGroupBody in
+// handler.go), so handlers must build a dedicated wire struct rather than
+// marshaling *Group directly.
 type Group struct {
-	Tags           *tags.Tags        `json:"Tags,omitempty"`
-	ResourceQuery  *ResourceQuery    `json:"ResourceQuery,omitempty"`
+	Tags           *tags.Tags        `json:"-"`
+	ResourceQuery  *ResourceQuery    `json:"-"`
 	ApplicationTag map[string]string `json:"ApplicationTag,omitempty"`
 	Name           string            `json:"Name"`
 	ARN            string            `json:"GroupArn"`
 	Description    string            `json:"Description,omitempty"`
-	OwnerID        string            `json:"OwnerId,omitempty"`
-	DisplayName    string            `json:"DisplayName,omitempty"`
-	Criticality    int               `json:"Criticality,omitempty"`
+	// Owner is a free-form name/email/identifier for the person or team that
+	// owns the group. The real AWS API field is called "Owner" on the wire
+	// (not "OwnerId"); it is optional and, unlike an AWS account ID, is never
+	// auto-populated by the service.
+	Owner       string `json:"Owner,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+	Criticality int    `json:"Criticality,omitempty"`
 }
 
 // ListGroupsFilter holds a single filter for the ListGroups operation.
@@ -752,7 +762,6 @@ func (b *InMemoryBackend) CreateGroup(
 		Description:   description,
 		Tags:          backendTags,
 		ResourceQuery: resourceQuery,
-		OwnerID:       b.accountID,
 	}
 	b.groups.Put(g)
 
@@ -852,10 +861,12 @@ func (b *InMemoryBackend) UpdateGroupQuery(
 	return &cp, nil
 }
 
-// DeleteGroup deletes a resource group by name or ARN.
+// DeleteGroup deletes a resource group by name or ARN, returning a copy of
+// the group as it existed immediately before deletion (matching AWS, whose
+// DeleteGroupOutput echoes back the deleted group's description).
 // It cascades to remove all associated resources, configurations,
 // grouping-status records, and tag-sync tasks for the group.
-func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) error {
+func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) (*Group, error) {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
@@ -865,8 +876,10 @@ func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) err
 
 	g, ok := b.groups.Get(tableKey)
 	if !ok {
-		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
+
+	cp := *g
 
 	b.groups.Delete(tableKey)
 	g.Tags.Close()
@@ -893,7 +906,7 @@ func (b *InMemoryBackend) DeleteGroup(ctx context.Context, nameOrARN string) err
 		}
 	}
 
-	return nil
+	return &cp, nil
 }
 
 // ListGroups returns resource groups sorted by name, optionally filtered and paginated.
@@ -1527,21 +1540,24 @@ func (b *InMemoryBackend) StartTagSyncTask(
 	return &cp, nil
 }
 
-// CancelTagSyncTask transitions a tag-sync task to CANCELLED status.
-// The task remains visible via GetTagSyncTask and ListTagSyncTasks until
-// the tagSyncTaskTTL eviction window expires (issue #22 accuracy fix).
+// CancelTagSyncTask deletes a tag-sync task. AWS documents CancelTagSyncTask
+// as taking "the TaskArn of the tag-sync task you want to delete", and
+// TagSyncTaskStatus's only valid wire values are ACTIVE and ERROR -- there is
+// no CANCELLED status. So, unlike an in-place status transition, a cancelled
+// task is removed outright: subsequent GetTagSyncTask/ListTagSyncTasks calls
+// no longer find it.
 func (b *InMemoryBackend) CancelTagSyncTask(ctx context.Context, taskARN string) error {
 	b.mu.Lock("CancelTagSyncTask")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+	tableKey := regionKey(region, taskARN)
 
-	task, ok := b.tagSyncTasks.Get(regionKey(region, taskARN))
-	if !ok {
+	if !b.tagSyncTasks.Has(tableKey) {
 		return fmt.Errorf("%w: task %s not found", ErrTagSyncTaskNotFound, taskARN)
 	}
 
-	task.Status = tagSyncTaskStatusCancelled
+	b.tagSyncTasks.Delete(tableKey)
 
 	return nil
 }

@@ -56,7 +56,8 @@ func TestResourceGroupsRegionIsolation(t *testing.T) {
 	assert.Equal(t, "shared-group", westList[0].Name)
 
 	// 4. Deleting in us-east-1 must not affect us-west-2.
-	require.NoError(t, backend.DeleteGroup(ctxEast, "shared-group"))
+	_, err = backend.DeleteGroup(ctxEast, "shared-group")
+	require.NoError(t, err)
 
 	eastGone, _ := backend.ListGroups(ctxEast, nil, "", 0)
 	assert.Empty(t, eastGone)

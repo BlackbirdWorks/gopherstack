@@ -1220,8 +1220,9 @@ func TestDeepen1_DeleteGroup_ByARN(t *testing.T) {
 	g, err := b.CreateGroup(context.Background(), "del-by-arn", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	err = b.DeleteGroup(context.Background(), g.ARN)
+	deleted, err := b.DeleteGroup(context.Background(), g.ARN)
 	require.NoError(t, err)
+	assert.Equal(t, "del-by-arn", deleted.Name)
 
 	_, err = b.GetGroup(context.Background(), "del-by-arn")
 	assert.ErrorIs(t, err, resourcegroups.ErrNotFound)
@@ -1400,23 +1401,30 @@ func TestDeepen1_TagSyncTask_FullLifecyclePaginated(t *testing.T) {
 	require.Len(t, page1, 2)
 	require.NotEmpty(t, tok1)
 
-	// Cancel one task from page 1.
-	err = b.CancelTagSyncTask(context.Background(), page1[0].TaskArn)
-	require.NoError(t, err)
-
-	// Verify cancelled task is still visible.
-	got, err := b.GetTagSyncTask(context.Background(), page1[0].TaskArn)
-	require.NoError(t, err)
-	assert.Equal(t, "CANCELLED", got.Status)
-
-	// Page 2.
+	// Page 2, fetched before any cancellation.
 	page2, tok2, err := b.ListTagSyncTasks(context.Background(), nil, tok1, 2)
 	require.NoError(t, err)
 	require.Len(t, page2, 2)
 	assert.Empty(t, tok2)
-
-	// Total across pages = 4 (cancelled task still counted).
 	assert.Len(t, append(page1, page2...), 4)
+
+	// Cancel one task from page 1: AWS documents CancelTagSyncTask as deleting
+	// the task outright (TagSyncTaskStatus has no CANCELLED value), so it must
+	// no longer be retrievable or listed afterward.
+	cancelled := page1[0].TaskArn
+	err = b.CancelTagSyncTask(context.Background(), cancelled)
+	require.NoError(t, err)
+
+	_, err = b.GetTagSyncTask(context.Background(), cancelled)
+	require.ErrorIs(t, err, resourcegroups.ErrTagSyncTaskNotFound)
+
+	remaining, _, err := b.ListTagSyncTasks(context.Background(), nil, "", 0)
+	require.NoError(t, err)
+	assert.Len(t, remaining, 3, "cancelled task must be removed from ListTagSyncTasks")
+
+	for _, task := range remaining {
+		assert.NotEqual(t, cancelled, task.TaskArn)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1609,12 +1617,23 @@ func TestDeepen1_CreateGroup_ResponseShape(t *testing.T) {
 	assert.Equal(t, "shape-test", group["Name"])
 	assert.Contains(t, group["GroupArn"].(string), "shape-test")
 	assert.Equal(t, "test desc", group["Description"])
-	assert.Equal(t, "000000000000", group["OwnerId"])
+	// Owner defaults to unset (AWS never fabricates it from the account ID),
+	// and the real wire key is "Owner", never the legacy "OwnerId".
+	assert.NotContains(t, group, "OwnerId")
+	assert.NotContains(t, group, "Owner")
+	// types.Group carries no Tags/ResourceQuery members of its own.
+	assert.NotContains(t, group, "Tags")
+	assert.NotContains(t, group, "ResourceQuery")
 
 	// ResourceQuery should appear at top level.
 	rq, ok := out["ResourceQuery"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "TAG_FILTERS_1_0", rq["Type"])
+
+	// Tags should appear at top level too, as a sibling of Group.
+	wireTags, ok := out["Tags"].(map[string]any)
+	require.True(t, ok, "Tags must appear at the top level of CreateGroupOutput: %s", rec.Body.String())
+	assert.Equal(t, "test", wireTags["env"])
 }
 
 // TestDeepen1_ListGroups_GroupIdentifiersShape verifies exact shape of GroupIdentifiers.
