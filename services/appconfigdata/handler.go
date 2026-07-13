@@ -314,10 +314,13 @@ func (h *Handler) writeGetLatestConfigurationResponse(
 	nextToken, hash, versionLabel, contentType string,
 	content []byte,
 ) error {
-	// Honor the client's requested minimum poll interval; use the larger of the two.
+	// Echo back the client's declared RequiredMinimumPollIntervalInSeconds from session
+	// start; fall back to the service default only when the client didn't declare one.
+	// A declared interval below the default (e.g. the AWS-allowed minimum of 15s) must be
+	// honored as-is, not silently overridden upward -- this previously took the larger of
+	// the two, which broke every session that declared an interval below the default.
 	pollInterval := defaultPollIntervalInSeconds
-	if sess := h.Backend.LookupSession(nextToken); sess != nil &&
-		sess.PollIntervalInSeconds > pollInterval {
+	if sess := h.Backend.LookupSession(nextToken); sess != nil && sess.PollIntervalInSeconds > 0 {
 		pollInterval = sess.PollIntervalInSeconds
 	}
 

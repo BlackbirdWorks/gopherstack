@@ -713,30 +713,50 @@ func TestHandler_PollIntervalDefault(t *testing.T) {
 	assert.NotEmpty(t, cfgRec.Header().Get("Content-Length"))
 }
 
+// TestHandler_PollIntervalHonored verifies that Next-Poll-Interval-In-Seconds always echoes
+// the session's declared RequiredMinimumPollIntervalInSeconds, whether that value is above
+// or *below* the service default (30s). A prior bug took the larger of the declared interval
+// and the default, so a session declaring the AWS-allowed minimum of 15s incorrectly got back
+// "30" instead of "15".
 func TestHandler_PollIntervalHonored(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	seedProfile(t, h, "app", "env", "profile", `{}`)
+	tests := []struct {
+		name         string
+		wantInterval string
+		interval     int
+	}{
+		{name: "above_default_interval_honored", interval: 60, wantInterval: "60"},
+		{name: "below_default_interval_honored", interval: 15, wantInterval: "15"},
+	}
 
-	sessionBody, err := json.Marshal(map[string]any{
-		"ApplicationIdentifier":                "app",
-		"EnvironmentIdentifier":                "env",
-		"ConfigurationProfileIdentifier":       "profile",
-		"RequiredMinimumPollIntervalInSeconds": 60,
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
-	require.Equal(t, http.StatusCreated, sessionRec.Code)
+			h := newTestHandler(t)
+			seedProfile(t, h, "app", "env", "profile", `{}`)
 
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &resp))
-	token := resp["InitialConfigurationToken"]
+			sessionBody, err := json.Marshal(map[string]any{
+				"ApplicationIdentifier":                "app",
+				"EnvironmentIdentifier":                "env",
+				"ConfigurationProfileIdentifier":       "profile",
+				"RequiredMinimumPollIntervalInSeconds": tt.interval,
+			})
+			require.NoError(t, err)
 
-	cfgRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
-	require.Equal(t, http.StatusOK, cfgRec.Code)
-	assert.Equal(t, "60", cfgRec.Header().Get("Next-Poll-Interval-In-Seconds"))
+			sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
+			require.Equal(t, http.StatusCreated, sessionRec.Code)
+
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &resp))
+			token := resp["InitialConfigurationToken"]
+
+			cfgRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
+			require.Equal(t, http.StatusOK, cfgRec.Code)
+			assert.Equal(t, tt.wantInterval, cfgRec.Header().Get("Next-Poll-Interval-In-Seconds"))
+		})
+	}
 }
 
 // --- Backend tests ---
@@ -1680,12 +1700,13 @@ func TestHandler_TokenExpired_Returns400(t *testing.T) {
 	assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-ErrorType"))
 }
 
-// TestHandler_StartSession_IdentifierLength verifies that identifiers exceeding 2048 chars
-// are rejected with BadRequestException.
+// TestHandler_StartSession_IdentifierLength verifies that identifiers exceeding 128 chars
+// (the real AWS "Identifier" shape's max, per the service model) are rejected with
+// BadRequestException.
 func TestHandler_StartSession_IdentifierLength(t *testing.T) {
 	t.Parallel()
 
-	longID := strings.Repeat("x", 2049)
+	longID := strings.Repeat("x", 129)
 
 	tests := []struct {
 		name string
@@ -2365,17 +2386,18 @@ func TestBackend_SweepExpiredSessions_GraceTokens(t *testing.T) {
 }
 
 // TestHandler_StartSession_ExactMaxIdentifierLength verifies the boundary: identifiers of
-// exactly 2048 chars are accepted; 2049 chars are rejected.
+// exactly 128 chars are accepted; 129 chars are rejected. 128 is the real AWS "Identifier"
+// shape's max (verified against the service model), not an arbitrary gopherstack choice.
 func TestHandler_StartSession_ExactMaxIdentifierLength(t *testing.T) {
 	t.Parallel()
 
-	validID := strings.Repeat("a", 2048)
-	invalidID := strings.Repeat("a", 2049)
+	validID := strings.Repeat("a", 128)
+	invalidID := strings.Repeat("a", 129)
 
 	h := newTestHandler(t)
 	require.NoError(t, h.Backend.SetConfiguration(validID, validID, validID, `{}`, "application/json"))
 
-	t.Run("exactly_2048_accepted", func(t *testing.T) {
+	t.Run("exactly_128_accepted", func(t *testing.T) {
 		t.Parallel()
 
 		bodyJSON, err := json.Marshal(map[string]string{
@@ -2389,7 +2411,7 @@ func TestHandler_StartSession_ExactMaxIdentifierLength(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 	})
 
-	t.Run("2049_rejected", func(t *testing.T) {
+	t.Run("129_rejected", func(t *testing.T) {
 		t.Parallel()
 
 		bodyJSON, err := json.Marshal(map[string]string{
