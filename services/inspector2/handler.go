@@ -5,11 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -49,9 +49,15 @@ const (
 	keyAccounts       = "accounts"
 	keyAccountID      = "accountId"
 	keyResourceStatus = "resourceStatus"
+	keyResourceState  = "resourceState"
 	keyStatus         = "status"
 	keyFailedAccounts = "failedAccounts"
 	keyArn            = "arn"
+	keyErrorCode      = "errorCode"
+	keyErrorMessage   = "errorMessage"
+	keyName           = "name"
+	keyUpdatedAt      = "updatedAt"
+	keyType           = "type"
 )
 
 // Handler handles Inspector2 HTTP requests.
@@ -285,24 +291,46 @@ func (h *Handler) handleToggle(c *echo.Context, enable bool) error {
 	})
 }
 
-// handleBatchGetAccountStatus handles POST /status/batch/get.
+// handleBatchGetAccountStatus handles POST /status/batch/get. Unlike
+// Enable/Disable (whose Account shape is a flat resourceStatus of Status
+// strings), BatchGetAccountStatus returns the richer AccountState shape:
+// resourceState nests a State object per resource type (status, errorCode,
+// errorMessage), and the top-level state is itself a State object rather
+// than a bare status string.
 func (h *Handler) handleBatchGetAccountStatus(c *echo.Context) error {
 	status := h.Backend.GetStatus()
 
 	return c.JSON(http.StatusOK, map[string]any{
 		keyAccounts: []map[string]any{
 			{
-				keyAccountID:      status.AccountID,
-				keyResourceStatus: buildResourceStatus(status),
-				"state": map[string]any{
-					keyStatus: map[string]any{
-						keyStatus: status.Status,
-					},
-				},
+				keyAccountID:     status.AccountID,
+				keyResourceState: buildResourceState(status),
+				"state":          buildState(status.Status),
 			},
 		},
 		keyFailedAccounts: []any{},
 	})
+}
+
+// buildState renders an Inspector2 State object: a required status alongside
+// the (unpopulated, in the absence of an error) errorCode/errorMessage
+// members every State response carries.
+func buildState(status string) map[string]any {
+	return map[string]any{
+		keyStatus:       status,
+		keyErrorCode:    "",
+		keyErrorMessage: nil,
+	}
+}
+
+// buildResourceState constructs the resourceState map used by
+// BatchGetAccountStatus, keying each resource type to its own State object.
+func buildResourceState(status *AccountStatusResponse) map[string]any {
+	return map[string]any{
+		"ec2":    buildState(status.Ec2Status),
+		"ecr":    buildState(status.EcrStatus),
+		"lambda": buildState(status.LambdaStatus),
+	}
 }
 
 // handleCreateFilter handles POST /filters/create.
@@ -449,12 +477,12 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 	result := make([]map[string]any, 0, len(filters))
 	for _, f := range filters {
 		entry := map[string]any{
-			keyArn:      f.Arn,
-			"name":      f.Name,
-			"action":    f.Action,
-			"ownerId":   f.OwnerID,
-			"createdAt": epochSeconds(f.CreatedAt),
-			"updatedAt": epochSeconds(f.UpdatedAt),
+			keyArn:       f.Arn,
+			keyName:      f.Name,
+			"action":     f.Action,
+			"ownerId":    f.OwnerID,
+			"createdAt":  awstime.Epoch(f.CreatedAt),
+			keyUpdatedAt: awstime.Epoch(f.UpdatedAt),
 		}
 
 		if f.Description != "" {
@@ -522,13 +550,70 @@ func (h *Handler) handleListFindings(c *echo.Context) error {
 		return h.mapError(c, findErr)
 	}
 
-	resp := map[string]any{"findings": findings}
+	wire := make([]map[string]any, 0, len(findings))
+	for _, f := range findings {
+		wire = append(wire, findingToWire(f))
+	}
+
+	resp := map[string]any{"findings": wire}
 
 	if nextToken != "" {
 		resp["nextToken"] = nextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// findingToWire renders a Finding in its Inspector2 wire shape. Finding's
+// timestamps are Go time.Time internally (for easy backend arithmetic), but
+// the restjson1 DateTimeTimestamp shape requires epoch-seconds JSON numbers
+// (see pkgs/awstime) -- marshaling the struct directly via encoding/json
+// would emit RFC3339 strings and break every real SDK client's
+// ListFindings deserializer once a finding carries a populated timestamp
+// (e.g. after SeedFinding).
+func findingToWire(f *Finding) map[string]any {
+	entry := map[string]any{
+		"awsAccountId":    f.AccountID,
+		"description":     f.Description,
+		"findingArn":      f.FindingArn,
+		"firstObservedAt": awstime.Epoch(f.FirstObservedAt),
+		"lastObservedAt":  awstime.Epoch(f.LastObservedAt),
+		keyUpdatedAt:      awstime.Epoch(f.UpdatedAt),
+		"severity":        severityToWire(f.Severity),
+		keyStatus:         f.Status,
+		keyType:           f.Type,
+	}
+
+	if f.Title != "" {
+		entry["title"] = f.Title
+	}
+
+	if f.FixAvailable != "" {
+		entry["fixAvailable"] = f.FixAvailable
+	}
+
+	if len(f.Resources) > 0 {
+		resources := make([]map[string]any, 0, len(f.Resources))
+		for _, r := range f.Resources {
+			resources = append(resources, map[string]any{keyType: r.Type, "id": r.ID})
+		}
+
+		entry["resources"] = resources
+	}
+
+	return entry
+}
+
+// severityToWire renders a FindingSeverity, omitting a zero score to match
+// the domain struct's existing "score,omitempty" contract.
+func severityToWire(s FindingSeverity) map[string]any {
+	entry := map[string]any{"label": s.Label}
+
+	if s.Score != 0 {
+		entry["score"] = s.Score
+	}
+
+	return entry
 }
 
 // handleGetConfiguration handles POST /configuration/get.
@@ -546,7 +631,7 @@ func (h *Handler) handleGetConfiguration(c *echo.Context) error {
 			"rescanDurationState": map[string]any{
 				"rescanDuration": cfg.EcrRescanDuration,
 				keyStatus:        statusEnabled,
-				"updatedAt":      nil,
+				keyUpdatedAt:     nil,
 			},
 		},
 	})
@@ -711,10 +796,4 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 			errorResponse("InternalServerException", "internal error"),
 		)
 	}
-}
-
-// epochSeconds renders a timestamp as AWS JSON epoch seconds (with fractional
-// nanoseconds), matching what the Inspector2 SDK deserializer expects.
-func epochSeconds(t time.Time) float64 {
-	return float64(t.Unix()) + float64(t.Nanosecond())/1e9
 }

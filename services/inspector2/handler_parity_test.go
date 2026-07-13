@@ -126,15 +126,18 @@ func TestParity_EnableDisable_PerResourceType(t *testing.T) {
 			accounts := resp["accounts"].([]any)
 			require.Len(t, accounts, 1)
 
+			// BatchGetAccountStatus uses the AccountState wire shape: "state"
+			// is itself a State object (status/errorCode/errorMessage), and
+			// "resourceState" nests a State object per resource type --
+			// unlike Enable/Disable's flatter Account.resourceStatus shape.
 			acc := accounts[0].(map[string]any)
 			state := acc["state"].(map[string]any)
-			status := state["status"].(map[string]any)
-			resourceStatus := acc["resourceStatus"].(map[string]any)
+			resourceState := acc["resourceState"].(map[string]any)
 
-			assert.Equal(t, tc.wantOverall, status["status"], "overall status")
-			assert.Equal(t, tc.wantEC2, resourceStatus["ec2"], "ec2 status")
-			assert.Equal(t, tc.wantECR, resourceStatus["ecr"], "ecr status")
-			assert.Equal(t, tc.wantLambda, resourceStatus["lambda"], "lambda status")
+			assert.Equal(t, tc.wantOverall, state["status"], "overall status")
+			assert.Equal(t, tc.wantEC2, resourceState["ec2"].(map[string]any)["status"], "ec2 status")
+			assert.Equal(t, tc.wantECR, resourceState["ecr"].(map[string]any)["status"], "ecr status")
+			assert.Equal(t, tc.wantLambda, resourceState["lambda"].(map[string]any)["status"], "lambda status")
 		})
 	}
 }

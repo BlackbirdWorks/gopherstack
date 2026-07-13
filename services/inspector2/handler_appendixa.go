@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -169,8 +170,10 @@ const (
 
 	pathClusterGet = "/cluster/get"
 
-	keyScanConfigurationArn = "scanConfigurationArn"
-	keyReportID             = "reportId"
+	keyScanConfigurationArn  = "scanConfigurationArn"
+	keyReportID              = "reportId"
+	keyDelegatedAdminAccount = "delegatedAdminAccountId"
+	keyIntegrationArn        = "integrationArn"
 )
 
 // appendixAOps returns all appendix A operation names.
@@ -551,7 +554,21 @@ func (h *Handler) handleGetMember(c *echo.Context) error {
 		return h.mapError(c, getErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"member": m})
+	return c.JSON(http.StatusOK, map[string]any{"member": memberToWire(m)})
+}
+
+// memberToWire renders a Member in its Inspector2 wire shape. UpdatedAt is a
+// Go time.Time internally, but the restjson1 Member.UpdatedAt member is a
+// DateTimeTimestamp (epoch-seconds JSON number, see pkgs/awstime) -- the
+// domain struct's default JSON marshaling would emit an RFC3339 string and
+// break real SDK clients' GetMember/ListMembers deserializers.
+func memberToWire(m *Member) map[string]any {
+	return map[string]any{
+		keyAccountID:             m.AccountID,
+		keyDelegatedAdminAccount: m.DelegatedAdminAccountID,
+		"relationshipStatus":     m.RelationshipStatus,
+		keyUpdatedAt:             awstime.Epoch(m.UpdatedAt),
+	}
 }
 
 func (h *Handler) handleListMembers(c *echo.Context) error {
@@ -578,11 +595,12 @@ func (h *Handler) handleListMembers(c *echo.Context) error {
 		return h.mapError(c, listErr)
 	}
 
-	if members == nil {
-		members = []*Member{}
+	wire := make([]map[string]any, 0, len(members))
+	for _, m := range members {
+		wire = append(wire, memberToWire(m))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"members": members})
+	return c.JSON(http.StatusOK, map[string]any{"members": wire})
 }
 
 func (h *Handler) handleEnableDelegatedAdminAccount(c *echo.Context) error {
@@ -604,8 +622,8 @@ func (h *Handler) handleEnableDelegatedAdminAccount(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"delegatedAdminAccountId": req.DelegatedAdminAccountID,
-		"status":                  "ENABLED", //nolint:goconst // existing issue.
+		keyDelegatedAdminAccount: req.DelegatedAdminAccountID,
+		keyStatus:                statusEnabled,
 	})
 }
 
@@ -628,8 +646,8 @@ func (h *Handler) handleDisableDelegatedAdminAccount(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"delegatedAdminAccountId": req.DelegatedAdminAccountID,
-		"status":                  "DISABLE_IN_PROGRESS",
+		keyDelegatedAdminAccount: req.DelegatedAdminAccountID,
+		keyStatus:                "DISABLE_IN_PROGRESS",
 	})
 }
 
@@ -709,9 +727,9 @@ func (h *Handler) handleGetEc2DeepInspectionConfiguration(c *echo.Context) error
 			"scanMode":       "EC2_SSM_AGENT_BASED",
 			"scanModeStatus": "SUCCESS",
 		},
-		"errorMessage": cfg.ErrorMessage,
-		"packagePaths": cfg.PackagePaths,
-		"status":       cfg.Status,
+		keyErrorMessage: cfg.ErrorMessage,
+		"packagePaths":  cfg.PackagePaths,
+		keyStatus:       cfg.Status,
 	})
 }
 
@@ -741,9 +759,9 @@ func (h *Handler) handleUpdateEc2DeepInspectionConfiguration(c *echo.Context) er
 	cfg := h.Backend.GetEc2DeepInspectionConfiguration()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"errorMessage": cfg.ErrorMessage,
-		"packagePaths": cfg.PackagePaths,
-		"status":       cfg.Status,
+		keyErrorMessage: cfg.ErrorMessage,
+		"packagePaths":  cfg.PackagePaths,
+		keyStatus:       cfg.Status,
 	})
 }
 
@@ -1223,8 +1241,8 @@ func (h *Handler) handleCreateCodeSecurityIntegration(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"integrationArn": integ.IntegrationArn,
-		"status":         integ.Status,
+		keyIntegrationArn: integ.IntegrationArn,
+		keyStatus:         integ.Status,
 	})
 }
 
@@ -1268,7 +1286,24 @@ func (h *Handler) handleGetCodeSecurityIntegration(c *echo.Context) error {
 		return h.mapError(c, getErr)
 	}
 
-	return c.JSON(http.StatusOK, integ)
+	return c.JSON(http.StatusOK, codeSecurityIntegrationToWire(integ))
+}
+
+// codeSecurityIntegrationToWire renders a CodeSecurityIntegration in its
+// Inspector2 wire shape. Get/ListCodeSecurityIntegrations both use
+// createdOn/lastUpdateOn (epoch-seconds DateTimeTimestamp members, see
+// pkgs/awstime) rather than the domain struct's internal createdAt/updatedAt
+// field names -- marshaling the struct directly would both use the wrong
+// keys and emit RFC3339 strings, either of which leaves the real fields
+// unpopulated on the client.
+func codeSecurityIntegrationToWire(integ *CodeSecurityIntegration) map[string]any {
+	return map[string]any{
+		keyIntegrationArn: integ.IntegrationArn,
+		keyName:           integ.Name,
+		keyStatus:         integ.Status,
+		"createdOn":       awstime.Epoch(integ.CreatedAt),
+		"lastUpdateOn":    awstime.Epoch(integ.UpdatedAt),
+	}
 }
 
 func (h *Handler) handleUpdateCodeSecurityIntegration(c *echo.Context) error {
@@ -1292,8 +1327,8 @@ func (h *Handler) handleUpdateCodeSecurityIntegration(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"integrationArn": integ.IntegrationArn,
-		"status":         integ.Status,
+		keyIntegrationArn: integ.IntegrationArn,
+		keyStatus:         integ.Status,
 	})
 }
 
@@ -1303,11 +1338,12 @@ func (h *Handler) handleListCodeSecurityIntegrations(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	if integrations == nil {
-		integrations = []*CodeSecurityIntegration{}
+	wire := make([]map[string]any, 0, len(integrations))
+	for _, integ := range integrations {
+		wire = append(wire, codeSecurityIntegrationToWire(integ))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"integrations": integrations})
+	return c.JSON(http.StatusOK, map[string]any{"integrations": wire})
 }
 
 func (h *Handler) handleCreateCodeSecurityScanConfiguration(c *echo.Context) error {
@@ -1377,7 +1413,41 @@ func (h *Handler) handleGetCodeSecurityScanConfiguration(c *echo.Context) error 
 		return h.mapError(c, getErr)
 	}
 
-	return c.JSON(http.StatusOK, cfg)
+	return c.JSON(http.StatusOK, codeSecurityScanConfigToWire(cfg))
+}
+
+// codeSecurityScanConfigToWire renders a CodeSecurityScanConfiguration in its
+// Inspector2 wire shape. GetCodeSecurityScanConfiguration's real
+// createdAt/lastUpdatedAt members are epoch-seconds DateTimeTimestamps (see
+// pkgs/awstime); the domain struct's own "updatedAt" JSON tag additionally
+// disagrees with the real "lastUpdatedAt" key name, so both must be
+// converted here rather than marshaling the struct directly.
+func codeSecurityScanConfigToWire(cfg *CodeSecurityScanConfiguration) map[string]any {
+	entry := map[string]any{
+		keyScanConfigurationArn: cfg.Arn,
+		keyName:                 cfg.Name,
+		keyStatus:               cfg.Status,
+		"createdAt":             awstime.Epoch(cfg.CreatedAt),
+		"lastUpdatedAt":         awstime.Epoch(cfg.UpdatedAt),
+	}
+
+	if cfg.ScopeSettings != nil {
+		entry["scopeSettings"] = cfg.ScopeSettings
+	}
+
+	if cfg.PeriodicScanConfig != nil {
+		entry["periodicScanConfiguration"] = cfg.PeriodicScanConfig
+	}
+
+	if cfg.IntegrationArn != "" {
+		entry[keyIntegrationArn] = cfg.IntegrationArn
+	}
+
+	if len(cfg.Tags) > 0 {
+		entry["tags"] = cfg.Tags
+	}
+
+	return entry
 }
 
 func (h *Handler) handleUpdateCodeSecurityScanConfiguration(c *echo.Context) error {
@@ -1412,11 +1482,12 @@ func (h *Handler) handleListCodeSecurityScanConfigurations(c *echo.Context) erro
 		return h.mapError(c, err)
 	}
 
-	if cfgs == nil {
-		cfgs = []*CodeSecurityScanConfiguration{}
+	wire := make([]map[string]any, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		wire = append(wire, codeSecurityScanConfigToWire(cfg))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scanConfigurations": cfgs})
+	return c.JSON(http.StatusOK, map[string]any{"scanConfigurations": wire})
 }
 
 func (h *Handler) handleBatchAssociateCodeSecurityScanConfiguration( //nolint:dupl // existing issue.
@@ -1638,9 +1709,9 @@ func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"reportId":  report.ReportID,
-		"status":    report.Status,
-		"errorCode": report.ErrorCode,
+		keyReportID:  report.ReportID,
+		keyStatus:    report.Status,
+		keyErrorCode: report.ErrorCode,
 	})
 }
 
@@ -1713,9 +1784,9 @@ func (h *Handler) handleGetSbomExport(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"reportId":  export.ReportID,
-		"status":    export.Status,
-		"errorCode": export.ErrorCode,
+		keyReportID:  export.ReportID,
+		keyStatus:    export.Status,
+		keyErrorCode: export.ErrorCode,
 	})
 }
 
