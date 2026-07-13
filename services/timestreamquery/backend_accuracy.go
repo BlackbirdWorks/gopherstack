@@ -134,25 +134,38 @@ func estimateBytesMetered(scanned int64) int64 {
 // ClientToken idempotency cache (gap #6)
 // ---------------------------------------------------------------------------
 
-const clientTokenTTL = 8 * time.Hour
+const (
+	// queryClientTokenTTL matches the Query API doc, which states that after
+	// 4 hours a request with the same ClientToken is treated as a new request.
+	queryClientTokenTTL = 4 * time.Hour
+	// createScheduledQueryClientTokenTTL matches the CreateScheduledQuery API
+	// doc, which states that after 8 hours a request with the same
+	// ClientToken is treated as a new request.
+	createScheduledQueryClientTokenTTL = 8 * time.Hour
+)
 
-// clientTokenEntry holds a cached query result for idempotency.
+// clientTokenEntry holds a cached opaque value (a QueryID for Query, or a
+// scheduled-query ARN for CreateScheduledQuery) for idempotency.
 type clientTokenEntry struct {
 	expiresAt time.Time
-	queryID   string
+	value     string
 }
 
-// clientTokenCache is a sharded TTL cache for ClientToken → QueryID mapping.
+// clientTokenCache is a TTL cache for ClientToken → opaque-value mapping,
+// shared by any operation that supports idempotency-token replay (Query,
+// CreateScheduledQuery). Each instance owns its own TTL since different
+// operations document different idempotency windows.
 type clientTokenCache struct {
 	entries map[string]clientTokenEntry
+	ttl     time.Duration
 	mu      sync.Mutex
 }
 
-func newClientTokenCache() *clientTokenCache {
-	return &clientTokenCache{entries: make(map[string]clientTokenEntry)}
+func newClientTokenCache(ttl time.Duration) *clientTokenCache {
+	return &clientTokenCache{entries: make(map[string]clientTokenEntry), ttl: ttl}
 }
 
-// get returns the cached QueryID for token, or "" if absent / expired.
+// get returns the cached value for token, or "" if absent / expired.
 func (c *clientTokenCache) get(token string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -163,16 +176,16 @@ func (c *clientTokenCache) get(token string) string {
 		return ""
 	}
 
-	return e.queryID
+	return e.value
 }
 
-// set stores queryID under token for 8 hours.
-func (c *clientTokenCache) set(token, queryID string) {
+// set stores value under token for the cache's configured TTL.
+func (c *clientTokenCache) set(token, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[token] = clientTokenEntry{
-		queryID:   queryID,
-		expiresAt: time.Now().Add(clientTokenTTL),
+		value:     value,
+		expiresAt: time.Now().Add(c.ttl),
 	}
 }
 
@@ -518,40 +531,63 @@ func inferScalarType(expr string) string {
 // QueryCompute (gap #14)
 // ---------------------------------------------------------------------------
 
-// ProvisionedCapacity holds the configuration for provisioned TCU.
+// ProvisionedCapacity holds the response-side provisioned-TCU configuration
+// returned by DescribeAccountSettings/UpdateAccountSettings
+// (types.ProvisionedCapacityResponse on the wire). The active-capacity field
+// is named "ActiveQueryTCU" on the response -- "TargetQueryTCU" is the
+// *request*-side field name (types.ProvisionedCapacityRequest) and is only
+// used transiently while parsing an UpdateAccountSettings request body (see
+// QueryComputeUpdate).
 type ProvisionedCapacity struct {
-	TargetQueryTCU            *int32              `json:"TargetQueryTCU,omitempty"`
-	NotificationConfiguration *NotificationConfig `json:"NotificationConfiguration,omitempty"`
+	ActiveQueryTCU *int32      `json:"ActiveQueryTCU,omitempty"`
+	LastUpdate     *LastUpdate `json:"LastUpdate,omitempty"`
 }
 
-// NotificationConfig is the SNS notification config for capacity alerts.
-type NotificationConfig struct {
-	SnsConfiguration *SnsConfig `json:"SnsConfiguration,omitempty"`
+// LastUpdate reports the status of the most recent account-settings update
+// affecting provisioned capacity (types.LastUpdate on the wire). This
+// emulator applies QueryCompute changes synchronously, so Status is always
+// SUCCEEDED.
+type LastUpdate struct {
+	TargetQueryTCU *int32 `json:"TargetQueryTCU,omitempty"`
+	Status         string `json:"Status,omitempty"`
 }
 
-// SnsConfig holds an SNS topic ARN.
-type SnsConfig struct {
-	TopicArn string `json:"TopicArn"`
-}
-
-// QueryCompute holds the compute mode and optional provisioned capacity.
+// QueryCompute holds the compute mode and optional provisioned capacity
+// (types.QueryComputeResponse on the wire).
 type QueryCompute struct {
 	ProvisionedCapacity *ProvisionedCapacity `json:"ProvisionedCapacity,omitempty"`
 	ComputeMode         string               `json:"ComputeMode,omitempty"` // ON_DEMAND | PROVISIONED
 }
+
+// QueryComputeUpdate is the parsed request-side shape for
+// UpdateAccountSettingsInput.QueryCompute (types.QueryComputeRequest on the
+// wire): the requested ComputeMode plus, when PROVISIONED, the requested
+// TargetQueryTCU.
+type QueryComputeUpdate struct {
+	TargetQueryTCU *int32
+	ComputeMode    string
+}
+
+// Compute mode values for QueryCompute.ComputeMode / QueryComputeUpdate.ComputeMode.
+const (
+	computeModeOnDemand    = "ON_DEMAND"
+	computeModeProvisioned = "PROVISIONED"
+)
 
 // ---------------------------------------------------------------------------
 // Full ScheduledQuery types (gap #19, #21)
 // ---------------------------------------------------------------------------
 
 // ExecutionStats holds statistics from a scheduled query execution.
+// The wire field is "ExecutionTimeInMillis" (no trailing "ecs") per the real
+// aws-sdk-go-v2 deserializer (types.ExecutionStats / awsAwsjson10_deserializeDocumentExecutionStats).
 type ExecutionStats struct {
-	ExecutionTimeInMillisecs int64 `json:"ExecutionTimeInMillisecs,omitempty"`
-	DataWrites               int64 `json:"DataWrites,omitempty"`
-	BytesMetered             int64 `json:"BytesMetered,omitempty"`
-	CumulativeBytesScanned   int64 `json:"CumulativeBytesScanned,omitempty"`
-	QueryResultRows          int64 `json:"QueryResultRows,omitempty"`
-	RecordsIngested          int64 `json:"RecordsIngested,omitempty"`
+	ExecutionTimeInMillis  int64 `json:"ExecutionTimeInMillis,omitempty"`
+	DataWrites             int64 `json:"DataWrites,omitempty"`
+	BytesMetered           int64 `json:"BytesMetered,omitempty"`
+	CumulativeBytesScanned int64 `json:"CumulativeBytesScanned,omitempty"`
+	QueryResultRows        int64 `json:"QueryResultRows,omitempty"`
+	RecordsIngested        int64 `json:"RecordsIngested,omitempty"`
 }
 
 // ErrorReportLocation holds the S3 error report location for a scheduled query run.
@@ -647,8 +683,8 @@ func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 		InvocationTime: epochSeconds(sq.LastRunTime),
 		TriggerTime:    epochSeconds(triggerTime),
 		ExecutionStats: &ExecutionStats{
-			ExecutionTimeInMillisecs: simExecTimeMs,
-			RecordsIngested:          simRecordsIngested,
+			ExecutionTimeInMillis: simExecTimeMs,
+			RecordsIngested:       simRecordsIngested,
 		},
 	}
 }

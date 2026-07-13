@@ -37,8 +37,18 @@ type backendSnapshot struct {
 
 // accountSettingsSnapshot is the serialisable form of AccountSettings.
 type accountSettingsSnapshot struct {
-	MaxQueryTCU       *int32 `json:"max_query_tcu,omitempty"`
-	QueryPricingModel string `json:"query_pricing_model"`
+	MaxQueryTCU       *int32                `json:"max_query_tcu,omitempty"`
+	QueryCompute      *queryComputeSnapshot `json:"query_compute,omitempty"`
+	QueryPricingModel string                `json:"query_pricing_model"`
+}
+
+// queryComputeSnapshot is the serialisable form of QueryCompute. Without this,
+// an UpdateAccountSettings call that switches an account to PROVISIONED
+// compute mode would silently revert to the ON_DEMAND default across a
+// Snapshot/Restore round trip (e.g. a gopherstack restart).
+type queryComputeSnapshot struct {
+	ActiveQueryTCU *int32 `json:"active_query_tcu,omitempty"`
+	ComputeMode    string `json:"compute_mode,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -61,6 +71,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		if s.MaxQueryTCU != nil {
 			v := *s.MaxQueryTCU
 			snap.MaxQueryTCU = &v
+		}
+		if s.QueryCompute != nil {
+			qc := &queryComputeSnapshot{ComputeMode: s.QueryCompute.ComputeMode}
+			if s.QueryCompute.ProvisionedCapacity != nil && s.QueryCompute.ProvisionedCapacity.ActiveQueryTCU != nil {
+				v := *s.QueryCompute.ProvisionedCapacity.ActiveQueryTCU
+				qc.ActiveQueryTCU = &v
+			}
+			snap.QueryCompute = qc
 		}
 		settingsSnap[region] = snap
 	}
@@ -104,7 +122,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.accountSettings = make(map[string]AccountSettings)
-		b.clientTokens = newClientTokenCache()
+		b.clientTokens = newClientTokenCache(queryClientTokenTTL)
+		b.scheduledQueryTokens = newClientTokenCache(createScheduledQueryClientTokenTTL)
 		b.pageStore = newNextTokenStore()
 
 		return nil
@@ -120,6 +139,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.accountSettings[region] = AccountSettings{
 			QueryPricingModel: s.QueryPricingModel,
 			MaxQueryTCU:       s.MaxQueryTCU,
+			QueryCompute:      restoreQueryCompute(s.QueryCompute),
 		}
 	}
 
@@ -134,6 +154,28 @@ func ensureNonNilMaps(b *InMemoryBackend) {
 	if b.accountSettings == nil {
 		b.accountSettings = make(map[string]AccountSettings)
 	}
+}
+
+// restoreQueryCompute reconstructs a QueryCompute from its snapshot form. A
+// nil snap (e.g. a snapshot written before QueryCompute was persisted) falls
+// back to the ON_DEMAND default rather than leaving QueryCompute nil, since
+// DescribeAccountSettings always returns a non-nil QueryCompute for any
+// region that has settings on record.
+func restoreQueryCompute(snap *queryComputeSnapshot) *QueryCompute {
+	if snap == nil {
+		return &QueryCompute{ComputeMode: computeModeOnDemand}
+	}
+
+	qc := &QueryCompute{ComputeMode: snap.ComputeMode}
+	if snap.ActiveQueryTCU != nil {
+		v := *snap.ActiveQueryTCU
+		qc.ProvisionedCapacity = &ProvisionedCapacity{
+			ActiveQueryTCU: &v,
+			LastUpdate:     &LastUpdate{Status: "SUCCEEDED", TargetQueryTCU: &v},
+		}
+	}
+
+	return qc
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

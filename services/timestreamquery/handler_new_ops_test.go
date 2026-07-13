@@ -138,6 +138,90 @@ func TestTimestreamQueryHandler_UpdateAccountSettings_Persists(t *testing.T) {
 	}
 }
 
+// TestTimestreamQueryHandler_UpdateAccountSettings_QueryCompute verifies the
+// UpdateAccountSettings wire shape for the QueryCompute field: a request
+// switching ComputeMode to PROVISIONED with a ProvisionedCapacity.TargetQueryTCU
+// must be reflected in the response as
+// QueryCompute.ProvisionedCapacity.ActiveQueryTCU (the response-side field
+// name, distinct from the request-side TargetQueryTCU), and the change must
+// persist across a subsequent DescribeAccountSettings call.
+func TestTimestreamQueryHandler_UpdateAccountSettings_QueryCompute(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rec := doRequest(t, h, "UpdateAccountSettings", map[string]any{
+		"QueryCompute": map[string]any{
+			"ComputeMode": "PROVISIONED",
+			"ProvisionedCapacity": map[string]any{
+				"TargetQueryTCU": 8,
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResponse(t, rec)
+	qc, ok := resp["QueryCompute"].(map[string]any)
+	require.True(t, ok, "QueryCompute must be present")
+	assert.Equal(t, "PROVISIONED", qc["ComputeMode"])
+
+	pc, ok := qc["ProvisionedCapacity"].(map[string]any)
+	require.True(t, ok, "ProvisionedCapacity must be present when ComputeMode is PROVISIONED")
+	assert.InEpsilon(t, float64(8), pc["ActiveQueryTCU"], 1e-9)
+	_, hasTargetQueryTCU := pc["TargetQueryTCU"]
+	assert.False(
+		t,
+		hasTargetQueryTCU,
+		"response ProvisionedCapacity must use ActiveQueryTCU, not the request-side TargetQueryTCU",
+	)
+
+	// Persists across Describe.
+	rec = doRequest(t, h, "DescribeAccountSettings", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	resp = parseResponse(t, rec)
+	qc, ok = resp["QueryCompute"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "PROVISIONED", qc["ComputeMode"])
+}
+
+// TestTimestreamQueryHandler_UpdateAccountSettings_QueryCompute_Invalid verifies
+// that an invalid or incomplete QueryCompute request is rejected with
+// ValidationException rather than silently ignored.
+func TestTimestreamQueryHandler_UpdateAccountSettings_QueryCompute_Invalid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "PROVISIONED without TargetQueryTCU",
+			body: map[string]any{
+				"QueryCompute": map[string]any{"ComputeMode": "PROVISIONED"},
+			},
+		},
+		{
+			name: "unrecognised ComputeMode",
+			body: map[string]any{
+				"QueryCompute": map[string]any{"ComputeMode": "BOGUS"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			rec := doRequest(t, h, "UpdateAccountSettings", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "ValidationException", resp["__type"])
+		})
+	}
+}
+
 func TestTimestreamQueryHandler_PrepareQuery(t *testing.T) {
 	t.Parallel()
 

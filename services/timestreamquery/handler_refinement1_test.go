@@ -663,11 +663,19 @@ func TestRefinement1_QueryCountTrack(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, timestreamquery.QueryCount(backend))
 
-	// Cancel the query removes it.
+	// CancelQuery is documented as idempotent: it marks the result cancelled
+	// in place rather than deleting it, so a repeat cancellation of the same
+	// QueryId still succeeds (CancelQueryOutput.CancellationMessage) instead
+	// of 404ing, and the query still counts until evicted by the retention cap.
 	qid := parseResponse(t, rec)["QueryId"].(string)
 	rec = doRequest(t, h, "CancelQuery", map[string]any{"QueryId": qid})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, 0, timestreamquery.QueryCount(backend))
+	assert.Equal(t, 1, timestreamquery.QueryCount(backend))
+
+	// A repeat cancellation of the same QueryId must still succeed.
+	rec = doRequest(t, h, "CancelQuery", map[string]any{"QueryId": qid})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 1, timestreamquery.QueryCount(backend))
 }
 
 // TestRefinement1_ScheduledQueryCountTrack verifies ScheduledQueryCount increments and decrements.

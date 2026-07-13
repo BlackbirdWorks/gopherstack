@@ -29,7 +29,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	_, err := b.CreateScheduledQuery(
 		t.Context(), "seed-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/x",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 
@@ -63,7 +63,7 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 
 	_, err := fresh.CreateScheduledQuery(
 		t.Context(), "post-restore", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/x",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 }
@@ -88,13 +88,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// (and the new code needs the Arn-embeds-region property) to keep apart.
 	eastSQ, err := original.CreateScheduledQuery(
 		ctxEast, "shared-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/east",
-		"sns-topic", "err-bucket", "db1", "tbl1", map[string]string{"env": "east"},
+		"sns-topic", "err-bucket", "db1", "tbl1", "", map[string]string{"env": "east"},
 	)
 	require.NoError(t, err)
 
 	westSQ, err := original.CreateScheduledQuery(
 		ctxWest, "shared-sq", "SELECT 2", "rate(2 hours)", "arn:aws:iam::123456789012:role/west",
-		"", "", "", "", nil,
+		"", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 
@@ -105,7 +105,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	qr := original.Query(t.Context(), "SELECT * FROM x")
 	require.NotNil(t, qr)
 
-	settings, err := original.UpdateAccountSettings(ctxEast, pricingModelBytesScanned, nil)
+	settings, err := original.UpdateAccountSettings(ctxEast, pricingModelBytesScanned, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, pricingModelBytesScanned, settings.QueryPricingModel)
 
@@ -142,7 +142,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// queries: the QueryResult round-tripped, and CancelQuery still finds it.
 	assert.Equal(t, 1, QueryCount(fresh))
 	require.NoError(t, fresh.CancelQuery(t.Context(), qr.QueryID))
-	assert.Equal(t, 0, QueryCount(fresh))
+
+	// CancelQuery is documented as idempotent: a repeat cancellation of the
+	// same QueryId must still succeed (CancelQueryOutput.CancellationMessage),
+	// not 404, so the entry stays in place rather than being deleted.
+	require.NoError(t, fresh.CancelQuery(t.Context(), qr.QueryID))
+	assert.Equal(t, 1, QueryCount(fresh))
 
 	// accountSettings: plain map, still persisted as before.
 	restoredSettings := fresh.DescribeAccountSettings(ctxEast)
@@ -156,4 +161,33 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	_, err = fresh.DescribeScheduledQuery(t.Context(), westSQ.Arn)
 	require.NoError(t, err)
+}
+
+// TestInMemoryBackend_SnapshotRestore_QueryCompute verifies that a QueryCompute
+// switched to PROVISIONED via UpdateAccountSettings survives a Snapshot/Restore
+// round trip. Before this fix, accountSettingsSnapshot only captured
+// QueryPricingModel/MaxQueryTCU, so a PROVISIONED account would silently
+// revert to the ON_DEMAND default after a restore (e.g. a gopherstack restart).
+func TestInMemoryBackend_SnapshotRestore_QueryCompute(t *testing.T) {
+	t.Parallel()
+
+	original := NewInMemoryBackend("123456789012", "us-east-1")
+	tcu := int32(16)
+
+	_, err := original.UpdateAccountSettings(t.Context(), "", nil,
+		&QueryComputeUpdate{ComputeMode: "PROVISIONED", TargetQueryTCU: &tcu})
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	settings := fresh.DescribeAccountSettings(t.Context())
+	require.NotNil(t, settings.QueryCompute)
+	assert.Equal(t, "PROVISIONED", settings.QueryCompute.ComputeMode)
+	require.NotNil(t, settings.QueryCompute.ProvisionedCapacity)
+	require.NotNil(t, settings.QueryCompute.ProvisionedCapacity.ActiveQueryTCU)
+	assert.Equal(t, int32(16), *settings.QueryCompute.ProvisionedCapacity.ActiveQueryTCU)
 }

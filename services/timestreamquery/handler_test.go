@@ -3,6 +3,7 @@ package timestreamquery_test
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -329,6 +330,49 @@ func TestTimestreamQueryHandler_CreateScheduledQuery_Duplicate(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestTimestreamQueryHandler_CreateScheduledQuery_ClientTokenIdempotent verifies
+// that a repeated CreateScheduledQuery request carrying the same ClientToken
+// replays the original success (same Arn, HTTP 200) instead of returning
+// ConflictException. The aws-sdk-go-v2 client auto-generates a ClientToken on
+// every call when one isn't supplied, so this is the behavior a real client
+// retry would rely on after a lost response.
+func TestTimestreamQueryHandler_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createBody := map[string]any{
+		"Name":                           "retry-query",
+		"QueryString":                    "SELECT 1",
+		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123456789012:role/role",
+		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "bucket"},
+		},
+		"ClientToken": "retry-token",
+	}
+
+	rec := doRequest(t, h, "CreateScheduledQuery", createBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+	firstArn := parseResponse(t, rec)["Arn"]
+
+	// Same ClientToken, same body: must replay, not conflict.
+	rec = doRequest(t, h, "CreateScheduledQuery", createBody)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, firstArn, parseResponse(t, rec)["Arn"])
+
+	// Same Name but no ClientToken at all: genuine duplicate, must conflict.
+	withoutToken := map[string]any{}
+	maps.Copy(withoutToken, createBody)
+	delete(withoutToken, "ClientToken")
+
+	rec = doRequest(t, h, "CreateScheduledQuery", withoutToken)
+	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
 func TestTimestreamQueryHandler_Tags(t *testing.T) {
