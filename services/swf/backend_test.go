@@ -490,3 +490,210 @@ func TestCountPendingTasks_ActuallyCount(t *testing.T) {
 	assert.Equal(t, 2, b.CountPendingActivityTasks("dom", "list1"))
 	assert.Equal(t, 0, b.CountPendingActivityTasks("dom", "other-list"))
 }
+
+// TestStartWorkflowExecution_EnqueuesInitialDecisionTask verifies that starting
+// a workflow execution schedules its first decision task, matching real AWS
+// SWF (which schedules the initial decision task immediately after
+// WorkflowExecutionStarted). Without this, a freshly started workflow with no
+// other stimulus (signal, cancel, activity completion) never gets a decision
+// task and stays OPEN forever -- no decider could ever poll for it.
+func TestStartWorkflowExecution_EnqueuesInitialDecisionTask(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+
+	assert.Equal(t, 0, b.CountPendingDecisionTasks("dom", "default"))
+
+	exec, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain:     "dom",
+		WorkflowID: "wf-1",
+		TaskList:   "default",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, b.CountPendingDecisionTasks("dom", "default"))
+
+	task := b.PollForDecisionTask("dom", "default", 0, "")
+	require.NotNil(t, task, "expected an initial decision task without any other stimulus")
+	assert.Equal(t, "wf-1", task.WorkflowID)
+	assert.Equal(t, exec.RunID, task.RunID)
+	assert.NotEmpty(t, task.Events, "decision task should include the WorkflowExecutionStarted event")
+}
+
+// TestStartWorkflowExecution_NoTaskListNoDecisionTask verifies that starting a
+// workflow without a task list (and no workflow-type default) does not panic
+// or enqueue a decision task nobody can ever poll for.
+func TestStartWorkflowExecution_NoTaskListNoDecisionTask(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain:     "dom",
+		WorkflowID: "wf-1",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, b.CountPendingDecisionTasks("dom", ""))
+}
+
+// TestRequestCancelWorkflowExecution_NotOpen_UnknownResourceFault verifies
+// RequestCancelWorkflowExecution on a closed execution fails with
+// UnknownResourceFault, per the real SWF API doc: "If the specified workflow
+// execution isn't open, this method fails with UnknownResource." --
+// ValidationException isn't in this operation's fault model at all.
+func TestRequestCancelWorkflowExecution_NotOpen_UnknownResourceFault(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain:     "dom",
+		WorkflowID: "wf-1",
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+
+	err = b.RequestCancelWorkflowExecution("dom", "wf-1", "")
+	require.ErrorIs(t, err, swf.ErrNotFound)
+	assert.NotErrorIs(t, err, swf.ErrValidation)
+}
+
+// TestSignalWorkflowExecution_NotOpen_UnknownResourceFault verifies
+// SignalWorkflowExecution on a closed execution fails with
+// UnknownResourceFault, per the real SWF API doc: "If the specified workflow
+// execution isn't open, this method fails with UnknownResource." --
+// ValidationException isn't in this operation's fault model at all.
+func TestSignalWorkflowExecution_NotOpen_UnknownResourceFault(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain:     "dom",
+		WorkflowID: "wf-1",
+	})
+	require.NoError(t, err)
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+
+	err = b.SignalWorkflowExecution("dom", "wf-1", "", "my-signal", "")
+	require.ErrorIs(t, err, swf.ErrNotFound)
+	assert.NotErrorIs(t, err, swf.ErrValidation)
+}
+
+// TestDeleteWorkflowType verifies DeleteWorkflowType requires the type to be
+// deprecated first (real AWS: "Prior to deletion, workflow types must first
+// be deprecated"), removes it from the registered-types table on success, and
+// leaves it visible to ListWorkflowTypes/DescribeWorkflowType afterward as
+// not-found -- while executions started under the (now-deleted) type are
+// unaffected, since DeleteWorkflowType never touches the executions table.
+func TestDeleteWorkflowType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr        error
+		name           string
+		deprecateFirst bool
+	}{
+		{name: "NotDeprecated", wantErr: swf.ErrTypeNotDeprecated},
+		{name: "Deprecated", deprecateFirst: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := swf.NewInMemoryBackend()
+			require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+			require.NoError(t, b.RegisterWorkflowType("dom", "wf1", "1.0", "", swf.WorkflowTypeDefaults{}))
+
+			if tt.deprecateFirst {
+				require.NoError(t, b.DeprecateWorkflowType("dom", "wf1", "1.0"))
+			}
+
+			err := b.DeleteWorkflowType("dom", "wf1", "1.0")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				_, describeErr := b.DescribeWorkflowType("dom", "wf1", "1.0")
+				require.NoError(t, describeErr, "type must remain registered when delete is rejected")
+
+				return
+			}
+			require.NoError(t, err)
+
+			_, err = b.DescribeWorkflowType("dom", "wf1", "1.0")
+			assert.ErrorIs(t, err, swf.ErrNotFound)
+		})
+	}
+}
+
+// TestDeleteWorkflowType_NotFound verifies deleting an unregistered workflow
+// type fails with UnknownResourceFault.
+func TestDeleteWorkflowType_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+
+	err := b.DeleteWorkflowType("dom", "nonexistent", "1.0")
+	require.ErrorIs(t, err, swf.ErrNotFound)
+}
+
+// TestDeleteActivityType verifies DeleteActivityType requires the type to be
+// deprecated first (real AWS: "Prior to deletion, activity types must first
+// be deprecated") and removes it from the registered-types table on success.
+func TestDeleteActivityType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr        error
+		name           string
+		deprecateFirst bool
+	}{
+		{name: "NotDeprecated", wantErr: swf.ErrTypeNotDeprecated},
+		{name: "Deprecated", deprecateFirst: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := swf.NewInMemoryBackend()
+			require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+			require.NoError(t, b.RegisterActivityType("dom", "act1", "1.0", "", swf.ActivityTypeDefaults{}))
+
+			if tt.deprecateFirst {
+				require.NoError(t, b.DeprecateActivityType("dom", "act1", "1.0"))
+			}
+
+			err := b.DeleteActivityType("dom", "act1", "1.0")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				_, describeErr := b.DescribeActivityType("dom", "act1", "1.0")
+				require.NoError(t, describeErr, "type must remain registered when delete is rejected")
+
+				return
+			}
+			require.NoError(t, err)
+
+			_, err = b.DescribeActivityType("dom", "act1", "1.0")
+			assert.ErrorIs(t, err, swf.ErrNotFound)
+		})
+	}
+}
+
+// TestDeleteActivityType_NotFound verifies deleting an unregistered activity
+// type fails with UnknownResourceFault.
+func TestDeleteActivityType_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+
+	err := b.DeleteActivityType("dom", "nonexistent", "1.0")
+	require.ErrorIs(t, err, swf.ErrNotFound)
+}

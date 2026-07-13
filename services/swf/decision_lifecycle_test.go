@@ -648,3 +648,110 @@ func TestListClosedWorkflowExecutions_CloseStatusFilter(t *testing.T) {
 		})
 	}
 }
+
+// TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate verifies that
+// RequestCancelActivityTask/StartTimer/CancelTimer/RecordMarker decision
+// attributes sent over the wire actually reach the resulting history event's
+// attributes, instead of being silently dropped during JSON->Decision
+// conversion (the decisions were previously applied -- the correct event type
+// was recorded -- but every attribute the decider sent was discarded).
+func TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		decision      map[string]any
+		wantAttrs     map[string]any
+		name          string
+		wantEventType string
+		attrKey       string
+	}{
+		{
+			name: "RequestCancelActivityTask",
+			decision: map[string]any{
+				"decisionType": "RequestCancelActivityTask",
+				"requestCancelActivityTaskDecisionAttributes": map[string]any{
+					"activityId": "act-42",
+				},
+			},
+			wantEventType: "ActivityTaskCancelRequested",
+			attrKey:       "activityTaskCancelRequestedEventAttributes",
+			wantAttrs:     map[string]any{"activityId": "act-42"},
+		},
+		{
+			name: "StartTimer",
+			decision: map[string]any{
+				"decisionType": "StartTimer",
+				"startTimerDecisionAttributes": map[string]any{
+					"timerId":            "timer-1",
+					"startToFireTimeout": "60",
+				},
+			},
+			wantEventType: "TimerStarted",
+			attrKey:       "timerStartedEventAttributes",
+			wantAttrs:     map[string]any{"timerId": "timer-1", "startToFireTimeout": "60"},
+		},
+		{
+			name: "CancelTimer",
+			decision: map[string]any{
+				"decisionType": "CancelTimer",
+				"cancelTimerDecisionAttributes": map[string]any{
+					"timerId": "timer-1",
+				},
+			},
+			wantEventType: "TimerCanceled",
+			attrKey:       "timerCanceledEventAttributes",
+			wantAttrs:     map[string]any{"timerId": "timer-1"},
+		},
+		{
+			name: "RecordMarker",
+			decision: map[string]any{
+				"decisionType": "RecordMarker",
+				"recordMarkerDecisionAttributes": map[string]any{
+					"markerName": "checkpoint",
+					"details":    "step-3",
+				},
+			},
+			wantEventType: "MarkerRecorded",
+			attrKey:       "markerRecordedEventAttributes",
+			wantAttrs:     map[string]any{"markerName": "checkpoint", "details": "step-3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := swf.NewInMemoryBackend()
+			require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+			_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+				Domain:     "dom",
+				WorkflowID: "wf-1",
+				TaskList:   "default",
+			})
+			require.NoError(t, err)
+
+			token := pollDecisionTask(t, b, "dom", "default")
+			h := swf.NewHandler(b)
+			rec := doSWFRequest(t, h, "RespondDecisionTaskCompleted", map[string]any{
+				"taskToken": token,
+				"decisions": []map[string]any{tt.decision},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+			var found *swf.HistoryEvent
+			for i := range events {
+				if events[i].EventType == tt.wantEventType {
+					found = &events[i]
+				}
+			}
+			require.NotNil(t, found, "expected %s event in history", tt.wantEventType)
+
+			attrs, ok := found.Attributes[tt.attrKey].(map[string]any)
+			require.True(t, ok, "expected attributes under %s", tt.attrKey)
+			for k, want := range tt.wantAttrs {
+				assert.Equal(t, want, attrs[k], "attribute %s", k)
+			}
+		})
+	}
+}

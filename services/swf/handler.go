@@ -58,6 +58,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CountOpenWorkflowExecutions",
 		"CountPendingActivityTasks",
 		"CountPendingDecisionTasks",
+		"DeleteActivityType",
+		"DeleteWorkflowType",
 		"DeprecateActivityType",
 		"DeprecateDomain",
 		"DeprecateWorkflowType",
@@ -149,7 +151,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
-			"SWF", "application/x-amz-json-1.1",
+			"SWF", "application/x-amz-json-1.0",
 			h.GetSupportedOperations(),
 			h.dispatch,
 			h.handleError,
@@ -169,11 +171,13 @@ func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 		"DescribeWorkflowType":           service.WrapOp(h.handleDescribeWorkflowType),
 		"DeprecateWorkflowType":          service.WrapOp(h.handleDeprecateWorkflowType),
 		"UndeprecateWorkflowType":        service.WrapOp(h.handleUndeprecateWorkflowType),
+		"DeleteWorkflowType":             service.WrapOp(h.handleDeleteWorkflowType),
 		"RegisterActivityType":           service.WrapOp(h.handleRegisterActivityType),
 		"ListActivityTypes":              service.WrapOp(h.handleListActivityTypes),
 		"DescribeActivityType":           service.WrapOp(h.handleDescribeActivityType),
 		"DeprecateActivityType":          service.WrapOp(h.handleDeprecateActivityType),
 		"UndeprecateActivityType":        service.WrapOp(h.handleUndeprecateActivityType),
+		"DeleteActivityType":             service.WrapOp(h.handleDeleteActivityType),
 		"CountOpenWorkflowExecutions":    service.WrapOp(h.handleCountOpenWorkflowExecutions),
 		"CountClosedWorkflowExecutions":  service.WrapOp(h.handleCountClosedWorkflowExecutions),
 		"CountPendingActivityTasks":      service.WrapOp(h.handleCountPendingActivityTasks),
@@ -235,6 +239,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrTypeDeprecated):
 		code = http.StatusBadRequest
 		errType = "TypeDeprecatedFault"
+	case errors.Is(err, ErrTypeNotDeprecated):
+		code = http.StatusBadRequest
+		errType = "TypeNotDeprecatedFault"
 	case errors.Is(err, ErrTooManyTags):
 		code = http.StatusBadRequest
 		errType = "TooManyTagsFault"
@@ -606,6 +613,26 @@ func (h *Handler) handleUndeprecateWorkflowType(
 	return &undeprecateWorkflowTypeOutput{}, nil
 }
 
+// --- DeleteWorkflowType ---
+
+type deleteWorkflowTypeOutput struct{}
+
+type handleDeleteWorkflowTypeInput struct {
+	Domain       string          `json:"domain"`
+	WorkflowType workflowTypeRef `json:"workflowType"`
+}
+
+func (h *Handler) handleDeleteWorkflowType(
+	_ context.Context,
+	in *handleDeleteWorkflowTypeInput,
+) (*deleteWorkflowTypeOutput, error) {
+	if err := h.Backend.DeleteWorkflowType(in.Domain, in.WorkflowType.Name, in.WorkflowType.Version); err != nil {
+		return nil, err
+	}
+
+	return &deleteWorkflowTypeOutput{}, nil
+}
+
 // --- RegisterActivityType ---
 
 type registerActivityTypeOutput struct{}
@@ -786,6 +813,26 @@ func (h *Handler) handleUndeprecateActivityType(
 	}
 
 	return &undeprecateActivityTypeOutput{}, nil
+}
+
+// --- DeleteActivityType ---
+
+type deleteActivityTypeOutput struct{}
+
+type handleDeleteActivityTypeInput struct {
+	Domain       string          `json:"domain"`
+	ActivityType activityTypeRef `json:"activityType"`
+}
+
+func (h *Handler) handleDeleteActivityType(
+	_ context.Context,
+	in *handleDeleteActivityTypeInput,
+) (*deleteActivityTypeOutput, error) {
+	if err := h.Backend.DeleteActivityType(in.Domain, in.ActivityType.Name, in.ActivityType.Version); err != nil {
+		return nil, err
+	}
+
+	return &deleteActivityTypeOutput{}, nil
 }
 
 // --- Execution counts ---
@@ -1600,6 +1647,75 @@ type handleRespondDecisionTaskCompletedInput struct {
 
 type respondDecisionTaskCompletedOutput struct{}
 
+// convertDecisionCloseAttrs copies the workflow-closing decision attributes
+// (Complete/Fail/Cancel/ScheduleActivityTask) from the wire input onto dec.
+func convertDecisionCloseAttrs(d decisionInput, dec *Decision) {
+	if d.CompleteWorkflowExecutionDecisionAttributes != nil {
+		dec.CompleteWorkflowExecutionAttrs = &CompleteWorkflowExecutionDecisionAttrs{
+			Result: d.CompleteWorkflowExecutionDecisionAttributes.Result,
+		}
+	}
+	if d.FailWorkflowExecutionDecisionAttributes != nil {
+		dec.FailWorkflowExecutionAttrs = &FailWorkflowExecutionDecisionAttrs{
+			Reason:  d.FailWorkflowExecutionDecisionAttributes.Reason,
+			Details: d.FailWorkflowExecutionDecisionAttributes.Details,
+		}
+	}
+	if d.CancelWorkflowExecutionDecisionAttributes != nil {
+		dec.CancelWorkflowExecutionAttrs = &CancelWorkflowExecutionDecisionAttrs{
+			Details: d.CancelWorkflowExecutionDecisionAttributes.Details,
+		}
+	}
+	if d.ScheduleActivityTaskDecisionAttributes != nil {
+		sa := d.ScheduleActivityTaskDecisionAttributes
+		taskList := ""
+		if sa.TaskList != nil {
+			taskList = sa.TaskList.Name
+		}
+		dec.ScheduleActivityTaskAttrs = &ScheduleActivityTaskDecisionAttrs{
+			ActivityType: ActivityTaskActivityType{
+				Name:    sa.ActivityType.Name,
+				Version: sa.ActivityType.Version,
+			},
+			ActivityID:             sa.ActivityID,
+			Input:                  sa.Input,
+			TaskList:               taskList,
+			ScheduleToCloseTimeout: sa.ScheduleToCloseTimeout,
+			ScheduleToStartTimeout: sa.ScheduleToStartTimeout,
+			StartToCloseTimeout:    sa.StartToCloseTimeout,
+			HeartbeatTimeout:       sa.HeartbeatTimeout,
+		}
+	}
+}
+
+// convertDecisionTaskAttrs copies the task/timer/marker decision attributes
+// (RequestCancelActivityTask/StartTimer/CancelTimer/RecordMarker) from the
+// wire input onto dec.
+func convertDecisionTaskAttrs(d decisionInput, dec *Decision) {
+	if d.RequestCancelActivityTaskDecisionAttributes != nil {
+		dec.RequestCancelActivityTaskAttrs = &RequestCancelActivityTaskDecisionAttrs{
+			ActivityID: d.RequestCancelActivityTaskDecisionAttributes.ActivityID,
+		}
+	}
+	if d.StartTimerDecisionAttributes != nil {
+		dec.StartTimerAttrs = &StartTimerDecisionAttrs{
+			TimerID:            d.StartTimerDecisionAttributes.TimerID,
+			StartToFireTimeout: d.StartTimerDecisionAttributes.StartToFireTimeout,
+		}
+	}
+	if d.CancelTimerDecisionAttributes != nil {
+		dec.CancelTimerAttrs = &CancelTimerDecisionAttrs{
+			TimerID: d.CancelTimerDecisionAttributes.TimerID,
+		}
+	}
+	if d.RecordMarkerDecisionAttributes != nil {
+		dec.RecordMarkerAttrs = &RecordMarkerDecisionAttrs{
+			MarkerName: d.RecordMarkerDecisionAttributes.MarkerName,
+			Details:    d.RecordMarkerDecisionAttributes.Details,
+		}
+	}
+}
+
 func (h *Handler) handleRespondDecisionTaskCompleted(
 	_ context.Context,
 	in *handleRespondDecisionTaskCompletedInput,
@@ -1607,42 +1723,8 @@ func (h *Handler) handleRespondDecisionTaskCompleted(
 	decisions := make([]Decision, 0, len(in.Decisions))
 	for _, d := range in.Decisions {
 		dec := Decision{DecisionType: d.DecisionType}
-		if d.CompleteWorkflowExecutionDecisionAttributes != nil {
-			dec.CompleteWorkflowExecutionAttrs = &CompleteWorkflowExecutionDecisionAttrs{
-				Result: d.CompleteWorkflowExecutionDecisionAttributes.Result,
-			}
-		}
-		if d.FailWorkflowExecutionDecisionAttributes != nil {
-			dec.FailWorkflowExecutionAttrs = &FailWorkflowExecutionDecisionAttrs{
-				Reason:  d.FailWorkflowExecutionDecisionAttributes.Reason,
-				Details: d.FailWorkflowExecutionDecisionAttributes.Details,
-			}
-		}
-		if d.CancelWorkflowExecutionDecisionAttributes != nil {
-			dec.CancelWorkflowExecutionAttrs = &CancelWorkflowExecutionDecisionAttrs{
-				Details: d.CancelWorkflowExecutionDecisionAttributes.Details,
-			}
-		}
-		if d.ScheduleActivityTaskDecisionAttributes != nil {
-			sa := d.ScheduleActivityTaskDecisionAttributes
-			taskList := ""
-			if sa.TaskList != nil {
-				taskList = sa.TaskList.Name
-			}
-			dec.ScheduleActivityTaskAttrs = &ScheduleActivityTaskDecisionAttrs{
-				ActivityType: ActivityTaskActivityType{
-					Name:    sa.ActivityType.Name,
-					Version: sa.ActivityType.Version,
-				},
-				ActivityID:             sa.ActivityID,
-				Input:                  sa.Input,
-				TaskList:               taskList,
-				ScheduleToCloseTimeout: sa.ScheduleToCloseTimeout,
-				ScheduleToStartTimeout: sa.ScheduleToStartTimeout,
-				StartToCloseTimeout:    sa.StartToCloseTimeout,
-				HeartbeatTimeout:       sa.HeartbeatTimeout,
-			}
-		}
+		convertDecisionCloseAttrs(d, &dec)
+		convertDecisionTaskAttrs(d, &dec)
 		decisions = append(decisions, dec)
 	}
 	if err := h.Backend.RespondDecisionTaskCompleted(in.TaskToken, in.ExecutionContext, decisions); err != nil {

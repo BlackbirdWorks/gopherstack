@@ -44,7 +44,7 @@ func TestRefinement1_HandlerOpsLen(t *testing.T) {
 
 	b := swf.NewInMemoryBackend()
 	h := swf.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 37)
+	assert.Len(t, h.GetSupportedOperations(), 39)
 }
 
 // TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
@@ -123,7 +123,7 @@ func TestRefinement1_ExportCounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, swf.ExecutionCount(b))
 
-	assert.Equal(t, 37, swf.HandlerOpsLen(swf.NewHandler(b)))
+	assert.Equal(t, 39, swf.HandlerOpsLen(swf.NewHandler(b)))
 }
 
 // TestRefinement1_ErrValidation_RegisterDomain verifies empty name returns ErrValidation.
