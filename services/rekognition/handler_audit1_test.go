@@ -344,7 +344,11 @@ func TestRekognition_StreamProcessors(t *testing.T) {
 				t.Helper()
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Equal(t, "ResourceAlreadyExistsException", resp["__type"])
+				// AWS reports a duplicate stream processor name as
+				// ResourceInUseException, not ResourceAlreadyExistsException
+				// (verified against aws-sdk-go-v2/service/rekognition's
+				// CreateStreamProcessor error deserializer switch).
+				assert.Equal(t, "ResourceInUseException", resp["__type"])
 			},
 		},
 		{

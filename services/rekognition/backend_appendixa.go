@@ -24,12 +24,23 @@ const (
 var (
 	// ErrProjectNotFound is returned when a project does not exist.
 	ErrProjectNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrProjectAlreadyExists is returned when a project name is already in
+	// use. Maps to ResourceInUseException (not ResourceAlreadyExistsException
+	// -- see ErrNameInUse in backend.go).
+	ErrProjectAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
 	// ErrProjectVersionNotFound is returned when a project version does not exist.
 	ErrProjectVersionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrProjectVersionAlreadyExists is returned when a project version name
+	// is already in use. Maps to ResourceInUseException (see ErrNameInUse).
+	ErrProjectVersionAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
 	// ErrDatasetNotFound is returned when a dataset does not exist.
 	ErrDatasetNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrUserNotFound is returned when a user does not exist.
 	ErrUserNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrUserAlreadyExists is returned when a UserId is already registered
+	// in the collection. Maps to ConflictException (not
+	// ResourceAlreadyExistsException -- see ErrUserConflict in backend.go).
+	ErrUserAlreadyExists = awserr.New(errConflictException, ErrUserConflict)
 	// ErrLivenessSessionNotFound is returned when a liveness session does not exist.
 	ErrLivenessSessionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrAsyncJobNotFound is returned when an async job does not exist.
@@ -198,7 +209,7 @@ func (b *InMemoryBackend) CreateProject(name string) (*Project, error) {
 	arn := b.projectARN(name)
 
 	if b.projects.Has(arn) {
-		return nil, ErrCollectionAlreadyExists
+		return nil, ErrProjectAlreadyExists
 	}
 
 	p := &storedProject{
@@ -294,7 +305,7 @@ func (b *InMemoryBackend) CreateProjectVersion(projectARN, versionName string) (
 	arn := b.projectVersionARN(projectARN, versionName)
 
 	if b.projectVersions.Has(arn) {
-		return nil, ErrCollectionAlreadyExists
+		return nil, ErrProjectVersionAlreadyExists
 	}
 
 	v := &storedProjectVersion{
@@ -833,7 +844,7 @@ func (b *InMemoryBackend) CreateUser(collectionID, userID string) error {
 
 	key := userKey(collectionID, userID)
 	if b.users.Has(key) {
-		return ErrCollectionAlreadyExists
+		return ErrUserAlreadyExists
 	}
 
 	b.users.Put(&storedUser{

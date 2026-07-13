@@ -18,6 +18,7 @@ import (
 const (
 	errResourceNotFound  = "ResourceNotFoundException"
 	errConflictException = "ConflictException"
+	errResourceInUse     = "ResourceInUseException"
 	errValidation        = "ValidationException"
 
 	faceModelVersion = "7.0"
@@ -55,14 +56,30 @@ const (
 )
 
 var (
+	// ErrNameInUse is a sentinel for Create* operations whose Name/Arn is
+	// already taken by a resource type that the real AWS API reports as
+	// ResourceInUseException -- stream processors, projects, and project
+	// versions -- as opposed to ResourceAlreadyExistsException (collections,
+	// datasets) or ConflictException (users). Verified against
+	// aws-sdk-go-v2/service/rekognition's per-operation deserializers.go
+	// error switches (each generated Create* op only recognizes a specific
+	// exception type; anything else deserializes as an untyped
+	// smithy.GenericAPIError, breaking SDK-side `errors.As` typed matching).
+	ErrNameInUse = errors.New("resource name already in use")
+	// ErrUserConflict is returned when CreateUser is called with a UserId
+	// that already exists; AWS reports this as ConflictException (not
+	// ResourceAlreadyExistsException).
+	ErrUserConflict = errors.New("user already exists")
+
 	// ErrCollectionNotFound is returned when a collection does not exist.
 	ErrCollectionNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrCollectionAlreadyExists is returned when a collection already exists.
 	ErrCollectionAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
 	// ErrStreamProcessorNotFound is returned when a stream processor does not exist.
 	ErrStreamProcessorNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
-	// ErrStreamProcessorAlreadyExists is returned when a stream processor already exists.
-	ErrStreamProcessorAlreadyExists = awserr.New(errConflictException, awserr.ErrAlreadyExists)
+	// ErrStreamProcessorAlreadyExists is returned when a stream processor already
+	// exists. Maps to ResourceInUseException, not ResourceAlreadyExistsException.
+	ErrStreamProcessorAlreadyExists = awserr.New(errResourceInUse, ErrNameInUse)
 	// ErrFaceNotFound is returned when a face does not exist in a collection.
 	ErrFaceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
@@ -789,6 +806,11 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return tags, nil
 }
 
+// resourceExists reports whether resourceARN identifies a taggable
+// Rekognition resource. Per aws-sdk-go-v2/service/rekognition's
+// api_op_TagResource.go doc comment, TagResource applies to "an Amazon
+// Rekognition collection, stream processor, or Custom Labels model" --
+// the latter is a project *version* ARN, not the project ARN itself.
 func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 	for _, c := range b.collections.All() {
 		if c.CollectionARN == resourceARN {
@@ -798,6 +820,12 @@ func (b *InMemoryBackend) resourceExists(resourceARN string) bool {
 
 	for _, p := range b.streamProcessors.All() {
 		if p.StreamProcessorARN == resourceARN {
+			return true
+		}
+	}
+
+	for _, v := range b.projectVersions.All() {
+		if v.ProjectVersionARN == resourceARN {
 			return true
 		}
 	}

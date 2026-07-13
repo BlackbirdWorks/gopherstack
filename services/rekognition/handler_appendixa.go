@@ -129,9 +129,9 @@ type describeProjectsReq struct { //nolint:govet // existing issue.
 }
 
 type projectDescription struct {
-	ProjectArn        string `json:"ProjectArn"`
-	Status            string `json:"Status"`
-	CreationTimestamp string `json:"CreationTimestamp"`
+	ProjectArn        string  `json:"ProjectArn"`
+	Status            string  `json:"Status"`
+	CreationTimestamp float64 `json:"CreationTimestamp"`
 }
 
 type describeProjectsResp struct {
@@ -152,7 +152,7 @@ func (h *Handler) handleDescribeProjects(
 		descriptions = append(descriptions, projectDescription{
 			ProjectArn:        p.ProjectARN,
 			Status:            p.Status,
-			CreationTimestamp: p.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+			CreationTimestamp: epochSeconds(p.CreationTimestamp),
 		})
 	}
 
@@ -224,10 +224,10 @@ type describeProjectVersionsReq struct { //nolint:govet // existing issue.
 }
 
 type projectVersionDescription struct {
-	ProjectVersionArn string `json:"ProjectVersionArn"`
-	Status            string `json:"Status"`
-	StatusMessage     string `json:"StatusMessage,omitempty"`
-	CreationTimestamp string `json:"CreationTimestamp"`
+	ProjectVersionArn string  `json:"ProjectVersionArn"`
+	Status            string  `json:"Status"`
+	StatusMessage     string  `json:"StatusMessage,omitempty"`
+	CreationTimestamp float64 `json:"CreationTimestamp"`
 }
 
 type describeProjectVersionsResp struct {
@@ -251,7 +251,7 @@ func (h *Handler) handleDescribeProjectVersions(
 			ProjectVersionArn: v.ProjectVersionARN,
 			Status:            v.Status,
 			StatusMessage:     v.StatusMessage,
-			CreationTimestamp: v.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+			CreationTimestamp: epochSeconds(v.CreationTimestamp),
 		})
 	}
 
@@ -348,12 +348,12 @@ type listProjectPoliciesReq struct {
 }
 
 type projectPolicyEntry struct {
-	ProjectArn           string `json:"ProjectArn"`
-	PolicyName           string `json:"PolicyName"`
-	PolicyRevisionId     string `json:"PolicyRevisionId"` //nolint:revive,staticcheck // existing issue.
-	PolicyDocument       string `json:"PolicyDocument"`
-	CreationTimestamp    string `json:"CreationTimestamp"`
-	LastUpdatedTimestamp string `json:"LastUpdatedTimestamp"`
+	ProjectArn           string  `json:"ProjectArn"`
+	PolicyName           string  `json:"PolicyName"`
+	PolicyRevisionId     string  `json:"PolicyRevisionId"` //nolint:revive,staticcheck // existing issue.
+	PolicyDocument       string  `json:"PolicyDocument"`
+	CreationTimestamp    float64 `json:"CreationTimestamp"`
+	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp"`
 }
 
 type listProjectPoliciesResp struct {
@@ -380,8 +380,8 @@ func (h *Handler) handleListProjectPolicies(
 			PolicyName:           p.PolicyName,
 			PolicyRevisionId:     p.PolicyRevisionID,
 			PolicyDocument:       p.PolicyDocument,
-			CreationTimestamp:    p.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedTimestamp: p.LastUpdatedTimestamp.Format("2006-01-02T15:04:05.000Z"),
+			CreationTimestamp:    epochSeconds(p.CreationTimestamp),
+			LastUpdatedTimestamp: epochSeconds(p.LastUpdatedTimestamp),
 		})
 	}
 
@@ -498,13 +498,13 @@ type describeDatasetReq struct {
 }
 
 type datasetDescription struct {
-	DatasetArn           string `json:"DatasetArn"`
-	ProjectArn           string `json:"ProjectArn"`
-	DatasetType          string `json:"DatasetType"`
-	Status               string `json:"Status"`
-	StatusMessage        string `json:"StatusMessage,omitempty"`
-	CreationTimestamp    string `json:"CreationTimestamp"`
-	LastUpdatedTimestamp string `json:"LastUpdatedTimestamp"`
+	DatasetArn           string  `json:"DatasetArn"`
+	ProjectArn           string  `json:"ProjectArn"`
+	DatasetType          string  `json:"DatasetType"`
+	Status               string  `json:"Status"`
+	StatusMessage        string  `json:"StatusMessage,omitempty"`
+	CreationTimestamp    float64 `json:"CreationTimestamp"`
+	LastUpdatedTimestamp float64 `json:"LastUpdatedTimestamp"`
 }
 
 type describeDatasetResp struct {
@@ -530,8 +530,8 @@ func (h *Handler) handleDescribeDataset(
 			DatasetType:          ds.DatasetType,
 			Status:               ds.Status,
 			StatusMessage:        ds.StatusMessage,
-			CreationTimestamp:    ds.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
-			LastUpdatedTimestamp: ds.LastUpdatedTimestamp.Format("2006-01-02T15:04:05.000Z"),
+			CreationTimestamp:    epochSeconds(ds.CreationTimestamp),
+			LastUpdatedTimestamp: epochSeconds(ds.LastUpdatedTimestamp),
 		},
 	}, nil
 }
@@ -1714,17 +1714,17 @@ type getMediaAnalysisJobReq struct {
 }
 
 type mediaAnalysisJobDescription struct {
-	JobId             string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
-	JobName           string `json:"JobName"`
-	Status            string `json:"Status"`
-	CreationTimestamp string `json:"CreationTimestamp"`
+	JobId             string  `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	JobName           string  `json:"JobName"`
+	Status            string  `json:"Status"`
+	CreationTimestamp float64 `json:"CreationTimestamp"`
 }
 
 type getMediaAnalysisJobResp struct {
-	JobId             string `json:"JobId"` //nolint:revive,staticcheck // existing issue.
-	JobName           string `json:"JobName"`
-	Status            string `json:"Status"`
-	CreationTimestamp string `json:"CreationTimestamp"`
+	JobId             string  `json:"JobId"` //nolint:revive,staticcheck // existing issue.
+	JobName           string  `json:"JobName"`
+	Status            string  `json:"Status"`
+	CreationTimestamp float64 `json:"CreationTimestamp"`
 }
 
 func (h *Handler) handleGetMediaAnalysisJob(
@@ -1743,7 +1743,7 @@ func (h *Handler) handleGetMediaAnalysisJob(
 		JobId:             job.JobID,
 		JobName:           job.JobName,
 		Status:            job.Status,
-		CreationTimestamp: job.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+		CreationTimestamp: epochSeconds(job.CreationTimestamp),
 	}, nil
 }
 
@@ -1771,7 +1771,7 @@ func (h *Handler) handleListMediaAnalysisJobs(
 			JobId:             j.JobID,
 			JobName:           j.JobName,
 			Status:            j.Status,
-			CreationTimestamp: j.CreationTimestamp.Format("2006-01-02T15:04:05.000Z"),
+			CreationTimestamp: epochSeconds(j.CreationTimestamp),
 		})
 	}
 
