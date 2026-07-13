@@ -55,26 +55,33 @@ var (
 	// ErrMissingContainerName is returned when the container name is missing.
 	ErrMissingContainerName = errors.New("ContainerName is required")
 	// ErrInvalidContainerName is returned when the container name is invalid.
+	//
+	// The message intentionally does NOT repeat the "ValidationException:" type
+	// prefix: writeBackendError already carries that in the response envelope's
+	// __type field (see JSONErrorResponse), so baking it into the message text
+	// too would double it up on the wire (e.g. "ValidationException:
+	// ValidationException: ...", as every AWS SDK formats client-visible errors
+	// as "api error <Type>: <message>").
 	ErrInvalidContainerName = errors.New(
-		"ValidationException: container name must be 1-255 characters" +
+		"container name must be 1-255 characters" +
 			" and contain only letters, numbers, hyphens, and underscores",
 	)
 	// ErrInvalidPolicy is returned when a policy string is not valid JSON.
-	ErrInvalidPolicy = errors.New("ValidationException: policy must be valid JSON")
+	ErrInvalidPolicy = errors.New("policy must be valid JSON")
 	// ErrCorsRuleInvalid is returned when a CORS rule is missing required fields.
 	ErrCorsRuleInvalid = errors.New(
-		"ValidationException: each CORS rule must have at least one AllowedOrigin and one AllowedHeader",
+		"each CORS rule must have at least one AllowedOrigin and one AllowedHeader",
 	)
 	// ErrInvalidMetricPolicy is returned when ContainerLevelMetrics has an invalid value.
 	ErrInvalidMetricPolicy = errors.New(
-		"ValidationException: ContainerLevelMetrics must be ENABLED or DISABLED",
+		"ContainerLevelMetrics must be ENABLED or DISABLED",
 	)
 	// ErrTooManyMetricRules is returned when more than 5 metric policy rules are provided.
 	ErrTooManyMetricRules = errors.New(
-		"ValidationException: metric policy may have at most 5 rules",
+		"metric policy may have at most 5 rules",
 	)
 	// ErrEmptyTagKey is returned when a tag with an empty key is provided.
-	ErrEmptyTagKey = errors.New("ValidationException: tag key must not be empty")
+	ErrEmptyTagKey = errors.New("tag key must not be empty")
 
 	// containerNameRE is the allowed character set for container names.
 	containerNameRE = regexp.MustCompile(`^[a-zA-Z0-9\-_]+$`)
