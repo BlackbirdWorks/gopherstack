@@ -177,8 +177,69 @@ type createWorkspaceProps struct {
 }
 
 type createWorkspacesOutput struct {
-	FailedRequests  []failedRequestItem `json:"FailedRequests"`
-	PendingRequests []pendingWorkspace  `json:"PendingRequests"`
+	FailedRequests  []failedCreateWorkspaceItem `json:"FailedRequests"`
+	PendingRequests []pendingWorkspace          `json:"PendingRequests"`
+}
+
+// workspaceRequestResp echoes the WorkspaceRequest that failed to create, matching
+// the real WorkspaceRequest shape (a distinct, narrower shape than Workspace/pendingWorkspace:
+// no WorkspaceId/State/SubnetId, since the WorkSpace was never created).
+type workspaceRequestResp struct {
+	WorkspaceProperties         *workspacePropertiesResp `json:"WorkspaceProperties,omitempty"`
+	BundleID                    string                   `json:"BundleId,omitempty"`
+	DirectoryID                 string                   `json:"DirectoryId,omitempty"`
+	UserName                    string                   `json:"UserName,omitempty"`
+	VolumeEncryptionKey         string                   `json:"VolumeEncryptionKey,omitempty"`
+	Tags                        []tagItem                `json:"Tags,omitempty"`
+	UserVolumeEncryptionEnabled bool                     `json:"UserVolumeEncryptionEnabled,omitempty"`
+	RootVolumeEncryptionEnabled bool                     `json:"RootVolumeEncryptionEnabled,omitempty"`
+}
+
+// failedCreateWorkspaceItem is the JSON representation of a FailedCreateWorkspaceRequest.
+type failedCreateWorkspaceItem struct {
+	WorkspaceRequest *workspaceRequestResp `json:"WorkspaceRequest,omitempty"`
+	ErrorCode        string                `json:"ErrorCode,omitempty"`
+	ErrorMessage     string                `json:"ErrorMessage,omitempty"`
+}
+
+func specToWorkspaceRequestResp(spec createWorkspaceSpec) *workspaceRequestResp {
+	tags := make([]tagItem, len(spec.Tags))
+	copy(tags, spec.Tags)
+
+	var props *workspacePropertiesResp
+	if spec.WorkspaceProperties != nil {
+		props = &workspacePropertiesResp{
+			ComputeTypeName:                     spec.WorkspaceProperties.ComputeTypeName,
+			RunningMode:                         spec.WorkspaceProperties.RunningMode,
+			RootVolumeSizeGib:                   spec.WorkspaceProperties.RootVolumeSizeGib,
+			RunningModeAutoStopTimeoutInMinutes: spec.WorkspaceProperties.RunningModeAutoStopTimeoutInMinutes,
+			UserVolumeSizeGib:                   spec.WorkspaceProperties.UserVolumeSizeGib,
+		}
+	}
+
+	return &workspaceRequestResp{
+		BundleID:                    spec.BundleID,
+		DirectoryID:                 spec.DirectoryID,
+		UserName:                    spec.UserName,
+		VolumeEncryptionKey:         spec.VolumeEncryptionKey,
+		UserVolumeEncryptionEnabled: spec.UserVolumeEncryptionEnabled,
+		RootVolumeEncryptionEnabled: spec.RootVolumeEncryptionEnabled,
+		Tags:                        tags,
+		WorkspaceProperties:         props,
+	}
+}
+
+// classifyCreateError maps a backend error to the (ErrorCode, ErrorMessage) pair
+// reported in a FailedCreateWorkspaceRequest item.
+func classifyCreateError(err error) (string, string) {
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return errResourceNotFound, err.Error()
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return errInvalidParameterValues, err.Error()
+	default:
+		return "InternalServerException", err.Error()
+	}
 }
 
 type pendingWorkspace struct {
@@ -196,31 +257,30 @@ type pendingWorkspace struct {
 
 func validateCreateWorkspacesInput(req *createWorkspacesInput) error {
 	if len(req.Workspaces) == 0 {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"Workspaces list must not be empty")
+		return awserr.New("Workspaces list must not be empty", awserr.ErrInvalidParameter)
 	}
 
 	if len(req.Workspaces) > maxWorkspacesPerCreate {
-		return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"too many workspaces: maximum is %d per request", maxWorkspacesPerCreate)
+		return awserr.Newf(
+			"too many workspaces: maximum is %d per request",
+			awserr.ErrInvalidParameter, maxWorkspacesPerCreate)
 	}
 
 	for i, spec := range req.Workspaces {
 		switch {
 		case spec.UserName == "":
-			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-				"workspace[%d]: UserName is required", i)
+			return awserr.Newf(
+				"workspace[%d]: UserName is required", awserr.ErrInvalidParameter, i)
 		case spec.DirectoryID == "":
-			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-				"workspace[%d]: DirectoryId is required", i)
+			return awserr.Newf(
+				"workspace[%d]: DirectoryId is required", awserr.ErrInvalidParameter, i)
 		case spec.BundleID == "":
-			return awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-				"workspace[%d]: BundleId is required", i)
+			return awserr.Newf(
+				"workspace[%d]: BundleId is required", awserr.ErrInvalidParameter, i)
 		case len(spec.Tags) > maxTagsPerResource:
 			return awserr.Newf(
-				errInvalidParameterValues,
-				awserr.ErrInvalidParameter,
 				"workspace[%d]: too many tags (%d); maximum is %d",
+				awserr.ErrInvalidParameter,
 				i,
 				len(spec.Tags),
 				maxTagsPerResource,
@@ -296,18 +356,30 @@ func (h *Handler) handleCreateWorkspaces(
 	}
 
 	pending := make([]pendingWorkspace, 0, len(req.Workspaces))
+	failed := make([]failedCreateWorkspaceItem, 0)
 
+	// Per AWS, CreateWorkspaces is a partial-failure batch operation: a runtime
+	// failure for one WorkspaceRequest (e.g. an unregistered DirectoryId) must not
+	// abort the rest of the batch. Only request-shape validation (handled above by
+	// validateCreateWorkspacesInput) fails the whole call.
 	for _, spec := range req.Workspaces {
 		ws, err := h.Backend.CreateWorkspace(ctx, specToCreationSpec(spec))
 		if err != nil {
-			return nil, err
+			code, message := classifyCreateError(err)
+			failed = append(failed, failedCreateWorkspaceItem{
+				WorkspaceRequest: specToWorkspaceRequestResp(spec),
+				ErrorCode:        code,
+				ErrorMessage:     message,
+			})
+
+			continue
 		}
 
 		pending = append(pending, wsToPending(ws))
 	}
 
 	return &createWorkspacesOutput{
-		FailedRequests:  []failedRequestItem{},
+		FailedRequests:  failed,
 		PendingRequests: pending,
 	}, nil
 }
@@ -575,8 +647,7 @@ type createTagsInput struct {
 
 func (h *Handler) handleCreateTags(_ context.Context, req *createTagsInput) (*emptyOutput, error) {
 	if req.ResourceID == "" {
-		return nil, awserr.Newf(errInvalidParameterValues, awserr.ErrInvalidParameter,
-			"ResourceId is required")
+		return nil, awserr.New("ResourceId is required", awserr.ErrInvalidParameter)
 	}
 
 	tags := make(map[string]string, len(req.Tags))

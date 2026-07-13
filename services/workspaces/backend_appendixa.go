@@ -1514,8 +1514,17 @@ func (b *InMemoryBackend) MigrateWorkspace( //nolint:nonamedreturns // existing 
 	return sourceWorkspaceID, newID, nil
 }
 
-// RestoreWorkspace is a no-op in the in-memory backend.
-func (b *InMemoryBackend) RestoreWorkspace(_ string) error {
+// RestoreWorkspace restores a WorkSpace from its most recent snapshot. This backend
+// does not model snapshots, so the operation is otherwise a no-op beyond existence
+// validation, matching real AWS's ResourceNotFoundException for unknown WorkspaceIds.
+func (b *InMemoryBackend) RestoreWorkspace(workspaceID string) error {
+	b.mu.RLock("RestoreWorkspace")
+	defer b.mu.RUnlock()
+
+	if !b.workspaces.Has(workspaceID) {
+		return ErrWorkspaceNotFound
+	}
+
 	return nil
 }
 
