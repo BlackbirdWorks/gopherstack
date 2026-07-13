@@ -57,7 +57,8 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	require.NoError(t, target.Restore(t.Context(), tampered))
 
-	monitors, _ := target.GetAnomalyMonitors(nil, 0, "")
+	monitors, _, err := target.GetAnomalyMonitors(nil, 0, "")
+	require.NoError(t, err)
 	assert.Empty(t, monitors, "mismatched-version snapshot data must not be adopted")
 
 	cats, _ := target.ListCostCategoryDefinitions(0, "")
@@ -90,6 +91,7 @@ func TestInMemoryBackend_RestoreMissingVersion(t *testing.T) {
 	target := ce.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, target.Restore(t.Context(), legacy))
 
-	monitors, _ := target.GetAnomalyMonitors(nil, 0, "")
+	monitors, _, err := target.GetAnomalyMonitors(nil, 0, "")
+	require.NoError(t, err)
 	assert.Empty(t, monitors)
 }

@@ -874,7 +874,7 @@ func TestParity_ProvideAnomalyFeedback_PersistsAndValidates(t *testing.T) {
 	}
 }
 
-func TestParity_ProvideAnomalyFeedback_NotFoundReturns404(t *testing.T) {
+func TestParity_ProvideAnomalyFeedback_NotFoundReturns400(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -882,7 +882,7 @@ func TestParity_ProvideAnomalyFeedback_NotFoundReturns404(t *testing.T) {
 		"AnomalyId": "nonexistent-anomaly",
 		"Feedback":  "YES",
 	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestParity_ProvideAnomalyFeedback_MissingIDReturns400(t *testing.T) {

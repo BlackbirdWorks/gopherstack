@@ -325,20 +325,41 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	switch {
+	case errors.Is(err, ErrUnknownMonitor):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "UnknownMonitorException",
+			Message: err.Error(),
+		})
+
+		// Real AWS CE returns HTTP 400 for every modeled client-fault exception (verified
+		// against API_DeleteAnomalyMonitor/API_UpdateAnomalyMonitor/API_GetAnomalyMonitors),
+		// not the generic 404/409 an unstyled REST mapping might suggest.
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, ErrUnknownSubscription):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "UnknownSubscriptionException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ResourceNotFoundException",
 			Message: err.Error(),
 		})
 
-		return c.JSONBlob(http.StatusNotFound, payload)
+		// See API_DescribeCostCategoryDefinition: ResourceNotFoundException is documented
+		// as HTTP 400, not 404.
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrAlreadyExists):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "ServiceQuotaExceededException",
 			Message: err.Error(),
 		})
 
-		return c.JSONBlob(http.StatusConflict, payload)
+		// See API_CreateCostCategoryDefinition: ServiceQuotaExceededException is documented
+		// as HTTP 400, not 409.
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrValidation):
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    "InvalidParameterException",
@@ -695,7 +716,11 @@ func (h *Handler) handleGetAnomalyMonitors(
 	_ context.Context,
 	in *getAnomalyMonitorsInput,
 ) (*getAnomalyMonitorsOutput, error) {
-	monitors, nextToken := h.Backend.GetAnomalyMonitors(in.MonitorArnList, in.MaxResults, in.NextPageToken)
+	monitors, nextToken, err := h.Backend.GetAnomalyMonitors(in.MonitorArnList, in.MaxResults, in.NextPageToken)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]anomalyMonitorSummary, 0, len(monitors))
 
 	for _, mon := range monitors {
@@ -851,9 +876,13 @@ func (h *Handler) handleGetAnomalySubscriptions(
 	_ context.Context,
 	in *getAnomalySubscriptionsInput,
 ) (*getAnomalySubscriptionsOutput, error) {
-	subs, nextToken := h.Backend.GetAnomalySubscriptions(
+	subs, nextToken, err := h.Backend.GetAnomalySubscriptions(
 		in.SubscriptionArnList, in.MonitorArn, in.MaxResults, in.NextPageToken,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]anomalySubscriptionSummary, 0, len(subs))
 
 	for _, sub := range subs {
