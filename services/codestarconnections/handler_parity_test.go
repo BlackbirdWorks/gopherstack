@@ -799,24 +799,27 @@ func TestParity_ListRepositorySyncDefinitions(t *testing.T) {
 	}
 }
 
-// TestParity_UpdateSyncBlocker_RequiresId verifies Id is required.
+// TestParity_UpdateSyncBlocker_RequiresId verifies Id is required, and that a
+// non-empty but unknown Id fails differently (SyncBlockerDoesNotExistException
+// from the backend) than an empty Id (InvalidInputException from input
+// validation, before the backend is ever consulted).
 func TestParity_UpdateSyncBlocker_RequiresId(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		id         string
-		wantStatus int
+		name        string
+		id          string
+		wantErrType string
 	}{
 		{
-			name:       "with_id",
-			id:         "blocker-abc",
-			wantStatus: http.StatusOK,
+			name:        "with_id_but_unknown",
+			id:          "blocker-abc",
+			wantErrType: "SyncBlockerDoesNotExistException",
 		},
 		{
-			name:       "missing_id",
-			id:         "",
-			wantStatus: http.StatusBadRequest,
+			name:        "missing_id",
+			id:          "",
+			wantErrType: "InvalidInputException",
 		},
 	}
 
@@ -835,7 +838,10 @@ func TestParity_UpdateSyncBlocker_RequiresId(t *testing.T) {
 			}
 
 			rec := doCSCRequest(t, h, "UpdateSyncBlocker", body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			resp := parseResp(t, rec)
+			assert.Equal(t, tt.wantErrType, resp["__type"])
 		})
 	}
 }

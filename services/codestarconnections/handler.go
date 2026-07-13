@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -235,8 +235,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, ErrNotFound):
 		errType, statusCode = "ResourceNotFoundException", http.StatusBadRequest
+	case errors.Is(err, ErrSyncBlockerNotFound):
+		errType, statusCode = "SyncBlockerDoesNotExistException", http.StatusBadRequest
 	case errors.Is(err, ErrResourceInUse):
-		errType, statusCode = "ResourceInUseException", http.StatusBadRequest
+		errType, statusCode = "ConflictException", http.StatusBadRequest
+	case errors.Is(err, ErrSyncConfigStillExists):
+		errType, statusCode = "SyncConfigurationStillExistsException", http.StatusBadRequest
+	case errors.Is(err, ErrResourceAlreadyExists):
+		errType, statusCode = "ResourceAlreadyExistsException", http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		errType, statusCode = "InvalidInputException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation):
@@ -303,7 +309,8 @@ type createConnectionInput struct {
 }
 
 type createConnectionOutput struct {
-	ConnectionArn string `json:"ConnectionArn"`
+	ConnectionArn string     `json:"ConnectionArn"`
+	Tags          []tagEntry `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateConnection(
@@ -321,7 +328,10 @@ func (h *Handler) handleCreateConnection(
 		return nil, err
 	}
 
-	return &createConnectionOutput{ConnectionArn: conn.ConnectionArn}, nil
+	return &createConnectionOutput{
+		ConnectionArn: conn.ConnectionArn,
+		Tags:          tagsToSortedArray(conn.Tags),
+	}, nil
 }
 
 type getConnectionInput struct {
@@ -435,7 +445,8 @@ type createHostInput struct {
 }
 
 type createHostOutput struct {
-	HostArn string `json:"HostArn"`
+	HostArn string     `json:"HostArn"`
+	Tags    []tagEntry `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateHost(
@@ -454,7 +465,10 @@ func (h *Handler) handleCreateHost(
 		return nil, err
 	}
 
-	return &createHostOutput{HostArn: host.HostArn}, nil
+	return &createHostOutput{
+		HostArn: host.HostArn,
+		Tags:    tagsToSortedArray(host.Tags),
+	}, nil
 }
 
 type getHostInput struct {
@@ -974,16 +988,16 @@ type getRepositorySyncStatusInput struct {
 }
 
 type syncEventItem struct {
-	Event      string `json:"Event"`
-	ExternalID string `json:"ExternalId,omitempty"`
-	Time       string `json:"Time"`
-	Type       string `json:"Type"`
+	Event      string  `json:"Event"`
+	ExternalID string  `json:"ExternalId,omitempty"`
+	Type       string  `json:"Type"`
+	Time       float64 `json:"Time"`
 }
 
 type repositorySyncAttemptItem struct {
-	StartedAt string          `json:"StartedAt"`
 	Status    string          `json:"Status"`
 	Events    []syncEventItem `json:"Events"`
+	StartedAt float64         `json:"StartedAt"`
 }
 
 type getRepositorySyncStatusOutput struct {
@@ -1015,7 +1029,7 @@ func (h *Handler) handleGetRepositorySyncStatus(
 
 	return &getRepositorySyncStatusOutput{
 		LatestSync: repositorySyncAttemptItem{
-			StartedAt: status.StartedAt.Format(time.RFC3339),
+			StartedAt: awstime.Epoch(status.StartedAt),
 			Status:    status.Status,
 			Events:    events,
 		},
@@ -1028,9 +1042,9 @@ type getResourceSyncStatusInput struct {
 }
 
 type resourceSyncAttemptItem struct {
-	StartedAt string          `json:"StartedAt"`
 	Status    string          `json:"Status"`
 	Events    []syncEventItem `json:"Events"`
+	StartedAt float64         `json:"StartedAt"`
 }
 
 type getResourceSyncStatusOutput struct {
@@ -1058,7 +1072,7 @@ func (h *Handler) handleGetResourceSyncStatus(
 
 	return &getResourceSyncStatusOutput{
 		LatestSync: resourceSyncAttemptItem{
-			StartedAt: status.StartedAt.Format(time.RFC3339),
+			StartedAt: awstime.Epoch(status.StartedAt),
 			Status:    status.Status,
 			Events:    events,
 		},
@@ -1071,13 +1085,34 @@ type getSyncBlockerSummaryInput struct {
 }
 
 type syncBlockerItem struct {
-	ID             string `json:"Id"`
-	Type           string `json:"Type"`
-	Status         string `json:"Status"`
-	CreatedAt      string `json:"CreatedAt"`
-	CreatedReason  string `json:"CreatedReason"`
-	ResolvedAt     string `json:"ResolvedAt,omitempty"`
-	ResolvedReason string `json:"ResolvedReason,omitempty"`
+	ID             string  `json:"Id"`
+	Type           string  `json:"Type"`
+	Status         string  `json:"Status"`
+	CreatedReason  string  `json:"CreatedReason"`
+	ResolvedReason string  `json:"ResolvedReason,omitempty"`
+	CreatedAt      float64 `json:"CreatedAt"`
+	ResolvedAt     float64 `json:"ResolvedAt,omitempty"`
+}
+
+// syncBlockerToItem converts a backend SyncBlocker to its wire shape.
+// CreatedAt/ResolvedAt are epoch-seconds numbers on the wire (see
+// awsAwsjson10_deserializeDocumentSyncBlocker in the real SDK), not RFC3339
+// strings.
+func syncBlockerToItem(b SyncBlocker) syncBlockerItem {
+	item := syncBlockerItem{
+		ID:            b.ID,
+		Type:          b.Type,
+		Status:        b.Status,
+		CreatedAt:     awstime.Epoch(b.CreatedAt),
+		CreatedReason: b.CreatedReason,
+	}
+
+	if b.ResolvedAt != nil {
+		item.ResolvedAt = awstime.Epoch(*b.ResolvedAt)
+		item.ResolvedReason = b.ResolvedReason
+	}
+
+	return item
 }
 
 type syncBlockerSummaryItem struct {
@@ -1109,20 +1144,7 @@ func (h *Handler) handleGetSyncBlockerSummary(
 
 	blockers := make([]syncBlockerItem, len(summary.LatestBlockers))
 	for i, b := range summary.LatestBlockers {
-		item := syncBlockerItem{
-			ID:            b.ID,
-			Type:          b.Type,
-			Status:        b.Status,
-			CreatedAt:     b.CreatedAt.Format(time.RFC3339),
-			CreatedReason: b.CreatedReason,
-		}
-
-		if b.ResolvedAt != nil {
-			item.ResolvedAt = b.ResolvedAt.Format(time.RFC3339)
-			item.ResolvedReason = b.ResolvedReason
-		}
-
-		blockers[i] = item
+		blockers[i] = syncBlockerToItem(b)
 	}
 
 	return &getSyncBlockerSummaryOutput{
@@ -1140,7 +1162,7 @@ func buildSyncEventItems(evts []SyncEvent) []syncEventItem {
 	for i, e := range evts {
 		out[i] = syncEventItem{
 			Event:      e.Event,
-			Time:       e.Time.Format(time.RFC3339),
+			Time:       awstime.Epoch(e.Time),
 			Type:       e.Type,
 			ExternalID: e.ExternalID,
 		}
@@ -1259,10 +1281,15 @@ type updateSyncBlockerInput struct {
 	SyncType       string `json:"SyncType"`
 }
 
+// updateSyncBlockerOutput is the UpdateSyncBlocker response shape. The real
+// operation returns the single updated SyncBlocker object under the
+// "SyncBlocker" key -- NOT a "SyncBlockerSummary" list (confirmed against
+// aws-sdk-go-v2's awsAwsjson10_deserializeOpDocumentUpdateSyncBlockerOutput,
+// which only recognizes ResourceName/ParentResourceName/SyncBlocker).
 type updateSyncBlockerOutput struct {
-	ResourceName       string                 `json:"ResourceName"`
-	ParentResourceName string                 `json:"ParentResourceName,omitempty"`
-	SyncBlockerSummary syncBlockerSummaryItem `json:"SyncBlockerSummary"`
+	ResourceName       string          `json:"ResourceName"`
+	ParentResourceName string          `json:"ParentResourceName,omitempty"`
+	SyncBlocker        syncBlockerItem `json:"SyncBlocker"`
 }
 
 func (h *Handler) handleUpdateSyncBlocker(
@@ -1278,30 +1305,23 @@ func (h *Handler) handleUpdateSyncBlocker(
 		return nil, err
 	}
 
-	blockers := make([]syncBlockerItem, len(summary.LatestBlockers))
-	for i, b := range summary.LatestBlockers {
-		item := syncBlockerItem{
-			ID:            b.ID,
-			Type:          b.Type,
-			Status:        b.Status,
-			CreatedAt:     b.CreatedAt.Format(time.RFC3339),
-			CreatedReason: b.CreatedReason,
-		}
+	// The backend returns every blocker for the owning resource; pick out the
+	// one that was just resolved (backend.UpdateSyncBlocker only succeeds when
+	// in.ID exists, so it is always present here).
+	var resolved SyncBlocker
 
-		if b.ResolvedAt != nil {
-			item.ResolvedAt = b.ResolvedAt.Format(time.RFC3339)
-			item.ResolvedReason = b.ResolvedReason
-		}
+	for _, b := range summary.LatestBlockers {
+		if b.ID == in.ID {
+			resolved = b
 
-		blockers[i] = item
+			break
+		}
 	}
 
 	return &updateSyncBlockerOutput{
-		ResourceName: summary.ResourceName,
-		SyncBlockerSummary: syncBlockerSummaryItem{
-			ResourceName:   summary.ResourceName,
-			LatestBlockers: blockers,
-		},
+		ResourceName:       summary.ResourceName,
+		ParentResourceName: summary.ParentResourceName,
+		SyncBlocker:        syncBlockerToItem(resolved),
 	}, nil
 }
 
