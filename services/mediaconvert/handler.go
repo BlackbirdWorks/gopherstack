@@ -248,8 +248,6 @@ func (h *Handler) dispatchReadOnly(c *echo.Context, route mcRoute) (bool, error)
 		return true, h.handleDescribeEndpoints(c)
 	case opListTagsForResource:
 		return true, h.handleListTagsForResource(c, route.resource)
-	case opUntagResource:
-		return true, h.handleUntagResource(c, route.resource)
 	}
 
 	return h.dispatchReadOnlyNewOps(c, route)
@@ -303,7 +301,9 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 	case opUpdateJob:
 		return h.handleUpdateJob(c, route.resource, body)
 	case opTagResource:
-		return h.handleTagResource(c, route.resource, body)
+		return h.handleTagResource(c, body)
+	case opUntagResource:
+		return h.handleUntagResource(c, route.resource, body)
 	}
 
 	return h.dispatchMutatingNewOps(c, route, body)
@@ -462,6 +462,11 @@ func parseJobRoute(method, suffix string) mcRoute {
 	return mcRoute{operation: opUnknown}
 }
 
+// parseTagRoute maps tag-path requests to operations. Per the real
+// MediaConvert restjson1 model: TagResource is POST /tags with the target
+// ARN carried in the JSON body (not the URL), ListTagsForResource is
+// GET /tags/{Arn}, and UntagResource is PUT /tags/{Arn} (not DELETE) with
+// tagKeys carried in the JSON body.
 func parseTagRoute(method, suffix string) mcRoute {
 	resourceARN := strings.TrimPrefix(suffix, "/")
 
@@ -469,8 +474,8 @@ func parseTagRoute(method, suffix string) mcRoute {
 	case http.MethodGet:
 		return mcRoute{operation: opListTagsForResource, resource: resourceARN}
 	case http.MethodPost:
-		return mcRoute{operation: opTagResource, resource: resourceARN}
-	case http.MethodDelete:
+		return mcRoute{operation: opTagResource}
+	case http.MethodPut:
 		return mcRoute{operation: opUntagResource, resource: resourceARN}
 	}
 
@@ -549,14 +554,18 @@ func parseJobsQueriesRoute(method, suffix string) mcRoute {
 // --- Queue handlers ---
 
 type createQueueInput struct {
-	ReservationPlan  *ReservationPlan  `json:"reservationPlan,omitempty"`
-	ServiceOverrides map[string]any    `json:"serviceOverrides,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
-	Name             string            `json:"name"`
-	Description      string            `json:"description,omitempty"`
-	PricingPlan      string            `json:"pricingPlan,omitempty"`
-	Status           string            `json:"status,omitempty"`
-	ConcurrentJobs   int               `json:"concurrentJobs,omitempty"`
+	// ReservationPlanSettings is the wire field name the real MediaConvert
+	// API uses on CreateQueueInput/UpdateQueueInput (it becomes
+	// ReservationPlan on the Queue output resource -- the request and
+	// response field names differ).
+	ReservationPlanSettings *ReservationPlan  `json:"reservationPlanSettings,omitempty"`
+	ServiceOverrides        map[string]any    `json:"serviceOverrides,omitempty"`
+	Tags                    map[string]string `json:"tags,omitempty"`
+	Name                    string            `json:"name"`
+	Description             string            `json:"description,omitempty"`
+	PricingPlan             string            `json:"pricingPlan,omitempty"`
+	Status                  string            `json:"status,omitempty"`
+	ConcurrentJobs          int               `json:"concurrentJobs,omitempty"`
 }
 
 type queueWrapper struct {
@@ -579,7 +588,7 @@ func (h *Handler) handleCreateQueue(c *echo.Context, body []byte) error {
 
 	q, err := h.Backend.CreateQueueFull(
 		in.Name, in.Description, in.PricingPlan, in.Status,
-		in.Tags, in.ConcurrentJobs, in.ReservationPlan, in.ServiceOverrides,
+		in.Tags, in.ConcurrentJobs, in.ReservationPlanSettings, in.ServiceOverrides,
 	)
 	if err != nil {
 		return h.writeError(c, err)
@@ -613,8 +622,10 @@ func (h *Handler) handleListQueues(c *echo.Context) error {
 }
 
 type updateQueueInput struct {
-	Description string `json:"description,omitempty"`
-	Status      string `json:"status,omitempty"`
+	ReservationPlanSettings *ReservationPlan `json:"reservationPlanSettings,omitempty"`
+	ConcurrentJobs          *int             `json:"concurrentJobs,omitempty"`
+	Description             string           `json:"description,omitempty"`
+	Status                  string           `json:"status,omitempty"`
 }
 
 func (h *Handler) handleUpdateQueue(c *echo.Context, name string, body []byte) error {
@@ -623,7 +634,7 @@ func (h *Handler) handleUpdateQueue(c *echo.Context, name string, body []byte) e
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	q, err := h.Backend.UpdateQueue(name, in.Description, in.Status)
+	q, err := h.Backend.UpdateQueue(name, in.Description, in.Status, in.ConcurrentJobs, in.ReservationPlanSettings)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -757,18 +768,21 @@ func (h *Handler) handleDeleteJobTemplate(c *echo.Context, name string) error {
 // --- Job handlers ---
 
 type createJobInput struct {
-	AccelerationSettings      *AccelerationSettings `json:"accelerationSettings,omitempty"`
-	Settings                  map[string]any        `json:"settings,omitempty"`
-	Tags                      map[string]string     `json:"tags,omitempty"`
-	UserMetadata              map[string]string     `json:"userMetadata,omitempty"`
-	Role                      string                `json:"role"`
-	Queue                     string                `json:"queue,omitempty"`
-	JobTemplate               string                `json:"jobTemplate,omitempty"`
-	BillingTagsSource         string                `json:"billingTagsSource,omitempty"`
-	ClientRequestToken        string                `json:"clientRequestToken,omitempty"`
-	JobEngineVersionRequested string                `json:"jobEngineVersionRequested,omitempty"`
-	HopDestinations           []HopDestination      `json:"hopDestinations,omitempty"`
-	Priority                  int                   `json:"priority,omitempty"`
+	AccelerationSettings *AccelerationSettings `json:"accelerationSettings,omitempty"`
+	Settings             map[string]any        `json:"settings,omitempty"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+	UserMetadata         map[string]string     `json:"userMetadata,omitempty"`
+	Role                 string                `json:"role"`
+	Queue                string                `json:"queue,omitempty"`
+	JobTemplate          string                `json:"jobTemplate,omitempty"`
+	BillingTagsSource    string                `json:"billingTagsSource,omitempty"`
+	ClientRequestToken   string                `json:"clientRequestToken,omitempty"`
+	// JobEngineVersion is the wire field name the real MediaConvert API uses
+	// on CreateJobInput (it becomes JobEngineVersionRequested on the Job
+	// output resource -- the request and response field names differ).
+	JobEngineVersion string           `json:"jobEngineVersion,omitempty"`
+	HopDestinations  []HopDestination `json:"hopDestinations,omitempty"`
+	Priority         int              `json:"priority,omitempty"`
 }
 
 type jobWrapper struct {
@@ -806,7 +820,7 @@ func (h *Handler) handleCreateJob(c *echo.Context, body []byte) error {
 		in.BillingTagsSource,
 		in.ClientRequestToken,
 		accelMode,
-		in.JobEngineVersionRequested,
+		in.JobEngineVersion,
 		in.Priority,
 		in.HopDestinations,
 	)
@@ -914,8 +928,19 @@ type resourceTagsEntry struct {
 	Arn  string            `json:"arn"`
 }
 
+// tagResourceInput mirrors the real TagResourceInput wire shape: the target
+// ARN is carried in the JSON body ("arn"), not in the URL path -- the real
+// TagResource endpoint is POST /2017-08-29/tags with no ARN suffix.
 type tagResourceInput struct {
 	Tags map[string]string `json:"tags"`
+	Arn  string            `json:"arn"`
+}
+
+// untagResourceInput mirrors the real UntagResourceInput wire shape: the
+// keys to remove are carried in the JSON body ("tagKeys"), not as a
+// repeated query parameter.
+type untagResourceInput struct {
+	TagKeys []string `json:"tagKeys"`
 }
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
@@ -932,20 +957,28 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	})
 }
 
-func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
+func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var in tagResourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
-	h.Backend.TagResource(resourceARN, in.Tags)
+	if in.Arn == "" {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "arn is required"))
+	}
+
+	h.Backend.TagResource(in.Arn, in.Tags)
 
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
-	tagKeys := c.Request().URL.Query()["tagKeys"]
-	h.Backend.UntagResource(resourceARN, tagKeys)
+func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, body []byte) error {
+	var in untagResourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	h.Backend.UntagResource(resourceARN, in.TagKeys)
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -1135,14 +1168,23 @@ func (h *Handler) handleDisassociateCertificate(c *echo.Context, certARN string)
 
 // --- Jobs query handlers ---
 
+// jobsQueryStatusComplete is the JobsQueryStatus value reported for every
+// GetJobsQueryResults response. Queries in this backend are resolved
+// synchronously at GetJobsQueryResults time (see StartJobsQuery/
+// GetJobsQueryResults in backend.go), so results are always immediately
+// available -- COMPLETE is therefore always the accurate status, unlike
+// real AWS where a query can still be SUBMITTED/PROGRESSING/ERROR.
+const jobsQueryStatusComplete = "COMPLETE"
+
 type jobsQueryResultsOutput struct {
-	Jobs []*Job `json:"jobs"`
+	Status string `json:"status"`
+	Jobs   []*Job `json:"jobs"`
 }
 
 func (h *Handler) handleGetJobsQueryResults(c *echo.Context, queryID string) error {
 	jobs := h.Backend.GetJobsQueryResults(queryID)
 
-	return c.JSON(http.StatusOK, jobsQueryResultsOutput{Jobs: jobs})
+	return c.JSON(http.StatusOK, jobsQueryResultsOutput{Jobs: jobs, Status: jobsQueryStatusComplete})
 }
 
 // --- Resource share handlers ---
@@ -1259,8 +1301,10 @@ type startJobsQueryInput struct {
 	FilterList []map[string]any `json:"filterList,omitempty"`
 }
 
+// startJobsQueryOutput mirrors the real StartJobsQueryOutput wire shape,
+// whose sole member is "id" -- not "queryId".
 type startJobsQueryOutput struct {
-	QueryID string `json:"queryId"`
+	QueryID string `json:"id"`
 }
 
 func (h *Handler) handleStartJobsQuery(c *echo.Context, body []byte) error {

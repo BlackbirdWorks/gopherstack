@@ -478,6 +478,40 @@ func TestMediaConvert_UpdateQueue_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+// TestMediaConvert_UpdateQueue_ConcurrentJobsAndReservationPlanSettings verifies
+// that UpdateQueue applies concurrentJobs and reservationPlanSettings -- real
+// UpdateQueueInput members that were previously silently dropped.
+func TestMediaConvert_UpdateQueue_ConcurrentJobsAndReservationPlanSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/2017-08-29/queues", map[string]any{
+		"name": "update-queue-fields",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodPut, "/2017-08-29/queues/update-queue-fields", map[string]any{
+		"concurrentJobs": 7,
+		"reservationPlanSettings": map[string]any{
+			"commitment":    "ONE_YEAR",
+			"renewalType":   "AUTO_RENEW",
+			"reservedSlots": 4,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	queueData := out["queue"].(map[string]any)
+	assert.InDelta(t, float64(7), queueData["concurrentJobs"], 0)
+
+	rp, ok := queueData["reservationPlan"].(map[string]any)
+	require.True(t, ok, "reservationPlan should be in response")
+	assert.InDelta(t, float64(4), rp["reservedSlots"], 0)
+	assert.Equal(t, "ONE_YEAR", rp["commitment"])
+}
+
 func TestMediaConvert_ChaosOperations(t *testing.T) {
 	t.Parallel()
 
@@ -531,6 +565,34 @@ func TestMediaConvert_ExtractOperation(t *testing.T) {
 			method: http.MethodGet,
 			path:   "/2017-08-29/jobTemplates",
 			wantOp: "ListJobTemplates",
+		},
+		{
+			// Real MediaConvert TagResource is POST /2017-08-29/tags with
+			// the ARN in the JSON body, not the URL.
+			name:   "tag_resource",
+			method: http.MethodPost,
+			path:   "/2017-08-29/tags",
+			wantOp: "TagResource",
+		},
+		{
+			name:   "list_tags_for_resource",
+			method: http.MethodGet,
+			path:   "/2017-08-29/tags/arn:aws:mediaconvert:us-east-1:123456789012:queues/q1",
+			wantOp: "ListTagsForResource",
+		},
+		{
+			// Real MediaConvert UntagResource is PUT, not DELETE.
+			name:   "untag_resource",
+			method: http.MethodPut,
+			path:   "/2017-08-29/tags/arn:aws:mediaconvert:us-east-1:123456789012:queues/q1",
+			wantOp: "UntagResource",
+		},
+		{
+			// DELETE on the tags path has no meaning in the real API.
+			name:   "delete_tags_path_is_unknown",
+			method: http.MethodDelete,
+			path:   "/2017-08-29/tags/arn:aws:mediaconvert:us-east-1:123456789012:queues/q1",
+			wantOp: "Unknown",
 		},
 	}
 

@@ -7,7 +7,7 @@ package mediaconvert_test
 //   - Probe: POST /2017-08-29/probe with inputFiles returns probeResults; empty body handled.
 //   - SearchJobs: GET /2017-08-29/search — status filter, queue filter, order, maxResults,
 //     no-match, empty state.
-//   - StartJobsQuery + GetJobsQueryResults: POST /2017-08-29/jobsQueries returns queryId;
+//   - StartJobsQuery + GetJobsQueryResults: POST /2017-08-29/jobsQueries returns id;
 //     GET /2017-08-29/jobsQueries/{id} returns matching jobs; unknown id returns empty.
 
 import (
@@ -379,7 +379,7 @@ func TestBatch2_StartJobsQuery_ReturnsQueryID(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, code)
 
-	queryID, _ := resp["queryId"].(string)
+	queryID, _ := resp["id"].(string)
 	assert.NotEmpty(t, queryID)
 }
 
@@ -408,7 +408,7 @@ func TestBatch2_StartJobsQuery_GetResults_RoundTrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startCode)
 
-	queryID, _ := startResp["queryId"].(string)
+	queryID, _ := startResp["id"].(string)
 	require.NotEmpty(t, queryID)
 
 	// Get results for that query ID.
@@ -417,6 +417,9 @@ func TestBatch2_StartJobsQuery_GetResults_RoundTrip(t *testing.T) {
 
 	jobs, _ := getResp["jobs"].([]any)
 	assert.Len(t, jobs, 2)
+
+	// Results are computed synchronously, so status must always be COMPLETE.
+	assert.Equal(t, "COMPLETE", getResp["status"])
 }
 
 func TestBatch2_StartJobsQuery_WithStatusFilter_ReturnsMatchingJobs(t *testing.T) {
@@ -435,7 +438,7 @@ func TestBatch2_StartJobsQuery_WithStatusFilter_ReturnsMatchingJobs(t *testing.T
 	})
 	require.Equal(t, http.StatusOK, startCode)
 
-	queryID, _ := startResp["queryId"].(string)
+	queryID, _ := startResp["id"].(string)
 	require.NotEmpty(t, queryID)
 
 	getResp, getCode := b2mcParseResp(t, h, http.MethodGet, "/2017-08-29/jobsQueries/"+queryID, nil)
@@ -461,7 +464,7 @@ func TestBatch2_StartJobsQuery_WithStatusFilter_NoMatch(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startCode)
 
-	queryID, _ := startResp["queryId"].(string)
+	queryID, _ := startResp["id"].(string)
 	require.NotEmpty(t, queryID)
 
 	getResp, getCode := b2mcParseResp(t, h, http.MethodGet, "/2017-08-29/jobsQueries/"+queryID, nil)
@@ -487,7 +490,7 @@ func TestBatch2_StartJobsQuery_WithMaxResults(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, startCode)
 
-	queryID, _ := startResp["queryId"].(string)
+	queryID, _ := startResp["id"].(string)
 	require.NotEmpty(t, queryID)
 
 	getResp, getCode := b2mcParseResp(t, h, http.MethodGet, "/2017-08-29/jobsQueries/"+queryID, nil)
@@ -509,7 +512,7 @@ func TestBatch2_StartJobsQuery_MultipleQueries_Independent(t *testing.T) {
 			map[string]any{"key": "status", "values": []any{"SUBMITTED"}},
 		},
 	})
-	qID1, _ := startResp1["queryId"].(string)
+	qID1, _ := startResp1["id"].(string)
 	require.NotEmpty(t, qID1)
 
 	// Query 2: match COMPLETE (no match).
@@ -518,7 +521,7 @@ func TestBatch2_StartJobsQuery_MultipleQueries_Independent(t *testing.T) {
 			map[string]any{"key": "status", "values": []any{"COMPLETE"}},
 		},
 	})
-	qID2, _ := startResp2["queryId"].(string)
+	qID2, _ := startResp2["id"].(string)
 	require.NotEmpty(t, qID2)
 
 	assert.NotEqual(t, qID1, qID2, "each query should have a unique ID")

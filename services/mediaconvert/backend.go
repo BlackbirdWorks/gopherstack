@@ -575,8 +575,15 @@ func (b *InMemoryBackend) adjustQueueCounterLocked(queueArn, status string, delt
 	}
 }
 
-// UpdateQueue updates a queue's description and status.
-func (b *InMemoryBackend) UpdateQueue(name, description, status string) (*Queue, error) {
+// UpdateQueue updates a queue's description, status, concurrent-job limit,
+// and reservation plan settings. concurrentJobs and reservationPlanSettings
+// are nil when the caller doesn't want to change that field (matches the
+// real UpdateQueueInput, whose members are all optional).
+func (b *InMemoryBackend) UpdateQueue(
+	name, description, status string,
+	concurrentJobs *int,
+	reservationPlanSettings *ReservationPlan,
+) (*Queue, error) {
 	b.mu.Lock("UpdateQueue")
 	defer b.mu.Unlock()
 
@@ -595,6 +602,14 @@ func (b *InMemoryBackend) UpdateQueue(name, description, status string) (*Queue,
 
 	if status != "" {
 		q.Status = status
+	}
+
+	if concurrentJobs != nil {
+		q.ConcurrentJobs = *concurrentJobs
+	}
+
+	if reservationPlanSettings != nil {
+		q.ReservationPlan = cloneReservationPlan(reservationPlanSettings)
 	}
 
 	q.LastUpdated = epochSeconds(time.Now())

@@ -16,7 +16,11 @@ type StorageBackend interface {
 	) (*Queue, error)
 	GetQueue(name string) (*Queue, error)
 	ListQueues() []*Queue
-	UpdateQueue(name, description, status string) (*Queue, error)
+	UpdateQueue(
+		name, description, status string,
+		concurrentJobs *int,
+		reservationPlanSettings *ReservationPlan,
+	) (*Queue, error)
 	DeleteQueue(name string) error
 
 	// Job Template operations
