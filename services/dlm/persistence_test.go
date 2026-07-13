@@ -116,7 +116,7 @@ func TestPersistence_FullStateRoundTrip(t *testing.T) {
 
 			// GetLifecyclePolicies must return exactly the restored set (plus
 			// the newly created one), confirming no phantom/duplicate entries.
-			all, err := b2.GetLifecyclePolicies(nil, "")
+			all, err := b2.GetLifecyclePolicies(dlm.PolicyFilter{})
 			require.NoError(t, err)
 			assert.Len(t, all, tc.count+1)
 		})
@@ -226,7 +226,7 @@ func TestPersistence_VersionMismatch(t *testing.T) {
 			require.NoError(t, restoreErr)
 
 			if tc.wantEmptied {
-				policies, listErr := b.GetLifecyclePolicies(nil, "")
+				policies, listErr := b.GetLifecyclePolicies(dlm.PolicyFilter{})
 				require.NoError(t, listErr)
 				assert.Empty(t, policies)
 
