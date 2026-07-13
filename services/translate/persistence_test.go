@@ -53,7 +53,7 @@ func seedFullState(t *testing.T, b *translate.InMemoryBackend) seedState {
 	)
 	require.NoError(t, err)
 
-	// Advance the job past its default IN_PROGRESS status so the round trip
+	// Advance the job past its default SUBMITTED status so the round trip
 	// is proven to carry a non-default JobStatus (and a non-zero EndAt), not
 	// just the freshly-created defaults.
 	stopped, err := b.StopTextTranslationJob(job.JobID)
@@ -122,19 +122,23 @@ func assertParallelDataRestored(t *testing.T, fresh *translate.InMemoryBackend, 
 // assertJobRestored checks that the job's JobStatus/EndAt -- mutated in
 // place after creation by StopTextTranslationJob, not present in the
 // zero-value job -- round-trips through the snapshot, proving the restored
-// table entry is the post-mutation state and not the original.
+// table entry is the post-mutation state and not the original. It reads the
+// job back via ListTextTranslationJobs rather than
+// DescribeTextTranslationJob because Describe advances the job one step
+// through its lifecycle on every call (see backend.go's advanceJob) and
+// this assertion must observe the state exactly as restored, not
+// post-advance.
 func assertJobRestored(t *testing.T, fresh *translate.InMemoryBackend, seed seedState) {
 	t.Helper()
 
-	gotJob, err := fresh.DescribeTextTranslationJob(seed.job.JobID)
-	require.NoError(t, err)
+	list, _ := fresh.ListTextTranslationJobs("", 0, "")
+	require.Len(t, list, 1)
+
+	gotJob := list[0]
 	assert.Equal(t, "STOP_REQUESTED", gotJob.JobStatus)
 	assert.False(t, gotJob.EndAt.IsZero())
 	assert.Equal(t, seed.job.JobName, gotJob.JobName)
 	assert.Equal(t, []string{"es", "fr"}, gotJob.TargetLanguages)
-
-	list, _ := fresh.ListTextTranslationJobs("", 0, "")
-	require.Len(t, list, 1)
 }
 
 // Test_RestoreVersionMismatch verifies that a snapshot whose version doesn't

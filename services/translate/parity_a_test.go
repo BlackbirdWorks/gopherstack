@@ -99,7 +99,7 @@ func TestParity_TranslateDocumentIncludesAppliedTerminologies(t *testing.T) {
 
 	rec := doRequest(t, h, "TranslateDocument", map[string]any{
 		"Document": map[string]any{
-			"Content":     "Hello",
+			"Content":     b64("Hello"),
 			"ContentType": "text/plain",
 		},
 		"SourceLanguageCode": "en",

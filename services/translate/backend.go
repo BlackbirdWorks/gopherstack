@@ -24,10 +24,36 @@ var (
 	ErrValidation = errors.New("InvalidRequestException")
 )
 
+// Job status values, matching aws-sdk-go-v2/service/translate/types.JobStatus.
+// A freshly started job begins at jobStatusSubmitted and is advanced one step
+// per DescribeTextTranslationJob call (see advanceJob), mirroring the
+// SUBMITTED -> IN_PROGRESS -> COMPLETED/FAILED lifecycle real Translate jobs
+// go through and the pattern established by services/comprehend.
+const (
+	jobStatusSubmitted     = "SUBMITTED"
+	jobStatusInProgress    = "IN_PROGRESS"
+	jobStatusCompleted     = "COMPLETED"
+	jobStatusFailed        = "FAILED"
+	jobStatusStopRequested = "STOP_REQUESTED"
+	jobStatusStopped       = "STOPPED"
+
+	// failedJobNameMarker lets tests deterministically drive a job to FAILED
+	// by including this marker in JobName, matching services/comprehend's
+	// failedMarker convention.
+	failedJobNameMarker = "[fail]"
+)
+
+// Directionality values, matching aws-sdk-go-v2/service/translate/types.Directionality.
+const (
+	directionalityUni   = "UNI"
+	directionalityMulti = "MULTI"
+)
+
 // TerminologyData holds imported terminology file bytes.
 type TerminologyData struct {
-	Format string
-	File   []byte
+	Format         string
+	Directionality string
+	File           []byte
 }
 
 // EncryptionKey holds optional KMS encryption key details.
@@ -93,6 +119,7 @@ type TranslationJob struct {
 	TerminologyNames  []string
 	ParallelDataNames []string
 	stopRequested     bool
+	shouldFail        bool
 }
 
 // InMemoryBackend stores Translate state for concurrent requests.
@@ -199,6 +226,16 @@ func (b *InMemoryBackend) ImportTerminology(
 		return nil, fmt.Errorf("%w: TerminologyData is required", ErrValidation)
 	}
 
+	directionality := data.Directionality
+	switch directionality {
+	case "":
+		directionality = directionalityUni
+	case directionalityUni, directionalityMulti:
+		// valid, keep as specified
+	default:
+		return nil, fmt.Errorf("%w: Directionality must be UNI or MULTI", ErrValidation)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -221,6 +258,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		existing.SourceLanguage = srcLang
 		existing.TargetLanguages = targetLangs
 		existing.TermCount = termCount
+		existing.Directionality = directionality
 
 		if tags != nil {
 			existing.Tags = tags
@@ -241,7 +279,7 @@ func (b *InMemoryBackend) ImportTerminology(
 		LastUpdatedAt:   now,
 		Format:          data.Format,
 		SizeBytes:       len(data.File),
-		Directionality:  "UNI",
+		Directionality:  directionality,
 		SourceLanguage:  srcLang,
 		TargetLanguages: targetLangs,
 		TermCount:       termCount,
@@ -429,7 +467,7 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 	job := &TranslationJob{
 		JobID:             jobID,
 		JobName:           jobName,
-		JobStatus:         "IN_PROGRESS",
+		JobStatus:         jobStatusSubmitted,
 		DataAccessRoleARN: dataAccessRoleARN,
 		SourceLanguage:    sourceLang,
 		TargetLanguages:   targetLangs,
@@ -440,6 +478,7 @@ func (b *InMemoryBackend) StartTextTranslationJob(
 		Settings:          settings,
 		Tags:              tags,
 		SubmittedAt:       time.Now().UTC(),
+		shouldFail:        strings.Contains(strings.ToLower(jobName), failedJobNameMarker),
 	}
 	b.jobs.Put(job)
 
@@ -456,28 +495,59 @@ func (b *InMemoryBackend) StopTextTranslationJob(jobID string) (*TranslationJob,
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobID)
 	}
 
-	if job.JobStatus != "IN_PROGRESS" && job.JobStatus != "SUBMITTED" {
+	if job.JobStatus != jobStatusInProgress && job.JobStatus != jobStatusSubmitted {
 		return nil, fmt.Errorf("%w: job %q is not stoppable (status: %s)", ErrValidation, jobID, job.JobStatus)
 	}
 
 	job.stopRequested = true
-	job.JobStatus = "STOP_REQUESTED"
+	job.JobStatus = jobStatusStopRequested
 	job.EndAt = time.Now().UTC()
 
 	return job, nil
 }
 
-// DescribeTextTranslationJob retrieves a translation job.
+// DescribeTextTranslationJob retrieves a translation job and advances it one
+// step through its lifecycle, matching services/comprehend's DescribeJob
+// pattern: real batch translation jobs move from SUBMITTED to IN_PROGRESS to
+// a terminal state (COMPLETED/FAILED, or STOPPED once stop was requested)
+// asynchronously. Without this, a job started via StartTextTranslationJob
+// would sit at its initial status forever and SDK callers polling
+// DescribeTextTranslationJob (the documented way to track job progress) would
+// never observe completion.
 func (b *InMemoryBackend) DescribeTextTranslationJob(jobID string) (*TranslationJob, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	job, ok := b.jobs.Get(jobID)
 	if !ok {
 		return nil, fmt.Errorf("%w: job %q not found", ErrNotFound, jobID)
 	}
 
+	advanceJob(job)
+
 	return job, nil
+}
+
+// advanceJob moves job one step through its lifecycle. Called from
+// DescribeTextTranslationJob so that each poll makes progress, the same
+// convention services/comprehend uses for its analysis jobs.
+func advanceJob(job *TranslationJob) {
+	switch job.JobStatus {
+	case jobStatusSubmitted:
+		job.JobStatus = jobStatusInProgress
+	case jobStatusInProgress:
+		if job.shouldFail {
+			job.JobStatus = jobStatusFailed
+			job.Message = "simulated translation failure"
+		} else {
+			job.JobStatus = jobStatusCompleted
+		}
+
+		job.EndAt = time.Now().UTC()
+	case jobStatusStopRequested:
+		job.JobStatus = jobStatusStopped
+		job.EndAt = time.Now().UTC()
+	}
 }
 
 // ListTextTranslationJobs returns a paginated list of translation jobs.

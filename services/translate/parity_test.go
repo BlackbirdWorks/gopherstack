@@ -54,7 +54,7 @@ func TestParity_ImportTerminology_SetsLanguagesFromCSV(t *testing.T) {
 				"Name":          "csv-term",
 				"MergeStrategy": "OVERWRITE",
 				"TerminologyData": map[string]any{
-					"File":   tt.csv,
+					"File":   b64(tt.csv),
 					"Format": "CSV",
 				},
 			})
@@ -97,7 +97,7 @@ func TestParity_ImportTerminology_MergeStrategyValidation(t *testing.T) {
 			body := map[string]any{
 				"Name": "merge-test",
 				"TerminologyData": map[string]any{
-					"File":   "en,es",
+					"File":   b64("en,es"),
 					"Format": "CSV",
 				},
 			}
@@ -128,7 +128,7 @@ func TestParity_ListTerminologies_FormatFilter(t *testing.T) {
 			"Name":          name,
 			"MergeStrategy": "OVERWRITE",
 			"TerminologyData": map[string]any{
-				"File":   "en,es",
+				"File":   b64("en,es"),
 				"Format": format,
 			},
 		})
@@ -373,7 +373,7 @@ func TestParity_TerminologyToMap_IncludesTargetLanguageCodes(t *testing.T) {
 		"Name":          "tgt-lang-term",
 		"MergeStrategy": "OVERWRITE",
 		"TerminologyData": map[string]any{
-			"File":   "en,es,de\nhello,hola,hallo",
+			"File":   b64("en,es,de\nhello,hola,hallo"),
 			"Format": "CSV",
 		},
 	})
@@ -418,7 +418,7 @@ func TestParity_ListTextTranslationJobs_StatusFilter(t *testing.T) {
 		status  string
 		wantMin int
 	}{
-		{name: "in_progress_filter", status: "IN_PROGRESS", wantMin: 2},
+		{name: "submitted_filter", status: "SUBMITTED", wantMin: 2},
 		{name: "completed_filter", status: "COMPLETED", wantMin: 0},
 	}
 
@@ -453,7 +453,7 @@ func TestParity_ImportTerminology_OverwriteUpdatesLanguages(t *testing.T) {
 		"Name":          "overwrite-term",
 		"MergeStrategy": "OVERWRITE",
 		"TerminologyData": map[string]any{
-			"File":   "en,es\nhello,hola",
+			"File":   b64("en,es\nhello,hola"),
 			"Format": "CSV",
 		},
 	})
@@ -462,7 +462,7 @@ func TestParity_ImportTerminology_OverwriteUpdatesLanguages(t *testing.T) {
 		"Name":          "overwrite-term",
 		"MergeStrategy": "OVERWRITE",
 		"TerminologyData": map[string]any{
-			"File":   "fr,de,it\nbonjour,hallo,ciao",
+			"File":   b64("fr,de,it\nbonjour,hallo,ciao"),
 			"Format": "CSV",
 		},
 	})
@@ -529,7 +529,7 @@ func TestParity_TagOperations(t *testing.T) {
 		"Name":          "tag-term",
 		"MergeStrategy": "OVERWRITE",
 		"TerminologyData": map[string]any{
-			"File":   "en,es",
+			"File":   b64("en,es"),
 			"Format": "CSV",
 		},
 	})
@@ -584,7 +584,7 @@ func TestParity_TranslateDocument_AppliedSettings(t *testing.T) {
 
 	rec := doRequest(t, h, "TranslateDocument", map[string]any{
 		"Document": map[string]any{
-			"Content":     "Hello",
+			"Content":     b64("Hello"),
 			"ContentType": "text/plain",
 		},
 		"SourceLanguageCode": "en",
@@ -611,7 +611,7 @@ func TestParity_JSONEncoding_TermCount(t *testing.T) {
 		"Name":          "count-term",
 		"MergeStrategy": "OVERWRITE",
 		"TerminologyData": map[string]any{
-			"File":   "en,es\none,uno\ntwo,dos",
+			"File":   b64("en,es\none,uno\ntwo,dos"),
 			"Format": "CSV",
 		},
 	})

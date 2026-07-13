@@ -150,7 +150,7 @@ func TestBatch2_ListTextTranslationJobs_StatusFilter(t *testing.T) {
 	}
 
 	rec := doRequest(t, h, "ListTextTranslationJobs", map[string]any{
-		"Filter": map[string]any{"JobStatus": "IN_PROGRESS"},
+		"Filter": map[string]any{"JobStatus": "SUBMITTED"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
