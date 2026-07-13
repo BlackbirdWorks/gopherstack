@@ -438,8 +438,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
+		// The real AWS SAR service returns "InternalServerErrorException" as the
+		// __type value (see types.InternalServerErrorException in
+		// aws-sdk-go-v2/service/serverlessapplicationrepository); the aws-sdk-go-v2
+		// restjson1 error deserializer matches on this exact string (case-insensitively)
+		// to construct a typed error, so any other spelling falls through to a generic
+		// smithy.GenericAPIError on the client side.
 		payload, _ := json.Marshal(map[string]string{
-			keyTypeField:    "InternalServerException",
+			keyTypeField:    "InternalServerErrorException",
 			keyMessageField: err.Error(),
 		})
 
