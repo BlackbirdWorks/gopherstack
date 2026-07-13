@@ -611,9 +611,12 @@ func TestFISHandler_StopExperiment_AlreadyStopped(t *testing.T) {
 		return s == "stopped" || s == "completed"
 	}, 5*time.Second, 50*time.Millisecond)
 
-	// Attempt to stop already-stopped experiment — should fail with 409.
+	// Attempt to stop already-stopped experiment — should fail with 400
+	// ValidationException. StopExperiment's generated deserializer in
+	// aws-sdk-go-v2/service/fis only recognizes ResourceNotFoundException and
+	// ValidationException — it has no ConflictException case.
 	rec4 := doRequest(t, h, http.MethodDelete, "/experiments/"+expID, nil)
-	assert.Equal(t, http.StatusConflict, rec4.Code)
+	assert.Equal(t, http.StatusBadRequest, rec4.Code)
 }
 
 func TestFISHandler_ExperimentFails_WhenActionProviderFails(t *testing.T) {

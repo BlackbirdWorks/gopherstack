@@ -115,9 +115,13 @@ type ExperimentStatus struct {
 }
 
 // ExperimentStatusError holds structured error info for failed experiments.
+// Field names mirror the real AWS FIS wire shape (types.ExperimentError): "code" and
+// "location", not "exceptionName" — the real deserializer discards unknown keys, so a
+// mismatched field name silently reaches SDK callers as an always-nil Code.
 type ExperimentStatusError struct {
-	ExceptionName string `json:"exceptionName,omitempty"`
-	AccountID     string `json:"accountId,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Location  string `json:"location,omitempty"`
+	AccountID string `json:"accountId,omitempty"`
 }
 
 // ExperimentTarget holds resolved resource ARNs for a target group.
@@ -366,10 +370,13 @@ type experimentStatusDTO struct {
 	Reason string                    `json:"reason,omitempty"`
 }
 
-// experimentStatusErrorDTO is the JSON representation of structured error info on failed experiments.
+// experimentStatusErrorDTO is the JSON representation of structured error info on
+// failed experiments, matching the real FIS wire shape (types.ExperimentError):
+// "code" and "location", not "exceptionName".
 type experimentStatusErrorDTO struct {
-	ExceptionName string `json:"exceptionName,omitempty"`
-	AccountID     string `json:"accountId,omitempty"`
+	Code      string `json:"code,omitempty"`
+	Location  string `json:"location,omitempty"`
+	AccountID string `json:"accountId,omitempty"`
 }
 
 // experimentTargetDTO is the JSON representation of a resolved target.

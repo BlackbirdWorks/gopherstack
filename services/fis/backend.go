@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -133,11 +134,10 @@ func generateID(prefix string) string {
 	return prefix + string(b)
 }
 
-// toUnix converts a [time.Time] to a Unix second float64 (same format as AWS SDK).
-const nanoToSeconds = float64(time.Second)
-
+// toUnix converts a [time.Time] to the epoch-seconds wire format the restjson1
+// protocol expects for FIS timestamps (see pkgs/awstime.Epoch).
 func toUnix(t time.Time) float64 {
-	return float64(t.UnixNano()) / nanoToSeconds
+	return awstime.Epoch(t)
 }
 
 func toUnixPtr(t *time.Time) *float64 {
@@ -1718,7 +1718,7 @@ func (b *InMemoryBackend) executeActionsOrdered(
 			b.setActionStatus(expID, name, actionStatusRunning)
 
 			if err := b.executeExternalAction(ctx, ea); err != nil {
-				b.markExperimentFailed(expID, err.Error())
+				b.markExperimentFailed(expID, name, err.Error())
 
 				return faultRules, maxDuration, err.Error()
 			}
@@ -1909,8 +1909,18 @@ func (b *InMemoryBackend) getFaultStore() *chaos.FaultStore {
 	return b.faultStore
 }
 
-// markExperimentFailed sets an experiment and all its actions to failed with a reason.
-func (b *InMemoryBackend) markExperimentFailed(expID, reason string) {
+// actionExecutionFailedCode is the ExperimentStatusError.Code reported when an
+// external action provider fails during experiment execution. AWS FIS does not
+// publish a fixed enum for this field (it is a free-form string), so this mirrors
+// the class of failure without inventing a fictitious modeled exception name.
+const actionExecutionFailedCode = "ActionExecutionFailed"
+
+// markExperimentFailed sets an experiment and all its actions to failed with a
+// reason. actionName identifies the template action whose execution failed and is
+// reported as the structured error's Location, matching the real AWS FIS
+// ExperimentError.Location semantics ("context for the section of the experiment
+// template that failed").
+func (b *InMemoryBackend) markExperimentFailed(expID, actionName, reason string) {
 	b.mu.Lock("markExperimentFailed")
 	defer b.mu.Unlock()
 
@@ -1920,7 +1930,15 @@ func (b *InMemoryBackend) markExperimentFailed(expID, reason string) {
 	}
 
 	now := time.Now()
-	exp.Status = ExperimentStatus{Status: statusFailed, Reason: reason}
+	exp.Status = ExperimentStatus{
+		Status: statusFailed,
+		Reason: reason,
+		Error: &ExperimentStatusError{
+			Code:      actionExecutionFailedCode,
+			Location:  actionName,
+			AccountID: b.accountID,
+		},
+	}
 	exp.EndTime = &now
 
 	for name, action := range exp.Actions {

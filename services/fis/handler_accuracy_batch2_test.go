@@ -197,7 +197,8 @@ func TestAccuracy_Batch2_UpdateTemplate_NotFound(t *testing.T) {
 	}
 
 	mustJSON(t, rec, &resp)
-	assert.Equal(t, "ExperimentTemplateNotFoundException", resp.Type)
+	// FIS's API model defines a single ResourceNotFoundException shape service-wide.
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
 // ----------------------------------------
@@ -398,16 +399,19 @@ func TestAccuracy_Batch2_StopExperiment_AlreadyStopped_Returns409(t *testing.T) 
 		return s == "completed" || s == "failed" || s == "stopped"
 	}, 5*time.Second, 20*time.Millisecond)
 
-	// Stop an already-terminal experiment → 409 ConflictException.
+	// Stop an already-terminal experiment → 400 ValidationException. StopExperiment's
+	// generated deserializer in aws-sdk-go-v2/service/fis only recognizes
+	// ResourceNotFoundException and ValidationException — it has no ConflictException
+	// case — so this must not be reported as a conflict.
 	rec3 := doRequest(t, h, http.MethodPost, "/experiments/"+expID+"/stop", nil)
-	assert.Equal(t, http.StatusConflict, rec3.Code)
+	assert.Equal(t, http.StatusBadRequest, rec3.Code)
 
 	var errResp struct {
 		Type string `json:"__type"`
 	}
 
 	mustJSON(t, rec3, &errResp)
-	assert.Equal(t, "ConflictException", errResp.Type)
+	assert.Equal(t, "ValidationException", errResp.Type)
 }
 
 // ----------------------------------------
@@ -932,7 +936,8 @@ func TestAccuracy_Batch2_GetTargetAccountConfig_NotFound(t *testing.T) {
 	}
 
 	mustJSON(t, rec, &resp)
-	assert.Equal(t, "TargetAccountConfigurationNotFoundException", resp.Type)
+	// FIS's API model defines a single ResourceNotFoundException shape service-wide.
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
 // ----------------------------------------
@@ -1111,11 +1116,12 @@ func TestAccuracy_Batch2_DeleteTemplate_NotFound(t *testing.T) {
 	}
 
 	mustJSON(t, rec, &resp)
-	assert.Equal(t, "ExperimentTemplateNotFoundException", resp.Type)
+	// FIS's API model defines a single ResourceNotFoundException shape service-wide.
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 }
 
 // ----------------------------------------
-// GetExperiment not found → ExperimentNotFoundException
+// GetExperiment not found → ResourceNotFoundException
 // ----------------------------------------
 
 func TestAccuracy_Batch2_GetExperiment_NotFound_Type(t *testing.T) {
@@ -1131,7 +1137,9 @@ func TestAccuracy_Batch2_GetExperiment_NotFound_Type(t *testing.T) {
 	}
 
 	mustJSON(t, rec, &resp)
-	assert.Equal(t, "ExperimentNotFoundException", resp.Type)
+	// FIS's API model defines a single ResourceNotFoundException shape service-wide —
+	// there is no per-resource "ExperimentNotFoundException".
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 	assert.NotEmpty(t, resp.Message)
 }
 

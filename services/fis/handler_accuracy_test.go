@@ -619,7 +619,9 @@ func TestAccuracy_ErrorResponse_HasType(t *testing.T) {
 	}
 
 	mustJSON(t, rec, &resp)
-	assert.Equal(t, "ExperimentTemplateNotFoundException", resp.Type)
+	// FIS's API model defines a single ResourceNotFoundException shape service-wide —
+	// there is no per-resource "ExperimentTemplateNotFoundException".
+	assert.Equal(t, "ResourceNotFoundException", resp.Type)
 	assert.NotEmpty(t, resp.Message)
 }
 

@@ -596,7 +596,9 @@ func TestRefinement1_ErrTooManyExperiments_Returns429(t *testing.T) {
 		t, h, http.MethodPost, "/experiments",
 		map[string]any{"experimentTemplateId": "EXT-quota1"},
 	)
-	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+	// FIS's ServiceQuotaExceededException shape carries HTTP 402 (Payment Required),
+	// not the generic 429 throttling status.
+	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
 }
 
 // ----------------------------------------
