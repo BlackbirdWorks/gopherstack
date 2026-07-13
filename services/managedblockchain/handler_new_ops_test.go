@@ -103,7 +103,7 @@ func TestHandler_UpdateNode(t *testing.T) {
 				nodeID = tt.nodeID
 			}
 
-			path := fmt.Sprintf("/networks/%s/members/%s/nodes/%s", net.ID, mem.ID, nodeID)
+			path := fmt.Sprintf("/networks/%s/nodes/%s?memberId=%s", net.ID, nodeID, mem.ID)
 			rec := doRequest(t, h, http.MethodPatch, path, map[string]any{})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})

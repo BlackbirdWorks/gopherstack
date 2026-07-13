@@ -200,10 +200,21 @@ const (
 //	GET    /networks/{networkId}/members                                           → ListMembers, networkId
 //	GET    /networks/{networkId}/members/{memberId}                                → GetMember, networkId/memberId
 //	DELETE /networks/{networkId}/members/{memberId}                                → DeleteMember, networkId/memberId
-//	POST   /networks/{networkId}/members/{memberId}/nodes                         → CreateNode, networkId/memberId
-//	GET    /networks/{networkId}/members/{memberId}/nodes                         → ListNodes, networkId/memberId
-//	GET    /networks/{networkId}/members/{memberId}/nodes/{nodeId}                → GetNode, networkId/memberId/nodeId
-//	DELETE /networks/{networkId}/members/{memberId}/nodes/{nodeId}                → DeleteNode, networkId/memberId/nodeId
+//	POST   /networks/{networkId}/nodes                                             → CreateNode, networkId
+//	GET    /networks/{networkId}/nodes                                             → ListNodes, networkId
+//	GET    /networks/{networkId}/nodes/{nodeId}                                    → GetNode, networkId/nodeId
+//	DELETE /networks/{networkId}/nodes/{nodeId}                                    → DeleteNode, networkId/nodeId
+//	PATCH  /networks/{networkId}/nodes/{nodeId}                                    → UpdateNode, networkId/nodeId
+//
+// The member that owns a node is NOT part of the node's path (unlike member
+// itself, which nests under its network): CreateNode carries MemberId in its
+// JSON body, and GetNode/ListNodes/DeleteNode/UpdateNode carry it as the
+// "memberId" query parameter. This matches the real aws-sdk-go-v2
+// managedblockchain wire shape exactly (see serializers.go's opPath
+// constants for CreateNode/GetNode/ListNodes/DeleteNode/UpdateNode, all of
+// which resolve to "/networks/{NetworkId}/nodes[/{NodeId}]" with MemberId
+// bound via SetQuery("memberId") or the request body, never SetURI).
+//
 //	POST   /networks/{networkId}/proposals                                         → CreateProposal, networkId
 //	GET    /networks/{networkId}/proposals                                         → ListProposals, networkId
 //	GET    /networks/{networkId}/proposals/{proposalId}   → GetProposal, networkId/proposalId
@@ -287,6 +298,11 @@ func parseNetworksPath(method string, parts []string) (string, string) {
 		return parseProposalsPath(method, parts, networkID)
 	}
 
+	// /networks/{networkId}/nodes/...
+	if parts[2] == "nodes" {
+		return parseNetworkNodesPath(method, parts, networkID)
+	}
+
 	return "", ""
 }
 
@@ -315,16 +331,12 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 		return "", ""
 	}
 
-	// /networks/{networkId}/members/{memberId}[/nodes[/{nodeId}]]
-	if len(parts) >= 4 && parts[3] != "" {
-		memberID := parts[3]
-
-		// /networks/{networkId}/members/{memberId}/nodes[/{nodeId}]
-		if len(parts) >= 5 && parts[4] == "nodes" {
-			return parseNodesPath(method, parts, networkID, memberID)
-		}
-
-		resource := networkID + "/" + memberID
+	// /networks/{networkId}/members/{memberId} -- exactly this depth (plus an
+	// optional trailing slash). Anything deeper (e.g. a stray extra segment)
+	// falls through to "unknown operation" rather than being silently
+	// accepted as a member resource.
+	if (len(parts) == 4 || (len(parts) == 5 && parts[4] == "")) && parts[3] != "" {
+		resource := networkID + "/" + parts[3]
 
 		switch method {
 		case http.MethodGet:
@@ -339,34 +351,36 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 	return "", ""
 }
 
-// parseNodesPath handles routing for /networks/{networkId}/members/{memberId}/nodes/... paths.
-func parseNodesPath(method string, parts []string, networkID, memberID string) (string, string) {
-	resource := networkID + "/" + memberID
-
-	// /networks/{networkId}/members/{memberId}/nodes
-	if len(parts) == 5 || (len(parts) == 6 && parts[5] == "") {
+// parseNetworkNodesPath handles routing for /networks/{networkId}/nodes/... paths.
+// Unlike members, a node's path never carries its owning member's ID -- the
+// real API binds MemberId via the "memberId" query parameter (Get/List/
+// Delete/Update) or the JSON request body (Create), never the URI. See
+// parsePath's doc comment for the wire-shape citation.
+func parseNetworkNodesPath(method string, parts []string, networkID string) (string, string) {
+	// /networks/{networkId}/nodes
+	if len(parts) == 3 || (len(parts) == 4 && parts[3] == "") {
 		switch method {
 		case http.MethodPost:
-			return opCreateNode, resource
+			return opCreateNode, networkID
 		case http.MethodGet:
-			return opListNodes, resource
+			return opListNodes, networkID
 		}
 
 		return "", ""
 	}
 
-	// /networks/{networkId}/members/{memberId}/nodes/{nodeId}
-	if len(parts) >= 6 && parts[5] != "" {
-		nodeID := parts[5]
-		nodeResource := resource + "/" + nodeID
+	// /networks/{networkId}/nodes/{nodeId}
+	if len(parts) >= 4 && parts[3] != "" {
+		nodeID := parts[3]
+		resource := networkID + "/" + nodeID
 
 		switch method {
 		case http.MethodGet:
-			return opGetNode, nodeResource
+			return opGetNode, resource
 		case http.MethodDelete:
-			return opDeleteNode, nodeResource
+			return opDeleteNode, resource
 		case http.MethodPatch:
-			return opUpdateNode, nodeResource
+			return opUpdateNode, resource
 		}
 	}
 
@@ -769,10 +783,13 @@ func (h *Handler) handleDeleteMember(c *echo.Context, resource string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte) error {
-	networkID, memberID, ok := splitResource(resource)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
+// handleCreateNode handles POST /networks/{networkId}/nodes. Unlike member
+// and node paths elsewhere, the owning member is not part of the URI -- the
+// real API carries it as MemberId in the JSON body (see parsePath's doc
+// comment) -- so it is read from the decoded request, not from resource.
+func (h *Handler) handleCreateNode(c *echo.Context, networkID string, body []byte) error {
+	if networkID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
 	}
 
 	var req createNodeRequest
@@ -780,11 +797,15 @@ func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 
+	if req.MemberID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
+	}
+
 	node, err := h.Backend.CreateNode(
 		h.DefaultRegion,
 		h.AccountID,
 		networkID,
-		memberID,
+		req.MemberID,
 		req.NodeConfiguration.InstanceType,
 		req.NodeConfiguration.AvailabilityZone,
 		req.Tags,
@@ -796,10 +817,17 @@ func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte
 	return c.JSON(http.StatusOK, createNodeResponse{NodeID: node.ID})
 }
 
+// handleGetNode handles GET /networks/{networkId}/nodes/{nodeId}. The owning
+// member is carried as the "memberId" query parameter, not the URI.
 func (h *Handler) handleGetNode(c *echo.Context, resource string) error {
-	networkID, memberID, nodeID, ok := splitThreePart(resource)
+	networkID, nodeID, ok := splitResource(resource)
 	if !ok {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
+	}
+
+	memberID := c.Request().URL.Query().Get("memberId")
+	if memberID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
 	node, err := h.Backend.GetNode(networkID, memberID, nodeID)
@@ -810,14 +838,22 @@ func (h *Handler) handleGetNode(c *echo.Context, resource string) error {
 	return c.JSON(http.StatusOK, getNodeResponse{Node: toNodeObject(node)})
 }
 
-func (h *Handler) handleListNodes(c *echo.Context, resource string) error {
-	networkID, memberID, ok := splitResource(resource)
-	if !ok {
-		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
+// handleListNodes handles GET /networks/{networkId}/nodes. The owning member
+// is carried as the "memberId" query parameter, not the URI.
+func (h *Handler) handleListNodes(c *echo.Context, networkID string) error {
+	if networkID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNetworkID.Error())
+	}
+
+	q := c.Request().URL.Query()
+
+	memberID := q.Get("memberId")
+	if memberID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
 	filter := ListNodesFilter{
-		Status: c.Request().URL.Query().Get("status"),
+		Status: q.Get("status"),
 	}
 
 	nodes, err := h.Backend.ListNodes(networkID, memberID, filter)
@@ -833,10 +869,17 @@ func (h *Handler) handleListNodes(c *echo.Context, resource string) error {
 	return c.JSON(http.StatusOK, listNodesResponse{Nodes: summaries})
 }
 
+// handleDeleteNode handles DELETE /networks/{networkId}/nodes/{nodeId}. The
+// owning member is carried as the "memberId" query parameter, not the URI.
 func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
-	networkID, memberID, nodeID, ok := splitThreePart(resource)
+	networkID, nodeID, ok := splitResource(resource)
 	if !ok {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
+	}
+
+	memberID := c.Request().URL.Query().Get("memberId")
+	if memberID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
 	if err := h.Backend.DeleteNode(networkID, memberID, nodeID); err != nil {
@@ -1130,10 +1173,17 @@ func buildMemberLogConfig(req *memberLogPublishingConfigReq) *MemberLogPublishin
 	return logConfig
 }
 
+// handleUpdateNode handles PATCH /networks/{networkId}/nodes/{nodeId}. The
+// owning member is carried as the "memberId" query parameter, not the URI.
 func (h *Handler) handleUpdateNode(c *echo.Context, resource string, body []byte) error {
-	networkID, memberID, nodeID, ok := splitThreePart(resource)
+	networkID, nodeID, ok := splitResource(resource)
 	if !ok {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid resource path")
+	}
+
+	memberID := c.Request().URL.Query().Get("memberId")
+	if memberID == "" {
+		return writeError(c, http.StatusBadRequest, "InvalidRequestException", ErrMissingNodeMemberID.Error())
 	}
 
 	var req updateNodeRequest
@@ -1236,21 +1286,6 @@ func splitResource(resource string) (string, string, bool) {
 	}
 
 	return resource[:idx], resource[idx+1:], true
-}
-
-// splitThreePart splits a "a/b/c" resource string into its three parts.
-func splitThreePart(resource string) (string, string, string, bool) {
-	first, rest, ok := strings.Cut(resource, "/")
-	if !ok || rest == "" {
-		return "", "", "", false
-	}
-
-	second, third, ok := strings.Cut(rest, "/")
-	if !ok || third == "" {
-		return "", "", "", false
-	}
-
-	return first, second, third, true
 }
 
 // toNetworkObject converts a Network to its JSON representation.

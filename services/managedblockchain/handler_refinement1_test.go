@@ -234,8 +234,9 @@ func TestRefinement1_CreateNode_WithTags(t *testing.T) {
 
 	rec := doRequest(
 		t, h, http.MethodPost,
-		"/networks/"+n.ID+"/members/"+m.ID+"/nodes",
+		"/networks/"+n.ID+"/nodes",
 		map[string]any{
+			"MemberId": m.ID,
 			"NodeConfiguration": map[string]any{
 				"InstanceType":     "bc.t3.small.ethereum",
 				"AvailabilityZone": "us-east-1a",
@@ -254,7 +255,7 @@ func TestRefinement1_CreateNode_WithTags(t *testing.T) {
 
 	// GetNode and verify tags
 	rec2 := doRequest(t, h, http.MethodGet,
-		"/networks/"+n.ID+"/members/"+m.ID+"/nodes/"+nodeID, nil)
+		"/networks/"+n.ID+"/nodes/"+nodeID+"?memberId="+m.ID, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var nodeResp map[string]any
@@ -515,8 +516,9 @@ func TestRefinement1_NodeLifecycleViaHTTP(t *testing.T) {
 
 			rec := doRequest(
 				t, h, http.MethodPost,
-				"/networks/"+n.ID+"/members/"+m.ID+"/nodes",
+				"/networks/"+n.ID+"/nodes",
 				map[string]any{
+					"MemberId": m.ID,
 					"NodeConfiguration": map[string]any{
 						"InstanceType":     tt.instanceType,
 						"AvailabilityZone": "us-east-1a",
@@ -537,7 +539,7 @@ func TestRefinement1_NodeLifecycleViaHTTP(t *testing.T) {
 
 			// GetNode
 			rec2 := doRequest(t, h, http.MethodGet,
-				"/networks/"+n.ID+"/members/"+m.ID+"/nodes/"+nodeID, nil)
+				"/networks/"+n.ID+"/nodes/"+nodeID+"?memberId="+m.ID, nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
@@ -549,7 +551,7 @@ func TestRefinement1_NodeLifecycleViaHTTP(t *testing.T) {
 
 			// ListNodes
 			rec3 := doRequest(t, h, http.MethodGet,
-				"/networks/"+n.ID+"/members/"+m.ID+"/nodes", nil)
+				"/networks/"+n.ID+"/nodes?memberId="+m.ID, nil)
 			require.Equal(t, http.StatusOK, rec3.Code)
 
 			var listResp map[string]any
@@ -559,12 +561,12 @@ func TestRefinement1_NodeLifecycleViaHTTP(t *testing.T) {
 
 			// DeleteNode
 			rec4 := doRequest(t, h, http.MethodDelete,
-				"/networks/"+n.ID+"/members/"+m.ID+"/nodes/"+nodeID, nil)
+				"/networks/"+n.ID+"/nodes/"+nodeID+"?memberId="+m.ID, nil)
 			require.Equal(t, http.StatusNoContent, rec4.Code)
 
 			// Verify deleted
 			rec5 := doRequest(t, h, http.MethodGet,
-				"/networks/"+n.ID+"/members/"+m.ID+"/nodes/"+nodeID, nil)
+				"/networks/"+n.ID+"/nodes/"+nodeID+"?memberId="+m.ID, nil)
 			assert.Equal(t, http.StatusNotFound, rec5.Code)
 		})
 	}

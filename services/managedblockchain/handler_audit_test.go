@@ -3,6 +3,7 @@ package managedblockchain_test
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -303,8 +304,10 @@ func TestAudit_ListNodes_Filters(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			rec := doRequestWithQuery(t, h,
-				fmt.Sprintf("/networks/%s/members/%s/nodes", n.ID, m.ID), tt.query)
+			query := map[string]string{"memberId": m.ID}
+			maps.Copy(query, tt.query)
+
+			rec := doRequestWithQuery(t, h, fmt.Sprintf("/networks/%s/nodes", n.ID), query)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
@@ -774,8 +777,9 @@ func TestAudit_NodeSummaryAvailabilityZone(t *testing.T) {
 			// Create node with AZ
 			rec := doRequest(
 				t, h, http.MethodPost,
-				fmt.Sprintf("/networks/%s/members/%s/nodes", n.ID, m.ID),
+				fmt.Sprintf("/networks/%s/nodes", n.ID),
 				map[string]any{
+					"MemberId": m.ID,
 					"NodeConfiguration": map[string]any{
 						"InstanceType":     tt.instanceType,
 						"AvailabilityZone": "us-east-1a",
@@ -786,7 +790,7 @@ func TestAudit_NodeSummaryAvailabilityZone(t *testing.T) {
 
 			// List nodes and check AZ in summary
 			rec2 := doRequest(t, h, http.MethodGet,
-				fmt.Sprintf("/networks/%s/members/%s/nodes", n.ID, m.ID), nil)
+				fmt.Sprintf("/networks/%s/nodes?memberId=%s", n.ID, m.ID), nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var listResp map[string]any
@@ -953,7 +957,7 @@ func TestAudit_UpdateNode_LogPublishingConfig(t *testing.T) {
 			h.AccountID = testAccountID
 			h.DefaultRegion = testRegion
 
-			patchPath := fmt.Sprintf("/networks/%s/members/%s/nodes/%s", n.ID, m.ID, node.ID)
+			patchPath := fmt.Sprintf("/networks/%s/nodes/%s?memberId=%s", n.ID, node.ID, m.ID)
 
 			rec := doRequest(t, h, http.MethodPatch, patchPath, map[string]any{
 				"LogPublishingConfiguration": map[string]any{
