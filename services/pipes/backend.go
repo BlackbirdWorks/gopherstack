@@ -995,6 +995,9 @@ func (b *InMemoryBackend) CreatePipe(ctx context.Context, in CreatePipeInput) (*
 	if err := validateTags(in.Tags); err != nil {
 		return nil, err
 	}
+	if len(in.Tags) > maxTagsPerPipe {
+		return nil, fmt.Errorf("%w: pipe would exceed %d tags limit", ErrValidation, maxTagsPerPipe)
+	}
 	if err := validateSourceBatchSize(in.SourceParameters); err != nil {
 		return nil, err
 	}
@@ -1297,6 +1300,12 @@ func (b *InMemoryBackend) UpdatePipe(ctx context.Context, name string, in Update
 	p, ok := b.pipesTable(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
+	}
+	if p.CurrentState == stateDeleting {
+		return nil, fmt.Errorf(
+			"%w: pipe %s is being deleted",
+			ErrConflict, name,
+		)
 	}
 	applyUpdateFields(p, in)
 
