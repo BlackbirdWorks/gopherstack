@@ -23,8 +23,15 @@ const (
 	statusCreateFailed   = "CREATE FAILED"
 	statusUpdatePending  = "UPDATE PENDING"
 	statusUpdateProgress = "UPDATE IN_PROGRESS"
-	statusStopped        = "STOPPED"
-	statusStopPending    = "STOP PENDING"
+	// statusSolutionVersionStopped is the terminal status for a solution
+	// version whose training was stopped via StopSolutionVersionCreation.
+	// The SolutionVersion.Status wire enum only has "CREATE STOPPED" (no
+	// bare "STOPPED") -- see the [SolutionVersion] type doc in
+	// aws-sdk-go-v2/service/personalize/types.
+	//
+	// [SolutionVersion]: https://docs.aws.amazon.com/personalize/latest/dg/API_SolutionVersion.html
+	statusSolutionVersionStopped = "CREATE STOPPED"
+	statusStopPending            = "STOP PENDING"
 
 	defaultAccountID = "000000000000"
 	defaultRegion    = "us-east-1"
@@ -80,15 +87,17 @@ type Schema struct {
 
 // Solution stores an Amazon Personalize solution.
 type Solution struct {
-	CreationDateTime    time.Time
-	LastUpdatedDateTime time.Time
-	SolutionArn         string
-	DatasetGroupArn     string
-	Name                string
-	RecipeArn           string
-	Status              string
-	PerformAutoML       bool
-	PerformHPO          bool
+	CreationDateTime         time.Time
+	LastUpdatedDateTime      time.Time
+	SolutionArn              string
+	DatasetGroupArn          string
+	Name                     string
+	RecipeArn                string
+	Status                   string
+	PerformAutoML            bool
+	PerformHPO               bool
+	PerformAutoTraining      bool
+	PerformIncrementalUpdate bool
 }
 
 // SolutionVersion stores a trained Amazon Personalize solution version.
@@ -197,15 +206,25 @@ type Recommender struct {
 	MinRecommendationRequestsPerSecond int32
 }
 
+// MetricAttribute describes a single tracked metric within a metric
+// attribution: an event type and the expression (SUM()/SAMPLECOUNT()) used to
+// compute it.
+type MetricAttribute struct {
+	EventType  string
+	Expression string
+	MetricName string
+}
+
 // MetricAttribution stores an Amazon Personalize metric attribution.
 type MetricAttribution struct {
 	CreationDateTime     time.Time
 	LastUpdatedDateTime  time.Time
+	MetricsOutputConfig  map[string]any
 	MetricAttributionArn string
 	DatasetGroupArn      string
 	Name                 string
-	MetricsOutputConfig  map[string]any
 	Status               string
+	Metrics              []MetricAttribute
 }
 
 // DataDeletionJob stores an async data deletion job.
@@ -608,10 +627,12 @@ func (b *InMemoryBackend) findSchema(nameOrArn string) *Schema {
 
 // --- Solution ---
 
-// CreateSolution creates a new solution.
+// CreateSolution creates a new solution. performAutoTraining defaults to true
+// in the real API when the caller omits it, so it is passed as an already
+// caller-resolved bool rather than re-defaulted here.
 func (b *InMemoryBackend) CreateSolution(
 	name, datasetGroupArn, recipeArn string,
-	performAutoML, performHPO bool,
+	performAutoML, performHPO, performAutoTraining, performIncrementalUpdate bool,
 	tags map[string]string,
 ) (*Solution, error) {
 	b.mu.Lock("CreateSolution")
@@ -626,15 +647,17 @@ func (b *InMemoryBackend) CreateSolution(
 
 	now := time.Now().UTC()
 	sol := &Solution{
-		SolutionArn:         b.personalizeARN("solution", name),
-		Name:                name,
-		DatasetGroupArn:     datasetGroupArn,
-		RecipeArn:           recipeArn,
-		PerformAutoML:       performAutoML,
-		PerformHPO:          performHPO,
-		Status:              statusActive,
-		CreationDateTime:    now,
-		LastUpdatedDateTime: now,
+		SolutionArn:              b.personalizeARN("solution", name),
+		Name:                     name,
+		DatasetGroupArn:          datasetGroupArn,
+		RecipeArn:                recipeArn,
+		PerformAutoML:            performAutoML,
+		PerformHPO:               performHPO,
+		PerformAutoTraining:      performAutoTraining,
+		PerformIncrementalUpdate: performIncrementalUpdate,
+		Status:                   statusActive,
+		CreationDateTime:         now,
+		LastUpdatedDateTime:      now,
 	}
 	b.solutions.Put(sol)
 	if len(tags) > 0 {
@@ -656,8 +679,15 @@ func (b *InMemoryBackend) DescribeSolution(nameOrArn string) (*Solution, error) 
 	return nil, fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
 }
 
-// UpdateSolution updates solution configuration.
-func (b *InMemoryBackend) UpdateSolution(nameOrArn string, performAutoML, performHPO bool) (*Solution, error) {
+// UpdateSolution updates a solution's automatic-training configuration. The
+// real UpdateSolution API only mutates performAutoTraining and
+// performIncrementalUpdate (performAutoML/performHPO are immutable,
+// creation-only fields) -- nil means "not specified in the request", leaving
+// the current value untouched, matching the optional *bool request members.
+func (b *InMemoryBackend) UpdateSolution(
+	nameOrArn string,
+	performAutoTraining, performIncrementalUpdate *bool,
+) (*Solution, error) {
 	b.mu.Lock("UpdateSolution")
 	defer b.mu.Unlock()
 
@@ -665,8 +695,12 @@ func (b *InMemoryBackend) UpdateSolution(nameOrArn string, performAutoML, perfor
 	if sol == nil {
 		return nil, fmt.Errorf("%w: solution %q not found", ErrNotFound, nameOrArn)
 	}
-	sol.PerformAutoML = performAutoML
-	sol.PerformHPO = performHPO
+	if performAutoTraining != nil {
+		sol.PerformAutoTraining = *performAutoTraining
+	}
+	if performIncrementalUpdate != nil {
+		sol.PerformIncrementalUpdate = *performIncrementalUpdate
+	}
 	sol.LastUpdatedDateTime = time.Now().UTC()
 
 	return sol, nil
@@ -800,7 +834,7 @@ func (b *InMemoryBackend) ListSolutionVersions(
 	return paginateItems(filtered, solutionVersionKeyFn, maxResults, nextToken)
 }
 
-// StopSolutionVersionCreation transitions a solution version to STOPPED.
+// StopSolutionVersionCreation transitions a solution version to CREATE STOPPED.
 func (b *InMemoryBackend) StopSolutionVersionCreation(svArn string) error {
 	b.mu.Lock("StopSolutionVersionCreation")
 	defer b.mu.Unlock()
@@ -809,7 +843,7 @@ func (b *InMemoryBackend) StopSolutionVersionCreation(svArn string) error {
 	if !ok {
 		return fmt.Errorf("%w: solution version %q not found", ErrNotFound, svArn)
 	}
-	sv.Status = statusStopped
+	sv.Status = statusSolutionVersionStopped
 	sv.LastUpdatedDateTime = time.Now().UTC()
 
 	return nil
@@ -1296,9 +1330,12 @@ func (b *InMemoryBackend) findRecommender(nameOrArn string) *Recommender {
 
 // --- MetricAttribution ---
 
-// CreateMetricAttribution creates a new metric attribution.
+// CreateMetricAttribution creates a new metric attribution. metrics is a
+// required field on the real CreateMetricAttribution API (a list of the
+// event-type/expression pairs to track), not an optional passthrough.
 func (b *InMemoryBackend) CreateMetricAttribution(
 	name, datasetGroupArn string,
+	metrics []MetricAttribute,
 	metricsOutputConfig map[string]any,
 	tags map[string]string,
 ) (*MetricAttribution, error) {
@@ -1307,6 +1344,9 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
+	}
+	if len(metrics) == 0 {
+		return nil, fmt.Errorf("%w: metrics is required", ErrValidation)
 	}
 	if b.metricAttributions.Has(name) {
 		return nil, fmt.Errorf("%w: metric attribution %q already exists", ErrAlreadyExists, name)
@@ -1317,6 +1357,7 @@ func (b *InMemoryBackend) CreateMetricAttribution(
 		MetricAttributionArn: b.personalizeARN("metric-attribution", name),
 		Name:                 name,
 		DatasetGroupArn:      datasetGroupArn,
+		Metrics:              append([]MetricAttribute(nil), metrics...),
 		MetricsOutputConfig:  metricsOutputConfig,
 		Status:               statusActive,
 		CreationDateTime:     now,
@@ -1342,9 +1383,15 @@ func (b *InMemoryBackend) DescribeMetricAttribution(nameOrArn string) (*MetricAt
 	return nil, fmt.Errorf("%w: metric attribution %q not found", ErrNotFound, nameOrArn)
 }
 
-// UpdateMetricAttribution updates a metric attribution's output config.
+// UpdateMetricAttribution updates a metric attribution's tracked metrics
+// and/or output config. The real UpdateMetricAttribution API has no single
+// "metrics" replacement field -- it mutates the existing metric list via
+// addMetrics/removeMetrics (by metricName), matching AddMetrics/RemoveMetrics
+// on the request.
 func (b *InMemoryBackend) UpdateMetricAttribution(
 	nameOrArn string,
+	addMetrics []MetricAttribute,
+	removeMetrics []string,
 	metricsOutputConfig map[string]any,
 ) (*MetricAttribution, error) {
 	b.mu.Lock("UpdateMetricAttribution")
@@ -1354,6 +1401,22 @@ func (b *InMemoryBackend) UpdateMetricAttribution(
 	if ma == nil {
 		return nil, fmt.Errorf("%w: metric attribution %q not found", ErrNotFound, nameOrArn)
 	}
+
+	if len(removeMetrics) > 0 {
+		removeSet := make(map[string]bool, len(removeMetrics))
+		for _, name := range removeMetrics {
+			removeSet[name] = true
+		}
+		kept := make([]MetricAttribute, 0, len(ma.Metrics))
+		for _, m := range ma.Metrics {
+			if !removeSet[m.MetricName] {
+				kept = append(kept, m)
+			}
+		}
+		ma.Metrics = kept
+	}
+	ma.Metrics = append(ma.Metrics, addMetrics...)
+
 	if metricsOutputConfig != nil {
 		ma.MetricsOutputConfig = metricsOutputConfig
 	}
@@ -1397,45 +1460,32 @@ func (b *InMemoryBackend) ListMetricAttributions(
 	return paginateItems(filtered, metricAttributionKeyFn, maxResults, nextToken)
 }
 
-// ListMetricAttributionMetrics returns metrics for a metric attribution with pagination.
+// ListMetricAttributionMetrics returns the metric attribution's own tracked
+// metrics (as configured via CreateMetricAttribution/UpdateMetricAttribution)
+// with pagination, rather than a fabricated static list.
 func (b *InMemoryBackend) ListMetricAttributionMetrics(
 	metricAttributionArn string,
 	maxResults int,
 	nextToken string,
-) ([]map[string]any, string, error) {
+) ([]MetricAttribute, string, error) {
 	b.mu.RLock("ListMetricAttributionMetrics")
 	defer b.mu.RUnlock()
 
-	if b.findMetricAttribution(metricAttributionArn) == nil {
+	ma := b.findMetricAttribution(metricAttributionArn)
+	if ma == nil {
 		return nil, "", fmt.Errorf("%w: metric attribution %q not found", ErrNotFound, metricAttributionArn)
 	}
 
-	allMetrics := []map[string]any{
-		{
-			"eventType":             "click",
-			"expression":            "SUM(DataSource.EVENT_VALUE)",
-			keyMetricAttributionArn: metricAttributionArn,
-			"metricName":            "sum-of-event-value",
-		},
-		{
-			"eventType":             "purchase",
-			"expression":            "SUM(DataSource.EVENT_VALUE)",
-			keyMetricAttributionArn: metricAttributionArn,
-			"metricName":            "sum-purchase-value",
-		},
-	}
-
 	// Build string keys for pagination helper (use metricName as key).
-	keys := make([]string, len(allMetrics))
-	byKey := make(map[string]map[string]any, len(allMetrics))
-	for i, m := range allMetrics {
-		k := m["metricName"].(string) //nolint:errcheck // metricName is always string; set by this func above
-		keys[i] = k
-		byKey[k] = m
+	keys := make([]string, len(ma.Metrics))
+	byKey := make(map[string]MetricAttribute, len(ma.Metrics))
+	for i, m := range ma.Metrics {
+		keys[i] = m.MetricName
+		byKey[m.MetricName] = m
 	}
 	sort.Strings(keys)
 
-	paged, outToken := paginate(keys, func(k string) map[string]any { return byKey[k] }, maxResults, nextToken)
+	paged, outToken := paginate(keys, func(k string) MetricAttribute { return byKey[k] }, maxResults, nextToken)
 
 	return paged, outToken, nil
 }

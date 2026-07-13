@@ -453,9 +453,18 @@ func (h *Handler) createSolution(input map[string]any) (map[string]any, error) {
 	recipeArn, _ := input["recipeArn"].(string)
 	performAutoML, _ := input["performAutoML"].(bool)
 	performHPO, _ := input["performHPO"].(bool)
+	// performAutoTraining defaults to true when omitted (the real API
+	// automatically creates new solution versions every 7 days unless told
+	// otherwise); performIncrementalUpdate defaults to false.
+	performAutoTraining := boolFieldDefault(input, "performAutoTraining", true)
+	performIncrementalUpdate, _ := input["performIncrementalUpdate"].(bool)
 	tags := extractTags(input)
 
-	sol, err := h.Backend.CreateSolution(name, datasetGroupArn, recipeArn, performAutoML, performHPO, tags)
+	sol, err := h.Backend.CreateSolution(
+		name, datasetGroupArn, recipeArn,
+		performAutoML, performHPO, performAutoTraining, performIncrementalUpdate,
+		tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -476,10 +485,20 @@ func (h *Handler) describeSolution(input map[string]any) (map[string]any, error)
 
 func (h *Handler) updateSolution(input map[string]any) (map[string]any, error) {
 	nameOrArn, _ := input["solutionArn"].(string)
-	performAutoML, _ := input["performAutoML"].(bool)
-	performHPO, _ := input["performHPO"].(bool)
 
-	sol, err := h.Backend.UpdateSolution(nameOrArn, performAutoML, performHPO)
+	// The real UpdateSolutionInput only carries performAutoTraining and
+	// performIncrementalUpdate (both optional *bool) -- performAutoML/
+	// performHPO are creation-only and are not accepted here. A nil pointer
+	// means "not specified in the request", leaving the current value alone.
+	var performAutoTraining, performIncrementalUpdate *bool
+	if v, ok := input["performAutoTraining"].(bool); ok {
+		performAutoTraining = &v
+	}
+	if v, ok := input["performIncrementalUpdate"].(bool); ok {
+		performIncrementalUpdate = &v
+	}
+
+	sol, err := h.Backend.UpdateSolution(nameOrArn, performAutoTraining, performIncrementalUpdate)
 	if err != nil {
 		return nil, err
 	}
@@ -850,10 +869,11 @@ func (h *Handler) stopRecommender(input map[string]any) (map[string]any, error) 
 func (h *Handler) createMetricAttribution(input map[string]any) (map[string]any, error) {
 	name, _ := input["name"].(string)
 	datasetGroupArn, _ := input["datasetGroupArn"].(string)
+	metrics := extractMetricAttributes(input, "metrics")
 	metricsOutputConfig, _ := input["metricsOutputConfig"].(map[string]any)
 	tags := extractTags(input)
 
-	ma, err := h.Backend.CreateMetricAttribution(name, datasetGroupArn, metricsOutputConfig, tags)
+	ma, err := h.Backend.CreateMetricAttribution(name, datasetGroupArn, metrics, metricsOutputConfig, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -874,9 +894,11 @@ func (h *Handler) describeMetricAttribution(input map[string]any) (map[string]an
 
 func (h *Handler) updateMetricAttribution(input map[string]any) (map[string]any, error) {
 	nameOrArn, _ := input["metricAttributionArn"].(string)
+	addMetrics := extractMetricAttributes(input, "addMetrics")
+	removeMetrics := strSlice(input, "removeMetrics")
 	metricsOutputConfig, _ := input["metricsOutputConfig"].(map[string]any)
 
-	ma, err := h.Backend.UpdateMetricAttribution(nameOrArn, metricsOutputConfig)
+	ma, err := h.Backend.UpdateMetricAttribution(nameOrArn, addMetrics, removeMetrics, metricsOutputConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -920,7 +942,12 @@ func (h *Handler) listMetricAttributionMetrics(input map[string]any) (map[string
 		return nil, err
 	}
 
-	result := map[string]any{"metrics": metrics}
+	summaries := make([]map[string]any, 0, len(metrics))
+	for _, m := range metrics {
+		summaries = append(summaries, metricAttributeToMap(m))
+	}
+
+	result := map[string]any{"metrics": summaries}
 	if outToken != "" {
 		result["nextToken"] = outToken
 	}
@@ -1526,15 +1553,17 @@ func schemaToMap(s *Schema) map[string]any {
 
 func solutionToMap(sol *Solution) map[string]any {
 	return map[string]any{
-		keySolutionArn:         sol.SolutionArn,
-		keyName:                sol.Name,
-		keyDatasetGroupArn:     sol.DatasetGroupArn,
-		keyRecipeArn:           sol.RecipeArn,
-		"performAutoML":        sol.PerformAutoML,
-		"performHPO":           sol.PerformHPO,
-		keyStatus:              sol.Status,
-		keyCreationDateTime:    awstime.Epoch(sol.CreationDateTime),
-		keyLastUpdatedDateTime: awstime.Epoch(sol.LastUpdatedDateTime),
+		keySolutionArn:             sol.SolutionArn,
+		keyName:                    sol.Name,
+		keyDatasetGroupArn:         sol.DatasetGroupArn,
+		keyRecipeArn:               sol.RecipeArn,
+		"performAutoML":            sol.PerformAutoML,
+		"performHPO":               sol.PerformHPO,
+		"performAutoTraining":      sol.PerformAutoTraining,
+		"performIncrementalUpdate": sol.PerformIncrementalUpdate,
+		keyStatus:                  sol.Status,
+		keyCreationDateTime:        awstime.Epoch(sol.CreationDateTime),
+		keyLastUpdatedDateTime:     awstime.Epoch(sol.LastUpdatedDateTime),
 	}
 }
 
@@ -1610,6 +1639,14 @@ func metricAttributionToMap(ma *MetricAttribution) map[string]any {
 		keyStatus:               ma.Status,
 		keyCreationDateTime:     awstime.Epoch(ma.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(ma.LastUpdatedDateTime),
+	}
+}
+
+func metricAttributeToMap(m MetricAttribute) map[string]any {
+	return map[string]any{
+		"eventType":  m.EventType,
+		"expression": m.Expression,
+		"metricName": m.MetricName,
 	}
 }
 
@@ -1708,6 +1745,44 @@ func extractTagsFromSlice(input map[string]any, key string) map[string]string {
 	}
 
 	return tags
+}
+
+// extractMetricAttributes parses a []MetricAttribute wire list (each entry
+// carrying eventType/expression/metricName) from input[key], used by
+// CreateMetricAttribution's required "metrics" field and
+// UpdateMetricAttribution's "addMetrics" field.
+func extractMetricAttributes(input map[string]any, key string) []MetricAttribute {
+	raw, ok := input[key].([]any)
+	if !ok {
+		return nil
+	}
+
+	out := make([]MetricAttribute, 0, len(raw))
+	for _, item := range raw {
+		entry, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		eventType, _ := entry["eventType"].(string)
+		expression, _ := entry["expression"].(string)
+		metricName, _ := entry["metricName"].(string)
+		out = append(out, MetricAttribute{EventType: eventType, Expression: expression, MetricName: metricName})
+	}
+
+	return out
+}
+
+// boolFieldDefault returns the bool value of key if present in m, otherwise
+// def. Unlike a plain type assertion, this distinguishes "absent from the
+// request" (use def) from "explicitly present" (use its value), which
+// matters for wire fields whose real-API default is true.
+func boolFieldDefault(m map[string]any, key string, def bool) bool {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+
+	return def
 }
 
 func intField(m map[string]any, key string) int {
