@@ -50,6 +50,19 @@ func (b *InMemoryBackend) appendEvent(s *connState, ev LifecycleEvent) {
 	}
 }
 
+// closeDownstream closes a connection's downstream delivery channel, if any,
+// so the WebSocket transport (owned by whichever service established the
+// connection) observes the closed channel and tears down the underlying
+// socket. It must only be called while holding b.mu and only once per
+// connection -- callers remove the connState from the map in the same
+// critical section, which prevents PostToConnection from ever observing (and
+// sending on) an already-closed channel.
+func closeDownstream(s *connState) {
+	if s.downstream != nil {
+		close(s.downstream)
+	}
+}
+
 // CreateConnection creates a new simulated WebSocket connection.
 func (b *InMemoryBackend) CreateConnection(
 	connectionID, sourceIP, userAgent string,
@@ -104,13 +117,28 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 		return fmt.Errorf("%w: %s", ErrConnectionNotFound, connectionID)
 	}
 
+	stored := make([]byte, len(data))
+	copy(stored, data)
+
+	// Attempt delivery to the real WebSocket transport, if one is wired,
+	// before recording the message as posted. A full client-side buffer means
+	// the frame was never queued for delivery, so nothing below should treat
+	// it as a successful post -- real AWS reports this exact condition as
+	// LimitExceededException rather than silently accepting the message.
+	if state.downstream != nil {
+		select {
+		case state.downstream <- stored:
+		default:
+			b.stats.TotalRejected++
+
+			return fmt.Errorf("%w: connection %s", ErrLimitExceeded, connectionID)
+		}
+	}
+
 	now := time.Now()
 	state.conn.LastActiveAt = now
 	state.conn.PostedMessages++
 	state.conn.BytesSent += int64(len(data))
-
-	stored := make([]byte, len(data))
-	copy(stored, data)
 
 	state.msgs.push(PostedMessage{
 		ReceivedAt:   now,
@@ -121,15 +149,6 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 	b.appendEvent(state, LifecycleEvent{At: now, Type: EventMessage, Bytes: len(data)})
 	b.stats.TotalMessages++
 	b.stats.TotalBytesSent += int64(len(data))
-
-	// Write to real websocket if connected
-	if state.downstream != nil {
-		select {
-		case state.downstream <- stored:
-		default:
-			// Warning: WebSocket downstream channel full
-		}
-	}
 
 	return nil
 }
@@ -149,16 +168,22 @@ func (b *InMemoryBackend) GetConnection(connectionID string) (*Connection, error
 	return &cp, nil
 }
 
-// DeleteConnection removes the connection with the given ID.
+// DeleteConnection forcibly disconnects the connection with the given ID,
+// matching real AWS semantics: the connection is torn down, not merely
+// forgotten. If a real transport is wired (connState.downstream is non-nil),
+// closing it here signals the owning transport goroutine to close the
+// underlying socket.
 func (b *InMemoryBackend) DeleteConnection(connectionID string) error {
 	b.mu.Lock("DeleteConnection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.connections[connectionID]; !ok {
+	state, ok := b.connections[connectionID]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrConnectionNotFound, connectionID)
 	}
 
 	delete(b.connections, connectionID)
+	closeDownstream(state)
 	b.stats.TotalDisconnections++
 
 	return nil
@@ -322,6 +347,7 @@ func (b *InMemoryBackend) PruneIdle(threshold time.Duration) []string {
 		if state.conn.LastActiveAt.Before(cutoff) {
 			pruned = append(pruned, id)
 			delete(b.connections, id)
+			closeDownstream(state)
 			b.stats.TotalDisconnections++
 		}
 	}

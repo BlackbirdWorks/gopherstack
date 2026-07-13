@@ -283,6 +283,29 @@ func TestAdmin_Prune(t *testing.T) {
 	assert.Len(t, h.Backend.ListConnections(), 1)
 }
 
+func TestAdmin_Prune_ClosesDownstream(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	downstream := make(chan []byte, 1)
+	_, err := h.Backend.CreateConnection("idle-conn", "1.1.1.1", "ua", downstream)
+	require.NoError(t, err)
+
+	// Gap must exceed the prune threshold with enough margin for slow CI runners.
+	time.Sleep(300 * time.Millisecond)
+
+	pruned := h.Backend.PruneIdle(100 * time.Millisecond)
+	assert.Equal(t, []string{"idle-conn"}, pruned)
+
+	select {
+	case _, open := <-downstream:
+		assert.False(t, open, "downstream channel must be closed after PruneIdle")
+	default:
+		t.Fatal("downstream channel must be closed (readable as closed) after PruneIdle")
+	}
+}
+
 func TestAdmin_PruneZeroThreshold_ReturnsEmptySlice(t *testing.T) {
 	t.Parallel()
 

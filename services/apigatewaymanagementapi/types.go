@@ -17,6 +17,10 @@ var (
 	ErrPayloadTooLarge = errors.New("payload too large")
 	// ErrConnectionExists is returned when attempting to create a duplicate connection.
 	ErrConnectionExists = errors.New("connection already exists")
+	// ErrLimitExceeded is returned when a frame cannot be queued for delivery
+	// because the WebSocket connection's client-side buffer is full. Real AWS
+	// documents this exact condition as a LimitExceededException.
+	ErrLimitExceeded = errors.New("websocket client-side buffer is full")
 )
 
 // EventType describes a lifecycle event recorded against a connection.
