@@ -57,7 +57,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 		ReferenceDataSourceDescription{
 			TableName: "ref-table",
 			S3ReferenceDataSourceDescription: &S3ReferenceDataSourceDesc{
-				BucketARN: "arn:aws:s3:::bucket", FileKey: "key", RoleARN: "role-arn",
+				BucketARN: "arn:aws:s3:::bucket", FileKey: "key", ReferenceRoleARN: "role-arn",
 			},
 		},
 	))

@@ -159,10 +159,15 @@ type SourceSchema struct {
 }
 
 // S3ReferenceDataSourceDesc describes the S3 source for reference data.
+//
+// The IAM role field is wired as "ReferenceRoleARN" on the wire, not "RoleARN" --
+// unlike every other role-ARN-bearing shape in this API, S3ReferenceDataSource(Description)
+// uses the ReferenceRoleARN name (verified against aws-sdk-go-v2/service/kinesisanalytics
+// deserializers.go / types.go).
 type S3ReferenceDataSourceDesc struct {
-	BucketARN string `json:"BucketARN"`
-	FileKey   string `json:"FileKey"`
-	RoleARN   string `json:"RoleARN,omitempty"`
+	BucketARN        string `json:"BucketARN"`
+	FileKey          string `json:"FileKey"`
+	ReferenceRoleARN string `json:"ReferenceRoleARN,omitempty"`
 }
 
 // ReferenceDataSourceDescription describes a reference data source.
@@ -268,32 +273,108 @@ type updateApplicationInput struct {
 }
 
 // inputUpdate describes changes to an existing input configuration.
+//
+// The nested Kinesis*/InputProcessingConfiguration/InputSchema/InputParallelism update
+// shapes are DISTINCT wire types from their Add* counterparts (every leaf field carries an
+// "Update" suffix -- e.g. "ResourceARNUpdate" not "ResourceARN"), verified against
+// aws-sdk-go-v2/service/kinesisanalytics serializers.go. Reusing the Add* config types here
+// would silently fail to decode real client payloads.
 type inputUpdate struct {
-	InputProcessingConfigurationUpdate *inputProcessingConfigInput         `json:"InputProcessingConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
+	InputProcessingConfigurationUpdate *inputProcessingConfigUpdateInput   `json:"InputProcessingConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
 	InputStartingPositionConfiguration *InputStartingPositionConfiguration `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
-	InputSchemaUpdate                  *sourceSchemaInput                  `json:"InputSchemaUpdate,omitempty"`
-	KinesisStreamsInputUpdate          *kinesisStreamsInputConfig          `json:"KinesisStreamsInputUpdate,omitempty"`
-	KinesisFirehoseInputUpdate         *kinesisFirehoseInputConfig         `json:"KinesisFirehoseInputUpdate,omitempty"`
+	InputSchemaUpdate                  *inputSchemaUpdateInput             `json:"InputSchemaUpdate,omitempty"`
+	InputParallelismUpdate             *inputParallelismUpdateConfig       `json:"InputParallelismUpdate,omitempty"`
+	KinesisStreamsInputUpdate          *kinesisStreamsInputUpdateConfig    `json:"KinesisStreamsInputUpdate,omitempty"`
+	KinesisFirehoseInputUpdate         *kinesisFirehoseInputUpdateConfig   `json:"KinesisFirehoseInputUpdate,omitempty"`
 	NamePrefixUpdate                   string                              `json:"NamePrefixUpdate,omitempty"`
 	InputID                            string                              `json:"InputId"`
 }
 
+// inputParallelismUpdateConfig describes an update to an input's parallelism count.
+type inputParallelismUpdateConfig struct {
+	Count int `json:"CountUpdate,omitempty"`
+}
+
+// inputSchemaUpdateInput describes changes to an input's source schema. Unlike
+// ReferenceSchemaUpdate (which reuses the full SourceSchema shape verbatim), InputSchemaUpdate
+// has its own "Update"-suffixed field names and is applied as a field-by-field patch.
+type inputSchemaUpdateInput struct {
+	RecordFormat   *recordFormatInput `json:"RecordFormatUpdate,omitempty"`
+	RecordEncoding string             `json:"RecordEncodingUpdate,omitempty"`
+	RecordColumns  []RecordColumn     `json:"RecordColumnUpdates,omitempty"`
+}
+
+// inputProcessingConfigUpdateInput describes an update to an input processing configuration.
+type inputProcessingConfigUpdateInput struct {
+	InputLambdaProcessor *lambdaProcessorUpdateInput `json:"InputLambdaProcessorUpdate"`
+}
+
+// lambdaProcessorUpdateInput describes an update to a Lambda input processor.
+type lambdaProcessorUpdateInput struct {
+	ResourceARN string `json:"ResourceARNUpdate"`
+	RoleARN     string `json:"RoleARNUpdate"`
+}
+
+// kinesisStreamsInputUpdateConfig describes an update to a Kinesis Streams input.
+type kinesisStreamsInputUpdateConfig struct {
+	ResourceARN string `json:"ResourceARNUpdate"`
+	RoleARN     string `json:"RoleARNUpdate"`
+}
+
+// kinesisFirehoseInputUpdateConfig describes an update to a Kinesis Firehose input.
+type kinesisFirehoseInputUpdateConfig struct {
+	ResourceARN string `json:"ResourceARNUpdate"`
+	RoleARN     string `json:"RoleARNUpdate"`
+}
+
 // outputUpdate describes changes to an existing output configuration.
+//
+// Like inputUpdate, the nested Kinesis*/Lambda output update shapes carry "Update"-suffixed
+// leaf field names distinct from their Add* counterparts.
 type outputUpdate struct {
-	KinesisStreamsOutputUpdate  *kinesisStreamsOutputConfig  `json:"KinesisStreamsOutputUpdate,omitempty"`
-	KinesisFirehoseOutputUpdate *kinesisFirehoseOutputConfig `json:"KinesisFirehoseOutputUpdate,omitempty"`
-	LambdaOutputUpdate          *lambdaOutputConfig          `json:"LambdaOutputUpdate,omitempty"`
-	DestinationSchemaUpdate     *destinationSchemaInput      `json:"DestinationSchemaUpdate,omitempty"`
-	NameUpdate                  string                       `json:"NameUpdate,omitempty"`
-	OutputID                    string                       `json:"OutputId"`
+	KinesisStreamsOutputUpdate  *kinesisStreamsOutputUpdateConfig  `json:"KinesisStreamsOutputUpdate,omitempty"`
+	KinesisFirehoseOutputUpdate *kinesisFirehoseOutputUpdateConfig `json:"KinesisFirehoseOutputUpdate,omitempty"`
+	LambdaOutputUpdate          *lambdaOutputUpdateConfig          `json:"LambdaOutputUpdate,omitempty"`
+	DestinationSchemaUpdate     *destinationSchemaInput            `json:"DestinationSchemaUpdate,omitempty"`
+	NameUpdate                  string                             `json:"NameUpdate,omitempty"`
+	OutputID                    string                             `json:"OutputId"`
+}
+
+// kinesisStreamsOutputUpdateConfig describes an update to a Kinesis Streams output.
+type kinesisStreamsOutputUpdateConfig struct {
+	ResourceARN string `json:"ResourceARNUpdate"`
+	RoleARN     string `json:"RoleARNUpdate"`
+}
+
+// kinesisFirehoseOutputUpdateConfig describes an update to a Kinesis Firehose output.
+type kinesisFirehoseOutputUpdateConfig struct {
+	ResourceARN string `json:"ResourceARNUpdate"`
+	RoleARN     string `json:"RoleARNUpdate"`
+}
+
+// lambdaOutputUpdateConfig describes an update to a Lambda output.
+type lambdaOutputUpdateConfig struct {
+	ResourceARN string `json:"ResourceARNUpdate"`
+	RoleARN     string `json:"RoleARNUpdate"`
 }
 
 // referenceDataSourceUpdate describes changes to an existing reference data source.
+//
+// ReferenceSchemaUpdate reuses the full SourceSchema shape verbatim (a whole-object replace),
+// but S3ReferenceDataSourceUpdate has its own "Update"-suffixed field names distinct from
+// S3ReferenceDataSource, so it needs its own type (s3ReferenceDataSourceUpdateConfig).
 type referenceDataSourceUpdate struct {
-	S3ReferenceDataSourceUpdate *s3ReferenceDataSourceConfig `json:"S3ReferenceDataSourceUpdate,omitempty"`
-	ReferenceSchemaUpdate       *sourceSchemaInput           `json:"ReferenceSchemaUpdate,omitempty"`
-	TableNameUpdate             string                       `json:"TableNameUpdate,omitempty"`
-	ReferenceID                 string                       `json:"ReferenceId"`
+	S3ReferenceDataSourceUpdate *s3ReferenceDataSourceUpdateConfig `json:"S3ReferenceDataSourceUpdate,omitempty"`
+	ReferenceSchemaUpdate       *sourceSchemaInput                 `json:"ReferenceSchemaUpdate,omitempty"`
+	TableNameUpdate             string                             `json:"TableNameUpdate,omitempty"`
+	ReferenceID                 string                             `json:"ReferenceId"`
+}
+
+// s3ReferenceDataSourceUpdateConfig describes an update to an S3 reference data source.
+type s3ReferenceDataSourceUpdateConfig struct {
+	BucketARN        string `json:"BucketARNUpdate,omitempty"`
+	FileKey          string `json:"FileKeyUpdate,omitempty"`
+	ReferenceRoleARN string `json:"ReferenceRoleARNUpdate,omitempty"`
 }
 
 // cwlOptionUpdate describes changes to an existing CloudWatch logging option.
@@ -447,10 +528,12 @@ type referenceDataSourceConfig struct {
 	TableName             string                       `json:"TableName,omitempty"`
 }
 
+// s3ReferenceDataSourceConfig describes an S3 reference data source. The IAM role field is
+// "ReferenceRoleARN" on the wire (not "RoleARN") -- see S3ReferenceDataSourceDesc.
 type s3ReferenceDataSourceConfig struct {
-	BucketARN string `json:"BucketARN"`
-	FileKey   string `json:"FileKey"`
-	RoleARN   string `json:"RoleARN"`
+	BucketARN        string `json:"BucketARN"`
+	FileKey          string `json:"FileKey"`
+	ReferenceRoleARN string `json:"ReferenceRoleARN"`
 }
 
 type sourceSchemaInput struct {
@@ -488,11 +571,13 @@ type deleteApplicationReferenceDataSourceInput struct {
 	CurrentApplicationVersionID int64  `json:"CurrentApplicationVersionId"`
 }
 
-// s3ConfigurationInput describes an S3 source for DiscoverInputSchema.
+// s3ConfigurationInput describes an S3 source for DiscoverInputSchema. Unlike
+// S3ReferenceDataSource, this shape's IAM role field is "RoleARN" (not "ReferenceRoleARN") --
+// verified against aws-sdk-go-v2/service/kinesisanalytics/types.S3Configuration.
 type s3ConfigurationInput struct {
-	BucketARN        string `json:"BucketARN"`
-	FileKey          string `json:"FileKey"`
-	ReferenceRoleARN string `json:"ReferenceRoleARN"`
+	BucketARN string `json:"BucketARN"`
+	FileKey   string `json:"FileKey"`
+	RoleARN   string `json:"RoleARN"`
 }
 
 type discoverInputSchemaInput struct {
