@@ -27,7 +27,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("seed-db", nil)
+	_, err := b.CreateDatabase("seed-db", "", nil)
 	require.NoError(t, err)
 
 	// A syntactically valid but version-less/mismatched snapshot.
@@ -52,9 +52,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	original := timestreamwrite.NewInMemoryBackend()
 
-	db1Created, err := original.CreateDatabase("db1", map[string]string{"env": "test"})
+	db1Created, err := original.CreateDatabase("db1", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
-	_, err = original.CreateDatabase("db2", nil)
+	_, err = original.CreateDatabase("db2", "", nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateTable("db1", "tbl1", map[string]string{"team": "obs"}, &timestreamwrite.CreateTableInput{
@@ -168,7 +168,7 @@ func TestInMemoryBackend_SnapshotRestore_EmptyState(t *testing.T) {
 	assert.Equal(t, 0, timestreamwrite.BatchLoadTaskCount(fresh))
 	assert.Equal(t, 0, timestreamwrite.TagCount(fresh))
 
-	_, err = fresh.CreateDatabase("db", nil)
+	_, err = fresh.CreateDatabase("db", "", nil)
 	require.NoError(t, err)
 }
 
@@ -192,7 +192,7 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	// Compile-time proof Handler satisfies the persistence layer's contract.
 	var _ persistence.Persistable = h
 
-	_, err := backend.CreateDatabase("handler-db", map[string]string{"env": "test"})
+	_, err := backend.CreateDatabase("handler-db", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	data := h.Snapshot(ctx)

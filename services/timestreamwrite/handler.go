@@ -303,6 +303,16 @@ func validateRecord(r recordInput, idx int) error {
 		}
 	}
 
+	// AWS API: "Version must be 1 or greater, or you will receive a ValidationException
+	// error." A negative value is unambiguously invalid input regardless of the field
+	// being unset (0, defaulted to 1 downstream).
+	if r.Version < 0 {
+		return fmt.Errorf(
+			"%w: record[%d] has Version %d; must be 1 or greater",
+			errInvalidRequest, idx, r.Version,
+		)
+	}
+
 	return nil
 }
 
@@ -450,7 +460,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
-			"TimestreamWrite", "application/x-amz-json-1.1",
+			"TimestreamWrite", "application/x-amz-json-1.0",
 			h.GetSupportedOperations(),
 			h.dispatch,
 			h.handleError,
@@ -553,7 +563,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, awserr.ErrConflict):
-		return c.JSON(http.StatusConflict, map[string]string{
+		// The awsJson1.0 protocol has no per-exception HTTP status: every client-fault
+		// error (including ConflictException) is reported over HTTP 400, and the SDK
+		// determines the concrete exception type from the body's __type field, not the
+		// status code (see aws-sdk-go-v2/service/timestreamwrite deserializers.go).
+		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    "ConflictException",
 			keyMessageField: err.Error(),
 		})
@@ -920,17 +934,9 @@ func (h *Handler) handleCreateDatabase(
 
 	tags := tagsFromInput(in.Tags)
 
-	db, err := h.Backend.CreateDatabase(in.DatabaseName, tags)
+	db, err := h.Backend.CreateDatabase(in.DatabaseName, in.KmsKeyID, tags)
 	if err != nil {
 		return nil, err
-	}
-
-	// Apply KmsKeyId if provided — the AWS API supports specifying a KMS key at creation time.
-	if in.KmsKeyID != "" {
-		db, err = h.Backend.UpdateDatabase(in.DatabaseName, in.KmsKeyID)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return &databaseOutput{Database: toDatabaseView(db)}, nil

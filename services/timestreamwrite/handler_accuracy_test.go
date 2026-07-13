@@ -193,7 +193,7 @@ func TestAccuracy_MagneticStoreRejectedDataLocationRoundTrip(t *testing.T) {
 	b := timestreamwrite.NewInMemoryBackend()
 	h := timestreamwrite.NewHandler(b)
 
-	_, err := b.CreateDatabase("msrdl2-db", nil)
+	_, err := b.CreateDatabase("msrdl2-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("msrdl2-db", "msrdl2-tbl", nil, &timestreamwrite.CreateTableInput{
 		MagneticStoreWriteProperties: &timestreamwrite.MagneticStoreWriteProperties{
@@ -268,7 +268,7 @@ func TestAccuracy_BackendStoresMeasureValues(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("mv-db", nil)
+	_, err := b.CreateDatabase("mv-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("mv-db", "mv-tbl", nil, nil)
 	require.NoError(t, err)
@@ -619,7 +619,7 @@ func TestAccuracy_DimensionValueTypePassthrough(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("dvt-db", nil)
+	_, err := b.CreateDatabase("dvt-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("dvt-db", "dvt-tbl", nil, nil)
 	require.NoError(t, err)
@@ -679,7 +679,7 @@ func TestAccuracy_WriteRecordsVersionUpsert(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("vu-db", nil)
+	_, err := b.CreateDatabase("vu-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("vu-db", "vu-tbl", nil, nil)
 	require.NoError(t, err)
@@ -711,7 +711,7 @@ func TestAccuracy_WriteRecordsVersionConflictReturnsError(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("vc-db", nil)
+	_, err := b.CreateDatabase("vc-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("vc-db", "vc-tbl", nil, nil)
 	require.NoError(t, err)
@@ -746,7 +746,7 @@ func TestAccuracy_WriteRecordsSameVersionConflict(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("sv-db", nil)
+	_, err := b.CreateDatabase("sv-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("sv-db", "sv-tbl", nil, nil)
 	require.NoError(t, err)
@@ -830,7 +830,7 @@ func TestAccuracy_WriteRecordsPartialReject(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("pr2-db", nil)
+	_, err := b.CreateDatabase("pr2-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("pr2-db", "pr2-tbl", nil, nil)
 	require.NoError(t, err)
@@ -869,7 +869,7 @@ func TestAccuracy_WriteRecordsUpsertAndNewRecord(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("uan-db", nil)
+	_, err := b.CreateDatabase("uan-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("uan-db", "uan-tbl", nil, nil)
 	require.NoError(t, err)
@@ -920,7 +920,7 @@ func TestAccuracy_ErrRejectedRecordsSentinel(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("sentinel-db", nil)
+	_, err := b.CreateDatabase("sentinel-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("sentinel-db", "sentinel-tbl", nil, nil)
 	require.NoError(t, err)
@@ -947,7 +947,7 @@ func TestAccuracy_SnapshotRestorePreservesSchema(t *testing.T) {
 	t.Parallel()
 
 	b1 := timestreamwrite.NewInMemoryBackend()
-	_, err := b1.CreateDatabase("snap-schema-db", nil)
+	_, err := b1.CreateDatabase("snap-schema-db", "", nil)
 	require.NoError(t, err)
 	_, err = b1.CreateTable("snap-schema-db", "snap-schema-tbl", nil, &timestreamwrite.CreateTableInput{
 		Schema: &timestreamwrite.Schema{
@@ -977,7 +977,7 @@ func TestAccuracy_SnapshotRestorePreservesMSRDL(t *testing.T) {
 	t.Parallel()
 
 	b1 := timestreamwrite.NewInMemoryBackend()
-	_, err := b1.CreateDatabase("snap-msrdl-db", nil)
+	_, err := b1.CreateDatabase("snap-msrdl-db", "", nil)
 	require.NoError(t, err)
 	_, err = b1.CreateTable("snap-msrdl-db", "snap-msrdl-tbl", nil, &timestreamwrite.CreateTableInput{
 		MagneticStoreWriteProperties: &timestreamwrite.MagneticStoreWriteProperties{
@@ -1012,7 +1012,7 @@ func TestAccuracy_SnapshotRestorePreservesRecordIndex(t *testing.T) {
 	t.Parallel()
 
 	b1 := timestreamwrite.NewInMemoryBackend()
-	_, err := b1.CreateDatabase("snap-idx-db", nil)
+	_, err := b1.CreateDatabase("snap-idx-db", "", nil)
 	require.NoError(t, err)
 	_, err = b1.CreateTable("snap-idx-db", "snap-idx-tbl", nil, nil)
 	require.NoError(t, err)
@@ -1077,7 +1077,7 @@ func TestAccuracy_WriteRecordsDefaultVersionIsOne(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("dv-db", nil)
+	_, err := b.CreateDatabase("dv-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("dv-db", "dv-tbl", nil, nil)
 	require.NoError(t, err)

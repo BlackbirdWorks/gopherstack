@@ -907,7 +907,7 @@ func TestAccuracy2_WriteRecordsMagneticStoreRouting(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("mag-route-db", nil)
+	_, err := b.CreateDatabase("mag-route-db", "", nil)
 	require.NoError(t, err)
 
 	// Create a table with 1-hour memory retention and magnetic store writes enabled.
@@ -948,7 +948,7 @@ func TestAccuracy2_WriteRecordsMemoryStoreCountWhenMagneticDisabled(t *testing.T
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("mag-off-db", nil)
+	_, err := b.CreateDatabase("mag-off-db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("mag-off-db", "mag-off-tbl", nil, &timestreamwrite.CreateTableInput{
@@ -986,7 +986,7 @@ func TestAccuracy2_WriteRecordsMixedStoreRouting(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("mixed-store-db", nil)
+	_, err := b.CreateDatabase("mixed-store-db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("mixed-store-db", "mixed-store-tbl", nil, &timestreamwrite.CreateTableInput{
@@ -1031,7 +1031,7 @@ func TestAccuracy2_WriteRecordsMagneticStoreInHTTPResponse(t *testing.T) {
 	h := timestreamwrite.NewHandler(timestreamwrite.NewInMemoryBackend())
 	b := h.Backend
 
-	_, err := b.CreateDatabase("mag-http-db", nil)
+	_, err := b.CreateDatabase("mag-http-db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("mag-http-db", "mag-http-tbl", nil, &timestreamwrite.CreateTableInput{
@@ -1079,7 +1079,7 @@ func TestAccuracy2_WriteRecordsMagneticStoreDefaultRetentionOldRecordGoesToMagne
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("no-ret-mag-db", nil)
+	_, err := b.CreateDatabase("no-ret-mag-db", "", nil)
 	require.NoError(t, err)
 
 	// Table has magnetic store enabled; RetentionProperties defaults to {6h, 73d}.
@@ -1192,7 +1192,8 @@ func TestAccuracy2_UntagResourceFromKnownARN(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestAccuracy2_CreateDatabaseConflict verifies that creating a database with a
-// duplicate name returns HTTP 409 with __type=ConflictException.
+// duplicate name returns HTTP 400 (awsJson1.0 reports all client faults as 400) with
+// __type=ConflictException.
 func TestAccuracy2_CreateDatabaseConflict(t *testing.T) {
 	t.Parallel()
 
@@ -1200,7 +1201,7 @@ func TestAccuracy2_CreateDatabaseConflict(t *testing.T) {
 	doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "dup-conf-db"})
 
 	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "dup-conf-db"})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -1209,7 +1210,8 @@ func TestAccuracy2_CreateDatabaseConflict(t *testing.T) {
 }
 
 // TestAccuracy2_CreateTableConflict verifies that creating a table with a duplicate
-// name in the same database returns HTTP 409 with __type=ConflictException.
+// name in the same database returns HTTP 400 (awsJson1.0 reports all client faults as
+// 400) with __type=ConflictException.
 func TestAccuracy2_CreateTableConflict(t *testing.T) {
 	t.Parallel()
 
@@ -1218,7 +1220,7 @@ func TestAccuracy2_CreateTableConflict(t *testing.T) {
 	doRequest(t, h, "CreateTable", map[string]any{"DatabaseName": "dup-tbl-db", "TableName": "dup-tbl"})
 
 	rec := doRequest(t, h, "CreateTable", map[string]any{"DatabaseName": "dup-tbl-db", "TableName": "dup-tbl"})
-	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -1406,7 +1408,7 @@ func TestAccuracy2_ConcurrentWriteRecordsToSameTable(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("conc-db", nil)
+	_, err := b.CreateDatabase("conc-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("conc-db", "conc-tbl", nil, nil)
 	require.NoError(t, err)
@@ -1450,7 +1452,7 @@ func TestAccuracy2_ConcurrentWriteRecordsToDifferentTables(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("conc2-db", nil)
+	_, err := b.CreateDatabase("conc2-db", "", nil)
 	require.NoError(t, err)
 
 	tables := []string{"tbl-a", "tbl-b", "tbl-c", "tbl-d"}
@@ -1501,7 +1503,7 @@ func TestAccuracy2_RecordCountExport(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("rcnt-db", nil)
+	_, err := b.CreateDatabase("rcnt-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("rcnt-db", "rcnt-tbl", nil, nil)
 	require.NoError(t, err)
@@ -1541,7 +1543,7 @@ func TestAccuracy2_WriteRecordsOutputMagneticStoreFieldExists(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("ms-field-db", nil)
+	_, err := b.CreateDatabase("ms-field-db", "", nil)
 	require.NoError(t, err)
 	_, err = b.CreateTable("ms-field-db", "ms-field-tbl", nil, nil)
 	require.NoError(t, err)
@@ -1565,7 +1567,7 @@ func TestAccuracy2_WriteRecordsTotalEqualsMemoryPlusMagnetic(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("inv-db", nil)
+	_, err := b.CreateDatabase("inv-db", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTable("inv-db", "inv-tbl", nil, &timestreamwrite.CreateTableInput{
@@ -1754,7 +1756,7 @@ func TestAccuracy2_SnapshotRestorePreservesKmsKeyId(t *testing.T) {
 	t.Parallel()
 
 	b1 := timestreamwrite.NewInMemoryBackend()
-	_, err := b1.CreateDatabase("snap-kms-db", nil)
+	_, err := b1.CreateDatabase("snap-kms-db", "", nil)
 	require.NoError(t, err)
 
 	kmsKey := "arn:aws:kms:us-east-1:000000000000:key/snap-key"
@@ -1822,7 +1824,7 @@ func TestAccuracy2_UpdateDatabaseClearKmsKeyId(t *testing.T) {
 	t.Parallel()
 
 	b := timestreamwrite.NewInMemoryBackend()
-	_, err := b.CreateDatabase("clr-kms-db", nil)
+	_, err := b.CreateDatabase("clr-kms-db", "", nil)
 	require.NoError(t, err)
 
 	// First set a KMS key.

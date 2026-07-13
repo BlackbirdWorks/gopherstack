@@ -350,12 +350,9 @@ func databaseARN(name string) string {
 }
 
 func tableARN(dbName, tblName string) string {
-	return fmt.Sprintf(
-		"arn:aws:timestream:%s:%s:database/%s/table/%s",
-		config.DefaultRegion,
-		config.DefaultAccountID,
-		dbName,
-		tblName,
+	return arn.Build(
+		"timestream", config.DefaultRegion, config.DefaultAccountID,
+		fmt.Sprintf("database/%s/table/%s", dbName, tblName),
 	)
 }
 
@@ -387,8 +384,12 @@ func (b *InMemoryBackend) isKnownARNLocked(arn string) bool {
 	return false
 }
 
-// CreateDatabase creates a new Timestream database with optional initial tags.
-func (b *InMemoryBackend) CreateDatabase(name string, tags map[string]string) (*Database, error) {
+// CreateDatabase creates a new Timestream database with an optional KMS key and
+// initial tags. KmsKeyID is applied atomically at creation time (matching the AWS
+// API, which accepts KmsKeyId directly on CreateDatabaseInput) so CreationTime and
+// LastUpdatedTime stay equal on the returned Database, and no other request can
+// observe the database without its KMS key in between.
+func (b *InMemoryBackend) CreateDatabase(name, kmsKeyID string, tags map[string]string) (*Database, error) {
 	b.mu.Lock("CreateDatabase")
 	defer b.mu.Unlock()
 
@@ -400,6 +401,7 @@ func (b *InMemoryBackend) CreateDatabase(name string, tags map[string]string) (*
 	db := &Database{
 		DatabaseName:    name,
 		ARN:             databaseARN(name),
+		KmsKeyID:        kmsKeyID,
 		TableCount:      0,
 		CreationTime:    now,
 		LastUpdatedTime: now,

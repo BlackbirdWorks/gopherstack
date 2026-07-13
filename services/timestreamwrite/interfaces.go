@@ -4,7 +4,7 @@ package timestreamwrite
 // All mutating methods must be safe for concurrent use.
 type StorageBackend interface {
 	// Database operations.
-	CreateDatabase(name string, tags map[string]string) (*Database, error)
+	CreateDatabase(name, kmsKeyID string, tags map[string]string) (*Database, error)
 	DescribeDatabase(name string) (*Database, error)
 	ListDatabases() []Database
 	DeleteDatabase(name string) error
