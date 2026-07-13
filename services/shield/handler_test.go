@@ -225,6 +225,35 @@ func TestHandler_DescribeSubscription(t *testing.T) {
 	}
 }
 
+// TestHandler_DescribeSubscription_TimeCommitmentInSeconds verifies the wire
+// field is TimeCommitmentInSeconds (seconds), matching aws-sdk-go-v2's
+// types.Subscription.TimeCommitmentInSeconds -- not the fabricated
+// TimeCommitmentInDays key/unit gopherstack used to emit.
+func TestHandler_DescribeSubscription_TimeCommitmentInSeconds(t *testing.T) {
+	t.Parallel()
+
+	const wantSeconds = 365 * 86400
+
+	h := newTestHandler(t)
+	require.NoError(t, h.Backend.CreateSubscription())
+
+	rec := doShieldRequest(t, h, "DescribeSubscription", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+
+	sub, ok := result["Subscription"].(map[string]any)
+	require.True(t, ok, "response must include a Subscription object")
+
+	_, hasDaysField := sub["TimeCommitmentInDays"]
+	assert.False(t, hasDaysField, "wire response must not use the fabricated TimeCommitmentInDays key")
+
+	got, ok := sub["TimeCommitmentInSeconds"]
+	require.True(t, ok, "wire response must include TimeCommitmentInSeconds")
+	assert.InDelta(t, float64(wantSeconds), got, 0)
+}
+
 func TestHandler_GetSubscriptionState(t *testing.T) {
 	t.Parallel()
 
