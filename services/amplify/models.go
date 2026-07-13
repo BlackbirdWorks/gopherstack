@@ -96,6 +96,7 @@ const (
 // Job represents an Amplify deployment job.
 type Job struct {
 	JobID      string    `json:"jobId"`
+	JobARN     string    `json:"jobArn"`
 	CommitID   string    `json:"commitId,omitzero"`
 	CommitMsg  string    `json:"commitMessage,omitzero"`
 	Status     JobStatus `json:"status"`

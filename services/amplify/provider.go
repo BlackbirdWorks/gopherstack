@@ -1,6 +1,8 @@
 package amplify
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -30,6 +32,13 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region
 	handler.AccountID = accountID
+
+	janitorTimeout := time.Duration(0)
+	if ctx != nil {
+		janitorTimeout = ctx.JanitorTimeout
+	}
+
+	handler.WithJanitor(backend, 0, janitorTimeout)
 
 	return handler, nil
 }

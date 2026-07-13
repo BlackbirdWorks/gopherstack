@@ -554,6 +554,7 @@ func (b *InMemoryBackend) StartJob(
 
 	job := &Job{
 		JobID:      jobID,
+		JobARN:     b.jobARN(appID, branchName, jobID),
 		CommitID:   commitID,
 		CommitMsg:  commitMsg,
 		Status:     JobStatusRunning,
@@ -568,6 +569,18 @@ func (b *InMemoryBackend) StartJob(
 	cp := *job
 
 	return &cp, nil
+}
+
+// jobARN builds the ARN for a deployment job. Real Amplify's JobSummary.JobArn
+// is a required response field; every job created by this backend must carry
+// one so the aws-sdk-go-v2 deserializer doesn't leave it nil.
+func (b *InMemoryBackend) jobARN(appID, branchName, jobID string) string {
+	return arn.Build(
+		"amplify",
+		b.region,
+		b.accountID,
+		fmt.Sprintf("apps/%s/branches/%s/jobs/%s", appID, branchName, jobID),
+	)
 }
 
 // StopJob cancels a running job.
@@ -692,6 +705,7 @@ func (b *InMemoryBackend) StartDeployment(
 
 	job := &Job{
 		JobID:      jobID,
+		JobARN:     b.jobARN(appID, branchName, jobID),
 		CommitID:   sourceURL,
 		Status:     JobStatusRunning,
 		Type:       JobTypeManual,
