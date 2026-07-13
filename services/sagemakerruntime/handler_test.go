@@ -243,15 +243,20 @@ func TestHandler_InvokeEndpointAsync(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			assert.NotEmpty(t, out["InferenceId"])
 			assert.NotContains(t, out, "OutputLocation")
+			assert.NotContains(t, out, "FailureLocation")
 			if tt.wantInferenceID != "" {
 				assert.Equal(t, tt.wantInferenceID, out["InferenceId"])
 			}
 			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), out["InferenceId"])
+			assert.Contains(t, rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"), out["InferenceId"])
+			assert.NotEqual(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"),
+				rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"))
 
 			async := h.Backend.ListAsyncInvocations()
 			require.Len(t, async, 1)
 			assert.Equal(t, out["InferenceId"], async[0].InferenceID)
 			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Outputlocation"), async[0].OutputLocation)
+			assert.Equal(t, rec.Header().Get("X-Amzn-Sagemaker-Failurelocation"), async[0].FailureLocation)
 		})
 	}
 }
@@ -333,6 +338,9 @@ func TestSDKResponseBindings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-inference", aws.ToString(asyncOut.InferenceId))
 	assert.Contains(t, aws.ToString(asyncOut.OutputLocation), "sdk-inference")
+	assert.Contains(t, aws.ToString(asyncOut.FailureLocation), "sdk-inference",
+		"FailureLocation must be bound like real AWS (X-Amzn-SageMaker-FailureLocation response header)")
+	assert.NotEqual(t, aws.ToString(asyncOut.OutputLocation), aws.ToString(asyncOut.FailureLocation))
 
 	streamOut, err := client.InvokeEndpointWithResponseStream(
 		t.Context(),
@@ -352,6 +360,54 @@ func TestSDKResponseBindings(t *testing.T) {
 }
 
 // --- Error path tests ---
+
+// TestHandler_ErrorCodes verifies the __type of every synchronously
+// detectable error matches the real sagemakerruntime SDK's typed errors
+// (aws-sdk-go-v2/service/sagemakerruntime/types/errors.go declares
+// ValidationError, not the "ValidationException" name most other
+// JSON-protocol services use), so client code doing errors.As(&types.
+// ValidationError{}) matches gopherstack responses the same as real AWS.
+func TestHandler_ErrorCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "method_not_allowed_is_validation_error",
+			method:     http.MethodGet,
+			path:       "/endpoints/my-endpoint/invocations",
+			wantStatus: http.StatusMethodNotAllowed,
+			wantType:   "ValidationError",
+		},
+		{
+			name:       "missing_endpoint_name_is_validation_error",
+			method:     http.MethodPost,
+			path:       "/endpoints//invocations",
+			wantStatus: http.StatusBadRequest,
+			wantType:   "ValidationError",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.method, tt.path, nil)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, tt.wantType, body["__type"])
+		})
+	}
+}
 
 func TestHandler_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
@@ -564,6 +620,56 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			t.Parallel()
 
 			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.match, matcher(c))
+		})
+	}
+}
+
+// TestHandler_RouteMatcher_Host verifies Host-header-based matching uses the
+// real AWS SageMaker Runtime endpoint hostname prefix ("runtime.sagemaker."),
+// per aws-sdk-go-v2/service/sagemakerruntime's endpoint resolver -- NOT
+// "sagemaker-runtime." which never appears on real traffic.
+func TestHandler_RouteMatcher_Host(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		name  string
+		host  string
+		path  string
+		match bool
+	}{
+		{
+			name:  "matches real sagemaker runtime endpoint host",
+			host:  "runtime.sagemaker.us-east-1.amazonaws.com",
+			path:  "/unrelated",
+			match: true,
+		},
+		{
+			name:  "matches real fips sagemaker runtime endpoint host",
+			host:  "runtime.sagemaker.us-east-1.amazonaws.com",
+			path:  "/",
+			match: true,
+		},
+		{
+			name:  "does not match unrelated host without endpoints path",
+			host:  "example.com",
+			path:  "/",
+			match: false,
+		},
+	}
+
+	matcher := h.RouteMatcher()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req.Host = tt.host
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.match, matcher(c))
 		})

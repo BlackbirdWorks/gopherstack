@@ -2,6 +2,7 @@ package sagemakerruntime
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -54,11 +55,12 @@ type Session struct {
 
 // AsyncInvocation records accepted asynchronous inference work.
 type AsyncInvocation struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	InferenceID    string    `json:"inferenceId"`
-	EndpointName   string    `json:"endpointName"`
-	Input          string    `json:"input"`
-	OutputLocation string    `json:"outputLocation"`
+	CreatedAt       time.Time `json:"createdAt"`
+	InferenceID     string    `json:"inferenceId"`
+	EndpointName    string    `json:"endpointName"`
+	Input           string    `json:"input"`
+	OutputLocation  string    `json:"outputLocation"`
+	FailureLocation string    `json:"failureLocation"`
 }
 
 // InMemoryBackend stores SageMaker Runtime state in memory.
@@ -198,11 +200,12 @@ func (b *InMemoryBackend) RecordAsyncInvocation(
 	}
 
 	invocation := &AsyncInvocation{
-		InferenceID:    inferenceID,
-		EndpointName:   endpointName,
-		Input:          input,
-		OutputLocation: loc,
-		CreatedAt:      time.Now().UTC(),
+		InferenceID:     inferenceID,
+		EndpointName:    endpointName,
+		Input:           input,
+		OutputLocation:  loc,
+		FailureLocation: deriveFailureLocation(loc),
+		CreatedAt:       time.Now().UTC(),
 	}
 	b.asyncInvocations.Put(invocation)
 	evictOldest(
@@ -254,6 +257,23 @@ func evictOldest[V any](t *store.Table[V], maxSize int, idFn func(*V) string, cr
 		}
 
 		t.Delete(oldestID)
+	}
+}
+
+// deriveFailureLocation synthesises the S3 URI where a failed async
+// invocation's error payload would be written, following the AWS
+// InvokeEndpointAsync convention of mirroring OutputLocation with a
+// distinct suffix (real AWS derives both from the endpoint's
+// AsyncInferenceConfig; without that cross-service config gopherstack
+// mirrors OutputLocation deterministically instead).
+func deriveFailureLocation(outputLocation string) string {
+	switch {
+	case strings.HasSuffix(outputLocation, "/output"):
+		return strings.TrimSuffix(outputLocation, "output") + "failure"
+	case strings.HasSuffix(outputLocation, "/"):
+		return outputLocation + "failure"
+	default:
+		return outputLocation + "-failure"
 	}
 }
 

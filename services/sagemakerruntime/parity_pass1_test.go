@@ -82,6 +82,60 @@ func TestParity_AsyncInvocationOutputLocation(t *testing.T) {
 	}
 }
 
+// TestParity_AsyncInvocationFailureLocation verifies that InvokeEndpointAsync
+// always returns an X-Amzn-Sagemaker-Failurelocation response header (bound by
+// the real SDK to InvokeEndpointAsyncOutput.FailureLocation), distinct from
+// OutputLocation, regardless of whether the caller supplied an output
+// location.
+func TestParity_AsyncInvocationFailureLocation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		headers map[string]string
+		name    string
+	}{
+		{name: "generated_location_when_not_supplied", headers: nil},
+		{
+			name: "caller_supplied_output_location",
+			headers: map[string]string{
+				"X-Amzn-Sagemaker-Outputlocation": "s3://my-bucket/results/",
+			},
+		},
+		{
+			name: "caller_supplied_output_location_no_trailing_slash",
+			headers: map[string]string{
+				"X-Amzn-Sagemaker-Outputlocation": "s3://my-bucket/results/out.json",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequestWithHeaders(
+				t, h, http.MethodPost,
+				"/endpoints/my-endpoint/async-invocations",
+				map[string]any{"data": "payload"},
+				tt.headers,
+			)
+
+			require.Equal(t, http.StatusAccepted, rec.Code)
+
+			outputLoc := rec.Header().Get("X-Amzn-Sagemaker-Outputlocation")
+			failureLoc := rec.Header().Get("X-Amzn-Sagemaker-Failurelocation")
+			require.NotEmpty(t, outputLoc)
+			require.NotEmpty(t, failureLoc, "AWS always returns a FailureLocation, even on success")
+			assert.NotEqual(t, outputLoc, failureLoc)
+
+			async := h.Backend.ListAsyncInvocations()
+			require.Len(t, async, 1)
+			assert.Equal(t, failureLoc, async[0].FailureLocation)
+		})
+	}
+}
+
 // TestParity_SessionLifecycle verifies NEW_SESSION creation and subsequent
 // session-touch behaviour match AWS semantics.
 func TestParity_SessionLifecycle(t *testing.T) {
@@ -371,6 +425,55 @@ func TestParity_BackendRecordAsyncWithSuppliedLocation(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.outputLocation, inv.OutputLocation)
 			}
+		})
+	}
+}
+
+// TestParity_BackendRecordAsyncFailureLocationDerivation verifies that
+// RecordAsyncInvocation derives a distinct FailureLocation for every shape of
+// OutputLocation (generated, caller-supplied with/without a trailing slash,
+// caller-supplied ending in "/output"), matching the real AWS convention of
+// InvokeEndpointAsync always returning both an OutputLocation and a
+// FailureLocation.
+func TestParity_BackendRecordAsyncFailureLocationDerivation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		outputLocation string
+		wantFailureLoc string
+	}{
+		{
+			name:           "generated_output_location_ends_in_output",
+			outputLocation: "",
+			wantFailureLoc: "s3://sagemaker-runtime-mock/ep/infer-1/failure",
+		},
+		{
+			name:           "supplied_location_ending_in_output",
+			outputLocation: "s3://real-bucket/path/output",
+			wantFailureLoc: "s3://real-bucket/path/failure",
+		},
+		{
+			name:           "supplied_location_with_trailing_slash",
+			outputLocation: "s3://my-bucket/results/",
+			wantFailureLoc: "s3://my-bucket/results/failure",
+		},
+		{
+			name:           "supplied_location_opaque_key",
+			outputLocation: "s3://my-bucket/results/out.json",
+			wantFailureLoc: "s3://my-bucket/results/out.json-failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
+			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation)
+
+			assert.Equal(t, tt.wantFailureLoc, inv.FailureLocation)
+			assert.NotEqual(t, inv.OutputLocation, inv.FailureLocation)
 		})
 	}
 }
