@@ -41,7 +41,11 @@ type StorageBackend interface {
 	CreateIdentitySource(policyStoreID, principalEntityType string, cfg IdentitySourceConfig) (*IdentitySource, error)
 	GetIdentitySource(policyStoreID, identitySourceID string) (*IdentitySource, error)
 	DeleteIdentitySource(policyStoreID, identitySourceID string) error
-	ListIdentitySources(policyStoreID, nextToken string, maxResults int) ([]IdentitySource, string, error)
+	ListIdentitySources(
+		policyStoreID, nextToken string,
+		maxResults int,
+		principalEntityTypes []string,
+	) ([]IdentitySource, string, error)
 	UpdateIdentitySource(
 		policyStoreID, identitySourceID, principalEntityType string,
 		cfg IdentitySourceConfig,
