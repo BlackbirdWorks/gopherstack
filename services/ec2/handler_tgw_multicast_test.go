@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -193,3 +194,21 @@ func TestTGWMulticastHandler_MeteringPolicyLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, deleteRec.Code)
 	assert.Contains(t, deleteRec.Body.String(), "<state>deleted</state>")
 }
+
+// TestNonNilSlices_TGWMulticast verifies non-nil result when no subnets.
+func TestNonNilSlices_TGWMulticast(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	assocs, err := b.AcceptTransitGatewayMulticastDomainAssociations(
+		"tgw-mcast-1",
+		"tgw-attach-1",
+		nil,
+	)
+	require.NoError(t, err)
+	assert.NotNil(t, assocs, "result should be non-nil even when no subnets provided")
+	assert.Empty(t, assocs)
+}
+
+// TestSortedDescribeCapacityReservations verifies sorted output.

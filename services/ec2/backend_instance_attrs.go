@@ -652,3 +652,106 @@ func (b *InMemoryBackend) GetInstanceUefiData(instanceID string) (string, error)
 
 	return base64.StdEncoding.EncodeToString(sum[:]), nil
 }
+
+// Instance attribute names accepted by ModifyInstanceAttribute / SetInstanceAttribute.
+// Mirror AWS EC2 attribute naming (lowerCamelCase).
+const (
+	attrInstanceType                      = "instanceType"
+	attrKernel                            = "kernel"
+	attrRamdisk                           = "ramdisk"
+	attrUserData                          = "userData"
+	attrEnaSupport                        = "enaSupport"
+	attrSriovNetSupport                   = "sriovNetSupport"
+	attrDisableAPIStop                    = "disableApiStop"
+	attrDisableAPITermination             = "disableApiTermination"
+	attrEBSOptimized                      = "ebsOptimized"
+	attrInstanceInitiatedShutdownBehavior = "instanceInitiatedShutdownBehavior"
+
+	instanceTypeT3Micro  = "t3.micro"
+	instanceTypeT3Small  = "t3.small"
+	instanceTypeT3Medium = "t3.medium"
+	instanceTypeM5Xlarge = "m5.xlarge"
+	instanceTypeC5XL     = "c5.xlarge"
+)
+
+// stoppedRequiredAttrs lists attributes that require a stopped instance when
+// set via ModifyInstanceAttribute (not RunInstances initial setup).
+//
+//nolint:gochecknoglobals // lookup set
+var stoppedRequiredAttrs = map[string]bool{
+	attrInstanceType: true,
+	attrKernel:       true,
+	attrRamdisk:      true,
+}
+
+// SetInstanceAttribute persists a modifiable attribute on an instance.
+// Attributes requiring stopped state (instanceType, userData, etc.) reject
+// requests against running instances with ErrInvalidInstanceState.
+func (b *InMemoryBackend) SetInstanceAttribute(instanceID, attribute, value string) error {
+	b.mu.Lock("SetInstanceAttribute")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances.Get(instanceID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	if stoppedRequiredAttrs[attribute] && inst.State != StateStopped {
+		return fmt.Errorf("%w: instance %s must be in the stopped state to modify %s",
+			ErrInvalidInstanceState, instanceID, attribute)
+	}
+
+	if setSimpleInstanceAttributeLocked(inst, attribute, value) {
+		return nil
+	}
+
+	switch attribute {
+	case attrSourceDest:
+		// sourceDestCheck lives on the primary network interface's
+		// attachment in real AWS, not on the instance itself.
+		if eni := b.primaryNetworkInterfaceLocked(instanceID); eni != nil {
+			eni.SourceDestCheck = value == ec2BooleanTrue
+		}
+	case "groupSet", "blockDeviceMapping":
+		// accepted but not modelled beyond acknowledgment: changing an
+		// instance's security groups / block device mappings via
+		// ModifyInstanceAttribute has no dedicated backend representation
+		// distinct from the SG-membership and volume-attachment ops.
+	default:
+		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attribute)
+	}
+
+	return nil
+}
+
+// setSimpleInstanceAttributeLocked handles the ModifyInstanceAttribute
+// attributes that map directly onto a single Instance field. Reports whether
+// it recognised (and applied) the attribute; attrSourceDest and the
+// acknowledged-but-unmodelled attributes are handled by the caller since they
+// need backend/lock context beyond the Instance struct. Must be called with
+// b.mu held.
+func setSimpleInstanceAttributeLocked(inst *Instance, attribute, value string) bool {
+	switch attribute {
+	case attrUserData:
+		// AWS stores userData base64-encoded; accept both encoded and raw.
+		inst.UserData = value
+	case attrInstanceType:
+		inst.InstanceType = value
+	case attrEnaSupport:
+		inst.EnaSupport = value == ec2BooleanTrue
+	case attrSriovNetSupport:
+		inst.SriovNetSupport = value
+	case attrDisableAPITermination:
+		inst.DisableAPITermination = value == ec2BooleanTrue
+	case attrDisableAPIStop:
+		inst.DisableAPIStop = value == ec2BooleanTrue
+	case attrEBSOptimized:
+		inst.EBSOptimized = value == ec2BooleanTrue
+	case attrInstanceInitiatedShutdownBehavior:
+		inst.InstanceInitiatedShutdownBehavior = value
+	default:
+		return false
+	}
+
+	return true
+}

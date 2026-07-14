@@ -2,6 +2,7 @@ package ec2_test
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
@@ -170,6 +171,72 @@ func TestEC2Janitor_DefaultInterval(t *testing.T) {
 			h.WithJanitor(tt.interval, 0, 0)
 
 			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
+	}
+}
+
+// TestReconcileLifecycle_SkipsNonTransitional verifies that reconcileInstanceLifecycle
+// does not alter instances already in stable states (stopped, terminated, running).
+func TestReconcileLifecycle_SkipsNonTransitional(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		action    string
+		wantState string
+	}{
+		{
+			name:      "running instance stays running after tick",
+			action:    "start", // run then let it become running
+			wantState: "running",
+		},
+		{
+			name:      "stopped instance stays stopped after tick",
+			action:    "stop",
+			wantState: "stopped",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := newTestHandlerWithBackend(b)
+
+			runResp, err := dispatchHandler(h, url.Values{
+				"Action":       {"RunInstances"},
+				"Version":      {"2016-11-15"},
+				"ImageId":      {"ami-test"},
+				"InstanceType": {"t2.micro"},
+				"MinCount":     {"1"},
+				"MaxCount":     {"1"},
+			})
+			require.NoError(t, err)
+			instID := accuracyExtractXMLValue(runResp, "instanceId")
+			require.NotEmpty(t, instID)
+
+			// Advance pending → running.
+			b.TickLifecycleForTest()
+
+			if tc.action == "stop" {
+				_, err = dispatchHandler(h, url.Values{
+					"Action":       {"StopInstances"},
+					"Version":      {"2016-11-15"},
+					"InstanceId.1": {instID},
+				})
+				require.NoError(t, err)
+				// stopping → stopped.
+				b.TickLifecycleForTest()
+			}
+
+			// Tick again — stable instances must not change state.
+			b.TickLifecycleForTest()
+
+			instances := b.DescribeInstances([]string{instID}, "")
+			require.Len(t, instances, 1)
+			assert.Equal(t, tc.wantState, instances[0].State.Name,
+				"stable instance must not be altered by reconcile tick")
 		})
 	}
 }

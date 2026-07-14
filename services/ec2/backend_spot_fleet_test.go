@@ -2,6 +2,7 @@ package ec2_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -310,3 +311,109 @@ func TestDescribeSpotFleetRequestHistory_Empty_After_Time(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
+
+func TestSpotPriceHistory_Deterministic(t *testing.T) {
+	t.Parallel()
+
+	// use deterministic time since history drops records older than 24h
+	now := time.Date(2023, 10, 1, 12, 0, 0, 0, time.UTC).UTC().Add(-24 * time.Hour)
+
+	records1 := ec2.GenerateSpotPriceHistory(
+		[]string{"t3.micro"},
+		[]string{"us-east-1a"},
+		[]string{"Linux/UNIX"},
+		now,
+		"us-east-1",
+	)
+
+	records2 := ec2.GenerateSpotPriceHistory(
+		[]string{"t3.micro"},
+		[]string{"us-east-1a"},
+		[]string{"Linux/UNIX"},
+		now,
+		"us-east-1",
+	)
+
+	require.NotEmpty(t, records1)
+	require.Len(t, records1, len(records2))
+	assert.Equal(t, records1[0].SpotPrice, records2[0].SpotPrice, "price must be deterministic")
+}
+
+func TestSpotPriceHistory_DefaultsPopulated(t *testing.T) {
+	t.Parallel()
+
+	records := ec2.GenerateSpotPriceHistory(nil, nil, nil, time.Time{}, "us-east-1")
+	assert.NotEmpty(t, records, "default instance types should produce records")
+}
+
+// ---- Optimization: CIDR overlap ----
+
+func TestParityFinal_GetSpotPlacementScores(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	scores, err := b.GetSpotPlacementScores([]string{"m5.large", "m5.xlarge"}, nil, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, scores)
+
+	for _, s := range scores {
+		assert.NotEmpty(t, s.Region)
+		assert.Empty(t, s.AvailabilityZoneID)
+		assert.GreaterOrEqual(t, s.Score, int32(1))
+		assert.LessOrEqual(t, s.Score, int32(10))
+	}
+
+	// Deterministic: same inputs produce the same scores.
+	again, err := b.GetSpotPlacementScores([]string{"m5.large", "m5.xlarge"}, nil, false)
+	require.NoError(t, err)
+	assert.Equal(t, scores, again)
+
+	azScores, err := b.GetSpotPlacementScores([]string{"m5.large"}, []string{"us-east-1"}, true)
+	require.NoError(t, err)
+	require.NotEmpty(t, azScores)
+
+	for _, s := range azScores {
+		assert.Empty(t, s.Region)
+		assert.NotEmpty(t, s.AvailabilityZoneID)
+	}
+
+	_, err = b.GetSpotPlacementScores(nil, nil, false)
+	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
+}
+
+func TestSpotFleetHistory_Capped(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	config := ec2.SpotFleetRequestConfig{
+		SpotPrice:      "0.05",
+		TargetCapacity: 1,
+		LaunchSpecifications: []ec2.SpotFleetLaunchSpecification{
+			{ImageID: "ami-123", InstanceType: "t3.micro"},
+		},
+	}
+
+	fleet, err := b.RequestSpotFleet(config)
+	require.NoError(t, err)
+
+	// Trigger many history records via ModifySpotFleetRequest.
+	for i := range 600 {
+		newCap := 1 + (i % 3)
+		_, modErr := b.ModifySpotFleetRequest(fleet.SpotFleetRequestID, newCap, "")
+		require.NoError(t, modErr)
+	}
+
+	// History should be capped.
+	history, err := b.DescribeSpotFleetRequestHistory(fleet.SpotFleetRequestID, time.Time{})
+	require.NoError(t, err)
+	assert.LessOrEqual(
+		t,
+		len(history),
+		500,
+		"history should be capped at maxSpotFleetHistoryEntries",
+	)
+}
+
+// ---- helpers ----

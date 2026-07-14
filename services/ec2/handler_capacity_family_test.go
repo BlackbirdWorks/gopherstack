@@ -352,3 +352,173 @@ func TestHandler_GetCapacityManagerMetricData_EmptyResult(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "GetCapacityManagerMetricDataResponse")
 }
+
+// ---- Capacity Reservation ---- //nolint:godot // existing issue.
+func TestCapacityReservation(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	var crID string
+
+	t.Run("create reservation", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		cr, err := b.CreateCapacityReservation("t3.micro", "us-east-1a", 2)
+		require.NoError(t, err)
+		assert.NotEmpty(t, cr.CapacityReservationID)
+		assert.Equal(t, "active", cr.State)
+		assert.Equal(t, 2, cr.TotalInstanceCount)
+		crID = cr.CapacityReservationID
+	})
+
+	t.Run("modify instance count", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.ModifyCapacityReservation(crID, 5))
+	})
+
+	t.Run("get groups returns empty", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		groups, err := b.GetGroupsForCapacityReservation(crID)
+		require.NoError(t, err)
+		assert.Empty(t, groups)
+	})
+
+	t.Run("cancel reservation", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.NoError(t, b.CancelCapacityReservation(crID))
+	})
+
+	t.Run("empty ID returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		require.Error(t, b.CancelCapacityReservation(""))
+	})
+}
+
+// ---- Instance Connect Endpoint ---- //nolint:godot // existing issue.
+
+// ---- HTTP dispatch tests ---- //nolint:godot // existing issue.
+func TestHTTP_CreateCapacityReservation(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := ec2.NewHandler(b)
+
+	_, err := ec2.ExportDispatch(h, url.Values{
+		"Action":        []string{"CreateCapacityReservation"},
+		"InstanceType":  []string{"t3.micro"},
+		"InstanceCount": []string{"1"},
+	})
+	require.NoError(t, err)
+}
+
+func TestParityFinalHTTP_InterruptibleCapacityReservationAllocation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                {"CreateInterruptibleCapacityReservationAllocation"},
+		"CapacityReservationId": {cr.CapacityReservationID},
+		"InstanceCount":         {"3"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<CreateInterruptibleCapacityReservationAllocationResponse>")
+	assert.Contains(t, resp, "<targetInstanceCount>3</targetInstanceCount>")
+	assert.Contains(t, resp, "<status>active</status>")
+
+	resp, err = ec2.ExportDispatch(h, url.Values{
+		"Action":                {"UpdateInterruptibleCapacityReservationAllocation"},
+		"CapacityReservationId": {cr.CapacityReservationID},
+		"TargetInstanceCount":   {"5"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<UpdateInterruptibleCapacityReservationAllocationResponse>")
+	assert.Contains(t, resp, "<targetInstanceCount>5</targetInstanceCount>")
+}
+
+func TestParityFinalHTTP_GetCapacityReservationUsage(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":                {"GetCapacityReservationUsage"},
+		"CapacityReservationId": {cr.CapacityReservationID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<GetCapacityReservationUsageResponse>")
+	assert.Contains(t, resp, "<availableInstanceCount>10</availableInstanceCount>")
+	assert.Contains(t, resp, "<totalInstanceCount>10</totalInstanceCount>")
+}
+
+func TestParityFinalHTTP_DescribeCapacityReservationTopology(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+
+	resp, err := ec2.ExportDispatch(h, url.Values{"Action": {"DescribeCapacityReservationTopology"}})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<DescribeCapacityReservationTopologyResponse>")
+	assert.Contains(t, resp, "<capacityReservationId>"+cr.CapacityReservationID+"</capacityReservationId>")
+}
+
+// TestParityFinalHTTP_AllOpsReturn200 is a broad smoke test verifying every
+// de-stubbed op returns 200 OK through the full HTTP handler for a minimal
+// (frequently zero-value/empty) request, mirroring the coverage the retired
+// registerStubOps registration used to get for free.
+func TestParityFinalHTTP_AllOpsReturn200(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	cr, err := h.Backend.CreateCapacityReservation("m5.large", "us-east-1a", 10)
+	require.NoError(t, err)
+	addr, err := h.Backend.AllocateAddress()
+	require.NoError(t, err)
+	instances, err := h.Backend.RunInstances("ami-test", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	tests := []struct {
+		vals url.Values
+		name string
+	}{
+		{name: "DescribeMovingAddresses", vals: url.Values{"Action": {"DescribeMovingAddresses"}}},
+		{
+			name: "DescribeCapacityReservationTopology",
+			vals: url.Values{"Action": {"DescribeCapacityReservationTopology"}},
+		},
+		{
+			name: "DescribeTransitGatewayAttachments",
+			vals: url.Values{"Action": {"DescribeTransitGatewayAttachments"}},
+		},
+		{name: "DescribeElasticGpus", vals: url.Values{"Action": {"DescribeElasticGpus"}}},
+		{name: "DescribeImageReferences", vals: url.Values{
+			"Action": {"DescribeImageReferences"}, "ImageId.1": {"ami-test"},
+		}},
+		{name: "GetSpotPlacementScores", vals: url.Values{
+			"Action": {"GetSpotPlacementScores"}, "InstanceType.1": {"m5.large"}, "TargetCapacity": {"1"},
+		}},
+		{name: "SendDiagnosticInterrupt", vals: url.Values{
+			"Action": {"SendDiagnosticInterrupt"}, "InstanceId": {instances[0].ID},
+		}},
+		{name: "EnableReachabilityAnalyzerOrganizationSharing", vals: url.Values{
+			"Action": {"EnableReachabilityAnalyzerOrganizationSharing"},
+		}},
+		{name: "GetCapacityReservationUsage", vals: url.Values{
+			"Action": {"GetCapacityReservationUsage"}, "CapacityReservationId": {cr.CapacityReservationID},
+		}},
+		{name: "CancelImageLaunchPermission", vals: url.Values{
+			"Action": {"CancelImageLaunchPermission"}, "ImageId": {"ami-test"},
+		}},
+		{name: "MoveAddressToVpc", vals: url.Values{"Action": {"MoveAddressToVpc"}, "PublicIp": {addr.PublicIP}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postForm(t, h, tt.vals.Encode())
+			assert.Equal(t, http.StatusOK, rec.Code, "action %s should return 200", tt.name)
+		})
+	}
+}

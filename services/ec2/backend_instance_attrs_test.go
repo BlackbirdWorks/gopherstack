@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"net/url"
 	"testing"
 	"time"
 
@@ -294,4 +295,194 @@ func TestBackend_GetInstanceUefiData_Deterministic(t *testing.T) {
 
 	_, err = b.GetInstanceUefiData("i-doesnotexist")
 	require.ErrorIs(t, err, ec2.ErrInstanceNotFound)
+}
+
+func TestSetInstanceAttribute_UserData(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	instances, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	id := instances[0].ID
+	// userData can be set on running instances (via RunInstances initial setup path).
+	err = b.SetInstanceAttribute(id, "userData", "dXNlci1kYXRh")
+	require.NoError(t, err)
+
+	insts := b.DescribeInstances([]string{id}, "")
+	require.Len(t, insts, 1)
+	assert.Equal(t, "dXNlci1kYXRh", insts[0].UserData)
+}
+
+func TestSetInstanceAttribute_InstanceType_RequiresStopped(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	instances, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+	b.TickLifecycleForTest() // pending → running
+
+	id := instances[0].ID
+
+	// Should fail on running instance.
+	err = b.SetInstanceAttribute(id, "instanceType", "t3.large")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ec2.ErrInvalidInstanceState)
+
+	// Stop then modify — should succeed.
+	_, stopErr := b.StopInstances([]string{id})
+	require.NoError(t, stopErr)
+	b.TickLifecycleForTest() // stopping → stopped
+
+	err = b.SetInstanceAttribute(id, "instanceType", "t3.large")
+	require.NoError(t, err)
+
+	insts := b.DescribeInstances([]string{id}, "")
+	require.Len(t, insts, 1)
+	assert.Equal(t, "t3.large", insts[0].InstanceType)
+}
+
+func TestSetInstanceAttribute_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	err := b.SetInstanceAttribute("i-nonexistent", "userData", "abc")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ec2.ErrInstanceNotFound)
+}
+
+// ---- Gap 15: Spot price history ----
+
+func TestEnaSupport_DefaultTrue(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+	instances, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+	assert.True(t, instances[0].EnaSupport, "EnaSupport should default to true for new instances")
+}
+
+func TestDescribeInstanceAttribute_EnaSupport(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	instances, err := h.Backend.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":     {"DescribeInstanceAttribute"},
+		"Version":    {"2016-11-15"},
+		"InstanceId": {instances[0].ID},
+		"Attribute":  {"enaSupport"},
+	}
+
+	resp, err := dispatchHandler(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "DescribeInstanceAttributeResponse")
+	assert.Contains(t, resp, "true")
+}
+
+// ---- Gap 6: SG rule references ----
+
+// TestModifyInstanceAttribute_Validation covers the handler-level attribute
+// selection and stopped-state guard rules for ModifyInstanceAttribute.
+func TestModifyInstanceAttribute_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params  url.Values
+		wantErr error
+		name    string
+	}{
+		{
+			name: "empty_attribute_is_rejected",
+			params: url.Values{
+				"Action":     {"ModifyInstanceAttribute"},
+				"Version":    {"2016-11-15"},
+				"InstanceId": {"__PLACEHOLDER__"},
+			},
+			wantErr: ec2.ErrMissingParameter,
+		},
+		{
+			name: "unknown_attribute_is_rejected",
+			params: url.Values{
+				"Action":     {"ModifyInstanceAttribute"},
+				"Version":    {"2016-11-15"},
+				"InstanceId": {"__PLACEHOLDER__"},
+				"Attribute":  {"bogusAttribute"},
+				"Value":      {"whatever"},
+			},
+			wantErr: ec2.ErrInvalidParameter,
+		},
+		{
+			name: "generic_form_respects_stopped_guard_on_running_instance",
+			params: url.Values{
+				"Action":     {"ModifyInstanceAttribute"},
+				"Version":    {"2016-11-15"},
+				"InstanceId": {"__PLACEHOLDER__"},
+				"Attribute":  {"instanceType"},
+				"Value":      {"t3.large"},
+			},
+			wantErr: ec2.ErrInvalidInstanceState,
+		},
+		{
+			name: "generic_form_non_guarded_attr_succeeds_on_running_instance",
+			params: url.Values{
+				"Action":     {"ModifyInstanceAttribute"},
+				"Version":    {"2016-11-15"},
+				"InstanceId": {"__PLACEHOLDER__"},
+				"Attribute":  {"sourceDestCheck"},
+				"Value":      {"false"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := newTestHandlerWithBackend(b)
+
+			instances, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+			require.NoError(t, err)
+			b.TickLifecycleForTest() // pending -> running
+
+			id := instances[0].ID
+			params := cloneValues(tt.params)
+			params.Set("InstanceId", id)
+
+			_, dispErr := dispatchHandler(h, params)
+
+			if tt.wantErr != nil {
+				require.Error(t, dispErr)
+				assert.ErrorIs(t, dispErr, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, dispErr)
+		})
+	}
+}
+
+// TestRunInstances_UserDataValidation covers base64 and 16 KiB validation of the
+// UserData parameter on RunInstances.
+
+// cloneValues returns a shallow copy of the url.Values so parallel subtests can
+// mutate InstanceId without racing on the shared table entry.
+func cloneValues(in url.Values) url.Values {
+	out := make(url.Values, len(in))
+	for k, v := range in {
+		cp := make([]string, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+
+	return out
 }

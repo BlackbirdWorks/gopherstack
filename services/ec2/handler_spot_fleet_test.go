@@ -265,3 +265,57 @@ func TestHandlerDescribeSpotFleetRequestHistory(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp.HistoryRecords.Items)
 }
+
+// ---- Spot Datafeed ---- //nolint:godot // existing issue.
+func TestSpotDatafeed(t *testing.T) { //nolint:paralleltest // existing issue.
+	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	t.Run("describe returns nil when empty", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		assert.Nil(t, b.DescribeSpotDatafeedSubscription())
+	})
+
+	t.Run("create datafeed", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		feed, err := b.CreateSpotDatafeedSubscription("my-bucket", "spot/")
+		require.NoError(t, err)
+		assert.Equal(t, "my-bucket", feed.Bucket)
+	})
+
+	t.Run("describe returns feed", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		feed := b.DescribeSpotDatafeedSubscription()
+		require.NotNil(t, feed)
+		assert.Equal(t, "spot/", feed.Prefix)
+	})
+
+	t.Run("delete removes feed", func(t *testing.T) { //nolint:paralleltest // existing issue.
+		b.DeleteSpotDatafeedSubscription()
+		assert.Nil(t, b.DescribeSpotDatafeedSubscription())
+	})
+}
+
+// ---- Image lifecycle ---- //nolint:godot // existing issue.
+
+func TestHTTP_DescribeSpotDatafeedSubscription(t *testing.T) { //nolint:paralleltest // existing issue.
+	h := newTestHandler()
+
+	_, err := dispatchHandler(h, url.Values{
+		"Action": []string{"DescribeSpotDatafeedSubscription"},
+	})
+	require.NoError(t, err)
+}
+
+func TestParityFinalHTTP_GetSpotPlacementScores(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	resp, err := ec2.ExportDispatch(h, url.Values{
+		"Action":         {"GetSpotPlacementScores"},
+		"InstanceType.1": {"m5.large"},
+		"InstanceType.2": {"m5.xlarge"},
+		"TargetCapacity": {"10"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<GetSpotPlacementScoresResponse")
+	assert.Contains(t, resp, "<region>")
+	assert.Contains(t, resp, "<score>")
+}

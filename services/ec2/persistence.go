@@ -165,8 +165,6 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
-//
-//nolint:gocognit,cyclop,funlen // large state restore
 func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	var snap backendSnapshot
 
@@ -202,129 +200,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.restoreCoreFields(&snap)
 	b.restoreExtendedFields(&snap)
 	b.rebuildSecondaryIndexesLocked()
+	b.restoreMiscMapFields(&snap)
 
-	if snap.VpcCidrAssociations != nil {
-		b.vpcCidrAssociations = snap.VpcCidrAssociations
-	} else {
-		b.vpcCidrAssociations = make(map[string]*VpcCidrBlockAssociation)
-	}
-	if snap.SpotFleetHistory != nil {
-		b.spotFleetHistory = snap.SpotFleetHistory
-	} else {
-		b.spotFleetHistory = make(map[string][]SpotFleetHistoryRecord)
-	}
-	if snap.SnapshotTiers != nil {
-		b.snapshotTiers = snap.SnapshotTiers
-	} else {
-		b.snapshotTiers = make(map[string]string)
-	}
-	if snap.SnapshotAttributes != nil {
-		b.snapshotAttributes = snap.SnapshotAttributes
-	} else {
-		b.snapshotAttributes = make(map[string]map[string]string)
-	}
-	if snap.SgVpcAssociations != nil {
-		b.sgVpcAssociations = snap.SgVpcAssociations
-	} else {
-		b.sgVpcAssociations = make(map[string]map[string]string)
-	}
-	if snap.VpcTenancy != nil {
-		b.vpcTenancy = snap.VpcTenancy
-	} else {
-		b.vpcTenancy = make(map[string]string)
-	}
-	if snap.VpcPeeringOptions != nil {
-		b.vpcPeeringOptions = snap.VpcPeeringOptions
-	} else {
-		b.vpcPeeringOptions = make(map[string]*PeeringConnectionOptions)
-	}
-	if snap.SubnetCIDRAssociations != nil {
-		b.subnetCIDRAssociations = snap.SubnetCIDRAssociations
-	} else {
-		b.subnetCIDRAssociations = make(map[string][]*SubnetCIDRAssociation)
-	}
-	if snap.InstanceMonitoring != nil {
-		b.instanceMonitoring = snap.InstanceMonitoring
-	} else {
-		b.instanceMonitoring = make(map[string]string)
-	}
-	if snap.InstanceCreditSpecs != nil {
-		b.instanceCreditSpecs = snap.InstanceCreditSpecs
-	} else {
-		b.instanceCreditSpecs = make(map[string]string)
-	}
-	if snap.InstanceIMDSOptions != nil {
-		b.instanceIMDSOptions = snap.InstanceIMDSOptions
-	} else {
-		b.instanceIMDSOptions = make(map[string]*IMDSOptions)
-	}
 	b.instanceMetadataDefaults = snap.InstanceMetadataDefaults
 	b.instanceEventNotifAttrs = snap.InstanceEventNotifAttrs
-	if snap.NiIPv6Addresses != nil {
-		b.niIPv6Addresses = snap.NiIPv6Addresses
-	} else {
-		b.niIPv6Addresses = make(map[string][]string)
-	}
-	if snap.IDFormatSettings != nil {
-		b.idFormatSettings = snap.IDFormatSettings
-	} else {
-		b.idFormatSettings = make(map[string]bool)
-	}
-	if snap.VpcEndpointServicePermissions != nil {
-		b.vpcEndpointServicePermissions = snap.VpcEndpointServicePermissions
-	} else {
-		b.vpcEndpointServicePermissions = make(map[string][]string)
-	}
-	if snap.SubnetCIDRReservations != nil {
-		b.subnetCIDRReservations = snap.SubnetCIDRReservations
-	} else {
-		b.subnetCIDRReservations = make(map[string][]*SubnetCIDRReservation)
-	}
-	if snap.ImageDisabled != nil {
-		b.imageDisabled = snap.ImageDisabled
-	} else {
-		b.imageDisabled = make(map[string]bool)
-	}
-	if snap.ImageDeprecated != nil {
-		b.imageDeprecated = snap.ImageDeprecated
-	} else {
-		b.imageDeprecated = make(map[string]string)
-	}
-	if snap.ImageDeregistrationProtection != nil {
-		b.imageDeregistrationProtection = snap.ImageDeregistrationProtection
-	} else {
-		b.imageDeregistrationProtection = make(map[string]bool)
-	}
-	if snap.ImageAttributes != nil {
-		b.imageAttributes = snap.ImageAttributes
-	} else {
-		b.imageAttributes = make(map[string]map[string]string)
-	}
-	if snap.VgwRoutePropagation != nil {
-		b.vgwRoutePropagation = snap.VgwRoutePropagation
-	} else {
-		b.vgwRoutePropagation = make(map[string]bool)
-	}
-	if snap.VerifiedAccessEndpointPolicies != nil {
-		b.verifiedAccessEndpointPolicies = snap.VerifiedAccessEndpointPolicies
-	} else {
-		b.verifiedAccessEndpointPolicies = make(map[string]*VerifiedAccessPolicy)
-	}
-	if snap.VerifiedAccessGroupPolicies != nil {
-		b.verifiedAccessGroupPolicies = snap.VerifiedAccessGroupPolicies
-	} else {
-		b.verifiedAccessGroupPolicies = make(map[string]*VerifiedAccessPolicy)
-	}
-	if snap.FastLaunchImages != nil {
-		b.fastLaunchImages = snap.FastLaunchImages
-	} else {
-		b.fastLaunchImages = make(map[string]bool)
-	}
-	if snap.FastSnapshotRestores != nil {
-		b.fastSnapshotRestores = snap.FastSnapshotRestores
-	} else {
-		b.fastSnapshotRestores = make(map[string]bool)
-	}
 	b.spotDatafeed = snap.SpotDatafeed
 	b.restoreVpcConfigFields(&snap)
 	b.restoreCapacityFamilyFields(&snap)
@@ -332,6 +211,48 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.restoreParityFinalFields(&snap)
 
 	return nil
+}
+
+// restoreMapField sets *dst to src if non-nil, otherwise initializes *dst to
+// an empty map. Collapses the repetitive "if snap.X != nil { b.x = snap.X }
+// else { b.x = make(...) }" pattern used throughout restoreMiscMapFields into
+// a single call per field, keeping cyclomatic complexity down.
+func restoreMapField[K comparable, V any](dst *map[K]V, src map[K]V) {
+	if src != nil {
+		*dst = src
+	} else {
+		*dst = make(map[K]V)
+	}
+}
+
+// restoreMiscMapFields restores the grab-bag of standalone (non-store.Table,
+// non-op-family-grouped) maps from snap into b. Must be called with b.mu held
+// for writing.
+func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
+	restoreMapField(&b.vpcCidrAssociations, snap.VpcCidrAssociations)
+	restoreMapField(&b.spotFleetHistory, snap.SpotFleetHistory)
+	restoreMapField(&b.snapshotTiers, snap.SnapshotTiers)
+	restoreMapField(&b.snapshotAttributes, snap.SnapshotAttributes)
+	restoreMapField(&b.sgVpcAssociations, snap.SgVpcAssociations)
+	restoreMapField(&b.vpcTenancy, snap.VpcTenancy)
+	restoreMapField(&b.vpcPeeringOptions, snap.VpcPeeringOptions)
+	restoreMapField(&b.subnetCIDRAssociations, snap.SubnetCIDRAssociations)
+	restoreMapField(&b.instanceMonitoring, snap.InstanceMonitoring)
+	restoreMapField(&b.instanceCreditSpecs, snap.InstanceCreditSpecs)
+	restoreMapField(&b.instanceIMDSOptions, snap.InstanceIMDSOptions)
+	restoreMapField(&b.niIPv6Addresses, snap.NiIPv6Addresses)
+	restoreMapField(&b.idFormatSettings, snap.IDFormatSettings)
+	restoreMapField(&b.vpcEndpointServicePermissions, snap.VpcEndpointServicePermissions)
+	restoreMapField(&b.subnetCIDRReservations, snap.SubnetCIDRReservations)
+	restoreMapField(&b.imageDisabled, snap.ImageDisabled)
+	restoreMapField(&b.imageDeprecated, snap.ImageDeprecated)
+	restoreMapField(&b.imageDeregistrationProtection, snap.ImageDeregistrationProtection)
+	restoreMapField(&b.imageAttributes, snap.ImageAttributes)
+	restoreMapField(&b.vgwRoutePropagation, snap.VgwRoutePropagation)
+	restoreMapField(&b.verifiedAccessEndpointPolicies, snap.VerifiedAccessEndpointPolicies)
+	restoreMapField(&b.verifiedAccessGroupPolicies, snap.VerifiedAccessGroupPolicies)
+	restoreMapField(&b.fastLaunchImages, snap.FastLaunchImages)
+	restoreMapField(&b.fastSnapshotRestores, snap.FastSnapshotRestores)
 }
 
 // restoreParityFinalFields copies the final EC2 parity sweep

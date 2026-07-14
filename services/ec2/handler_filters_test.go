@@ -2,8 +2,10 @@ package ec2_test
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -365,4 +367,23 @@ func TestFilters_DescribeVpcAttribute_PersistsValue(t *testing.T) {
 	rec = postForm(t, h, "Action=DescribeVpcAttribute&Version=2016-11-15&VpcId="+vpcID+"&Attribute=enableDnsSupport")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "false", "enableDnsSupport should be false after disable")
+}
+
+func TestParseFilters_Empty(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	_, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+
+	vals := url.Values{
+		"Action":  {"DescribeInstances"},
+		"Version": {"2016-11-15"},
+	}
+
+	resp, err := ec2.ExportDispatch(h, vals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "DescribeInstancesResponse")
 }
