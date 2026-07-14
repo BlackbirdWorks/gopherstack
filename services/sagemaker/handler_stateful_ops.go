@@ -82,6 +82,30 @@ func (h *Handler) dispatchStatefulOps(
 		return r, ok, err
 	}
 
+	return h.dispatchTrialComponentExtraOps(ctx, op, body)
+}
+
+// dispatchTrialComponentExtraOps dispatches the TrialComponent association
+// extras (list-with-filters and disassociate) that were added after the core
+// Create/Describe/Delete TrialComponent ops above. Kept as its own chained
+// dispatcher rather than folded into dispatchExperimentAndTrialOps's switch
+// so that switch stays within the cyclomatic-complexity budget.
+func (h *Handler) dispatchTrialComponentExtraOps(
+	ctx context.Context,
+	op string,
+	body []byte,
+) ([]byte, bool, error) {
+	switch op {
+	case "DisassociateTrialComponent":
+		r, err := h.handleDisassociateTrialComponent(ctx, body)
+
+		return r, true, err
+	case "ListTrialComponents":
+		r, err := h.handleListTrialComponents(ctx, body)
+
+		return r, true, err
+	}
+
 	return nil, false, nil
 }
 
@@ -1361,4 +1385,80 @@ func (h *Handler) handleDeleteTrialComponent(ctx context.Context, body []byte) (
 		InfoContext(ctx, "sagemaker: deleted trial component", "name", req.TrialComponentName)
 
 	return json.Marshal(map[string]string{keyTrialComponentArn: tc.TrialComponentArn})
+}
+
+// ---------------------------------------------------------------------------
+// TrialComponent association extras
+// ---------------------------------------------------------------------------
+
+func (h *Handler) handleDisassociateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		TrialComponentName string `json:"TrialComponentName"`
+		TrialName          string `json:"TrialName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.TrialName == "" {
+		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
+	}
+
+	if req.TrialComponentName == "" {
+		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
+	}
+
+	trialArn, trialComponentArn, err := h.Backend.DisassociateTrialComponent(
+		ctx, req.TrialName, req.TrialComponentName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{
+		keyTrialArn:          trialArn,
+		keyTrialComponentArn: trialComponentArn,
+	})
+}
+
+func (h *Handler) handleListTrialComponents(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ExperimentName string `json:"ExperimentName,omitempty"`
+		TrialName      string `json:"TrialName,omitempty"`
+		NextToken      string `json:"NextToken,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	items, nextToken := h.Backend.ListTrialComponents(ctx, req.ExperimentName, req.TrialName, req.NextToken)
+
+	summaries := make([]map[string]any, 0, len(items))
+
+	for _, tc := range items {
+		summary := map[string]any{
+			keyTrialComponentArn: tc.TrialComponentArn,
+			"TrialComponentName": tc.TrialComponentName,
+			keyCreationTime:      epochSeconds(tc.CreationTime),
+			keyLastModifiedTime:  epochSeconds(tc.LastModifiedTime),
+		}
+		if tc.DisplayName != "" {
+			summary["DisplayName"] = tc.DisplayName
+		}
+		if tc.Status != "" {
+			summary["Status"] = map[string]string{"PrimaryStatus": tc.Status}
+		}
+		if tc.StartTime != nil {
+			summary["StartTime"] = epochSeconds(*tc.StartTime)
+		}
+		if tc.EndTime != nil {
+			summary["EndTime"] = epochSeconds(*tc.EndTime)
+		}
+
+		summaries = append(summaries, summary)
+	}
+
+	return listResp("TrialComponentSummaries", summaries, nextToken)
 }

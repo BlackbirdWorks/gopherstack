@@ -240,3 +240,17 @@ func paginateSlice[T any](list []T, nextToken string, maxResults int32) ([]T, st
 
 	return list[startIdx:end], outToken
 }
+
+// parseNextToken parses a pagination token (integer offset) into a slice index.
+func parseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
+}

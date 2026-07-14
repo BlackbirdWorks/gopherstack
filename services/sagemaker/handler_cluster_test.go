@@ -1,6 +1,7 @@
 package sagemaker_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
 func TestHandler_ClusterLifecycle(t *testing.T) {
@@ -421,4 +424,104 @@ func TestHandler_ListClusters_NameContains(t *testing.T) {
 	m, ok := summaries[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "prod-cluster", m["ClusterName"])
+}
+
+func TestAddClusterInternal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		clusterName string
+	}{
+		{
+			name:        "creates cluster with nodes map initialized",
+			clusterName: "my-cluster",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
+			c := b.AddClusterInternal(context.Background(), tt.clusterName)
+
+			require.NotNil(t, c)
+			assert.Equal(t, tt.clusterName, c.ClusterName)
+			assert.NotNil(t, c.Nodes)
+			assert.Equal(t, 1, sagemaker.ClusterCount(b))
+		})
+	}
+}
+
+func TestBatchDeleteClusterNodes_Empty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		clusterName string
+		nodeIDs     []string
+		wantCode    int
+	}{
+		{
+			name:        "delete empty node list succeeds",
+			clusterName: "my-cluster",
+			nodeIDs:     []string{},
+			wantCode:    http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			h.Backend.AddClusterInternal(context.Background(), tt.clusterName)
+
+			rec := doSageMakerRequest(t, h, "BatchDeleteClusterNodes", map[string]any{
+				"ClusterName": tt.clusterName,
+				"NodeIds":     tt.nodeIDs,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestBatchRebootClusterNodes_PartialSuccess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		clusterName string
+		nodeIDs     []string
+		wantCode    int
+	}{
+		{
+			name:        "reboot nodes partial success",
+			clusterName: "reboot-cluster",
+			nodeIDs:     []string{"node-1", "node-missing"},
+			wantCode:    http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			c := h.Backend.AddClusterInternal(context.Background(), tt.clusterName)
+			require.NotNil(t, c)
+
+			_, _, err := h.Backend.BatchAddClusterNodes(context.Background(), tt.clusterName, []sagemaker.ClusterNode{
+				{NodeID: "node-1", NodeStatus: "Running"},
+			})
+			require.NoError(t, err)
+
+			rec := doSageMakerRequest(t, h, "BatchRebootClusterNodes", map[string]any{
+				"ClusterName": tt.clusterName,
+				"NodeIds":     tt.nodeIDs,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }

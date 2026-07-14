@@ -1,6 +1,7 @@
 package sagemaker_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -633,4 +634,87 @@ func createTestArtifact(t *testing.T, h *sagemaker.Handler, name string) string 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
 	return out["ArtifactArn"].(string)
+}
+
+func TestAddActionInternal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		actionName string
+		actionType string
+	}{
+		{
+			name:       "creates action with correct fields",
+			actionName: "my-action",
+			actionType: "ModelDeployment",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
+			a := b.AddActionInternal(context.Background(), tt.actionName, tt.actionType)
+
+			require.NotNil(t, a)
+			assert.Equal(t, tt.actionName, a.ActionName)
+			assert.Equal(t, tt.actionType, a.ActionType)
+			assert.Contains(t, a.ActionArn, "arn:aws:sagemaker")
+			assert.Equal(t, 1, sagemaker.ActionCount(b))
+		})
+	}
+}
+
+func TestCreateAction_TagsPresent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		wantTags bool
+	}{
+		{
+			name: "create action with tags, tags survive",
+			body: map[string]any{
+				"ActionName": "my-action",
+				"ActionType": "ModelDeployment",
+				"Source": map[string]any{
+					"SourceUri": "s3://bucket/key",
+				},
+				"Tags": []map[string]string{{"Key": "team", "Value": "ml"}},
+			},
+			wantCode: http.StatusOK,
+			wantTags: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doSageMakerRequest(t, h, "CreateAction", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantTags {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				arnStr := resp["ActionArn"]
+				require.NotEmpty(t, arnStr)
+
+				rec2 := doSageMakerRequest(t, h, "ListTags", map[string]any{"ResourceArn": arnStr})
+				require.Equal(t, http.StatusOK, rec2.Code)
+
+				var tagsResp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp))
+
+				tags := tagsResp["Tags"].([]any)
+				require.Len(t, tags, 1)
+			}
+		})
+	}
 }

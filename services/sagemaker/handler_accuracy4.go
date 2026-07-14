@@ -65,16 +65,30 @@ func accuracy4OpsSupported() []string {
 	}
 }
 
-// dispatchAccuracy4Ops dispatches the accuracy4 real stateful operations.
-//
-//nolint:cyclop,funlen // large switch for 25 operations
+// dispatchAccuracy4Ops dispatches the accuracy4 real stateful operations (25
+// operations across 4 resource families) by delegating to one sub-dispatcher
+// per family, so no single switch needs a case for every operation.
 func (h *Handler) dispatchAccuracy4Ops(
 	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchDeviceFleetOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchInferenceComponentOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchClusterSchedulerComputeQuotaOps(ctx, op, body)
+}
+
+// dispatchDeviceFleetOps dispatches DeviceFleet and Device operations.
+func (h *Handler) dispatchDeviceFleetOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
-	// DeviceFleet
 	case opCreateDeviceFleet:
 		r, err := h.handleCreateDeviceFleet(ctx, body)
 
@@ -95,8 +109,6 @@ func (h *Handler) dispatchAccuracy4Ops(
 		r, err := h.handleDeleteDeviceFleet(ctx, body)
 
 		return r, true, err
-
-	// Device
 	case opRegisterDevices:
 		r, err := h.handleRegisterDevices(ctx, body)
 
@@ -113,8 +125,16 @@ func (h *Handler) dispatchAccuracy4Ops(
 		r, err := h.handleListDevices(ctx, body)
 
 		return r, true, err
+	}
 
-	// InferenceComponent
+	return nil, false, nil
+}
+
+// dispatchInferenceComponentOps dispatches InferenceComponent operations.
+func (h *Handler) dispatchInferenceComponentOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case opCreateInferenceComponent:
 		r, err := h.handleCreateInferenceComponent(ctx, body)
 
@@ -139,8 +159,17 @@ func (h *Handler) dispatchAccuracy4Ops(
 		r, err := h.handleDeleteInferenceComponent(ctx, body)
 
 		return r, true, err
+	}
 
-	// ClusterSchedulerConfig
+	return nil, false, nil
+}
+
+// dispatchClusterSchedulerComputeQuotaOps dispatches ClusterSchedulerConfig
+// and ComputeQuota operations.
+func (h *Handler) dispatchClusterSchedulerComputeQuotaOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case opCreateClusterSchedulerConfig:
 		r, err := h.handleCreateClusterSchedulerConfig(ctx, body)
 
@@ -161,8 +190,6 @@ func (h *Handler) dispatchAccuracy4Ops(
 		r, err := h.handleDeleteClusterSchedulerConfig(ctx, body)
 
 		return r, true, err
-
-	// ComputeQuota
 	case opCreateComputeQuota:
 		r, err := h.handleCreateComputeQuota(ctx, body)
 

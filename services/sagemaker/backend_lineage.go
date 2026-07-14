@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -15,6 +16,25 @@ import (
 // auto-provisions for every account/region (there is no CreateLineageGroup
 // operation in the real API).
 const defaultLineageGroupName = "sagemaker-default-lineage-group"
+
+var (
+	// ErrActionNotFound is returned when an action does not exist.
+	ErrActionNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrActionAlreadyExists is returned when an action already exists.
+	ErrActionAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrArtifactNotFound is returned when a lineage artifact does not exist.
+	ErrArtifactNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrArtifactAlreadyExists is returned when a lineage artifact already exists.
+	ErrArtifactAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrContextNotFound is returned when a lineage context does not exist.
+	ErrContextNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrContextAlreadyExists is returned when a lineage context already exists.
+	ErrContextAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrLineageGroupNotFound is returned when a lineage group does not exist.
+	ErrLineageGroupNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+	// ErrLineageGroupPolicyNotFound is returned when a lineage group has no resource policy attached.
+	ErrLineageGroupPolicyNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+)
 
 // ArtifactSourceType is the ID and ID type of an artifact source.
 type ArtifactSourceType struct {
@@ -843,4 +863,69 @@ func lineageNeighbors(direction, arnStr string, fwd, back map[string][]Edge) []E
 	}
 
 	return out
+}
+
+// AddActionInternal adds an action directly for seeding tests.
+func (b *InMemoryBackend) AddActionInternal(ctx context.Context, name, actionType string) *Action {
+	b.mu.Lock("AddActionInternal")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+	actionARN := arn.Build("sagemaker", region, b.accountID, "action/"+name)
+	now := time.Now()
+	a := &Action{
+		ActionName:       name,
+		ActionArn:        actionARN,
+		ActionType:       actionType,
+		CreationTime:     now,
+		LastModifiedTime: now,
+		Tags:             make(map[string]string),
+	}
+	b.actionsStore(region).Put(a)
+	b.actionARNIndexStore(region)[actionARN] = name
+
+	return cloneAction(a)
+}
+
+// CreateAction creates a SageMaker ML lineage action.
+func (b *InMemoryBackend) CreateAction(
+	ctx context.Context,
+	name, actionType, description, status string,
+	source ActionSource,
+	properties map[string]string,
+	tags map[string]string,
+) (*Action, error) {
+	b.mu.Lock("CreateAction")
+	defer b.mu.Unlock()
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: ActionName is required", ErrValidation)
+	}
+
+	region := getRegion(ctx, b.region)
+	actionsStore := b.actionsStore(region)
+
+	if _, ok := actionsStore.Get(name); ok {
+		return nil, fmt.Errorf("%w: action %q already exists", ErrActionAlreadyExists, name)
+	}
+
+	actionARN := arn.Build("sagemaker", region, b.accountID, "action/"+name)
+	now := time.Now()
+
+	a := &Action{
+		ActionName:       name,
+		ActionArn:        actionARN,
+		ActionType:       actionType,
+		Description:      description,
+		Status:           status,
+		Source:           source,
+		Properties:       maps.Clone(properties),
+		Tags:             mergeTags(nil, tags),
+		CreationTime:     now,
+		LastModifiedTime: now,
+	}
+	actionsStore.Put(a)
+	b.actionARNIndexStore(region)[actionARN] = name
+
+	return cloneAction(a), nil
 }

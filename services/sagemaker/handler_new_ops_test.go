@@ -853,3 +853,293 @@ func TestHandler_BatchAddClusterNodes_DuplicateNodeFails(t *testing.T) {
 	assert.Len(t, failures, 1)
 	assert.Equal(t, "node-1", failures[0])
 }
+
+func TestHandler_EndpointLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create endpoint config first.
+	doSageMakerRequest(t, h, "CreateEndpointConfig", map[string]any{
+		"EndpointConfigName": "my-ep-config",
+		"ProductionVariants": []map[string]any{
+			{
+				"VariantName":          "main",
+				"ModelName":            "m",
+				"InstanceType":         "ml.m5.large",
+				"InitialInstanceCount": 1,
+			},
+		},
+	})
+
+	// Create endpoint.
+	recCreate := doSageMakerRequest(t, h, "CreateEndpoint", map[string]any{
+		"EndpointName":       "my-endpoint",
+		"EndpointConfigName": "my-ep-config",
+	})
+	assert.Equal(t, http.StatusOK, recCreate.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	assert.NotEmpty(t, createOut["EndpointArn"])
+
+	// Describe endpoint.
+	recDesc := doSageMakerRequest(
+		t,
+		h,
+		"DescribeEndpoint",
+		map[string]any{"EndpointName": "my-endpoint"},
+	)
+	assert.Equal(t, http.StatusOK, recDesc.Code)
+
+	// List endpoints.
+	recList := doSageMakerRequest(t, h, "ListEndpoints", map[string]any{})
+	assert.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	assert.Len(t, listOut["Endpoints"].([]any), 1)
+
+	// Update endpoint.
+	recUpdate := doSageMakerRequest(t, h, "UpdateEndpoint", map[string]any{
+		"EndpointName":       "my-endpoint",
+		"EndpointConfigName": "my-ep-config",
+	})
+	assert.Equal(t, http.StatusOK, recUpdate.Code)
+
+	// UpdateEndpointWeightsAndCapacities.
+	recUpdateWeights := doSageMakerRequest(
+		t,
+		h,
+		"UpdateEndpointWeightsAndCapacities",
+		map[string]any{
+			"EndpointName":                "my-endpoint",
+			"DesiredWeightsAndCapacities": []map[string]any{},
+		},
+	)
+	assert.Equal(t, http.StatusOK, recUpdateWeights.Code)
+
+	// Delete endpoint.
+	recDelete := doSageMakerRequest(
+		t,
+		h,
+		"DeleteEndpoint",
+		map[string]any{"EndpointName": "my-endpoint"},
+	)
+	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+func TestHandler_Endpoint_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, op := range []string{"DescribeEndpoint", "UpdateEndpoint", "DeleteEndpoint"} {
+		t.Run(op, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSageMakerRequest(t, h, op, map[string]any{"EndpointName": "nonexistent"})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Training Job lifecycle
+// ---------------------------------------------------------------------------
+
+func TestHandler_TrainingJobLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create training job.
+	recCreate := doSageMakerRequest(t, h, "CreateTrainingJob", map[string]any{
+		"TrainingJobName":        "my-training-job",
+		"AlgorithmSpecification": map[string]any{"TrainingInputMode": "File"},
+		"OutputDataConfig":       map[string]any{"S3OutputPath": "s3://bucket/output"},
+		"ResourceConfig": map[string]any{
+			"InstanceType":   "ml.m5.large",
+			"InstanceCount":  1,
+			"VolumeSizeInGB": 20,
+		},
+		"StoppingCondition": map[string]any{"MaxRuntimeInSeconds": 3600},
+	})
+	assert.Equal(t, http.StatusOK, recCreate.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	assert.NotEmpty(t, createOut["TrainingJobArn"])
+
+	// Describe training job.
+	recDesc := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{
+		"TrainingJobName": "my-training-job",
+	})
+	assert.Equal(t, http.StatusOK, recDesc.Code)
+
+	// List training jobs.
+	recList := doSageMakerRequest(t, h, "ListTrainingJobs", map[string]any{})
+	assert.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	assert.Len(t, listOut["TrainingJobSummaries"].([]any), 1)
+
+	// StopTrainingJob.
+	recStop := doSageMakerRequest(t, h, "StopTrainingJob", map[string]any{
+		"TrainingJobName": "my-training-job",
+	})
+	assert.Equal(t, http.StatusOK, recStop.Code)
+
+	// UpdateTrainingJob.
+	recUpdate := doSageMakerRequest(t, h, "UpdateTrainingJob", map[string]any{
+		"TrainingJobName": "my-training-job",
+	})
+	assert.Equal(t, http.StatusOK, recUpdate.Code)
+
+	// DeleteTrainingJob.
+	recDelete := doSageMakerRequest(t, h, "DeleteTrainingJob", map[string]any{
+		"TrainingJobName": "my-training-job",
+	})
+	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+// ---------------------------------------------------------------------------
+// Notebook Instance lifecycle
+// ---------------------------------------------------------------------------
+
+func TestHandler_NotebookInstanceLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create notebook instance.
+	recCreate := doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+		"InstanceType":         "ml.t2.medium",
+		"RoleArn":              "arn:aws:iam::000000000000:role/notebook-role",
+	})
+	assert.Equal(t, http.StatusOK, recCreate.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	assert.NotEmpty(t, createOut["NotebookInstanceArn"])
+
+	// Describe.
+	recDesc := doSageMakerRequest(t, h, "DescribeNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recDesc.Code)
+
+	// List.
+	recList := doSageMakerRequest(t, h, "ListNotebookInstances", map[string]any{})
+	assert.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	assert.Len(t, listOut["NotebookInstances"].([]any), 1)
+
+	// Start.
+	recStart := doSageMakerRequest(t, h, "StartNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recStart.Code)
+
+	// Stop before update: real AWS requires Stopped state to update a notebook instance.
+	recStop := doSageMakerRequest(t, h, "StopNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recStop.Code)
+
+	// Update (notebook is now Stopped).
+	recUpdate := doSageMakerRequest(t, h, "UpdateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+		"InstanceType":         "ml.t3.medium",
+	})
+	assert.Equal(t, http.StatusOK, recUpdate.Code)
+
+	// CreatePresignedNotebookInstanceUrl.
+	recURL := doSageMakerRequest(t, h, "CreatePresignedNotebookInstanceUrl", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recURL.Code)
+
+	// Delete.
+	recDelete := doSageMakerRequest(t, h, "DeleteNotebookInstance", map[string]any{
+		"NotebookInstanceName": "my-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+func TestHandler_HyperParameterTuningJobLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create HPT job.
+	recCreate := doSageMakerRequest(t, h, "CreateHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "my-hpt-job",
+		"HyperParameterTuningJobConfig": map[string]any{
+			"Strategy": "Bayesian",
+			"ResourceLimits": map[string]any{
+				"MaxNumberOfTrainingJobs": 10,
+				"MaxParallelTrainingJobs": 2,
+			},
+		},
+	})
+	assert.Equal(t, http.StatusOK, recCreate.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	assert.NotEmpty(t, createOut["HyperParameterTuningJobArn"])
+
+	// Describe.
+	recDesc := doSageMakerRequest(t, h, "DescribeHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "my-hpt-job",
+	})
+	assert.Equal(t, http.StatusOK, recDesc.Code)
+
+	// List.
+	recList := doSageMakerRequest(t, h, "ListHyperParameterTuningJobs", map[string]any{})
+	assert.Equal(t, http.StatusOK, recList.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	assert.Len(t, listOut["HyperParameterTuningJobSummaries"].([]any), 1)
+
+	// Stop.
+	recStop := doSageMakerRequest(t, h, "StopHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "my-hpt-job",
+	})
+	assert.Equal(t, http.StatusOK, recStop.Code)
+
+	// Delete.
+	recDelete := doSageMakerRequest(t, h, "DeleteHyperParameterTuningJob", map[string]any{
+		"HyperParameterTuningJobName": "my-hpt-job",
+	})
+	assert.Equal(t, http.StatusOK, recDelete.Code)
+}
+
+func TestHandler_NotebookInstance_EventuallyInService(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateNotebookInstance", map[string]any{
+		"NotebookInstanceName": "async-notebook",
+		"InstanceType":         "ml.t2.medium",
+		"RoleArn":              "arn:aws:iam::000000000000:role/notebook-role",
+	})
+
+	// Wait for async status transition.
+	time.Sleep(300 * time.Millisecond)
+
+	recDesc := doSageMakerRequest(t, h, "DescribeNotebookInstance", map[string]any{
+		"NotebookInstanceName": "async-notebook",
+	})
+	assert.Equal(t, http.StatusOK, recDesc.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+	assert.NotEmpty(t, descOut["NotebookInstanceStatus"])
+}

@@ -1894,3 +1894,99 @@ func (b *InMemoryBackend) ListWorkteams(ctx context.Context, nextToken string) (
 		func(v *Workteam) string { return v.WorkteamName },
 	)
 }
+
+// ---------------------------------------------------------------------------
+// Image alias listing
+// ---------------------------------------------------------------------------
+
+// ListImageAliases returns the aliases attached to an image. If version is
+// positive, only that version's aliases are considered; otherwise, aliases
+// from every version of the image are aggregated.
+func (b *InMemoryBackend) ListImageAliases(
+	ctx context.Context,
+	imageName string,
+	version int32,
+	nextToken string,
+) ([]string, string, error) {
+	b.mu.RLock("ListImageAliases")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.region)
+
+	if _, ok := b.smImagesStoreRO(region).Get(imageName); !ok {
+		return nil, "", fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
+	}
+
+	versions := b.imageVersionsStoreRO(region)[imageName]
+
+	var candidates []*ImageVersion
+
+	if version > 0 {
+		if iv, ok := versions[int(version)]; ok {
+			candidates = append(candidates, iv)
+		}
+	} else {
+		for _, iv := range versions {
+			candidates = append(candidates, iv)
+		}
+	}
+
+	aliases := dedupeAliases(candidates)
+	sort.Strings(aliases)
+
+	page, out := paginateSlice(aliases, nextToken, 0)
+
+	return page, out, nil
+}
+
+// dedupeAliases flattens the Aliases of every given image version into a
+// single de-duplicated slice.
+func dedupeAliases(versions []*ImageVersion) []string {
+	seen := map[string]bool{}
+	aliases := make([]string, 0)
+
+	for _, iv := range versions {
+		for _, a := range iv.Aliases {
+			if seen[a] {
+				continue
+			}
+
+			seen[a] = true
+
+			aliases = append(aliases, a)
+		}
+	}
+
+	return aliases
+}
+
+// ---------------------------------------------------------------------------
+// UpdateProject
+// ---------------------------------------------------------------------------
+
+// UpdateProject updates a project's description and merges in new tags.
+func (b *InMemoryBackend) UpdateProject(
+	ctx context.Context,
+	name, description string,
+	tags map[string]string,
+) (*Project, error) {
+	b.mu.Lock("UpdateProject")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.region)
+
+	p, ok := b.projectsStore(region).Get(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
+	}
+
+	if description != "" {
+		p.ProjectDescription = description
+	}
+
+	if len(tags) > 0 {
+		p.Tags = mergeTags(p.Tags, tags)
+	}
+
+	return cloneProject(p), nil
+}

@@ -107,16 +107,57 @@ func batch3SupportedOperations() []string {
 	}
 }
 
-// dispatchBatch3Ops dispatches the 50 real stateful operations (batch 3).
-//
-//nolint:cyclop,gocyclo,funlen // large switch is required for dispatching many operations
+// dispatchBatch3Ops dispatches the 50 real stateful operations (batch 3) by
+// delegating to one sub-dispatcher per resource family, so no single switch
+// needs a case for every operation.
 func (h *Handler) dispatchBatch3Ops(
 	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchDataQualityModelBiasOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchModelQualityExplainabilityOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchMonitoringAlertHumanTaskOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchWorkforceFlowOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchAppImageInferenceExperimentOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchMlflowTrackingServerOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchMlflowAppOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchModelCardOptimizationOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchStudioPartnerAppOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchTrainingPlanOps(ctx, op, body)
+}
+
+func (h *Handler) dispatchDataQualityModelBiasOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
-	// DataQualityJobDefinition
 	case "CreateDataQualityJobDefinition":
 		r, err := h.handleCreateDataQualityJobDefinition(ctx, body)
 
@@ -131,8 +172,6 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleListDataQualityJobDefinitions(ctx, body)
 
 		return r, true, err
-
-	// ModelBiasJobDefinition
 	case "CreateModelBiasJobDefinition":
 		r, err := h.handleCreateModelBiasJobDefinition(ctx, body)
 
@@ -147,8 +186,15 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleListModelBiasJobDefinitions(ctx, body)
 
 		return r, true, err
+	}
 
-	// ModelQualityJobDefinition
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchModelQualityExplainabilityOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateModelQualityJobDefinition":
 		r, err := h.handleCreateModelQualityJobDefinition(ctx, body)
 
@@ -163,8 +209,6 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleListModelQualityJobDefinitions(ctx, body)
 
 		return r, true, err
-
-	// ModelExplainabilityJobDefinition
 	case "CreateModelExplainabilityJobDefinition":
 		r, err := h.handleCreateModelExplainabilityJobDefinition(ctx, body)
 
@@ -179,8 +223,15 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleListModelExplainabilityJobDefinitions(ctx, body)
 
 		return r, true, err
+	}
 
-	// MonitoringAlert / MonitoringExecution
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchMonitoringAlertHumanTaskOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "ListMonitoringAlerts":
 		r, err := h.handleListMonitoringAlerts(ctx, body)
 
@@ -197,8 +248,6 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleListMonitoringExecutions(ctx, body)
 
 		return r, true, err
-
-	// HumanTaskUI
 	case "CreateHumanTaskUi":
 		r, err := h.handleCreateHumanTaskUI(ctx, body)
 
@@ -209,8 +258,15 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteHumanTaskUi":
 		return nil, true, h.handleDeleteHumanTaskUI(ctx, body)
+	}
 
-	// Workforce
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchWorkforceFlowOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateWorkforce":
 		r, err := h.handleCreateWorkforce(ctx, body)
 
@@ -231,8 +287,6 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleListWorkforces(ctx, body)
 
 		return r, true, err
-
-	// FlowDefinition
 	case "CreateFlowDefinition":
 		r, err := h.handleCreateFlowDefinition(ctx, body)
 
@@ -243,8 +297,15 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteFlowDefinition":
 		return nil, true, h.handleDeleteFlowDefinition(ctx, body)
+	}
 
-	// AppImageConfig
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchAppImageInferenceExperimentOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateAppImageConfig":
 		r, err := h.handleCreateAppImageConfig(ctx, body)
 
@@ -259,8 +320,6 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleUpdateAppImageConfig(ctx, body)
 
 		return r, true, err
-
-	// InferenceExperiment
 	case "CreateInferenceExperiment":
 		r, err := h.handleCreateInferenceExperiment(ctx, body)
 
@@ -281,8 +340,15 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleUpdateInferenceExperiment(ctx, body)
 
 		return r, true, err
+	}
 
-	// MlflowTrackingServer
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchMlflowTrackingServerOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateMlflowTrackingServer":
 		r, err := h.handleCreateMlflowTrackingServer(ctx, body)
 
@@ -301,8 +367,15 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleCreatePresignedMlflowTrackingServerURL(ctx, body)
 
 		return r, true, err
+	}
 
-	// MlflowApp
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchMlflowAppOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateMlflowApp":
 		r, err := h.handleCreateMlflowApp(ctx, body)
 
@@ -325,8 +398,15 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleCreatePresignedMlflowAppURL(ctx, body)
 
 		return r, true, err
+	}
 
-	// ModelCard
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchModelCardOptimizationOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateModelCard":
 		r, err := h.handleCreateModelCard(ctx, body)
 
@@ -341,8 +421,6 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteModelCard":
 		return nil, true, h.handleDeleteModelCard(ctx, body)
-
-	// OptimizationJob
 	case "CreateOptimizationJob":
 		r, err := h.handleCreateOptimizationJob(ctx, body)
 
@@ -355,8 +433,15 @@ func (h *Handler) dispatchBatch3Ops(
 		return nil, true, h.handleDeleteOptimizationJob(ctx, body)
 	case "StopOptimizationJob":
 		return nil, true, h.handleStopOptimizationJob(ctx, body)
+	}
 
-	// StudioLifecycleConfig
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchStudioPartnerAppOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateStudioLifecycleConfig":
 		r, err := h.handleCreateStudioLifecycleConfig(ctx, body)
 
@@ -367,8 +452,6 @@ func (h *Handler) dispatchBatch3Ops(
 		return r, true, err
 	case "DeleteStudioLifecycleConfig":
 		return nil, true, h.handleDeleteStudioLifecycleConfig(ctx, body)
-
-	// PartnerApp
 	case "CreatePartnerApp":
 		r, err := h.handleCreatePartnerApp(ctx, body)
 
@@ -393,8 +476,15 @@ func (h *Handler) dispatchBatch3Ops(
 		r, err := h.handleCreatePartnerAppPresignedURL(ctx, body)
 
 		return r, true, err
+	}
 
-	// TrainingPlan
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchTrainingPlanOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateTrainingPlan":
 		r, err := h.handleCreateTrainingPlan(ctx, body)
 

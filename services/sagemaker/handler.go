@@ -79,11 +79,25 @@ func (h *Handler) Shutdown(ctx context.Context) {
 // Ensure Handler implements service.Shutdowner at compile time.
 var _ service.Shutdowner = (*Handler)(nil)
 
-// GetSupportedOperations returns the list of supported SageMaker operations.
-//
-//nolint:funlen
-func (h *Handler) GetSupportedOperations() []string {
-	core := []string{
+// coreOpsSupported returns the operations handled by dispatchCoreOps and
+// dispatchNewOps (the original, non-batch-swept operation set). Split out of
+// GetSupportedOperations to keep that function short: it only needs to
+// aggregate every family's op list, not enumerate this one inline. The list
+// itself is further split by verb (Create/Delete-Describe/List-Update) to
+// keep each helper under the function-length limit.
+func coreOpsSupported() []string {
+	ops := make([]string, 0, len(coreCreateOpsSupported())+
+		len(coreDeleteDescribeOpsSupported())+len(coreListUpdateOpsSupported()))
+	ops = append(ops, coreCreateOpsSupported()...)
+	ops = append(ops, coreDeleteDescribeOpsSupported()...)
+	ops = append(ops, coreListUpdateOpsSupported()...)
+
+	return ops
+}
+
+// coreCreateOpsSupported returns the Create*/batch/association-style core operations.
+func coreCreateOpsSupported() []string {
+	return []string{
 		"AddAssociation",
 		"AddTags",
 		"AssociateTrialComponent",
@@ -116,6 +130,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateTrial,
 		opCreateTrialComponent,
 		opCreateUserProfile,
+	}
+}
+
+// coreDeleteDescribeOpsSupported returns the Delete*/Describe* core operations.
+func coreDeleteDescribeOpsSupported() []string {
+	return []string{
 		opDeleteApp,
 		opDeleteDomain,
 		"DeleteEndpoint",
@@ -150,6 +170,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		opDescribeUserProfile,
 		"DescribeTrainingJob",
 		"DescribeTransformJob",
+	}
+}
+
+// coreListUpdateOpsSupported returns the List*/Start*/Stop*/Update* core operations.
+func coreListUpdateOpsSupported() []string {
+	return []string{
+		"DisassociateTrialComponent",
+		"ListTrialComponents",
 		opListApps,
 		opListDomains,
 		"ListEndpointConfigs",
@@ -198,7 +226,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateTrial",
 		"UpdateTrialComponent",
 	}
+}
 
+// GetSupportedOperations returns the list of supported SageMaker operations.
+func (h *Handler) GetSupportedOperations() []string {
+	core := coreOpsSupported()
 	batch2 := batch2OpsSupported()
 	batch3 := batch3SupportedOperations()
 	accuracy3 := accuracy3OpsSupported()
@@ -211,14 +243,14 @@ func (h *Handler) GetSupportedOperations() []string {
 	trainingPlanExt := trainingPlanExtOpsSupported()
 	automlSearchExt := automlSearchExtOpsSupported()
 	modelCardExport := modelCardExportOpsSupported()
-	miscDestub := miscDestubOpsSupported()
+	servicecatalog := servicecatalogOpsSupported()
 	featureMetadata := featureMetadataOpsSupported()
 	presignedSession := presignedSessionOpsSupported()
 
 	total := len(core) + len(batch2) + len(batch3) + len(accuracy3)
 	total += len(accuracy4) + len(edgeDeployment) + len(cluster) + len(lineage) + len(hub)
 	total += len(labeling) + len(trainingPlanExt) + len(automlSearchExt) + len(modelCardExport)
-	total += len(miscDestub) + len(featureMetadata) + len(presignedSession)
+	total += len(servicecatalog) + len(featureMetadata) + len(presignedSession)
 	combined := make([]string, 0, total)
 	combined = append(combined, core...)
 	combined = append(combined, batch2...)
@@ -233,7 +265,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	combined = append(combined, trainingPlanExt...)
 	combined = append(combined, automlSearchExt...)
 	combined = append(combined, modelCardExport...)
-	combined = append(combined, miscDestub...)
+	combined = append(combined, servicecatalog...)
 	combined = append(combined, featureMetadata...)
 	combined = append(combined, presignedSession...)
 
@@ -311,6 +343,10 @@ func batch2OpsSupported() []string {
 		"DeleteWorkteam",
 		"ListWorkteams",
 		"UpdateWorkteam",
+		// Image alias listing / Project update (moved from the former
+		// miscDestubOpsSupported list; these are Image and Project family ops).
+		"ListAliases",
+		"UpdateProject",
 	}
 }
 
@@ -517,7 +553,7 @@ func (h *Handler) dispatchFamilyExtAndStubOps(
 		return r, true, err
 	}
 
-	if r, ok, err := h.dispatchMiscDestubOps(ctx, op, body); ok {
+	if r, ok, err := h.dispatchServicecatalogOps(ctx, op, body); ok {
 		return r, true, err
 	}
 

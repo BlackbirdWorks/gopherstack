@@ -12,16 +12,45 @@ const (
 	opStopMonitoringSchedule = "StopMonitoringSchedule"
 )
 
-// dispatchBatch2Ops dispatches the 50 new real stateful operations (batch 2).
-//
-//nolint:cyclop,gocyclo,funlen // large switch is required for dispatching many operations
+// dispatchBatch2Ops dispatches the 50 new real stateful operations (batch 2)
+// by delegating to one sub-dispatcher per resource family, so no single
+// switch needs a case for every operation.
 func (h *Handler) dispatchBatch2Ops(
 	ctx context.Context,
 	op string,
 	body []byte,
 ) ([]byte, bool, error) {
+	if r, ok, err := h.dispatchModelPackageOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchModelPackageGroupOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchAutoMLCodeRepositoryOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchProjectSpaceOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchImageOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	if r, ok, err := h.dispatchCompilationMonitoringOps(ctx, op, body); ok {
+		return r, true, err
+	}
+
+	return h.dispatchWorkteamOps(ctx, op, body)
+}
+
+func (h *Handler) dispatchModelPackageOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
 	switch op {
-	// ModelPackage
 	case "CreateModelPackage":
 		r, err := h.handleCreateModelPackage(ctx, body)
 
@@ -36,8 +65,15 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListModelPackages(ctx, body)
 
 		return r, true, err
+	}
 
-	// ModelPackageGroup
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchModelPackageGroupOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateModelPackageGroup":
 		r, err := h.handleCreateModelPackageGroup(ctx, body)
 
@@ -62,8 +98,15 @@ func (h *Handler) dispatchBatch2Ops(
 		return r, true, err
 	case "DeleteModelPackageGroupPolicy":
 		return nil, true, h.handleDeleteModelPackageGroupPolicy(ctx, body)
+	}
 
-	// AutoMLJob
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchAutoMLCodeRepositoryOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateAutoMLJob", "CreateAutoMLJobV2":
 		r, err := h.handleCreateAutoMLJob(ctx, body)
 
@@ -78,8 +121,6 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListAutoMLJobs(ctx, body)
 
 		return r, true, err
-
-	// CodeRepository
 	case "CreateCodeRepository":
 		r, err := h.handleCreateCodeRepository(ctx, body)
 
@@ -98,8 +139,15 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListCodeRepositories(ctx, body)
 
 		return r, true, err
+	}
 
-	// Project
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchProjectSpaceOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateProject":
 		r, err := h.handleCreateProject(ctx, body)
 
@@ -114,8 +162,6 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListProjects(ctx, body)
 
 		return r, true, err
-
-	// Space
 	case "CreateSpace":
 		r, err := h.handleCreateSpace(ctx, body)
 
@@ -130,8 +176,19 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListSpaces(ctx, body)
 
 		return r, true, err
+	case "UpdateProject":
+		r, err := h.handleUpdateProject(ctx, body)
 
-	// Image
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchImageOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateImage":
 		r, err := h.handleCreateImage(ctx, body)
 
@@ -150,8 +207,6 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleUpdateImage(ctx, body)
 
 		return r, true, err
-
-	// ImageVersion
 	case "CreateImageVersion":
 		r, err := h.handleCreateImageVersion(ctx, body)
 
@@ -170,8 +225,19 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleUpdateImageVersion(ctx, body)
 
 		return r, true, err
+	case "ListAliases":
+		r, err := h.handleListAliases(ctx, body)
 
-	// CompilationJob
+		return r, true, err
+	}
+
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchCompilationMonitoringOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateCompilationJob":
 		r, err := h.handleCreateCompilationJob(ctx, body)
 
@@ -188,8 +254,6 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListCompilationJobs(ctx, body)
 
 		return r, true, err
-
-	// MonitoringSchedule
 	case "CreateMonitoringSchedule":
 		r, err := h.handleCreateMonitoringSchedule(ctx, body)
 
@@ -212,8 +276,15 @@ func (h *Handler) dispatchBatch2Ops(
 		r, err := h.handleListMonitoringSchedules(ctx, body)
 
 		return r, true, err
+	}
 
-	// Workteam
+	return nil, false, nil
+}
+
+func (h *Handler) dispatchWorkteamOps(
+	ctx context.Context, op string, body []byte,
+) ([]byte, bool, error) {
+	switch op {
 	case "CreateWorkteam":
 		r, err := h.handleCreateWorkteam(ctx, body)
 
@@ -1581,4 +1652,63 @@ func (h *Handler) handleListWorkteams(ctx context.Context, body []byte) ([]byte,
 		"Workteams":  summaries,
 		keyNextToken: next,
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Image alias listing
+// ---------------------------------------------------------------------------
+
+func (h *Handler) handleListAliases(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ImageName string `json:"ImageName"`
+		NextToken string `json:"NextToken,omitempty"`
+		Version   int32  `json:"Version,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ImageName == "" {
+		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
+	}
+
+	aliases, nextToken, err := h.Backend.ListImageAliases(ctx, req.ImageName, req.Version, req.NextToken)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := map[string]any{"SageMakerImageVersionAliases": aliases}
+	if nextToken != "" {
+		resp[keyNextToken] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+// ---------------------------------------------------------------------------
+// UpdateProject
+// ---------------------------------------------------------------------------
+
+func (h *Handler) handleUpdateProject(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		ProjectName        string      `json:"ProjectName"`
+		ProjectDescription string      `json:"ProjectDescription,omitempty"`
+		Tags               []tagObject `json:"Tags,omitempty"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ProjectName == "" {
+		return nil, fmt.Errorf("%w: ProjectName is required", errInvalidRequest)
+	}
+
+	p, err := h.Backend.UpdateProject(ctx, req.ProjectName, req.ProjectDescription, fromTagObjects(req.Tags))
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(map[string]string{keyProjectArn: p.ProjectArn})
 }
