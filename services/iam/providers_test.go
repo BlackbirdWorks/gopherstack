@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -922,7 +923,7 @@ func TestIAMHandler_LoginProfile_Errors(t *testing.T) {
 
 // ---- Miscellaneous handler tests ----
 
-func TestIAMHandler_Misc(t *testing.T) {
+func TestHandler_AccessAdvisorAndSTSPreferences(t *testing.T) {
 	t.Parallel()
 
 	t.Run("GetServiceLastAccessedDetails", func(t *testing.T) {
@@ -981,4 +982,351 @@ func TestGetSupportedOperations_IncludesNewOps(t *testing.T) {
 	for _, op := range expectedNewOps {
 		assert.Contains(t, ops, op, "operation %q should be in GetSupportedOperations", op)
 	}
+}
+
+// TestRemoveClientIDFromOpenIDConnectProvider covers RemoveClientIDFromOpenIDConnectProvider.
+func TestRemoveClientIDFromOpenIDConnectProvider(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler(t)
+
+	oidc, err := b.CreateOpenIDConnectProvider(
+		"https://example.com",
+		[]string{"client-id-1"},
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+	)
+	require.NoError(t, err)
+
+	rec := callIAM(t, h, "RemoveClientIDFromOpenIDConnectProvider", map[string]string{
+		"OpenIDConnectProviderArn": oidc.Arn,
+		"ClientID":                 "client-id-1",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestDeleteUser_CleansLoginProfile(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateUser("lp-user", "/", "")
+	require.NoError(t, err)
+
+	_, err = b.CreateLoginProfile("lp-user", "S3cur3P@ss!", false)
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteUser("lp-user"))
+
+	_, err = b.GetLoginProfile("lp-user")
+	require.ErrorIs(t, err, iam.ErrLoginProfileNotFound)
+}
+
+func TestCreateLoginProfile_RejectsEmptyPassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{
+			name:     "empty_password_returns_error",
+			password: "",
+			wantErr:  true,
+		},
+		{
+			name:     "non_empty_password_succeeds",
+			password: "S3cur3P@ss!",
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			_, _ = b.CreateUser("pass-user-"+tt.name, "/", "")
+
+			_, err := b.CreateLoginProfile("pass-user-"+tt.name, tt.password, false)
+			if tt.wantErr {
+				require.ErrorIs(t, err, iam.ErrInvalidPassword)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUpdateLoginProfile_RejectsEmptyPassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{
+			name:     "empty_password_returns_error",
+			password: "",
+			wantErr:  true,
+		},
+		{
+			name:     "non_empty_password_succeeds",
+			password: "N3wP@ss!",
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			_, _ = b.CreateUser("upd-user-"+tt.name, "/", "")
+			_, _ = b.CreateLoginProfile("upd-user-"+tt.name, "InitialPass1!", false)
+
+			err := b.UpdateLoginProfile("upd-user-"+tt.name, tt.password, false)
+			if tt.wantErr {
+				require.ErrorIs(t, err, iam.ErrInvalidPassword)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSAMLProvider_MetadataRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	metadataDoc := "<EntityDescriptor entityID=\"https://idp.example.com/\"></EntityDescriptor>"
+	provider, err := b.CreateSAMLProvider("my-idp", metadataDoc)
+	require.NoError(t, err)
+
+	got, err := b.GetSAMLProvider(provider.Arn)
+	require.NoError(t, err)
+
+	assert.Equal(t, metadataDoc, got.SAMLMetadataDocument,
+		"metadata document must survive round-trip")
+}
+
+func TestSAMLProvider_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	provider, err := b.CreateSAMLProvider("test-saml-provider", "<metadata/>")
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(provider.Arn, "arn:aws:iam::"),
+		"SAML provider ARN must start with arn:aws:iam::")
+	assert.Contains(t, provider.Arn, ":saml-provider/",
+		"SAML provider ARN must contain :saml-provider/")
+	assert.Contains(t, provider.Arn, "test-saml-provider",
+		"SAML provider ARN must contain the provider name")
+}
+
+func TestSAMLProvider_UpdateMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	provider, err := b.CreateSAMLProvider("update-saml", "<original/>")
+	require.NoError(t, err)
+
+	_, updateErr := b.UpdateSAMLProvider(provider.Arn, "<updated/>")
+	require.NoError(t, updateErr)
+
+	got, err := b.GetSAMLProvider(provider.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, "<updated/>", got.SAMLMetadataDocument)
+}
+
+func TestSAMLProvider_DeleteRemoves(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	provider, err := b.CreateSAMLProvider("del-saml", "<metadata/>")
+	require.NoError(t, err)
+
+	require.NoError(t, b.DeleteSAMLProvider(provider.Arn))
+
+	_, err = b.GetSAMLProvider(provider.Arn)
+	require.Error(t, err)
+}
+
+func TestOIDCProvider_URLAndThumbprints(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	thumbprints := []string{
+		"9e99a48a9960b14926bb7f3b02e22da2b0ab7280",
+		"da7ade79a85e56b9b51aa2be5d0e50e7e0a8c5d3",
+	}
+
+	provider, err := b.CreateOpenIDConnectProvider(
+		"https://token.example.com",
+		[]string{"sts.amazonaws.com"},
+		thumbprints,
+	)
+	require.NoError(t, err)
+
+	got, err := b.GetOpenIDConnectProvider(provider.Arn)
+	require.NoError(t, err)
+
+	assert.Equal(t, "https://token.example.com", got.URL)
+	assert.Equal(t, thumbprints, got.ThumbprintList)
+	assert.Equal(t, []string{"sts.amazonaws.com"}, got.ClientIDList)
+}
+
+func TestOIDCProvider_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	provider, err := b.CreateOpenIDConnectProvider(
+		"https://oidc.example.com",
+		nil,
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+	)
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(provider.Arn, "arn:aws:iam::"),
+		"OIDC provider ARN must start with arn:aws:iam::")
+	assert.Contains(t, provider.Arn, ":oidc-provider/",
+		"OIDC provider ARN must contain :oidc-provider/")
+}
+
+func TestOIDCProvider_ListIncludesCreated(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, _ = b.CreateOpenIDConnectProvider(
+		"https://oidc-a.example.com",
+		nil,
+		[]string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"},
+	)
+	_, _ = b.CreateOpenIDConnectProvider(
+		"https://oidc-b.example.com",
+		nil,
+		[]string{"9e99a48a9960b14926bb7f3b02e22da2b0ab7280"},
+	)
+
+	providers, err := b.ListOpenIDConnectProviders()
+	require.NoError(t, err)
+	assert.Len(t, providers, 2)
+}
+
+func TestPasswordPolicy_CreateLoginProfile_MinLength(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	_, _ = b.CreateUser("alice", "/", "")
+
+	require.NoError(t, b.UpdateAccountPasswordPolicy(iam.PasswordPolicy{
+		MinimumPasswordLength: 10,
+	}))
+
+	_, err := b.CreateLoginProfile("alice", "short", false)
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrInvalidPassword)
+
+	_, err = b.CreateLoginProfile("alice", "longenough1", false)
+	require.NoError(t, err)
+}
+
+func TestPasswordPolicy_UpdateLoginProfile_Enforced(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	_, _ = b.CreateUser("alice", "/", "")
+	_, err := b.CreateLoginProfile("alice", "InitialPass1!", false)
+	require.NoError(t, err)
+
+	require.NoError(t, b.UpdateAccountPasswordPolicy(iam.PasswordPolicy{
+		MinimumPasswordLength:      12,
+		RequireUppercaseCharacters: true,
+		RequireNumbers:             true,
+	}))
+
+	// Password below minimum.
+	err = b.UpdateLoginProfile("alice", "Short1A", false)
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrInvalidPassword)
+
+	// Password missing uppercase.
+	err = b.UpdateLoginProfile("alice", "alllower123", false)
+	require.Error(t, err)
+	require.ErrorIs(t, err, iam.ErrInvalidPassword)
+
+	// Valid password.
+	err = b.UpdateLoginProfile("alice", "GoodPassword123", false)
+	require.NoError(t, err)
+}
+
+func TestSAMLProvider_CRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	doc := "<md>test</md>"
+
+	sp, err := b.CreateSAMLProvider("MySAML", doc)
+	require.NoError(t, err)
+	assert.Contains(t, sp.Arn, "saml-provider/MySAML")
+
+	got, err := b.GetSAMLProvider(sp.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, doc, got.SAMLMetadataDocument)
+
+	updated, err := b.UpdateSAMLProvider(sp.Arn, "<md>updated</md>")
+	require.NoError(t, err)
+	assert.Equal(t, "<md>updated</md>", updated.SAMLMetadataDocument)
+
+	all, err := b.ListSAMLProviders()
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	require.NoError(t, b.DeleteSAMLProvider(sp.Arn))
+
+	_, err = b.GetSAMLProvider(sp.Arn)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, iam.ErrSAMLProviderNotFound)
+}
+
+func TestOIDCProvider_CRUD(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	clientIDs := []string{"client1"}
+	thumbprints := []string{"990f41981148b53dc7c615a6b0c2a26555cc5d85"}
+
+	p, err := b.CreateOpenIDConnectProvider("https://example.com", clientIDs, thumbprints)
+	require.NoError(t, err)
+	assert.Contains(t, p.Arn, "oidc-provider")
+
+	got, err := b.GetOpenIDConnectProvider(p.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, clientIDs, got.ClientIDList)
+
+	require.NoError(t, b.AddClientIDToOpenIDConnectProvider(p.Arn, "client2"))
+	got2, _ := b.GetOpenIDConnectProvider(p.Arn)
+	assert.Contains(t, got2.ClientIDList, "client2")
+
+	require.NoError(t, b.RemoveClientIDFromOpenIDConnectProvider(p.Arn, "client1"))
+	got3, _ := b.GetOpenIDConnectProvider(p.Arn)
+	assert.NotContains(t, got3.ClientIDList, "client1")
+
+	all, err := b.ListOpenIDConnectProviders()
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	require.NoError(t, b.DeleteOpenIDConnectProvider(p.Arn))
+
+	_, err = b.GetOpenIDConnectProvider(p.Arn)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, iam.ErrOIDCProviderNotFound)
 }

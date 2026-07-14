@@ -3,18 +3,21 @@ package iam_test
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -30,474 +33,6 @@ type errBackend struct {
 func (e *errBackend) CreateUser(_, _, _ string) (*iam.User, error) {
 	return nil, errSimulated
 }
-
-// ---- Backend unit tests ----
-
-func TestInMemoryBackend_Users(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAndGetUser", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		u, err := b.CreateUser("alice", "/", "")
-		require.NoError(t, err)
-		assert.Equal(t, "alice", u.UserName)
-		assert.Equal(t, "/", u.Path)
-		assert.NotEmpty(t, u.UserID)
-		assert.Contains(t, u.Arn, "alice")
-
-		got, err := b.GetUser("alice")
-		require.NoError(t, err)
-		assert.Equal(t, "alice", got.UserName)
-	})
-
-	t.Run("CreateUserDefaultPath", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		u, err := b.CreateUser("bob", "", "")
-		require.NoError(t, err)
-		assert.Equal(t, "/", u.Path)
-	})
-
-	t.Run("CreateUserAlreadyExists", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreateUser("alice", "/", "")
-		require.NoError(t, err)
-		_, err = b.CreateUser("alice", "/", "")
-		require.ErrorIs(t, err, iam.ErrUserAlreadyExists)
-	})
-
-	t.Run("GetUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.GetUser("nonexistent")
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("DeleteUser", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		err := b.DeleteUser("alice")
-		require.NoError(t, err)
-		_, err = b.GetUser("alice")
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("DeleteUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.DeleteUser("nonexistent")
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("ListUsers", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("bob", "/", "")
-		_, _ = b.CreateUser("alice", "/", "")
-		users, err := b.ListUsers("", 0)
-		require.NoError(t, err)
-		require.Len(t, users.Data, 2)
-		assert.Equal(t, "alice", users.Data[0].UserName) // sorted
-		assert.Equal(t, "bob", users.Data[1].UserName)
-	})
-
-	t.Run("ListAllUsers", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("charlie", "/", "")
-		_, _ = b.CreateUser("alice", "/", "")
-		users := b.ListAllUsers()
-		require.Len(t, users, 2)
-		assert.Equal(t, "alice", users[0].UserName)
-	})
-}
-
-func TestInMemoryBackend_Roles(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAndGetRole", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
-		r, err := b.CreateRole("MyRole", "/", doc, "")
-		require.NoError(t, err)
-		assert.Equal(t, "MyRole", r.RoleName)
-		assert.Equal(t, doc, r.AssumeRolePolicyDocument)
-
-		got, err := b.GetRole("MyRole")
-		require.NoError(t, err)
-		assert.Equal(t, "MyRole", got.RoleName)
-	})
-
-	t.Run("CreateRoleAlreadyExists", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreateRole("MyRole", "/", "", "")
-		require.NoError(t, err)
-		_, err = b.CreateRole("MyRole", "/", "", "")
-		require.ErrorIs(t, err, iam.ErrRoleAlreadyExists)
-	})
-
-	t.Run("GetRoleNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.GetRole("nonexistent")
-		require.ErrorIs(t, err, iam.ErrRoleNotFound)
-	})
-
-	t.Run("DeleteRole", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-		err := b.DeleteRole("MyRole")
-		require.NoError(t, err)
-	})
-
-	t.Run("DeleteRoleNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.DeleteRole("nonexistent")
-		require.ErrorIs(t, err, iam.ErrRoleNotFound)
-	})
-
-	t.Run("ListRoles", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("ZRole", "/", "", "")
-		_, _ = b.CreateRole("ARole", "/", "", "")
-		roles, err := b.ListRoles("", 0)
-		require.NoError(t, err)
-		require.Len(t, roles.Data, 2)
-		assert.Equal(t, "ARole", roles.Data[0].RoleName) // sorted
-	})
-
-	t.Run("ListAllRoles", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("RoleB", "/", "", "")
-		_, _ = b.CreateRole("RoleA", "/", "", "")
-		roles := b.ListAllRoles()
-		require.Len(t, roles, 2)
-		assert.Equal(t, "RoleA", roles[0].RoleName)
-	})
-
-	t.Run("GetRoleByArn_Found", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		r, err := b.CreateRole("MyRole", "/", "", "")
-		require.NoError(t, err)
-
-		got, err := b.GetRoleByArn(r.Arn)
-		require.NoError(t, err)
-		assert.Equal(t, "MyRole", got.RoleName)
-		assert.Equal(t, r.Arn, got.Arn)
-	})
-
-	t.Run("GetRoleByArn_NotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-
-		_, err := b.GetRoleByArn("arn:aws:iam::000000000000:role/nonexistent")
-		require.ErrorIs(t, err, iam.ErrRoleNotFound)
-	})
-
-	t.Run("UpdateRoleMaxSessionDuration_Success", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreateRole("MyRole", "/", "", "")
-		require.NoError(t, err)
-
-		err = b.UpdateRoleMaxSessionDuration("MyRole", 7200)
-		require.NoError(t, err)
-
-		got, err := b.GetRole("MyRole")
-		require.NoError(t, err)
-		assert.Equal(t, int32(7200), got.MaxSessionDuration)
-	})
-
-	t.Run("UpdateRoleMaxSessionDuration_NotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-
-		err := b.UpdateRoleMaxSessionDuration("nonexistent", 3600)
-		require.ErrorIs(t, err, iam.ErrRoleNotFound)
-	})
-}
-
-func TestInMemoryBackend_Policies(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAndListPolicy", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		pol, err := b.CreatePolicy(
-			"MyPolicy",
-			"/",
-			`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-		)
-		require.NoError(t, err)
-		assert.Equal(t, "MyPolicy", pol.PolicyName)
-		assert.NotEmpty(t, pol.Arn)
-
-		policies, err := b.ListPolicies("", 0)
-		require.NoError(t, err)
-		require.Len(t, policies.Data, 1)
-	})
-
-	t.Run("CreatePolicyAlreadyExists", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreatePolicy("MyPolicy", "/", "")
-		require.NoError(t, err)
-		_, err = b.CreatePolicy("MyPolicy", "/", "")
-		require.ErrorIs(t, err, iam.ErrPolicyAlreadyExists)
-	})
-
-	t.Run("DeletePolicy", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		pol, err := b.CreatePolicy("MyPolicy", "/", "")
-		require.NoError(t, err)
-		err = b.DeletePolicy(pol.Arn)
-		require.NoError(t, err)
-		policies, _ := b.ListPolicies("", 0)
-		assert.Empty(t, policies.Data)
-	})
-
-	t.Run("DeletePolicyNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.DeletePolicy("arn:aws:iam::000000000000:policy/nonexistent")
-		require.ErrorIs(t, err, iam.ErrPolicyNotFound)
-	})
-
-	t.Run("AttachUserPolicy", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		err := b.AttachUserPolicy("alice", "arn:aws:iam::000000000000:policy/SomePolicy")
-		require.NoError(t, err)
-	})
-
-	t.Run("AttachUserPolicyUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.AttachUserPolicy("nonexistent", "arn:aws:iam::000000000000:policy/SomePolicy")
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("AttachRolePolicy", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-		err := b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
-		require.NoError(t, err)
-	})
-
-	t.Run("AttachRolePolicyRoleNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.AttachRolePolicy("nonexistent", "arn:aws:iam::000000000000:policy/SomePolicy")
-		require.ErrorIs(t, err, iam.ErrRoleNotFound)
-	})
-
-	t.Run("ListAllPolicies", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreatePolicy("ZPolicy", "/", "")
-		_, _ = b.CreatePolicy("APolicy", "/", "")
-		policies := b.ListAllPolicies()
-		require.Len(t, policies, 2)
-		assert.Equal(t, "APolicy", policies[0].PolicyName)
-	})
-}
-
-func TestInMemoryBackend_Groups(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAndDeleteGroup", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		g, err := b.CreateGroup("Admins", "/")
-		require.NoError(t, err)
-		assert.Equal(t, "Admins", g.GroupName)
-
-		err = b.DeleteGroup("Admins")
-		require.NoError(t, err)
-	})
-
-	t.Run("CreateGroupAlreadyExists", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreateGroup("Admins", "/")
-		require.NoError(t, err)
-		_, err = b.CreateGroup("Admins", "/")
-		require.ErrorIs(t, err, iam.ErrGroupAlreadyExists)
-	})
-
-	t.Run("DeleteGroupNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.DeleteGroup("nonexistent")
-		require.ErrorIs(t, err, iam.ErrGroupNotFound)
-	})
-
-	t.Run("AddUserToGroup", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateGroup("Admins", "/")
-		_, _ = b.CreateUser("alice", "/", "")
-		err := b.AddUserToGroup("Admins", "alice")
-		require.NoError(t, err)
-	})
-
-	t.Run("AddUserToGroupGroupNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		err := b.AddUserToGroup("nonexistent", "alice")
-		require.ErrorIs(t, err, iam.ErrGroupNotFound)
-	})
-
-	t.Run("AddUserToGroupUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateGroup("Admins", "/")
-		err := b.AddUserToGroup("Admins", "nonexistent")
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("ListAllGroups", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateGroup("ZGroup", "/")
-		_, _ = b.CreateGroup("AGroup", "/")
-		groups := b.ListAllGroups()
-		require.Len(t, groups, 2)
-		assert.Equal(t, "AGroup", groups[0].GroupName)
-	})
-}
-
-func TestInMemoryBackend_AccessKeys(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAndListAccessKeys", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		ak, err := b.CreateAccessKey("alice")
-		require.NoError(t, err)
-		assert.Equal(t, "alice", ak.UserName)
-		assert.Equal(t, "Active", ak.Status)
-		assert.NotEmpty(t, ak.AccessKeyID)
-		assert.NotEmpty(t, ak.SecretAccessKey)
-
-		keys, err := b.ListAccessKeys("alice", "", 0)
-		require.NoError(t, err)
-		require.Len(t, keys.Data, 1)
-		assert.Equal(t, ak.AccessKeyID, keys.Data[0].AccessKeyID)
-	})
-
-	t.Run("CreateAccessKeyUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreateAccessKey("nonexistent")
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("DeleteAccessKey", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		ak, _ := b.CreateAccessKey("alice")
-		err := b.DeleteAccessKey("alice", ak.AccessKeyID)
-		require.NoError(t, err)
-		keys, _ := b.ListAccessKeys("alice", "", 0)
-		assert.Empty(t, keys.Data)
-	})
-
-	t.Run("DeleteAccessKeyNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		err := b.DeleteAccessKey("alice", "AKIANONEXISTENT")
-		require.ErrorIs(t, err, iam.ErrAccessKeyNotFound)
-	})
-
-	t.Run("ListAccessKeysUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.ListAccessKeys("nonexistent", "", 0)
-		require.ErrorIs(t, err, iam.ErrUserNotFound)
-	})
-
-	t.Run("ListAllAccessKeys", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/", "")
-		_, _ = b.CreateAccessKey("alice")
-		keys := b.ListAllAccessKeys()
-		require.Len(t, keys, 1)
-	})
-}
-
-func TestInMemoryBackend_InstanceProfiles(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAndListInstanceProfiles", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		ip, err := b.CreateInstanceProfile("MyProfile", "/")
-		require.NoError(t, err)
-		assert.Equal(t, "MyProfile", ip.InstanceProfileName)
-		assert.Contains(t, ip.Arn, "MyProfile")
-
-		profiles, err := b.ListInstanceProfiles("", 0)
-		require.NoError(t, err)
-		require.Len(t, profiles.Data, 1)
-	})
-
-	t.Run("CreateInstanceProfileAlreadyExists", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, err := b.CreateInstanceProfile("MyProfile", "/")
-		require.NoError(t, err)
-		_, err = b.CreateInstanceProfile("MyProfile", "/")
-		require.ErrorIs(t, err, iam.ErrInstanceProfileAlreadyExists)
-	})
-
-	t.Run("DeleteInstanceProfile", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateInstanceProfile("MyProfile", "/")
-		err := b.DeleteInstanceProfile("MyProfile")
-		require.NoError(t, err)
-		profiles, _ := b.ListInstanceProfiles("", 0)
-		assert.Empty(t, profiles.Data)
-	})
-
-	t.Run("DeleteInstanceProfileNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.DeleteInstanceProfile("nonexistent")
-		require.ErrorIs(t, err, iam.ErrInstanceProfileNotFound)
-	})
-
-	t.Run("ListAllInstanceProfiles", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateInstanceProfile("ZProfile", "/")
-		_, _ = b.CreateInstanceProfile("AProfile", "/")
-		profiles := b.ListAllInstanceProfiles()
-		require.Len(t, profiles, 2)
-		assert.Equal(t, "AProfile", profiles[0].InstanceProfileName)
-	})
-}
-
-// ---- Handler HTTP tests ----
 
 // iamRequest creates a form-encoded IAM HTTP request.
 func iamRequest(action string, params map[string]string) *http.Request {
@@ -520,465 +55,6 @@ func newTestHandler(t *testing.T) (*iam.Handler, *iam.InMemoryBackend) {
 	h := iam.NewHandler(b)
 
 	return h, b
-}
-
-func TestIAMHandler_Users(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateUser", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("CreateUser", map[string]string{"UserName": "alice"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Header().Get("Content-Type"), "text/xml")
-
-		var resp iam.CreateUserResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "alice", resp.CreateUserResult.User.UserName)
-	})
-
-	t.Run("GetUser", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-
-		req := iamRequest("GetUser", map[string]string{"UserName": "alice"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("GetUserNotFound", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("GetUser", map[string]string{"UserName": "nonexistent"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-
-		var errResp iam.ErrorResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-		assert.Equal(t, "NoSuchEntity", errResp.Error.Code)
-	})
-
-	t.Run("DeleteUser", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-
-		req := iamRequest("DeleteUser", map[string]string{"UserName": "alice"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("ListUsers", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-		_, _ = b.CreateUser("bob", "/", "")
-
-		req := iamRequest("ListUsers", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.ListUsersResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.ListUsersResult.Users, 2)
-	})
-}
-
-func TestIAMHandler_Roles(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateRole", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("CreateRole", map[string]string{
-			"RoleName":                 "MyRole",
-			"AssumeRolePolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.CreateRoleResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "MyRole", resp.CreateRoleResult.Role.RoleName)
-	})
-
-	t.Run("GetRole", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-
-		req := iamRequest("GetRole", map[string]string{"RoleName": "MyRole"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("DeleteRole", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-
-		req := iamRequest("DeleteRole", map[string]string{"RoleName": "MyRole"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("ListRoles", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("RoleA", "/", "", "")
-		_, _ = b.CreateRole("RoleB", "/", "", "")
-
-		req := iamRequest("ListRoles", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.ListRolesResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.ListRolesResult.Roles, 2)
-	})
-
-	t.Run("CreateRole_WithMaxSessionDuration", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("CreateRole", map[string]string{
-			"RoleName":                 "MyRoleWithDuration",
-			"AssumeRolePolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-			"MaxSessionDuration":       "7200",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.CreateRoleResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "MyRoleWithDuration", resp.CreateRoleResult.Role.RoleName)
-		assert.Equal(t, int32(7200), resp.CreateRoleResult.Role.MaxSessionDuration)
-	})
-}
-
-func TestIAMHandler_Policies(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreatePolicy", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("CreatePolicy", map[string]string{
-			"PolicyName":     "MyPolicy",
-			"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.CreatePolicyResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "MyPolicy", resp.CreatePolicyResult.Policy.PolicyName)
-	})
-
-	t.Run("DeletePolicy", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		pol, _ := b.CreatePolicy("MyPolicy", "/", "")
-
-		req := iamRequest("DeletePolicy", map[string]string{"PolicyArn": pol.Arn})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("ListPolicies", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreatePolicy("PolicyA", "/", "")
-
-		req := iamRequest("ListPolicies", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.ListPoliciesResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.ListPoliciesResult.Policies, 1)
-	})
-
-	t.Run("AttachUserPolicy", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-
-		req := iamRequest("AttachUserPolicy", map[string]string{
-			"UserName":  "alice",
-			"PolicyArn": "arn:aws:iam::000000000000:policy/SomePolicy",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("AttachRolePolicy", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-
-		req := iamRequest("AttachRolePolicy", map[string]string{
-			"RoleName":  "MyRole",
-			"PolicyArn": "arn:aws:iam::000000000000:policy/SomePolicy",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-}
-
-func TestIAMHandler_Groups(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateGroup", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("CreateGroup", map[string]string{"GroupName": "Admins"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.CreateGroupResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "Admins", resp.CreateGroupResult.Group.GroupName)
-	})
-
-	t.Run("DeleteGroup", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateGroup("Admins", "/")
-
-		req := iamRequest("DeleteGroup", map[string]string{"GroupName": "Admins"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("AddUserToGroup", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateGroup("Admins", "/")
-		_, _ = b.CreateUser("alice", "/", "")
-
-		req := iamRequest("AddUserToGroup", map[string]string{
-			"GroupName": "Admins",
-			"UserName":  "alice",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-}
-
-func TestIAMHandler_AccessKeys(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateAccessKey", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-
-		req := iamRequest("CreateAccessKey", map[string]string{"UserName": "alice"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.CreateAccessKeyResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "alice", resp.CreateAccessKeyResult.AccessKey.UserName)
-		assert.Equal(t, "Active", resp.CreateAccessKeyResult.AccessKey.Status)
-	})
-
-	t.Run("DeleteAccessKey", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-		ak, _ := b.CreateAccessKey("alice")
-
-		req := iamRequest("DeleteAccessKey", map[string]string{
-			"UserName":    "alice",
-			"AccessKeyId": ak.AccessKeyID,
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("ListAccessKeys", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/", "")
-		_, _ = b.CreateAccessKey("alice")
-
-		req := iamRequest("ListAccessKeys", map[string]string{"UserName": "alice"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.ListAccessKeysResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.ListAccessKeysResult.AccessKeyMetadata, 1)
-	})
-}
-
-func TestIAMHandler_InstanceProfiles(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CreateInstanceProfile", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("CreateInstanceProfile", map[string]string{"InstanceProfileName": "MyProfile"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.CreateInstanceProfileResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Equal(t, "MyProfile", resp.CreateInstanceProfileResult.InstanceProfile.InstanceProfileName)
-	})
-
-	t.Run("DeleteInstanceProfile", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateInstanceProfile("MyProfile", "/")
-
-		req := iamRequest("DeleteInstanceProfile", map[string]string{"InstanceProfileName": "MyProfile"})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("ListInstanceProfiles", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateInstanceProfile("ProfileA", "/")
-
-		req := iamRequest("ListInstanceProfiles", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		var resp iam.ListInstanceProfilesResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-		assert.Len(t, resp.ListInstanceProfilesResult.InstanceProfiles, 1)
-	})
 }
 
 func TestIAMHandler_Routing(t *testing.T) {
@@ -1156,29 +232,6 @@ func TestIAMHandler_Routing(t *testing.T) {
 	})
 }
 
-// TestIAMProvider covers Provider.Name() and Provider.Init().
-func TestIAMProvider(t *testing.T) {
-	t.Parallel()
-
-	t.Run("Name", func(t *testing.T) {
-		t.Parallel()
-		p := &iam.Provider{}
-		assert.Equal(t, "IAM", p.Name())
-	})
-
-	t.Run("Init", func(t *testing.T) {
-		t.Parallel()
-		p := &iam.Provider{}
-		appCtx := &service.AppContext{Logger: logger.NewTestLogger()}
-		svc, err := p.Init(appCtx)
-		require.NoError(t, err)
-		require.NotNil(t, svc)
-		h, ok := svc.(*iam.Handler)
-		require.True(t, ok)
-		assert.NotNil(t, h.Backend)
-	})
-}
-
 // TestIAMHandler_ExtractEdgeCases covers remaining branches in ExtractOperation,
 // ExtractResource, RouteMatcher, and Handler().
 func TestIAMHandler_ExtractEdgeCases(t *testing.T) {
@@ -1244,9 +297,9 @@ func TestIAMHandler_ExtractEdgeCases(t *testing.T) {
 	})
 }
 
-// TestIAMHandler_SortCoverage adds tests with 2+ items to exercise
+// TestListSorting_MultipleItems adds tests with 2+ items to exercise
 // the comparison closures inside [sort.Slice] calls.
-func TestIAMHandler_SortCoverage(t *testing.T) {
+func TestListSorting_MultipleItems(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ListPolicies_TwoItems", func(t *testing.T) {
@@ -1291,324 +344,6 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 		require.Len(t, profiles.Data, 2)
 		assert.Equal(t, "AProfile", profiles.Data[0].InstanceProfileName)
 	})
-}
-
-func TestInMemoryBackend_DetachRolePolicy(t *testing.T) {
-	t.Parallel()
-
-	t.Run("DetachExistingPolicy", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-		_ = b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
-		err := b.DetachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
-		require.NoError(t, err)
-
-		policies, err := b.ListAttachedRolePolicies("MyRole")
-		require.NoError(t, err)
-		assert.Empty(t, policies)
-	})
-
-	t.Run("DetachNonExistentPolicy", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-		err := b.DetachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/NoSuchPolicy")
-		require.NoError(t, err)
-	})
-
-	t.Run("DetachRolePolicyRoleNotFound", func(t *testing.T) {
-		t.Parallel()
-		b := iam.NewInMemoryBackend()
-		err := b.DetachRolePolicy("nonexistent", "arn:aws:iam::000000000000:policy/P")
-		require.ErrorIs(t, err, iam.ErrRoleNotFound)
-	})
-}
-
-func TestIAMHandler_DetachRolePolicy(t *testing.T) {
-	t.Parallel()
-
-	t.Run("DetachRolePolicy", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "", "")
-		_ = b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
-
-		req := iamRequest("DetachRolePolicy", map[string]string{
-			"RoleName":  "MyRole",
-			"PolicyArn": "arn:aws:iam::000000000000:policy/SomePolicy",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	t.Run("DetachRolePolicyRoleNotFound", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("DetachRolePolicy", map[string]string{
-			"RoleName":  "nonexistent",
-			"PolicyArn": "arn:aws:iam::000000000000:policy/P",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-
-		var errResp iam.ErrorResponse
-		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-		assert.Equal(t, "NoSuchEntity", errResp.Error.Code)
-	})
-}
-
-func TestIAMHandler_TagAndList(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		setup            func(*iam.InMemoryBackend) string
-		tagAction        string
-		tagParams        func(id string) map[string]string
-		wantTagResp      string
-		listAction       string
-		listParams       func(id string) map[string]string
-		wantListContains []string
-	}{
-		{
-			name: "role",
-			setup: func(b *iam.InMemoryBackend) string {
-				_, _ = b.CreateRole(
-					"MyRole",
-					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-					"",
-				)
-
-				return "MyRole"
-			},
-			tagAction: "TagRole",
-			tagParams: func(id string) map[string]string {
-				return map[string]string{
-					"RoleName":            id,
-					"Tags.member.1.Key":   "env",
-					"Tags.member.1.Value": "prod",
-					"Tags.member.2.Key":   "team",
-					"Tags.member.2.Value": "platform",
-				}
-			},
-			wantTagResp:      "TagRoleResponse",
-			listAction:       "ListRoleTags",
-			listParams:       func(id string) map[string]string { return map[string]string{"RoleName": id} },
-			wantListContains: []string{"env", "prod"},
-		},
-		{
-			name: "user",
-			setup: func(b *iam.InMemoryBackend) string {
-				_, _ = b.CreateUser("alice", "/", "")
-
-				return "alice"
-			},
-			tagAction: "TagUser",
-			tagParams: func(id string) map[string]string {
-				return map[string]string{
-					"UserName":            id,
-					"Tags.member.1.Key":   "dept",
-					"Tags.member.1.Value": "engineering",
-				}
-			},
-			wantTagResp:      "TagUserResponse",
-			listAction:       "ListUserTags",
-			listParams:       func(id string) map[string]string { return map[string]string{"UserName": id} },
-			wantListContains: []string{"dept", "engineering"},
-		},
-		{
-			name: "policy",
-			setup: func(b *iam.InMemoryBackend) string {
-				pol, _ := b.CreatePolicy(
-					"MyPolicy",
-					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-				)
-
-				return pol.Arn
-			},
-			tagAction: "TagPolicy",
-			tagParams: func(id string) map[string]string {
-				return map[string]string{
-					"PolicyArn":           id,
-					"Tags.member.1.Key":   "env",
-					"Tags.member.1.Value": "staging",
-					"Tags.member.2.Key":   "owner",
-					"Tags.member.2.Value": "platform",
-				}
-			},
-			wantTagResp:      "TagPolicyResponse",
-			listAction:       "ListPolicyTags",
-			listParams:       func(id string) map[string]string { return map[string]string{"PolicyArn": id} },
-			wantListContains: []string{"ListPolicyTagsResponse", "env", "staging"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			e := echo.New()
-			h, b := newTestHandler(t)
-			id := tt.setup(b)
-
-			req := iamRequest(tt.tagAction, tt.tagParams(id))
-			rec := httptest.NewRecorder()
-			err := h.Handler()(e.NewContext(req, rec))
-			require.NoError(t, err)
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.wantTagResp)
-
-			req = iamRequest(tt.listAction, tt.listParams(id))
-			rec = httptest.NewRecorder()
-			err = h.Handler()(e.NewContext(req, rec))
-			require.NoError(t, err)
-			assert.Equal(t, http.StatusOK, rec.Code)
-			for _, want := range tt.wantListContains {
-				assert.Contains(t, rec.Body.String(), want)
-			}
-		})
-	}
-}
-
-func TestIAMHandler_UntagAndVerify(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		setup          func(*iam.InMemoryBackend) string
-		tagAction      string
-		tagParams      func(id string) map[string]string
-		untagAction    string
-		untagParams    func(id string) map[string]string
-		wantUntagResp  string
-		listAction     string
-		listParams     func(id string) map[string]string
-		wantListAbsent []string
-	}{
-		{
-			name: "role",
-			setup: func(b *iam.InMemoryBackend) string {
-				_, _ = b.CreateRole(
-					"MyRole",
-					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-					"",
-				)
-
-				return "MyRole"
-			},
-			tagAction: "TagRole",
-			tagParams: func(id string) map[string]string {
-				return map[string]string{
-					"RoleName":            id,
-					"Tags.member.1.Key":   "env",
-					"Tags.member.1.Value": "prod",
-				}
-			},
-			untagAction: "UntagRole",
-			untagParams: func(id string) map[string]string {
-				return map[string]string{"RoleName": id, "TagKeys.member.1": "env"}
-			},
-			wantUntagResp:  "UntagRoleResponse",
-			listAction:     "ListRoleTags",
-			listParams:     func(id string) map[string]string { return map[string]string{"RoleName": id} },
-			wantListAbsent: []string{"env"},
-		},
-		{
-			name: "user",
-			setup: func(b *iam.InMemoryBackend) string {
-				_, _ = b.CreateUser("alice", "/", "")
-
-				return "alice"
-			},
-			tagAction: "TagUser",
-			tagParams: func(id string) map[string]string {
-				return map[string]string{
-					"UserName":            id,
-					"Tags.member.1.Key":   "dept",
-					"Tags.member.1.Value": "engineering",
-				}
-			},
-			untagAction: "UntagUser",
-			untagParams: func(id string) map[string]string {
-				return map[string]string{"UserName": id, "TagKeys.member.1": "dept"}
-			},
-			wantUntagResp:  "UntagUserResponse",
-			listAction:     "ListUserTags",
-			listParams:     func(id string) map[string]string { return map[string]string{"UserName": id} },
-			wantListAbsent: []string{"dept"},
-		},
-		{
-			name: "policy",
-			setup: func(b *iam.InMemoryBackend) string {
-				pol, _ := b.CreatePolicy(
-					"MyPolicy",
-					"/",
-					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
-				)
-
-				return pol.Arn
-			},
-			tagAction: "TagPolicy",
-			tagParams: func(id string) map[string]string {
-				return map[string]string{
-					"PolicyArn":           id,
-					"Tags.member.1.Key":   "env",
-					"Tags.member.1.Value": "prod",
-				}
-			},
-			untagAction: "UntagPolicy",
-			untagParams: func(id string) map[string]string {
-				return map[string]string{"PolicyArn": id, "TagKeys.member.1": "env"}
-			},
-			wantUntagResp:  "UntagPolicyResponse",
-			listAction:     "ListPolicyTags",
-			listParams:     func(id string) map[string]string { return map[string]string{"PolicyArn": id} },
-			wantListAbsent: []string{"env"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			e := echo.New()
-			h, b := newTestHandler(t)
-			id := tt.setup(b)
-
-			req := iamRequest(tt.tagAction, tt.tagParams(id))
-			rec := httptest.NewRecorder()
-			err := h.Handler()(e.NewContext(req, rec))
-			require.NoError(t, err)
-
-			req = iamRequest(tt.untagAction, tt.untagParams(id))
-			rec = httptest.NewRecorder()
-			err = h.Handler()(e.NewContext(req, rec))
-			require.NoError(t, err)
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.wantUntagResp)
-
-			req = iamRequest(tt.listAction, tt.listParams(id))
-			rec = httptest.NewRecorder()
-			err = h.Handler()(e.NewContext(req, rec))
-			require.NoError(t, err)
-			for _, absent := range tt.wantListAbsent {
-				assert.NotContains(t, rec.Body.String(), absent)
-			}
-		})
-	}
 }
 
 // TestIAMHandler_ServiceFailure tests the ServiceFailure error code path
@@ -1858,104 +593,148 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 	}
 }
 
-func TestIAMBackend_ListUsers_Pagination(t *testing.T) {
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// iam client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := iam.NewInMemoryBackend()
+	h := iam.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &iamsdk.Client{}, h.GetSupportedOperations(), []string{})
+}
+
+// callIAM is a helper that sends an IAM action to the handler and returns the recorder.
+func callIAM(t *testing.T, h *iam.Handler, action string, params map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := iamRequest(action, params)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, h.Handler()(c))
+
+	return rec
+}
+
+func timeNow() time.Time {
+	return time.Now()
+}
+
+func TestIAMHandler_NewOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		marker      string
-		maxItems    int
-		wantLen     int
-		wantHasNext bool
-	}{
-		{
-			name:        "all users default limit",
-			maxItems:    0,
-			wantLen:     3,
-			wantHasNext: false,
-		},
-		{
-			name:        "first page of 2",
-			maxItems:    2,
-			wantLen:     2,
-			wantHasNext: true,
-		},
-		{
-			name:        "page size larger than total",
-			maxItems:    10,
-			wantLen:     3,
-			wantHasNext: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := iam.NewInMemoryBackend()
-			_, _ = b.CreateUser("alice", "/", "")
-			_, _ = b.CreateUser("bob", "/", "")
-			_, _ = b.CreateUser("charlie", "/", "")
-
-			p, err := b.ListUsers(tt.marker, tt.maxItems)
-			require.NoError(t, err)
-			assert.Len(t, p.Data, tt.wantLen)
-			assert.Equal(t, tt.wantHasNext, p.Next != "")
-		})
-	}
-}
-
-func TestIAMBackend_ListUsers_MarkerRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	b := iam.NewInMemoryBackend()
-
-	for _, name := range []string{"alice", "bob", "charlie", "dave"} {
-		_, _ = b.CreateUser(name, "/", "")
-	}
-
-	first, err := b.ListUsers("", 2)
-	require.NoError(t, err)
-	require.Len(t, first.Data, 2)
-	require.NotEmpty(t, first.Next)
-
-	second, err := b.ListUsers(first.Next, 2)
-	require.NoError(t, err)
-	require.Len(t, second.Data, 2)
-	assert.Empty(t, second.Next)
-
-	allNames := make([]string, 0, 4)
-	for _, u := range first.Data {
-		allNames = append(allNames, u.UserName)
-	}
-
-	for _, u := range second.Data {
-		allNames = append(allNames, u.UserName)
-	}
-
-	assert.Equal(t, []string{"alice", "bob", "charlie", "dave"}, allNames)
-}
-
-func TestIAMHandler_ListUsers_Pagination(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
+		setup       func(b *iam.InMemoryBackend)
 		params      map[string]string
 		name        string
-		wantLen     int
-		wantHasNext bool
+		action      string
+		wantContain string
+		wantCode    int
 	}{
 		{
-			name:        "all users",
-			params:      nil,
-			wantLen:     3,
-			wantHasNext: false,
+			name:   "GetGroup_success",
+			action: "GetGroup",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateGroup("my-group", "/")
+			},
+			params:      map[string]string{"GroupName": "my-group"},
+			wantCode:    http.StatusOK,
+			wantContain: "GetGroupResponse",
 		},
 		{
-			name:        "first page MaxItems=2",
-			params:      map[string]string{"MaxItems": "2"},
-			wantLen:     2,
-			wantHasNext: true,
+			name:   "GetGroup_not_found",
+			action: "GetGroup",
+			params: map[string]string{"GroupName": "ghost"},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "RemoveUserFromGroup_success",
+			action: "RemoveUserFromGroup",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateGroup("grp", "/")
+				_, _ = b.CreateUser("usr", "/", "")
+				_ = b.AddUserToGroup("grp", "usr")
+			},
+			params: map[string]string{
+				"GroupName": "grp",
+				"UserName":  "usr",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "RemoveUserFromGroupResponse",
+		},
+		{
+			name:   "AddRoleToInstanceProfile_success",
+			action: "AddRoleToInstanceProfile",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateInstanceProfile("my-profile", "/")
+				_, _ = b.CreateRole("my-role", "/", "{}", "")
+			},
+			params: map[string]string{
+				"InstanceProfileName": "my-profile",
+				"RoleName":            "my-role",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "AddRoleToInstanceProfileResponse",
+		},
+		{
+			name:   "AddRoleToInstanceProfile_profile_not_found",
+			action: "AddRoleToInstanceProfile",
+			params: map[string]string{
+				"InstanceProfileName": "ghost-profile",
+				"RoleName":            "some-role",
+			},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "RemoveRoleFromInstanceProfile_success",
+			action: "RemoveRoleFromInstanceProfile",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateInstanceProfile("my-profile", "/")
+				_, _ = b.CreateRole("my-role", "/", "{}", "")
+				_ = b.AddRoleToInstanceProfile("my-profile", "my-role")
+			},
+			params: map[string]string{
+				"InstanceProfileName": "my-profile",
+				"RoleName":            "my-role",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "RemoveRoleFromInstanceProfileResponse",
+		},
+		{
+			name:        "GetAccountSummary_success",
+			action:      "GetAccountSummary",
+			wantCode:    http.StatusOK,
+			wantContain: "GetAccountSummaryResponse",
+		},
+		{
+			name:   "CreateLoginProfile_empty_password_returns_400",
+			action: "CreateLoginProfile",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("pass-user", "/", "")
+			},
+			params: map[string]string{
+				"UserName": "pass-user",
+				"Password": "",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "CreateLoginProfile_with_password_success",
+			action: "CreateLoginProfile",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("pass-user2", "/", "")
+			},
+			params: map[string]string{
+				"UserName": "pass-user2",
+				"Password": "SecureP@ss1!",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateLoginProfileResponse",
 		},
 	}
 
@@ -1963,42 +742,132 @@ func TestIAMHandler_ListUsers_Pagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newTestHandler(t)
-			_, _ = b.CreateUser("alice", "/", "")
-			_, _ = b.CreateUser("bob", "/", "")
-			_, _ = b.CreateUser("charlie", "/", "")
-
 			e := echo.New()
-			req := iamRequest("ListUsers", tt.params)
-			rec := httptest.NewRecorder()
-			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-			assert.Equal(t, http.StatusOK, rec.Code)
+			h, b := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
 
-			var resp iam.ListUsersResponse
-			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Len(t, resp.ListUsersResult.Users, tt.wantLen)
-			assert.Equal(t, tt.wantHasNext, resp.ListUsersResult.IsTruncated)
+			req := iamRequest(tt.action, tt.params)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
+			}
 		})
 	}
 }
 
-func TestIAMHandler_ListGroups(t *testing.T) {
+// iamCall wraps the IAM test pattern: create context, run handler, return recorder.
+func iamCall(
+	t *testing.T, e *echo.Echo, h *iam.Handler, action string, params map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := iamRequest(action, params)
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+
+	return rec
+}
+
+// extractFirstXMLTag extracts the text of the first occurrence of <tag>text</tag>.
+func extractFirstXMLTag(body, tag string) string {
+	openTag := "<" + tag + ">"
+	closeTag := "</" + tag + ">"
+	idx := strings.Index(body, openTag)
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(openTag)
+	end := strings.Index(body[start:], closeTag)
+	if end < 0 {
+		return ""
+	}
+
+	return body[start : start+end]
+}
+
+// Test_ErrorHTTPStatusCodes verifies each IAM error sentinel maps to the
+// exact HTTP status code AWS documents per-operation (e.g. NoSuchEntity=404,
+// EntityAlreadyExists=409), not a blanket 400. See e.g.
+// https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateUser.html#API_CreateUser_Errors
+// and https://docs.aws.amazon.com/IAM/latest/APIReference/API_DeleteUser.html#API_DeleteUser_Errors.
+func Test_ErrorHTTPStatusCodes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		params  map[string]string
-		name    string
-		wantLen int
+		setup      func(t *testing.T, b *iam.InMemoryBackend)
+		params     map[string]string
+		name       string
+		action     string
+		wantCode   string
+		wantStatus int
 	}{
 		{
-			name:    "all groups",
-			params:  nil,
-			wantLen: 2,
+			name:       "NoSuchEntity_is_404",
+			action:     "GetUser",
+			params:     map[string]string{"UserName": "ghost"},
+			setup:      func(_ *testing.T, _ *iam.InMemoryBackend) {},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:    "first page MaxItems=1",
-			params:  map[string]string{"MaxItems": "1"},
-			wantLen: 1,
+			name:   "EntityAlreadyExists_is_409",
+			action: "CreateUser",
+			params: map[string]string{"UserName": "dup"},
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateUser("dup", "/", "")
+				require.NoError(t, err)
+			},
+			wantCode:   "EntityAlreadyExists",
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:   "DeleteConflict_is_409",
+			action: "DeleteUser",
+			params: map[string]string{"UserName": "attached"},
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateUser("attached", "/", "")
+				require.NoError(t, err)
+				pol, err := b.CreatePolicy(
+					"StuckPolicy", "/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
+				require.NoError(t, err)
+				require.NoError(t, b.AttachUserPolicy("attached", pol.Arn))
+			},
+			wantCode:   "DeleteConflict",
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:   "LimitExceeded_is_409",
+			action: "CreateAccessKey",
+			params: map[string]string{"UserName": "keyed"},
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateUser("keyed", "/", "")
+				require.NoError(t, err)
+				_, err = b.CreateAccessKey("keyed")
+				require.NoError(t, err)
+				_, err = b.CreateAccessKey("keyed")
+				require.NoError(t, err)
+			},
+			wantCode:   "LimitExceeded",
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "MalformedPolicyDocument_is_400",
+			action:     "CreatePolicy",
+			params:     map[string]string{"PolicyName": "Bad", "PolicyDocument": "not-json"},
+			setup:      func(_ *testing.T, _ *iam.InMemoryBackend) {},
+			wantCode:   "MalformedPolicyDocument",
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -2006,19 +875,543 @@ func TestIAMHandler_ListGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, b := newTestHandler(t)
-			_, _ = b.CreateGroup("Admins", "/")
-			_, _ = b.CreateGroup("Devs", "/")
-
 			e := echo.New()
-			req := iamRequest("ListGroups", tt.params)
+			h, b := newTestHandler(t)
+			tt.setup(t, b)
+
+			req := iamRequest(tt.action, tt.params)
 			rec := httptest.NewRecorder()
 			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			var resp iam.ListGroupsResponse
-			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Len(t, resp.ListGroupsResult.Groups, tt.wantLen)
+			var errResp iam.ErrorResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, tt.wantCode, errResp.Error.Code)
+		})
+	}
+}
+
+// mergeParams returns a new map containing all entries of base and extra.
+func mergeParams(base, extra map[string]string) map[string]string {
+	out := make(map[string]string, len(base)+len(extra))
+	maps.Copy(out, base)
+
+	maps.Copy(out, extra)
+
+	return out
+}
+
+func TestRouteMatcher_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func() *http.Request
+		name  string
+		want  bool
+	}{
+		{
+			name: "GET_request_returns_false",
+			setup: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/", nil)
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				return r
+			},
+			want: false,
+		},
+		{
+			name: "dashboard_path_returns_false",
+			setup: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "/dashboard/iam", nil)
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				return r
+			},
+			want: false,
+		},
+		{
+			name: "non_form_content_type_returns_false",
+			setup: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "/",
+					strings.NewReader(`{"Action":"ListUsers"}`))
+				r.Header.Set("Content-Type", "application/json")
+
+				return r
+			},
+			want: false,
+		},
+		{
+			name: "valid_iam_request_returns_true",
+			setup: func() *http.Request {
+				vals := url.Values{}
+				vals.Set("Action", "ListUsers")
+				vals.Set("Version", "2010-05-08")
+				r := httptest.NewRequest(http.MethodPost, "/",
+					strings.NewReader(vals.Encode()))
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				return r
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			e := echo.New()
+			matcher := h.RouteMatcher()
+			req := tt.setup()
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}
+
+func TestExtractOperation_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupReq func() *http.Request
+		name     string
+		want     string
+	}{
+		{
+			name: "valid_action_extracted",
+			setupReq: func() *http.Request {
+				return iamRequest("CreateUser", nil)
+			},
+			want: "CreateUser",
+		},
+		{
+			name: "no_action_returns_unknown",
+			setupReq: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "/",
+					strings.NewReader("Version=2010-05-08"))
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				return r
+			},
+			want: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			e := echo.New()
+			req := tt.setupReq()
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestExtractResource_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupReq func() *http.Request
+		name     string
+		want     string
+	}{
+		{
+			name: "username_extracted",
+			setupReq: func() *http.Request {
+				return iamRequest("CreateUser", map[string]string{"UserName": "alice"})
+			},
+			want: "alice",
+		},
+		{
+			name: "rolename_extracted",
+			setupReq: func() *http.Request {
+				return iamRequest("CreateRole", map[string]string{"RoleName": "MyRole"})
+			},
+			want: "MyRole",
+		},
+		{
+			name: "policyname_extracted",
+			setupReq: func() *http.Request {
+				return iamRequest("CreatePolicy", map[string]string{"PolicyName": "MyPolicy"})
+			},
+			want: "MyPolicy",
+		},
+		{
+			name: "groupname_extracted",
+			setupReq: func() *http.Request {
+				return iamRequest("CreateGroup", map[string]string{"GroupName": "Admins"})
+			},
+			want: "Admins",
+		},
+		{
+			name: "instance_profile_name_extracted",
+			setupReq: func() *http.Request {
+				return iamRequest("CreateInstanceProfile",
+					map[string]string{"InstanceProfileName": "MyProfile"})
+			},
+			want: "MyProfile",
+		},
+		{
+			name: "no_resource_key_returns_empty",
+			setupReq: func() *http.Request {
+				return iamRequest("ListUsers", nil)
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			e := echo.New()
+			req := tt.setupReq()
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_EntryPoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupReq    func() *http.Request
+		name        string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name: "GET_root_returns_supported_operations",
+			setupReq: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/", nil)
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateUser",
+		},
+		{
+			name: "non_POST_non_root_GET_returns_405",
+			setupReq: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/some/path", nil)
+			},
+			wantCode:    http.StatusMethodNotAllowed,
+			wantContain: "Method not allowed",
+		},
+		{
+			name: "PUT_returns_405",
+			setupReq: func() *http.Request {
+				return httptest.NewRequest(http.MethodPut, "/", nil)
+			},
+			wantCode:    http.StatusMethodNotAllowed,
+			wantContain: "Method not allowed",
+		},
+		{
+			name: "POST_with_invalid_body_returns_400",
+			setupReq: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "/",
+					strings.NewReader("%ZZ")) // invalid URL encoding
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				return r
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "POST_missing_action_returns_400",
+			setupReq: func() *http.Request {
+				r := httptest.NewRequest(http.MethodPost, "/",
+					strings.NewReader("Version=2010-05-08"))
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				return r
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandler(t)
+			e := echo.New()
+			req := tt.setupReq()
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
+			}
+		})
+	}
+}
+
+func TestMarshalXML_ErrorPath(t *testing.T) {
+	t.Parallel()
+
+	// Create a handler and attempt to write an error that triggers the XML marshal path
+	// by sending an unrecognized action - the handler will call writeError which uses marshalXML
+	h, _ := newTestHandler(t)
+	e := echo.New()
+
+	req := iamRequest("UnknownAction", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	// Should get a 400 for unknown action with proper XML
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidAction")
+}
+
+func TestIAMHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	assert.Contains(t, ops, "CreateUser")
+	assert.Contains(t, ops, "CreateRole")
+	assert.Contains(t, ops, "AttachRolePolicy")
+	assert.NotEmpty(t, ops)
+}
+
+// iamRequestIndexed builds a request with indexed member parameters.
+// params is a flat map; caller must encode member indices in keys.
+func iamRequestWithMembers(action string, params map[string]string, indexed map[string][]string) *http.Request {
+	base := maps.Clone(params)
+	if base == nil {
+		base = map[string]string{}
+	}
+
+	for prefix, values := range indexed {
+		for i, v := range values {
+			base[fmt.Sprintf("%s.%d", prefix, i+1)] = v
+		}
+	}
+
+	return iamRequest(action, base)
+}
+
+func TestIAMHandler_NewOpsDispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(b *iam.InMemoryBackend)
+		params      map[string]string
+		name        string
+		action      string
+		wantContain string
+		wantCode    int
+	}{
+		// CreateAccountAlias
+		{
+			name:        "CreateAccountAlias_success",
+			action:      "CreateAccountAlias",
+			params:      map[string]string{"AccountAlias": "my-alias"},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateAccountAliasResponse",
+		},
+		{
+			name:     "CreateAccountAlias_empty_returns_400",
+			action:   "CreateAccountAlias",
+			params:   map[string]string{"AccountAlias": ""},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreatePolicyVersion
+		{
+			name:   "CreatePolicyVersion_success",
+			action: "CreatePolicyVersion",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreatePolicy(
+					"ReadOnly",
+					"/",
+					`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				)
+			},
+			params: map[string]string{
+				"PolicyArn":      "arn:aws:iam::000000000000:policy/ReadOnly",
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+				"SetAsDefault":   "false",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreatePolicyVersionResponse",
+		},
+		{
+			name:   "CreatePolicyVersion_not_found_returns_404",
+			action: "CreatePolicyVersion",
+			params: map[string]string{
+				"PolicyArn":      "arn:aws:iam::000000000000:policy/Ghost",
+				"PolicyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`,
+			},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
+		},
+		// CreateServiceLinkedRole
+		{
+			name:   "CreateServiceLinkedRole_success",
+			action: "CreateServiceLinkedRole",
+			params: map[string]string{
+				"AWSServiceName": "elasticloadbalancing.amazonaws.com",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateServiceLinkedRoleResponse",
+		},
+		{
+			name:   "CreateServiceLinkedRole_empty_service_returns_400",
+			action: "CreateServiceLinkedRole",
+			params: map[string]string{
+				"AWSServiceName": "",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateServiceSpecificCredential
+		{
+			name:   "CreateServiceSpecificCredential_success",
+			action: "CreateServiceSpecificCredential",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("dev-user", "/", "")
+			},
+			params: map[string]string{
+				"UserName":    "dev-user",
+				"ServiceName": "codecommit.amazonaws.com",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateServiceSpecificCredentialResponse",
+		},
+		{
+			name:   "CreateServiceSpecificCredential_user_not_found",
+			action: "CreateServiceSpecificCredential",
+			params: map[string]string{
+				"UserName":    "ghost",
+				"ServiceName": "codecommit.amazonaws.com",
+			},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
+		},
+		// CreateVirtualMFADevice
+		{
+			name:   "CreateVirtualMFADevice_success",
+			action: "CreateVirtualMFADevice",
+			params: map[string]string{
+				"VirtualMFADeviceName": "MyDevice",
+				"Path":                 "/",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateVirtualMFADeviceResponse",
+		},
+		{
+			name:   "CreateVirtualMFADevice_empty_name_returns_400",
+			action: "CreateVirtualMFADevice",
+			params: map[string]string{
+				"VirtualMFADeviceName": "",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		// CreateDelegationRequest
+		{
+			name:   "CreateDelegationRequest_success",
+			action: "CreateDelegationRequest",
+			params: map[string]string{
+				"TargetAccountId": "111122223333",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "CreateDelegationRequestResponse",
+		},
+		// AcceptDelegationRequest
+		{
+			name:   "AcceptDelegationRequest_not_found",
+			action: "AcceptDelegationRequest",
+			params: map[string]string{
+				"DelegationId": "nonexistent-id",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		// AssociateDelegationRequest
+		{
+			name:   "AssociateDelegationRequest_not_found",
+			action: "AssociateDelegationRequest",
+			params: map[string]string{
+				"DelegationId": "nonexistent-id",
+				"PolicyArn":    "arn:aws:iam::123:policy/ReadOnly",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		// ChangePassword
+		{
+			name:        "ChangePassword_success",
+			action:      "ChangePassword",
+			params:      map[string]string{"NewPassword": "SecureP@ss1!", "OldPassword": "OldP@ss1!"},
+			wantCode:    http.StatusOK,
+			wantContain: "ChangePasswordResponse",
+		},
+		{
+			name:     "ChangePassword_empty_new_password_returns_400",
+			action:   "ChangePassword",
+			params:   map[string]string{"NewPassword": "", "OldPassword": "OldP@ss1!"},
+			wantCode: http.StatusBadRequest,
+		},
+		// AddClientIDToOpenIDConnectProvider
+		{
+			name:   "AddClientIDToOpenIDConnectProvider_success",
+			action: "AddClientIDToOpenIDConnectProvider",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateOpenIDConnectProvider("https://token.actions.githubusercontent.com", nil, nil)
+			},
+			params: map[string]string{
+				"OpenIDConnectProviderArn": "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com",
+				"ClientID":                 "sts.amazonaws.com",
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "AddClientIDToOpenIDConnectProviderResponse",
+		},
+		{
+			name:   "AddClientIDToOpenIDConnectProvider_not_found",
+			action: "AddClientIDToOpenIDConnectProvider",
+			params: map[string]string{
+				"OpenIDConnectProviderArn": "arn:aws:iam::000000000000:oidc-provider/nonexistent",
+				"ClientID":                 "sts.amazonaws.com",
+			},
+			// NoSuchEntity is 404 on real AWS IAM.
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			req := iamRequest(tt.action, tt.params)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
+			}
 		})
 	}
 }

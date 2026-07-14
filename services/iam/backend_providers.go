@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -344,4 +345,89 @@ func (b *InMemoryBackend) GetLoginProfile(userName string) (*LoginProfile, error
 	}
 
 	return lp, nil
+}
+
+// purgeSAMLProvidersLocked removes SAML providers created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeSAMLProvidersLocked(cutoff time.Time) {
+	for _, p := range b.samlProviders.All() {
+		if p.CreateDate.Before(cutoff) {
+			b.samlProviders.Delete(p.Arn)
+		}
+	}
+}
+
+// purgeOIDCProvidersLocked removes OIDC providers created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeOIDCProvidersLocked(cutoff time.Time) {
+	for _, p := range b.oidcProviders.All() {
+		if p.CreateDate.Before(cutoff) {
+			b.oidcProviders.Delete(p.Arn)
+		}
+	}
+}
+
+// OIDCProviderExists reports whether an OIDC provider with the given issuer URL exists.
+// The issuer URL may or may not have a trailing slash; both forms are checked.
+// This method implements the sts.OIDCLookup interface.
+func (b *InMemoryBackend) OIDCProviderExists(issuerURL string) bool {
+	b.mu.RLock("OIDCProviderExists")
+	defer b.mu.RUnlock()
+
+	// Normalise the issuer URL to strip trailing slashes for comparison.
+	normalised := strings.TrimRight(issuerURL, "/")
+
+	for _, p := range b.oidcProviders.All() {
+		providerURL := strings.TrimRight(p.URL, "/")
+		if providerURL == normalised {
+			return true
+		}
+	}
+
+	return false
+}
+
+// RemoveClientIDFromOpenIDConnectProvider removes a client ID from an OIDC provider.
+func (b *InMemoryBackend) RemoveClientIDFromOpenIDConnectProvider(providerArn, clientID string) error {
+	b.mu.Lock("RemoveClientIDFromOpenIDConnectProvider")
+	defer b.mu.Unlock()
+
+	p, exists := b.oidcProviders.Get(providerArn)
+	if !exists {
+		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
+	}
+
+	for i, id := range p.ClientIDList {
+		if id == clientID {
+			p.ClientIDList = append(p.ClientIDList[:i], p.ClientIDList[i+1:]...)
+			b.oidcProviders.Put(p)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: client ID %q not found in OIDC provider %q", ErrInvalidAction, clientID, providerArn)
+}
+
+// AddClientIDToOpenIDConnectProvider appends a client ID to an existing OIDC provider.
+// If the client ID is already present, the call is idempotent.
+func (b *InMemoryBackend) AddClientIDToOpenIDConnectProvider(providerArn, clientID string) error {
+	if clientID == "" {
+		return fmt.Errorf("%w: ClientID must not be empty", ErrInvalidAction)
+	}
+
+	b.mu.Lock("AddClientIDToOpenIDConnectProvider")
+	defer b.mu.Unlock()
+
+	p, exists := b.oidcProviders.Get(providerArn)
+	if !exists {
+		return fmt.Errorf("%w: OIDC provider %q not found", ErrOIDCProviderNotFound, providerArn)
+	}
+
+	if !slices.Contains(p.ClientIDList, clientID) {
+		p.ClientIDList = append(p.ClientIDList, clientID)
+		b.oidcProviders.Put(p)
+	}
+
+	return nil
 }

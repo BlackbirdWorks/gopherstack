@@ -107,8 +107,6 @@ type InstanceProfile struct {
 	Roles               []string  `json:"Roles,omitempty"`
 }
 
-// ---- XML response types ----
-
 // ResponseMetadata is embedded in all IAM XML responses.
 type ResponseMetadata struct {
 	RequestID string `xml:"RequestId"`
@@ -130,8 +128,6 @@ type IAMError struct {
 	Message string `xml:"Message"`
 	Type    string `xml:"Type"`
 }
-
-// ---- User XML responses ----
 
 // PermissionsBoundaryXML is the XML representation of a permissions boundary.
 type PermissionsBoundaryXML struct {
@@ -215,6 +211,13 @@ type DeleteUserResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// UpdateUserResponse is the XML response for UpdateUser.
+type UpdateUserResponse struct {
+	XMLName          xml.Name         `xml:"UpdateUserResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
 // ListUsersResponse is the XML response for ListUsers.
 type ListUsersResponse struct {
 	XMLName          xml.Name         `xml:"ListUsersResponse"`
@@ -229,8 +232,6 @@ type ListUsersResult struct {
 	Users       []UserXML `xml:"Users>member"`
 	IsTruncated bool      `xml:"IsTruncated"`
 }
-
-// ---- Role XML responses ----
 
 // RoleXML is the XML representation of an IAM Role.
 type RoleXML struct {
@@ -293,8 +294,6 @@ type ListRolesResult struct {
 	Roles       []RoleXML `xml:"Roles>member"`
 	IsTruncated bool      `xml:"IsTruncated"`
 }
-
-// ---- Policy XML responses ----
 
 // PolicyXML is the XML representation of an IAM Policy.
 type PolicyXML struct {
@@ -365,8 +364,6 @@ type DetachRolePolicyResponse struct {
 	Xmlns            string           `xml:"xmlns,attr"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
-
-// ---- Group XML responses ----
 
 // GroupXML is the XML representation of an IAM Group.
 type GroupXML struct {
@@ -442,8 +439,6 @@ type ListGroupsResult struct {
 	IsTruncated bool       `xml:"IsTruncated"`
 }
 
-// ---- Access Key XML responses ----
-
 // AccessKeyXML is the XML representation of an IAM AccessKey.
 type AccessKeyXML struct {
 	AccessKeyID     string `xml:"AccessKeyId"`
@@ -495,8 +490,6 @@ type ListAccessKeysResult struct {
 	AccessKeyMetadata []AccessKeyMetadataXML `xml:"AccessKeyMetadata>member"`
 	IsTruncated       bool                   `xml:"IsTruncated"`
 }
-
-// ---- Instance Profile XML responses ----
 
 // InstanceProfileXML is the XML representation of an IAM InstanceProfile.
 type InstanceProfileXML struct {
@@ -561,8 +554,6 @@ type RemoveRoleFromInstanceProfileResponse struct {
 func isoTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05Z")
 }
-
-// ---- Attached Policy XML ----
 
 // AttachedPolicyXML is the XML representation of an attached managed policy.
 type AttachedPolicyXML struct {
@@ -645,169 +636,6 @@ type ListPolicyVersionsResponse struct {
 	ListPolicyVersionsResult ListPolicyVersionsResult `xml:"ListPolicyVersionsResult"`
 }
 
-// ---- Inline Policy XML responses ----
-
-// PutUserPolicyResponse is the XML response for PutUserPolicy.
-type PutUserPolicyResponse struct {
-	XMLName          xml.Name         `xml:"PutUserPolicyResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// PutRolePolicyResponse is the XML response for PutRolePolicy.
-type PutRolePolicyResponse struct {
-	XMLName          xml.Name         `xml:"PutRolePolicyResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// PutGroupPolicyResponse is the XML response for PutGroupPolicy.
-type PutGroupPolicyResponse struct {
-	XMLName          xml.Name         `xml:"PutGroupPolicyResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// GetUserPolicyResponse is the XML response for GetUserPolicy.
-type GetUserPolicyResponse struct {
-	XMLName             xml.Name            `xml:"GetUserPolicyResponse"`
-	Xmlns               string              `xml:"xmlns,attr"`
-	GetUserPolicyResult GetUserPolicyResult `xml:"GetUserPolicyResult"`
-	ResponseMetadata    ResponseMetadata    `xml:"ResponseMetadata"`
-}
-
-// GetUserPolicyResult contains the user inline policy details.
-type GetUserPolicyResult struct {
-	UserName       string `xml:"UserName"`
-	PolicyName     string `xml:"PolicyName"`
-	PolicyDocument string `xml:"PolicyDocument"`
-}
-
-// GetRolePolicyResponse is the XML response for GetRolePolicy.
-type GetRolePolicyResponse struct {
-	XMLName             xml.Name            `xml:"GetRolePolicyResponse"`
-	Xmlns               string              `xml:"xmlns,attr"`
-	GetRolePolicyResult GetRolePolicyResult `xml:"GetRolePolicyResult"`
-	ResponseMetadata    ResponseMetadata    `xml:"ResponseMetadata"`
-}
-
-// GetRolePolicyResult contains the role inline policy details.
-type GetRolePolicyResult struct {
-	RoleName       string `xml:"RoleName"`
-	PolicyName     string `xml:"PolicyName"`
-	PolicyDocument string `xml:"PolicyDocument"`
-}
-
-// GetGroupPolicyResponse is the XML response for GetGroupPolicy.
-type GetGroupPolicyResponse struct {
-	XMLName              xml.Name             `xml:"GetGroupPolicyResponse"`
-	Xmlns                string               `xml:"xmlns,attr"`
-	GetGroupPolicyResult GetGroupPolicyResult `xml:"GetGroupPolicyResult"`
-	ResponseMetadata     ResponseMetadata     `xml:"ResponseMetadata"`
-}
-
-// GetGroupPolicyResult contains the group inline policy details.
-type GetGroupPolicyResult struct {
-	GroupName      string `xml:"GroupName"`
-	PolicyName     string `xml:"PolicyName"`
-	PolicyDocument string `xml:"PolicyDocument"`
-}
-
-// DeleteUserPolicyResponse is the XML response for DeleteUserPolicy.
-type DeleteUserPolicyResponse struct {
-	XMLName          xml.Name         `xml:"DeleteUserPolicyResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// DeleteRolePolicyResponse is the XML response for DeleteRolePolicy.
-type DeleteRolePolicyResponse struct {
-	XMLName          xml.Name         `xml:"DeleteRolePolicyResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// DeleteGroupPolicyResponse is the XML response for DeleteGroupPolicy.
-type DeleteGroupPolicyResponse struct {
-	XMLName          xml.Name         `xml:"DeleteGroupPolicyResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// ListUserPoliciesResponse is the XML response for ListUserPolicies.
-type ListUserPoliciesResponse struct {
-	XMLName                xml.Name               `xml:"ListUserPoliciesResponse"`
-	Xmlns                  string                 `xml:"xmlns,attr"`
-	ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
-	ListUserPoliciesResult ListUserPoliciesResult `xml:"ListUserPoliciesResult"`
-}
-
-// ListUserPoliciesResult contains the list of inline policy names for a user.
-type ListUserPoliciesResult struct {
-	PolicyNames []string `xml:"PolicyNames>member"`
-	IsTruncated bool     `xml:"IsTruncated"`
-}
-
-// ListRolePoliciesResponse is the XML response for ListRolePolicies.
-type ListRolePoliciesResponse struct {
-	XMLName                xml.Name               `xml:"ListRolePoliciesResponse"`
-	Xmlns                  string                 `xml:"xmlns,attr"`
-	ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
-	ListRolePoliciesResult ListRolePoliciesResult `xml:"ListRolePoliciesResult"`
-}
-
-// ListRolePoliciesResult contains the list of inline policy names for a role.
-type ListRolePoliciesResult struct {
-	PolicyNames []string `xml:"PolicyNames>member"`
-	IsTruncated bool     `xml:"IsTruncated"`
-}
-
-// ListGroupPoliciesResponse is the XML response for ListGroupPolicies.
-type ListGroupPoliciesResponse struct {
-	XMLName                 xml.Name                `xml:"ListGroupPoliciesResponse"`
-	Xmlns                   string                  `xml:"xmlns,attr"`
-	ResponseMetadata        ResponseMetadata        `xml:"ResponseMetadata"`
-	ListGroupPoliciesResult ListGroupPoliciesResult `xml:"ListGroupPoliciesResult"`
-}
-
-// ListGroupPoliciesResult contains the list of inline policy names for a group.
-type ListGroupPoliciesResult struct {
-	PolicyNames []string `xml:"PolicyNames>member"`
-	IsTruncated bool     `xml:"IsTruncated"`
-}
-
-// ---- Permission Boundary XML responses ----
-
-// PutUserPermissionsBoundaryResponse is the XML response for PutUserPermissionsBoundary.
-type PutUserPermissionsBoundaryResponse struct {
-	XMLName          xml.Name         `xml:"PutUserPermissionsBoundaryResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// DeleteUserPermissionsBoundaryResponse is the XML response for DeleteUserPermissionsBoundary.
-type DeleteUserPermissionsBoundaryResponse struct {
-	XMLName          xml.Name         `xml:"DeleteUserPermissionsBoundaryResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// PutRolePermissionsBoundaryResponse is the XML response for PutRolePermissionsBoundary.
-type PutRolePermissionsBoundaryResponse struct {
-	XMLName          xml.Name         `xml:"PutRolePermissionsBoundaryResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// DeleteRolePermissionsBoundaryResponse is the XML response for DeleteRolePermissionsBoundary.
-type DeleteRolePermissionsBoundaryResponse struct {
-	XMLName          xml.Name         `xml:"DeleteRolePermissionsBoundaryResponse"`
-	Xmlns            string           `xml:"xmlns,attr"`
-	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-}
-
-// ---- UpdateAssumeRolePolicy XML response ----
-
 // UpdateAssumeRolePolicyResponse is the XML response for UpdateAssumeRolePolicy.
 type UpdateAssumeRolePolicyResponse struct {
 	XMLName          xml.Name         `xml:"UpdateAssumeRolePolicyResponse"`
@@ -815,16 +643,12 @@ type UpdateAssumeRolePolicyResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
-// ---- DetachUserPolicy XML response ----
-
 // DetachUserPolicyResponse is the XML response for DetachUserPolicy.
 type DetachUserPolicyResponse struct {
 	XMLName          xml.Name         `xml:"DetachUserPolicyResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
-
-// ---- Group attached policies XML responses ----
 
 // AttachGroupPolicyResponse is the XML response for AttachGroupPolicy.
 type AttachGroupPolicyResponse struct {
@@ -852,143 +676,4 @@ type ListAttachedGroupPoliciesResponse struct {
 type ListAttachedGroupPoliciesResult struct {
 	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
 	IsTruncated      bool                `xml:"IsTruncated"`
-}
-
-// ---- GetAccountAuthorizationDetails XML types ----
-
-// InlinePolicyEntryXML is an inline policy name/document pair in GetAccountAuthorizationDetails.
-type InlinePolicyEntryXML struct {
-	PolicyName     string `xml:"PolicyName"`
-	PolicyDocument string `xml:"PolicyDocument"`
-}
-
-// UserDetailXML is the per-user element in GetAccountAuthorizationDetails.
-type UserDetailXML struct {
-	Path                    string                 `xml:"Path"`
-	UserName                string                 `xml:"UserName"`
-	UserID                  string                 `xml:"UserId"`
-	Arn                     string                 `xml:"Arn"`
-	CreateDate              string                 `xml:"CreateDate"`
-	UserPolicyList          []InlinePolicyEntryXML `xml:"UserPolicyList>member"`
-	AttachedManagedPolicies []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
-	GroupList               []string               `xml:"GroupList>member"`
-}
-
-// GroupDetailXML is the per-group element in GetAccountAuthorizationDetails.
-type GroupDetailXML struct {
-	Path                    string                 `xml:"Path"`
-	GroupName               string                 `xml:"GroupName"`
-	GroupID                 string                 `xml:"GroupId"`
-	Arn                     string                 `xml:"Arn"`
-	CreateDate              string                 `xml:"CreateDate"`
-	GroupPolicyList         []InlinePolicyEntryXML `xml:"GroupPolicyList>member"`
-	AttachedManagedPolicies []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
-}
-
-// RoleDetailXML is the per-role element in GetAccountAuthorizationDetails.
-type RoleDetailXML struct {
-	Path                     string                 `xml:"Path"`
-	RoleName                 string                 `xml:"RoleName"`
-	RoleID                   string                 `xml:"RoleId"`
-	Arn                      string                 `xml:"Arn"`
-	CreateDate               string                 `xml:"CreateDate"`
-	AssumeRolePolicyDocument string                 `xml:"AssumeRolePolicyDocument"`
-	RolePolicyList           []InlinePolicyEntryXML `xml:"RolePolicyList>member"`
-	AttachedManagedPolicies  []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
-	InstanceProfileList      []InstanceProfileXML   `xml:"InstanceProfileList>member"`
-}
-
-// ManagedPolicyDetailXML is the per-policy element in GetAccountAuthorizationDetails.
-type ManagedPolicyDetailXML struct {
-	PolicyName        string             `xml:"PolicyName"`
-	PolicyID          string             `xml:"PolicyId"`
-	Arn               string             `xml:"Arn"`
-	Path              string             `xml:"Path"`
-	CreateDate        string             `xml:"CreateDate"`
-	PolicyVersionList []PolicyVersionXML `xml:"PolicyVersionList>member"`
-}
-
-// GetAccountAuthorizationDetailsResponse is the XML response for GetAccountAuthorizationDetails.
-type GetAccountAuthorizationDetailsResponse struct {
-	XMLName                              xml.Name                             `xml:"GetAccountAuthorizationDetailsResponse"` //nolint:lll // long XML element name
-	Xmlns                                string                               `xml:"xmlns,attr"`
-	ResponseMetadata                     ResponseMetadata                     `xml:"ResponseMetadata"`
-	GetAccountAuthorizationDetailsResult GetAccountAuthorizationDetailsResult `xml:"GetAccountAuthorizationDetailsResult"`
-}
-
-// GetAccountAuthorizationDetailsResult contains all IAM entity details.
-type GetAccountAuthorizationDetailsResult struct {
-	UserDetailList  []UserDetailXML          `xml:"UserDetailList>member"`
-	GroupDetailList []GroupDetailXML         `xml:"GroupDetailList>member"`
-	RoleDetailList  []RoleDetailXML          `xml:"RoleDetailList>member"`
-	Policies        []ManagedPolicyDetailXML `xml:"Policies>member"`
-	IsTruncated     bool                     `xml:"IsTruncated"`
-}
-
-// ---- SimulatePrincipalPolicy XML types ----
-
-// EvalDecisionDetailEntry is a single entry in the EvalDecisionDetails map.
-type EvalDecisionDetailEntry struct {
-	Key   string `xml:"key"`
-	Value string `xml:"value"`
-}
-
-// PermBoundaryDecisionXML carries the boundary evaluation outcome.
-type PermBoundaryDecisionXML struct {
-	AllowedByPermissionsBoundary bool `xml:"AllowedByPermissionsBoundary"`
-}
-
-// SimulationEvalResultXML is a single evaluation result in SimulatePrincipalPolicy.
-type SimulationEvalResultXML struct {
-	// PermissionsBoundaryDecisionDetail is present when the principal has a permissions boundary.
-	PermissionsBoundaryDecisionDetail *PermBoundaryDecisionXML  `xml:"PermissionsBoundaryDecisionDetail,omitempty"`
-	EvalActionName                    string                    `xml:"EvalActionName"`
-	EvalResourceName                  string                    `xml:"EvalResourceName"`
-	EvalDecision                      string                    `xml:"EvalDecision"`
-	EvalDecisionDetails               []EvalDecisionDetailEntry `xml:"EvalDecisionDetails>entry,omitempty"`
-}
-
-// SimulatePrincipalPolicyResponse is the XML response for SimulatePrincipalPolicy.
-type SimulatePrincipalPolicyResponse struct {
-	XMLName                       xml.Name                      `xml:"SimulatePrincipalPolicyResponse"`
-	Xmlns                         string                        `xml:"xmlns,attr"`
-	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
-	SimulatePrincipalPolicyResult SimulatePrincipalPolicyResult `xml:"SimulatePrincipalPolicyResult"`
-}
-
-// SimulatePrincipalPolicyResult contains all evaluation results.
-type SimulatePrincipalPolicyResult struct {
-	EvaluationResults []SimulationEvalResultXML `xml:"EvaluationResults>member"`
-	IsTruncated       bool                      `xml:"IsTruncated"`
-}
-
-// ---- GenerateCredentialReport / GetCredentialReport XML types ----
-
-// GenerateCredentialReportResponse is the XML response for GenerateCredentialReport.
-type GenerateCredentialReportResponse struct {
-	XMLName                        xml.Name                       `xml:"GenerateCredentialReportResponse"`
-	Xmlns                          string                         `xml:"xmlns,attr"`
-	GenerateCredentialReportResult GenerateCredentialReportResult `xml:"GenerateCredentialReportResult"`
-	ResponseMetadata               ResponseMetadata               `xml:"ResponseMetadata"`
-}
-
-// GenerateCredentialReportResult contains the credential report generation state.
-type GenerateCredentialReportResult struct {
-	State       string `xml:"State"`
-	Description string `xml:"Description,omitempty"`
-}
-
-// GetCredentialReportResponse is the XML response for GetCredentialReport.
-type GetCredentialReportResponse struct {
-	XMLName                   xml.Name                  `xml:"GetCredentialReportResponse"`
-	Xmlns                     string                    `xml:"xmlns,attr"`
-	GetCredentialReportResult GetCredentialReportResult `xml:"GetCredentialReportResult"`
-	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
-}
-
-// GetCredentialReportResult contains the credential report content.
-type GetCredentialReportResult struct {
-	Content       string `xml:"Content"`
-	ReportFormat  string `xml:"ReportFormat"`
-	GeneratedTime string `xml:"GeneratedTime"`
 }

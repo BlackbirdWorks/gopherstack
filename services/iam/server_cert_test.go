@@ -1,6 +1,7 @@
 package iam_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -216,4 +217,91 @@ func TestMFADevice_HandlerRoundtrip(t *testing.T) {
 	// ListMFADevices for the user (empty list — device not yet enabled for user).
 	rec = callIAM(t, h, "ListMFADevices", map[string]string{"UserName": "mfa-user"})
 	assert.Equal(t, 200, rec.Code)
+}
+
+func TestUploadServerCertificate_ARNFormat(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	cert, err := b.UploadServerCertificate("my-cert", "/", "cert-body", "")
+	require.NoError(t, err)
+
+	// ARN must follow arn:aws:iam::<account>:server-certificate[/path]/<name>
+	assert.True(t, strings.HasPrefix(cert.Arn, "arn:aws:iam::"),
+		"cert ARN must start with arn:aws:iam::")
+	assert.Contains(t, cert.Arn, ":server-certificate",
+		"cert ARN must contain :server-certificate")
+	assert.Contains(t, cert.Arn, "/my-cert",
+		"cert ARN must end with cert name")
+}
+
+func TestUploadServerCertificate_DuplicateNameRejected(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, err := b.UploadServerCertificate("dup-cert", "/", "cert-body", "")
+	require.NoError(t, err)
+
+	_, err = b.UploadServerCertificate("dup-cert", "/", "cert-body", "")
+	require.Error(t, err, "duplicate cert name must be rejected")
+}
+
+func TestUploadServerCertificate_PathPreservation(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	cert, err := b.UploadServerCertificate("path-cert", "/engineering/", "cert-body", "")
+	require.NoError(t, err)
+
+	assert.Equal(t, "/engineering/", cert.Path)
+	assert.Contains(t, cert.Arn, "/engineering/path-cert",
+		"cert ARN must reflect custom path")
+}
+
+func TestUploadServerCertificate_ListReflectsUpload(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	_, _ = b.UploadServerCertificate("cert-list-1", "/", "body", "")
+	_, _ = b.UploadServerCertificate("cert-list-2", "/", "body", "")
+
+	certs, err := b.ListServerCertificates("/")
+	require.NoError(t, err)
+	assert.Len(t, certs, 2)
+}
+
+func TestServerCertificate_CRUDRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	const certBody = "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"
+
+	sc, err := b.UploadServerCertificate("MyCert", "/", certBody, "")
+	require.NoError(t, err)
+	assert.Equal(t, "MyCert", sc.ServerCertificateName)
+
+	got, err := b.GetServerCertificate("MyCert")
+	require.NoError(t, err)
+	assert.Equal(t, certBody, got.CertificateBody)
+
+	certs, err := b.ListServerCertificates("/")
+	require.NoError(t, err)
+	assert.Len(t, certs, 1)
+
+	require.NoError(t, b.UpdateServerCertificate("MyCert", "NewName", "/new/"))
+
+	_, err = b.GetServerCertificate("MyCert")
+	require.Error(t, err, "old name must not exist after rename")
+
+	got2, err := b.GetServerCertificate("NewName")
+	require.NoError(t, err)
+	assert.Equal(t, "NewName", got2.ServerCertificateName)
+
+	require.NoError(t, b.DeleteServerCertificate("NewName"))
+	_, err = b.GetServerCertificate("NewName")
+	require.Error(t, err)
 }
