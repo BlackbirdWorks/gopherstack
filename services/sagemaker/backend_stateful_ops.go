@@ -366,11 +366,11 @@ func (b *InMemoryBackend) DescribeDomain(ctx context.Context, idOrName string) (
 
 	region := getRegion(ctx, b.region)
 
-	if d, ok := b.domainsStore(region).Get(idOrName); ok {
+	if d, ok := b.domainsStoreRO(region).Get(idOrName); ok {
 		return cloneDomain(d), nil
 	}
 
-	for _, d := range b.domainsStore(region).All() {
+	for _, d := range b.domainsStoreRO(region).All() {
 		if d.DomainName == idOrName {
 			return cloneDomain(d), nil
 		}
@@ -386,7 +386,7 @@ func (b *InMemoryBackend) ListDomains(ctx context.Context, nextToken string) ([]
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.domainsStore(region), nextToken, cloneDomain,
+	return sagemakerListPaged(b.domainsStoreRO(region), nextToken, cloneDomain,
 		func(a, b *Domain) bool { return a.DomainName < b.DomainName })
 }
 
@@ -483,7 +483,7 @@ func (b *InMemoryBackend) DescribeUserProfile(ctx context.Context, domainID, nam
 
 	key := userProfileKeyString(userProfileKey{DomainID: domainID, UserProfileName: name})
 
-	up, ok := b.userProfilesStore(region).Get(key)
+	up, ok := b.userProfilesStoreRO(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: user profile %q in domain %q not found",
@@ -504,7 +504,7 @@ func (b *InMemoryBackend) ListUserProfiles(ctx context.Context, domainID, nextTo
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.userProfilesStore(region)
+	store := b.userProfilesStoreRO(region)
 	list := make([]*UserProfile, 0, store.Len())
 
 	for _, up := range store.All() {
@@ -619,7 +619,7 @@ func (b *InMemoryBackend) DescribeApp(
 		AppName:         appName,
 	})
 
-	a, ok := b.appsStore(region).Get(key)
+	a, ok := b.appsStoreRO(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: app %q not found", ErrAppNotFound, appName)
 	}
@@ -635,7 +635,7 @@ func (b *InMemoryBackend) ListApps(ctx context.Context, domainID, nextToken stri
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.appsStore(region)
+	store := b.appsStoreRO(region)
 	list := make([]*App, 0, store.Len())
 
 	for _, a := range store.All() {
@@ -736,7 +736,7 @@ func (b *InMemoryBackend) DescribeFeatureGroup(ctx context.Context, name string)
 
 	region := getRegion(ctx, b.region)
 
-	fg, ok := b.featureGroupsStore(region).Get(name)
+	fg, ok := b.featureGroupsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: feature group %q not found", ErrFeatureGroupNotFound, name)
 	}
@@ -751,7 +751,7 @@ func (b *InMemoryBackend) ListFeatureGroups(ctx context.Context, nextToken strin
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.featureGroupsStore(region), nextToken, cloneFeatureGroup,
+	return sagemakerListPaged(b.featureGroupsStoreRO(region), nextToken, cloneFeatureGroup,
 		func(a, b *FeatureGroup) bool { return a.FeatureGroupName < b.FeatureGroupName })
 }
 
@@ -816,7 +816,7 @@ func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*P
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region).Get(name)
+	p, ok := b.pipelinesStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
@@ -831,7 +831,7 @@ func (b *InMemoryBackend) ListPipelines(ctx context.Context, nextToken string) (
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.pipelinesStore(region), nextToken, clonePipeline,
+	return sagemakerListPaged(b.pipelinesStoreRO(region), nextToken, clonePipeline,
 		func(a, b *Pipeline) bool { return a.PipelineName < b.PipelineName })
 }
 
@@ -909,7 +909,7 @@ func (b *InMemoryBackend) DescribePipelineExecution(ctx context.Context, execArn
 
 	region := getRegion(ctx, b.region)
 
-	pe, ok := b.pipelineExecutionsStore(region).Get(execArn)
+	pe, ok := b.pipelineExecutionsStoreRO(region).Get(execArn)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: pipeline execution %q not found",
@@ -931,8 +931,8 @@ func (b *InMemoryBackend) ListPipelineExecutions(
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.pipelinesStore(region).Get(pipelineName)
-	execStore := b.pipelineExecutionsStore(region)
+	p, ok := b.pipelinesStoreRO(region).Get(pipelineName)
+	execStore := b.pipelineExecutionsStoreRO(region)
 	list := make([]*PipelineExecution, 0, execStore.Len())
 
 	if ok {
@@ -1005,7 +1005,7 @@ func (b *InMemoryBackend) DescribeExperiment(ctx context.Context, name string) (
 
 	region := getRegion(ctx, b.region)
 
-	e, ok := b.experimentsStore(region).Get(name)
+	e, ok := b.experimentsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: experiment %q not found", ErrExperimentNotFound, name)
 	}
@@ -1020,7 +1020,7 @@ func (b *InMemoryBackend) ListExperiments(ctx context.Context, nextToken string)
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.experimentsStore(region), nextToken, cloneExperiment,
+	return sagemakerListPaged(b.experimentsStoreRO(region), nextToken, cloneExperiment,
 		func(a, b *Experiment) bool { return a.ExperimentName < b.ExperimentName })
 }
 
@@ -1085,7 +1085,7 @@ func (b *InMemoryBackend) DescribeTrial(ctx context.Context, name string) (*Tria
 
 	region := getRegion(ctx, b.region)
 
-	t, ok := b.trialsStore(region).Get(name)
+	t, ok := b.trialsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial %q not found", ErrTrialNotFound, name)
 	}
@@ -1100,7 +1100,7 @@ func (b *InMemoryBackend) ListTrials(ctx context.Context, nextToken string) ([]*
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.trialsStore(region), nextToken, cloneTrial,
+	return sagemakerListPaged(b.trialsStoreRO(region), nextToken, cloneTrial,
 		func(a, b *Trial) bool { return a.TrialName < b.TrialName })
 }
 
@@ -1168,7 +1168,7 @@ func (b *InMemoryBackend) DescribeTrialComponent(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	tc, ok := b.trialComponentsStore(region).Get(name)
+	tc, ok := b.trialComponentsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: trial component %q not found", ErrTrialComponentNotFound, name)
 	}

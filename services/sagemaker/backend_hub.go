@@ -84,13 +84,25 @@ func (b *InMemoryBackend) hubsStore(r string) *store.Table[Hub] {
 	return b.hubs[r]
 }
 
+// hubsStoreRO returns the region-scoped hubs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) hubsStoreRO(r string) *store.Table[Hub] {
+	if v := b.hubs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Hub) string { return v.HubName })
+}
+
 // findHubLocked resolves a hub by name or ARN. Callers must hold b.mu.
 func (b *InMemoryBackend) findHubLocked(region, idOrArn string) (*Hub, bool) {
-	if h, ok := b.hubsStore(region).Get(idOrArn); ok {
+	if h, ok := b.hubsStoreRO(region).Get(idOrArn); ok {
 		return h, true
 	}
 
-	for _, h := range b.hubsStore(region).All() {
+	for _, h := range b.hubsStoreRO(region).All() {
 		if h.HubArn == idOrArn {
 			return h, true
 		}
@@ -157,7 +169,7 @@ func (b *InMemoryBackend) ListHubs(ctx context.Context, nameContains, nextToken 
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.hubsStore(region)
+	store := b.hubsStoreRO(region)
 
 	filtered := make(map[string]*Hub, store.Len())
 
@@ -295,6 +307,27 @@ func (b *InMemoryBackend) hubContentsStore(r string) *store.Table[HubContent] {
 	return b.hubContents[r]
 }
 
+// hubContentsStoreRO returns the region-scoped hubContents table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) hubContentsStoreRO(r string) *store.Table[HubContent] {
+	if v := b.hubContents[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *HubContent) string {
+		return hubContentKeyString(
+			hubContentKey{
+				HubName:           v.HubName,
+				HubContentType:    v.HubContentType,
+				HubContentName:    v.HubContentName,
+				HubContentVersion: v.HubContentVersion,
+			},
+		)
+	})
+}
+
 // hubContentARN builds the ARN for a versioned hub content resource.
 func hubContentARN(region, accountID string, key hubContentKey) string {
 	resource := fmt.Sprintf(
@@ -380,7 +413,7 @@ func (b *InMemoryBackend) ImportHubContent(ctx context.Context, in ImportHubCont
 func (b *InMemoryBackend) latestHubContentLocked(region, hubName, contentType, contentName string) (*HubContent, bool) {
 	var latest *HubContent
 
-	for _, hc := range b.hubContentsStore(region).All() {
+	for _, hc := range b.hubContentsStoreRO(region).All() {
 		if hc.HubName != hubName || hc.HubContentType != contentType || hc.HubContentName != contentName {
 			continue
 		}
@@ -418,7 +451,7 @@ func (b *InMemoryBackend) DescribeHubContent(
 			HubName: h.HubName, HubContentType: contentType,
 			HubContentName: contentName, HubContentVersion: version,
 		})
-		if hc, exists := b.hubContentsStore(region).Get(key); exists {
+		if hc, exists := b.hubContentsStoreRO(region).Get(key); exists {
 			return cloneHubContent(hc), nil
 		}
 
@@ -539,7 +572,7 @@ func (b *InMemoryBackend) ListHubContents(
 
 	latestByName := make(map[string]*HubContent)
 
-	for _, hc := range b.hubContentsStore(region).All() {
+	for _, hc := range b.hubContentsStoreRO(region).All() {
 		if hc.HubName != hubName || hc.HubContentType != contentType {
 			continue
 		}
@@ -570,7 +603,7 @@ func (b *InMemoryBackend) ListHubContentVersions(
 
 	byVersion := make(map[string]*HubContent)
 
-	for _, hc := range b.hubContentsStore(region).All() {
+	for _, hc := range b.hubContentsStoreRO(region).All() {
 		if hc.HubName != hubName || hc.HubContentType != contentType || hc.HubContentName != contentName {
 			continue
 		}
@@ -776,7 +809,7 @@ func (b *InMemoryBackend) CreateHubContentPresignedURLs(
 			HubContentName: contentName, HubContentVersion: version,
 		})
 
-		found, exists := b.hubContentsStore(region).Get(key)
+		found, exists := b.hubContentsStoreRO(region).Get(key)
 		if !exists {
 			return nil, fmt.Errorf(
 				"%w: hub content %q version %q not found in hub %q",

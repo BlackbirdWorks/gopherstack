@@ -192,9 +192,9 @@ func (b *InMemoryBackend) ListPipelineExecutionSteps(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*PipelineExecutionStep, 0, b.pipelineExecStepsStore(region).Len())
+	list := make([]*PipelineExecutionStep, 0, b.pipelineExecStepsStoreRO(region).Len())
 
-	for _, step := range b.pipelineExecStepsStore(region).All() {
+	for _, step := range b.pipelineExecStepsStoreRO(region).All() {
 		if step.ExecutionArn == execArn {
 			cp := *step
 			list = append(list, &cp)

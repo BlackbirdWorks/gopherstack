@@ -301,7 +301,7 @@ func (b *InMemoryBackend) DescribeEndpoint(ctx context.Context, name string) (*E
 
 	region := getRegion(ctx, b.region)
 
-	ep, ok := b.endpointsStore(region).Get(name)
+	ep, ok := b.endpointsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: endpoint %q not found", ErrEndpointNotFound, name)
 	}
@@ -316,7 +316,7 @@ func (b *InMemoryBackend) ListEndpoints(ctx context.Context, nextToken string) (
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.endpointsStore(region), nextToken, cloneEndpoint,
+	return sagemakerListPaged(b.endpointsStoreRO(region), nextToken, cloneEndpoint,
 		func(a, b *Endpoint) bool { return a.EndpointName < b.EndpointName })
 }
 
@@ -416,7 +416,7 @@ func (b *InMemoryBackend) DescribeTrainingJob(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	tj, ok := b.trainingJobsStore(region).Get(name)
+	tj, ok := b.trainingJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: training job %q not found", ErrTrainingJobNotFound, name)
 	}
@@ -431,7 +431,7 @@ func (b *InMemoryBackend) ListTrainingJobs(ctx context.Context, nextToken string
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.trainingJobsStore(region), nextToken, cloneTrainingJob,
+	return sagemakerListPaged(b.trainingJobsStoreRO(region), nextToken, cloneTrainingJob,
 		func(a, b *TrainingJob) bool { return a.TrainingJobName < b.TrainingJobName })
 }
 
@@ -533,7 +533,7 @@ func (b *InMemoryBackend) DescribeNotebookInstance(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region).Get(name)
+	nb, ok := b.notebooksStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -561,7 +561,7 @@ func (b *InMemoryBackend) ListNotebookInstances(
 
 	region := getRegion(ctx, b.region)
 
-	store := b.notebooksStore(region)
+	store := b.notebooksStoreRO(region)
 	list := make([]*NotebookInstance, 0, store.Len())
 	for _, nb := range store.All() {
 		if !matchesNotebookFilter(nb, filter) {
@@ -691,7 +691,7 @@ func (b *InMemoryBackend) CreatePresignedNotebookInstanceURL(ctx context.Context
 
 	region := getRegion(ctx, b.region)
 
-	nb, ok := b.notebooksStore(region).Get(name)
+	nb, ok := b.notebooksStoreRO(region).Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: notebook instance %q not found", ErrNotebookNotFound, name)
 	}
@@ -751,7 +751,7 @@ func (b *InMemoryBackend) DescribeHyperParameterTuningJob(
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.hpTuningJobsStore(region).Get(name)
+	j, ok := b.hpTuningJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, name)
 	}
@@ -769,7 +769,7 @@ func (b *InMemoryBackend) ListHyperParameterTuningJobs(
 
 	region := getRegion(ctx, b.region)
 
-	return sagemakerListPaged(b.hpTuningJobsStore(region), nextToken, cloneHPTuningJob,
+	return sagemakerListPaged(b.hpTuningJobsStoreRO(region), nextToken, cloneHPTuningJob,
 		func(a, b *HyperParameterTuningJob) bool {
 			return a.HyperParameterTuningJobName < b.HyperParameterTuningJobName
 		})

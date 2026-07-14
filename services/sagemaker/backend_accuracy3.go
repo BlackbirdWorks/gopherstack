@@ -104,7 +104,7 @@ func (b *InMemoryBackend) DescribeEdgePackagingJob(ctx context.Context, name str
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.edgePackagingJobsStore(region).Get(name)
+	j, ok := b.edgePackagingJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: edge packaging job %q not found", ErrEdgePackagingJobNotFound, name)
 	}
@@ -149,7 +149,7 @@ func (b *InMemoryBackend) ListEdgePackagingJobs(
 
 	var keys []string
 
-	for _, j := range b.edgePackagingJobsStore(region).All() {
+	for _, j := range b.edgePackagingJobsStoreRO(region).All() {
 		if filter.StatusEquals != "" && j.EdgePackagingJobStatus != filter.StatusEquals {
 			continue
 		}
@@ -176,7 +176,7 @@ func (b *InMemoryBackend) ListEdgePackagingJobs(
 
 	end := min(start+sagemakerDefaultPageSize, len(keys))
 
-	store := b.edgePackagingJobsStore(region)
+	store := b.edgePackagingJobsStoreRO(region)
 
 	out := make([]*EdgePackagingJob, 0, end-start)
 	for _, k := range keys[start:end] {
@@ -282,7 +282,7 @@ func (b *InMemoryBackend) DescribeInferenceRecommendationsJob(
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.inferenceRecommendationsJobsStore(region).Get(name)
+	j, ok := b.inferenceRecommendationsJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: inference recommendations job %q not found",
@@ -327,7 +327,7 @@ func (b *InMemoryBackend) ListInferenceRecommendationsJobs(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.inferenceRecommendationsJobsStore(region),
+		b.inferenceRecommendationsJobsStoreRO(region),
 		nextToken,
 		cloneInferenceRecommendationsJob,
 		func(v *InferenceRecommendationsJob) string { return v.JobName },
@@ -450,7 +450,7 @@ func (b *InMemoryBackend) ListMlflowTrackingServers(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.mlflowTrackingServersStore(region),
+		b.mlflowTrackingServersStoreRO(region),
 		nextToken,
 		cloneMlflowTrackingServer,
 		func(v *MlflowTrackingServer) string { return v.TrackingServerName },
@@ -465,7 +465,7 @@ func (b *InMemoryBackend) ListModelCards(ctx context.Context, nextToken string) 
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.modelCardsStore(region),
+		b.modelCardsStoreRO(region),
 		nextToken,
 		cloneModelCard,
 		func(v *ModelCard) string { return v.ModelCardName },
@@ -480,7 +480,7 @@ func (b *InMemoryBackend) ListOptimizationJobs(ctx context.Context, nextToken st
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.optimizationJobsStore(region),
+		b.optimizationJobsStoreRO(region),
 		nextToken,
 		cloneOptimizationJob,
 		func(v *OptimizationJob) string { return v.OptimizationJobName },
@@ -498,7 +498,7 @@ func (b *InMemoryBackend) ListStudioLifecycleConfigs(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.studioLifecycleConfigsStore(region),
+		b.studioLifecycleConfigsStoreRO(region),
 		nextToken,
 		cloneStudioLifecycleConfig,
 		func(v *StudioLifecycleConfig) string { return v.StudioLifecycleConfigName },
@@ -516,7 +516,7 @@ func (b *InMemoryBackend) ListInferenceExperiments(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.inferenceExperimentsStore(region),
+		b.inferenceExperimentsStoreRO(region),
 		nextToken,
 		cloneInferenceExperiment,
 		func(v *InferenceExperiment) string { return v.Name },
@@ -531,7 +531,7 @@ func (b *InMemoryBackend) ListFlowDefinitions(ctx context.Context, nextToken str
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.flowDefinitionsStore(region),
+		b.flowDefinitionsStoreRO(region),
 		nextToken,
 		cloneFlowDefinition,
 		func(v *FlowDefinition) string { return v.FlowDefinitionName },
@@ -546,7 +546,7 @@ func (b *InMemoryBackend) ListHumanTaskUIs(ctx context.Context, nextToken string
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.humanTaskUisStore(region),
+		b.humanTaskUisStoreRO(region),
 		nextToken,
 		cloneHumanTaskUI,
 		func(v *HumanTaskUI) string { return v.HumanTaskUIName },
@@ -561,7 +561,7 @@ func (b *InMemoryBackend) ListAppImageConfigs(ctx context.Context, nextToken str
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.appImageConfigsStore(region),
+		b.appImageConfigsStoreRO(region),
 		nextToken,
 		cloneAppImageConfig,
 		func(v *AppImageConfig) string { return v.AppImageConfigName },
@@ -579,7 +579,7 @@ func (b *InMemoryBackend) ListTrainingJobsForHyperParameterTuningJob(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.hpTuningJobsStore(region).Get(jobName); !ok {
+	if _, ok := b.hpTuningJobsStoreRO(region).Get(jobName); !ok {
 		return nil, "", fmt.Errorf("%w: HP tuning job %q not found", ErrHPTuningJobNotFound, jobName)
 	}
 

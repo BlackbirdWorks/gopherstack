@@ -219,6 +219,18 @@ func (b *InMemoryBackend) labelingJobsStore(r string) *store.Table[LabelingJob] 
 	return b.labelingJobs[r]
 }
 
+// labelingJobsStoreRO returns the region-scoped labelingJobs table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) labelingJobsStoreRO(r string) *store.Table[LabelingJob] {
+	if v := b.labelingJobs[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *LabelingJob) string { return v.LabelingJobName })
+}
+
 // CreateLabelingJob creates and schedules a Ground Truth labeling job.
 func (b *InMemoryBackend) CreateLabelingJob(
 	ctx context.Context,
@@ -307,7 +319,7 @@ func (b *InMemoryBackend) DescribeLabelingJob(ctx context.Context, name string) 
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.labelingJobsStore(region).Get(name)
+	j, ok := b.labelingJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: labeling job %q not found", ErrLabelingJobNotFound, name)
 	}
@@ -368,9 +380,9 @@ func (b *InMemoryBackend) ListLabelingJobs(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*LabelingJob, 0, b.labelingJobsStore(region).Len())
+	list := make([]*LabelingJob, 0, b.labelingJobsStoreRO(region).Len())
 
-	for _, j := range b.labelingJobsStore(region).All() {
+	for _, j := range b.labelingJobsStoreRO(region).All() {
 		if filter.StatusEquals != "" && j.LabelingJobStatus != filter.StatusEquals {
 			continue
 		}
@@ -405,9 +417,9 @@ func (b *InMemoryBackend) ListLabelingJobsForWorkteam(
 
 	region := getRegion(ctx, b.region)
 
-	list := make([]*LabelingJob, 0, b.labelingJobsStore(region).Len())
+	list := make([]*LabelingJob, 0, b.labelingJobsStoreRO(region).Len())
 
-	for _, j := range b.labelingJobsStore(region).All() {
+	for _, j := range b.labelingJobsStoreRO(region).All() {
 		if j.HumanTaskConfig.WorkteamArn == workteamArn {
 			list = append(list, cloneLabelingJob(j))
 		}

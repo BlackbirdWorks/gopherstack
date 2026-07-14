@@ -267,7 +267,7 @@ func (b *InMemoryBackend) CreateDataQualityJobDefinition(
 
 // DescribeDataQualityJobDefinition returns a data quality job definition by name.
 func (b *InMemoryBackend) DescribeDataQualityJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(ctx, b.dataQualityJobDefsStore, name, ErrDataQualityJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.dataQualityJobDefsStoreRO, name, ErrDataQualityJobDefNotFound)
 }
 
 // DeleteDataQualityJobDefinition removes a data quality job definition by name.
@@ -284,7 +284,7 @@ func (b *InMemoryBackend) ListDataQualityJobDefinitions(
 	b.mu.RLock("ListDataQualityJobDefinitions")
 	defer b.mu.RUnlock()
 
-	return b.listJobDefinitions(b.dataQualityJobDefsStore, region, nextToken, f)
+	return b.listJobDefinitions(b.dataQualityJobDefsStoreRO, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ func (b *InMemoryBackend) CreateModelBiasJobDefinition(
 
 // DescribeModelBiasJobDefinition returns a model bias job definition by name.
 func (b *InMemoryBackend) DescribeModelBiasJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(ctx, b.modelBiasJobDefsStore, name, ErrModelBiasJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.modelBiasJobDefsStoreRO, name, ErrModelBiasJobDefNotFound)
 }
 
 // DeleteModelBiasJobDefinition removes a model bias job definition by name.
@@ -323,7 +323,7 @@ func (b *InMemoryBackend) ListModelBiasJobDefinitions(
 	b.mu.RLock("ListModelBiasJobDefinitions")
 	defer b.mu.RUnlock()
 
-	return b.listJobDefinitions(b.modelBiasJobDefsStore, region, nextToken, f)
+	return b.listJobDefinitions(b.modelBiasJobDefsStoreRO, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +345,7 @@ func (b *InMemoryBackend) CreateModelQualityJobDefinition(
 
 // DescribeModelQualityJobDefinition returns a model quality job definition by name.
 func (b *InMemoryBackend) DescribeModelQualityJobDefinition(ctx context.Context, name string) (*JobDefinition, error) {
-	return b.describeJobDefinition(ctx, b.modelQualityJobDefsStore, name, ErrModelQualityJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.modelQualityJobDefsStoreRO, name, ErrModelQualityJobDefNotFound)
 }
 
 // DeleteModelQualityJobDefinition removes a model quality job definition by name.
@@ -362,7 +362,7 @@ func (b *InMemoryBackend) ListModelQualityJobDefinitions(
 	b.mu.RLock("ListModelQualityJobDefinitions")
 	defer b.mu.RUnlock()
 
-	return b.listJobDefinitions(b.modelQualityJobDefsStore, region, nextToken, f)
+	return b.listJobDefinitions(b.modelQualityJobDefsStoreRO, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +387,7 @@ func (b *InMemoryBackend) DescribeModelExplainabilityJobDefinition(
 	ctx context.Context,
 	name string,
 ) (*JobDefinition, error) {
-	return b.describeJobDefinition(ctx, b.modelExplainJobDefsStore, name, ErrModelExplainJobDefNotFound)
+	return b.describeJobDefinition(ctx, b.modelExplainJobDefsStoreRO, name, ErrModelExplainJobDefNotFound)
 }
 
 // DeleteModelExplainabilityJobDefinition removes a model explainability job definition by name.
@@ -404,7 +404,7 @@ func (b *InMemoryBackend) ListModelExplainabilityJobDefinitions(
 	b.mu.RLock("ListModelExplainabilityJobDefinitions")
 	defer b.mu.RUnlock()
 
-	return b.listJobDefinitions(b.modelExplainJobDefsStore, region, nextToken, f)
+	return b.listJobDefinitions(b.modelExplainJobDefsStoreRO, region, nextToken, f)
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +457,20 @@ func (b *InMemoryBackend) monitoringAlertsStore(r string) *store.Table[Monitorin
 	return b.monitoringAlerts[r]
 }
 
+// monitoringAlertsStoreRO returns the region-scoped monitoringAlerts table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) monitoringAlertsStoreRO(r string) *store.Table[MonitoringAlert] {
+	if v := b.monitoringAlerts[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *MonitoringAlert) string {
+		return monitoringAlertKey(v.MonitoringScheduleName, v.MonitoringAlertName)
+	})
+}
+
 // UpdateMonitoringAlert updates the datapoints/evaluation-period configuration
 // of a monitoring alert, creating the alert record on first use. It returns
 // the alert's schedule's ARN alongside the updated alert.
@@ -506,7 +520,7 @@ func (b *InMemoryBackend) ListMonitoringAlerts(
 	b.mu.RLock("ListMonitoringAlerts")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.monitoringSchedulesStore(region).Get(scheduleName); !ok {
+	if _, ok := b.monitoringSchedulesStoreRO(region).Get(scheduleName); !ok {
 		return nil, "", fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, scheduleName)
 	}
 
@@ -515,7 +529,7 @@ func (b *InMemoryBackend) ListMonitoringAlerts(
 	// (alert names) behave identically.
 	alerts := make(map[string]*MonitoringAlert)
 
-	for _, a := range b.monitoringAlertsStore(region).All() {
+	for _, a := range b.monitoringAlertsStoreRO(region).All() {
 		if a.MonitoringScheduleName == scheduleName {
 			alerts[a.MonitoringAlertName] = a
 		}
@@ -731,9 +745,9 @@ func (b *InMemoryBackend) ListMonitoringExecutions(
 	b.mu.RLock("ListMonitoringExecutions")
 	defer b.mu.RUnlock()
 
-	list := make([]*MonitoringExecution, 0, b.monitoringExecutionsStore(region).Len())
+	list := make([]*MonitoringExecution, 0, b.monitoringExecutionsStoreRO(region).Len())
 
-	for _, e := range b.monitoringExecutionsStore(region).All() {
+	for _, e := range b.monitoringExecutionsStoreRO(region).All() {
 		if matchesMonitoringExecutionFilter(e, f) {
 			list = append(list, cloneMonitoringExecution(e))
 		}
@@ -814,7 +828,7 @@ func (b *InMemoryBackend) DescribeHumanTaskUI(ctx context.Context, name string) 
 	b.mu.RLock("DescribeHumanTaskUI")
 	defer b.mu.RUnlock()
 
-	ui, ok := b.humanTaskUisStore(region).Get(name)
+	ui, ok := b.humanTaskUisStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: human task UI %q not found", ErrHumanTaskUINotFound, name)
 	}
@@ -829,7 +843,7 @@ func (b *InMemoryBackend) HumanTaskUIExistsByARN(ctx context.Context, humanTaskU
 	b.mu.RLock("HumanTaskUIExistsByARN")
 	defer b.mu.RUnlock()
 
-	for _, ui := range b.humanTaskUisStore(region).All() {
+	for _, ui := range b.humanTaskUisStoreRO(region).All() {
 		if ui.HumanTaskUIArn == humanTaskUIArn {
 			return true
 		}
@@ -1011,7 +1025,7 @@ func (b *InMemoryBackend) DescribeWorkforce(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeWorkforce")
 	defer b.mu.RUnlock()
 
-	w, ok := b.workforcesStore(region).Get(name)
+	w, ok := b.workforcesStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workforce %q not found", ErrWorkforceNotFound, name)
 	}
@@ -1093,7 +1107,7 @@ func (b *InMemoryBackend) ListWorkforces(ctx context.Context, nextToken string) 
 	defer b.mu.RUnlock()
 
 	return sagemakerListKeyPaged(
-		b.workforcesStore(region),
+		b.workforcesStoreRO(region),
 		nextToken,
 		cloneWorkforce,
 		func(v *Workforce) string { return v.WorkforceName },
@@ -1164,7 +1178,7 @@ func (b *InMemoryBackend) DescribeFlowDefinition(ctx context.Context, name strin
 	b.mu.RLock("DescribeFlowDefinition")
 	defer b.mu.RUnlock()
 
-	f, ok := b.flowDefinitionsStore(region).Get(name)
+	f, ok := b.flowDefinitionsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: flow definition %q not found", ErrFlowDefinitionNotFound, name)
 	}
@@ -1253,7 +1267,7 @@ func (b *InMemoryBackend) DescribeAppImageConfig(ctx context.Context, name strin
 	b.mu.RLock("DescribeAppImageConfig")
 	defer b.mu.RUnlock()
 
-	a, ok := b.appImageConfigsStore(region).Get(name)
+	a, ok := b.appImageConfigsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: app image config %q not found", ErrAppImageConfigNotFound, name)
 	}
@@ -1357,7 +1371,7 @@ func (b *InMemoryBackend) DescribeInferenceExperiment(ctx context.Context, name 
 	b.mu.RLock("DescribeInferenceExperiment")
 	defer b.mu.RUnlock()
 
-	e, ok := b.inferenceExperimentsStore(region).Get(name)
+	e, ok := b.inferenceExperimentsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: inference experiment %q not found", ErrInferenceExperimentNotFound, name)
 	}
@@ -1506,7 +1520,7 @@ func (b *InMemoryBackend) DescribeMlflowTrackingServer(
 	b.mu.RLock("DescribeMlflowTrackingServer")
 	defer b.mu.RUnlock()
 
-	s, ok := b.mlflowTrackingServersStore(region).Get(name)
+	s, ok := b.mlflowTrackingServersStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
@@ -1576,7 +1590,7 @@ func (b *InMemoryBackend) CreatePresignedMlflowTrackingServerURL(ctx context.Con
 	b.mu.RLock("CreatePresignedMlflowTrackingServerURL")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.mlflowTrackingServersStore(region).Get(name); !ok {
+	if _, ok := b.mlflowTrackingServersStoreRO(region).Get(name); !ok {
 		return "", fmt.Errorf("%w: MLflow tracking server %q not found", ErrMlflowTrackingServerNotFound, name)
 	}
 
@@ -1667,7 +1681,7 @@ func (b *InMemoryBackend) DescribeMlflowApp(ctx context.Context, arnStr string) 
 	b.mu.RLock("DescribeMlflowApp")
 	defer b.mu.RUnlock()
 
-	m, ok := b.mlflowAppsStore(region).Get(arnStr)
+	m, ok := b.mlflowAppsStoreRO(region).Get(arnStr)
 	if !ok {
 		return nil, fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
 	}
@@ -1743,7 +1757,7 @@ func (b *InMemoryBackend) ListMlflowApps(ctx context.Context, nextToken string) 
 	defer b.mu.RUnlock()
 
 	return sagemakerListKeyPaged(
-		b.mlflowAppsStore(region),
+		b.mlflowAppsStoreRO(region),
 		nextToken,
 		cloneMlflowApp,
 		func(v *MlflowApp) string { return v.Arn },
@@ -1758,7 +1772,7 @@ func (b *InMemoryBackend) CreatePresignedMlflowAppURL(ctx context.Context, arnSt
 	b.mu.RLock("CreatePresignedMlflowAppURL")
 	defer b.mu.RUnlock()
 
-	m, ok := b.mlflowAppsStore(region).Get(arnStr)
+	m, ok := b.mlflowAppsStoreRO(region).Get(arnStr)
 	if !ok {
 		return "", fmt.Errorf("%w: MLflow App %q not found", ErrMlflowAppNotFound, arnStr)
 	}
@@ -1836,7 +1850,7 @@ func (b *InMemoryBackend) DescribeModelCard(ctx context.Context, name string) (*
 	b.mu.RLock("DescribeModelCard")
 	defer b.mu.RUnlock()
 
-	c, ok := b.modelCardsStore(region).Get(name)
+	c, ok := b.modelCardsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: model card %q not found", ErrModelCardNotFound, name)
 	}
@@ -1948,7 +1962,7 @@ func (b *InMemoryBackend) DescribeOptimizationJob(ctx context.Context, name stri
 	b.mu.RLock("DescribeOptimizationJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.optimizationJobsStore(region).Get(name)
+	j, ok := b.optimizationJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: optimization job %q not found", ErrOptimizationJobNotFound, name)
 	}
@@ -2060,7 +2074,7 @@ func (b *InMemoryBackend) DescribeStudioLifecycleConfig(
 	b.mu.RLock("DescribeStudioLifecycleConfig")
 	defer b.mu.RUnlock()
 
-	s, ok := b.studioLifecycleConfigsStore(region).Get(name)
+	s, ok := b.studioLifecycleConfigsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: Studio lifecycle config %q not found", ErrStudioLifecycleConfigNotFound, name)
 	}
@@ -2169,7 +2183,7 @@ func (b *InMemoryBackend) DescribePartnerApp(ctx context.Context, arnStr string)
 	b.mu.RLock("DescribePartnerApp")
 	defer b.mu.RUnlock()
 
-	p, ok := b.partnerAppsStore(region).Get(arnStr)
+	p, ok := b.partnerAppsStoreRO(region).Get(arnStr)
 	if !ok {
 		return nil, fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
@@ -2235,7 +2249,7 @@ func (b *InMemoryBackend) ListPartnerApps(ctx context.Context, nextToken string)
 	defer b.mu.RUnlock()
 
 	return sagemakerListKeyPaged(
-		b.partnerAppsStore(region),
+		b.partnerAppsStoreRO(region),
 		nextToken,
 		clonePartnerApp,
 		func(v *PartnerApp) string { return v.Arn },
@@ -2250,7 +2264,7 @@ func (b *InMemoryBackend) CreatePartnerAppPresignedURL(ctx context.Context, arnS
 	b.mu.RLock("CreatePartnerAppPresignedURL")
 	defer b.mu.RUnlock()
 
-	p, ok := b.partnerAppsStore(region).Get(arnStr)
+	p, ok := b.partnerAppsStoreRO(region).Get(arnStr)
 	if !ok {
 		return "", fmt.Errorf("%w: partner app %q not found", ErrPartnerAppNotFound, arnStr)
 	}
@@ -2413,7 +2427,7 @@ func (b *InMemoryBackend) DescribeTrainingPlan(ctx context.Context, name string)
 	b.mu.RLock("DescribeTrainingPlan")
 	defer b.mu.RUnlock()
 
-	t, ok := b.trainingPlansStore(region).Get(name)
+	t, ok := b.trainingPlansStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: training plan %q not found", ErrTrainingPlanNotFound, name)
 	}

@@ -104,7 +104,7 @@ func (b *InMemoryBackend) DescribeModelCardExportJob(
 	b.mu.RLock("DescribeModelCardExportJob")
 	defer b.mu.RUnlock()
 
-	j, ok := b.modelCardExportJobsStore(region).Get(jobArn)
+	j, ok := b.modelCardExportJobsStoreRO(region).Get(jobArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: model card export job %q not found", ErrModelCardExportJobNotFound, jobArn)
 	}
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) ListModelCardExportJobs(
 
 	list := make([]*ModelCardExportJob, 0)
 
-	for _, j := range b.modelCardExportJobsStore(region).All() {
+	for _, j := range b.modelCardExportJobsStoreRO(region).All() {
 		if modelCardName != "" && j.ModelCardName != modelCardName {
 			continue
 		}

@@ -105,6 +105,18 @@ func (b *InMemoryBackend) artifactsStore(r string) *store.Table[Artifact] {
 	return b.artifacts[r]
 }
 
+// artifactsStoreRO returns the region-scoped artifacts table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) artifactsStoreRO(r string) *store.Table[Artifact] {
+	if v := b.artifacts[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Artifact) string { return v.ArtifactArn })
+}
+
 func (b *InMemoryBackend) contextsStore(r string) *store.Table[Context] {
 	if b.contexts[r] == nil {
 		b.contexts[r] = store.Register(
@@ -117,12 +129,36 @@ func (b *InMemoryBackend) contextsStore(r string) *store.Table[Context] {
 	return b.contexts[r]
 }
 
+// contextsStoreRO returns the region-scoped contexts table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) contextsStoreRO(r string) *store.Table[Context] {
+	if v := b.contexts[r]; v != nil {
+		return v
+	}
+
+	return store.New(func(v *Context) string { return v.ContextName })
+}
+
 func (b *InMemoryBackend) contextARNIndexStore(r string) map[string]string {
 	if b.contextARNIndex[r] == nil {
 		b.contextARNIndex[r] = make(map[string]string)
 	}
 
 	return b.contextARNIndex[r]
+}
+
+// contextARNIndexStoreRO returns the region-scoped contextARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) contextARNIndexStoreRO(r string) map[string]string {
+	if v := b.contextARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +220,7 @@ func (b *InMemoryBackend) DescribeArtifact(ctx context.Context, artifactArn stri
 
 	region := getRegion(ctx, b.region)
 
-	ar, ok := b.artifactsStore(region).Get(artifactArn)
+	ar, ok := b.artifactsStoreRO(region).Get(artifactArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: artifact %q not found", ErrArtifactNotFound, artifactArn)
 	}
@@ -257,7 +293,7 @@ func (b *InMemoryBackend) ListArtifacts(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.artifactsStore(region)
+	store := b.artifactsStoreRO(region)
 
 	filtered := make(map[string]*Artifact, store.Len())
 
@@ -337,7 +373,7 @@ func (b *InMemoryBackend) DescribeContext(ctx context.Context, name string) (*Co
 
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.contextsStore(region).Get(name)
+	c, ok := b.contextsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: context %q not found", ErrContextNotFound, name)
 	}
@@ -411,7 +447,7 @@ func (b *InMemoryBackend) ListContexts(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.contextsStore(region)
+	store := b.contextsStoreRO(region)
 
 	filtered := make(map[string]*Context, store.Len())
 
@@ -442,7 +478,7 @@ func (b *InMemoryBackend) DescribeAction(ctx context.Context, name string) (*Act
 
 	region := getRegion(ctx, b.region)
 
-	a, ok := b.actionsStore(region).Get(name)
+	a, ok := b.actionsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: action %q not found", ErrActionNotFound, name)
 	}
@@ -520,7 +556,7 @@ func (b *InMemoryBackend) ListActions(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.actionsStore(region)
+	store := b.actionsStoreRO(region)
 
 	filtered := make(map[string]*Action, store.Len())
 
@@ -576,7 +612,7 @@ func (b *InMemoryBackend) ListAssociations(
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.associationsStore(region)
+	store := b.associationsStoreRO(region)
 
 	filtered := make(map[string]*Association, store.Len())
 
@@ -658,18 +694,18 @@ func (b *InMemoryBackend) GetLineageGroupPolicy(ctx context.Context, nameOrArn s
 func (b *InMemoryBackend) lineageEntityLookup(
 	region, entityArn string,
 ) (string, string, string, bool) {
-	if actionName, found := b.actionARNIndexStore(region)[entityArn]; found {
-		if a, exists := b.actionsStore(region).Get(actionName); exists {
+	if actionName, found := b.actionARNIndexStoreRO(region)[entityArn]; found {
+		if a, exists := b.actionsStoreRO(region).Get(actionName); exists {
 			return a.ActionName, a.ActionType, "Action", true
 		}
 	}
 
-	if ar, found := b.artifactsStore(region).Get(entityArn); found {
+	if ar, found := b.artifactsStoreRO(region).Get(entityArn); found {
 		return ar.ArtifactName, ar.ArtifactType, "Artifact", true
 	}
 
-	if contextName, found := b.contextARNIndexStore(region)[entityArn]; found {
-		if c, exists := b.contextsStore(region).Get(contextName); exists {
+	if contextName, found := b.contextARNIndexStoreRO(region)[entityArn]; found {
+		if c, exists := b.contextsStoreRO(region).Get(contextName); exists {
 			return c.ContextName, c.ContextType, "Context", true
 		}
 	}
@@ -783,7 +819,7 @@ func (b *InMemoryBackend) buildLineageAdjacency(region string) (map[string][]Edg
 	fwd := make(map[string][]Edge)
 	back := make(map[string][]Edge)
 
-	for _, a := range b.associationsStore(region).All() {
+	for _, a := range b.associationsStoreRO(region).All() {
 		e := Edge{SourceArn: a.SourceArn, DestinationArn: a.DestinationArn, AssociationType: a.AssociationType}
 		fwd[a.SourceArn] = append(fwd[a.SourceArn], e)
 		back[a.DestinationArn] = append(back[a.DestinationArn], e)

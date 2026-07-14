@@ -115,7 +115,7 @@ func (b *InMemoryBackend) ListCandidatesForAutoMLJob(
 	b.mu.RLock("ListCandidatesForAutoMLJob")
 	defer b.mu.RUnlock()
 
-	job, ok := b.autoMLJobsStore(region).Get(jobName)
+	job, ok := b.autoMLJobsStoreRO(region).Get(jobName)
 	if !ok {
 		return nil, "", fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, jobName)
 	}
@@ -223,8 +223,8 @@ func matchesSearchExpression(flat map[string]any, filters []SearchFilter, boolOp
 func (b *InMemoryBackend) searchableResources(region, resource string) []searchResourceItem {
 	switch resource {
 	case resourceTrainingJob:
-		items := make([]searchResourceItem, 0, b.trainingJobsStore(region).Len())
-		for _, tj := range b.trainingJobsStore(region).All() {
+		items := make([]searchResourceItem, 0, b.trainingJobsStoreRO(region).Len())
+		for _, tj := range b.trainingJobsStoreRO(region).All() {
 			items = append(items, searchResourceItem{
 				raw: tj, flat: toJSONFlatMap(tj), key: tj.TrainingJobName,
 			})
@@ -232,8 +232,8 @@ func (b *InMemoryBackend) searchableResources(region, resource string) []searchR
 
 		return items
 	case resourcePipeline:
-		items := make([]searchResourceItem, 0, b.pipelinesStore(region).Len())
-		for _, p := range b.pipelinesStore(region).All() {
+		items := make([]searchResourceItem, 0, b.pipelinesStoreRO(region).Len())
+		for _, p := range b.pipelinesStoreRO(region).All() {
 			items = append(items, searchResourceItem{
 				raw: p, flat: toJSONFlatMap(p), key: p.PipelineName,
 			})
@@ -471,7 +471,7 @@ func (b *InMemoryBackend) GetScalingConfigurationRecommendation(
 	b.mu.RLock("GetScalingConfigurationRecommendation")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.inferenceRecommendationsJobsStore(region).Get(jobName); !ok {
+	if _, ok := b.inferenceRecommendationsJobsStoreRO(region).Get(jobName); !ok {
 		return nil, fmt.Errorf(
 			"%w: inference recommendations job %q not found", ErrInferenceRecommendationsJobNotFound, jobName,
 		)

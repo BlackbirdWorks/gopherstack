@@ -97,7 +97,7 @@ func (b *InMemoryBackend) GetRecord(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region).Get(featureGroupName); !ok {
+	if _, ok := b.featureGroupsStoreRO(region).Get(featureGroupName); !ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %q not found",
 			ErrFeatureGroupNotFound,
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) GetRecord(
 
 	key := featureRecordKey(featureGroupName, recordIDValue)
 
-	rec, ok := b.featureRecordsStore(region).Get(key)
+	rec, ok := b.featureRecordsStoreRO(region).Get(key)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: record %q not found in feature group %q",
@@ -240,7 +240,7 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 
 	region := getRegion(ctx, b.region)
 
-	fg, ok := b.featureGroupsStore(region).Get(featureGroupName)
+	fg, ok := b.featureGroupsStoreRO(region).Get(featureGroupName)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %q not found",
@@ -262,7 +262,7 @@ func (b *InMemoryBackend) GetFeatureMetadata(
 
 	key := featureMetaKey(featureGroupName, featureName)
 
-	meta, ok := b.featureMetadataStore(region).Get(key)
+	meta, ok := b.featureMetadataStoreRO(region).Get(key)
 	if !ok {
 		// Return default metadata if not explicitly set.
 		return &FeatureMetadata{

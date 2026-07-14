@@ -120,7 +120,7 @@ func (b *InMemoryBackend) DescribeModelPackageGroup(ctx context.Context, name st
 
 	region := getRegion(ctx, b.region)
 
-	g, ok := b.modelPackageGroupsStore(region).Get(name)
+	g, ok := b.modelPackageGroupsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) ListModelPackageGroups(ctx context.Context, nextToken 
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.modelPackageGroupsStore(region),
+		b.modelPackageGroupsStoreRO(region),
 		nextToken,
 		cloneModelPackageGroup,
 		func(v *ModelPackageGroup) string { return v.ModelPackageGroupName },
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) GetModelPackageGroupPolicy(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	g, ok := b.modelPackageGroupsStore(region).Get(name)
+	g, ok := b.modelPackageGroupsStoreRO(region).Get(name)
 	if !ok {
 		return "", fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
@@ -286,13 +286,13 @@ func (b *InMemoryBackend) DescribeModelPackage(ctx context.Context, nameOrArn st
 	region := getRegion(ctx, b.region)
 
 	// Try direct ARN lookup first.
-	if mp, ok := b.modelPackagesStore(region).Get(nameOrArn); ok {
+	if mp, ok := b.modelPackagesStoreRO(region).Get(nameOrArn); ok {
 		return cloneModelPackage(mp), nil
 	}
 
 	// Try name → ARN index.
-	if arnStr, ok := b.modelPackageARNIndexStore(region)[nameOrArn]; ok {
-		if mp, found := b.modelPackagesStore(region).Get(arnStr); found {
+	if arnStr, ok := b.modelPackageARNIndexStoreRO(region)[nameOrArn]; ok {
+		if mp, found := b.modelPackagesStoreRO(region).Get(arnStr); found {
 			return cloneModelPackage(mp), nil
 		}
 	}
@@ -336,7 +336,7 @@ func (b *InMemoryBackend) ListModelPackages(
 	region := getRegion(ctx, b.region)
 
 	var arns []string
-	for _, mp := range b.modelPackagesStore(region).All() {
+	for _, mp := range b.modelPackagesStoreRO(region).All() {
 		if groupName == "" || mp.ModelPackageGroupName == groupName {
 			arns = append(arns, mp.ModelPackageArn)
 		}
@@ -359,7 +359,7 @@ func (b *InMemoryBackend) ListModelPackages(
 
 	out := make([]*ModelPackage, 0, end-start)
 	for _, k := range arns[start:end] {
-		out = append(out, cloneModelPackage(tableGet(b.modelPackagesStore(region), k)))
+		out = append(out, cloneModelPackage(tableGet(b.modelPackagesStoreRO(region), k)))
 	}
 
 	next := ""
@@ -455,7 +455,7 @@ func (b *InMemoryBackend) DescribeAutoMLJob(ctx context.Context, name string) (*
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.autoMLJobsStore(region).Get(name)
+	j, ok := b.autoMLJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: AutoML job %q not found", ErrAutoMLJobNotFound, name)
 	}
@@ -494,7 +494,7 @@ func (b *InMemoryBackend) ListAutoMLJobs(ctx context.Context, nextToken string) 
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.autoMLJobsStore(region),
+		b.autoMLJobsStoreRO(region),
 		nextToken,
 		cloneAutoMLJob,
 		func(v *AutoMLJob) string { return v.AutoMLJobName },
@@ -597,7 +597,7 @@ func (b *InMemoryBackend) DescribeCodeRepository(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	r, ok := b.codeRepositoriesStore(region).Get(name)
+	r, ok := b.codeRepositoriesStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: code repository %q not found", ErrCodeRepositoryNotFound, name)
 	}
@@ -655,7 +655,7 @@ func (b *InMemoryBackend) ListCodeRepositories(ctx context.Context, nextToken st
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.codeRepositoriesStore(region),
+		b.codeRepositoriesStoreRO(region),
 		nextToken,
 		cloneCodeRepository,
 		func(v *CodeRepository) string { return v.CodeRepositoryName },
@@ -726,7 +726,7 @@ func (b *InMemoryBackend) DescribeProject(ctx context.Context, name string) (*Pr
 
 	region := getRegion(ctx, b.region)
 
-	p, ok := b.projectsStore(region).Get(name)
+	p, ok := b.projectsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: project %q not found", ErrProjectNotFound, name)
 	}
@@ -759,7 +759,7 @@ func (b *InMemoryBackend) ListProjects(ctx context.Context, nextToken string) ([
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.projectsStore(region),
+		b.projectsStoreRO(region),
 		nextToken,
 		cloneProject,
 		func(v *Project) string { return v.ProjectName },
@@ -841,7 +841,7 @@ func (b *InMemoryBackend) DescribeSpace(ctx context.Context, domainID, spaceName
 
 	region := getRegion(ctx, b.region)
 
-	s, ok := b.spacesStore(region).Get(spaceKey(domainID, spaceName))
+	s, ok := b.spacesStoreRO(region).Get(spaceKey(domainID, spaceName))
 	if !ok {
 		return nil, fmt.Errorf("%w: space %q not found in domain %q", ErrSpaceNotFound, spaceName, domainID)
 	}
@@ -876,7 +876,7 @@ func (b *InMemoryBackend) ListSpaces(ctx context.Context, domainID, nextToken st
 	region := getRegion(ctx, b.region)
 
 	var keys []string
-	for _, s := range b.spacesStore(region).All() {
+	for _, s := range b.spacesStoreRO(region).All() {
 		if domainID == "" || s.DomainID == domainID {
 			keys = append(keys, spaceKey(s.DomainID, s.SpaceName))
 		}
@@ -899,7 +899,7 @@ func (b *InMemoryBackend) ListSpaces(ctx context.Context, domainID, nextToken st
 
 	out := make([]*Space, 0, end-start)
 	for _, k := range keys[start:end] {
-		out = append(out, cloneSpace(tableGet(b.spacesStore(region), k)))
+		out = append(out, cloneSpace(tableGet(b.spacesStoreRO(region), k)))
 	}
 
 	next := ""
@@ -978,7 +978,7 @@ func (b *InMemoryBackend) DescribeImage(ctx context.Context, name string) (*SMIm
 
 	region := getRegion(ctx, b.region)
 
-	img, ok := b.smImagesStore(region).Get(name)
+	img, ok := b.smImagesStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, name)
 	}
@@ -1071,7 +1071,7 @@ func (b *InMemoryBackend) ListImages(ctx context.Context, nextToken string) ([]*
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.smImagesStore(region),
+		b.smImagesStoreRO(region),
 		nextToken,
 		cloneSMImage,
 		func(v *SMImage) string { return v.ImageName },
@@ -1157,7 +1157,7 @@ func (b *InMemoryBackend) DescribeImageVersion(
 
 	region := getRegion(ctx, b.region)
 
-	versions, ok := b.imageVersionsStore(region)[imageName]
+	versions, ok := b.imageVersionsStoreRO(region)[imageName]
 	if !ok {
 		return nil, fmt.Errorf("%w: no versions found for image %q", ErrImageVersionNotFound, imageName)
 	}
@@ -1308,7 +1308,7 @@ func (b *InMemoryBackend) ListImageVersions(
 
 	region := getRegion(ctx, b.region)
 
-	versions := b.imageVersionsStore(region)[imageName]
+	versions := b.imageVersionsStoreRO(region)[imageName]
 
 	nums := make([]int, 0, len(versions))
 	for v := range versions {
@@ -1443,7 +1443,7 @@ func (b *InMemoryBackend) DescribeCompilationJob(ctx context.Context, name strin
 
 	region := getRegion(ctx, b.region)
 
-	j, ok := b.compilationJobsStore(region).Get(name)
+	j, ok := b.compilationJobsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: compilation job %q not found", ErrCompilationJobNotFound, name)
 	}
@@ -1500,7 +1500,7 @@ func (b *InMemoryBackend) ListCompilationJobs(ctx context.Context, nextToken str
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.compilationJobsStore(region),
+		b.compilationJobsStoreRO(region),
 		nextToken,
 		cloneCompilationJob,
 		func(v *CompilationJob) string { return v.CompilationJobName },
@@ -1609,7 +1609,7 @@ func (b *InMemoryBackend) DescribeMonitoringSchedule(ctx context.Context, name s
 
 	region := getRegion(ctx, b.region)
 
-	ms, ok := b.monitoringSchedulesStore(region).Get(name)
+	ms, ok := b.monitoringSchedulesStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: monitoring schedule %q not found", ErrMonitoringScheduleNotFound, name)
 	}
@@ -1709,7 +1709,7 @@ func (b *InMemoryBackend) ListMonitoringSchedules(
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.monitoringSchedulesStore(region),
+		b.monitoringSchedulesStoreRO(region),
 		nextToken,
 		cloneMonitoringSchedule,
 		func(v *MonitoringSchedule) string { return v.MonitoringScheduleName },
@@ -1855,7 +1855,7 @@ func (b *InMemoryBackend) DescribeWorkteam(ctx context.Context, name string) (*W
 
 	region := getRegion(ctx, b.region)
 
-	w, ok := b.workteamsStore(region).Get(name)
+	w, ok := b.workteamsStoreRO(region).Get(name)
 	if !ok {
 		return nil, fmt.Errorf("%w: workteam %q not found", ErrWorkteamNotFound, name)
 	}
@@ -1888,7 +1888,7 @@ func (b *InMemoryBackend) ListWorkteams(ctx context.Context, nextToken string) (
 	region := getRegion(ctx, b.region)
 
 	return sagemakerListKeyPaged(
-		b.workteamsStore(region),
+		b.workteamsStoreRO(region),
 		nextToken,
 		cloneWorkteam,
 		func(v *Workteam) string { return v.WorkteamName },

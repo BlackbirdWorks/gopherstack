@@ -173,7 +173,7 @@ func (b *InMemoryBackend) DescribeReservedCapacity(
 	b.mu.RLock("DescribeReservedCapacity")
 	defer b.mu.RUnlock()
 
-	rc, ok := b.reservedCapacitiesStore(region).Get(reservedCapacityArn)
+	rc, ok := b.reservedCapacitiesStoreRO(region).Get(reservedCapacityArn)
 	if !ok {
 		return nil, fmt.Errorf("%w: reserved capacity %q not found", ErrReservedCapacityNotFound, reservedCapacityArn)
 	}
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) ListUltraServersByReservedCapacity(
 	b.mu.RLock("ListUltraServersByReservedCapacity")
 	defer b.mu.RUnlock()
 
-	rc, ok := b.reservedCapacitiesStore(region).Get(reservedCapacityArn)
+	rc, ok := b.reservedCapacitiesStoreRO(region).Get(reservedCapacityArn)
 	if !ok {
 		return nil, "", fmt.Errorf(
 			"%w: reserved capacity %q not found", ErrReservedCapacityNotFound, reservedCapacityArn,
@@ -542,7 +542,7 @@ func (b *InMemoryBackend) DescribeTrainingPlanExtensionHistory(
 // findTrainingPlanByARN scans the region's training plans for a matching ARN.
 // Called with b.mu held (read or write).
 func (b *InMemoryBackend) findTrainingPlanByARN(region, trainingPlanArn string) (*TrainingPlan, bool) {
-	for _, t := range b.trainingPlansStore(region).All() {
+	for _, t := range b.trainingPlansStoreRO(region).All() {
 		if t.TrainingPlanArn == trainingPlanArn {
 			return t, true
 		}
@@ -574,7 +574,7 @@ func (b *InMemoryBackend) ListTrainingPlans(
 	b.mu.RLock("ListTrainingPlans")
 	defer b.mu.RUnlock()
 
-	store := b.trainingPlansStore(region)
+	store := b.trainingPlansStoreRO(region)
 	list := make([]*TrainingPlan, 0, store.Len())
 
 	for _, t := range store.All() {

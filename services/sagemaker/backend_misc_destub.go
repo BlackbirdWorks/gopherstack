@@ -116,9 +116,9 @@ func (b *InMemoryBackend) ListTrialComponents(
 
 	allowed := b.trialComponentNameFilterLocked(region, experimentName, trialName)
 
-	list := make([]*TrialComponent, 0, b.trialComponentsStore(region).Len())
+	list := make([]*TrialComponent, 0, b.trialComponentsStoreRO(region).Len())
 
-	for _, tc := range b.trialComponentsStore(region).All() {
+	for _, tc := range b.trialComponentsStoreRO(region).All() {
 		if allowed != nil {
 			if _, ok := allowed[tc.TrialComponentName]; !ok {
 				continue
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) trialComponentNameFilterLocked(
 	if trialName != "" {
 		trialNames[trialName] = true
 	} else {
-		for _, t := range b.trialsStore(region).All() {
+		for _, t := range b.trialsStoreRO(region).All() {
 			if t.ExperimentName == experimentName {
 				trialNames[t.TrialName] = true
 			}
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) trialComponentNameFilterLocked(
 
 	allowed := map[string]bool{}
 
-	for _, assoc := range b.trialComponentAssociationsStore(region).All() {
+	for _, assoc := range b.trialComponentAssociationsStoreRO(region).All() {
 		if trialNames[assoc.TrialName] {
 			allowed[assoc.TrialComponentName] = true
 		}
@@ -184,11 +184,11 @@ func (b *InMemoryBackend) ListImageAliases(
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.smImagesStore(region).Get(imageName); !ok {
+	if _, ok := b.smImagesStoreRO(region).Get(imageName); !ok {
 		return nil, "", fmt.Errorf("%w: image %q not found", ErrSMImageNotFound, imageName)
 	}
 
-	versions := b.imageVersionsStore(region)[imageName]
+	versions := b.imageVersionsStoreRO(region)[imageName]
 
 	var candidates []*ImageVersion
 
