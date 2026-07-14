@@ -718,3 +718,256 @@ func TestCreateAction_TagsPresent(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_AddAssociation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success with association type",
+			body: map[string]any{
+				"SourceArn":       "arn:aws:sagemaker:us-east-1:000000000000:experiment-trial/trial-1",
+				"DestinationArn":  "arn:aws:sagemaker:us-east-1:000000000000:artifact/artifact-1",
+				"AssociationType": "ContributedTo",
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "success without association type",
+			body: map[string]any{
+				"SourceArn":      "arn:aws:sagemaker:us-east-1:000000000000:experiment/exp-1",
+				"DestinationArn": "arn:aws:sagemaker:us-east-1:000000000000:artifact/artifact-2",
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "missing SourceArn",
+			body: map[string]any{
+				"DestinationArn": "arn:aws:sagemaker:us-east-1:000000000000:artifact/x",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing DestinationArn",
+			body: map[string]any{
+				"SourceArn": "arn:aws:sagemaker:us-east-1:000000000000:trial/x",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid json",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "AddAssociation", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["AssociationArn"], "arn:aws:sagemaker")
+			}
+		})
+	}
+}
+
+func TestHandler_AddAssociation_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"SourceArn":      "arn:aws:sagemaker:us-east-1:000000000000:trial/t1",
+		"DestinationArn": "arn:aws:sagemaker:us-east-1:000000000000:artifact/a1",
+	}
+
+	rec := doSageMakerRequest(t, h, "AddAssociation", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doSageMakerRequest(t, h, "AddAssociation", body)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+func TestHandler_AssociateTrialComponent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		wantArns bool
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"TrialName":          "my-trial",
+				"TrialComponentName": "my-component",
+			},
+			wantCode: http.StatusOK,
+			wantArns: true,
+		},
+		{
+			name:     "missing TrialName",
+			body:     map[string]any{"TrialComponentName": "my-component"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing TrialComponentName",
+			body:     map[string]any{"TrialName": "my-trial"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid json",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "AssociateTrialComponent", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantArns {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["TrialArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp["TrialComponentArn"], "arn:aws:sagemaker")
+			}
+		})
+	}
+}
+
+func TestHandler_AssociateTrialComponent_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"TrialName":          "trial-x",
+		"TrialComponentName": "comp-x",
+	}
+
+	rec := doSageMakerRequest(t, h, "AssociateTrialComponent", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doSageMakerRequest(t, h, "AssociateTrialComponent", body)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+func TestHandler_CreateAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success with all fields",
+			body: map[string]any{
+				"ActionName": "my-action",
+				"ActionType": "ModelDeployment",
+				"Source": map[string]any{
+					"SourceUri":  "s3://my-bucket/my-model",
+					"SourceType": "S3URIPrefix",
+				},
+				"Description": "test action",
+				"Status":      "Completed",
+				"Properties":  map[string]string{"key": "value"},
+				"Tags":        []map[string]string{{"Key": "env", "Value": "test"}},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "success minimal",
+			body: map[string]any{
+				"ActionName": "minimal-action",
+				"ActionType": "ModelDeployment",
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name:     "missing ActionName",
+			body:     map[string]any{"ActionType": "ModelDeployment"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid json",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "CreateAction", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ActionArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp["ActionArn"], "action/")
+			}
+		})
+	}
+}
+
+func TestHandler_CreateAction_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"ActionName": "dup-action",
+		"ActionType": "ModelDeployment",
+	}
+
+	rec := doSageMakerRequest(t, h, "CreateAction", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doSageMakerRequest(t, h, "CreateAction", body)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}

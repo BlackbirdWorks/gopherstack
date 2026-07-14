@@ -176,3 +176,82 @@ func TestCreateAlgorithm_TagsPresent(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_CreateAlgorithm(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success with description and tags",
+			body: map[string]any{
+				"AlgorithmName":        "my-algorithm",
+				"AlgorithmDescription": "a great algorithm",
+				"Tags":                 []map[string]string{{"Key": "owner", "Value": "team-a"}},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "success minimal",
+			body: map[string]any{
+				"AlgorithmName": "minimal-algo",
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name:     "missing AlgorithmName",
+			body:     map[string]any{"AlgorithmDescription": "desc"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid json",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "CreateAlgorithm", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["AlgorithmArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp["AlgorithmArn"], "algorithm/")
+			}
+		})
+	}
+}
+
+func TestHandler_CreateAlgorithm_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	body := map[string]any{
+		"AlgorithmName": "dup-algo",
+	}
+
+	rec := doSageMakerRequest(t, h, "CreateAlgorithm", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec2 := doSageMakerRequest(t, h, "CreateAlgorithm", body)
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}

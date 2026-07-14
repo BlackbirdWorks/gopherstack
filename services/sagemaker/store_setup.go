@@ -33,6 +33,8 @@ const (
 	statusRunning = "Running"
 )
 
+const idByteLen = 12 // number of random bytes used when generating resource IDs
+
 const sagemakerDefaultPageSize = 100
 
 const (

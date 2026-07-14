@@ -813,3 +813,132 @@ func (h *Handler) handleQueryLineage(ctx context.Context, body []byte) ([]byte, 
 
 	return json.Marshal(map[string]any{"Vertices": vertices, "Edges": edges})
 }
+
+// addAssociationRequest is the request body for AddAssociation.
+type addAssociationRequest struct {
+	SourceArn       string      `json:"SourceArn"`
+	DestinationArn  string      `json:"DestinationArn"`
+	AssociationType string      `json:"AssociationType"`
+	Tags            []tagObject `json:"Tags"`
+}
+
+func (h *Handler) handleAddAssociation(ctx context.Context, body []byte) ([]byte, error) {
+	var req addAssociationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.SourceArn == "" {
+		return nil, fmt.Errorf("%w: SourceArn is required", errInvalidRequest)
+	}
+
+	if req.DestinationArn == "" {
+		return nil, fmt.Errorf("%w: DestinationArn is required", errInvalidRequest)
+	}
+
+	tags := fromTagObjects(req.Tags)
+
+	assoc, err := h.Backend.AddAssociation(
+		ctx,
+		req.SourceArn,
+		req.DestinationArn,
+		req.AssociationType,
+		tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: added association", "arn", assoc.AssociationArn)
+
+	return json.Marshal(map[string]string{"AssociationArn": assoc.AssociationArn})
+}
+
+// associateTrialComponentRequest is the request body for AssociateTrialComponent.
+type associateTrialComponentRequest struct {
+	TrialName          string `json:"TrialName"`
+	TrialComponentName string `json:"TrialComponentName"`
+}
+
+func (h *Handler) handleAssociateTrialComponent(ctx context.Context, body []byte) ([]byte, error) {
+	var req associateTrialComponentRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.TrialName == "" {
+		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
+	}
+
+	if req.TrialComponentName == "" {
+		return nil, fmt.Errorf("%w: TrialComponentName is required", errInvalidRequest)
+	}
+
+	assoc, err := h.Backend.AssociateTrialComponent(ctx, req.TrialName, req.TrialComponentName)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: associated trial component",
+		"trial", assoc.TrialArn, "component", assoc.TrialComponentArn)
+
+	return json.Marshal(map[string]string{
+		"TrialArn":          assoc.TrialArn,
+		"TrialComponentArn": assoc.TrialComponentArn,
+	})
+}
+
+// actionSourceRequest is the source for a CreateAction request.
+type actionSourceRequest struct {
+	SourceURI  string `json:"SourceUri"`
+	SourceType string `json:"SourceType,omitempty"`
+}
+
+// createActionRequest is the request body for CreateAction.
+type createActionRequest struct {
+	Properties  map[string]string   `json:"Properties"`
+	Source      actionSourceRequest `json:"Source"`
+	ActionName  string              `json:"ActionName"`
+	ActionType  string              `json:"ActionType"`
+	Description string              `json:"Description,omitempty"`
+	Status      string              `json:"Status,omitempty"`
+	Tags        []tagObject         `json:"Tags"`
+}
+
+func (h *Handler) handleCreateAction(ctx context.Context, body []byte) ([]byte, error) {
+	var req createActionRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ActionName == "" {
+		return nil, fmt.Errorf("%w: ActionName is required", errInvalidRequest)
+	}
+
+	tags := fromTagObjects(req.Tags)
+	source := ActionSource{
+		SourceURI:  req.Source.SourceURI,
+		SourceType: req.Source.SourceType,
+	}
+
+	a, err := h.Backend.CreateAction(
+		ctx,
+		req.ActionName,
+		req.ActionType,
+		req.Description,
+		req.Status,
+		source,
+		req.Properties,
+		tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "sagemaker: created action", "name", a.ActionName, "arn", a.ActionArn)
+
+	return json.Marshal(map[string]string{"ActionArn": a.ActionArn})
+}

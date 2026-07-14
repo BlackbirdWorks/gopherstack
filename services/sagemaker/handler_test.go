@@ -1360,3 +1360,26 @@ func TestHandler_GetSupportedOperations_StatefulOps(t *testing.T) {
 		assert.Contains(t, ops, op)
 	}
 }
+
+func TestHandler_SupportedOps_NewOps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+
+	required := []string{
+		"CreateTransformJob",
+		"DescribeTransformJob",
+		"ListTransformJobs",
+		"StopTransformJob",
+		"UpdateFeatureGroup",
+		"UpdateExperiment",
+		"UpdateTrial",
+		"UpdateTrialComponent",
+		"ListPipelineParametersForExecution",
+	}
+
+	for _, op := range required {
+		assert.Contains(t, ops, op, "missing op: %s", op)
+	}
+}

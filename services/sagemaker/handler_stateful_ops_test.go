@@ -784,3 +784,286 @@ func TestBackend_PipelineOps_NotFound(t *testing.T) {
 	_, err = b.StopPipelineExecution(context.Background(), "nonexistent-exec-arn")
 	require.Error(t, err)
 }
+
+func TestHandler_UpdateUserProfile(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateDomain", map[string]any{
+		"DomainName": "my-domain",
+		"AuthMode":   "SSO",
+	})
+
+	var domainResp map[string]any
+	rec := doSageMakerRequest(t, h, "ListDomains", map[string]any{})
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &domainResp))
+	domains := domainResp["Domains"].([]any)
+	require.Len(t, domains, 1)
+	domainID := domains[0].(map[string]any)["DomainId"].(string)
+
+	doSageMakerRequest(t, h, "CreateUserProfile", map[string]any{
+		"DomainId":        domainID,
+		"UserProfileName": "my-user",
+	})
+
+	rec = doSageMakerRequest(t, h, "UpdateUserProfile", map[string]any{
+		"DomainId":        domainID,
+		"UserProfileName": "my-user",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp["UserProfileArn"])
+}
+
+func TestHandler_UpdateUserProfile_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "UpdateUserProfile", map[string]any{
+		"DomainId":        "d-nonexistent",
+		"UserProfileName": "no-user",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// Batch3 list operation tests
+// ---------------------------------------------------------------------------
+
+func TestHandler_UpdateFeatureGroup(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create feature group
+	rec := doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{
+		"FeatureGroupName":            "my-features",
+		"RecordIdentifierFeatureName": "id",
+		"EventTimeFeatureName":        "ts",
+		"FeatureDefinitions": []any{
+			map[string]any{"FeatureName": "id", "FeatureType": "String"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Update: add a new feature definition
+	rec = doSageMakerRequest(t, h, "UpdateFeatureGroup", map[string]any{
+		"FeatureGroupName": "my-features",
+		"FeatureAdditions": []any{
+			map[string]any{"FeatureName": "score", "FeatureType": "Fractional"},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	assert.NotEmpty(t, updateResp["FeatureGroupArn"])
+
+	// Describe should show 2 features now
+	rec = doSageMakerRequest(t, h, "DescribeFeatureGroup", map[string]any{
+		"FeatureGroupName": "my-features",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	defs := descResp["FeatureDefinitions"].([]any)
+	assert.Len(t, defs, 2)
+}
+
+func TestHandler_UpdateFeatureGroup_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "UpdateFeatureGroup", map[string]any{
+		"FeatureGroupName": "nonexistent",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// UpdateExperiment, UpdateTrial, UpdateTrialComponent (gap #26)
+// ---------------------------------------------------------------------------
+
+func TestHandler_UpdateExperiment(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateExperiment", map[string]any{
+		"ExperimentName": "my-exp",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdateExperiment", map[string]any{
+		"ExperimentName": "my-exp",
+		"DisplayName":    "My Experiment",
+		"Description":    "A test experiment",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	assert.NotEmpty(t, updateResp["ExperimentArn"])
+
+	// Describe returns updated fields
+	rec = doSageMakerRequest(t, h, "DescribeExperiment", map[string]any{
+		"ExperimentName": "my-exp",
+	})
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "My Experiment", descResp["DisplayName"])
+	assert.Equal(t, "A test experiment", descResp["Description"])
+}
+
+func TestHandler_UpdateExperiment_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "UpdateExperiment", map[string]any{
+		"ExperimentName": "nonexistent",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UpdateTrial(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateExperiment", map[string]any{"ExperimentName": "exp"})
+	doSageMakerRequest(t, h, "CreateTrial", map[string]any{
+		"TrialName":      "my-trial",
+		"ExperimentName": "exp",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdateTrial", map[string]any{
+		"TrialName":   "my-trial",
+		"DisplayName": "Trial Display",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	assert.NotEmpty(t, updateResp["TrialArn"])
+
+	// Describe returns updated DisplayName
+	rec = doSageMakerRequest(t, h, "DescribeTrial", map[string]any{"TrialName": "my-trial"})
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "Trial Display", descResp["DisplayName"])
+}
+
+func TestHandler_UpdateTrialComponent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateTrialComponent", map[string]any{
+		"TrialComponentName": "my-tc",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdateTrialComponent", map[string]any{
+		"TrialComponentName": "my-tc",
+		"DisplayName":        "TC Display",
+		"Status":             "InProgress",
+		"Parameters": map[string]any{
+			"lr": map[string]any{"NumberValue": 0.001},
+		},
+		"InputArtifacts": map[string]any{
+			"train": map[string]any{"Value": "s3://bucket/train", "MediaType": "text/csv"},
+		},
+		"OutputArtifacts": map[string]any{
+			"model": map[string]any{"Value": "s3://bucket/model.tar.gz"},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var updateResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	assert.NotEmpty(t, updateResp["TrialComponentArn"])
+
+	// Describe returns updated fields
+	rec = doSageMakerRequest(t, h, "DescribeTrialComponent", map[string]any{
+		"TrialComponentName": "my-tc",
+	})
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "TC Display", descResp["DisplayName"])
+	assert.Equal(t, "InProgress", descResp["Status"])
+	assert.NotNil(t, descResp["Parameters"])
+	assert.NotNil(t, descResp["InputArtifacts"])
+	assert.NotNil(t, descResp["OutputArtifacts"])
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline full fields (gaps #23, #25)
+// ---------------------------------------------------------------------------
+
+func TestHandler_Tags_FeatureGroup(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{
+		"FeatureGroupName":            "tagged-fg",
+		"RecordIdentifierFeatureName": "id",
+		"EventTimeFeatureName":        "ts",
+		"Tags": []any{
+			map[string]any{"Key": "env", "Value": "test"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	fgARN := createResp["FeatureGroupArn"]
+	require.NotEmpty(t, fgARN)
+
+	// ListTags should find the tag via ARN
+	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
+		"ResourceArn": fgARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	tags := tagsResp["Tags"].([]any)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "env", tags[0].(map[string]any)["Key"])
+}
+
+func TestHandler_Tags_Experiment(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateExperiment", map[string]any{
+		"ExperimentName": "tagged-exp",
+		"Tags": []any{
+			map[string]any{"Key": "project", "Value": "ml"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	expARN := createResp["ExperimentArn"]
+	require.NotEmpty(t, expARN)
+
+	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
+		"ResourceArn": expARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var tagsResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	tags := tagsResp["Tags"].([]any)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "project", tags[0].(map[string]any)["Key"])
+}

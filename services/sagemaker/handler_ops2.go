@@ -495,3 +495,41 @@ func (h *Handler) handleDeleteHyperParameterTuningJob(ctx context.Context, body 
 
 	return nil
 }
+
+// listResp builds a paginated list response with the given key and items.
+func listResp(key string, items []map[string]any, nextToken string) ([]byte, error) {
+	resp := map[string]any{key: items}
+	if nextToken != "" {
+		resp[keyNextToken] = nextToken
+	}
+
+	return json.Marshal(resp)
+}
+
+func (h *Handler) handleListTrainingJobsForHyperParameterTuningJob(ctx context.Context, body []byte) ([]byte, error) {
+	var req struct {
+		HyperParameterTuningJobName string `json:"HyperParameterTuningJobName"`
+		NextToken                   string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.HyperParameterTuningJobName == "" {
+		return nil, fmt.Errorf("%w: HyperParameterTuningJobName is required", errInvalidRequest)
+	}
+
+	jobs, _, err := h.Backend.ListTrainingJobsForHyperParameterTuningJob(
+		ctx,
+		req.HyperParameterTuningJobName,
+		req.NextToken,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]any, 0, len(jobs))
+
+	return json.Marshal(map[string]any{"TrainingJobSummaries": summaries})
+}

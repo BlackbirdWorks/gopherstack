@@ -525,3 +525,405 @@ func TestBatchRebootClusterNodes_PartialSuccess(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_AttachClusterNodeVolume(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "my-cluster")
+			},
+			body: map[string]any{
+				"ClusterName":  "my-cluster",
+				"NodeId":       "node-1",
+				"VolumeConfig": map[string]any{"VolumeName": "vol-1", "SizeInGB": 100},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "cluster not found",
+			body: map[string]any{
+				"ClusterName": "nonexistent",
+				"NodeId":      "node-1",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing ClusterName",
+			body:     map[string]any{"NodeId": "node-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing NodeId",
+			body:     map[string]any{"ClusterName": "my-cluster"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid json",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "AttachClusterNodeVolume", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
+				assert.Equal(t, "node-1", resp["NodeId"])
+			}
+		})
+	}
+}
+
+func TestHandler_BatchAddClusterNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "batch-cluster")
+			},
+			body: map[string]any{
+				"ClusterName": "batch-cluster",
+				"NodeConfigs": []map[string]any{
+					{"NodeId": "n1", "InstanceType": "ml.p3.2xlarge"},
+					{"NodeId": "n2", "InstanceType": "ml.p3.2xlarge"},
+				},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "cluster not found",
+			body: map[string]any{
+				"ClusterName": "nonexistent",
+				"NodeConfigs": []map[string]any{},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing ClusterName",
+			body:     map[string]any{"NodeConfigs": []map[string]any{}},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "BatchAddClusterNodes", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
+				assert.IsType(t, []any{}, resp["Failures"])
+			}
+		})
+	}
+}
+
+func TestHandler_BatchDeleteClusterNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success delete existing nodes",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				c := h.Backend.AddClusterInternal(context.Background(), "del-cluster")
+				_ = c
+				// Seed a node via BatchAdd
+				nodes := []map[string]any{{"NodeId": "del-n1"}}
+				_ = nodes
+				h.Backend.AddClusterInternal(context.Background(), "del-cluster-2")
+			},
+			body: map[string]any{
+				"ClusterName": "del-cluster-2",
+				"NodeIds":     []string{},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "cluster not found",
+			body: map[string]any{
+				"ClusterName": "nope",
+				"NodeIds":     []string{"n1"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing ClusterName",
+			body:     map[string]any{"NodeIds": []string{"n1"}},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "BatchDeleteClusterNodes", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
+			}
+		})
+	}
+}
+
+func TestHandler_BatchRebootClusterNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success with empty list",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "reboot-cluster")
+			},
+			body: map[string]any{
+				"ClusterName": "reboot-cluster",
+				"NodeIds":     []string{},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "partial success — missing nodes go to failures",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "reboot-cluster-2")
+			},
+			body: map[string]any{
+				"ClusterName": "reboot-cluster-2",
+				"NodeIds":     []string{"missing-node"},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "cluster not found",
+			body: map[string]any{
+				"ClusterName": "ghost-cluster",
+				"NodeIds":     []string{"n1"},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing ClusterName",
+			body:     map[string]any{"NodeIds": []string{"n1"}},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "BatchRebootClusterNodes", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp, "Failures")
+				assert.Contains(t, resp, "Successful")
+			}
+		})
+	}
+}
+
+func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *sagemaker.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+		wantARN  bool
+	}{
+		{
+			name: "success with empty list",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "replace-cluster")
+			},
+			body: map[string]any{
+				"ClusterName": "replace-cluster",
+				"Nodes":       []map[string]any{},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "missing node goes to failures",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+				h.Backend.AddClusterInternal(context.Background(), "replace-cluster-2")
+			},
+			body: map[string]any{
+				"ClusterName": "replace-cluster-2",
+				"Nodes": []map[string]any{
+					{"NodeId": "nonexistent", "InstanceType": "ml.p3.2xlarge"},
+				},
+			},
+			wantCode: http.StatusOK,
+			wantARN:  true,
+		},
+		{
+			name: "cluster not found",
+			body: map[string]any{
+				"ClusterName": "ghost",
+				"Nodes":       []map[string]any{},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "missing ClusterName",
+			body:     map[string]any{"Nodes": []map[string]any{}},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var body map[string]any
+			if tt.body != nil {
+				body = tt.body
+			}
+
+			rec := doSageMakerRequest(t, h, "BatchReplaceClusterNodes", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantARN {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
+				assert.Contains(t, resp, "Failures")
+			}
+		})
+	}
+}
+
+func TestHandler_BatchAddClusterNodes_DuplicateNodeFails(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	h.Backend.AddClusterInternal(context.Background(), "dup-node-cluster")
+
+	// Add node-1 first time
+	body := map[string]any{
+		"ClusterName": "dup-node-cluster",
+		"NodeConfigs": []map[string]any{{"NodeId": "node-1"}},
+	}
+	rec := doSageMakerRequest(t, h, "BatchAddClusterNodes", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Try to add node-1 again — should appear in Failures
+	rec2 := doSageMakerRequest(t, h, "BatchAddClusterNodes", body)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	failures, _ := resp["Failures"].([]any)
+	assert.Len(t, failures, 1)
+	assert.Equal(t, "node-1", failures[0])
+}
