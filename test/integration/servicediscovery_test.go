@@ -313,9 +313,12 @@ func TestIntegration_ServiceDiscovery_UpdateInstanceCustomHealthStatus(t *testin
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	// Create a service and register an instance.
+	// Create a service and register an instance. UpdateInstanceCustomHealthStatus is only
+	// valid for services created with a HealthCheckCustomConfig; without it real AWS returns
+	// CustomHealthNotFound, so the service must declare custom health here.
 	createResp := servicediscoveryRequest(t, "CreateService", map[string]any{
-		"Name": "integ-health-svc",
+		"Name":                    "integ-health-svc",
+		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
 	})
 	createBody := servicediscoveryReadBody(t, createResp)
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)

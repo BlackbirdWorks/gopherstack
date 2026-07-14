@@ -32,6 +32,9 @@ func TestIntegration_CFNAudit_PublishTypeMissing(t *testing.T) {
 
 // TestIntegration_CFNAudit_DeleteGeneratedTemplateMissing verifies that deleting
 // a non-existent generated template returns GeneratedTemplateNotFoundException.
+// Note: the SDK-modeled wire error code for that typed exception is the unsuffixed
+// "GeneratedTemplateNotFound" (see GeneratedTemplateNotFoundException.ErrorCode()),
+// which is what a real AWS client observes.
 func TestIntegration_CFNAudit_DeleteGeneratedTemplateMissing(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -46,7 +49,7 @@ func TestIntegration_CFNAudit_DeleteGeneratedTemplateMissing(t *testing.T) {
 
 	var apiErr smithy.APIError
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, "GeneratedTemplateNotFoundException", apiErr.ErrorCode())
+	assert.Equal(t, "GeneratedTemplateNotFound", apiErr.ErrorCode())
 }
 
 // TestIntegration_CFNAudit_DeactivateTypeMissing verifies that deactivating a
