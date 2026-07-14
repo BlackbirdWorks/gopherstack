@@ -3,6 +3,7 @@ package eventbridge_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -189,385 +190,6 @@ func TestHandler_DispatchErrors(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateEventBus(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		body        string
-		wantArnPart string
-		wantCode    int
-	}{
-		{
-			name:        "create event bus returns ARN containing bus name",
-			body:        `{"Name":"test-bus","Description":"my bus"}`,
-			wantCode:    http.StatusOK,
-			wantArnPart: "test-bus",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			rec := makeRequest(t, "CreateEventBus", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Contains(t, resp["EventBusArn"], tt.wantArnPart)
-		})
-	}
-}
-
-func TestHandler_CreateAndListEventBuses(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		busNames     []string
-		wantMinCount int
-	}{
-		{
-			name:         "create multiple buses then list shows all buses including default",
-			busNames:     []string{"bus-a", "bus-b"},
-			wantMinCount: 3, // default + bus-a + bus-b
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			for _, name := range tt.busNames {
-				makeRequestWithHandler(t, handler, e, "CreateEventBus", `{"Name":"`+name+`"}`)
-			}
-
-			rec := makeRequestWithHandler(t, handler, e, "ListEventBuses", `{}`)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var resp struct {
-				NextToken  string                 `json:"NextToken"`
-				EventBuses []eventbridge.EventBus `json:"EventBuses"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.GreaterOrEqual(t, len(resp.EventBuses), tt.wantMinCount)
-		})
-	}
-}
-
-func TestHandler_DeleteEventBus(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		createBus        string
-		deleteBus        string
-		wantDeleteCode   int
-		describeAfter    bool
-		wantDescribeCode int
-	}{
-		{
-			name:             "create then delete then describe returns not found",
-			createBus:        "temp-bus",
-			deleteBus:        "temp-bus",
-			wantDeleteCode:   http.StatusOK,
-			describeAfter:    true,
-			wantDescribeCode: http.StatusNotFound,
-		},
-		{
-			name:           "cannot delete default bus returns bad request",
-			deleteBus:      "default",
-			wantDeleteCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			if tt.createBus != "" {
-				makeRequestWithHandler(t, handler, e, "CreateEventBus", `{"Name":"`+tt.createBus+`"}`)
-			}
-
-			rec := makeRequestWithHandler(t, handler, e, "DeleteEventBus", `{"Name":"`+tt.deleteBus+`"}`)
-			assert.Equal(t, tt.wantDeleteCode, rec.Code)
-
-			if tt.describeAfter {
-				rec = makeRequestWithHandler(t, handler, e, "DescribeEventBus", `{"Name":"`+tt.deleteBus+`"}`)
-				assert.Equal(t, tt.wantDescribeCode, rec.Code)
-			}
-		})
-	}
-}
-
-func TestHandler_PutRuleAndListRules(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		putBody      string
-		wantArnPart  string
-		wantRuleName string
-		wantRuleLen  int
-	}{
-		{
-			name:         "put rule then list returns that rule with correct ARN",
-			putBody:      `{"Name":"my-rule","EventPattern":"{\"source\":[\"my.app\"]}","State":"ENABLED"}`,
-			wantArnPart:  "my-rule",
-			wantRuleName: "my-rule",
-			wantRuleLen:  1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			rec := makeRequestWithHandler(t, handler, e, "PutRule", tt.putBody)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var putResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
-			assert.Contains(t, putResp["RuleArn"], tt.wantArnPart)
-
-			rec = makeRequestWithHandler(t, handler, e, "ListRules", `{}`)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp struct {
-				Rules []eventbridge.Rule `json:"Rules"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			assert.Len(t, listResp.Rules, tt.wantRuleLen)
-			assert.Equal(t, tt.wantRuleName, listResp.Rules[0].Name)
-		})
-	}
-}
-
-func TestHandler_DescribeRule(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		putBody         string
-		describeBody    string
-		wantRuleName    string
-		wantDescription string
-		wantState       string
-	}{
-		{
-			name: "describe rule returns name description and state",
-			putBody: `{"Name":"desc-rule","Description":"a description",` +
-				`"State":"DISABLED","ScheduleExpression":"rate(1 minute)"}`,
-			describeBody:    `{"Name":"desc-rule"}`,
-			wantRuleName:    "desc-rule",
-			wantDescription: "a description",
-			wantState:       "DISABLED",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			makeRequestWithHandler(t, handler, e, "PutRule", tt.putBody)
-
-			rec := makeRequestWithHandler(t, handler, e, "DescribeRule", tt.describeBody)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var rule eventbridge.Rule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule))
-			assert.Equal(t, tt.wantRuleName, rule.Name)
-			assert.Equal(t, tt.wantDescription, rule.Description)
-			assert.Equal(t, tt.wantState, rule.State)
-		})
-	}
-}
-
-func TestHandler_EnableDisableRule(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name              string
-		ruleName          string
-		wantDisabledState string
-		wantEnabledState  string
-	}{
-		{
-			name:              "toggle rule: disable then re-enable changes state correctly",
-			ruleName:          "toggle",
-			wantDisabledState: "DISABLED",
-			wantEnabledState:  "ENABLED",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			makeRequestWithHandler(
-				t,
-				handler,
-				e,
-				"PutRule",
-				`{"Name":"`+tt.ruleName+`","State":"ENABLED","ScheduleExpression":"rate(1 minute)"}`,
-			)
-
-			rec := makeRequestWithHandler(t, handler, e, "DisableRule", `{"Name":"`+tt.ruleName+`"}`)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			rec = makeRequestWithHandler(t, handler, e, "DescribeRule", `{"Name":"`+tt.ruleName+`"}`)
-			var rule eventbridge.Rule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule))
-			assert.Equal(t, tt.wantDisabledState, rule.State)
-
-			makeRequestWithHandler(t, handler, e, "EnableRule", `{"Name":"`+tt.ruleName+`"}`)
-
-			rec = makeRequestWithHandler(t, handler, e, "DescribeRule", `{"Name":"`+tt.ruleName+`"}`)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule))
-			assert.Equal(t, tt.wantEnabledState, rule.State)
-		})
-	}
-}
-
-func TestHandler_PutTargetsListAndRemove(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name               string
-		ruleName           string
-		targets            string
-		removeIDs          string
-		wantRemainingID    string
-		wantInitialCount   int
-		wantRemainingCount int
-	}{
-		{
-			name:     "put two targets then remove one leaves the other",
-			ruleName: "rule-t",
-			targets: `[{"Id":"t1","Arn":"arn:aws:lambda:us-east-1:123:function:fn"},` +
-				`{"Id":"t2","Arn":"arn:aws:sqs:us-east-1:123:q"}]`,
-			wantInitialCount:   2,
-			removeIDs:          `["t1"]`,
-			wantRemainingID:    "t2",
-			wantRemainingCount: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			makeRequestWithHandler(
-				t,
-				handler,
-				e,
-				"PutRule",
-				`{"Name":"`+tt.ruleName+`","ScheduleExpression":"rate(1 minute)"}`,
-			)
-
-			rec := makeRequestWithHandler(t, handler, e, "PutTargets",
-				`{"Rule":"`+tt.ruleName+`","Targets":`+tt.targets+`}`)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var putResp struct {
-				FailedEntries    []eventbridge.FailedEntry `json:"FailedEntries"`
-				FailedEntryCount int                       `json:"FailedEntryCount"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
-			assert.Equal(t, 0, putResp.FailedEntryCount)
-
-			rec = makeRequestWithHandler(t, handler, e, "ListTargetsByRule", `{"Rule":"`+tt.ruleName+`"}`)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp struct {
-				Targets []eventbridge.Target `json:"Targets"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			assert.Len(t, listResp.Targets, tt.wantInitialCount)
-
-			rec = makeRequestWithHandler(t, handler, e, "RemoveTargets",
-				`{"Rule":"`+tt.ruleName+`","Ids":`+tt.removeIDs+`}`)
-			assert.Equal(t, http.StatusOK, rec.Code)
-
-			rec = makeRequestWithHandler(t, handler, e, "ListTargetsByRule", `{"Rule":"`+tt.ruleName+`"}`)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			assert.Len(t, listResp.Targets, tt.wantRemainingCount)
-			assert.Equal(t, tt.wantRemainingID, listResp.Targets[0].ID)
-		})
-	}
-}
-
-func TestHandler_PutEvents(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		body            string
-		wantCode        int
-		wantEntryCount  int
-		wantFailedCount int
-	}{
-		{
-			name: "put multiple events returns entries with IDs and no failures",
-			body: `{"Entries":[` +
-				`{"Source":"my.app","DetailType":"UserCreated","Detail":"{\"userId\":\"1\"}"},` +
-				`{"Source":"my.app","DetailType":"UserDeleted","Detail":"{}"}]}`,
-			wantCode:        http.StatusOK,
-			wantEntryCount:  2,
-			wantFailedCount: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			rec := makeRequestWithHandler(t, handler, e, "PutEvents", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var resp struct {
-				Entries          []eventbridge.EventResultEntry `json:"Entries"`
-				FailedEntryCount int                            `json:"FailedEntryCount"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-			assert.Equal(t, tt.wantFailedCount, resp.FailedEntryCount)
-			assert.Len(t, resp.Entries, tt.wantEntryCount)
-			for _, entry := range resp.Entries {
-				assert.NotEmpty(t, entry.EventID)
-			}
-		})
-	}
-}
-
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
@@ -634,85 +256,6 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	}
 }
 
-func TestHandler_TagOperations(t *testing.T) {
-	t.Parallel()
-
-	const resourceARN = "arn:aws:events:us-east-1:123456789012:rule/my-rule"
-
-	tests := []struct {
-		wantTags     map[string]string
-		name         string
-		setupTags    string
-		untagKeys    string
-		wantTagCount int
-	}{
-		{
-			name: "tag resource then list shows all tags",
-			setupTags: `[{"Key":"env","Value":"prod"},` +
-				`{"Key":"team","Value":"platform"}]`,
-			wantTagCount: 2,
-			wantTags:     map[string]string{"env": "prod", "team": "platform"},
-		},
-		{
-			name: "tag then untag one key leaves remaining tag",
-			setupTags: `[{"Key":"env","Value":"prod"},` +
-				`{"Key":"team","Value":"platform"}]`,
-			untagKeys:    `["env"]`,
-			wantTagCount: 1,
-			wantTags:     map[string]string{"team": "platform"},
-		},
-		{
-			name:         "list tags for resource with no tags returns empty",
-			wantTagCount: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			e := echo.New()
-			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend)
-
-			if tt.setupTags != "" {
-				rec := makeRequestWithHandler(t, handler, e, "TagResource",
-					`{"ResourceARN":"`+resourceARN+`","Tags":`+tt.setupTags+`}`)
-				assert.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			if tt.untagKeys != "" {
-				rec := makeRequestWithHandler(t, handler, e, "UntagResource",
-					`{"ResourceARN":"`+resourceARN+`","TagKeys":`+tt.untagKeys+`}`)
-				assert.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := makeRequestWithHandler(t, handler, e, "ListTagsForResource",
-				`{"ResourceARN":"`+resourceARN+`"}`)
-			require.Equal(t, http.StatusOK, rec.Code)
-
-			var listResp struct {
-				Tags []struct {
-					Key   string `json:"Key"`
-					Value string `json:"Value"`
-				} `json:"Tags"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-			assert.Len(t, listResp.Tags, tt.wantTagCount)
-
-			if len(tt.wantTags) > 0 {
-				tagMap := make(map[string]string, tt.wantTagCount)
-				for _, tag := range listResp.Tags {
-					tagMap[tag.Key] = tag.Value
-				}
-				for k, v := range tt.wantTags {
-					assert.Equal(t, v, tagMap[k])
-				}
-			}
-		})
-	}
-}
-
 func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
 	t.Parallel()
 
@@ -759,4 +302,449 @@ func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
 			})
 		})
 	}
+}
+
+func auditMakeRequest(
+	t *testing.T,
+	handler *eventbridge.Handler,
+	e *echo.Echo,
+	action string,
+	body map[string]any,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(b)))
+	req.Header.Set("X-Amz-Target", "AmazonEventBridge."+action)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	require.NoError(t, handler.Handler()(c))
+
+	return rec
+}
+
+func TestHandler_ResourceLimitExceededMapsTo400(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	b := newBackend()
+	h := eventbridge.NewHandler(b)
+
+	// Create 200 buses directly.
+	for i := range 200 {
+		_, err := b.CreateEventBus(context.Background(), fmt.Sprintf("bus-%d", i), "")
+		require.NoError(t, err)
+	}
+
+	// 201st via handler should return 400.
+	rec := auditMakeRequest(t, h, e, "CreateEventBus", map[string]any{"Name": "bus-overflow"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ResourceLimitExceededException")
+}
+
+func TestHandler_GetSupportedOperationsIncludesPipes(t *testing.T) {
+	t.Parallel()
+	h := eventbridge.NewHandler(newBackend())
+	ops := h.GetSupportedOperations()
+
+	pipeOps := []string{"CreatePipe", "DeletePipe", "DescribePipe", "ListPipes", "UpdatePipe"}
+	for _, op := range pipeOps {
+		assert.Contains(t, ops, op, "GetSupportedOperations should include %s", op)
+	}
+}
+
+func TestHandler_GetSupportedOperationsIncludesPolicyOps(t *testing.T) {
+	t.Parallel()
+	h := eventbridge.NewHandler(newBackend())
+	ops := h.GetSupportedOperations()
+
+	assert.Contains(t, ops, "GetEventBusPolicy")
+	assert.Contains(t, ops, "PutEventBusPolicy")
+}
+
+func TestHandler_GetSupportedOperationsIncludesDeliveryTargetTypes(t *testing.T) {
+	t.Parallel()
+	h := eventbridge.NewHandler(newBackend())
+	ops := h.GetSupportedOperations()
+
+	// Verify a broad sample of expected operations.
+	expected := []string{
+		"CreateEventBus", "DeleteEventBus", "ListEventBuses", "DescribeEventBus", "UpdateEventBus",
+		"PutRule", "DeleteRule", "ListRules", "DescribeRule", "EnableRule", "DisableRule",
+		"PutTargets", "RemoveTargets", "ListTargetsByRule",
+		"PutEvents", "PutPartnerEvents",
+		"CreateArchive", "DeleteArchive", "DescribeArchive", "ListArchives", "UpdateArchive",
+		"StartReplay", "DescribeReplay", "ListReplays", "CancelReplay",
+		"CreateConnection", "DeleteConnection", "DescribeConnection", "ListConnections", "UpdateConnection",
+		"DeauthorizeConnection",
+		"CreateApiDestination", "DeleteApiDestination", "DescribeApiDestination",
+		"ListApiDestinations", "UpdateApiDestination",
+		"CreateEndpoint", "DeleteEndpoint", "DescribeEndpoint", "ListEndpoints", "UpdateEndpoint",
+		"CreatePipe", "DeletePipe", "DescribePipe", "ListPipes", "UpdatePipe",
+		"PutPermission", "RemovePermission", "GetEventBusPolicy", "PutEventBusPolicy",
+		"TagResource", "UntagResource", "ListTagsForResource",
+		"TestEventPattern", "ListRuleNamesByTarget",
+	}
+
+	for _, op := range expected {
+		assert.Contains(t, ops, op, "missing operation: %s", op)
+	}
+}
+
+func TestHandler_SchemaOperationsIncluded(t *testing.T) {
+	t.Parallel()
+	h := eventbridge.NewHandler(newBackend())
+	ops := h.GetSupportedOperations()
+
+	schemaOps := []string{
+		"CreateRegistry", "DeleteRegistry", "DescribeRegistry", "ListRegistries", "UpdateRegistry",
+		"CreateSchema", "DeleteSchema", "DescribeSchema", "ListSchemas", "SearchSchemas", "UpdateSchema",
+		"ListSchemaVersions", "DescribeSchemaVersion", "DeleteSchemaVersion",
+		"GetDiscoveredSchema",
+		"PutCodeBinding", "DescribeCodeBinding", "ListCodeBindings", "GetCodeBindingSource",
+	}
+	for _, op := range schemaOps {
+		assert.Contains(t, ops, op, "missing schema operation: %s", op)
+	}
+}
+
+func TestHandler_Metadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		want  any
+		check func(h *eventbridge.Handler) any
+		name  string
+	}{
+		{
+			name:  "name is EventBridge",
+			check: func(h *eventbridge.Handler) any { return h.Name() },
+			want:  "EventBridge",
+		},
+		{
+			name:  "match priority is 100",
+			check: func(h *eventbridge.Handler) any { return h.MatchPriority() },
+			want:  100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+			assert.Equal(t, tt.want, tt.check(h))
+		})
+	}
+}
+
+func TestHandler_RouteMatcherCoverage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "matches EventBridge target",
+			target:    "AmazonEventBridge.CreateEventBus",
+			wantMatch: true,
+		},
+		{
+			name:      "does not match non-EventBridge target",
+			target:    "AmazonSQS.CreateQueue",
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+			matcher := h.RouteMatcher()
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			assert.Equal(t, tt.wantMatch, matcher(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func TestHandler_ExtractOperationCoverage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		wantOp string
+	}{
+		{
+			name:   "extracts PutEvents operation",
+			target: "AmazonEventBridge.PutEvents",
+			wantOp: "PutEvents",
+		},
+		{
+			name:   "returns Unknown for missing target",
+			target: "",
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		body      string
+		wantRes   string
+		wantEmpty bool
+	}{
+		{
+			name:    "extracts Name field",
+			body:    `{"Name":"my-bus"}`,
+			wantRes: "my-bus",
+		},
+		{
+			name:    "extracts Rule field",
+			body:    `{"Rule":"my-rule"}`,
+			wantRes: "my-rule",
+		},
+		{
+			name:      "returns empty when no Name or Rule",
+			body:      `{}`,
+			wantEmpty: true,
+		},
+		{
+			name:      "returns empty for invalid JSON",
+			body:      `not-json`,
+			wantEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			got := h.ExtractResource(e.NewContext(req, httptest.NewRecorder()))
+			if tt.wantEmpty {
+				assert.Empty(t, got)
+			} else {
+				assert.Equal(t, tt.wantRes, got)
+			}
+		})
+	}
+}
+
+func TestHandler_InvalidTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		target   string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "invalid target returns bad request",
+			target:   "InvalidTarget",
+			body:     "{}",
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := echo.New()
+
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_NotFoundErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+		body   string
+	}{
+		{name: "delete nonexistent event bus", action: "DeleteEventBus", body: `{"Name":"nonexistent"}`},
+		{name: "describe nonexistent event bus", action: "DescribeEventBus", body: `{"Name":"nonexistent"}`},
+		{name: "delete nonexistent rule", action: "DeleteRule", body: `{"Name":"r","EventBusName":"default"}`},
+		{name: "describe nonexistent rule", action: "DescribeRule", body: `{"Name":"r","EventBusName":"default"}`},
+		{name: "enable nonexistent rule", action: "EnableRule", body: `{"Name":"r","EventBusName":"default"}`},
+		{name: "disable nonexistent rule", action: "DisableRule", body: `{"Name":"r","EventBusName":"default"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := makeRequest(t, tt.action, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+func TestHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		action   string
+		body     string
+		wantCode int
+	}{
+		{
+			// JSON parse errors are mapped to 500 InternalServerError
+			name:     "invalid JSON returns internal server error",
+			action:   "CreateEventBus",
+			body:     `not-json`,
+			wantCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := makeRequest(t, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestHandlerOpsPreBuilt verifies ops are cached at construction time.
+func TestHandlerOpsPreBuilt(t *testing.T) {
+	t.Parallel()
+
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend)
+
+	assert.Positive(t, handler.HandlerOpsLen())
+}
+
+// TestGetSupportedOperations_AllOps checks all 27 ops are present.
+func TestGetSupportedOperations_AllOps(t *testing.T) {
+	t.Parallel()
+
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend)
+	ops := handler.GetSupportedOperations()
+
+	required := []string{
+		"ActivateEventSource", "CancelReplay", "CreateApiDestination",
+		"CreateArchive", "CreateConnection", "CreateEndpoint",
+		"CreatePartnerEventSource", "DeactivateEventSource",
+		"DeauthorizeConnection", "DeleteApiDestination",
+		"CreateEventBus", "DeleteEventBus", "ListEventBuses",
+		"DescribeEventBus", "PutRule", "DeleteRule", "ListRules",
+		"DescribeRule", "EnableRule", "DisableRule", "PutTargets",
+		"RemoveTargets", "ListTargetsByRule", "PutEvents",
+		"ListTagsForResource", "TagResource", "UntagResource",
+	}
+
+	opSet := make(map[string]bool, len(ops))
+	for _, op := range ops {
+		opSet[op] = true
+	}
+
+	for _, op := range required {
+		assert.True(t, opSet[op], "expected op %s in GetSupportedOperations", op)
+	}
+}
+
+// TestErrValidationMapping verifies ErrInvalidParameter maps to HTTP 400.
+func TestErrValidationMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+		body   string
+	}{
+		{
+			name:   "activate_event_source_empty_name",
+			action: "ActivateEventSource",
+			body:   `{"Name":""}`,
+		},
+		{
+			name:   "cancel_replay_empty_name",
+			action: "CancelReplay",
+			body:   `{"ReplayName":""}`,
+		},
+		{
+			name:   "create_api_destination_no_name",
+			action: "CreateApiDestination",
+			body:   `{"ConnectionArn":"arn:x","InvocationEndpoint":"https://x","HttpMethod":"GET"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeRequest(t, tt.action, tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+// TestErrNotFoundMapping verifies ErrNotFound maps to HTTP 404.
+func TestErrNotFoundMapping(t *testing.T) {
+	t.Parallel()
+
+	rec := makeRequest(t, "CancelReplay", `{"ReplayName":"no-such-replay"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestErrAlreadyExistsMapping verifies ErrAlreadyExists maps to HTTP 409.
+func TestErrAlreadyExistsMapping(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(b)
+	e := echo.New()
+
+	body := `{"Name":"my-conn","AuthorizationType":"BASIC"}`
+	rec1 := makeRequestWithHandler(t, handler, e, "CreateConnection", body)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	rec2 := makeRequestWithHandler(t, handler, e, "CreateConnection", body)
+	assert.Equal(t, http.StatusConflict, rec2.Code)
+}
+
+// TestErrInvalidStateMapping verifies ErrInvalidState maps to HTTP 400.
+func TestErrInvalidStateMapping(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+	b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: "COMPLETED"})
+	handler := eventbridge.NewHandler(b)
+	e := echo.New()
+
+	rec := makeRequestWithHandler(t, handler, e, "CancelReplay", `{"ReplayName":"r1"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

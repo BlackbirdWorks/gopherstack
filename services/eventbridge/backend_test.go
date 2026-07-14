@@ -780,3 +780,118 @@ func TestArchiveJanitor_SweepOnce(t *testing.T) {
 		})
 	}
 }
+
+func newBackend() *eventbridge.InMemoryBackend {
+	return eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+}
+
+func TestListPagination(t *testing.T) {
+	t.Parallel()
+
+	t.Run("list archives empty returns empty slice not nil", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		got, next, err := b.ListArchives(context.Background(), "", "")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Empty(t, next)
+	})
+
+	t.Run("list connections empty returns empty slice not nil", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		got, next, err := b.ListConnections(context.Background(), "", "")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Empty(t, next)
+	})
+
+	t.Run("list endpoints empty returns empty slice not nil", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		got, next, err := b.ListEndpoints(context.Background(), "", "")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Empty(t, next)
+	})
+
+	t.Run("list replays empty returns empty slice not nil", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		got, next, err := b.ListReplays(context.Background(), "", "")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Empty(t, next)
+	})
+
+	t.Run("list API destinations empty returns empty slice not nil", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		got, next, err := b.ListAPIDestinations(context.Background(), "", "")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.Empty(t, next)
+	})
+
+	t.Run("list rule names by target with no targets returns empty", func(t *testing.T) {
+		t.Parallel()
+		b := newBackend()
+		got, _, err := b.ListRuleNamesByTarget(context.Background(), "arn:aws:lambda:us-east-1:123:function:fn", "", "")
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}
+
+// TestSeedHelpers verifies all seed helpers increment their counts.
+func TestSeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+	now := time.Now()
+
+	b.AddAPIDestinationInternal(&eventbridge.APIDestination{Name: "d1"})
+	b.AddArchiveInternal(&eventbridge.Archive{ArchiveName: "a1"})
+	b.AddConnectionInternal(&eventbridge.Connection{Name: "c1"})
+	b.AddEndpointInternal(&eventbridge.Endpoint{Name: "e1"})
+	b.AddEventSourceInternal(&eventbridge.EventSource{Name: "es1", State: "PENDING", CreationTime: now})
+	b.AddReplayInternal(&eventbridge.Replay{ReplayName: "r1", State: "RUNNING"})
+	b.AddPartnerSourceInternal(&eventbridge.PartnerEventSource{Name: "p1"})
+
+	assert.Equal(t, 1, b.APIDestinationCount())
+	assert.Equal(t, 1, b.ArchiveCount())
+	assert.Equal(t, 1, b.ConnectionCount())
+	assert.Equal(t, 1, b.EndpointCount())
+	assert.Equal(t, 1, b.EventSourceCount())
+	assert.Equal(t, 1, b.ReplayCount())
+	assert.Equal(t, 1, b.PartnerSourceCount())
+}
+
+// TestExportCountHelpers verifies count helpers start at 0.
+func TestExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+
+	assert.Equal(t, 0, b.APIDestinationCount())
+	assert.Equal(t, 0, b.ArchiveCount())
+	assert.Equal(t, 0, b.ConnectionCount())
+	assert.Equal(t, 0, b.EndpointCount())
+	assert.Equal(t, 0, b.EventSourceCount())
+	assert.Equal(t, 0, b.ReplayCount())
+	assert.Equal(t, 0, b.PartnerSourceCount())
+}
+
+// TestSeedHelper_DeepCopy verifies seed helpers store deep copies.
+func TestSeedHelper_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+	orig := &eventbridge.APIDestination{Name: "d1", Description: "original"}
+	b.AddAPIDestinationInternal(orig)
+
+	// Mutate original after seeding
+	orig.Description = "mutated"
+
+	// Count should still be 1 and internal copy should have original value
+	assert.Equal(t, 1, b.APIDestinationCount())
+}

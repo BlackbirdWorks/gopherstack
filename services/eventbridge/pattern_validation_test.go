@@ -10,11 +10,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
-// TestParity_MalformedEventPattern_PutRule verifies that PutRule returns an
+// TestMalformedEventPattern_PutRule verifies that PutRule returns an
 // error when the EventPattern is structurally invalid (e.g. a scalar value
 // where an array is required, or an unknown matcher key), rather than silently
 // accepting the pattern and having the rule never match.
-func TestParity_MalformedEventPattern_PutRule(t *testing.T) {
+func TestMalformedEventPattern_PutRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -82,9 +82,9 @@ func TestParity_MalformedEventPattern_PutRule(t *testing.T) {
 	}
 }
 
-// TestParity_MalformedEventPattern_TestEventPattern verifies that
+// TestMalformedEventPattern_TestEventPattern verifies that
 // TestEventPattern also returns an error for malformed patterns.
-func TestParity_MalformedEventPattern_TestEventPattern(t *testing.T) {
+func TestMalformedEventPattern_TestEventPattern(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

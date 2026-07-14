@@ -166,3 +166,119 @@ func TestPutRule_ValidatesScheduleExpression(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduledRuleDeliversToSQSTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		schedExpr        string
+		wantDetailType   string
+		wantSourcePrefix string
+	}{
+		{
+			name:             "rate_rule_delivers_to_target",
+			schedExpr:        "rate(1 minute)",
+			wantDetailType:   "Scheduled Event",
+			wantSourcePrefix: "aws.events",
+		},
+		{
+			name:             "cron_rule_delivers_with_cron_detail_type",
+			schedExpr:        "cron(0 12 * * ? *)",
+			wantDetailType:   "Scheduled Event (cron)",
+			wantSourcePrefix: "aws.events",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sqsMock := newMockSQSSender()
+			b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
+			const (
+				queueARN = "arn:aws:sqs:us-east-1:123456789012:sched-queue"
+				ruleName = "sched-rule"
+			)
+
+			_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+				Name:               ruleName,
+				ScheduleExpression: tc.schedExpr,
+				State:              "ENABLED",
+			})
+			require.NoError(t, err)
+
+			rule, err := b.DescribeRule(context.Background(), ruleName, "default")
+			require.NoError(t, err)
+
+			_, err = b.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
+				{ID: "t1", Arn: queueARN},
+			})
+			require.NoError(t, err)
+
+			sched := eventbridge.NewScheduler(b, 0)
+			// Use a tick far in the future so any schedule expression has a next
+			// fire time before it, regardless of the current wall-clock time.
+			tick := time.Now().Add(25 * time.Hour)
+			lastFired := map[string]time.Time{
+				rule.Arn: tick.Add(-25 * time.Hour),
+			}
+			sched.ProcessTickForTest(t.Context(), tick, lastFired)
+
+			msgs := sqsMock.MessagesFor(queueARN)
+			require.Len(t, msgs, 1, "expected exactly one message delivered to SQS target")
+			assert.Contains(t, msgs[0], tc.wantSourcePrefix)
+			assert.Contains(t, msgs[0], tc.wantDetailType)
+		})
+	}
+}
+
+func TestDisabledScheduledRuleDoesNotDeliver(t *testing.T) {
+	t.Parallel()
+
+	sqsMock := newMockSQSSender()
+	b := setupDeliveryBackend(t, sqsMock, newMockLambdaInvoker())
+	const (
+		queueARN = "arn:aws:sqs:us-east-1:123456789012:disabled-queue"
+		ruleName = "disabled-sched-rule"
+	)
+
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+		Name:               ruleName,
+		ScheduleExpression: "rate(1 minute)",
+		State:              "DISABLED",
+	})
+	require.NoError(t, err)
+
+	_, err = b.PutTargets(context.Background(), ruleName, "default", []eventbridge.Target{
+		{ID: "t1", Arn: queueARN},
+	})
+	require.NoError(t, err)
+
+	sched := eventbridge.NewScheduler(b, 0)
+	lastFired := map[string]time.Time{}
+	sched.ProcessTickForTest(t.Context(), time.Now(), lastFired)
+
+	msgs := sqsMock.MessagesFor(queueARN)
+	assert.Empty(t, msgs, "disabled rule must not deliver to targets")
+}
+
+func TestScheduledRuleNoTargetsDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackend()
+
+	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
+		Name:               "no-target-rule",
+		ScheduleExpression: "rate(1 minute)",
+		State:              "ENABLED",
+	})
+	require.NoError(t, err)
+
+	sched := eventbridge.NewScheduler(b, 0)
+	lastFired := map[string]time.Time{}
+	// Must not panic when no targets are registered.
+	require.NotPanics(t, func() {
+		sched.ProcessTickForTest(t.Context(), time.Now(), lastFired)
+	})
+}
