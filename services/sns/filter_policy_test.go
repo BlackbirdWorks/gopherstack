@@ -1,12 +1,13 @@
 package sns_test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 // attr is a shorthand for a [DataType, StringValue] message-attribute pair.
@@ -318,6 +319,234 @@ func TestFilterPolicy_MessageBodyArrayAndBool(t *testing.T) {
 			got, err := sns.MatchesFilterPolicyMessageBodyForTest(tt.policy, tt.body)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestIssue7_FilterPolicyMalformedJSON verifies that a non-JSON filter policy
+// is rejected at subscribe time.
+func TestFilterPolicyMalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("fp-mal-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q", "not-json")
+	require.Error(t, err)
+}
+
+// TestIssue7_FilterPolicyNotAnObject verifies that an array root is rejected.
+func TestFilterPolicyNotAnObject(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("fp-array-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q", `["not","an","object"]`)
+	require.Error(t, err)
+}
+
+// TestIssue7_FilterPolicyConditionNotArray verifies that attribute values must
+// be arrays.
+func TestFilterPolicyConditionNotArray(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("fp-cond-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q",
+		`{"attr":"not-an-array"}`)
+	require.Error(t, err)
+}
+
+// TestIssue7_FilterPolicyUnknownOperator verifies that unknown operators are
+// rejected at subscribe time.
+func TestFilterPolicyUnknownOperator(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("fp-op-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q",
+		`{"attr":[{"bogus-operator":"value"}]}`)
+	require.Error(t, err)
+}
+
+// TestIssue7_FilterPolicyConditionLimit verifies the 150-condition cap.
+func TestFilterPolicyConditionLimit(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("fp-limit-topic", nil)
+	require.NoError(t, err)
+
+	// Build a filter policy with 151 conditions spread across attributes.
+	parts := make([]string, 0, 151)
+	for i := range 151 {
+		parts = append(parts, fmt.Sprintf(`"v%d"`, i))
+	}
+	policy := fmt.Sprintf(`{"attr":[%s]}`, strings.Join(parts, ","))
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q", policy)
+	require.Error(t, err)
+}
+
+// TestIssue7_FilterPolicyValid verifies that a well-formed policy is accepted.
+func TestFilterPolicyValid(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("fp-valid-topic", nil)
+	require.NoError(t, err)
+
+	policy := `{"color":["red","blue"],"size":[{"numeric":[">=",10]}]}`
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q", policy)
+	require.NoError(t, err)
+}
+
+// TestIssue13_NumericOperandValidatedAtSubscribeTime verifies that a malformed
+// numeric operand is rejected at subscribe time, not later.
+func TestNumericOperandValidatedAtSubscribeTime(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("num-op-topic", nil)
+	require.NoError(t, err)
+
+	// Missing numeric value after operator.
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q",
+		`{"price":[{"numeric":[">"]}]}`)
+	require.Error(t, err, "malformed numeric operand must be rejected at subscribe time")
+}
+
+// TestIssue13_NumericBadOperatorAtSubscribeTime verifies that an unsupported
+// numeric operator is rejected at subscribe time.
+func TestNumericBadOperatorAtSubscribeTime(t *testing.T) {
+	t.Parallel()
+
+	b := newA1679Backend(t)
+	tp, err := b.CreateTopic("num-bad-op-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "sqs",
+		"arn:aws:sqs:us-east-1:000000000000:q",
+		`{"price":[{"numeric":["??",10]}]}`)
+	require.Error(t, err)
+}
+
+// TestIssue13_NumericValidOperatorsAccepted verifies all valid operators are
+// accepted.
+func TestNumericValidOperatorsAccepted(t *testing.T) {
+	t.Parallel()
+
+	validOps := []string{"=", "<>", ">", ">=", "<", "<="}
+	b := newA1679Backend(t)
+
+	for i, op := range validOps {
+		tp, err := b.CreateTopic(fmt.Sprintf("num-valid-%d", i), nil)
+		require.NoError(t, err)
+
+		policy := fmt.Sprintf(`{"val":[{"numeric":[%q,5]}]}`, op)
+		_, err = b.Subscribe(tp.TopicArn, "sqs",
+			"arn:aws:sqs:us-east-1:000000000000:q", policy)
+		require.NoErrorf(t, err, "operator %q should be accepted", op)
+	}
+}
+
+// TestMatchesFilterPolicy_OversizedPolicy verifies that a FilterPolicy exceeding
+// the size limit is rejected at SetSubscriptionAttributes time rather than silently
+// accepted (which would let an attacker poison the in-memory subscription).
+func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
+	t.Parallel()
+
+	// Build a FilterPolicy that exceeds maxFilterPolicySizeBytes (256 KiB).
+	bigPolicy := `{"key": ["` + strings.Repeat("a", 300*1024) + `"]}`
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("big-policy-topic", nil)
+	require.NoError(t, err)
+
+	sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
+	require.NoError(t, err)
+
+	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", bigPolicy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FilterPolicy")
+}
+
+func TestSNS_FilterPolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filterPolicy string
+		wantErr      string
+	}{
+		{
+			name:         "rejects_unknown_numeric_operator",
+			filterPolicy: `{"price":[{"numeric":["!=", 10]}]}`,
+			wantErr:      "is not supported",
+		},
+		{
+			name:         "rejects_odd_numeric_operands",
+			filterPolicy: `{"price":[{"numeric":[">"]}]}`,
+			wantErr:      "operator/number pairs",
+		},
+		{
+			name:         "rejects_non_numeric_threshold",
+			filterPolicy: `{"price":[{"numeric":[">", "ten"]}]}`,
+			wantErr:      "must be a number",
+		},
+		{
+			name:         "accepts_valid_numeric_condition",
+			filterPolicy: `{"price":[{"numeric":[">", 10, "<=", 100]}]}`,
+		},
+		{
+			name:         "rejects_unknown_operator_name",
+			filterPolicy: `{"event":[{"contains":"foo"}]}`,
+			wantErr:      "unsupported operator",
+		},
+		{
+			name:         "accepts_suffix_operator",
+			filterPolicy: `{"file":[{"suffix":".jpg"}]}`,
+		},
+		{
+			name:         "accepts_equals_ignore_case_operator",
+			filterPolicy: `{"region":[{"equals-ignore-case":"us-east-1"}]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sns.NewInMemoryBackend()
+			tp, err := b.CreateTopic("filter-policy-topic", nil)
+			require.NoError(t, err)
+
+			sub, err := b.Subscribe(tp.TopicArn, "http", "http://example.invalid", "")
+			require.NoError(t, err)
+
+			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", tt.filterPolicy)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }

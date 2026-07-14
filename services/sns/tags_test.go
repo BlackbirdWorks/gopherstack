@@ -1,53 +1,101 @@
 package sns_test
 
 import (
+	"net/http"
+	"net/url"
 	"testing"
 
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
-func newR1Backend(t *testing.T) *sns.InMemoryBackend {
-	t.Helper()
-
-	return sns.NewInMemoryBackendWithContext(t.Context(), "000000000000", "us-east-1")
-}
-
-// TestRefinement1_ErrNilAppContext verifies the provider nil guard.
-func TestRefinement1_ErrNilAppContext(t *testing.T) {
+func TestSNSHandler_TagResource(t *testing.T) {
 	t.Parallel()
 
-	p := &sns.Provider{}
-	_, err := p.Init(nil)
+	tests := []struct {
+		form             url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "tag_resource",
+			form: url.Values{
+				"Action":              {"TagResource"},
+				"ResourceArn":         {"arn:aws:sns:us-east-1:000000000000:tag-topic"},
+				"Tags.member.1.Key":   {"env"},
+				"Tags.member.1.Value": {"prod"},
+				"Tags.member.2.Key":   {"team"},
+				"Tags.member.2.Value": {"infra"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"TagResourceResponse"},
+		},
+	}
 
-	require.Error(t, err)
-	assert.ErrorIs(t, err, sns.ErrNilAppContext)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sns.NewInMemoryBackend()
+			b.CreateTopic("tag-topic", nil)
+			h := sns.NewHandler(b)
+			rec := snsPost(t, h, tt.form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
 }
 
-// TestRefinement1_ProviderInit verifies normal provider init.
-func TestRefinement1_ProviderInit(t *testing.T) {
+func TestSNSHandler_UntagResource(t *testing.T) {
 	t.Parallel()
 
-	p := &sns.Provider{}
-	reg, err := p.Init(&service.AppContext{JanitorCtx: t.Context()})
-	require.NoError(t, err)
-	assert.NotNil(t, reg)
+	b := sns.NewInMemoryBackend()
+	b.CreateTopic("untag-topic", nil)
+	topicArn := "arn:aws:sns:us-east-1:000000000000:untag-topic"
+	b.SetTopicTags(topicArn, svcTags.FromMap("test.sns.untag", map[string]string{"env": "prod", "team": "infra"}))
+
+	h := sns.NewHandler(b)
+
+	rec := snsPost(t, h, url.Values{
+		"Action":           {"UntagResource"},
+		"ResourceArn":      {topicArn},
+		"TagKeys.member.1": {"team"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "UntagResourceResponse")
+
+	// Verify only "env" remains.
+	remaining := b.GetTopicTags(topicArn)
+	assert.Len(t, remaining, 1)
+	assert.Equal(t, "prod", remaining["env"])
 }
 
-// TestRefinement1_SetPublishEmitter verifies the emitter can be set.
-func TestRefinement1_SetPublishEmitter(t *testing.T) {
+func TestSNSHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
-	b := newR1Backend(t)
-	// SetPublishEmitter accepts nil - just exercises the covered path.
-	b.SetPublishEmitter(nil)
+	b := sns.NewInMemoryBackend()
+	b.CreateTopic("listtag-topic", nil)
+	topicArn := "arn:aws:sns:us-east-1:000000000000:listtag-topic"
+	b.SetTopicTags(topicArn, svcTags.FromMap("test.sns.list", map[string]string{"env": "staging"}))
+
+	h := sns.NewHandler(b)
+
+	rec := snsPost(t, h, url.Values{
+		"Action":      {"ListTagsForResource"},
+		"ResourceArn": {topicArn},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ListTagsForResourceResponse")
+	assert.Contains(t, rec.Body.String(), "env")
+	assert.Contains(t, rec.Body.String(), "staging")
 }
 
 // TestRefinement1_TaggedTopics verifies TaggedTopics returns topic info.
-func TestRefinement1_TaggedTopics(t *testing.T) {
+func TestTaggedTopics(t *testing.T) {
 	t.Parallel()
 
 	b := newR1Backend(t)
@@ -60,7 +108,7 @@ func TestRefinement1_TaggedTopics(t *testing.T) {
 }
 
 // TestRefinement1_TagTopicByARN verifies TagTopicByARN.
-func TestRefinement1_TagTopicByARN(t *testing.T) {
+func TestTagTopicByARN(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -110,7 +158,7 @@ func TestRefinement1_TagTopicByARN(t *testing.T) {
 }
 
 // TestRefinement1_UntagTopicByARN verifies UntagTopicByARN.
-func TestRefinement1_UntagTopicByARN(t *testing.T) {
+func TestUntagTopicByARN(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -167,54 +215,5 @@ func TestRefinement1_UntagTopicByARN(t *testing.T) {
 
 			require.NoError(t, err)
 		})
-	}
-}
-
-// TestRefinement1_ListAllPlatformApplications verifies list works.
-func TestRefinement1_ListAllPlatformApplications(t *testing.T) {
-	t.Parallel()
-
-	b := newR1Backend(t)
-	apps := b.ListAllPlatformApplications()
-	assert.Empty(t, apps)
-
-	_, err := b.CreatePlatformApplication("my-app", "GCM", map[string]string{
-		"PlatformCredential": "fake-cred",
-	})
-	require.NoError(t, err)
-
-	apps = b.ListAllPlatformApplications()
-	assert.Len(t, apps, 1)
-}
-
-// TestRefinement1_StorageBackendInterface verifies var_ assertion compiles.
-func TestRefinement1_StorageBackendInterface(t *testing.T) {
-	t.Parallel()
-
-	var _ sns.StorageBackend = (*sns.InMemoryBackend)(nil)
-}
-
-// TestRefinement1_HandlerOpsLen verifies GetSupportedOperations count.
-func TestRefinement1_HandlerOpsLen(t *testing.T) {
-	t.Parallel()
-
-	b := newR1Backend(t)
-	h := sns.NewHandler(b)
-	assert.Len(t, h.GetSupportedOperations(), 42)
-}
-
-// TestRefinement1_SDKOpsSorted verifies GetSupportedOperations is sorted.
-func TestRefinement1_SDKOpsSorted(t *testing.T) {
-	t.Parallel()
-
-	b := newR1Backend(t)
-	h := sns.NewHandler(b)
-	ops := h.GetSupportedOperations()
-
-	require.NotEmpty(t, ops)
-
-	for i := 1; i < len(ops); i++ {
-		assert.LessOrEqual(t, ops[i-1], ops[i],
-			"ops not sorted at index %d: %s > %s", i, ops[i-1], ops[i])
 	}
 }
