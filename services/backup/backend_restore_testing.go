@@ -1,0 +1,311 @@
+package backup
+
+import (
+	"fmt"
+	"slices"
+	"sort"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+// CreateRestoreTestingPlan creates a restore testing plan.
+func (b *InMemoryBackend) CreateRestoreTestingPlan(
+	name, scheduleExpression string,
+	startWindowHours int64,
+) (*RestoreTestingPlan, error) {
+	b.mu.Lock("CreateRestoreTestingPlan")
+	defer b.mu.Unlock()
+
+	if b.restoreTestingPlans.Has(name) {
+		return nil, fmt.Errorf("%w: restore testing plan %s already exists", ErrAlreadyExists, name)
+	}
+
+	planARN := arn.Build("backup", b.region, b.accountID, "restore-testing-plan:"+name)
+	rtp := &RestoreTestingPlan{
+		RestoreTestingPlanName: name,
+		RestoreTestingPlanArn:  planARN,
+		ScheduleExpression:     scheduleExpression,
+		StartWindowHours:       startWindowHours,
+		CreationTime:           time.Now().UTC(),
+	}
+	b.restoreTestingPlans.Put(rtp)
+	cp := *rtp
+
+	return &cp, nil
+}
+
+// CreateRestoreTestingSelection creates a selection within a restore testing plan.
+func (b *InMemoryBackend) CreateRestoreTestingSelection(
+	planName, selectionName, protectedResourceType string,
+) (*RestoreTestingSelection, error) {
+	b.mu.Lock("CreateRestoreTestingSelection")
+	defer b.mu.Unlock()
+
+	rtp, found := b.restoreTestingPlans.Get(planName)
+	if !found {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	if b.restoreTestingSelections.Has(restoreTestingSelectionKey(planName, selectionName)) {
+		return nil, fmt.Errorf(
+			"%w: restore testing selection %s already exists",
+			ErrAlreadyExists,
+			selectionName,
+		)
+	}
+
+	sel := &RestoreTestingSelection{
+		RestoreTestingPlanName:      planName,
+		RestoreTestingSelectionName: selectionName,
+		RestoreTestingPlanArn:       rtp.RestoreTestingPlanArn,
+		ProtectedResourceType:       protectedResourceType,
+		CreationTime:                time.Now().UTC(),
+	}
+	b.restoreTestingSelections.Put(sel)
+	cp := *sel
+
+	return &cp, nil
+}
+
+// GetRestoreTestingPlan returns a restore testing plan by name.
+func (b *InMemoryBackend) GetRestoreTestingPlan(planName string) (*RestoreTestingPlan, error) {
+	b.mu.RLock("GetRestoreTestingPlan")
+	defer b.mu.RUnlock()
+
+	rtp, ok := b.restoreTestingPlans.Get(planName)
+	if !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	cp := *rtp
+
+	return &cp, nil
+}
+
+// ListRestoreTestingPlans returns all restore testing plans.
+func (b *InMemoryBackend) ListRestoreTestingPlans() []*RestoreTestingPlan {
+	b.mu.RLock("ListRestoreTestingPlans")
+	defer b.mu.RUnlock()
+
+	all := b.restoreTestingPlans.All()
+	list := make([]*RestoreTestingPlan, 0, len(all))
+	for _, rtp := range all {
+		cp := *rtp
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *RestoreTestingPlan) int {
+		if a.RestoreTestingPlanName < b.RestoreTestingPlanName {
+			return -1
+		}
+		if a.RestoreTestingPlanName > b.RestoreTestingPlanName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list
+}
+
+// UpdateRestoreTestingPlan updates a restore testing plan.
+func (b *InMemoryBackend) UpdateRestoreTestingPlan(
+	planName, scheduleExpression string,
+	startWindowHours int64,
+) (*RestoreTestingPlan, error) {
+	b.mu.Lock("UpdateRestoreTestingPlan")
+	defer b.mu.Unlock()
+
+	rtp, ok := b.restoreTestingPlans.Get(planName)
+	if !ok {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	rtp.ScheduleExpression = scheduleExpression
+	if startWindowHours > 0 {
+		rtp.StartWindowHours = startWindowHours
+	}
+	cp := *rtp
+
+	return &cp, nil
+}
+
+// DeleteRestoreTestingPlan deletes a restore testing plan and all its selections.
+func (b *InMemoryBackend) DeleteRestoreTestingPlan(planName string) error {
+	b.mu.Lock("DeleteRestoreTestingPlan")
+	defer b.mu.Unlock()
+
+	if !b.restoreTestingPlans.Has(planName) {
+		return fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	b.restoreTestingPlans.Delete(planName)
+
+	// Cascade-delete every selection under this plan. Clone the index's
+	// result first: deleting from the table while ranging over the live
+	// index slice would mutate it out from under the loop.
+	for _, sel := range slices.Clone(b.restoreTestingSelectionsByPlan.Get(planName)) {
+		b.restoreTestingSelections.Delete(
+			restoreTestingSelectionKey(sel.RestoreTestingPlanName, sel.RestoreTestingSelectionName),
+		)
+	}
+
+	return nil
+}
+
+// GetRestoreTestingSelection returns a specific restore testing selection.
+func (b *InMemoryBackend) GetRestoreTestingSelection(
+	planName, selectionName string,
+) (*RestoreTestingSelection, error) {
+	b.mu.RLock("GetRestoreTestingSelection")
+	defer b.mu.RUnlock()
+
+	if !b.restoreTestingPlans.Has(planName) {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	sel, ok := b.restoreTestingSelections.Get(restoreTestingSelectionKey(planName, selectionName))
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: restore testing selection %s not found",
+			ErrNotFound,
+			selectionName,
+		)
+	}
+
+	cp := *sel
+
+	return &cp, nil
+}
+
+// ListRestoreTestingSelections returns all selections for a restore testing plan.
+func (b *InMemoryBackend) ListRestoreTestingSelections(
+	planName string,
+) ([]*RestoreTestingSelection, error) {
+	b.mu.RLock("ListRestoreTestingSelections")
+	defer b.mu.RUnlock()
+
+	if !b.restoreTestingPlans.Has(planName) {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	sels := b.restoreTestingSelectionsByPlan.Get(planName)
+	list := make([]*RestoreTestingSelection, 0, len(sels))
+	for _, sel := range sels {
+		cp := *sel
+		list = append(list, &cp)
+	}
+
+	slices.SortFunc(list, func(a, b *RestoreTestingSelection) int {
+		if a.RestoreTestingSelectionName < b.RestoreTestingSelectionName {
+			return -1
+		}
+		if a.RestoreTestingSelectionName > b.RestoreTestingSelectionName {
+			return 1
+		}
+
+		return 0
+	})
+
+	return list, nil
+}
+
+// UpdateRestoreTestingSelection updates a restore testing selection.
+func (b *InMemoryBackend) UpdateRestoreTestingSelection(
+	planName, selectionName, protectedResourceType string,
+) (*RestoreTestingSelection, error) {
+	b.mu.Lock("UpdateRestoreTestingSelection")
+	defer b.mu.Unlock()
+
+	if !b.restoreTestingPlans.Has(planName) {
+		return nil, fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	sel, ok := b.restoreTestingSelections.Get(restoreTestingSelectionKey(planName, selectionName))
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: restore testing selection %s not found",
+			ErrNotFound,
+			selectionName,
+		)
+	}
+
+	sel.ProtectedResourceType = protectedResourceType
+	cp := *sel
+
+	return &cp, nil
+}
+
+// DeleteRestoreTestingSelection deletes a restore testing selection.
+func (b *InMemoryBackend) DeleteRestoreTestingSelection(planName, selectionName string) error {
+	b.mu.Lock("DeleteRestoreTestingSelection")
+	defer b.mu.Unlock()
+
+	if !b.restoreTestingPlans.Has(planName) {
+		return fmt.Errorf("%w: restore testing plan %s not found", ErrNotFound, planName)
+	}
+
+	key := restoreTestingSelectionKey(planName, selectionName)
+	if !b.restoreTestingSelections.Has(key) {
+		return fmt.Errorf("%w: restore testing selection %s not found", ErrNotFound, selectionName)
+	}
+
+	b.restoreTestingSelections.Delete(key)
+
+	return nil
+}
+
+// --- Framework read/update/delete methods ---
+
+// StartScanJob creates a new scan job for a backup vault.
+func (b *InMemoryBackend) StartScanJob(backupVaultArn string) *ScanJob {
+	b.mu.Lock("StartScanJob")
+	defer b.mu.Unlock()
+
+	now := time.Now().UTC()
+	done := now
+	job := &ScanJob{
+		ScanJobID:      "scan-job-" + uuid.New().String()[:8],
+		BackupVaultArn: backupVaultArn,
+		Status:         statusCompleted,
+		CreationTime:   now,
+		CompletionTime: &done,
+	}
+	b.scanJobs.Put(job)
+
+	return job
+}
+
+// DescribeScanJob returns a scan job by ID.
+func (b *InMemoryBackend) DescribeScanJob(scanJobID string) (*ScanJob, error) {
+	b.mu.RLock("DescribeScanJob")
+	defer b.mu.RUnlock()
+
+	job, ok := b.scanJobs.Get(scanJobID)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errScanJobNotFound, scanJobID)
+	}
+
+	return job, nil
+}
+
+// ListScanJobs returns all scan jobs.
+func (b *InMemoryBackend) ListScanJobs() []*ScanJob {
+	b.mu.RLock("ListScanJobs")
+	defer b.mu.RUnlock()
+
+	all := b.scanJobs.All()
+	out := make([]*ScanJob, 0, len(all))
+	for _, j := range all {
+		cp := *j
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ScanJobID < out[j].ScanJobID })
+
+	return out
+}
+
+// ---- Legal Holds ----
