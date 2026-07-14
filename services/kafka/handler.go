@@ -82,6 +82,15 @@ const (
 	opUpdateTopic                   = "UpdateTopic"
 )
 
+// kafkaMatchPriority must be strictly higher than service.PriorityPathVersioned (85).
+// AppSync also matches at PriorityPathVersioned via an ARN-agnostic "/v1/tags" path
+// prefix (it tags GraphqlApi/Api resources at that same real AWS path) and is
+// registered before Kafka in cli.go, so a tied priority lets AppSync's matcher win
+// every "/v1/tags/{arn}" request -- including Kafka's own TagResource/
+// UntagResource/ListTagsForResource, whose ARNs (arn:aws:kafka:...) AppSync then
+// rejects with "invalid resourceArn". Kafka must be evaluated first.
+const kafkaMatchPriority = service.PriorityPathVersioned + 1
+
 const (
 	clustersV1Prefix            = "/v1/clusters/"
 	clustersV2Prefix            = "/api/v2/clusters/"
@@ -268,7 +277,7 @@ func isKafkaTagsPath(path string) bool {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
+func (h *Handler) MatchPriority() int { return kafkaMatchPriority }
 
 // ExtractOperation extracts the MSK operation name from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
