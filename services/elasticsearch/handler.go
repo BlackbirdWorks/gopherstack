@@ -59,7 +59,8 @@ const (
 	elasticsearchPackages       = "/2015-01-01/packages"
 	elasticsearchDomainPackages = "/2015-01-01/domain"
 
-	opUnknown = "Unknown"
+	opUnknown         = "Unknown"
+	opListDomainNames = "ListDomainNames"
 )
 
 const (
@@ -109,6 +110,18 @@ func (h *Handler) buildOps() map[string]http.HandlerFunc {
 		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/cancel": h.handleCancelElasticsearchServiceSoftwareUpdate,
 		http.MethodPost + " " + elasticsearchSoftwareUpdate + "/start":  h.handleStartElasticsearchServiceSoftwareUpdate,
 		http.MethodGet + " " + elasticsearchDomainPackages:              h.handleListDomainNames,
+		// elasticsearchPathPrefix (bare, no domain name segment) is this
+		// emulator's own collection resource for the domain CRUD family
+		// (POST there creates a domain). AWS's real ListDomainNames lives at
+		// the distinct elasticsearchDomainPackages ("/2015-01-01/domain")
+		// resource per the aws-sdk-go-v2 serializer, and that mapping above
+		// is load-bearing for real SDK clients. This second entry additionally
+		// serves GET on the bare CRUD collection path as ListDomainNames too,
+		// so a caller that lists the same collection resource it created
+		// against gets a 200 instead of falling through to a 404 -- it does
+		// not shadow CreateElasticsearchDomain (POST) or DescribeElasticsearchDomain
+		// (GET with a name segment).
+		http.MethodGet + " " + elasticsearchPathPrefix:                  h.handleListDomainNames,
 		http.MethodPost + " " + elasticsearchCCSOutbound:                h.handleCreateOutboundCrossClusterSearchConnection,
 		http.MethodPost + " " + elasticsearchVpcEndpoints:               h.handleCreateVpcEndpoint,
 		http.MethodPost + " " + elasticsearchPackages:                   h.handleCreatePackage,
@@ -219,7 +232,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetPackageVersionHistory",
 		"GetUpgradeHistory",
 		"GetUpgradeStatus",
-		"ListDomainNames",
+		opListDomainNames,
 		"ListDomainsForPackage",
 		"ListElasticsearchInstanceTypes",
 		"ListElasticsearchVersions",
@@ -414,7 +427,7 @@ func extractPackageDomainOp(path, method string) string {
 		method == http.MethodGet:
 		return "ListPackagesForDomain"
 	case path == elasticsearchDomainPackages && method == http.MethodGet:
-		return "ListDomainNames"
+		return opListDomainNames
 	}
 
 	return ""
@@ -550,13 +563,16 @@ func extractSubDomainMethodOp(method string) string {
 }
 
 // extractRootDomainOperation returns the operation for the bare domain-prefix
-// path. Note: ListDomainNames is NOT here -- AWS routes it at the distinct
-// "/2015-01-01/domain" resource (no "es/" segment), handled separately in
-// extractPackageDomainOp. A bare GET on "/2015-01-01/es/domain" is not a real
-// AWS operation.
+// path ("/2015-01-01/es/domain", no name segment). POST creates a domain.
+// GET is ListDomainNames served as a same-resource convenience alias of the
+// real AWS "/2015-01-01/domain" resource (see extractPackageDomainOp and the
+// matching buildOps entry) -- both paths report the same operation name.
 func extractRootDomainOperation(method string) string {
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return "CreateElasticsearchDomain"
+	case http.MethodGet:
+		return opListDomainNames
 	}
 
 	return opUnknown
@@ -905,9 +921,9 @@ func (h *Handler) handleDomainRoutes(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
 		h.handleCreateDomain(w, r)
-	// Note: a bare GET here is NOT ListDomainNames -- AWS routes that at the
-	// distinct "/2015-01-01/domain" resource (see the fixed-path entry in
-	// buildOps and extractRootDomainOperation's doc comment).
+	// Note: a bare GET here (ListDomainNames) is handled by the fast-path
+	// buildOps entry in ServeHTTP before this function is ever reached; it
+	// is not duplicated in this switch. See the buildOps comment.
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
 		h.handleGetDomainRoute(w, r, rest)
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:

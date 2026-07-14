@@ -301,6 +301,153 @@ func TestElasticsearchHandler_ListDomainNames(t *testing.T) {
 	assert.Len(t, names, 2)
 }
 
+// TestElasticsearchHandler_DomainCollectionRouteMatrix drives the full
+// create/describe/list/update/delete flow through h.ServeHTTP (the same
+// dispatch path RouteMatcher-selected requests hit in production) to pin the
+// method+path matrix on the "/2015-01-01/es/domain" collection resource.
+// Regression coverage for a routing change that made "GET /2015-01-01/es/domain"
+// (bare, no domain name segment) 404 instead of reaching ListDomainNames while
+// "POST /2015-01-01/es/domain" (create) and "GET .../es/domain/{name}"
+// (describe) kept working -- see buildOps and extractRootDomainOperation.
+func TestElasticsearchHandler_DomainCollectionRouteMatrix(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	domainName := "route-matrix-domain"
+
+	steps := []struct {
+		check    func(t *testing.T, body map[string]any)
+		name     string
+		method   string
+		path     string
+		wantCode int
+	}{
+		{
+			name:     "create_domain",
+			method:   http.MethodPost,
+			path:     "/2015-01-01/es/domain",
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+
+				status, ok := body["DomainStatus"].(map[string]any)
+				require.True(t, ok, "expected DomainStatus in create response")
+				assert.Equal(t, domainName, status["DomainName"])
+			},
+		},
+		{
+			name:     "describe_domain",
+			method:   http.MethodGet,
+			path:     "/2015-01-01/es/domain/" + domainName,
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+
+				status, ok := body["DomainStatus"].(map[string]any)
+				require.True(t, ok, "expected DomainStatus in describe response")
+				assert.Equal(t, domainName, status["DomainName"])
+			},
+		},
+		{
+			name:     "list_domain_names_bare_collection_path",
+			method:   http.MethodGet,
+			path:     "/2015-01-01/es/domain",
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+
+				assert.True(t, domainListContains(body, domainName))
+			},
+		},
+		{
+			name:     "list_domain_names_real_aws_path",
+			method:   http.MethodGet,
+			path:     "/2015-01-01/domain",
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+
+				assert.True(t, domainListContains(body, domainName))
+			},
+		},
+		{
+			name:     "update_domain_config",
+			method:   http.MethodPost,
+			path:     "/2015-01-01/es/domain/" + domainName + "/config",
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+
+				assert.NotNil(t, body["DomainConfig"])
+			},
+		},
+		{
+			name:     "delete_domain",
+			method:   http.MethodDelete,
+			path:     "/2015-01-01/es/domain/" + domainName,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "describe_after_delete_not_found",
+			method:   http.MethodGet,
+			path:     "/2015-01-01/es/domain/" + domainName,
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, step := range steps {
+		var body any
+		if step.method == http.MethodPost && step.path == "/2015-01-01/es/domain" {
+			body = map[string]any{
+				"DomainName":           domainName,
+				"ElasticsearchVersion": "7.10",
+				"ElasticsearchClusterConfig": map[string]any{
+					"InstanceType":  "t3.small.elasticsearch",
+					"InstanceCount": 1,
+				},
+			}
+		} else if step.method == http.MethodPost && strings.HasSuffix(step.path, "/config") {
+			body = map[string]any{
+				"ElasticsearchClusterConfig": map[string]any{
+					"InstanceType":  "r5.large.elasticsearch",
+					"InstanceCount": 2,
+				},
+			}
+		}
+
+		resp := doRequest(t, h, step.method, step.path, body)
+		require.Equalf(t, step.wantCode, resp.StatusCode, "step %q", step.name)
+
+		var out map[string]any
+		if resp.Header.Get("Content-Type") != "" {
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		}
+
+		resp.Body.Close()
+
+		if step.check != nil {
+			step.check(t, out)
+		}
+	}
+}
+
+// domainListContains reports whether a ListDomainNames JSON body contains domainName.
+func domainListContains(body map[string]any, domainName string) bool {
+	names, ok := body["DomainNames"].([]any)
+	if !ok {
+		return false
+	}
+
+	for _, entry := range names {
+		e, entryOK := entry.(map[string]any)
+		if entryOK && e["DomainName"] == domainName {
+			return true
+		}
+	}
+
+	return false
+}
+
 func TestElasticsearchHandler_DescribeElasticsearchDomains(t *testing.T) {
 	t.Parallel()
 
