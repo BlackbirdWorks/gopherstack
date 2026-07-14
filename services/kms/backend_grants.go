@@ -1,0 +1,382 @@
+package kms
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// isValidGrantOperation reports whether op is a grant operation permitted by AWS KMS.
+func isValidGrantOperation(op string) bool {
+	switch op {
+	case "Decrypt", "Encrypt", "GenerateDataKey", "GenerateDataKeyWithoutPlaintext",
+		"ReEncryptFrom", "ReEncryptTo", "Sign", "Verify", "GetPublicKey",
+		"CreateGrant", "RetireGrant", "DescribeKey", "GenerateMac", "VerifyMac",
+		"DeriveSharedSecret", "GenerateDataKeyPair", "GenerateDataKeyPairWithoutPlaintext":
+		return true
+	}
+
+	return false
+}
+
+// CreateGrant creates a new grant on the specified key.
+func (b *InMemoryBackend) CreateGrant(
+	ctx context.Context,
+	input *CreateGrantInput,
+) (*CreateGrantOutput, error) {
+	if strings.TrimSpace(input.GranteePrincipal) == "" {
+		return nil, fmt.Errorf("%w: GranteePrincipal must not be empty", ErrValidation)
+	}
+
+	if len(input.Operations) == 0 {
+		return nil, fmt.Errorf("%w: Operations must contain at least one entry", ErrValidation)
+	}
+
+	// Validate grant name length.
+	if len(input.Name) > maxGrantNameLength {
+		return nil, fmt.Errorf(
+			"%w: grant name must not exceed %d characters, got %d",
+			ErrValidation, maxGrantNameLength, len(input.Name),
+		)
+	}
+
+	// Validate each operation against the allowed set.
+	for _, op := range input.Operations {
+		if !isValidGrantOperation(op) {
+			return nil, fmt.Errorf(
+				"%w: invalid grant operation %q; must be one of the allowed KMS grant operations",
+				ErrValidation, op,
+			)
+		}
+	}
+
+	b.mu.Lock("CreateGrant")
+	defer b.mu.Unlock()
+
+	// Store the grant in the key's own region (ARN-embedded region for an ARN
+	// input), so ListGrants/RevokeGrant/RetireGrant addressing the key the same
+	// way find it.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	keyID := key.KeyID
+
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+		return nil, keyStateError(key)
+	}
+
+	grantsForKey := b.grantsRegion(region)
+
+	if len(grantsForKey.byKey.Get(keyID)) >= maxGrantsPerKey {
+		return nil, fmt.Errorf(
+			"%w: grant limit of %d exceeded for key %q",
+			ErrLimitExceeded,
+			maxGrantsPerKey,
+			keyID,
+		)
+	}
+
+	now := time.Now()
+	grantID := uuid.New().String()
+	grantToken := uuid.New().String()
+	grant := &Grant{
+		GrantID:           grantID,
+		KeyID:             keyID,
+		GranteePrincipal:  input.GranteePrincipal,
+		RetiringPrincipal: input.RetiringPrincipal,
+		Operations:        input.Operations,
+		Name:              input.Name,
+		GrantToken:        grantToken,
+		TokenIssuedAt:     now,
+		Constraints:       input.Constraints,
+		CreationDate:      UnixTimeFloat(now),
+	}
+	// A single Put keeps the byToken and byKey indexes consistent automatically.
+	grantsForKey.table.Put(grant)
+
+	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
+}
+
+// grantConstraintsSatisfied reports whether the provided encryption context satisfies
+// the grant's constraints. A nil Constraints field always passes.
+func grantConstraintsSatisfied(c *GrantConstraints, encCtx map[string]string) bool {
+	if c == nil {
+		return true
+	}
+
+	if len(c.EncryptionContextEquals) > 0 {
+		if len(encCtx) != len(c.EncryptionContextEquals) {
+			return false
+		}
+
+		for k, v := range c.EncryptionContextEquals {
+			if encCtx[k] != v {
+				return false
+			}
+		}
+	}
+
+	for k, v := range c.EncryptionContextSubset {
+		if encCtx[k] != v {
+			return false
+		}
+	}
+
+	return true
+}
+
+// findGrantByToken returns the first grant whose GrantToken matches any of the provided tokens.
+// Searches all regions. Must be called with at least a read lock held.
+func (b *InMemoryBackend) findGrantByToken(grantTokens []string) *Grant {
+	for _, gs := range b.grants {
+		for _, token := range grantTokens {
+			if matches := gs.byToken.Get(token); len(matches) > 0 {
+				return matches[0]
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateGrantTokenConstraints checks that, if a grant token is provided, the encryption
+// context satisfies the grant's constraints. No-op when grantTokens is empty.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) validateGrantTokenConstraints(
+	_ context.Context,
+	grantTokens []string,
+	encCtx map[string]string,
+) error {
+	if len(grantTokens) == 0 {
+		return nil
+	}
+
+	grant := b.findGrantByToken(grantTokens)
+	if grant == nil {
+		return fmt.Errorf("%w: grant token not found", ErrInvalidGrantToken)
+	}
+
+	// AWS grant tokens are valid for approximately 5 minutes after issuance.
+	if !grant.TokenIssuedAt.IsZero() && time.Since(grant.TokenIssuedAt) > grantTokenTTL {
+		return fmt.Errorf("%w: grant token has expired", ErrInvalidGrantToken)
+	}
+
+	if !grantConstraintsSatisfied(grant.Constraints, encCtx) {
+		return fmt.Errorf(
+			"%w: encryption context does not satisfy grant constraints",
+			ErrKeyInvalidState,
+		)
+	}
+
+	return nil
+}
+
+// validateGrantTokenPresence checks that, if grant tokens are provided, at least one
+// resolves to an existing, non-expired grant. Unlike validateGrantTokenConstraints,
+// it does not evaluate EncryptionContext-based grant constraints: per AWS KMS docs,
+// EncryptionContextEquals/EncryptionContextSubset constraints apply only to operations
+// that support an encryption context. Sign, Verify, GetPublicKey, GenerateMac, VerifyMac,
+// and DeriveSharedSecret do not, so only grant-token validity (existence + TTL) is checked.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) validateGrantTokenPresence(grantTokens []string) error {
+	if len(grantTokens) == 0 {
+		return nil
+	}
+
+	grant := b.findGrantByToken(grantTokens)
+	if grant == nil {
+		return fmt.Errorf("%w: grant token not found", ErrInvalidGrantToken)
+	}
+
+	if !grant.TokenIssuedAt.IsZero() && time.Since(grant.TokenIssuedAt) > grantTokenTTL {
+		return fmt.Errorf("%w: grant token has expired", ErrInvalidGrantToken)
+	}
+
+	return nil
+}
+
+// ListGrants returns the grants for a specified key with optional pagination and GrantId filter.
+func (b *InMemoryBackend) ListGrants(
+	ctx context.Context,
+	input *ListGrantsInput,
+) (*ListGrantsOutput, error) {
+	b.mu.RLock("ListGrants")
+	defer b.mu.RUnlock()
+
+	// Read grants from the key's own region (ARN-embedded region for an ARN input),
+	// matching where CreateGrant stored them.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	keyID := key.KeyID
+
+	var grants []Grant
+	for _, g := range b.grantsRegion(region).byKey.Get(keyID) {
+		// Filter by GrantId if specified.
+		if input.GrantID != "" && g.GrantID != input.GrantID {
+			continue
+		}
+		grants = append(grants, *g)
+	}
+
+	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+
+	startIdx := parseMarker(input.Marker)
+	limit := int32(defaultListLimit)
+
+	if input.Limit != nil && *input.Limit > 0 {
+		limit = *input.Limit
+	}
+
+	if startIdx >= len(grants) {
+		return &ListGrantsOutput{Grants: []Grant{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextMarker string
+	if end < len(grants) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(grants)
+	}
+
+	return &ListGrantsOutput{
+		Grants:     grants[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}, nil
+}
+
+// RevokeGrant revokes a grant by ID.
+func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInput) error {
+	b.mu.Lock("RevokeGrant")
+	defer b.mu.Unlock()
+
+	// Resolve against the key's own region (ARN-embedded region for an ARN input)
+	// so the grant is found in the store CreateGrant wrote it to.
+	key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	grant, ok := b.grantsStore(region).Get(input.GrantID)
+	if !ok || grant.KeyID != key.KeyID {
+		return ErrGrantNotFound
+	}
+
+	// A single Delete keeps the byToken and byKey indexes consistent
+	// automatically (including dropping now-empty index groups on purge).
+	b.grantsStore(region).Delete(input.GrantID)
+
+	return nil
+}
+
+// RetireGrant retires a grant by grant token or grant ID + key ID.
+func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInput) error {
+	b.mu.Lock("RetireGrant")
+	defer b.mu.Unlock()
+
+	if input.GrantToken != "" {
+		// Search all regions for the grant token.
+		for _, gs := range b.grants {
+			if matches := gs.byToken.Get(input.GrantToken); len(matches) > 0 {
+				g := matches[0]
+				gs.table.Delete(g.GrantID)
+
+				return nil
+			}
+		}
+
+		return ErrGrantNotFound
+	}
+
+	if input.GrantID == "" {
+		return ErrGrantNotFound
+	}
+
+	// When a KeyId is supplied, resolve it to the key's own region (ARN-embedded
+	// region for an ARN input) and retire the grant from that region's store, so a
+	// grant created via a cross-region ARN is retired consistently. When no KeyId
+	// is supplied there is no region hint, so search every region for the grant ID.
+	if input.KeyID != "" {
+		key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID)
+		if err != nil {
+			return err
+		}
+
+		grant, ok := b.grantsStore(region).Get(input.GrantID)
+		if !ok || grant.KeyID != key.KeyID {
+			return ErrGrantNotFound
+		}
+
+		b.grantsStore(region).Delete(input.GrantID)
+
+		return nil
+	}
+
+	for _, gs := range b.grants {
+		if _, ok := gs.table.Get(input.GrantID); ok {
+			gs.table.Delete(input.GrantID)
+
+			return nil
+		}
+	}
+
+	return ErrGrantNotFound
+}
+
+// ListRetirableGrants returns all grants for which the given principal is the retiring principal.
+func (b *InMemoryBackend) ListRetirableGrants(
+	ctx context.Context,
+	input *ListRetirableGrantsInput,
+) (*ListGrantsOutput, error) {
+	b.mu.RLock("ListRetirableGrants")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	grants := make([]Grant, 0)
+	for _, g := range b.grantsStore(region).All() {
+		if g.RetiringPrincipal == input.RetiringPrincipal {
+			grants = append(grants, *g)
+		}
+	}
+
+	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+
+	startIdx := parseMarker(input.Marker)
+	limit := int32(defaultListLimit)
+
+	if input.Limit != nil && *input.Limit > 0 {
+		limit = *input.Limit
+	}
+
+	if startIdx >= len(grants) {
+		return &ListGrantsOutput{Grants: []Grant{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextMarker string
+	if end < len(grants) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(grants)
+	}
+
+	return &ListGrantsOutput{
+		Grants:     grants[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}, nil
+}

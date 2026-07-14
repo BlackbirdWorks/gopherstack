@@ -1,0 +1,670 @@
+package kms
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sort"
+	"strconv"
+	"time"
+
+	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/google/uuid"
+
+	gopherarn "github.com/blackbirdworks/gopherstack/pkgs/arn"
+)
+
+// validateKeySpecUsage returns an error when keySpec and keyUsage are incompatible.
+// Symmetric specs (SYMMETRIC_DEFAULT) are only valid for ENCRYPT_DECRYPT;
+// RSA specs (RSA_*) are valid for SIGN_VERIFY or ENCRYPT_DECRYPT (RSA-OAEP);
+// ECC specs (ECC_*) are valid for SIGN_VERIFY or KEY_AGREEMENT;
+// HMAC specs (HMAC_*) are only valid for GENERATE_VERIFY_MAC.
+func validateKeySpecUsage(keySpec, keyUsage string) error {
+	switch keySpec {
+	case keySpecSymmetric:
+		if keyUsage != "" && keyUsage != KeyUsageEncryptDecrypt {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; symmetric keys require ENCRYPT_DECRYPT",
+				ErrInvalidKeyUsage,
+				keySpec,
+				keyUsage,
+			)
+		}
+	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096:
+		if keyUsage != "" && keyUsage != KeyUsageSignVerify && keyUsage != KeyUsageEncryptDecrypt {
+			return fmt.Errorf(
+				"%w: key spec %q supports KeyUsage=%s or KeyUsage=%s only",
+				ErrInvalidKeyUsage, keySpec, KeyUsageSignVerify, KeyUsageEncryptDecrypt,
+			)
+		}
+	case keySpecECCP256, keySpecECCP384, keySpecECCP521:
+		if keyUsage != "" && keyUsage != KeyUsageSignVerify && keyUsage != KeyUsageKeyAgreement {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; ECC keys require SIGN_VERIFY or KEY_AGREEMENT",
+				ErrInvalidKeyUsage,
+				keySpec,
+				keyUsage,
+			)
+		}
+	case keySpecHMAC256, keySpecHMAC384, keySpecHMAC512:
+		if keyUsage != "" && keyUsage != KeyUsageGenerateMac {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; HMAC keys require GENERATE_VERIFY_MAC",
+				ErrInvalidKeyUsage,
+				keySpec,
+				keyUsage,
+			)
+		}
+	}
+
+	return nil
+}
+
+// deriveKeySpecUsage fills in missing KeySpec and KeyUsage defaults, returning the resolved pair.
+// If keyUsage is empty, it is inferred from keySpec; if keySpec is empty it is inferred from keyUsage.
+func deriveKeySpecUsage(keySpec, keyUsage string) (string, string) {
+	if keyUsage == "" {
+		switch keySpec {
+		case keySpecSymmetric, "":
+			keyUsage = KeyUsageEncryptDecrypt
+		case keySpecHMAC256, keySpecHMAC384, keySpecHMAC512:
+			keyUsage = KeyUsageGenerateMac
+		default:
+			// RSA and ECC specs default to SIGN_VERIFY unless the caller specified otherwise.
+			keyUsage = KeyUsageSignVerify
+		}
+	}
+
+	if keySpec == "" {
+		switch keyUsage {
+		case KeyUsageEncryptDecrypt:
+			keySpec = keySpecSymmetric
+		case KeyUsageGenerateMac:
+			keySpec = keySpecHMAC256
+		case KeyUsageSignVerify:
+			keySpec = keySpecRSA2048
+		case KeyUsageKeyAgreement:
+			keySpec = keySpecECCP256
+		default:
+			keySpec = keySpecSymmetric
+		}
+	}
+
+	return keySpec, keyUsage
+}
+
+// CreateKey creates a new KMS key and stores it in the backend.
+func (b *InMemoryBackend) CreateKey(
+	ctx context.Context,
+	input *CreateKeyInput,
+) (*CreateKeyOutput, error) {
+	if len(input.Description) > maxDescriptionLength {
+		return nil, fmt.Errorf(
+			"%w: Description exceeds maximum length of %d characters",
+			ErrValidation, maxDescriptionLength,
+		)
+	}
+
+	if len(input.Tags) > maxTagsPerKey {
+		return nil, fmt.Errorf(
+			"%w: number of tags (%d) exceeds the maximum of %d",
+			ErrValidation, len(input.Tags), maxTagsPerKey,
+		)
+	}
+
+	b.mu.Lock("CreateKey")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+	if input.Region != "" {
+		region = input.Region
+	}
+
+	// An inline policy, if supplied, must be a well-formed key policy document.
+	if input.Policy != "" && !validKeyPolicyDoc(input.Policy) {
+		return nil, ErrMalformedPolicyDocument
+	}
+
+	keyID := uuid.New().String()
+	keyUsage := input.KeyUsage
+	keySpec := input.KeySpec
+
+	// Validate that KeySpec and KeyUsage are compatible when both are specified.
+	if err := validateKeySpecUsage(keySpec, keyUsage); err != nil {
+		return nil, err
+	}
+
+	keySpec, keyUsage = deriveKeySpecUsage(keySpec, keyUsage)
+
+	// HMAC keys do not support MultiRegion.
+	if input.MultiRegion {
+		switch keySpec {
+		case keySpecHMAC256, keySpecHMAC384, keySpecHMAC512:
+			return nil, fmt.Errorf(
+				"%w: HMAC keys (spec %q) do not support MultiRegion",
+				ErrInvalidKeyUsage, keySpec,
+			)
+		}
+	}
+
+	// Resolve origin: EXTERNAL keys require the caller to import key material later.
+	origin := input.Origin
+	if origin == "" {
+		origin = KeyOriginAWSKMS
+	}
+
+	keyARN := gopherarn.Build("kms", region, b.accountID, "key/"+keyID)
+
+	// External-origin keys start in PendingImport; no key material is generated.
+	keyState := KeyStateEnabled
+	if origin == KeyOriginExternal {
+		keyState = KeyStatePendingImport
+	}
+
+	key := &Key{
+		KeyID:         keyID,
+		Arn:           keyARN,
+		Description:   input.Description,
+		KeyState:      keyState,
+		KeyUsage:      keyUsage,
+		KeySpec:       keySpec,
+		Origin:        origin,
+		PrimaryRegion: region,
+		CreationDate:  UnixTimeFloat(time.Now()),
+		Enabled:       keyState == KeyStateEnabled,
+		MultiRegion:   input.MultiRegion,
+	}
+
+	if origin != KeyOriginExternal {
+		km, err := generateKeyMaterial(keySpec)
+		if err != nil {
+			return nil, fmt.Errorf("generating key material for spec %q: %w", keySpec, err)
+		}
+
+		b.keyMaterialsStore(region)[keyID] = km
+	}
+
+	b.keysStore(region).Put(key)
+
+	// Persist the caller-supplied policy so GetKeyPolicy returns it verbatim
+	// rather than synthesizing the default (Terraform's aws_kms_key polls
+	// GetKeyPolicy after create until the configured policy propagates).
+	if input.Policy != "" {
+		b.policiesStore(region)[keyID] = input.Policy
+	}
+
+	out := &CreateKeyOutput{
+		KeyMetadata: keyToMetadata(key),
+	}
+
+	return out, nil
+}
+
+// DescribeKey returns metadata for the specified key.
+func (b *InMemoryBackend) DescribeKey(
+	ctx context.Context,
+	input *DescribeKeyInput,
+) (*DescribeKeyOutput, error) {
+	b.mu.RLock("DescribeKey")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	// DescribeKey is a grant operation with no encryption context, so validate
+	// grant-token presence only (existence + TTL) -- consistent with Sign/Verify/
+	// GetPublicKey/DeriveSharedSecret. Empty GrantTokens is a no-op, which is the
+	// only case Terraform ever exercises.
+	if err = b.validateGrantTokenPresence(input.GrantTokens); err != nil {
+		return nil, err
+	}
+
+	meta := keyToMetadata(key)
+	meta.MultiRegionConfiguration = b.buildMultiRegionConfig(ctx, key)
+
+	return &DescribeKeyOutput{KeyMetadata: meta}, nil
+}
+
+// ListKeys returns a paginated list of all keys.
+func (b *InMemoryBackend) ListKeys(
+	ctx context.Context,
+	input *ListKeysInput,
+) (*ListKeysOutput, error) {
+	b.mu.RLock("ListKeys")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+	entries := make([]KeyListEntry, 0, b.keysStore(region).Len())
+
+	for _, k := range b.keysStore(region).All() {
+		entries = append(
+			entries,
+			KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description},
+		)
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].KeyID < entries[j].KeyID
+	})
+
+	startIdx := parseMarker(input.Marker)
+	limit := int32(defaultListLimit)
+
+	if input.Limit != nil {
+		if *input.Limit < 1 || *input.Limit > 1000 {
+			return nil, fmt.Errorf("%w: Limit must be between 1 and 1000", ErrValidation)
+		}
+
+		limit = *input.Limit
+	}
+
+	if startIdx >= len(entries) {
+		return &ListKeysOutput{Keys: []KeyListEntry{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextMarker string
+
+	if end < len(entries) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(entries)
+	}
+
+	return &ListKeysOutput{
+		Keys:       entries[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}, nil
+}
+
+// DisableKey disables the specified key.
+// AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
+func (b *InMemoryBackend) DisableKey(ctx context.Context, input *DisableKeyInput) error {
+	b.mu.Lock("DisableKey")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+		return keyStateError(key)
+	}
+
+	key.KeyState = KeyStateDisabled
+	key.Enabled = false
+	b.evictAliasesFromCache(region, key.KeyID)
+
+	return nil
+}
+
+// EnableKey enables the specified key.
+// AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
+func (b *InMemoryBackend) EnableKey(ctx context.Context, input *EnableKeyInput) error {
+	b.mu.Lock("EnableKey")
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+		return keyStateError(key)
+	}
+
+	key.KeyState = KeyStateEnabled
+	key.Enabled = true
+
+	return nil
+}
+
+// ScheduleKeyDeletion schedules a key for deletion.
+// PendingWindowInDays must be in the range [7, 30]; values outside this range are rejected.
+// AWS raises ValidationException for out-of-range values and KMSInvalidStateException
+// for keys already in PendingDeletion.
+func (b *InMemoryBackend) ScheduleKeyDeletion(
+	ctx context.Context,
+	input *ScheduleKeyDeletionInput,
+) (*ScheduleKeyDeletionOutput, error) {
+	b.mu.Lock("ScheduleKeyDeletion")
+	defer b.mu.Unlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState == KeyStatePendingDeletion {
+		return nil, keyStateError(key)
+	}
+
+	days := input.PendingWindowInDays
+	if days == 0 {
+		days = defaultPendingWindowDays
+	}
+
+	if days < minPendingWindowDays || days > maxPendingWindowDays {
+		return nil, fmt.Errorf(
+			"%w: PendingWindowInDays must be between %d and %d, got %d",
+			ErrValidation, minPendingWindowDays, maxPendingWindowDays, days,
+		)
+	}
+
+	deletionDate := time.Now().UTC().AddDate(0, 0, days)
+	key.KeyState = KeyStatePendingDeletion
+	key.Enabled = false
+	key.DeletionDate = UnixTimeFloat(deletionDate)
+	key.PendingWindowInDays = days
+	b.evictAliasesFromCache(region, key.KeyID)
+
+	return &ScheduleKeyDeletionOutput{
+		KeyID:               key.KeyID,
+		DeletionDate:        key.DeletionDate,
+		KeyState:            key.KeyState,
+		PendingWindowInDays: days,
+	}, nil
+}
+
+// CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
+// AWS raises KMSInvalidStateException if the key is not in PendingDeletion state.
+func (b *InMemoryBackend) CancelKeyDeletion(
+	ctx context.Context,
+	input *CancelKeyDeletionInput,
+) (*CancelKeyDeletionOutput, error) {
+	b.mu.Lock("CancelKeyDeletion")
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStatePendingDeletion {
+		return nil, keyStateError(key)
+	}
+
+	key.KeyState = KeyStateDisabled
+	key.Enabled = false
+	key.DeletionDate = 0
+
+	return &CancelKeyDeletionOutput{KeyID: key.KeyID, KeyState: key.KeyState}, nil
+}
+
+// keyToMetadata converts a Key to its KeyMetadata representation.
+func keyToMetadata(k *Key) KeyMetadata {
+	origin := k.Origin
+	if origin == "" {
+		origin = KeyOriginAWSKMS
+	}
+
+	meta := KeyMetadata{
+		KeyID:                 k.KeyID,
+		Arn:                   k.Arn,
+		Description:           k.Description,
+		KeyState:              k.KeyState,
+		KeyUsage:              k.KeyUsage,
+		KeySpec:               k.KeySpec,
+		CustomerMasterKeySpec: k.KeySpec,
+		CreationDate:          k.CreationDate,
+		KeyManager:            "CUSTOMER",
+		Origin:                origin,
+		MultiRegion:           k.MultiRegion,
+		PrimaryRegion:         k.PrimaryRegion,
+		Enabled:               k.Enabled,
+	}
+
+	// DeletionDate and PendingWindowInDays are only meaningful for PendingDeletion keys.
+	if k.KeyState == KeyStatePendingDeletion {
+		meta.DeletionDate = k.DeletionDate
+		meta.PendingDeletionWindowInDays = k.PendingWindowInDays
+	}
+
+	applyExpirationFields(k, &meta)
+	applyMultiRegionType(k, &meta)
+	applyAlgorithmFields(k, &meta)
+
+	return meta
+}
+
+// applyExpirationFields sets ValidTo and ExpirationModel on meta for EXTERNAL keys.
+func applyExpirationFields(k *Key, meta *KeyMetadata) {
+	if k.Origin != KeyOriginExternal {
+		return
+	}
+
+	if k.ValidTo > 0 {
+		meta.ValidTo = k.ValidTo
+		meta.ExpirationModel = expirationModelExpires
+
+		return
+	}
+
+	if k.ExpirationModel == expirationModelNoExpiry {
+		meta.ExpirationModel = expirationModelNoExpiry
+
+		return
+	}
+
+	meta.ExpirationModel = k.ExpirationModel
+}
+
+// applyMultiRegionType sets MultiRegionKeyType on meta for multi-region keys.
+func applyMultiRegionType(k *Key, meta *KeyMetadata) {
+	if !k.MultiRegion || k.PrimaryRegion == "" {
+		return
+	}
+
+	if k.PrimaryRegion == extractRegionFromARN(k.Arn) {
+		meta.MultiRegionKeyType = "PRIMARY"
+	} else {
+		meta.MultiRegionKeyType = "REPLICA"
+	}
+}
+
+// buildMultiRegionConfig constructs the MultiRegionConfiguration for a key, following
+// the same PRIMARY/REPLICA logic used by AWS DescribeKey. Returns nil for non-multi-region keys.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) buildMultiRegionConfig(
+	_ context.Context,
+	key *Key,
+) *MultiRegionConfiguration {
+	if !key.MultiRegion {
+		return nil
+	}
+
+	keyRegion := extractRegionFromARN(key.Arn)
+
+	if key.PrimaryRegion == "" || key.PrimaryRegion == keyRegion {
+		return b.buildPrimaryMultiRegionConfig(key, keyRegion)
+	}
+
+	return b.buildReplicaMultiRegionConfig(key)
+}
+
+// buildPrimaryMultiRegionConfig returns the MultiRegionConfiguration for a primary key.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) buildPrimaryMultiRegionConfig(
+	key *Key,
+	keyRegion string,
+) *MultiRegionConfiguration {
+	cfg := &MultiRegionConfiguration{
+		MultiRegionKeyType: "PRIMARY",
+		PrimaryKey:         &MultiRegionKeyRef{Arn: key.Arn, Region: keyRegion},
+	}
+
+	for _, replicaID := range key.ReplicaKeyIDs {
+		// replica keys may live in any region — search all regions
+		if rk := b.findKeyInAnyRegion(replicaID); rk != nil {
+			cfg.ReplicaKeys = append(cfg.ReplicaKeys, MultiRegionKeyRef{
+				Arn:    rk.Arn,
+				Region: extractRegionFromARN(rk.Arn),
+			})
+		}
+	}
+
+	return cfg
+}
+
+// buildReplicaMultiRegionConfig returns the MultiRegionConfiguration for a replica key by
+// scanning keys to locate the primary. Must be called with at least a read lock held.
+func (b *InMemoryBackend) buildReplicaMultiRegionConfig(key *Key) *MultiRegionConfiguration {
+	cfg := &MultiRegionConfiguration{
+		MultiRegionKeyType: "REPLICA",
+	}
+
+	primaryKey := b.findPrimaryKeyForReplica(key)
+	if primaryKey != nil {
+		cfg.PrimaryKey = &MultiRegionKeyRef{
+			Arn:    primaryKey.Arn,
+			Region: key.PrimaryRegion,
+		}
+
+		for _, replicaID := range primaryKey.ReplicaKeyIDs {
+			if rk := b.findKeyInAnyRegion(replicaID); rk != nil {
+				cfg.ReplicaKeys = append(cfg.ReplicaKeys, MultiRegionKeyRef{
+					Arn:    rk.Arn,
+					Region: extractRegionFromARN(rk.Arn),
+				})
+			}
+		}
+	} else {
+		cfg.PrimaryKey = &MultiRegionKeyRef{Region: key.PrimaryRegion}
+	}
+
+	return cfg
+}
+
+// findKeyInAnyRegion searches all region stores for a key with the given keyID.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) findKeyInAnyRegion(keyID string) *Key {
+	for _, t := range b.keys {
+		if k, ok := t.Get(keyID); ok {
+			return k
+		}
+	}
+
+	return nil
+}
+
+// findPrimaryKeyForReplica locates the primary key that lists replicaKey.KeyID in its
+// ReplicaKeyIDs. Must be called with at least a read lock held.
+func (b *InMemoryBackend) findPrimaryKeyForReplica(replicaKey *Key) *Key {
+	for _, t := range b.keys {
+		for _, k := range t.All() {
+			if !k.MultiRegion || extractRegionFromARN(k.Arn) != replicaKey.PrimaryRegion {
+				continue
+			}
+
+			if slices.Contains(k.ReplicaKeyIDs, replicaKey.KeyID) {
+				return k
+			}
+		}
+	}
+
+	return nil
+}
+
+// applyAlgorithmFields sets the algorithm lists on meta based on key usage and spec.
+func applyAlgorithmFields(k *Key, meta *KeyMetadata) {
+	switch k.KeyUsage {
+	case KeyUsageEncryptDecrypt:
+		if k.KeySpec == keySpecRSA2048 || k.KeySpec == keySpecRSA3072 ||
+			k.KeySpec == keySpecRSA4096 {
+			meta.EncryptionAlgorithms = []string{algoRSAESOAEPSHA1, encryptionAlgorithmRSAOAEP}
+		} else {
+			meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
+		}
+	case KeyUsageSignVerify:
+		meta.SigningAlgorithms = defaultSigningAlgorithms(k.KeySpec)
+	case KeyUsageGenerateMac:
+		meta.MacAlgorithms = defaultMacAlgorithms(k.KeySpec)
+	case KeyUsageKeyAgreement:
+		meta.KeyAgreementAlgorithms = []string{algoECDH}
+	}
+}
+
+// extractRegionFromARN parses the region component from a KMS ARN.
+func extractRegionFromARN(arnStr string) string {
+	parsed, err := awsarn.Parse(arnStr)
+	if err != nil {
+		return ""
+	}
+
+	return parsed.Region
+}
+
+// UpdateKeyDescription updates a key's description field.
+func (b *InMemoryBackend) UpdateKeyDescription(
+	ctx context.Context,
+	input *UpdateKeyDescriptionInput,
+) error {
+	if len(input.Description) > maxDescriptionLength {
+		return fmt.Errorf(
+			"%w: Description exceeds maximum length of %d characters",
+			ErrValidation, maxDescriptionLength,
+		)
+	}
+
+	b.mu.Lock("UpdateKeyDescription")
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(ctx, input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.Description = input.Description
+
+	return nil
+}
+
+// recordLastUsage stores the last successful cryptographic operation for the given key.
+// It is safe to call concurrently without holding any lock.
+func (b *InMemoryBackend) recordLastUsage(region, canonicalKeyID, operation string) {
+	b.lastUsage.Store(region+":"+canonicalKeyID, &KeyLastUsageData{
+		Operation:         operation,
+		Timestamp:         UnixTimeFloat(time.Now()),
+		CloudTrailEventID: uuid.New().String(),
+		KmsRequestID:      uuid.New().String(),
+	})
+}
+
+// GetKeyLastUsage returns the last successful cryptographic operation performed with the specified key.
+func (b *InMemoryBackend) GetKeyLastUsage(
+	ctx context.Context,
+	input *GetKeyLastUsageInput,
+) (*GetKeyLastUsageOutput, error) {
+	b.mu.RLock("GetKeyLastUsage")
+	defer b.mu.RUnlock()
+
+	region := getRegion(ctx, b.defaultRegion)
+
+	key, err := b.lookupKey(ctx, input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &GetKeyLastUsageOutput{
+		KeyID:             key.KeyID,
+		KeyCreationDate:   key.CreationDate,
+		TrackingStartDate: key.CreationDate,
+	}
+
+	if v, loaded := b.lastUsage.Load(region + ":" + key.KeyID); loaded {
+		if lu, ok := v.(*KeyLastUsageData); ok {
+			out.KeyLastUsage = lu
+		}
+	}
+
+	return out, nil
+}

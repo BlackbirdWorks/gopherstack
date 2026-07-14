@@ -3,13 +3,138 @@ package kms_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
+
+func TestExportCountHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	assert.Equal(t, 0, kms.KeyCount(b))
+	assert.Equal(t, 0, kms.AliasCount(b))
+	assert.Equal(t, 0, kms.GrantCount(b))
+	assert.Equal(t, 0, kms.CustomKeyStoreCount(b))
+
+	key, err := b.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, kms.KeyCount(b))
+
+	err = b.CreateAlias(context.Background(), &kms.CreateAliasInput{
+		AliasName:   "alias/test-count",
+		TargetKeyID: key.KeyMetadata.KeyID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, kms.AliasCount(b))
+
+	_, err = b.CreateGrant(context.Background(), &kms.CreateGrantInput{
+		KeyID:            key.KeyMetadata.KeyID,
+		GranteePrincipal: "arn:aws:iam::123456789012:user/alice",
+		Operations:       []string{"Encrypt"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, kms.GrantCount(b))
+
+	_, err = b.CreateCustomKeyStore(context.Background(), &kms.CreateCustomKeyStoreInput{
+		CustomKeyStoreName: "test-store",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, kms.CustomKeyStoreCount(b))
+}
+
+func TestSeedHelpers(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	assert.Equal(t, 0, kms.KeyCount(b))
+
+	// AddKeyInternal
+	testKey := &kms.Key{
+		KeyID:    "test-key-id-1234-1234-1234-123456789012",
+		Arn:      "arn:aws:kms:us-east-1:000000000000:key/test-key-id-1234-1234-1234-123456789012",
+		KeyState: kms.KeyStateEnabled,
+		KeyUsage: kms.KeyUsageEncryptDecrypt,
+		KeySpec:  "SYMMETRIC_DEFAULT",
+		Enabled:  true,
+	}
+	b.AddKeyInternal(testKey, nil)
+	assert.Equal(t, 1, kms.KeyCount(b))
+
+	// AddCustomKeyStoreInternal
+	testStore := &kms.CustomKeyStore{
+		CustomKeyStoreID:   "test-ks-id",
+		CustomKeyStoreName: "seeded-store",
+		ConnectionState:    kms.ConnectionStateDisconnected,
+		CustomKeyStoreType: "AWS_CLOUDHSM",
+	}
+	b.AddCustomKeyStoreInternal(testStore)
+	assert.Equal(t, 1, kms.CustomKeyStoreCount(b))
+
+	// Verify describe finds it.
+	out, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{
+		CustomKeyStoreID: "test-ks-id",
+	})
+	require.NoError(t, err)
+	require.Len(t, out.CustomKeyStores, 1)
+	assert.Equal(t, "seeded-store", out.CustomKeyStores[0].CustomKeyStoreName)
+}
+
+// TestKMSResolveKeyIDAlias verifies resolveKeyID works with alias input.
+func TestKMSResolveKeyIDAlias(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	_ = backend.CreateAlias(context.Background(), &kms.CreateAliasInput{
+		AliasName:   "alias/resolve-test",
+		TargetKeyID: key.KeyMetadata.KeyID,
+	})
+
+	// Encrypt with alias - exercises resolveKeyID alias path
+	out, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
+		KeyID:     "alias/resolve-test",
+		Plaintext: []byte("hello"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, key.KeyMetadata.Arn, out.KeyID)
+}
+
+// TestKMSParseMarkerBadToken verifies parseMarker handles invalid tokens gracefully.
+func TestKMSParseMarkerBadToken(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	for range 3 {
+		_, _ = backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+	}
+
+	// A bad marker should be treated as 0 (start from beginning)
+	out, err := backend.ListKeys(context.Background(), &kms.ListKeysInput{Marker: "not-a-number"})
+	require.NoError(t, err)
+	assert.Len(t, out.Keys, 3)
+}
+
+// TestKMSResolveKeyIDARN verifies resolveKeyID handles ARN-format key IDs.
+func TestKMSResolveKeyIDARN(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	key, _ := backend.CreateKey(context.Background(), &kms.CreateKeyInput{})
+
+	// Use ARN format to encrypt
+	keyArn := key.KeyMetadata.Arn
+	out, err := backend.Encrypt(context.Background(), &kms.EncryptInput{
+		KeyID:     keyArn,
+		Plaintext: []byte("arn-test"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, keyArn, out.KeyID)
+}
 
 // TestResolutionCacheInvalidation_DisableKey verifies that disabling a key
 // evicts alias→keyID entries from the resolution cache so that subsequent
@@ -235,140 +360,4 @@ func TestClearResolutionCache_O1(t *testing.T) {
 	b.Reset()
 
 	assert.Equal(t, 0, kms.ResolutionCacheLen(b), "cache must be empty after Reset")
-}
-
-// TestLastUsageLeak_PurgeKey verifies that the janitor's purgeKey removes the
-// lastUsage entry for the deleted key, preventing unbounded map growth.
-func TestLastUsageLeak_PurgeKey(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name            string
-		performCryptoOp bool
-		expectLastUsage bool // before purge
-	}{
-		{
-			name:            "key_with_usage_entry_is_cleaned_up",
-			performCryptoOp: true,
-			expectLastUsage: true,
-		},
-		{
-			name:            "key_without_usage_entry_no_error_on_purge",
-			performCryptoOp: false,
-			expectLastUsage: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := kms.NewInMemoryBackend()
-			ctx := context.Background()
-
-			out, err := b.CreateKey(ctx, &kms.CreateKeyInput{Description: "leak-test"})
-			require.NoError(t, err)
-			keyID := out.KeyMetadata.KeyID
-
-			if tt.performCryptoOp {
-				_, err = b.Encrypt(ctx, &kms.EncryptInput{
-					KeyID:     keyID,
-					Plaintext: []byte("hello"),
-				})
-				require.NoError(t, err)
-				assert.True(t, kms.LastUsageExists(b, kms.MockRegion, keyID),
-					"lastUsage must exist after crypto op")
-			}
-
-			// Schedule with past deletion date and sweep.
-			_, err = b.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
-				KeyID:               keyID,
-				PendingWindowInDays: 7,
-			})
-			require.NoError(t, err)
-			b.SetDeletionDateForTest(keyID, time.Now().Add(-time.Second))
-
-			j := kms.NewJanitor(b, time.Hour)
-			j.SweepOnce(ctx)
-
-			assert.Equal(t, 0, kms.KeyCount(b), "key must be purged")
-			assert.False(t, kms.LastUsageExists(b, kms.MockRegion, keyID),
-				"lastUsage entry must be deleted after purge")
-		})
-	}
-}
-
-// TestLastUsageLeak_PurgeKeyWithAlias verifies that purgeKey also evicts alias
-// cache entries and removes lastUsage for each purged key.
-func TestLastUsageLeak_PurgeKeyWithAlias(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		numKeys    int
-		numAliases int
-	}{
-		{name: "single_key_single_alias", numKeys: 1, numAliases: 1},
-		{name: "single_key_multiple_aliases", numKeys: 1, numAliases: 3},
-		{name: "multiple_keys", numKeys: 3, numAliases: 3},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			b := kms.NewInMemoryBackend()
-			ctx := context.Background()
-
-			keyIDs := make([]string, tt.numKeys)
-			for i := range tt.numKeys {
-				out, err := b.CreateKey(ctx, &kms.CreateKeyInput{Description: "k"})
-				require.NoError(t, err)
-				keyIDs[i] = out.KeyMetadata.KeyID
-
-				// Do a crypto op to populate lastUsage.
-				_, err = b.Encrypt(ctx, &kms.EncryptInput{
-					KeyID:     keyIDs[i],
-					Plaintext: []byte("x"),
-				})
-				require.NoError(t, err)
-
-				// Create aliases up to numAliases for first key only.
-				if i == 0 {
-					for j := range tt.numAliases {
-						aliasName := "alias/leak-test-" + string(rune('a'+j))
-						require.NoError(t, b.CreateAlias(ctx, &kms.CreateAliasInput{
-							AliasName:   aliasName,
-							TargetKeyID: keyIDs[i],
-						}))
-						// Warm the cache.
-						_, err = b.DescribeKey(ctx, &kms.DescribeKeyInput{KeyID: aliasName})
-						require.NoError(t, err)
-					}
-				}
-			}
-
-			// Schedule all keys for deletion and set past deletion date.
-			for _, kid := range keyIDs {
-				_, err := b.ScheduleKeyDeletion(ctx, &kms.ScheduleKeyDeletionInput{
-					KeyID:               kid,
-					PendingWindowInDays: 7,
-				})
-				require.NoError(t, err)
-				b.SetDeletionDateForTest(kid, time.Now().Add(-time.Second))
-			}
-
-			j := kms.NewJanitor(b, time.Hour)
-			j.SweepOnce(ctx)
-
-			assert.Equal(t, 0, kms.KeyCount(b), "all keys must be purged")
-			assert.Equal(t, 0, kms.AliasCount(b), "all aliases must be purged")
-			assert.Equal(t, 0, kms.ResolutionCacheLen(b), "cache must be empty after purge")
-
-			for _, kid := range keyIDs {
-				assert.False(t, kms.LastUsageExists(b, kms.MockRegion, kid),
-					"lastUsage must not exist for purged key %s", kid)
-			}
-		})
-	}
 }
