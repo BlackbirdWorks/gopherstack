@@ -2227,7 +2227,7 @@ func TestHandler_TagsOnNewResources(t *testing.T) {
 
 // --- Refinement tests ---
 
-func TestRefinement1_Reset(t *testing.T) {
+func TestReset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2238,7 +2238,7 @@ func TestRefinement1_Reset(t *testing.T) {
 	assert.Equal(t, 0, h.Backend.ReplicationInstanceCount())
 }
 
-func TestRefinement1_HandlerReset(t *testing.T) {
+func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2249,7 +2249,7 @@ func TestRefinement1_HandlerReset(t *testing.T) {
 	assert.Equal(t, 0, h.Backend.EndpointCount())
 }
 
-func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
+func TestProviderInit_NilCtx(t *testing.T) {
 	t.Parallel()
 
 	p := dms.Provider{}
@@ -2258,7 +2258,7 @@ func TestRefinement1_ProviderInit_NilCtx(t *testing.T) {
 	assert.ErrorIs(t, err, dms.ErrNilAppContext)
 }
 
-func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
+func TestHandlerOpsPreBuilt(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2269,7 +2269,7 @@ func TestRefinement1_HandlerOpsPreBuilt(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestRefinement1_SortedListTags(t *testing.T) {
+func TestSortedListTags(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2297,7 +2297,7 @@ func TestRefinement1_SortedListTags(t *testing.T) {
 	assert.Equal(t, "zebra", tagList[2].(map[string]any)["Key"])
 }
 
-func TestRefinement1_NonNilEventSubscriptionSlices(t *testing.T) {
+func TestNonNilEventSubscriptionSlices(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2313,7 +2313,7 @@ func TestRefinement1_NonNilEventSubscriptionSlices(t *testing.T) {
 	require.NotNil(t, es["EventCategories"])
 }
 
-func TestRefinement1_DescribeReturnsEmptyListOnFilterMiss(t *testing.T) {
+func TestDescribeReturnsEmptyListOnFilterMiss(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2329,7 +2329,7 @@ func TestRefinement1_DescribeReturnsEmptyListOnFilterMiss(t *testing.T) {
 	assert.Empty(t, instances)
 }
 
-func TestRefinement1_DescribeEndpointsFilterMiss(t *testing.T) {
+func TestDescribeEndpointsFilterMiss(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2345,7 +2345,7 @@ func TestRefinement1_DescribeEndpointsFilterMiss(t *testing.T) {
 	assert.Empty(t, endpoints)
 }
 
-func TestRefinement1_DescribeTasksFilterMiss(t *testing.T) {
+func TestDescribeTasksFilterMiss(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2361,7 +2361,7 @@ func TestRefinement1_DescribeTasksFilterMiss(t *testing.T) {
 	assert.Empty(t, tasks)
 }
 
-func TestRefinement1_SeedHelpers(t *testing.T) {
+func TestSeedHelpers(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2374,7 +2374,7 @@ func TestRefinement1_SeedHelpers(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.ReplicationTaskCount())
 }
 
-func TestRefinement1_ExportCountHelpers(t *testing.T) {
+func TestExportCountHelpers(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2391,7 +2391,7 @@ func TestRefinement1_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.InstanceProfileCount())
 }
 
-func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
+func TestPersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2408,7 +2408,7 @@ func TestRefinement1_PersistenceRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, h2.Backend.EndpointCount())
 }
 
-func TestRefinement1_MigrationTypeValidation(t *testing.T) {
+func TestMigrationTypeValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -2436,7 +2436,7 @@ func TestRefinement1_MigrationTypeValidation(t *testing.T) {
 	}
 }
 
-func TestRefinement1_NetworkTypeValidation(t *testing.T) {
+func TestNetworkTypeValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -2468,7 +2468,7 @@ func TestRefinement1_NetworkTypeValidation(t *testing.T) {
 	}
 }
 
-func TestRefinement1_ValidationMappedTo400(t *testing.T) {
+func TestValidationMappedTo400(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -2509,7 +2509,7 @@ func TestRefinement1_ValidationMappedTo400(t *testing.T) {
 	}
 }
 
-func TestRefinement1_MultipleResetCycle(t *testing.T) {
+func TestMultipleResetCycle(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2525,7 +2525,7 @@ func TestRefinement1_MultipleResetCycle(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.ReplicationInstanceCount())
 }
 
-func TestRefinement1_ARNIndexedTagOps(t *testing.T) {
+func TestARNIndexedTagOps(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2551,7 +2551,7 @@ func TestRefinement1_ARNIndexedTagOps(t *testing.T) {
 	assert.Equal(t, "team", tagList[0].(map[string]any)["Key"])
 }
 
-func TestRefinement1_FleetAdvisorCollectorTagsOnReset(t *testing.T) {
+func TestFleetAdvisorCollectorTagsOnReset(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2562,7 +2562,7 @@ func TestRefinement1_FleetAdvisorCollectorTagsOnReset(t *testing.T) {
 	assert.Equal(t, 0, h.Backend.FleetAdvisorCollectorCount())
 }
 
-func TestRefinement1_DataMigrationSeedHelper(t *testing.T) {
+func TestDataMigrationSeedHelper(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2570,7 +2570,7 @@ func TestRefinement1_DataMigrationSeedHelper(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.DataMigrationCount())
 }
 
-func TestRefinement1_EventSubscriptionSeedHelper(t *testing.T) {
+func TestEventSubscriptionSeedHelper(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -2578,7 +2578,7 @@ func TestRefinement1_EventSubscriptionSeedHelper(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.EventSubscriptionCount())
 }
 
-func TestRefinement1_InstanceProfileSeedHelper(t *testing.T) {
+func TestInstanceProfileSeedHelper(t *testing.T) {
 	t.Parallel()
 
 	h := newTestDMSHandler()
@@ -3527,4 +3527,265 @@ func TestHandler_TagsOnReplicationConfig(t *testing.T) {
 			tt.run(t, h)
 		})
 	}
+}
+
+// TestDescribeOperationsSmoke checks that a handful of cross-family Describe
+// operations succeed once their backing resources exist.
+func TestDescribeOperationsSmoke(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	h.Backend.AddDataMigrationInternal("desc-dm", "full-load")
+	h.Backend.AddDataProviderInternal("desc-dp", "mysql")
+	h.Backend.AddEventSubscriptionInternal("desc-es", "arn:aws:sns:us-east-1:123:topic")
+	h.Backend.AddFleetAdvisorCollectorInternal("desc-fac")
+	h.Backend.AddInstanceProfileInternal("desc-ip")
+
+	actions := []string{
+		"DescribeDataMigrations",
+		"DescribeDataProviders",
+		"DescribeEventSubscriptions",
+		"DescribeFleetAdvisorCollectors",
+		"DescribeInstanceProfiles",
+	}
+	for _, action := range actions {
+		t.Run(action, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doDMS(t, h, action, map[string]any{})
+			assert.Equal(t, http.StatusOK, rec.Code, "action=%s", action)
+		})
+	}
+}
+
+// TestPassThroughOperationsSmoke checks that operations with little or no
+// backend state still dispatch successfully (no panic, no unrouted 500).
+func TestPassThroughOperationsSmoke(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	type passCase struct {
+		body   map[string]any
+		action string
+	}
+
+	mpx := map[string]any{"MigrationProjectIdentifier": "x"}
+
+	cases := []passCase{
+		{body: map[string]any{"EndpointArn": "ep-arn", "ReplicationInstanceArn": "ri-arn"}, action: "DeleteConnection"},
+		{body: map[string]any{}, action: "DescribeAccountAttributes"},
+		{body: map[string]any{}, action: "DescribeApplicableIndividualAssessments"},
+		{body: map[string]any{}, action: "DescribeConnections"},
+		{body: map[string]any{}, action: "DescribeConversionConfiguration"},
+		{body: map[string]any{"EngineName": "mysql"}, action: "DescribeEndpointSettings"},
+		{body: map[string]any{}, action: "DescribeEndpointTypes"},
+		{body: map[string]any{}, action: "DescribeEngineVersions"},
+		{body: map[string]any{}, action: "DescribeEventCategories"},
+		{body: map[string]any{}, action: "DescribeEvents"},
+		{body: mpx, action: "DescribeExtensionPackAssociations"},
+		{body: map[string]any{}, action: "DescribeFleetAdvisorDatabases"},
+		{body: map[string]any{}, action: "DescribeFleetAdvisorLsaAnalysis"},
+		{body: map[string]any{}, action: "DescribeFleetAdvisorSchemaObjectSummary"},
+		{body: map[string]any{}, action: "DescribeFleetAdvisorSchemas"},
+		{body: mpx, action: "DescribeMetadataModel"},
+		{body: mpx, action: "DescribeMetadataModelAssessments"},
+		{body: mpx, action: "DescribeMetadataModelChildren"},
+		{body: mpx, action: "DescribeMetadataModelConversions"},
+		{body: mpx, action: "DescribeMetadataModelCreations"},
+		{body: mpx, action: "DescribeMetadataModelExportsAsScript"},
+		{body: mpx, action: "DescribeMetadataModelExportsToTarget"},
+		{body: mpx, action: "DescribeMetadataModelImports"},
+		{body: map[string]any{}, action: "DescribeOrderableReplicationInstances"},
+		{body: map[string]any{}, action: "DescribePendingMaintenanceActions"},
+		{body: map[string]any{}, action: "DescribeRecommendationLimitations"},
+		{body: map[string]any{}, action: "DescribeRecommendations"},
+		{body: map[string]any{}, action: "DescribeRefreshSchemasStatus"},
+		{body: map[string]any{"ReplicationInstanceArn": "ri-arn"}, action: "DescribeReplicationInstanceTaskLogs"},
+		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "DescribeReplicationTableStatistics"},
+		{body: map[string]any{}, action: "DescribeReplicationTaskAssessmentResults"},
+		{body: map[string]any{}, action: "DescribeReplicationTaskAssessmentRuns"},
+		{body: map[string]any{}, action: "DescribeReplicationTaskIndividualAssessments"},
+		{body: map[string]any{}, action: "DescribeReplications"},
+		{body: map[string]any{}, action: "DescribeSchemas"},
+		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "DescribeTableStatistics"},
+		{body: mpx, action: "ExportMetadataModelAssessment"},
+		{body: map[string]any{}, action: "GetTargetSelectionRules"},
+		{body: mpx, action: "ModifyConversionConfiguration"},
+		{body: map[string]any{}, action: "RefreshSchemas"},
+		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "ReloadReplicationTables"},
+		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "ReloadTables"},
+		{body: map[string]any{}, action: "RunFleetAdvisorLsaAnalysis"},
+		{body: mpx, action: "StartExtensionPackAssociation"},
+		{body: mpx, action: "StartMetadataModelAssessment"},
+		{body: mpx, action: "StartMetadataModelConversion"},
+		{body: mpx, action: "StartMetadataModelCreation"},
+		{body: mpx, action: "StartMetadataModelExportAsScript"},
+		{body: mpx, action: "StartMetadataModelExportToTarget"},
+		{body: mpx, action: "StartMetadataModelImport"},
+		{body: map[string]any{}, action: "StartRecommendations"},
+		{
+			body:   map[string]any{"ReplicationConfigArn": "rc-arn", "StartReplicationType": "full-load"},
+			action: "StartReplication",
+		},
+		{body: map[string]any{"ReplicationTaskArn": "rt-arn"}, action: "StartReplicationTaskAssessment"},
+		{
+			body:   map[string]any{"ReplicationTaskArn": "rt-arn", "ServiceAccessRoleArn": "arn"},
+			action: "StartReplicationTaskAssessmentRun",
+		},
+		{body: map[string]any{"ReplicationConfigArn": "rc-arn"}, action: "StopReplication"},
+		{body: map[string]any{}, action: "UpdateSubscriptionsToEventBridge"},
+		{
+			body:   map[string]any{"ReplicationTaskAssessmentRunArn": "arn"},
+			action: "DeleteReplicationTaskAssessmentRun",
+		},
+		{body: map[string]any{}, action: "DeleteFleetAdvisorDatabases"},
+	}
+
+	// Cases share a single handler instance; the backend is safe for
+	// concurrent access, so subtests can still run in parallel.
+	for _, tc := range cases {
+		t.Run(tc.action, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doDMS(t, h, tc.action, tc.body)
+			// Just make sure the handler returns a response (not a panic or unrouted).
+			assert.NotEqual(t, http.StatusInternalServerError, rec.Code, "action=%s", tc.action)
+		})
+	}
+}
+
+func TestValidationException_NotInvalidResourceStateFault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		action string
+		body   map[string]any
+		name   string
+	}{
+		{
+			name:   "CreateReplicationInstance missing identifier",
+			action: "CreateReplicationInstance",
+			body:   map[string]any{"ReplicationInstanceClass": "dms.t3.medium"},
+		},
+		{
+			name:   "CreateReplicationInstance missing class",
+			action: "CreateReplicationInstance",
+			body:   map[string]any{"ReplicationInstanceIdentifier": "ri-1"},
+		},
+		{
+			name:   "CreateEndpoint missing identifier",
+			action: "CreateEndpoint",
+			body:   map[string]any{"EndpointType": "source", "EngineName": "mysql"},
+		},
+		{
+			name:   "CreateEndpoint missing engine",
+			action: "CreateEndpoint",
+			body:   map[string]any{"EndpointIdentifier": "ep-1", "EndpointType": "source"},
+		},
+		{
+			name:   "CreateReplicationTask missing identifier",
+			action: "CreateReplicationTask",
+			body: map[string]any{
+				"SourceEndpointArn":      "arn:src",
+				"TargetEndpointArn":      "arn:tgt",
+				"ReplicationInstanceArn": "arn:ri",
+				"MigrationType":          "full-load",
+			},
+		},
+		{
+			name:   "CreateDataMigration missing name",
+			action: "CreateDataMigration",
+			body:   map[string]any{"DataMigrationType": "full-load"},
+		},
+		{
+			name:   "StartReplicationTask invalid type",
+			action: "StartReplicationTask",
+			body:   map[string]any{"ReplicationTaskArn": "arn:task", "StartReplicationTaskType": "bad-type"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			rec := doDMS(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+			errType, ok := body["__type"].(string)
+			require.True(t, ok, "response must have __type field")
+			assert.Equal(t, "ValidationException", errType,
+				"validation errors must return ValidationException not InvalidResourceStateFault")
+		})
+	}
+}
+
+func TestInvalidResourceStateFault_ForStateErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("start_running_task_returns_invalid_state", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestDMSHandler()
+
+		// Create RI + endpoints + task.
+		riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+			"ReplicationInstanceIdentifier": "state-ri",
+			"ReplicationInstanceClass":      "dms.t3.medium",
+		})
+		require.Equal(t, http.StatusOK, riRec.Code)
+		riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+		srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "state-src",
+			"EndpointType":       "source",
+			"EngineName":         "mysql",
+		})
+		require.Equal(t, http.StatusOK, srcRec.Code)
+		srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		tgtRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "state-tgt",
+			"EndpointType":       "target",
+			"EngineName":         "s3",
+		})
+		require.Equal(t, http.StatusOK, tgtRec.Code)
+		tgtArn := parseJSON(t, tgtRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		taskRec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+			"ReplicationTaskIdentifier": "state-task",
+			"SourceEndpointArn":         srcArn,
+			"TargetEndpointArn":         tgtArn,
+			"ReplicationInstanceArn":    riArn,
+			"MigrationType":             "full-load",
+		})
+		require.Equal(t, http.StatusOK, taskRec.Code)
+		taskArn := parseJSON(t, taskRec)["ReplicationTask"].(map[string]any)["ReplicationTaskArn"].(string)
+
+		// Start it once (succeeds).
+		startRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+			"ReplicationTaskArn":       taskArn,
+			"StartReplicationTaskType": "start-replication",
+		})
+		require.Equal(t, http.StatusOK, startRec.Code)
+
+		// Start it again while running (should fail with state error).
+		startAgainRec := doDMS(t, h, "StartReplicationTask", map[string]any{
+			"ReplicationTaskArn":       taskArn,
+			"StartReplicationTaskType": "start-replication",
+		})
+		require.Equal(t, http.StatusBadRequest, startAgainRec.Code)
+
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(startAgainRec.Body.Bytes(), &body))
+
+		errType, ok := body["__type"].(string)
+		require.True(t, ok, "response must have __type field")
+		assert.Equal(t, "InvalidResourceStateFault", errType,
+			"state errors must return InvalidResourceStateFault")
+	})
 }
