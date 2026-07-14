@@ -61,7 +61,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	// CreateMesh
 	rec := doRequest(t, h, http.MethodPut, "/meshes", map[string]any{"meshName": "my-mesh"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	mesh := getBody(t, rec)["mesh"].(map[string]any)
+	mesh := getBody(t, rec)
 	assert.Equal(t, "my-mesh", mesh["meshName"])
 	assert.Equal(t, "ACTIVE", mesh["status"].(map[string]any)["status"])
 	meta := mesh["metadata"].(map[string]any)
@@ -73,7 +73,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	// DescribeMesh
 	rec = doRequest(t, h, http.MethodGet, "/meshes/my-mesh", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	mesh = getBody(t, rec)["mesh"].(map[string]any)
+	mesh = getBody(t, rec)
 	assert.Equal(t, "my-mesh", mesh["meshName"])
 
 	// ListMeshes
@@ -87,7 +87,7 @@ func TestAppMesh_MeshCRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodPut, "/meshes/my-mesh",
 		map[string]any{"spec": map[string]any{"egressFilter": map[string]any{"type": "ALLOW_ALL"}}})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	mesh = getBody(t, rec)["mesh"].(map[string]any)
+	mesh = getBody(t, rec)
 	assert.Equal(t, int64(2), int64(mesh["metadata"].(map[string]any)["version"].(float64)))
 
 	// DeleteMesh
@@ -136,7 +136,7 @@ func TestAppMesh_VirtualNodeCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualNodes",
 		map[string]any{"virtualNodeName": "vn1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vn := getBody(t, rec)["virtualNode"].(map[string]any)
+	vn := getBody(t, rec)
 	assert.Equal(t, "vn1", vn["virtualNodeName"])
 	assert.Contains(t, vn["metadata"].(map[string]any)["arn"].(string), "virtualNode/vn1")
 
@@ -176,14 +176,14 @@ func TestAppMesh_VirtualRouterAndRouteCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualRouters",
 		map[string]any{"virtualRouterName": "vr1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vr := getBody(t, rec)["virtualRouter"].(map[string]any)
+	vr := getBody(t, rec)
 	assert.Equal(t, "vr1", vr["virtualRouterName"])
 
 	// Create route (note singular /virtualRouter/ in path)
 	rec = doRequest(t, h, http.MethodPut, "/meshes/m1/virtualRouter/vr1/routes",
 		map[string]any{"routeName": "r1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	route := getBody(t, rec)["route"].(map[string]any)
+	route := getBody(t, rec)
 	assert.Equal(t, "r1", route["routeName"])
 	assert.Equal(t, "vr1", route["virtualRouterName"])
 	assert.Contains(t, route["metadata"].(map[string]any)["arn"].(string), "route/r1")
@@ -218,7 +218,7 @@ func TestAppMesh_VirtualServiceCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualServices",
 		map[string]any{"virtualServiceName": "svc.local"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vs := getBody(t, rec)["virtualService"].(map[string]any)
+	vs := getBody(t, rec)
 	assert.Equal(t, "svc.local", vs["virtualServiceName"])
 
 	rec = doRequest(t, h, http.MethodGet, "/meshes/m1/virtualServices", nil)
@@ -242,14 +242,14 @@ func TestAppMesh_VirtualGatewayAndGatewayRouteCRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPut, "/meshes/m1/virtualGateways",
 		map[string]any{"virtualGatewayName": "gw1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	vg := getBody(t, rec)["virtualGateway"].(map[string]any)
+	vg := getBody(t, rec)
 	assert.Equal(t, "gw1", vg["virtualGatewayName"])
 
 	// Create gateway route (singular /virtualGateway/ in path)
 	rec = doRequest(t, h, http.MethodPut, "/meshes/m1/virtualGateway/gw1/gatewayRoutes",
 		map[string]any{"gatewayRouteName": "gr1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	gr := getBody(t, rec)["gatewayRoute"].(map[string]any)
+	gr := getBody(t, rec)
 	assert.Equal(t, "gr1", gr["gatewayRouteName"])
 	assert.Equal(t, "gw1", gr["virtualGatewayName"])
 
@@ -284,7 +284,7 @@ func TestAppMesh_TagOperations(t *testing.T) {
 
 	// Get mesh ARN
 	rec := doRequest(t, h, http.MethodGet, "/meshes/tagged-mesh", nil)
-	arn := getBody(t, rec)["mesh"].(map[string]any)["metadata"].(map[string]any)["arn"].(string)
+	arn := getBody(t, rec)["metadata"].(map[string]any)["arn"].(string)
 
 	// ListTags
 	rec = doRequest(t, h, http.MethodGet, fmt.Sprintf("/tags?resourceArn=%s", arn), nil)

@@ -401,15 +401,20 @@ func TestParity_ResponseTopLevel(t *testing.T) {
 			rec := doRequest(t, h, tt.method, tt.path, tt.body)
 			require.Equal(t, http.StatusOK, rec.Code, "%s: unexpected status", tt.name)
 
+			// Real AWS App Mesh (restjson1, httpPayload trait) puts the resource
+			// fields directly at the response root -- there is no "mesh"/
+			// "virtualNode"/etc. wrapper (verified against aws-sdk-go-v2's
+			// deserializers.go, which decodes the whole body straight into
+			// e.g. MeshData rather than unwrapping a "mesh" key first).
 			body := getBody(t, rec)
-			wrapped, ok := body[tt.wrapKey].(map[string]any)
-			require.True(t, ok,
-				"%s: response must be wrapped under %q; got keys: %v",
+			_, wrapped := body[tt.wrapKey].(map[string]any)
+			assert.False(t, wrapped,
+				"%s: response must NOT be wrapped under %q; got keys: %v",
 				tt.name, tt.wrapKey, mapKeys(body))
-			_, ok = wrapped[tt.topField]
+			_, ok := body[tt.topField]
 			assert.True(t, ok,
-				"%s: wrapped %q object must have %q; got keys: %v",
-				tt.name, tt.wrapKey, tt.topField, mapKeys(wrapped))
+				"%s: response must have top-level %q; got keys: %v",
+				tt.name, tt.topField, mapKeys(body))
 		})
 	}
 }
