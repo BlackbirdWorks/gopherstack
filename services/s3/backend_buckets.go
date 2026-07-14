@@ -1,0 +1,265 @@
+package s3
+
+import (
+	"context"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+)
+
+func (b *InMemoryBackend) CreateBucket(
+	ctx context.Context,
+	input *s3.CreateBucketInput,
+) (*s3.CreateBucketOutput, error) {
+	// Prefer the LocationConstraint from the input (set by the SDK for non-us-east-1
+	// regions) over the region extracted from the context, so the bucket is stored
+	// in the region the caller actually requested.
+	region := getRegionFromS3Context(ctx, b.defaultRegion)
+	if input.CreateBucketConfiguration != nil &&
+		input.CreateBucketConfiguration.LocationConstraint != "" {
+		region = string(input.CreateBucketConfiguration.LocationConstraint)
+	}
+
+	b.mu.Lock("CreateBucket")
+	defer b.mu.Unlock()
+
+	bucketName := *input.Bucket
+
+	// Use b.buckets for O(1) global-uniqueness check. Since this is a
+	// single-tenant mock, a pre-existing bucket is always owned by the
+	// caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
+	// Pending-delete buckets remain in the table and still block re-creation,
+	// matching real S3 behaviour (you must wait for deletion to complete).
+	if b.buckets.Has(bucketName) {
+		return nil, ErrBucketAlreadyOwnedByYou
+	}
+
+	b.buckets.Put(&StoredBucket{
+		Name:         bucketName,
+		Region:       region,
+		CreationDate: time.Now().UTC(),
+		Objects:      make(map[string]*StoredObject),
+		// Versioning is intentionally not set: new buckets have never had versioning
+		// configured, which AWS represents as an empty VersioningConfiguration element.
+		mu:                        lockmetrics.New("s3.bucket." + bucketName),
+		AnalyticsConfigs:          make(map[string]string),
+		IntelligentTieringConfigs: make(map[string]string),
+		InventoryConfigs:          make(map[string]string),
+		MetricsConfigs:            make(map[string]string),
+		// S3 Express directory buckets use the naming convention {name}--{az-id}--x-s3.
+		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
+		// correctly partition general-purpose vs. directory buckets.
+		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
+	})
+
+	return &s3.CreateBucketOutput{
+		Location: aws.String("/" + bucketName),
+	}, nil
+}
+
+func (b *InMemoryBackend) DeleteBucket(
+	_ context.Context,
+	input *s3.DeleteBucketInput,
+) (*s3.DeleteBucketOutput, error) {
+	bucketName := *input.Bucket
+
+	b.mu.Lock("DeleteBucket")
+	defer b.mu.Unlock()
+
+	// Use b.buckets for O(1) lookup. Pending buckets remain in the table so
+	// that idempotent deletes can be detected without a region scan.
+	bucket, ok := b.buckets.Get(bucketName)
+	if !ok {
+		return nil, ErrNoSuchBucket
+	}
+
+	// If already pending deletion, return success (idempotent).
+	if bucket.DeletePending {
+		return &s3.DeleteBucketOutput{}, nil
+	}
+
+	// Mark bucket as pending — the Janitor will drain its objects and remove it.
+	bucket.DeletePending = true
+
+	return &s3.DeleteBucketOutput{}, nil
+}
+
+func (b *InMemoryBackend) HeadBucket(
+	_ context.Context,
+	input *s3.HeadBucketInput,
+) (*s3.HeadBucketOutput, error) {
+	b.mu.RLock("HeadBucket")
+	defer b.mu.RUnlock()
+
+	if _, err := b.getBucket(*input.Bucket); err != nil {
+		return nil, err
+	}
+
+	return &s3.HeadBucketOutput{}, nil
+}
+
+func (b *InMemoryBackend) ListBuckets(
+	_ context.Context,
+	_ *s3.ListBucketsInput,
+) (*s3.ListBucketsOutput, error) {
+	// Snapshot bucket data under lock, release immediately.
+	b.mu.RLock("ListBuckets")
+	all := b.buckets.All()
+	buckets := make([]types.Bucket, 0, len(all))
+	for _, bucket := range all {
+		if bucket.DeletePending || bucket.IsDirectoryBucket {
+			continue
+		}
+		buckets = append(buckets, types.Bucket{
+			Name:         aws.String(bucket.Name),
+			CreationDate: aws.Time(bucket.CreationDate),
+		})
+	}
+	b.mu.RUnlock()
+
+	// Sort outside the lock
+	sort.Slice(buckets, func(i, j int) bool {
+		return *buckets[i].Name < *buckets[j].Name
+	})
+
+	return &s3.ListBucketsOutput{
+		Buckets: buckets,
+		Owner: &types.Owner{
+			DisplayName: aws.String("Gopherstack"),
+			ID:          aws.String("placeholder-id"),
+		},
+	}, nil
+}
+
+// ListDirectoryBuckets returns all S3 Express directory buckets (name suffix
+// --x-s3) owned by the account, excluding general-purpose buckets. Matches
+// AWS behaviour where ListBuckets and ListDirectoryBuckets partition the two
+// bucket types into separate lists.
+func (b *InMemoryBackend) ListDirectoryBuckets(_ context.Context) ([]types.Bucket, error) {
+	b.mu.RLock("ListDirectoryBuckets")
+	buckets := make([]types.Bucket, 0)
+
+	for _, bucket := range b.buckets.All() {
+		if bucket.DeletePending || !bucket.IsDirectoryBucket {
+			continue
+		}
+
+		buckets = append(buckets, types.Bucket{
+			Name:         aws.String(bucket.Name),
+			CreationDate: aws.Time(bucket.CreationDate),
+		})
+	}
+	b.mu.RUnlock()
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return *buckets[i].Name < *buckets[j].Name
+	})
+
+	return buckets, nil
+}
+
+// Regions returns all distinct regions that contain at least one active bucket.
+func (b *InMemoryBackend) Regions() []string {
+	b.mu.RLock("Regions")
+	defer b.mu.RUnlock()
+
+	seen := make(map[string]struct{})
+	var regions []string
+
+	for _, bucket := range b.buckets.All() {
+		if bucket.DeletePending {
+			continue
+		}
+
+		if _, ok := seen[bucket.Region]; ok {
+			continue
+		}
+
+		seen[bucket.Region] = struct{}{}
+		regions = append(regions, bucket.Region)
+	}
+
+	sort.Strings(regions)
+
+	return regions
+}
+
+// BucketsByRegion returns a snapshot of all Bucket SDK objects in the given region.
+// Returns all buckets (cross-region) if region is empty.
+func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
+	b.mu.RLock("BucketsByRegion")
+	defer b.mu.RUnlock()
+
+	var buckets []types.Bucket
+
+	for _, bucket := range b.buckets.All() {
+		if region != "" && bucket.Region != region {
+			continue
+		}
+
+		if bucket.DeletePending {
+			continue
+		}
+
+		buckets = append(buckets, types.Bucket{
+			Name:         aws.String(bucket.Name),
+			CreationDate: aws.Time(bucket.CreationDate),
+		})
+	}
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return *buckets[i].Name < *buckets[j].Name
+	})
+
+	return buckets
+}
+
+// CreateSession returns a stub session response for a bucket (S3 Express One Zone).
+func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("CreateSession")
+	_, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	const sessionXML = `<CreateSessionResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+		`<Credentials>` +
+		`<SessionToken>gopherstack-mock-session-token</SessionToken>` +
+		`<SecretAccessKey>gopherstack-mock-secret</SecretAccessKey>` +
+		`<AccessKeyId>gopherstack-mock-access-key</AccessKeyId>` +
+		`<Expiration>2099-01-01T00:00:00Z</Expiration>` +
+		`</Credentials></CreateSessionResponse>`
+
+	return sessionXML, nil
+}
+
+func (b *InMemoryBackend) GetBucketMetadata(
+	_ context.Context,
+	bucketName string,
+) (string, string, []types.Tag, error) {
+	b.mu.RLock("GetBucketMetadata")
+	bucket, ok := b.buckets.Get(bucketName)
+	if !ok {
+		b.mu.RUnlock()
+
+		return "", "", nil, ErrNoSuchBucket
+	}
+	b.mu.RUnlock()
+
+	bucket.mu.RLock("GetBucketMetadata")
+	region := bucket.Region
+	lcXML := bucket.LifecycleConfig
+	tags := slices.Clone(bucket.Tags)
+	bucket.mu.RUnlock()
+
+	return region, lcXML, tags, nil
+}

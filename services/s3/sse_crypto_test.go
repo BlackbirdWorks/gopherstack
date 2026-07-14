@@ -14,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/s3"
@@ -233,4 +234,48 @@ func TestSSE_C_RoundTripRequiresKey(t *testing.T) {
 	rec = httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
 	require.NotEqual(t, http.StatusOK, rec.Code, "wrong-key GET must not return plaintext")
+}
+
+// TestSSE_KMS_ResponseHeaders verifies that PutObject with SSE-KMS headers
+// echoes the SSE algorithm back in the response.
+func TestSSE_KMS_ResponseHeaders(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "sse-kms-hdr")
+
+	req := httptest.NewRequest(http.MethodPut, "/sse-kms-hdr/obj",
+		strings.NewReader("hello kms"))
+	req.Header.Set("X-Amz-Server-Side-Encryption", "aws:kms")
+	req.Header.Set(
+		"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id",
+		"arn:aws:kms:us-east-1:123456789012:key/test-key",
+	)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "aws:kms", rec.Header().Get("X-Amz-Server-Side-Encryption"))
+}
+
+// TestSSEC_NoMD5Header_Rejected verifies that SSE-C headers without the
+// required Customer-Key-MD5 header are rejected (algorithm/key/key-MD5 are
+// required together per the AWS spec).
+func TestSSEC_NoMD5Header_Rejected(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "ssec-nomd5")
+
+	key := make([]byte, 32)
+	keyB64 := base64.StdEncoding.EncodeToString(key)
+
+	rec := doRequest(handler, http.MethodPut, "/ssec-nomd5/obj",
+		strings.NewReader("data"),
+		map[string]string{
+			"X-Amz-Server-Side-Encryption-Customer-Algorithm": "AES256",
+			"X-Amz-Server-Side-Encryption-Customer-Key":       keyB64,
+		})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

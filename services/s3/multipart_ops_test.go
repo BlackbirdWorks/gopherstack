@@ -13,7 +13,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
 
-func TestParity_CompleteMultipartUpload_EmptyParts(t *testing.T) {
+// TestCompleteMultipartUpload_EmptyParts verifies that CompleteMultipartUpload
+// rejects a request with no <Parts> (or an empty <Parts> list).
+func TestCompleteMultipartUpload_EmptyParts(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
