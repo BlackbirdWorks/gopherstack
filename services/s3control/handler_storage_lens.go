@@ -8,97 +8,168 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// ---- Bucket Replication ----
+const (
+	pathStorageLensGroup       = "/v20180820/storagelensgroup"
+	pathStorageLensPrefix      = "/v20180820/storagelens/"
+	pathStorageLensList        = "/v20180820/storagelens"
+	pathStorageLensGroupPrefix = "/v20180820/storagelensgroup/"
+)
 
-type replicationConfigurationXML struct {
-	XMLName xml.Name `xml:"ReplicationConfiguration"`
-	Inner   string   `xml:",innerxml"`
-}
-
-type getReplicationResultXML struct {
-	XMLName                  xml.Name                    `xml:"GetBucketReplicationResult"`
-	ReplicationConfiguration replicationConfigurationXML `xml:"ReplicationConfiguration"`
-}
-
-func (h *Handler) handleGetBucketReplication(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	bucketName := strings.TrimSuffix(
-		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
-		"/replication",
-	)
-
-	cfg, err := h.Backend.GetBucketReplication(accountID, bucketName)
-	if err != nil {
-		return handleBackendError(c, err)
+// extractStorageLensOps handles storage lens configuration and group operations.
+func extractStorageLensOps(path, method string) string {
+	if op := extractStorageLensConfigOp(path, method); op != "" {
+		return op
 	}
 
-	return writeXML(c, getReplicationResultXML{
-		ReplicationConfiguration: replicationConfigurationXML{Inner: cfg},
-	})
+	return extractStorageLensGroupOp(path, method)
 }
 
-type putReplicationRequestXML struct {
-	XMLName xml.Name `xml:"ReplicationConfiguration"`
-	Inner   string   `xml:",innerxml"`
+// extractStorageLensConfigOp handles storage lens configuration operations.
+func extractStorageLensConfigOp(path, method string) string {
+	if isSimplePath(pathStorageLensPrefix, path) {
+		switch method {
+		case http.MethodGet:
+			return "GetStorageLensConfiguration"
+		case http.MethodPut:
+			return "PutStorageLensConfiguration"
+		case http.MethodDelete:
+			return "DeleteStorageLensConfiguration"
+		}
+
+		return ""
+	}
+
+	switch {
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodGet:
+		return "GetStorageLensConfigurationTagging"
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodPut:
+		return "PutStorageLensConfigurationTagging"
+	case isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") && method == http.MethodDelete:
+		return "DeleteStorageLensConfigurationTagging"
+	case path == pathStorageLensList && method == http.MethodGet:
+		return "ListStorageLensConfigurations"
+	}
+
+	return ""
 }
 
-func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
+// extractStorageLensGroupOp handles storage lens group operations.
+func extractStorageLensGroupOp(path, method string) string {
+	if path == pathStorageLensGroup {
+		switch method {
+		case http.MethodPost:
+			return "CreateStorageLensGroup"
+		case http.MethodGet:
+			return "ListStorageLensGroups"
+		}
+	}
+
+	switch {
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
+		return "GetStorageLensGroup"
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
+		return "UpdateStorageLensGroup"
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodDelete:
+		return "DeleteStorageLensGroup"
+	}
+
+	return ""
+}
+
+// dispatchStorageLensDispatch handles storage lens configuration and group operations.
+func (h *Handler) dispatchStorageLensDispatch(c *echo.Context, path, method string) (bool, error) {
+	if handled, err := h.dispatchStorageLensConfigDispatch(c, path, method); handled {
+		return true, err
+	}
+
+	return h.dispatchStorageLensGroupDispatch(c, path, method)
+}
+
+// dispatchStorageLensConfigDispatch handles storage lens configuration dispatch.
+func (h *Handler) dispatchStorageLensConfigDispatch(c *echo.Context, path, method string) (bool, error) {
+	if isSimplePath(pathStorageLensPrefix, path) {
+		switch method {
+		case http.MethodGet:
+			return true, h.handleGetStorageLensConfiguration(c)
+		case http.MethodPut:
+			return true, h.handlePutStorageLensConfiguration(c)
+		case http.MethodDelete:
+			return true, h.handleDeleteStorageLensConfiguration(c)
+		}
+
+		return false, nil
+	}
+
+	if isPrefixSuffix(pathStorageLensPrefix, path, "/tagging") {
+		switch method {
+		case http.MethodGet:
+			return true, h.handleGetStorageLensConfigurationTagging(c)
+		case http.MethodPut:
+			return true, h.handlePutStorageLensConfigurationTagging(c)
+		case http.MethodDelete:
+			return true, h.handleDeleteStorageLensConfigurationTagging(c)
+		}
+
+		return false, nil
+	}
+
+	if path == pathStorageLensList && method == http.MethodGet {
+		return true, h.handleListStorageLensConfigurations(c)
+	}
+
+	return false, nil
+}
+
+// dispatchStorageLensGroupDispatch handles storage lens group dispatch.
+func (h *Handler) dispatchStorageLensGroupDispatch(c *echo.Context, path, method string) (bool, error) {
+	if path == pathStorageLensGroup {
+		switch method {
+		case http.MethodPost:
+			return true, h.handleCreateStorageLensGroup(c)
+		case http.MethodGet:
+			return true, h.handleListStorageLensGroups(c)
+		}
+	}
+
+	switch {
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodGet:
+		return true, h.handleGetStorageLensGroup(c)
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodPut:
+		return true, h.handleUpdateStorageLensGroup(c)
+	case strings.HasPrefix(path, pathStorageLensGroupPrefix) && method == http.MethodDelete:
+		return true, h.handleDeleteStorageLensGroup(c)
+	}
+
+	return false, nil
+}
+
+// --- CreateStorageLensGroup handler ---
+
+type createStorageLensGroupStorageLensGroupXML struct {
+	Name   string              `xml:"Name"`
+	Filter createJobXMLCapture `xml:"Filter"`
+}
+
+type createStorageLensGroupRequestXML struct {
+	XMLName          xml.Name                                  `xml:"CreateStorageLensGroupRequest"`
+	StorageLensGroup createStorageLensGroupStorageLensGroupXML `xml:"StorageLensGroup"`
+}
+
+func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
-	bucketName := strings.TrimSuffix(
-		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
-		"/replication",
-	)
 
-	var body putReplicationRequestXML
+	var body createStorageLensGroupRequestXML
 	if err := decodeXML(c, &body); err != nil {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutBucketReplication(accountID, bucketName, body.Inner); err != nil {
-		return handleBackendError(c, err)
+	grp := h.Backend.CreateStorageLensGroup(accountID, body.StorageLensGroup.Name)
+
+	if body.StorageLensGroup.Filter.Raw != "" {
+		_ = h.Backend.UpdateStorageLensGroupFilter(accountID, grp.Name, body.StorageLensGroup.Filter.Raw)
 	}
 
-	return c.NoContent(http.StatusOK)
-}
-
-func (h *Handler) handleDeleteBucketReplication(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	bucketName := strings.TrimSuffix(
-		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
-		"/replication",
-	)
-
-	if err := h.Backend.DeleteBucketReplication(accountID, bucketName); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
-}
-
-// ---- MRAP Routes (submit) ----
-
-type submitMRAPRoutesRequestXML struct {
-	XMLName xml.Name `xml:"SubmitMultiRegionAccessPointRoutesRequest"`
-	Routes  string   `xml:"Routes,omitempty"`
-}
-
-func (h *Handler) handleSubmitMultiRegionAccessPointRoutes(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	mrapName := strings.TrimSuffix(
-		strings.TrimPrefix(c.Request().URL.Path, pathMRAPInstancePrefix),
-		"/routes",
-	)
-
-	var body submitMRAPRoutesRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
-	}
-
-	if err := h.Backend.SubmitMultiRegionAccessPointRoutes(accountID, mrapName, body.Routes); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
+	return c.NoContent(http.StatusCreated)
 }
 
 // ---- Storage Lens Configuration ----
@@ -373,72 +444,4 @@ func (h *Handler) handleListStorageLensGroups(c *echo.Context) error {
 	page, tok := s3cPaginate(items, nextToken, 0)
 
 	return writeXML(c, listStorageLensGroupsResultXML{Groups: page, NextToken: tok})
-}
-
-// ---- Resource Tags ----
-
-type resourceTagXML struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
-}
-
-type listTagsForResourceResultXML struct {
-	XMLName xml.Name         `xml:"ListTagsForResourceResult"`
-	Tags    []resourceTagXML `xml:"Tags>Tag"`
-}
-
-func (h *Handler) handleListTagsForResource(c *echo.Context) error {
-	arn := strings.TrimPrefix(c.Request().URL.Path, pathTagsPrefix)
-
-	tags := h.Backend.ListTagsForResource(arn)
-	items := make([]resourceTagXML, 0, len(tags))
-
-	for k, v := range tags {
-		items = append(items, resourceTagXML{Key: k, Value: v})
-	}
-
-	return writeXML(c, listTagsForResourceResultXML{Tags: items})
-}
-
-type tagResourceRequestXML struct {
-	XMLName xml.Name         `xml:"TagResourceRequest"`
-	Tags    []resourceTagXML `xml:"Tags>Tag"`
-}
-
-func (h *Handler) handleTagResource(c *echo.Context) error {
-	arn := strings.TrimPrefix(c.Request().URL.Path, pathTagsPrefix)
-
-	var body tagResourceRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
-	}
-
-	tags := make(map[string]string, len(body.Tags))
-	for _, t := range body.Tags {
-		tags[t.Key] = t.Value
-	}
-
-	h.Backend.TagResource(arn, tags)
-
-	return writeXML(c, struct {
-		XMLName xml.Name `xml:"TagResourceResult"`
-	}{})
-}
-
-type untagResourceRequestXML struct {
-	XMLName xml.Name `xml:"UntagResourceRequest"`
-	TagKeys []string `xml:"TagKeys>TagKey"`
-}
-
-func (h *Handler) handleUntagResource(c *echo.Context) error {
-	arn := strings.TrimPrefix(c.Request().URL.Path, pathTagsPrefix)
-
-	var body untagResourceRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
-	}
-
-	h.Backend.UntagResource(arn, body.TagKeys)
-
-	return c.NoContent(http.StatusNoContent)
 }

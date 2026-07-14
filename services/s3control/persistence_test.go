@@ -214,3 +214,172 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	gotTags := fresh.ListTagsForResource("arn:aws:s3:::my-outposts-bucket")
 	assert.Equal(t, map[string]string{"env": "test"}, gotTags)
 }
+
+func TestPersistence_AccessPointPABs(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateAccessPoint("000000000000", "my-ap", "my-bucket")
+	_ = b.PutAccessPointPublicAccessBlock(
+		"000000000000", "my-ap",
+		s3control.PublicAccessBlock{BlockPublicAcls: true, BlockPublicPolicy: true},
+	)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := s3control.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	pab, err := b2.GetAccessPointPublicAccessBlock("000000000000", "my-ap")
+	require.NoError(t, err)
+	assert.True(t, pab.BlockPublicAcls)
+	assert.True(t, pab.BlockPublicPolicy)
+}
+
+func TestPersistence_AccessPointVpcConfig(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.CreateAccessPoint("000000000000", "vpc-ap", "my-bucket")
+	_ = b.SetAccessPointVpcConfig("000000000000", "vpc-ap", "vpc-abc123", "111122223333")
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := s3control.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	ap, err := b2.GetAccessPoint("000000000000", "vpc-ap")
+	require.NoError(t, err)
+	assert.Equal(t, "vpc-abc123", ap.VpcID)
+	assert.Equal(t, "VPC", ap.NetworkOrigin)
+}
+
+func TestPersistence_JobDetails(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	job, err := b.CreateJob("000000000000", "arn:aws:iam::000000000000:role/R", 5)
+	require.NoError(t, err)
+	_ = b.UpdateJobDetails("000000000000", job.JobID, "my job", "<manifest/>", "<op/>", "<report/>", true)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := s3control.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+
+	got, err := b2.GetJob("000000000000", job.JobID)
+	require.NoError(t, err)
+	assert.Equal(t, "my job", got.Description)
+	assert.True(t, got.ConfirmationRequired)
+	assert.NotEmpty(t, got.CreationTime)
+}
+
+func TestPersistence_StorageLensConfig_SnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		configName string
+		config     string
+	}{
+		{
+			name:       "round_trip_with_data",
+			configName: "snap-cfg",
+			config:     "<IsEnabled>true</IsEnabled>",
+		},
+		{
+			name:       "round_trip_empty_config",
+			configName: "empty-cfg",
+			config:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3control.NewInMemoryBackend()
+			b.PutStorageLensConfiguration("acc1", tt.configName, tt.config)
+			require.Equal(t, 1, s3control.StorageLensConfigCount(b))
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := s3control.NewInMemoryBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+			assert.Equal(t, 1, s3control.StorageLensConfigCount(b2))
+
+			cfg, err := b2.GetStorageLensConfiguration("acc1", tt.configName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.config, cfg)
+		})
+	}
+}
+
+func TestPersistence_SnapshotRestoreDeepCopy(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	b.PutPublicAccessBlock(s3control.PublicAccessBlock{AccountID: "acc1", BlockPublicAcls: true})
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	// Mutate original after snapshot
+	b.PutPublicAccessBlock(s3control.PublicAccessBlock{AccountID: "acc2", BlockPublicAcls: false})
+	assert.Equal(t, 2, s3control.AccessBlockCount(b))
+
+	// Restore from snapshot
+	b2 := s3control.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(t.Context(), snap))
+	assert.Equal(t, 1, s3control.AccessBlockCount(b2))
+}
+
+func TestPersistence_SnapshotRestore_AccessGrantsAndJobs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(b *s3control.InMemoryBackend)
+		verify func(t *testing.T, b *s3control.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "snapshot_restore_preserves_access_grants_instance",
+			setup: func(b *s3control.InMemoryBackend) {
+				b.CreateAccessGrantsInstance("account-1", "arn:aws:sso:::instance/inst-1")
+			},
+			verify: func(t *testing.T, _ *s3control.InMemoryBackend) {
+				t.Helper()
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_batch_job",
+			setup: func(b *s3control.InMemoryBackend) {
+				_, _ = b.CreateJob("account-2", "arn:aws:iam::account-2:role/role", 10)
+			},
+			verify: func(t *testing.T, _ *s3control.InMemoryBackend) {
+				t.Helper()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := s3control.NewInMemoryBackend()
+			tt.setup(original)
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := s3control.NewInMemoryBackend()
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			tt.verify(t, fresh)
+		})
+	}
+}

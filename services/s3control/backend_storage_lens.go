@@ -1,68 +1,42 @@
 package s3control
 
 import (
+	"fmt"
 	"maps"
 	"strings"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
-// errReplicationNotFound is returned when no replication config is found for a bucket.
-var errReplicationNotFound = awserr.New("ReplicationConfigurationNotFoundError", awserr.ErrNotFound)
+// CreateStorageLensGroup creates an S3 Storage Lens group.
+func (b *InMemoryBackend) CreateStorageLensGroup(accountID, name string) *StorageLensGroup {
+	b.mu.Lock("CreateStorageLensGroup")
+	defer b.mu.Unlock()
 
-// errStorageLensConfigNotFound is returned when a Storage Lens configuration is not found.
-var errStorageLensConfigNotFound = awserr.New("NoSuchConfiguration", awserr.ErrNotFound)
+	arn := fmt.Sprintf(arnFmtStorageLensGroup, b.region, accountID, name)
 
-// errStorageLensGroupNotFound is returned when a Storage Lens group is not found.
-var errStorageLensGroupNotFound = awserr.New("NoSuchStorageLensGroup", awserr.ErrNotFound)
+	grp := &StorageLensGroup{
+		AccountID:           accountID,
+		Name:                name,
+		StorageLensGroupArn: arn,
+		CreatedAt:           nowRFC3339(),
+	}
+	b.storageLensGroups.Put(grp)
 
-// ---- Bucket Replication ----
+	cp := *grp
 
-// GetBucketReplication retrieves the replication configuration for an Outposts bucket.
-func (b *InMemoryBackend) GetBucketReplication(accountID, bucketName string) (string, error) {
-	b.mu.RLock("GetBucketReplication")
-	defer b.mu.RUnlock()
+	return &cp
+}
 
-	key := accountID + ":" + bucketName
-	cfg, ok := b.bucketReplication[key]
+// UpdateStorageLensGroupFilter stores the filter XML for an existing Storage Lens group.
+func (b *InMemoryBackend) UpdateStorageLensGroupFilter(accountID, name, filter string) error {
+	b.mu.Lock("UpdateStorageLensGroupFilter")
+	defer b.mu.Unlock()
+
+	grp, ok := b.storageLensGroups.Get(accountID + ":" + name)
 	if !ok {
-		return "", errReplicationNotFound
+		return errStorageLensGroupNotFound
 	}
 
-	return cfg, nil
-}
-
-// PutBucketReplication stores a replication configuration for an Outposts bucket.
-func (b *InMemoryBackend) PutBucketReplication(accountID, bucketName, config string) error {
-	b.mu.Lock("PutBucketReplication")
-	defer b.mu.Unlock()
-
-	key := accountID + ":" + bucketName
-	b.bucketReplication[key] = config
-
-	return nil
-}
-
-// DeleteBucketReplication removes the replication configuration for an Outposts bucket.
-func (b *InMemoryBackend) DeleteBucketReplication(accountID, bucketName string) error {
-	b.mu.Lock("DeleteBucketReplication")
-	defer b.mu.Unlock()
-
-	key := accountID + ":" + bucketName
-	delete(b.bucketReplication, key)
-
-	return nil
-}
-
-// ---- MRAP Routes (submit) ----
-
-// SubmitMultiRegionAccessPointRoutes stores routing configuration for an MRAP.
-func (b *InMemoryBackend) SubmitMultiRegionAccessPointRoutes(accountID, mrap, routes string) error {
-	b.mu.Lock("SubmitMultiRegionAccessPointRoutes")
-	defer b.mu.Unlock()
-
-	key := accountID + ":" + mrap
-	b.mrapRoutes[key] = routes
+	grp.Filter = filter
 
 	return nil
 }
@@ -227,51 +201,4 @@ func (b *InMemoryBackend) ListStorageLensGroups(accountID string) []*StorageLens
 	}
 
 	return out
-}
-
-// ---- Resource Tags ----
-
-// ListTagsForResource returns all tags for the given ARN.
-func (b *InMemoryBackend) ListTagsForResource(arn string) map[string]string {
-	b.mu.RLock("ListTagsForResource")
-	defer b.mu.RUnlock()
-
-	tags := b.resourceTags[arn]
-	if tags == nil {
-		return map[string]string{}
-	}
-
-	cp := make(map[string]string, len(tags))
-	maps.Copy(cp, tags)
-
-	return cp
-}
-
-// TagResource adds or updates tags on the given ARN.
-func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) {
-	b.mu.Lock("TagResource")
-	defer b.mu.Unlock()
-
-	existing := b.resourceTags[arn]
-	if existing == nil {
-		existing = make(map[string]string, len(tags))
-	}
-
-	maps.Copy(existing, tags)
-	b.resourceTags[arn] = existing
-}
-
-// UntagResource removes specific tag keys from the given ARN.
-func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) {
-	b.mu.Lock("UntagResource")
-	defer b.mu.Unlock()
-
-	tags := b.resourceTags[arn]
-	if tags == nil {
-		return
-	}
-
-	for _, k := range tagKeys {
-		delete(tags, k)
-	}
 }
