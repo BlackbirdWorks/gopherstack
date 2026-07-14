@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -17,6 +18,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
+
+// ----- shared test helpers -----
 
 const (
 	testAccountID = "000000000000"
@@ -56,7 +59,20 @@ func doECSRequest(
 	return rec
 }
 
-// ----- Provider tests -----
+func registerTestTaskDef(t *testing.T, h *ecs.Handler, family string) string {
+	t.Helper()
+
+	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               family,
+		"containerDefinitions": []map[string]any{{"name": "app", "image": "nginx:latest"}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
+}
 
 func TestECS_Provider_Name(t *testing.T) {
 	t.Parallel()
@@ -75,8 +91,6 @@ func TestECS_Provider_Init(t *testing.T) {
 	assert.Equal(t, "ECS", svc.Name())
 }
 
-// ----- Handler metadata tests -----
-
 func TestECS_Name(t *testing.T) {
 	t.Parallel()
 
@@ -87,12 +101,42 @@ func TestECS_Name(t *testing.T) {
 func TestECS_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "CreateCluster")
-	assert.Contains(t, ops, "RegisterTaskDefinition")
-	assert.Contains(t, ops, "CreateService")
-	assert.Contains(t, ops, "RunTask")
+	tests := []struct {
+		name string
+		ops  []string
+	}{
+		{
+			name: "core",
+			ops:  []string{"CreateCluster", "RegisterTaskDefinition", "CreateService", "RunTask"},
+		},
+		{
+			name: "capacity_providers_and_express_gateway",
+			ops: []string{
+				"CreateCapacityProvider",
+				"DeleteCapacityProvider",
+				"DescribeCapacityProviders",
+				"DeleteAccountSetting",
+				"DeleteAttributes",
+				"DeleteTaskDefinitions",
+				"DescribeServiceDeployments",
+				"CreateExpressGatewayService",
+				"DeleteExpressGatewayService",
+				"DescribeExpressGatewayService",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			ops := h.GetSupportedOperations()
+			for _, op := range tt.ops {
+				assert.Contains(t, ops, op, "expected %s in supported operations", op)
+			}
+		})
+	}
 }
 
 func TestECS_MatchPriority(t *testing.T) {
@@ -252,875 +296,6 @@ func TestECS_UnknownAction(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "UnknownOperationException")
 }
 
-// ----- Cluster tests -----
-
-func TestECS_CreateCluster(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input    map[string]any
-		name     string
-		wantName string
-		wantCode int
-	}{
-		{
-			name:     "with explicit name",
-			input:    map[string]any{"clusterName": "my-cluster"},
-			wantCode: http.StatusOK,
-			wantName: "my-cluster",
-		},
-		{
-			name:     "with empty name defaults to 'default'",
-			input:    map[string]any{},
-			wantCode: http.StatusOK,
-			wantName: "default",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doECSRequest(t, h, "CreateCluster", tt.input)
-
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			cluster, ok := resp["cluster"].(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, tt.wantName, cluster["clusterName"])
-			assert.NotEmpty(t, cluster["clusterArn"])
-			assert.Equal(t, "ACTIVE", cluster["status"])
-		})
-	}
-}
-
-func TestECS_CreateCluster_AlreadyExists(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dupe"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "dupe"})
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "ClusterAlreadyExistsException")
-}
-
-func TestECS_DescribeClusters(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		clusters     []string
-		filter       []string
-		wantCode     int
-		wantCount    int
-		wantFailures int
-	}{
-		{
-			name:      "list all",
-			clusters:  []string{"cluster-a", "cluster-b"},
-			filter:    nil,
-			wantCode:  http.StatusOK,
-			wantCount: 2,
-		},
-		{
-			name:      "filter by name",
-			clusters:  []string{"cluster-a", "cluster-b"},
-			filter:    []string{"cluster-a"},
-			wantCode:  http.StatusOK,
-			wantCount: 1,
-		},
-		{
-			name:         "not found returns failure not error",
-			clusters:     []string{},
-			filter:       []string{"nonexistent"},
-			wantCode:     http.StatusOK,
-			wantFailures: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			for _, name := range tt.clusters {
-				rec := doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": name})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			input := map[string]any{}
-			if tt.filter != nil {
-				input["clusters"] = tt.filter
-			}
-
-			rec := doECSRequest(t, h, "DescribeClusters", input)
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-			if tt.wantCount > 0 {
-				clusters, ok := resp["clusters"].([]any)
-				require.True(t, ok)
-				assert.Len(t, clusters, tt.wantCount)
-			}
-
-			if tt.wantFailures > 0 {
-				failures, _ := resp["failures"].([]any)
-				assert.Len(t, failures, tt.wantFailures)
-			}
-		})
-	}
-}
-
-func TestECS_DeleteCluster(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		create   string
-		delete   string
-		wantCode int
-	}{
-		{
-			name:     "success",
-			create:   "my-cluster",
-			delete:   "my-cluster",
-			wantCode: http.StatusOK,
-		},
-		{
-			name:     "not found",
-			create:   "",
-			delete:   "nonexistent",
-			wantCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-
-			if tt.create != "" {
-				rec := doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": tt.create})
-				require.Equal(t, http.StatusOK, rec.Code)
-			}
-
-			rec := doECSRequest(t, h, "DeleteCluster", map[string]any{"cluster": tt.delete})
-			assert.Equal(t, tt.wantCode, rec.Code)
-		})
-	}
-}
-
-// ----- Task definition tests -----
-
-func TestECS_RegisterTaskDefinition(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input    map[string]any
-		name     string
-		wantCode int
-		wantRev  int
-	}{
-		{
-			name: "success",
-			input: map[string]any{
-				"family": "nginx-task",
-				"containerDefinitions": []map[string]any{
-					{"name": "nginx", "image": "nginx:latest", "essential": true},
-				},
-			},
-			wantCode: http.StatusOK,
-			wantRev:  1,
-		},
-		{
-			name:     "missing family",
-			input:    map[string]any{},
-			wantCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			rec := doECSRequest(t, h, "RegisterTaskDefinition", tt.input)
-
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCode == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				td, ok := resp["taskDefinition"].(map[string]any)
-				require.True(t, ok)
-				assert.NotEmpty(t, td["taskDefinitionArn"])
-				assert.Equal(t, tt.wantRev, int(td["revision"].(float64)))
-				assert.Equal(t, "ACTIVE", td["status"])
-			}
-		})
-	}
-}
-
-func TestECS_RegisterTaskDefinition_MultipleRevisions(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	for i := 1; i <= 3; i++ {
-		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-			"family": "my-task",
-			"containerDefinitions": []map[string]any{
-				{"name": "app", "image": "app:latest"},
-			},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-
-		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-		td := resp["taskDefinition"].(map[string]any)
-		assert.Equal(t, i, int(td["revision"].(float64)))
-	}
-}
-
-func TestECS_DescribeTaskDefinition(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Register a task definition first.
-	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-		"family": "web",
-		"containerDefinitions": []map[string]any{
-			{"name": "web", "image": "nginx:latest"},
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Describe by family name.
-	rec2 := doECSRequest(t, h, "DescribeTaskDefinition", map[string]any{"taskDefinition": "web"})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-
-	td := resp["taskDefinition"].(map[string]any)
-	assert.Equal(t, "web", td["family"])
-
-	// Not found.
-	rec3 := doECSRequest(
-		t,
-		h,
-		"DescribeTaskDefinition",
-		map[string]any{"taskDefinition": "nonexistent"},
-	)
-	assert.Equal(t, http.StatusBadRequest, rec3.Code)
-}
-
-func TestECS_DeregisterTaskDefinition(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-		"family": "temp-task",
-		"containerDefinitions": []map[string]any{
-			{"name": "app", "image": "busybox"},
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	tdArn := createResp["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
-
-	rec2 := doECSRequest(t, h, "DeregisterTaskDefinition", map[string]any{"taskDefinition": tdArn})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var deregResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &deregResp))
-
-	td := deregResp["taskDefinition"].(map[string]any)
-	assert.Equal(t, "INACTIVE", td["status"])
-}
-
-func TestECS_ListTaskDefinitions(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	families := []string{"app-a", "app-b", "other"}
-	for _, f := range families {
-		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-			"family":               f,
-			"containerDefinitions": []map[string]any{{"name": "c", "image": "busybox"}},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-
-	// List all.
-	rec := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	arns := resp["taskDefinitionArns"].([]any)
-	assert.GreaterOrEqual(t, len(arns), 3)
-
-	// Filter by prefix.
-	rec2 := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"familyPrefix": "app"})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-
-	arns2 := resp2["taskDefinitionArns"].([]any)
-	assert.Len(t, arns2, 2)
-}
-
-// ----- Service tests -----
-
-func registerTestTaskDef(t *testing.T, h *ecs.Handler, family string) string {
-	t.Helper()
-
-	rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-		"family":               family,
-		"containerDefinitions": []map[string]any{{"name": "app", "image": "nginx:latest"}},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	return resp["taskDefinition"].(map[string]any)["taskDefinitionArn"].(string)
-}
-
-func TestECS_CreateService(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(*ecs.Handler) map[string]any
-		name     string
-		wantCode int
-	}{
-		{
-			name: "success with default cluster",
-			setup: func(h *ecs.Handler) map[string]any {
-				tdArn := registerTestTaskDef(t, h, "svc-task")
-
-				return map[string]any{
-					"serviceName":    "my-service",
-					"taskDefinition": tdArn,
-					"desiredCount":   2,
-				}
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name: "success with explicit cluster",
-			setup: func(h *ecs.Handler) map[string]any {
-				doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "prod"})
-				tdArn := registerTestTaskDef(t, h, "svc-task2")
-
-				return map[string]any{
-					"serviceName":    "prod-service",
-					"cluster":        "prod",
-					"taskDefinition": tdArn,
-					"desiredCount":   1,
-				}
-			},
-			wantCode: http.StatusOK,
-		},
-		{
-			name: "missing service name",
-			setup: func(_ *ecs.Handler) map[string]any {
-				return map[string]any{"taskDefinition": "some-task"}
-			},
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name: "missing task definition",
-			setup: func(_ *ecs.Handler) map[string]any {
-				return map[string]any{"serviceName": "svc"}
-			},
-			wantCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			input := tt.setup(h)
-			rec := doECSRequest(t, h, "CreateService", input)
-
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCode == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				svc := resp["service"].(map[string]any)
-				assert.NotEmpty(t, svc["serviceArn"])
-				assert.Equal(t, "ACTIVE", svc["status"])
-			}
-		})
-	}
-}
-
-func TestECS_CreateService_AlreadyExists(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "dup-task")
-
-	input := map[string]any{
-		"serviceName":    "dup-svc",
-		"taskDefinition": tdArn,
-		"desiredCount":   1,
-	}
-
-	rec := doECSRequest(t, h, "CreateService", input)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doECSRequest(t, h, "CreateService", input)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "ServiceAlreadyExistsException")
-}
-
-func TestECS_DescribeServices(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "desc-task")
-
-	rec := doECSRequest(t, h, "CreateService", map[string]any{
-		"serviceName":    "desc-svc",
-		"taskDefinition": tdArn,
-		"desiredCount":   1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Describe all services.
-	rec2 := doECSRequest(t, h, "DescribeServices", map[string]any{"services": []string{}})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-
-	svcs := resp["services"].([]any)
-	assert.GreaterOrEqual(t, len(svcs), 1)
-
-	// Describe by name.
-	rec3 := doECSRequest(t, h, "DescribeServices", map[string]any{"services": []string{"desc-svc"}})
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
-
-	svcs3 := resp3["services"].([]any)
-	require.Len(t, svcs3, 1)
-	assert.Equal(t, "desc-svc", svcs3[0].(map[string]any)["serviceName"])
-}
-
-func TestECS_UpdateService(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(*ecs.Handler) (string, map[string]any)
-		name     string
-		wantCode int
-		wantDC   int
-	}{
-		{
-			name: "update desiredCount",
-			setup: func(h *ecs.Handler) (string, map[string]any) {
-				tdArn := registerTestTaskDef(t, h, "upd-task")
-				doECSRequest(t, h, "CreateService", map[string]any{
-					"serviceName":    "upd-svc",
-					"taskDefinition": tdArn,
-					"desiredCount":   1,
-				})
-
-				count := 5
-
-				return "upd-svc", map[string]any{
-					"service":      "upd-svc",
-					"desiredCount": count,
-				}
-			},
-			wantCode: http.StatusOK,
-			wantDC:   5,
-		},
-		{
-			name: "service not found",
-			setup: func(_ *ecs.Handler) (string, map[string]any) {
-				return "", map[string]any{"service": "nonexistent"}
-			},
-			wantCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			_, input := tt.setup(h)
-			rec := doECSRequest(t, h, "UpdateService", input)
-
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCode == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				svc := resp["service"].(map[string]any)
-				assert.Equal(t, tt.wantDC, int(svc["desiredCount"].(float64)))
-			}
-		})
-	}
-}
-
-func TestECS_DeleteService(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "del-task")
-
-	rec := doECSRequest(t, h, "CreateService", map[string]any{
-		"serviceName":    "del-svc",
-		"taskDefinition": tdArn,
-		"desiredCount":   1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doECSRequest(t, h, "DeleteService", map[string]any{"service": "del-svc"})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-
-	svc := resp["service"].(map[string]any)
-	assert.Equal(t, "del-svc", svc["serviceName"])
-
-	// Confirm deletion: AWS returns 200 with failures list, not 404.
-	rec3 := doECSRequest(t, h, "DescribeServices", map[string]any{"services": []string{"del-svc"}})
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
-
-	svcs3, _ := resp3["services"].([]any)
-	assert.Empty(t, svcs3)
-
-	failures3, _ := resp3["failures"].([]any)
-	assert.Len(t, failures3, 1)
-}
-
-// ----- Task tests -----
-
-func TestECS_RunTask(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup    func(*ecs.Handler) map[string]any
-		name     string
-		wantCode int
-		wantLen  int
-	}{
-		{
-			name: "run single task",
-			setup: func(h *ecs.Handler) map[string]any {
-				tdArn := registerTestTaskDef(t, h, "run-task")
-
-				return map[string]any{
-					"taskDefinition": tdArn,
-					"count":          1,
-				}
-			},
-			wantCode: http.StatusOK,
-			wantLen:  1,
-		},
-		{
-			name: "run multiple tasks",
-			setup: func(h *ecs.Handler) map[string]any {
-				tdArn := registerTestTaskDef(t, h, "run-multi")
-
-				return map[string]any{
-					"taskDefinition": tdArn,
-					"count":          3,
-				}
-			},
-			wantCode: http.StatusOK,
-			wantLen:  3,
-		},
-		{
-			name: "default count is 1",
-			setup: func(h *ecs.Handler) map[string]any {
-				tdArn := registerTestTaskDef(t, h, "run-default")
-
-				return map[string]any{"taskDefinition": tdArn}
-			},
-			wantCode: http.StatusOK,
-			wantLen:  1,
-		},
-		{
-			name: "missing task definition",
-			setup: func(_ *ecs.Handler) map[string]any {
-				return map[string]any{}
-			},
-			wantCode: http.StatusBadRequest,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestHandler(t)
-			input := tt.setup(h)
-			rec := doECSRequest(t, h, "RunTask", input)
-
-			require.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantCode == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-				tasks := resp["tasks"].([]any)
-				assert.Len(t, tasks, tt.wantLen)
-
-				task := tasks[0].(map[string]any)
-				assert.NotEmpty(t, task["taskArn"])
-				assert.Equal(t, "RUNNING", task["lastStatus"])
-				assert.Equal(t, "RUNNING", task["desiredStatus"])
-			}
-		})
-	}
-}
-
-func TestECS_DescribeTasks(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "desc-task-t")
-
-	rec := doECSRequest(t, h, "RunTask", map[string]any{
-		"taskDefinition": tdArn,
-		"count":          2,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp))
-
-	taskArns := make([]string, 0, 2)
-	for _, t := range runResp["tasks"].([]any) {
-		taskArns = append(taskArns, t.(map[string]any)["taskArn"].(string))
-	}
-
-	// Describe all tasks on cluster.
-	rec2 := doECSRequest(t, h, "DescribeTasks", map[string]any{"tasks": []string{}})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	assert.Len(t, resp2["tasks"].([]any), 2)
-
-	// Describe specific task.
-	rec3 := doECSRequest(t, h, "DescribeTasks", map[string]any{"tasks": []string{taskArns[0]}})
-	require.Equal(t, http.StatusOK, rec3.Code)
-
-	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
-	assert.Len(t, resp3["tasks"].([]any), 1)
-}
-
-func TestECS_StopTask(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "stop-task-def")
-
-	rec := doECSRequest(t, h, "RunTask", map[string]any{
-		"taskDefinition": tdArn,
-		"count":          1,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp))
-
-	taskArn := runResp["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
-
-	rec2 := doECSRequest(t, h, "StopTask", map[string]any{
-		"task":   taskArn,
-		"reason": "manual stop",
-	})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-
-	task := resp2["task"].(map[string]any)
-	assert.Equal(t, "STOPPED", task["lastStatus"])
-	assert.Equal(t, "manual stop", task["stoppedReason"])
-}
-
-func TestECS_ListTasks(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "list-task-def")
-
-	rec := doECSRequest(t, h, "RunTask", map[string]any{
-		"taskDefinition": tdArn,
-		"count":          3,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	rec2 := doECSRequest(t, h, "ListTasks", map[string]any{})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
-
-	arns := resp["taskArns"].([]any)
-	assert.Len(t, arns, 3)
-}
-
-// ----- Backend direct tests -----
-
-func TestECS_Backend_DefaultClusterAutoCreated(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	// Register a task definition.
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "auto-cluster-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	// Run a task - default cluster should be auto-created.
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          1,
-	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-	assert.Equal(t, "RUNNING", tasks[0].LastStatus)
-}
-
-func TestECS_Backend_TaskDefinitionByRevision(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "rev-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "v1"}},
-	})
-	require.NoError(t, err)
-
-	_, err = backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "rev-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "v2"}},
-	})
-	require.NoError(t, err)
-
-	// Describe by family:revision shorthand.
-	td, err := backend.DescribeTaskDefinition("rev-task:1")
-	require.NoError(t, err)
-	assert.Equal(t, 1, td.Revision)
-	assert.Equal(t, "v1", td.ContainerDefinitions[0].Image)
-
-	td2, err := backend.DescribeTaskDefinition("rev-task:2")
-	require.NoError(t, err)
-	assert.Equal(t, 2, td2.Revision)
-	assert.Equal(t, "v2", td2.ContainerDefinitions[0].Image)
-}
-
-func TestECS_Backend_CountRunningTasksForService(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "svc-task-count",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	// Create a cluster and service.
-	_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "test-cluster"})
-	require.NoError(t, err)
-
-	_, err = backend.CreateService(ecs.CreateServiceInput{
-		ServiceName:    "count-svc",
-		Cluster:        "test-cluster",
-		TaskDefinition: td.TaskDefinitionArn,
-		DesiredCount:   2,
-	})
-	require.NoError(t, err)
-
-	// Run tasks with the service group.
-	_, err = backend.RunTask(ecs.RunTaskInput{
-		Cluster:        "test-cluster",
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          2,
-		Group:          "service:count-svc",
-	})
-	require.NoError(t, err)
-
-	count := backend.CountRunningTasksForService("test-cluster", "count-svc")
-	assert.Equal(t, 2, count)
-}
-
-func TestECS_Backend_StopOldestServiceTask(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "oldest-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "oldest-cluster"})
-	require.NoError(t, err)
-
-	// Start 3 tasks for the service.
-	for range 3 {
-		err = backend.StartTaskForService("oldest-cluster", "oldest-svc", td.TaskDefinitionArn)
-		require.NoError(t, err)
-	}
-
-	// Stop the oldest one.
-	err = backend.StopOldestServiceTask("oldest-cluster", "oldest-svc")
-	require.NoError(t, err)
-
-	count := backend.CountRunningTasksForService("oldest-cluster", "oldest-svc")
-	assert.Equal(t, 2, count)
-}
-
 func TestECS_Reconciler(t *testing.T) {
 	t.Parallel()
 
@@ -1168,138 +343,6 @@ func TestECS_Reconciler(t *testing.T) {
 	assert.Equal(t, 1, count)
 }
 
-func TestECS_Backend_ClusterKey_ARN(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	// CreateCluster, then describe using ARN.
-	c, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "arn-test"})
-	require.NoError(t, err)
-
-	clusters, _, err := backend.DescribeClusters([]string{c.ClusterArn})
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	assert.Equal(t, "arn-test", clusters[0].ClusterName)
-}
-
-func TestECS_Backend_DescribeServices_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, _, err := backend.DescribeServices("nonexistent-cluster", nil)
-	require.Error(t, err)
-}
-
-func TestECS_Backend_UpdateService_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	count := 1
-	_, err := backend.UpdateService(ecs.UpdateServiceInput{
-		Cluster:      "nonexistent-cluster",
-		Service:      "any-service",
-		DesiredCount: &count,
-	})
-	require.Error(t, err)
-}
-
-func TestECS_Backend_DeleteService_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.DeleteService("nonexistent-cluster", "any-service")
-	require.Error(t, err)
-}
-
-func TestECS_Backend_StopTask_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.StopTask("nonexistent-cluster", "task-arn", "reason")
-	require.Error(t, err)
-}
-
-func TestECS_Backend_ListTasks_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.ListTasks("nonexistent-cluster")
-	require.Error(t, err)
-}
-
-func TestECS_Backend_DescribeTasks_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, _, err := backend.DescribeTasks("nonexistent-cluster", []string{"task-arn"})
-	require.Error(t, err)
-}
-
-func TestECS_Handler_DescribeServices_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doECSRequest(t, h, "DescribeServices", map[string]any{
-		"cluster":  "nonexistent-cluster",
-		"services": []string{},
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestECS_Handler_DeleteService_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doECSRequest(t, h, "DeleteService", map[string]any{
-		"cluster": "nonexistent-cluster",
-		"service": "any-service",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestECS_Handler_StopTask_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doECSRequest(t, h, "StopTask", map[string]any{
-		"cluster": "nonexistent-cluster",
-		"task":    "task-arn",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestECS_Handler_ListTasks_ClusterNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doECSRequest(t, h, "ListTasks", map[string]any{
-		"cluster": "nonexistent-cluster",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestECS_Handler_ListTaskDefinitions_Empty(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	arns, ok := resp["taskDefinitionArns"].([]any)
-	require.True(t, ok)
-	assert.Empty(t, arns)
-}
-
 func TestECS_Provider_Init_WithConfig(t *testing.T) {
 	t.Parallel()
 
@@ -1338,147 +381,6 @@ func TestECS_Reconciler_Start_ContextCancel(t *testing.T) {
 	}
 }
 
-func TestECS_Backend_ServiceKey_ARN(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "arn-svc-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "arn-svc-cluster"})
-	require.NoError(t, err)
-
-	svc, err := backend.CreateService(ecs.CreateServiceInput{
-		ServiceName:    "arn-svc",
-		Cluster:        "arn-svc-cluster",
-		TaskDefinition: td.TaskDefinitionArn,
-		DesiredCount:   1,
-	})
-	require.NoError(t, err)
-
-	// Describe using the full service ARN.
-	svcs, _, err := backend.DescribeServices("arn-svc-cluster", []string{svc.ServiceArn})
-	require.NoError(t, err)
-	require.Len(t, svcs, 1)
-	assert.Equal(t, "arn-svc", svcs[0].ServiceName)
-}
-
-func TestECS_Backend_UpdateService_TaskDefinition(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td1, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "td-update-family",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "v1"}},
-	})
-	require.NoError(t, err)
-
-	td2, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "td-update-family",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "v2"}},
-	})
-	require.NoError(t, err)
-
-	_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "td-update-cluster"})
-	require.NoError(t, err)
-
-	_, err = backend.CreateService(ecs.CreateServiceInput{
-		ServiceName:    "td-update-svc",
-		Cluster:        "td-update-cluster",
-		TaskDefinition: td1.TaskDefinitionArn,
-		DesiredCount:   1,
-	})
-	require.NoError(t, err)
-
-	updated, err := backend.UpdateService(ecs.UpdateServiceInput{
-		Cluster:        "td-update-cluster",
-		Service:        "td-update-svc",
-		TaskDefinition: td2.TaskDefinitionArn,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, td2.TaskDefinitionArn, updated.TaskDefinition)
-}
-
-func TestECS_Backend_EnrichCluster_PendingTasks(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "enrich-cluster"})
-	require.NoError(t, err)
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "enrich-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	// Run tasks so cluster has running count.
-	_, err = backend.RunTask(ecs.RunTaskInput{
-		Cluster:        "enrich-cluster",
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          2,
-	})
-	require.NoError(t, err)
-
-	clusters, _, err := backend.DescribeClusters([]string{"enrich-cluster"})
-	require.NoError(t, err)
-	require.Len(t, clusters, 1)
-	assert.Equal(t, 2, clusters[0].RunningTasksCount)
-}
-
-func TestECS_Backend_EnrichService_PendingTasks(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "enrich-svc-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "enrich-svc-cluster"})
-	require.NoError(t, err)
-
-	_, err = backend.CreateService(ecs.CreateServiceInput{
-		ServiceName:    "enrich-svc",
-		Cluster:        "enrich-svc-cluster",
-		TaskDefinition: td.TaskDefinitionArn,
-		DesiredCount:   2,
-	})
-	require.NoError(t, err)
-
-	// Run tasks to populate service running count.
-	_, err = backend.RunTask(ecs.RunTaskInput{
-		Cluster:        "enrich-svc-cluster",
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          2,
-		Group:          "service:enrich-svc",
-	})
-	require.NoError(t, err)
-
-	svcs, _, err := backend.DescribeServices("enrich-svc-cluster", []string{"enrich-svc"})
-	require.NoError(t, err)
-	require.Len(t, svcs, 1)
-	assert.Equal(t, 2, svcs[0].RunningCount)
-}
-
-func TestECS_Handler_DeregisterTaskDefinition_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doECSRequest(t, h, "DeregisterTaskDefinition", map[string]any{
-		"taskDefinition": "nonexistent-family",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 func TestECS_Provider_Init_WithJanitorCtx(t *testing.T) {
 	t.Parallel()
 
@@ -1496,29 +398,6 @@ func TestECS_Provider_Init_WithJanitorCtx(t *testing.T) {
 	cancel()
 }
 
-func TestECS_Handler_RunTask_WithGroup(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "group-task")
-
-	rec := doECSRequest(t, h, "RunTask", map[string]any{
-		"taskDefinition": tdArn,
-		"count":          1,
-		"group":          "service:my-svc",
-		"launchType":     "EC2",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	tasks := resp["tasks"].([]any)
-	task := tasks[0].(map[string]any)
-	assert.Equal(t, "service:my-svc", task["group"])
-	assert.Equal(t, "EC2", task["launchType"])
-}
-
 func TestECS_Handler_ExtractResource_TaskField(t *testing.T) {
 	t.Parallel()
 
@@ -1531,17 +410,6 @@ func TestECS_Handler_ExtractResource_TaskField(t *testing.T) {
 	assert.Equal(t, "arn:aws:ecs:us-east-1:000000000000:task/c1/abc", h.ExtractResource(c))
 }
 
-func TestECS_Backend_DeregisterTaskDefinition_NotFoundByARN(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.DeregisterTaskDefinition(
-		"arn:aws:ecs:us-east-1:000000000000:task-definition/nonexistent:1",
-	)
-	require.Error(t, err)
-}
-
 func TestECS_Reconciler_RunOnce_NoServices(t *testing.T) {
 	t.Parallel()
 
@@ -1552,200 +420,138 @@ func TestECS_Reconciler_RunOnce_NoServices(t *testing.T) {
 	reconciler.RunOnce(t.Context())
 }
 
-func TestECS_Backend_CreateService_LaunchTypeDefault(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "default-lt-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	svc, err := backend.CreateService(ecs.CreateServiceInput{
-		ServiceName:    "default-lt-svc",
-		TaskDefinition: td.TaskDefinitionArn,
-		DesiredCount:   1,
-	})
-	require.NoError(t, err)
-	// Default launch type is FARGATE.
-	assert.Equal(t, "FARGATE", svc.LaunchType)
-}
-
-func TestECS_Backend_RunTask_LaunchTypeDefault(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "default-lt-run",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
-	})
-	require.NoError(t, err)
-
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          1,
-	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-	// Default launch type is FARGATE.
-	assert.Equal(t, "FARGATE", tasks[0].LaunchType)
-}
-
-func TestECS_Backend_StopOldestServiceTask_NoTasks(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	_, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "empty-cluster"})
-	require.NoError(t, err)
-
-	// Should not error when no tasks exist.
-	err = backend.StopOldestServiceTask("empty-cluster", "nonexistent-svc")
-	require.NoError(t, err)
-}
-
-func TestECS_Handler_DescribeTasks_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	// First ensure the default cluster exists.
-	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "default"})
-	rec := doECSRequest(t, h, "DescribeTasks", map[string]any{
-		"tasks": []string{"arn:aws:ecs:us-east-1:000000000000:task/default/nonexistent"},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	tasks, _ := resp["tasks"].([]any)
-	assert.Empty(t, tasks)
-
-	failures, _ := resp["failures"].([]any)
-	assert.Len(t, failures, 1)
-}
-
-func TestECS_Handler_StopTask_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	// Create the default cluster first via RunTask initialization.
-	tdArn := registerTestTaskDef(t, h, "stop-not-found")
-	doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn})
-
-	rec := doECSRequest(t, h, "StopTask", map[string]any{
-		"task": "arn:aws:ecs:us-east-1:000000000000:task/default/nonexistent",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// ----- TaskRunner mock helpers -----
-
-// errContainerStart is the sentinel error used by failingRunner.
-var errContainerStart = errors.New("container start failed")
-
-// failingRunner is a TaskRunner that always returns an error from RunTask, causing
-// the task to remain at PROVISIONING rather than transitioning to RUNNING.
-type failingRunner struct{}
-
-func (r *failingRunner) RunTask(
-	_ *ecs.Task,
-	_ *ecs.TaskDefinition,
-) error {
-	return errContainerStart
-}
-func (r *failingRunner) StopTask(_ *ecs.Task) error { return nil }
-
-// TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError verifies that when the
-// TaskRunner returns an error, the task transitions to STOPPED (not stuck in PROVISIONING).
-func TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, &failingRunner{})
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "prov-err-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx:latest"}},
-	})
-	require.NoError(t, err)
-
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          1,
-	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-
-	// Task must transition to STOPPED when the runner fails rather than staying
-	// in PROVISIONING forever, which would be a resource leak with wrong semantics.
-	assert.Equal(t, "STOPPED", tasks[0].LastStatus)
-	assert.Equal(t, "STOPPED", tasks[0].DesiredStatus)
-	assert.NotNil(t, tasks[0].StoppedAt)
-	assert.NotEmpty(t, tasks[0].StoppedReason)
-}
-
-// TestECS_Backend_RunTask_TransitionToRunningWithRunner verifies that when the
-// TaskRunner succeeds, the task transitions from PROVISIONING to RUNNING.
-func TestECS_Backend_RunTask_TransitionToRunningWithRunner(t *testing.T) {
-	t.Parallel()
-
-	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
-
-	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
-		Family:               "prov-ok-task",
-		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx:latest"}},
-	})
-	require.NoError(t, err)
-
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
-		TaskDefinition: td.TaskDefinitionArn,
-		Count:          1,
-	})
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-
-	// Noop runner succeeds → task transitions to RUNNING.
-	assert.Equal(t, "RUNNING", tasks[0].LastStatus)
-}
-
-func TestECS_ListTaskDefinitions_Pagination(t *testing.T) {
+func TestConcurrent_CreateServices(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Create 5 task definitions.
-	for _, family := range []string{"svc-a", "svc-b", "svc-c", "svc-d", "svc-e"} {
-		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-			"family":               family,
-			"containerDefinitions": []map[string]any{{"name": "c", "image": "busybox"}},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "concurrent-cluster"})
+	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+		"family":               "concurrent-task",
+		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
+	})
+
+	var wg sync.WaitGroup
+	results := make([]int, 10)
+
+	for i := range 10 {
+		wg.Add(1)
+
+		go func(idx int) {
+			defer wg.Done()
+
+			body, _ := json.Marshal(map[string]any{
+				"cluster":        "concurrent-cluster",
+				"serviceName":    "concurrent-svc-" + string(rune('a'+idx)),
+				"taskDefinition": "concurrent-task",
+				"desiredCount":   1,
+			})
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set("X-Amz-Target", "AmazonEC2ContainerServiceV20141113.CreateService")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			_ = h.Handler()(c)
+			results[idx] = rec.Code
+		}(i)
 	}
 
+	wg.Wait()
+
+	for i, code := range results {
+		assert.Equal(t, http.StatusOK, code, "service %d", i)
+	}
+}
+
+func TestConcurrent_RegisterContainerInstances(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "concurrent-ci-cluster"})
+
+	var wg sync.WaitGroup
+	results := make([]int, 20)
+
+	for i := range 20 {
+		wg.Add(1)
+
+		go func(idx int) {
+			defer wg.Done()
+
+			body, _ := json.Marshal(map[string]any{
+				"cluster":       "concurrent-ci-cluster",
+				"ec2InstanceId": "i-concurrent-" + string(rune('a'+idx)),
+			})
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set(
+				"X-Amz-Target",
+				"AmazonEC2ContainerServiceV20141113.RegisterContainerInstance",
+			)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			_ = h.Handler()(c)
+			results[idx] = rec.Code
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, code := range results {
+		assert.Equal(t, http.StatusOK, code, "container instance %d", i)
+	}
+
+	listResp := doECSRequest(t, h, "ListContainerInstances", map[string]any{
+		"cluster": "concurrent-ci-cluster",
+	})
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	arns := listOut["containerInstanceArns"].([]any)
+	assert.Len(t, arns, 20)
+}
+
+func TestHandler_Reset_ClearsAll(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "reset-cluster"})
+	doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "reset-cp"})
+
+	h.Reset()
+
+	// Default cluster should still exist
+	listResp := doECSRequest(t, h, "ListClusters", map[string]any{})
+	require.Equal(t, http.StatusOK, listResp.Code)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out))
+	// No custom clusters after reset
+	arns := out["clusterArns"].([]any)
+	for _, arn := range arns {
+		assert.NotContains(t, arn.(string), "reset-cluster")
+	}
+}
+
+func TestECS_ExtractResource_NewFields(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		body          map[string]any
-		name          string
-		wantMinCount  int
-		wantNextToken bool
+		body string
+		name string
+		want string
 	}{
 		{
-			name:         "all task definitions",
-			body:         map[string]any{},
-			wantMinCount: 5,
+			name: "containerInstance field",
+			body: `{"containerInstance":"arn:aws:ecs:us-east-1:000000000000:container-instance/c/abc"}`,
+			want: "arn:aws:ecs:us-east-1:000000000000:container-instance/c/abc",
 		},
 		{
-			name:          "paginated maxResults=2",
-			body:          map[string]any{"maxResults": 2},
-			wantMinCount:  2,
-			wantNextToken: true,
-		},
-		{
-			name:         "paginated maxResults=10 returns all",
-			body:         map[string]any{"maxResults": 10},
-			wantMinCount: 5,
+			name: "taskSet field",
+			body: `{"taskSet":"arn:aws:ecs:us-east-1:000000000000:task-set/c/s/ecs-svc-abc"}`,
+			want: "arn:aws:ecs:us-east-1:000000000000:task-set/c/s/ecs-svc-abc",
 		},
 	}
 
@@ -1753,104 +559,110 @@ func TestECS_ListTaskDefinitions_Pagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rec := doECSRequest(t, h, "ListTaskDefinitions", tt.body)
+			h := newTestHandler(t)
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(tt.body)))
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestBackend_Reset_ClearsResourceMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFunc func(*ecs.InMemoryBackend)
+		name      string
+		wantCount int
+	}{
+		{
+			name: "reset clears capacity providers",
+			setupFunc: func(b *ecs.InMemoryBackend) {
+				b.AddCapacityProviderInternal(&ecs.CapacityProvider{
+					Name:                "test-cp",
+					CapacityProviderArn: "arn:aws:ecs:us-east-1:000000000000:capacity-provider/test-cp",
+					Status:              "ACTIVE",
+				})
+			},
+			wantCount: 0,
+		},
+		{
+			name:      "reset on empty backend is a no-op",
+			setupFunc: func(*ecs.InMemoryBackend) {},
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+			tt.setupFunc(b)
+			b.Reset()
+
+			assert.Equal(t, tt.wantCount, b.CapacityProviderCount())
+			assert.Equal(t, tt.wantCount, b.ServiceDeploymentCount())
+			assert.Equal(t, tt.wantCount, b.AccountSettingCount())
+			assert.Equal(t, tt.wantCount, b.ExpressGatewayServiceCount())
+		})
+	}
+}
+
+func TestHandler_Reset_ClearsCapacityProviders(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "reset clears backend state via handler"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "cp1"})
+			doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "cp2"})
+
+			h.Reset()
+
+			rec := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-			arns := resp["taskDefinitionArns"].([]any)
-			assert.GreaterOrEqual(t, len(arns), tt.wantMinCount)
-
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp["nextToken"])
-			}
+			cps, ok := resp["capacityProviders"].([]any)
+			require.True(t, ok)
+			assert.Empty(t, cps)
 		})
 	}
 }
 
-func TestECS_ListTaskDefinitions_TokenChaining(t *testing.T) {
+func TestHandler_CachedOps_Dispatch(t *testing.T) {
 	t.Parallel()
-
-	h := newTestHandler(t)
-
-	for _, family := range []string{"page-a", "page-b", "page-c"} {
-		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-			"family":               family,
-			"containerDefinitions": []map[string]any{{"name": "c", "image": "busybox"}},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
-	}
-
-	// First page.
-	rec := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"maxResults": 2})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
-
-	arns1 := page1["taskDefinitionArns"].([]any)
-	assert.Len(t, arns1, 2)
-
-	nextToken, ok := page1["nextToken"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, nextToken)
-
-	// Second page using the token.
-	rec2 := doECSRequest(
-		t,
-		h,
-		"ListTaskDefinitions",
-		map[string]any{"maxResults": 2, "nextToken": nextToken},
-	)
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
-
-	arns2 := page2["taskDefinitionArns"].([]any)
-	assert.GreaterOrEqual(t, len(arns2), 1)
-
-	// No duplicates.
-	seen := make(map[string]bool)
-	for _, a := range arns1 {
-		seen[a.(string)] = true
-	}
-
-	for _, a := range arns2 {
-		assert.False(t, seen[a.(string)], "duplicate task def ARN in page 2: %s", a)
-	}
-}
-
-func TestECS_ListTasks_Pagination(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "task-page-def")
-
-	// Create 5 tasks.
-	rec := doECSRequest(t, h, "RunTask", map[string]any{
-		"taskDefinition": tdArn,
-		"count":          5,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
 
 	tests := []struct {
-		body          map[string]any
-		name          string
-		wantMinCount  int
-		wantNextToken bool
+		input  map[string]any
+		name   string
+		action string
+		want   int
 	}{
 		{
-			name:         "list all tasks",
-			body:         map[string]any{},
-			wantMinCount: 5,
+			name:   "CreateCapacityProvider is available via cached ops",
+			action: "CreateCapacityProvider",
+			input:  map[string]any{"name": "ops-test-cp"},
+			want:   http.StatusOK,
 		},
 		{
-			name:          "paginated maxResults=2",
-			body:          map[string]any{"maxResults": 2},
-			wantMinCount:  2,
-			wantNextToken: true,
+			name:   "unknown action returns 400",
+			action: "NonExistentOperation",
+			input:  map[string]any{},
+			want:   http.StatusBadRequest,
 		},
 	}
 
@@ -1858,114 +670,179 @@ func TestECS_ListTasks_Pagination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			listRec := doECSRequest(t, h, "ListTasks", tt.body)
-			require.Equal(t, http.StatusOK, listRec.Code)
+			h := newTestHandler(t)
+			rec := doECSRequest(t, h, tt.action, tt.input)
+			assert.Equal(t, tt.want, rec.Code)
+		})
+	}
+}
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+func TestBackend_CountHelpers(t *testing.T) {
+	t.Parallel()
 
-			arns := resp["taskArns"].([]any)
-			assert.GreaterOrEqual(t, len(arns), tt.wantMinCount)
+	tests := []struct {
+		setupFunc   func(*ecs.InMemoryBackend)
+		name        string
+		attrCluster string
+		wantCP      int
+		wantSD      int
+		wantAS      int
+		wantEGS     int
+		wantAttr    int
+	}{
+		{
+			name:      "empty backend has zero counts",
+			setupFunc: func(*ecs.InMemoryBackend) {},
+		},
+		{
+			name: "one of each increments count",
+			setupFunc: func(b *ecs.InMemoryBackend) {
+				b.AddCapacityProviderInternal(&ecs.CapacityProvider{
+					Name:                "cp1",
+					CapacityProviderArn: "arn:aws:ecs:us-east-1:000000000000:capacity-provider/cp1",
+				})
 
-			if tt.wantNextToken {
-				assert.NotEmpty(t, resp["nextToken"])
+				now := time.Now()
+				b.AddServiceDeploymentInternal(&ecs.ServiceDeployment{
+					ServiceDeploymentArn: "arn:aws:ecs:us-east-1:000000000000:service-deployment/sd1",
+					ClusterArn:           "arn:aws:ecs:us-east-1:000000000000:cluster/default",
+					ServiceArn:           "arn:aws:ecs:us-east-1:000000000000:service/default/svc1",
+					Status:               "COMPLETED",
+					CreatedAt:            &now,
+				})
+
+				b.AddAccountSettingInternal(":containerInsights", &ecs.AccountSetting{
+					Name:  "containerInsights",
+					Value: "enabled",
+				})
+
+				b.AddAttributeInternal("default", &ecs.Attribute{
+					Name:     "custom",
+					Value:    "value",
+					TargetID: "ci-abc",
+				})
+			},
+			wantCP:      1,
+			wantSD:      1,
+			wantAS:      1,
+			wantEGS:     0,
+			wantAttr:    1,
+			attrCluster: "default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+			tt.setupFunc(b)
+
+			assert.Equal(t, tt.wantCP, b.CapacityProviderCount())
+			assert.Equal(t, tt.wantSD, b.ServiceDeploymentCount())
+			assert.Equal(t, tt.wantAS, b.AccountSettingCount())
+			assert.Equal(t, tt.wantEGS, b.ExpressGatewayServiceCount())
+
+			if tt.attrCluster != "" {
+				assert.Equal(t, tt.wantAttr, b.AttributeCount(tt.attrCluster))
 			}
 		})
 	}
 }
 
-func TestECS_ListTasks_TokenChaining(t *testing.T) {
+func TestProvider_NilAppContext(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	tdArn := registerTestTaskDef(t, h, "task-chain-def")
-
-	// Create 3 tasks.
-	rec := doECSRequest(t, h, "RunTask", map[string]any{
-		"taskDefinition": tdArn,
-		"count":          3,
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// First page.
-	rec1 := doECSRequest(t, h, "ListTasks", map[string]any{"maxResults": 2})
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
-
-	arns1 := page1["taskArns"].([]any)
-	assert.Len(t, arns1, 2)
-
-	nextToken, ok := page1["nextToken"].(string)
-	require.True(t, ok)
-	assert.NotEmpty(t, nextToken)
-
-	// Second page.
-	rec2 := doECSRequest(t, h, "ListTasks", map[string]any{"maxResults": 2, "nextToken": nextToken})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
-
-	arns2 := page2["taskArns"].([]any)
-	assert.GreaterOrEqual(t, len(arns2), 1)
-
-	// No duplicates between pages.
-	seen := make(map[string]bool)
-	for _, a := range arns1 {
-		seen[a.(string)] = true
+	tests := []struct {
+		wantErr   error
+		name      string
+		nilAppCtx bool
+	}{
+		{
+			name:      "nil AppContext returns ErrNilAppContext",
+			nilAppCtx: true,
+			wantErr:   ecs.ErrNilAppContext,
+		},
 	}
 
-	for _, a := range arns2 {
-		assert.False(t, seen[a.(string)], "duplicate task ARN in page 2: %s", a)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &ecs.Provider{}
+			_, err := p.Init(nil)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
-func TestECS_TaskDefinitionRevisionCap(t *testing.T) {
+func TestHandler_Snapshot_Restore(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-
-	// Register 105 revisions (beyond the cap of 100).
-	for range 105 {
-		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
-			"family": "capped-family",
-			"containerDefinitions": []map[string]any{
-				{"name": "app", "image": "app:latest"},
-			},
-		})
-		require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name     string
+		cpName   string
+		wantName string
+	}{
+		{
+			name:     "roundtrip preserves capacity provider",
+			cpName:   "snap-cp",
+			wantName: "snap-cp",
+		},
 	}
 
-	// The latest revision should be 105.
-	rec := doECSRequest(
-		t,
-		h,
-		"DescribeTaskDefinition",
-		map[string]any{"taskDefinition": "capped-family"},
-	)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			h := newTestHandler(t)
+			doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": tt.cpName})
 
-	td := resp["taskDefinition"].(map[string]any)
-	latestRev := int(td["revision"].(float64))
-	assert.Equal(t, 105, latestRev, "latest revision should be 105")
+			snap := h.Snapshot(t.Context())
+			require.NotNil(t, snap)
 
-	// Listing all revisions should not exceed the cap.
-	listRec := doECSRequest(
-		t,
-		h,
-		"ListTaskDefinitions",
-		map[string]any{"familyPrefix": "capped-family"},
-	)
-	require.Equal(t, http.StatusOK, listRec.Code)
+			h2 := newTestHandler(t)
+			require.NoError(t, h2.Restore(t.Context(), snap))
 
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			rec := doECSRequest(t, h2, "DescribeCapacityProviders", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	arns := listResp["taskDefinitionArns"].([]any)
-	assert.LessOrEqual(t, len(arns), 100, "stored revisions should not exceed the cap")
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			cps, ok := resp["capacityProviders"].([]any)
+			require.True(t, ok)
+			require.Len(t, cps, 1)
+
+			cp := cps[0].(map[string]any)
+			assert.Equal(t, tt.wantName, cp["name"])
+		})
+	}
+}
+
+func TestBackend_NonNilEmptySlices(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "DescribeCapacityProviders returns non-nil empty slice when no providers"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+			cps, _, err := b.DescribeCapacityProviders(nil)
+			require.NoError(t, err)
+			assert.NotNil(t, cps)
+			assert.Empty(t, cps)
+		})
+	}
 }
