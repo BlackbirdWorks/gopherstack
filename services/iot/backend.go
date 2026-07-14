@@ -2,13 +2,9 @@ package iot
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -17,38 +13,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
-)
-
-var (
-	// ErrThingNotFound is returned when a Thing does not exist.
-	ErrThingNotFound = errors.New("thing not found")
-
-	// ErrRuleNotFound is returned when a TopicRule does not exist.
-	ErrRuleNotFound = errors.New("topic rule not found")
-
-	// ErrPolicyNotFound is returned when a Policy does not exist.
-	ErrPolicyNotFound = errors.New("policy not found")
-
-	// ErrValidation is returned when an input fails validation.
-	ErrValidation = errors.New("validation error")
-
-	// ErrAlreadyExists is returned when a resource already exists.
-	ErrAlreadyExists = errors.New("resource already exists")
-
-	// ErrVersionConflict is returned when an optimistic-lock version check fails.
-	ErrVersionConflict = errors.New("version conflict")
-
-	// ErrDeleteConflict is returned when a resource cannot be deleted due to dependencies.
-	ErrDeleteConflict = errors.New("delete conflict")
-
-	// ErrIndexNotFound is returned when a fleet index does not exist.
-	ErrIndexNotFound = errors.New("index not found")
-
-	// ErrVersionsLimitExceeded is returned when a policy already has the maximum allowed versions.
-	ErrVersionsLimitExceeded = errors.New("versions limit exceeded")
-
-	// ErrShadowNotFound is returned when a Device Shadow does not exist.
-	ErrShadowNotFound = errors.New("shadow not found")
 )
 
 // RuleDispatcher is implemented by the CLI wiring layer and dispatches rule actions.
@@ -320,36 +284,6 @@ func cloneThing(t *Thing) *Thing {
 	}
 }
 
-// cloneTopicRule creates a deep copy of a TopicRule.
-func cloneTopicRule(r *TopicRule) *TopicRule {
-	actions := make([]RuleAction, len(r.Actions))
-	for i, action := range r.Actions {
-		actions[i] = RuleAction{}
-		if action.SQS != nil {
-			actions[i].SQS = &SQSAction{
-				QueueURL: action.SQS.QueueURL,
-				RoleARN:  action.SQS.RoleARN,
-			}
-		}
-		if action.Lambda != nil {
-			actions[i].Lambda = &LambdaAction{
-				FunctionARN: action.Lambda.FunctionARN,
-			}
-		}
-	}
-
-	return &TopicRule{
-		RuleName:         r.RuleName,
-		ARN:              r.ARN,
-		SQL:              r.SQL,
-		AWSIoTSQLVersion: r.AWSIoTSQLVersion,
-		Description:      r.Description,
-		Enabled:          r.Enabled,
-		CreatedAt:        r.CreatedAt,
-		Actions:          actions,
-	}
-}
-
 // applyAttributePayload returns the attribute map that results from applying
 // an AttributePayload update on top of an existing attribute set, matching
 // AWS IoT's documented UpdateThing/UpdateThingGroup semantics:
@@ -507,151 +441,6 @@ func (b *InMemoryBackend) DeleteThing(thingName string) error {
 	return nil
 }
 
-// CreateTopicRule creates a new IoT Topic Rule.
-func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
-	if input.RuleName == "" {
-		return fmt.Errorf("%w: RuleName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.rules.Has(input.RuleName) {
-		return fmt.Errorf("%w: rule %q already exists", ErrAlreadyExists, input.RuleName)
-	}
-
-	payload := input.TopicRulePayload
-	if payload == nil {
-		payload = &TopicRulePayload{}
-	}
-
-	actions := payload.Actions
-	if actions == nil {
-		actions = []RuleAction{}
-	}
-
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", input.RuleName))
-
-	sqlVersion := payload.AWSIoTSQLVersion
-	if sqlVersion == "" {
-		sqlVersion = "2015-10-08"
-	}
-
-	b.rules.Put(&TopicRule{
-		RuleName:         input.RuleName,
-		ARN:              arn,
-		SQL:              payload.SQL,
-		AWSIoTSQLVersion: sqlVersion,
-		Description:      payload.Description,
-		Actions:          actions,
-		Enabled:          !payload.RuleDisabled,
-		CreatedAt:        time.Now(),
-	})
-
-	return nil
-}
-
-// GetTopicRule returns a deep copy of an existing Topic Rule.
-func (b *InMemoryBackend) GetTopicRule(ruleName string) (*TopicRule, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	r, ok := b.rules.Get(ruleName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
-	}
-
-	return cloneTopicRule(r), nil
-}
-
-// ListTopicRules returns all Topic Rules sorted by name.
-func (b *InMemoryBackend) ListTopicRules() []*TopicRule {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.rules.Snapshot()
-	out := make([]*TopicRule, 0, len(items))
-
-	for _, v := range items {
-		out = append(out, cloneTopicRule(v))
-	}
-
-	return out
-}
-
-// DeleteTopicRule deletes a Topic Rule by name.
-func (b *InMemoryBackend) DeleteTopicRule(ruleName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.rules.Has(ruleName) {
-		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
-	}
-
-	b.rules.Delete(ruleName)
-
-	return nil
-}
-
-// CreatePolicy creates a new IoT Policy.
-func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyOutput, error) {
-	if input.PolicyName == "" {
-		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.policies.Has(input.PolicyName) {
-		return nil, fmt.Errorf("%w: policy %q already exists", ErrAlreadyExists, input.PolicyName)
-	}
-
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", input.PolicyName))
-	now := time.Now()
-
-	b.policies.Put(&Policy{
-		PolicyName:     input.PolicyName,
-		PolicyDocument: input.PolicyDocument,
-		ARN:            arn,
-		CreatedAt:      now,
-		LastModifiedAt: now,
-	})
-
-	// AWS automatically creates version "1" as the default on CreatePolicy.
-	b.policyVersions[input.PolicyName] = []*PolicyVersion{
-		{
-			VersionID:        "1",
-			PolicyDocument:   input.PolicyDocument,
-			IsDefaultVersion: true,
-			CreatedAt:        now,
-		},
-	}
-
-	return &CreatePolicyOutput{
-		PolicyName:      input.PolicyName,
-		PolicyARN:       arn,
-		PolicyDocument:  input.PolicyDocument,
-		PolicyVersionID: "1",
-	}, nil
-}
-
-// AttachPrincipalPolicy attaches a policy to a principal. The attachment is
-// recorded in the same policyTargets index used by AttachPolicy/DetachPolicy
-// so that ListPrincipalPolicies, ListPolicyPrincipals, and
-// DetachPrincipalPolicy observe it.
-func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInput) error {
-	if input.PolicyName == "" || input.Principal == "" {
-		return nil
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Principal)
-
-	return nil
-}
-
 // appendUnique appends v to items unless it's already present, matching AWS
 // IoT's idempotent attach semantics (re-attaching an already-attached
 // principal/policy/target succeeds without creating a duplicate list entry).
@@ -680,36 +469,6 @@ func (b *InMemoryBackend) AcceptCertificateTransfer(input *AcceptCertificateTran
 	return nil
 }
 
-// AddThingToBillingGroup adds a thing to a billing group.
-func (b *InMemoryBackend) AddThingToBillingGroup(input *AddThingToBillingGroupInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.thingBillingGroups[thingKey(input.ThingName, input.ThingArn)] = input.BillingGroupName
-
-	return nil
-}
-
-// AddThingToThingGroup adds a thing to a thing group.
-func (b *InMemoryBackend) AddThingToThingGroup(input *AddThingToThingGroupInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	key := thingKey(input.ThingName, input.ThingArn)
-	b.thingThingGroups[key] = append(b.thingThingGroups[key], input.ThingGroupName)
-
-	// Also update the group membership index.
-	groupName := input.ThingGroupName
-	if groupName == "" {
-		groupName = input.ThingGroupArn
-	}
-
-	thingName := thingKey(input.ThingName, input.ThingArn)
-	b.addThingToGroupByName(thingName, groupName)
-
-	return nil
-}
-
 // thingKey returns the canonical map key for a thing, preferring name over ARN.
 func thingKey(name, arn string) string {
 	if name != "" {
@@ -724,232 +483,12 @@ func packageVersionKey(packageName, versionName string) string {
 	return packageName + "/" + versionName
 }
 
-// AssociateSbomWithPackageVersion associates an SBOM with a package version.
-func (b *InMemoryBackend) AssociateSbomWithPackageVersion(
-	input *AssociateSbomWithPackageVersionInput,
-) (*AssociateSbomWithPackageVersionOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	key := packageVersionKey(input.PackageName, input.VersionName)
-	b.packageVersionSboms[key] = input.Sbom
-
-	result := computeSbomValidationResult(input.Sbom)
-	b.sbomValidationResults[key] = []*SbomValidationResult{result}
-
-	return &AssociateSbomWithPackageVersionOutput{
-		PackageName:          input.PackageName,
-		VersionName:          input.VersionName,
-		Sbom:                 input.Sbom,
-		SbomValidationStatus: result.ValidationResult,
-	}, nil
-}
-
-// AssociateTargetsWithJob associates targets with a continuous job.
-func (b *InMemoryBackend) AssociateTargetsWithJob(
-	input *AssociateTargetsWithJobInput,
-) (*AssociateTargetsWithJobOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.jobTargets[input.JobID] = append(b.jobTargets[input.JobID], input.Targets...)
-
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("job/%s", input.JobID))
-
-	return &AssociateTargetsWithJobOutput{
-		JobID:  input.JobID,
-		JobArn: arn,
-	}, nil
-}
-
-// AttachPolicy attaches a policy to a target (thing group or certificate).
-func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Target)
-
-	return nil
-}
-
-// AttachSecurityProfile attaches a security profile to a target.
-func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.securityProfileTargets[input.SecurityProfileName] = appendUnique(
-		b.securityProfileTargets[input.SecurityProfileName],
-		input.SecurityProfileTargetArn,
-	)
-
-	return nil
-}
-
 // AttachThingPrincipal attaches a principal (certificate or Cognito identity) to a thing.
 func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.thingPrincipals[input.ThingName] = appendUnique(b.thingPrincipals[input.ThingName], input.Principal)
-
-	return nil
-}
-
-// CancelAuditMitigationActionsTask cancels an audit mitigation actions task.
-// Unknown task IDs still succeed (matching the legacy behavior of this
-// operation) but, when the task is known, its rich AuditMitigationTask record
-// (as returned by DescribeAuditMitigationActionsTask) is transitioned to
-// CANCELED with an end time, keeping the two representations consistent.
-func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.auditMitigationTasks[input.TaskID] = string(JobStatusCanceled)
-	if t, ok := b.auditMitigationTaskObjects.Get(input.TaskID); ok {
-		t.TaskStatus = string(JobStatusCanceled)
-		t.EndTime = float64(time.Now().Unix())
-	}
-
-	return nil
-}
-
-// CancelAuditTask cancels an audit task.
-func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	b.auditTasks[input.AuditTaskID] = "CANCELED"
-
-	return nil
-}
-
-// GetPolicy retrieves an existing Policy by name.
-func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	p, ok := b.policies.Get(policyName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
-	}
-
-	defaultVersionID := "1"
-	for _, v := range b.policyVersions[policyName] {
-		if v.IsDefaultVersion {
-			defaultVersionID = v.VersionID
-
-			break
-		}
-	}
-
-	return &GetPolicyOutput{
-		PolicyName:       p.PolicyName,
-		PolicyARN:        p.ARN,
-		PolicyDocument:   p.PolicyDocument,
-		CreatedAt:        p.CreatedAt,
-		LastModifiedAt:   p.LastModifiedAt,
-		DefaultVersionID: defaultVersionID,
-	}, nil
-}
-
-// DeletePolicy removes a Policy by name.
-func (b *InMemoryBackend) DeletePolicy(policyName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.policies.Has(policyName) {
-		return fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
-	}
-
-	if targets := b.policyTargets[policyName]; len(targets) > 0 {
-		return fmt.Errorf("%w: policy %q has attached targets", ErrDeleteConflict, policyName)
-	}
-
-	b.policies.Delete(policyName)
-
-	return nil
-}
-
-// ListPolicies returns all policies sorted by name.
-func (b *InMemoryBackend) ListPolicies() []*Policy {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.policies.Snapshot()
-	out := make([]*Policy, 0, len(items))
-
-	for _, v := range items {
-		cp := *v
-		out = append(out, &cp)
-	}
-
-	return out
-}
-
-// DisableTopicRule disables an existing topic rule.
-func (b *InMemoryBackend) DisableTopicRule(ruleName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	r, ok := b.rules.Get(ruleName)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
-	}
-
-	r.Enabled = false
-
-	return nil
-}
-
-// EnableTopicRule enables an existing topic rule.
-func (b *InMemoryBackend) EnableTopicRule(ruleName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	r, ok := b.rules.Get(ruleName)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrRuleNotFound, ruleName)
-	}
-
-	r.Enabled = true
-
-	return nil
-}
-
-// ReplaceTopicRule replaces the payload of an existing topic rule.
-func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
-	if input.RuleName == "" {
-		return fmt.Errorf("%w: RuleName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	r, ok := b.rules.Get(input.RuleName)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrRuleNotFound, input.RuleName)
-	}
-
-	payload := input.TopicRulePayload
-	if payload == nil {
-		payload = &TopicRulePayload{}
-	}
-
-	actions := payload.Actions
-	if actions == nil {
-		actions = []RuleAction{}
-	}
-
-	sqlVersion := payload.AWSIoTSQLVersion
-	if sqlVersion == "" {
-		sqlVersion = "2015-10-08"
-	}
-
-	r.SQL = payload.SQL
-	r.Description = payload.Description
-	r.Actions = actions
-	r.AWSIoTSQLVersion = sqlVersion
-	r.Enabled = !payload.RuleDisabled
 
 	return nil
 }
@@ -1032,1021 +571,110 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 	b.things.Put(&t)
 }
 
-// AddPolicyInternal seeds a Policy directly into the backend for testing.
-func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if p.ARN == "" {
-		p.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("policy/%s", p.PolicyName))
-	}
-
-	b.policies.Put(&p)
-}
-
-// AddRuleInternal seeds a TopicRule directly into the backend for testing.
-func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if r.ARN == "" {
-		r.ARN = arn.Build("iot", b.region, b.accountID, fmt.Sprintf("rule/%s", r.RuleName))
-	}
-
-	if r.Actions == nil {
-		r.Actions = []RuleAction{}
-	}
-
-	b.rules.Put(&r)
-}
-
 // -----------------------------------------------------------
 // ThingType operations
 // -----------------------------------------------------------
-
-// ErrThingTypeNotFound is returned when a ThingType does not exist.
-var ErrThingTypeNotFound = errors.New("thing type not found")
-
-// ErrThingGroupNotFound is returned when a ThingGroup does not exist.
-var ErrThingGroupNotFound = errors.New("thing group not found")
-
-// ErrCertificateNotFound is returned when a Certificate does not exist.
-var ErrCertificateNotFound = errors.New("certificate not found")
-
-// ErrCertificateProviderNotFound is returned when a CertificateProvider does not exist.
-var ErrCertificateProviderNotFound = errors.New("certificate provider not found")
-
-// ErrTopicRuleDestinationNotFound is returned when a TopicRuleDestination does not exist.
-var ErrTopicRuleDestinationNotFound = errors.New("topic rule destination not found")
-
-// ErrPolicyVersionNotFound is returned when a PolicyVersion does not exist.
-var ErrPolicyVersionNotFound = errors.New("policy version not found")
-
-// ErrRegistrationTaskNotFound is returned when a bulk thing registration task does not exist.
-var ErrRegistrationTaskNotFound = errors.New("thing registration task not found")
-
-// ErrManagedJobTemplateNotFound is returned when a managed job template does not exist.
-var ErrManagedJobTemplateNotFound = errors.New("managed job template not found")
-
-// fakePEM is a minimal fake PEM certificate returned by CreateCertificateFromCsr and RegisterCertificate.
-const fakePEM = `-----BEGIN CERTIFICATE-----
-MIICpDCCAYwCCQDU+pQ4pHgSpDANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
-b2NhbGhvc3QwHhcNMjMwMTAxMDAwMDAwWhcNMjQwMTAxMDAwMDAwWjAUMRIwEAYD
-VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7
-o4qne60TB3wolFl6qADvFVMZUDCwJJlFBMDkajIxpQFNbBgxDuAQFV8AAAAAAA==
------END CERTIFICATE-----`
-
-// certIDHexLen is the number of bytes (half the hex char count) for a certificate ID.
-const certIDHexLen = 32 // produces a 64-char hex string
-
-// certStatusActive is the AWS IoT certificate ACTIVE status value.
-const certStatusActive = "ACTIVE"
-
-// certStatusInactive is the AWS IoT certificate INACTIVE status value.
-const certStatusInactive = "INACTIVE"
-
-// certStatusPendingTransfer is the AWS IoT certificate PENDING_TRANSFER status value.
-const certStatusPendingTransfer = "PENDING_TRANSFER"
-
-// certStatusRevoked is the AWS IoT certificate REVOKED status value.
-const certStatusRevoked = "REVOKED"
-
-// certStatusPendingActivation is the AWS IoT certificate PENDING_ACTIVATION status value.
-const certStatusPendingActivation = "PENDING_ACTIVATION"
-
-// randomHex generates a cryptographically random hex string of n bytes (2n characters).
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic("iot: randomHex: crypto/rand failed: " + err.Error())
-	}
-
-	return hex.EncodeToString(b)
-}
-
-// CreateThingType creates a new IoT Thing Type.
-func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingType, error) {
-	if input.ThingTypeName == "" {
-		return nil, fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.thingTypes.Has(input.ThingTypeName) {
-		return nil, fmt.Errorf("%w: thing type %q already exists", ErrAlreadyExists, input.ThingTypeName)
-	}
-
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thingtype/%s", input.ThingTypeName))
-	tt := &ThingType{
-		ThingTypeName:        input.ThingTypeName,
-		ThingTypeID:          uuid.NewString(),
-		ThingTypeARN:         arn,
-		Description:          input.Description,
-		SearchableAttributes: append([]string(nil), input.SearchableAttributes...),
-		CreatedAt:            time.Now(),
-	}
-
-	b.thingTypes.Put(tt)
-
-	return tt, nil
-}
-
-// DescribeThingType returns a ThingType by name.
-func (b *InMemoryBackend) DescribeThingType(thingTypeName string) (*ThingType, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	tt, ok := b.thingTypes.Get(thingTypeName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
-	}
-
-	cp := *tt
-
-	return &cp, nil
-}
-
-// ListThingTypes returns all thing types sorted by name.
-func (b *InMemoryBackend) ListThingTypes() []*ThingType {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.thingTypes.Snapshot()
-	out := make([]*ThingType, 0, len(items))
-
-	for _, v := range items {
-		cp := *v
-		out = append(out, &cp)
-	}
-
-	return out
-}
-
-// DeprecateThingType marks a thing type as deprecated (or un-deprecates it).
-func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	tt, ok := b.thingTypes.Get(input.ThingTypeName)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
-	}
-
-	if input.UndoDeprecate {
-		tt.Deprecated = false
-		tt.DeprecationDate = time.Time{}
-	} else {
-		tt.Deprecated = true
-		tt.DeprecationDate = time.Now()
-	}
-
-	return nil
-}
-
-// DeleteThingType deletes a thing type by name. The type must be deprecated first.
-func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	tt, ok := b.thingTypes.Get(thingTypeName)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, thingTypeName)
-	}
-
-	if !tt.Deprecated {
-		return fmt.Errorf("%w: thing type %q must be deprecated before deletion", ErrValidation, thingTypeName)
-	}
-
-	b.thingTypes.Delete(thingTypeName)
-
-	return nil
-}
 
 // -----------------------------------------------------------
 // ThingGroup operations
 // -----------------------------------------------------------
 
-// CreateThingGroup creates a new IoT Thing Group.
-func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*ThingGroup, error) {
-	if input.ThingGroupName == "" {
-		return nil, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.thingGroups.Has(input.ThingGroupName) {
-		return nil, fmt.Errorf("%w: thing group %q already exists", ErrAlreadyExists, input.ThingGroupName)
-	}
-
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("thinggroup/%s", input.ThingGroupName))
-	id := uuid.NewString()
-
-	attrs := make(map[string]string)
-	if input.Attributes != nil {
-		maps.Copy(attrs, input.Attributes)
-	}
-
-	tg := &ThingGroup{
-		ThingGroupName:  input.ThingGroupName,
-		ThingGroupARN:   arn,
-		ThingGroupID:    id,
-		Description:     input.Description,
-		ParentGroupName: input.ParentGroupName,
-		Attributes:      attrs,
-		Members:         []string{},
-		Version:         1,
-		CreatedAt:       time.Now(),
-	}
-
-	b.thingGroups.Put(tg)
-	b.thingGroupMembers[input.ThingGroupName] = []string{}
-
-	return tg, nil
-}
-
-// DescribeThingGroup returns a ThingGroup by name.
-func (b *InMemoryBackend) DescribeThingGroup(thingGroupName string) (*ThingGroup, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	tg, ok := b.thingGroups.Get(thingGroupName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
-	}
-
-	cp := *tg
-	cp.Attributes = make(map[string]string, len(tg.Attributes))
-	maps.Copy(cp.Attributes, tg.Attributes)
-	cp.Members = make([]string, len(tg.Members))
-	copy(cp.Members, tg.Members)
-
-	return &cp, nil
-}
-
-// ListThingGroups returns all thing groups sorted by name.
-func (b *InMemoryBackend) ListThingGroups() []*ThingGroup {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.thingGroups.Snapshot()
-	out := make([]*ThingGroup, 0, len(items))
-
-	for _, v := range items {
-		tg := v
-		cp := *tg
-		cp.Attributes = make(map[string]string, len(tg.Attributes))
-		maps.Copy(cp.Attributes, tg.Attributes)
-		cp.Members = make([]string, len(tg.Members))
-		copy(cp.Members, tg.Members)
-		out = append(out, &cp)
-	}
-
-	return out
-}
-
-// UpdateThingGroup updates an existing thing group and returns the new version.
-func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64, error) {
-	if input.ThingGroupName == "" {
-		return 0, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	tg, ok := b.thingGroups.Get(input.ThingGroupName)
-	if !ok {
-		return 0, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
-	}
-
-	if input.ExpectedVersion != 0 && input.ExpectedVersion != tg.Version {
-		return 0, fmt.Errorf("%w: expected version %d but current is %d",
-			ErrVersionConflict, input.ExpectedVersion, tg.Version)
-	}
-
-	if input.Description != "" {
-		tg.Description = input.Description
-	}
-
-	if input.Attributes != nil {
-		tg.Attributes = applyAttributePayload(tg.Attributes, &AttributePayload{
-			Attributes: input.Attributes,
-			Merge:      input.Merge,
-		})
-	}
-
-	tg.Version++
-
-	return tg.Version, nil
-}
-
-// DeleteThingGroup deletes a thing group by name.
-func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.thingGroups.Has(thingGroupName) {
-		return fmt.Errorf("%w: %s", ErrThingGroupNotFound, thingGroupName)
-	}
-
-	b.thingGroups.Delete(thingGroupName)
-	delete(b.thingGroupMembers, thingGroupName)
-
-	return nil
-}
-
-// RemoveThingFromThingGroup removes a thing from a thing group.
-func (b *InMemoryBackend) RemoveThingFromThingGroup(input *RemoveThingFromThingGroupInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	groupName := input.ThingGroupName
-	if groupName == "" {
-		groupName = input.ThingGroupArn
-	}
-
-	thingName := input.ThingName
-	if thingName == "" {
-		thingName = input.ThingArn
-	}
-
-	members := b.thingGroupMembers[groupName]
-	filtered := make([]string, 0, len(members))
-
-	for _, m := range members {
-		if m != thingName {
-			filtered = append(filtered, m)
-		}
-	}
-
-	b.thingGroupMembers[groupName] = filtered
-
-	return nil
-}
-
-// ListThingsInThingGroup returns all things in a given thing group.
-func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupInput) ([]string, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if !b.thingGroups.Has(input.ThingGroupName) {
-		return nil, fmt.Errorf("%w: %s", ErrThingGroupNotFound, input.ThingGroupName)
-	}
-
-	members := b.thingGroupMembers[input.ThingGroupName]
-	out := make([]string, len(members))
-	copy(out, members)
-
-	return out, nil
-}
-
 // -----------------------------------------------------------
 // Certificate operations
 // -----------------------------------------------------------
-
-// newCertificate creates a new Certificate with a random 64-hex-char ID.
-func (b *InMemoryBackend) newCertificate(pem, status string) *Certificate {
-	certID := randomHex(certIDHexLen)
-	arn := arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cert/%s", certID))
-	now := time.Now()
-
-	return &Certificate{
-		CertificateID:  certID,
-		ARN:            arn,
-		Status:         status,
-		PEM:            pem,
-		CreatedAt:      now,
-		LastModifiedAt: now,
-	}
-}
-
-// CreateCertificateFromCsr creates a new certificate from a CSR.
-func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromCsrInput) (*Certificate, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	status := certStatusInactive
-	if input.SetAsActive {
-		status = certStatusActive
-	}
-
-	cert := b.newCertificate(fakePEM, status)
-	b.certificates.Put(cert)
-
-	return cert, nil
-}
-
-// RegisterCertificate registers a certificate.
-func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (*Certificate, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	status := input.Status
-	if status == "" {
-		status = certStatusInactive
-	}
-
-	pem := input.CertificatePem
-	if pem == "" {
-		pem = fakePEM
-	}
-
-	cert := b.newCertificate(pem, status)
-	b.certificates.Put(cert)
-
-	return cert, nil
-}
-
-// RegisterCertificateWithoutCA registers a certificate without a CA.
-func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificateInput) (*Certificate, error) {
-	return b.RegisterCertificate(input)
-}
-
-// DescribeCertificate returns a Certificate by ID.
-func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificate, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	cert, ok := b.certificates.Get(certificateID)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
-	}
-
-	cp := *cert
-
-	return &cp, nil
-}
-
-// ListCertificates returns all certificates sorted by ID.
-func (b *InMemoryBackend) ListCertificates() []*Certificate {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.certificates.Snapshot()
-	out := make([]*Certificate, 0, len(items))
-
-	for _, v := range items {
-		cp := *v
-		out = append(out, &cp)
-	}
-
-	return out
-}
-
-// isValidCertStatus reports whether s is a legal AWS IoT certificate status.
-func isValidCertStatus(s string) bool {
-	switch s {
-	case certStatusActive, certStatusInactive, certStatusRevoked,
-		certStatusPendingTransfer, certStatusPendingActivation:
-		return true
-	}
-
-	return false
-}
-
-// UpdateCertificate updates the status of a certificate.
-func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error {
-	switch input.NewStatus {
-	case certStatusPendingTransfer, certStatusPendingActivation:
-		return fmt.Errorf("%w: status %q cannot be set via UpdateCertificate", ErrValidation, input.NewStatus)
-	}
-
-	if input.NewStatus != "" && !isValidCertStatus(input.NewStatus) {
-		return fmt.Errorf("%w: invalid certificate status %q", ErrValidation, input.NewStatus)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	cert, ok := b.certificates.Get(input.CertificateID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrCertificateNotFound, input.CertificateID)
-	}
-
-	cert.Status = input.NewStatus
-	cert.LastModifiedAt = time.Now()
-
-	return nil
-}
-
-// DeleteCertificate deletes a certificate by ID.
-func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	cert, ok := b.certificates.Get(certificateID)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrCertificateNotFound, certificateID)
-	}
-
-	if cert.Status == certStatusActive {
-		return fmt.Errorf("%w: certificate %q must be deactivated before deletion", ErrDeleteConflict, certificateID)
-	}
-
-	b.certificates.Delete(certificateID)
-
-	return nil
-}
 
 // -----------------------------------------------------------
 // Policy attachment operations
 // -----------------------------------------------------------
 
-// DetachPolicy detaches a policy from a target.
-func (b *InMemoryBackend) DetachPolicy(input *DetachPolicyInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	targets := b.policyTargets[input.PolicyName]
-	filtered := make([]string, 0, len(targets))
-
-	for _, t := range targets {
-		if t != input.Target {
-			filtered = append(filtered, t)
-		}
-	}
-
-	b.policyTargets[input.PolicyName] = filtered
-
-	return nil
-}
-
-// ListAttachedPolicies returns all policies attached to a target.
-func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput) ([]*Policy, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	var out []*Policy
-
-	for policyName, targets := range b.policyTargets {
-		if slices.Contains(targets, input.Target) {
-			if p, ok := b.policies.Get(policyName); ok {
-				cp := *p
-				out = append(out, &cp)
-			}
-		}
-	}
-
-	return out, nil
-}
-
 // -----------------------------------------------------------
 // PolicyVersion operations
 // -----------------------------------------------------------
-
-// maxPolicyVersions is the maximum number of versions allowed per policy (AWS limit).
-const maxPolicyVersions = 5
-
-// CreatePolicyVersion creates a new version of an existing policy.
-func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (*PolicyVersion, error) {
-	if input.PolicyName == "" {
-		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	p, ok := b.policies.Get(input.PolicyName)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, input.PolicyName)
-	}
-
-	versions := b.policyVersions[input.PolicyName]
-
-	if len(versions) >= maxPolicyVersions {
-		return nil, fmt.Errorf(
-			"%w: policy %q already has %d versions",
-			ErrVersionsLimitExceeded,
-			input.PolicyName,
-			maxPolicyVersions,
-		)
-	}
-
-	versionID := strconv.Itoa(len(versions) + 1)
-
-	if input.SetAsDefault {
-		for _, v := range versions {
-			v.IsDefaultVersion = false
-		}
-	}
-
-	now := time.Now()
-	pv := &PolicyVersion{
-		VersionID:        versionID,
-		PolicyDocument:   input.PolicyDocument,
-		IsDefaultVersion: input.SetAsDefault,
-		CreatedAt:        now,
-	}
-
-	b.policyVersions[input.PolicyName] = append(versions, pv)
-	p.LastModifiedAt = now
-
-	return pv, nil
-}
-
-// GetPolicyVersion retrieves a specific version of a policy.
-func (b *InMemoryBackend) GetPolicyVersion(policyName, versionID string) (*PolicyVersion, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	versions := b.policyVersions[policyName]
-
-	for _, v := range versions {
-		if v.VersionID == versionID {
-			cp := *v
-
-			return &cp, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%w: %s/%s", ErrPolicyVersionNotFound, policyName, versionID)
-}
-
-// ListPolicyVersions returns all versions of a policy.
-func (b *InMemoryBackend) ListPolicyVersions(policyName string) ([]*PolicyVersion, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if !b.policies.Has(policyName) {
-		return nil, fmt.Errorf("%w: %s", ErrPolicyNotFound, policyName)
-	}
-
-	versions := b.policyVersions[policyName]
-	out := make([]*PolicyVersion, len(versions))
-
-	for i, v := range versions {
-		cp := *v
-		out[i] = &cp
-	}
-
-	return out, nil
-}
-
-// DeletePolicyVersion deletes a specific version of a policy.
-// The default version cannot be deleted.
-func (b *InMemoryBackend) DeletePolicyVersion(policyName, versionID string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	versions := b.policyVersions[policyName]
-	filtered := make([]*PolicyVersion, 0, len(versions))
-	found := false
-
-	for _, v := range versions {
-		if v.VersionID == versionID {
-			found = true
-			if v.IsDefaultVersion {
-				return fmt.Errorf("%w: cannot delete default policy version %s", ErrDeleteConflict, versionID)
-			}
-		} else {
-			filtered = append(filtered, v)
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("%w: %s/%s", ErrPolicyVersionNotFound, policyName, versionID)
-	}
-
-	b.policyVersions[policyName] = filtered
-
-	return nil
-}
-
-// SetDefaultPolicyVersion sets the default version of a policy.
-func (b *InMemoryBackend) SetDefaultPolicyVersion(policyName, versionID string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	versions := b.policyVersions[policyName]
-	found := false
-
-	for _, v := range versions {
-		if v.VersionID == versionID {
-			v.IsDefaultVersion = true
-			found = true
-		} else {
-			v.IsDefaultVersion = false
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("%w: %s/%s", ErrPolicyVersionNotFound, policyName, versionID)
-	}
-
-	return nil
-}
 
 // -----------------------------------------------------------
 // TopicRuleDestination operations
 // -----------------------------------------------------------
 
-// CreateTopicRuleDestination creates a new topic rule destination.
-func (b *InMemoryBackend) CreateTopicRuleDestination(
-	input *CreateTopicRuleDestinationInput,
-) (*TopicRuleDestination, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	arn := arn.Build("iot", b.region, b.accountID,
-		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
-
-	dest := &TopicRuleDestination{
-		ARN: arn,
-	}
-
-	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
-		dest.HTTPURLProperties = &HTTPURLDestinationProperties{
-			ConfirmationURL: input.DestinationConfiguration.HTTPURLConfiguration.ConfirmationURL,
-		}
-		// HTTP destinations require confirmation before they can be used,
-		// matching AWS's real IN_PROGRESS -> ENABLED lifecycle.
-		dest.Status = statusInProgress
-		dest.ConfirmationToken = randomHex(certIDHexLen)
-	} else {
-		dest.Status = statusEnabled
-	}
-
-	b.topicRuleDestinations.Put(dest)
-
-	return dest, nil
-}
-
-// GetTopicRuleDestination returns a topic rule destination by ARN.
-func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestination, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	dest, ok := b.topicRuleDestinations.Get(arn)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
-	}
-
-	cp := *dest
-
-	return &cp, nil
-}
-
-// ListTopicRuleDestinations returns all topic rule destinations.
-func (b *InMemoryBackend) ListTopicRuleDestinations() []*TopicRuleDestination {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.topicRuleDestinations.Snapshot()
-	out := make([]*TopicRuleDestination, 0, len(items))
-
-	for _, v := range items {
-		cp := *v
-		out = append(out, &cp)
-	}
-
-	return out
-}
-
-// UpdateTopicRuleDestination updates the status of a topic rule destination.
-func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDestinationInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	dest, ok := b.topicRuleDestinations.Get(input.ARN)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, input.ARN)
-	}
-
-	dest.Status = input.Status
-
-	return nil
-}
-
-// DeleteTopicRuleDestination deletes a topic rule destination by ARN.
-func (b *InMemoryBackend) DeleteTopicRuleDestination(arn string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.topicRuleDestinations.Has(arn) {
-		return fmt.Errorf("%w: %s", ErrTopicRuleDestinationNotFound, arn)
-	}
-
-	b.topicRuleDestinations.Delete(arn)
-
-	return nil
-}
-
 // -----------------------------------------------------------
 // CertificateProvider operations
 // -----------------------------------------------------------
-
-// CreateCertificateProvider creates a new certificate provider.
-func (b *InMemoryBackend) CreateCertificateProvider(
-	input *CreateCertificateProviderInput,
-) (*CertificateProvider, error) {
-	if input.CertificateProviderName == "" {
-		return nil, fmt.Errorf("%w: CertificateProviderName is required", ErrValidation)
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.certificateProviders.Has(input.CertificateProviderName) {
-		return nil, fmt.Errorf("%w: certificate provider %q already exists",
-			ErrAlreadyExists, input.CertificateProviderName)
-	}
-
-	arn := arn.Build("iot", b.region, b.accountID,
-		fmt.Sprintf("certificateprovider/%s", input.CertificateProviderName))
-
-	ops := make([]string, len(input.AccountDefaultForOperations))
-	copy(ops, input.AccountDefaultForOperations)
-
-	cp := &CertificateProvider{
-		CertificateProviderName:     input.CertificateProviderName,
-		ARN:                         arn,
-		LambdaFunctionARN:           input.LambdaFunctionARN,
-		AccountDefaultForOperations: ops,
-		CreatedAt:                   time.Now(),
-		LastModifiedAt:              time.Now(),
-	}
-
-	b.certificateProviders.Put(cp)
-
-	return cp, nil
-}
-
-// DescribeCertificateProvider returns a certificate provider by name.
-func (b *InMemoryBackend) DescribeCertificateProvider(name string) (*CertificateProvider, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	cp, ok := b.certificateProviders.Get(name)
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, name)
-	}
-
-	result := *cp
-	result.AccountDefaultForOperations = make([]string, len(cp.AccountDefaultForOperations))
-	copy(result.AccountDefaultForOperations, cp.AccountDefaultForOperations)
-
-	return &result, nil
-}
-
-// ListCertificateProviders returns all certificate providers sorted by name.
-func (b *InMemoryBackend) ListCertificateProviders() []*CertificateProvider {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	items := b.certificateProviders.Snapshot()
-	out := make([]*CertificateProvider, 0, len(items))
-
-	for _, v := range items {
-		cp := *v
-		cp.AccountDefaultForOperations = make([]string, len(v.AccountDefaultForOperations))
-		copy(cp.AccountDefaultForOperations, v.AccountDefaultForOperations)
-		out = append(out, &cp)
-	}
-
-	return out
-}
-
-// UpdateCertificateProvider updates an existing certificate provider.
-func (b *InMemoryBackend) UpdateCertificateProvider(input *UpdateCertificateProviderInput) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	cp, ok := b.certificateProviders.Get(input.CertificateProviderName)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, input.CertificateProviderName)
-	}
-
-	if input.LambdaFunctionARN != "" {
-		cp.LambdaFunctionARN = input.LambdaFunctionARN
-	}
-
-	if input.AccountDefaultForOperations != nil {
-		ops := make([]string, len(input.AccountDefaultForOperations))
-		copy(ops, input.AccountDefaultForOperations)
-		cp.AccountDefaultForOperations = ops
-	}
-
-	cp.LastModifiedAt = time.Now()
-
-	return nil
-}
-
-// DeleteCertificateProvider deletes a certificate provider by name.
-func (b *InMemoryBackend) DeleteCertificateProvider(name string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.certificateProviders.Has(name) {
-		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, name)
-	}
-
-	b.certificateProviders.Delete(name)
-
-	return nil
-}
-
-// addThingToGroupByName adds thingName to groupName in thingGroupMembers (dedup).
-// Must be called with b.mu held.
-func (b *InMemoryBackend) addThingToGroupByName(thingName, groupName string) {
-	members := b.thingGroupMembers[groupName]
-
-	if slices.Contains(members, thingName) {
-		return
-	}
-
-	b.thingGroupMembers[groupName] = append(members, thingName)
-}
 
 // -----------------------------------------------------------
 // Device Shadow operations
 // -----------------------------------------------------------
 
-// GetThingShadow returns the shadow for a thing (classic or named).
-func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) (*ThingShadow, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if !b.things.Has(thingName) {
-		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
-	}
-
-	key := shadowKey{thingName: thingName, shadowName: shadowName}
-	s, ok := b.shadows[key]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
-	}
-
-	cp := *s
-
-	return &cp, nil
-}
-
-// UpdateThingShadow creates or updates the shadow for a thing.
-func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, state map[string]any) (*ThingShadow, error) {
+func (b *InMemoryBackend) DetachThingPrincipal(thingName, principal string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if !b.things.Has(thingName) {
-		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
-	}
+	principals := b.thingPrincipals[thingName]
+	for i, p := range principals {
+		if p == principal {
+			b.thingPrincipals[thingName] = append(principals[:i], principals[i+1:]...)
 
-	key := shadowKey{thingName: thingName, shadowName: shadowName}
-	existing := b.shadows[key]
-
-	version := int64(1)
-	if existing != nil {
-		version = existing.Version + 1
-	}
-
-	s := &ThingShadow{
-		State:   state,
-		Version: version,
-	}
-	b.shadows[key] = s
-
-	cp := *s
-
-	return &cp, nil
-}
-
-// DeleteThingShadow deletes the shadow for a thing.
-func (b *InMemoryBackend) DeleteThingShadow(thingName, shadowName string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if !b.things.Has(thingName) {
-		return fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
-	}
-
-	key := shadowKey{thingName: thingName, shadowName: shadowName}
-	if _, ok := b.shadows[key]; !ok {
-		return fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
-	}
-
-	delete(b.shadows, key)
-
-	return nil
-}
-
-// ListNamedShadowsForThing returns all named shadow names for a thing.
-func (b *InMemoryBackend) ListNamedShadowsForThing(thingName string) ([]string, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if !b.things.Has(thingName) {
-		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
-	}
-
-	var names []string
-
-	for k := range b.shadows {
-		if k.thingName == thingName && k.shadowName != "" {
-			names = append(names, k.shadowName)
+			return nil
 		}
 	}
 
-	slices.Sort(names)
+	return nil // AWS returns success even if not found
+}
 
-	return names, nil
+// ListThingPrincipalsV2 returns typed principal objects attached to a thing.
+func (b *InMemoryBackend) ListThingPrincipalsV2(thingName string) ([]*ThingPrincipalObject, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.things.Has(thingName) {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	principals := b.thingPrincipals[thingName]
+	out := make([]*ThingPrincipalObject, 0, len(principals))
+
+	for _, p := range principals {
+		out = append(out, &ThingPrincipalObject{
+			Principal:          p,
+			ThingPrincipalType: defaultThingPrincipalType,
+		})
+	}
+
+	return out, nil
+}
+
+// ThingConnectivityData is a thing's most recently reported connectivity
+// status.
+type ThingConnectivityData struct {
+	DisconnectReason string  `json:"disconnectReason,omitempty"`
+	Timestamp        float64 `json:"timestamp,omitempty"`
+	Connected        bool    `json:"connected"`
+}
+
+// GetThingConnectivityData returns a thing's stored connectivity data,
+// defaulting to "not connected" when nothing has been recorded yet.
+func (b *InMemoryBackend) GetThingConnectivityData(thingName string) (*ThingConnectivityData, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.things.Has(thingName) {
+		return nil, fmt.Errorf("%w: %s", ErrThingNotFound, thingName)
+	}
+
+	if cd, ok := b.thingConnectivity[thingName]; ok {
+		cp := *cd
+
+		return &cp, nil
+	}
+
+	return &ThingConnectivityData{Connected: false}, nil
+}
+
+// SetThingConnectivityInternal seeds/updates a thing's connectivity data for
+// testing (real connectivity is derived from live MQTT session events, which
+// this in-memory backend does not yet wire into fleet indexing).
+func (b *InMemoryBackend) SetThingConnectivityInternal(thingName string, data ThingConnectivityData) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	cp := data
+	b.thingConnectivity[thingName] = &cp
 }

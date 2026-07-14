@@ -1,0 +1,389 @@
+package iot
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/labstack/echo/v5"
+)
+
+func resolveThingGroupOps(path, method string) string {
+	// Handle exact and special-suffix paths first.
+	if op := resolveThingGroupSpecialPaths(path, method); op != unknownOperation {
+		return op
+	}
+
+	// Handle generic /thing-groups/{name} CRUD paths.
+	if !strings.HasPrefix(path, "/thing-groups/") {
+		return unknownOperation
+	}
+
+	switch method {
+	case http.MethodPost:
+
+		return opCreateThingGroup
+	case http.MethodGet:
+
+		return opDescribeThingGroup
+	case http.MethodPatch:
+
+		return opUpdateThingGroup
+	case http.MethodDelete:
+
+		return opDeleteThingGroup
+	}
+
+	return unknownOperation
+}
+
+func resolveThingGroupSpecialPaths(path, method string) string {
+	switch {
+	case path == "/thing-groups" && method == http.MethodGet:
+
+		return opListThingGroups
+	case path == "/thing-groups/removeThingFromThingGroup" && method == http.MethodPut:
+
+		return opRemoveThingFromThingGroup
+	case strings.HasSuffix(path, "/things") && method == http.MethodGet &&
+		strings.HasPrefix(path, "/thing-groups/"):
+
+		return opListThingsInThingGroup
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) dispatchThingGroupOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case opCreateThingGroup:
+
+		return true, h.handleCreateThingGroup(c)
+	case opDescribeThingGroup:
+
+		return true, h.handleDescribeThingGroup(c)
+	case opListThingGroups:
+
+		return true, h.handleListThingGroups(c)
+	case opUpdateThingGroup:
+
+		return true, h.handleUpdateThingGroup(c)
+	case opDeleteThingGroup:
+
+		return true, h.handleDeleteThingGroup(c)
+	case opRemoveThingFromThingGroup:
+
+		return true, h.handleRemoveThingFromThingGroup(c)
+	case opListThingsInThingGroup:
+
+		return true, h.handleListThingsInThingGroup(c)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) handleAddThingToThingGroup(c *echo.Context) error {
+	var body AddThingToThingGroupInput
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+
+	if err := h.Backend.AddThingToThingGroup(&body); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
+	thingGroupName := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
+
+	var body struct {
+		ThingGroupProperties *struct {
+			AttributePayload      *AttributePayload `json:"attributePayload"`
+			ThingGroupDescription string            `json:"thingGroupDescription"`
+		} `json:"thingGroupProperties"`
+		ParentGroupName string `json:"parentGroupName"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+
+	desc := ""
+	var attrs map[string]string
+	if body.ThingGroupProperties != nil {
+		desc = body.ThingGroupProperties.ThingGroupDescription
+		if body.ThingGroupProperties.AttributePayload != nil {
+			attrs = body.ThingGroupProperties.AttributePayload.Attributes
+		}
+	}
+
+	tg, err := h.Backend.CreateThingGroup(&CreateThingGroupInput{
+		ThingGroupName:  thingGroupName,
+		ParentGroupName: body.ParentGroupName,
+		Description:     desc,
+		Attributes:      attrs,
+	})
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		keyThingGroupName: tg.ThingGroupName,
+		keyThingGroupArn:  tg.ThingGroupARN,
+		keyThingGroupID:   tg.ThingGroupID,
+	})
+}
+
+func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
+	thingGroupName := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
+	tg, err := h.Backend.DescribeThingGroup(thingGroupName)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyThingGroupName: tg.ThingGroupName,
+		keyThingGroupArn:  tg.ThingGroupARN,
+		keyThingGroupID:   tg.ThingGroupID,
+		keyVersion:        tg.Version,
+		"thingGroupProperties": map[string]any{
+			"thingGroupDescription": tg.Description,
+			"attributePayload":      map[string]any{keyAttributes: tg.Attributes},
+		},
+		"thingGroupMetadata": map[string]any{
+			keyCreationDate:   tg.CreatedAt,
+			"parentGroupName": tg.ParentGroupName,
+		},
+	})
+}
+
+func (h *Handler) handleListThingGroups(c *echo.Context) error {
+	groups := h.Backend.ListThingGroups()
+	out := make([]map[string]string, 0, len(groups))
+	for _, tg := range groups {
+		out = append(out, map[string]string{
+			keyThingGroupName: tg.ThingGroupName,
+			keyThingGroupArn:  tg.ThingGroupARN,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"thingGroups": out})
+}
+
+func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
+	thingGroupName := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
+
+	var body struct {
+		ThingGroupProperties *struct {
+			AttributePayload      *AttributePayload `json:"attributePayload"`
+			ThingGroupDescription string            `json:"thingGroupDescription"`
+		} `json:"thingGroupProperties"`
+		ExpectedVersion int64 `json:"expectedVersion"`
+	}
+
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+
+	desc := ""
+	var attrs map[string]string
+	var merge *bool
+	if body.ThingGroupProperties != nil {
+		desc = body.ThingGroupProperties.ThingGroupDescription
+		if body.ThingGroupProperties.AttributePayload != nil {
+			attrs = body.ThingGroupProperties.AttributePayload.Attributes
+			merge = body.ThingGroupProperties.AttributePayload.Merge
+		}
+	}
+
+	newVersion, err := h.Backend.UpdateThingGroup(&UpdateThingGroupInput{
+		ThingGroupName:  thingGroupName,
+		Description:     desc,
+		Attributes:      attrs,
+		Merge:           merge,
+		ExpectedVersion: body.ExpectedVersion,
+	})
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: newVersion})
+}
+
+func (h *Handler) handleDeleteThingGroup(c *echo.Context) error {
+	thingGroupName := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
+	if err := h.Backend.DeleteThingGroup(thingGroupName); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleRemoveThingFromThingGroup(c *echo.Context) error {
+	var body RemoveThingFromThingGroupInput
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+		!errors.Is(err, io.EOF) {
+		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+	}
+	if err := h.Backend.RemoveThingFromThingGroup(&body); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleListThingsInThingGroup(c *echo.Context) error {
+	after := strings.TrimPrefix(c.Request().URL.Path, "/thing-groups/")
+	thingGroupName := strings.TrimSuffix(after, "/things")
+	things, err := h.Backend.ListThingsInThingGroup(
+		&ListThingsInThingGroupInput{ThingGroupName: thingGroupName},
+	)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"things": things})
+}
+
+func (h *Handler) handleListThingGroupsForThing(c *echo.Context) error {
+	thingName := extractThingName(c.Request().URL.Path)
+	groups := h.Backend.ListThingGroupsForThing(thingName)
+
+	return c.JSON(http.StatusOK, map[string]any{"thingGroups": groups})
+}
+
+// resolveBatch3DynamicGroupOps handles dynamic thing group ops.
+func resolveBatch3DynamicGroupOps(path, method string) string {
+	switch {
+	case strings.HasPrefix(path, "/dynamic-thing-groups/") && method == http.MethodPost:
+
+		return opCreateDynamicThingGroup
+	case strings.HasPrefix(path, "/dynamic-thing-groups/") && method == http.MethodDelete:
+
+		return opDeleteDynamicThingGroup
+	case strings.HasPrefix(path, "/dynamic-thing-groups/") && method == http.MethodPatch:
+
+		return opUpdateDynamicThingGroup
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
+	name := strings.TrimPrefix(c.Request().URL.Path, "/dynamic-thing-groups/")
+	var req struct {
+		QueryString string `json:"queryString"`
+		Description string `json:"description"`
+	}
+	_ = readBody(c, &req)
+	tg, err := h.Backend.CreateDynamicThingGroup(&CreateThingGroupInput{
+		ThingGroupName: name,
+		Description:    req.Description,
+		QueryString:    req.QueryString,
+	})
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"thingGroupName": tg.ThingGroupName,
+		"thingGroupArn":  tg.ThingGroupARN,
+		keyThingGroupID:  tg.ThingGroupID,
+		keyVersion:       tg.Version,
+	})
+}
+
+func (h *Handler) handleDeleteDynamicThingGroup(c *echo.Context) error {
+	name := strings.TrimPrefix(c.Request().URL.Path, "/dynamic-thing-groups/")
+	if err := h.Backend.DeleteDynamicThingGroup(name); err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
+	name := strings.TrimPrefix(c.Request().URL.Path, "/dynamic-thing-groups/")
+	var req struct {
+		QueryString string `json:"queryString"`
+		Description string `json:"description"`
+	}
+	_ = readBody(c, &req)
+	version, err := h.Backend.UpdateDynamicThingGroup(&UpdateThingGroupInput{
+		ThingGroupName: name,
+		Description:    req.Description,
+		QueryString:    req.QueryString,
+	})
+	if err != nil {
+		return respondErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyVersion: version})
+}
+
+// resolveThingGroupUpdateOp resolves the PUT
+// /thing-groups/updateThingGroupsForThing route.
+func resolveThingGroupUpdateOp(path, method string) string {
+	if path == pathUpdateThingGroups && method == http.MethodPut {
+		return opUpdateThingGroupsForThing
+	}
+
+	return unknownOperation
+}
+
+func (h *Handler) handleUpdateThingGroupsForThing(c *echo.Context) error {
+	var body struct {
+		ThingName             string   `json:"thingName"`
+		ThingGroupsToAdd      []string `json:"thingGroupsToAdd"`
+		ThingGroupsToRemove   []string `json:"thingGroupsToRemove"`
+		OverrideDynamicGroups bool     `json:"overrideDynamicGroups"`
+	}
+	if err := readBody(c, &body); err != nil {
+		return err
+	}
+
+	if err := h.Backend.UpdateThingGroupsForThing(&UpdateThingGroupsForThingInput{
+		ThingName:             body.ThingName,
+		ThingGroupsToAdd:      body.ThingGroupsToAdd,
+		ThingGroupsToRemove:   body.ThingGroupsToRemove,
+		OverrideDynamicGroups: body.OverrideDynamicGroups,
+	}); err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) dispatchDynamicThingGroupOps(c *echo.Context, op string) (bool, error) {
+	switch op {
+	case opCreateDynamicThingGroup:
+		return true, h.handleCreateDynamicThingGroup(c)
+	case opDeleteDynamicThingGroup:
+		return true, h.handleDeleteDynamicThingGroup(c)
+	case opUpdateDynamicThingGroup:
+		return true, h.handleUpdateDynamicThingGroup(c)
+	case opListThingGroupsForThing:
+		return true, h.handleListThingGroupsForThing(c)
+	}
+
+	return false, nil
+}
+
+// resolveThingGroupForThingOps resolves ListThingGroupsForThing.
+func resolveThingGroupForThingOps(path, method string) string {
+	if strings.HasPrefix(path, "/things/") &&
+		strings.HasSuffix(path, "/thing-groups") &&
+		method == http.MethodGet {
+		return opListThingGroupsForThing
+	}
+
+	return unknownOperation
+}

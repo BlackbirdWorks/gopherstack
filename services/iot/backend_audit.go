@@ -1,0 +1,643 @@
+package iot
+
+import (
+	"fmt"
+	"maps"
+	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/google/uuid"
+)
+
+// CancelAuditMitigationActionsTask cancels an audit mitigation actions task.
+// Unknown task IDs still succeed (matching the legacy behavior of this
+// operation) but, when the task is known, its rich AuditMitigationTask record
+// (as returned by DescribeAuditMitigationActionsTask) is transitioned to
+// CANCELED with an end time, keeping the two representations consistent.
+func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditMitigationTasks[input.TaskID] = string(JobStatusCanceled)
+	if t, ok := b.auditMitigationTaskObjects.Get(input.TaskID); ok {
+		t.TaskStatus = string(JobStatusCanceled)
+		t.EndTime = float64(time.Now().Unix())
+	}
+
+	return nil
+}
+
+// CancelAuditTask cancels an audit task.
+func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditTasks[input.AuditTaskID] = "CANCELED"
+
+	return nil
+}
+
+// AuditCheckConfig holds config for a single audit check.
+type AuditCheckConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// AccountAuditConfiguration holds the account-level audit configuration.
+type AccountAuditConfiguration struct {
+	AuditCheckConfigurations map[string]*AuditCheckConfig `json:"auditCheckConfigurations,omitempty"`
+	AuditNotificationTarget  any                          `json:"auditNotificationTargetConfigurations,omitempty"`
+	RoleARN                  string                       `json:"roleArn,omitempty"`
+}
+
+func (b *InMemoryBackend) UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.auditConfiguration == nil {
+		b.auditConfiguration = &AccountAuditConfiguration{}
+	}
+	if roleARN != "" {
+		b.auditConfiguration.RoleARN = roleARN
+	}
+	if len(checks) > 0 {
+		b.auditConfiguration.AuditCheckConfigurations = checks
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) DescribeAccountAuditConfiguration() *AccountAuditConfiguration {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.auditConfiguration == nil {
+		return &AccountAuditConfiguration{
+			AuditCheckConfigurations: map[string]*AuditCheckConfig{},
+		}
+	}
+	cp := *b.auditConfiguration
+
+	return &cp
+}
+
+// DeleteAccountAuditConfiguration clears the account-level audit configuration,
+// restoring it to its unconfigured state. It is idempotent: deleting an
+// unconfigured account still succeeds, matching AWS IoT behavior.
+func (b *InMemoryBackend) DeleteAccountAuditConfiguration() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.auditConfiguration = nil
+
+	return nil
+}
+
+// AuditTask represents an IoT audit task.
+type AuditTask struct {
+	TaskID             string  `json:"taskId"`
+	TaskStatus         string  `json:"taskStatus"`
+	TaskType           string  `json:"taskType"`
+	ScheduledAuditName string  `json:"scheduledAuditName,omitempty"`
+	TaskStartTime      float64 `json:"taskStartTime,omitempty"`
+}
+
+func (b *InMemoryBackend) StartOnDemandAuditTask(_ []string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.NewString()[:12]
+	b.auditTasks[id] = string(JobStatusInProgress)
+	b.auditTaskObjects.Put(&AuditTask{
+		TaskID:        id,
+		TaskStatus:    string(JobStatusInProgress),
+		TaskType:      "ON_DEMAND_AUDIT_TASK",
+		TaskStartTime: float64(time.Now().Unix()),
+	})
+
+	return id, nil
+}
+
+func (b *InMemoryBackend) DescribeAuditTask(taskID string) (*AuditTask, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	task, ok := b.auditTaskObjects.Get(taskID)
+	if !ok {
+		return nil, fmt.Errorf("audit task %q not found: %w", taskID, ErrResourceNotFound)
+	}
+	cp := *task
+
+	return &cp, nil
+}
+
+func (b *InMemoryBackend) ListAuditTasks(taskType string) []*AuditTask {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	var out []*AuditTask
+	items := b.auditTaskObjects.Snapshot()
+	for _, v := range items {
+		task := v
+		if taskType == "" || task.TaskType == taskType {
+			cp := *task
+			out = append(out, &cp)
+		}
+	}
+
+	return out
+}
+
+// AuditSuppression represents an AWS IoT audit suppression.
+type AuditSuppression struct {
+	ResourceIdentifier   map[string]any `json:"resourceIdentifier"`
+	CheckName            string         `json:"checkName"`
+	Description          string         `json:"description,omitempty"`
+	ExpirationDate       float64        `json:"expirationDate,omitempty"`
+	SuppressIndefinitely bool           `json:"suppressIndefinitely"`
+}
+
+func auditSuppressionKey(checkName string, resourceID map[string]any) string {
+	// Use a stable key from checkName plus the first value found in the map.
+	var sb strings.Builder
+	sb.WriteString(checkName)
+	for k, v := range resourceID {
+		sb.WriteString("/" + k + "=" + fmt.Sprint(v))
+
+		break
+	}
+
+	return sb.String()
+}
+
+func cloneAuditSuppression(s *AuditSuppression) *AuditSuppression {
+	cp := *s
+	cp.ResourceIdentifier = make(map[string]any, len(s.ResourceIdentifier))
+	maps.Copy(cp.ResourceIdentifier, s.ResourceIdentifier)
+
+	return &cp
+}
+
+func (b *InMemoryBackend) CreateAuditSuppression(
+	checkName string,
+	resourceID map[string]any,
+	description string,
+	suppressIndefinitely bool,
+	expirationDate float64,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := auditSuppressionKey(checkName, resourceID)
+	if b.auditSuppressions.Has(key) {
+		return fmt.Errorf("audit suppression %q already exists: %w", key, ErrAlreadyExists)
+	}
+	rid := make(map[string]any, len(resourceID))
+	maps.Copy(rid, resourceID)
+	b.auditSuppressions.Put(&AuditSuppression{
+		CheckName:            checkName,
+		ResourceIdentifier:   rid,
+		Description:          description,
+		SuppressIndefinitely: suppressIndefinitely,
+		ExpirationDate:       expirationDate,
+	})
+
+	return nil
+}
+
+func (b *InMemoryBackend) DescribeAuditSuppression(
+	checkName string,
+	resourceID map[string]any,
+) (*AuditSuppression, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	key := auditSuppressionKey(checkName, resourceID)
+	s, ok := b.auditSuppressions.Get(key)
+	if !ok {
+		return nil, fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
+	}
+
+	return cloneAuditSuppression(s), nil
+}
+
+func (b *InMemoryBackend) UpdateAuditSuppression(
+	checkName string,
+	resourceID map[string]any,
+	description string,
+	suppressIndefinitely bool,
+	expirationDate float64,
+) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := auditSuppressionKey(checkName, resourceID)
+	s, ok := b.auditSuppressions.Get(key)
+	if !ok {
+		return fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
+	}
+	if description != "" {
+		s.Description = description
+	}
+	s.SuppressIndefinitely = suppressIndefinitely
+	if expirationDate != 0 {
+		s.ExpirationDate = expirationDate
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) DeleteAuditSuppression(checkName string, resourceID map[string]any) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key := auditSuppressionKey(checkName, resourceID)
+	if !b.auditSuppressions.Has(key) {
+		return fmt.Errorf("audit suppression %q not found: %w", key, ErrResourceNotFound)
+	}
+	b.auditSuppressions.Delete(key)
+
+	return nil
+}
+
+func (b *InMemoryBackend) ListAuditSuppressions() []*AuditSuppression {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	items := b.auditSuppressions.Snapshot()
+	out := make([]*AuditSuppression, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneAuditSuppression(v))
+	}
+
+	return out
+}
+
+// AuditFinding represents an AWS IoT audit finding.
+type AuditFinding struct {
+	NonCompliantResource map[string]any   `json:"nonCompliantResource,omitempty"`
+	FindingID            string           `json:"findingId"`
+	TaskID               string           `json:"taskId,omitempty"`
+	CheckName            string           `json:"checkName"`
+	Severity             string           `json:"severity"`
+	RelatedResources     []map[string]any `json:"relatedResources,omitempty"`
+	FindingTime          float64          `json:"findingTime,omitempty"`
+}
+
+func cloneAuditFinding(f *AuditFinding) *AuditFinding {
+	cp := *f
+	cp.NonCompliantResource = make(map[string]any, len(f.NonCompliantResource))
+	maps.Copy(cp.NonCompliantResource, f.NonCompliantResource)
+	cp.RelatedResources = make([]map[string]any, len(f.RelatedResources))
+	copy(cp.RelatedResources, f.RelatedResources)
+
+	return &cp
+}
+
+// SeedAuditFinding injects an audit finding into the backend so that
+// DescribeAuditFinding, ListAuditFindings, and ListRelatedResourcesForAuditFinding
+// return realistic data. AWS IoT populates audit findings internally when an audit
+// task runs; this is the additive hook gopherstack exposes so callers (and tests)
+// can populate findings deterministically instead of always seeing an empty set.
+// It returns the stored finding, generating a FindingID when none is supplied.
+func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	stored := cloneAuditFinding(f)
+	if stored.FindingID == "" {
+		stored.FindingID = uuid.NewString()
+	}
+
+	if stored.FindingTime == 0 {
+		stored.FindingTime = float64(time.Now().Unix())
+	}
+
+	b.auditFindings.Put(stored)
+
+	return cloneAuditFinding(stored)
+}
+
+func (b *InMemoryBackend) DescribeAuditFinding(findingID string) (*AuditFinding, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	f, ok := b.auditFindings.Get(findingID)
+	if !ok {
+		return nil, fmt.Errorf("audit finding %q not found: %w", findingID, ErrResourceNotFound)
+	}
+
+	return cloneAuditFinding(f), nil
+}
+
+func (b *InMemoryBackend) ListAuditFindings() []*AuditFinding {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	items := b.auditFindings.Snapshot()
+	out := make([]*AuditFinding, 0, len(items))
+	for _, v := range items {
+		out = append(out, cloneAuditFinding(v))
+	}
+
+	return out
+}
+
+// ListRelatedResourcesForAuditFinding returns the resources related to a stored
+// audit finding (e.g. certificates, policies) identified when the audit ran.
+func (b *InMemoryBackend) ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	f, ok := b.auditFindings.Get(findingID)
+	if !ok {
+		return nil, fmt.Errorf("audit finding %q not found: %w", findingID, ErrResourceNotFound)
+	}
+
+	out := make([]map[string]any, len(f.RelatedResources))
+	copy(out, f.RelatedResources)
+
+	return out, nil
+}
+
+// EventConfigurations holds the IoT event configurations.
+type EventConfigurations struct {
+	EventConfigurations map[string]*EventConfigEntry `json:"eventConfigurations"`
+}
+
+// EventConfigEntry holds the enabled flag for an event type.
+type EventConfigEntry struct {
+	Enabled bool `json:"Enabled"`
+}
+
+func (b *InMemoryBackend) DescribeEventConfigurations() *EventConfigurations {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.eventConfigurations == nil {
+		return &EventConfigurations{EventConfigurations: map[string]*EventConfigEntry{}}
+	}
+	cp := EventConfigurations{
+		EventConfigurations: make(map[string]*EventConfigEntry, len(b.eventConfigurations.EventConfigurations)),
+	}
+	for k, v := range b.eventConfigurations.EventConfigurations {
+		e := *v
+		cp.EventConfigurations[k] = &e
+	}
+
+	return &cp
+}
+
+func (b *InMemoryBackend) UpdateEventConfigurations(cfgs map[string]*EventConfigEntry) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.eventConfigurations == nil {
+		b.eventConfigurations = &EventConfigurations{EventConfigurations: make(map[string]*EventConfigEntry)}
+	}
+	for k, v := range cfgs {
+		e := *v
+		b.eventConfigurations.EventConfigurations[k] = &e
+	}
+
+	return nil
+}
+
+// ScheduledAudit represents an IoT scheduled audit.
+type ScheduledAudit struct {
+	Tags               map[string]string `json:"tags,omitempty"`
+	ScheduledAuditName string            `json:"scheduledAuditName"`
+	ScheduledAuditARN  string            `json:"scheduledAuditArn"`
+	Frequency          string            `json:"frequency"`
+	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
+	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
+	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
+}
+
+func cloneScheduledAudit(sa *ScheduledAudit) *ScheduledAudit {
+	cp := *sa
+	cp.TargetCheckNames = append([]string(nil), sa.TargetCheckNames...)
+
+	return &cp
+}
+
+func (b *InMemoryBackend) scheduledAuditARN(name string) string {
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("scheduledaudit/%s", name))
+}
+
+// CreateScheduledAuditInput holds input for CreateScheduledAudit.
+type CreateScheduledAuditInput struct {
+	Tags               map[string]string `json:"tags,omitempty"`
+	ScheduledAuditName string            `json:"scheduledAuditName"`
+	Frequency          string            `json:"frequency"`
+	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
+	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
+	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
+}
+
+func (b *InMemoryBackend) CreateScheduledAudit(
+	input *CreateScheduledAuditInput,
+) (*ScheduledAudit, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.scheduledAudits.Has(input.ScheduledAuditName) {
+		return nil, fmt.Errorf(
+			"scheduled audit %q already exists: %w",
+			input.ScheduledAuditName,
+			ErrAlreadyExists,
+		)
+	}
+	sa := &ScheduledAudit{
+		ScheduledAuditName: input.ScheduledAuditName,
+		ScheduledAuditARN:  b.scheduledAuditARN(input.ScheduledAuditName),
+		Frequency:          input.Frequency,
+		DayOfMonth:         input.DayOfMonth,
+		DayOfWeek:          input.DayOfWeek,
+		TargetCheckNames:   append([]string(nil), input.TargetCheckNames...),
+		Tags:               input.Tags,
+	}
+	b.scheduledAudits.Put(sa)
+
+	return cloneScheduledAudit(sa), nil
+}
+
+func (b *InMemoryBackend) DescribeScheduledAudit(name string) (*ScheduledAudit, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	sa, ok := b.scheduledAudits.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
+	}
+
+	return cloneScheduledAudit(sa), nil
+}
+
+func (b *InMemoryBackend) ListScheduledAudits() []*ScheduledAudit {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]*ScheduledAudit, 0, b.scheduledAudits.Len())
+	for _, v := range b.scheduledAudits.Snapshot() {
+		out = append(out, cloneScheduledAudit(v))
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) UpdateScheduledAudit(
+	name, frequency, dayOfMonth, dayOfWeek string,
+	checks []string,
+) (*ScheduledAudit, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	sa, ok := b.scheduledAudits.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
+	}
+	if frequency != "" {
+		sa.Frequency = frequency
+	}
+	if dayOfMonth != "" {
+		sa.DayOfMonth = dayOfMonth
+	}
+	if dayOfWeek != "" {
+		sa.DayOfWeek = dayOfWeek
+	}
+	if len(checks) > 0 {
+		sa.TargetCheckNames = append([]string(nil), checks...)
+	}
+
+	return cloneScheduledAudit(sa), nil
+}
+
+func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.scheduledAudits.Has(name) {
+		return fmt.Errorf("scheduled audit %q not found: %w", name, ErrResourceNotFound)
+	}
+	b.scheduledAudits.Delete(name)
+
+	return nil
+}
+
+// MitigationAction represents an IoT mitigation action.
+type MitigationAction struct {
+	Tags             map[string]string `json:"tags,omitempty"`
+	ActionParams     map[string]any    `json:"actionParams,omitempty"`
+	ActionName       string            `json:"actionName"`
+	ActionARN        string            `json:"actionArn"`
+	ActionID         string            `json:"actionId"`
+	RoleARN          string            `json:"roleArn,omitempty"`
+	CreationDate     float64           `json:"creationDate,omitempty"`
+	LastModifiedDate float64           `json:"lastModifiedDate,omitempty"`
+}
+
+func cloneMitigationAction(ma *MitigationAction) *MitigationAction {
+	cp := *ma
+
+	return &cp
+}
+
+func (b *InMemoryBackend) mitigationActionARN(name string) string {
+	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("mitigationaction/%s", name))
+}
+
+// CreateMitigationActionInput holds input for CreateMitigationAction.
+type CreateMitigationActionInput struct {
+	Tags         map[string]string `json:"tags,omitempty"`
+	ActionParams map[string]any    `json:"actionParams,omitempty"`
+	ActionName   string            `json:"actionName"`
+	RoleARN      string            `json:"roleArn,omitempty"`
+}
+
+func (b *InMemoryBackend) CreateMitigationAction(
+	input *CreateMitigationActionInput,
+) (*MitigationAction, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.mitigationActions.Has(input.ActionName) {
+		return nil, fmt.Errorf(
+			"mitigation action %q already exists: %w",
+			input.ActionName,
+			ErrAlreadyExists,
+		)
+	}
+	now := float64(time.Now().Unix())
+	ma := &MitigationAction{
+		ActionName:       input.ActionName,
+		ActionARN:        b.mitigationActionARN(input.ActionName),
+		ActionID:         uuid.NewString(),
+		RoleARN:          input.RoleARN,
+		ActionParams:     input.ActionParams,
+		Tags:             input.Tags,
+		CreationDate:     now,
+		LastModifiedDate: now,
+	}
+	b.mitigationActions.Put(ma)
+
+	return cloneMitigationAction(ma), nil
+}
+
+func (b *InMemoryBackend) DescribeMitigationAction(name string) (*MitigationAction, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	ma, ok := b.mitigationActions.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
+	}
+
+	return cloneMitigationAction(ma), nil
+}
+
+func (b *InMemoryBackend) ListMitigationActions() []*MitigationAction {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]*MitigationAction, 0, b.mitigationActions.Len())
+	for _, v := range b.mitigationActions.Snapshot() {
+		out = append(out, cloneMitigationAction(v))
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) UpdateMitigationAction(
+	name, roleARN string,
+	params map[string]any,
+) (*MitigationAction, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	ma, ok := b.mitigationActions.Get(name)
+	if !ok {
+		return nil, fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
+	}
+	if roleARN != "" {
+		ma.RoleARN = roleARN
+	}
+	if params != nil {
+		ma.ActionParams = params
+	}
+	ma.LastModifiedDate = float64(time.Now().Unix())
+
+	return cloneMitigationAction(ma), nil
+}
+
+func (b *InMemoryBackend) DeleteMitigationAction(name string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if !b.mitigationActions.Has(name) {
+		return fmt.Errorf("mitigation action %q not found: %w", name, ErrResourceNotFound)
+	}
+	b.mitigationActions.Delete(name)
+
+	return nil
+}

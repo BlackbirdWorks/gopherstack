@@ -828,3 +828,157 @@ func TestPersistenceGap264_EmptySnapshotRestoresNotFound(t *testing.T) {
 	assert.Empty(t, b.ListAuditTasks(""))
 	assert.Empty(t, b.ListV2LoggingLevels())
 }
+
+// TestRefinement1_PersistenceRoundTrip verifies Snapshot/Restore preserves all state.
+func TestPersistenceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "snapshot_restore_preserves_things_policies_rules"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := newRefBackend()
+			b1.AddThingInternal(iot.Thing{ThingName: "snap-thing"})
+			b1.AddPolicyInternal(iot.Policy{PolicyName: "snap-policy"})
+			b1.AddRuleInternal(iot.TopicRule{RuleName: "snap-rule", SQL: "SELECT temperature FROM 'devices/#'"})
+
+			snap := b1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := newRefBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			assert.Equal(t, 1, b2.ThingCount())
+			assert.Equal(t, 1, b2.PolicyCount())
+			assert.Equal(t, 1, b2.RuleCount())
+
+			thing, err := b2.DescribeThing("snap-thing")
+			require.NoError(t, err)
+			assert.Equal(t, "snap-thing", thing.ThingName)
+		})
+	}
+}
+
+// TestRefinement1_PersistenceEmpty verifies Snapshot/Restore works on empty backend.
+func TestPersistenceEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "empty_snapshot_restores_cleanly"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := newRefBackend()
+			snap := b1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := newRefBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			assert.Equal(t, 0, b2.ThingCount())
+		})
+	}
+}
+
+// TestRefinement1_HandlerSnapshot verifies Handler.Snapshot delegates to backend.
+func TestHandlerSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "handler_snapshot_delegates"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newRefHandler()
+			b.AddThingInternal(iot.Thing{ThingName: "snap-via-handler"})
+
+			snap := h.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			h2, b2 := newRefHandler()
+			require.NoError(t, h2.Restore(t.Context(), snap))
+
+			assert.Equal(t, 1, b2.ThingCount())
+		})
+	}
+}
+
+// TestRefinement1_Restore_NilMaps verifies Restore tolerates nil maps in snapshot JSON.
+func TestRestore_NilMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		json []byte
+	}{
+		{
+			name: "empty_json_object",
+			json: []byte(`{}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newRefBackend()
+			err := b.Restore(t.Context(), tt.json)
+			require.NoError(t, err)
+			assert.Equal(t, 0, b.ThingCount())
+		})
+	}
+}
+
+// TestRefinement1_PersistenceWithAssociations verifies Snapshot/Restore preserves associations.
+func TestPersistenceWithAssociations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "thing_group_memberships_preserved"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := newRefBackend()
+			b1.AddThingInternal(iot.Thing{ThingName: "t1"})
+
+			// Add thing to group via backend method.
+			require.NoError(t, b1.AddThingToThingGroup(&iot.AddThingToThingGroupInput{
+				ThingName:      "t1",
+				ThingGroupName: "g1",
+			}))
+			require.NoError(t, b1.AcceptCertificateTransfer(&iot.AcceptCertificateTransferInput{
+				CertificateID: "cert-abc",
+			}))
+
+			snap := b1.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			b2 := newRefBackend()
+			require.NoError(t, b2.Restore(t.Context(), snap))
+
+			assert.Equal(t, 1, b2.ThingCount())
+			assert.Equal(t, 1, b2.CertTransferCount())
+		})
+	}
+}

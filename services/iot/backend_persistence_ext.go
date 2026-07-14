@@ -469,3 +469,134 @@ func (b *InMemoryBackend) restoreConfig(snap configSnapshot) {
 	b.registrationCode = snap.RegistrationCode
 	b.defaultAuthorizer = snap.DefaultAuthorizer
 }
+
+// finalOpsSnapshot holds the deep-copied final-stub-batch state for
+// persistence, mirroring the deviceDefenderSnapshot pattern.
+type finalOpsSnapshot struct {
+	AccountEncryptionConfig   *AccountEncryptionConfiguration
+	SbomValidationResults     map[string][]*SbomValidationResult
+	MetricValues              map[string][]*MetricDatapoint
+	ThingConnectivity         map[string]*ThingConnectivityData
+	BehaviorTrainingSummaries map[string][]*BehaviorModelTrainingSummary
+}
+
+// snapshotFinalOps deep-copies all final-stub-batch state. Must be called
+// with b.mu held (read or write).
+func (b *InMemoryBackend) snapshotFinalOps() finalOpsSnapshot {
+	var accountEncryptionConfig *AccountEncryptionConfiguration
+	if b.accountEncryptionConfig != nil {
+		cp := *b.accountEncryptionConfig
+		accountEncryptionConfig = &cp
+	}
+
+	sbomValidationResults := make(map[string][]*SbomValidationResult, len(b.sbomValidationResults))
+	for k, v := range b.sbomValidationResults {
+		sbomValidationResults[k] = cloneSbomValidationResults(v)
+	}
+
+	metricValues := make(map[string][]*MetricDatapoint, len(b.metricValues))
+	for k, v := range b.metricValues {
+		metricValues[k] = cloneMetricDatapoints(v)
+	}
+
+	thingConnectivity := make(map[string]*ThingConnectivityData, len(b.thingConnectivity))
+	for k, v := range b.thingConnectivity {
+		cp := *v
+		thingConnectivity[k] = &cp
+	}
+
+	behaviorTrainingSummaries := make(map[string][]*BehaviorModelTrainingSummary, len(b.behaviorTrainingSummaries))
+	for k, v := range b.behaviorTrainingSummaries {
+		behaviorTrainingSummaries[k] = cloneBehaviorTrainingSummaries(v)
+	}
+
+	return finalOpsSnapshot{
+		AccountEncryptionConfig:   accountEncryptionConfig,
+		SbomValidationResults:     sbomValidationResults,
+		MetricValues:              metricValues,
+		ThingConnectivity:         thingConnectivity,
+		BehaviorTrainingSummaries: behaviorTrainingSummaries,
+	}
+}
+
+// restoreFinalOps restores final-stub-batch state from a snapshot. Must be
+// called with b.mu held (write).
+func (b *InMemoryBackend) restoreFinalOps(snap finalOpsSnapshot) {
+	if snap.AccountEncryptionConfig != nil {
+		cp := *snap.AccountEncryptionConfig
+		b.accountEncryptionConfig = &cp
+	} else {
+		b.accountEncryptionConfig = nil
+	}
+
+	b.sbomValidationResults = make(map[string][]*SbomValidationResult, len(snap.SbomValidationResults))
+	for k, v := range snap.SbomValidationResults {
+		b.sbomValidationResults[k] = cloneSbomValidationResults(v)
+	}
+
+	b.metricValues = make(map[string][]*MetricDatapoint, len(snap.MetricValues))
+	for k, v := range snap.MetricValues {
+		b.metricValues[k] = cloneMetricDatapoints(v)
+	}
+
+	b.thingConnectivity = make(map[string]*ThingConnectivityData, len(snap.ThingConnectivity))
+	for k, v := range snap.ThingConnectivity {
+		cp := *v
+		b.thingConnectivity[k] = &cp
+	}
+
+	b.behaviorTrainingSummaries = make(map[string][]*BehaviorModelTrainingSummary, len(snap.BehaviorTrainingSummaries))
+	for k, v := range snap.BehaviorTrainingSummaries {
+		b.behaviorTrainingSummaries[k] = cloneBehaviorTrainingSummaries(v)
+	}
+}
+
+func cloneSbomValidationResults(src []*SbomValidationResult) []*SbomValidationResult {
+	out := make([]*SbomValidationResult, len(src))
+	for i, r := range src {
+		cp := *r
+		out[i] = &cp
+	}
+
+	return out
+}
+
+func cloneMetricDatapoints(src []*MetricDatapoint) []*MetricDatapoint {
+	out := make([]*MetricDatapoint, len(src))
+	for i, dp := range src {
+		cp := *dp
+		out[i] = &cp
+	}
+
+	return out
+}
+
+func cloneBehaviorTrainingSummaries(src []*BehaviorModelTrainingSummary) []*BehaviorModelTrainingSummary {
+	out := make([]*BehaviorModelTrainingSummary, len(src))
+	for i, s := range src {
+		cp := *s
+		out[i] = &cp
+	}
+
+	return out
+}
+
+// ensureNonNilFinalOpsSnap defaults nil maps in a restored snapshot's
+// final-stub-batch fields to empty maps.
+func ensureNonNilFinalOpsSnap(snap *backendSnapshot) {
+	if snap.SbomValidationResults == nil {
+		snap.SbomValidationResults = make(map[string][]*SbomValidationResult)
+	}
+
+	if snap.MetricValues == nil {
+		snap.MetricValues = make(map[string][]*MetricDatapoint)
+	}
+
+	if snap.ThingConnectivity == nil {
+		snap.ThingConnectivity = make(map[string]*ThingConnectivityData)
+	}
+
+	if snap.BehaviorTrainingSummaries == nil {
+		snap.BehaviorTrainingSummaries = make(map[string][]*BehaviorModelTrainingSummary)
+	}
+}
