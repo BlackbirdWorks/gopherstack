@@ -1,0 +1,72 @@
+package cloudfront_test
+
+import (
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestParitySweep_MonitoringSubscription_NotFound verifies Get and Delete both 404 when no
+// subscription has been created for a distribution, and that Get succeeds once one has.
+func TestParitySweep_MonitoringSubscription_NotFound(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+	const prefix = "/2020-05-31/"
+	const distID = "ENOSUBSCRIPTION"
+	path := prefix + "distribution/" + distID + "/monitoring-subscription"
+
+	getRec := doXML(t, h, http.MethodGet, path, nil)
+	assert.Equal(t, http.StatusNotFound, getRec.Code)
+	assert.Contains(t, getRec.Body.String(), "NoSuchMonitoringSubscription")
+
+	deleteRec := doXML(t, h, http.MethodDelete, path, nil)
+	assert.Equal(t, http.StatusNotFound, deleteRec.Code)
+
+	createRec := doXML(t, h, http.MethodPost, path,
+		[]byte(`<MonitoringSubscription><RealtimeMetricsSubscriptionConfig>`+
+			`<RealtimeMetricsSubscriptionStatus>Enabled</RealtimeMetricsSubscriptionStatus>`+
+			`</RealtimeMetricsSubscriptionConfig></MonitoringSubscription>`))
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	getAfterCreate := doXML(t, h, http.MethodGet, path, nil)
+	assert.Equal(t, http.StatusOK, getAfterCreate.Code)
+	assert.Contains(t, getAfterCreate.Body.String(), "Enabled")
+
+	deleteAfterCreate := doXML(t, h, http.MethodDelete, path, nil)
+	assert.Equal(t, http.StatusNoContent, deleteAfterCreate.Code)
+
+	// Deleted again -> 404.
+	deleteAgain := doXML(t, h, http.MethodDelete, path, nil)
+	assert.Equal(t, http.StatusNotFound, deleteAgain.Code)
+}
+
+// ---------------------------------------------------------------------------
+// ResourcePolicy
+// ---------------------------------------------------------------------------
+
+// TestNewOps_MonitoringSubscription tests monitoring subscription Create/Get/Delete.
+func TestNewOps_MonitoringSubscription(t *testing.T) {
+	t.Parallel()
+	h := newCFHandler(t)
+	const distID = "E1DIST123456"
+	const prefix = "/2020-05-31/"
+	path := prefix + "distribution/" + distID + "/monitoring-subscription"
+
+	// Create
+	body := `<MonitoringSubscription><RealtimeMetricsSubscriptionConfig>` +
+		`<RealtimeMetricsSubscriptionStatus>Enabled</RealtimeMetricsSubscriptionStatus>` +
+		`</RealtimeMetricsSubscriptionConfig></MonitoringSubscription>`
+	cfOK(t, h, http.MethodPost, path, body)
+
+	// Get
+	out := cfOK(t, h, http.MethodGet, path, "")
+	if !strings.Contains(out, "MonitoringSubscription") {
+		t.Errorf("unexpected response: %s", out)
+	}
+
+	// Delete
+	cfOK(t, h, http.MethodDelete, path, "")
+}
