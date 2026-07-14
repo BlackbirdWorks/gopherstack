@@ -1,91 +1,123 @@
 package lambda_test
 
 import (
-	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/lambda"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
-// ---- helpers ----
+// ============================================================
+// VPC config v2 — Ipv6AllowedForDualStack
+// ============================================================
 
-func auditCreateFunction(t *testing.T, h *lambda.Handler, body string) *httptest.ResponseRecorder {
-	t.Helper()
+func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Create(t *testing.T) {
+	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/2015-03-31/functions", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
+	h, _ := newInMemoryHandler(t)
 
-	return rec
+	body := `{
+		"FunctionName":"vpc6-fn",
+		"PackageType":"Image",
+		"Code":{"ImageUri":"x"},
+		"Role":"arn:aws:iam:::role/r",
+		"VpcConfig":{
+			"SubnetIds":["subnet-1"],
+			"SecurityGroupIds":["sg-1"],
+			"Ipv6AllowedForDualStack":true
+		}
+	}`
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+	vpc, _ := out["VpcConfig"].(map[string]any)
+	require.NotNil(t, vpc)
+	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
 }
 
-func auditUpdateConfig(t *testing.T, h *lambda.Handler, name, body string) *httptest.ResponseRecorder {
-	t.Helper()
+func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_Update(t *testing.T) {
+	t.Parallel()
 
-	path := "/2015-03-31/functions/" + name + "/configuration"
-	req := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "vpc6-update-fn")
 
-	return rec
-}
-
-func auditGetConfig(t *testing.T, h *lambda.Handler, name string) *httptest.ResponseRecorder {
-	t.Helper()
-
-	path := "/2015-03-31/functions/" + name + "/configuration"
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
-
-	return rec
-}
-
-func auditGetFunction(t *testing.T, h *lambda.Handler, name string) *httptest.ResponseRecorder {
-	t.Helper()
-
-	path := "/2015-03-31/functions/" + name
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
-
-	return rec
-}
-
-func baseImageFn(name string) string {
-	return fmt.Sprintf(
-		`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"ecr/x:latest"},"Role":"arn:aws:iam:::role/r"}`,
-		name,
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
+		"/2015-03-31/functions/vpc6-update-fn/configuration",
+		`{"VpcConfig":{"SubnetIds":["subnet-2"],"Ipv6AllowedForDualStack":true}}`,
 	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	vpc, _ := out["VpcConfig"].(map[string]any)
+	require.NotNil(t, vpc)
+	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
 }
 
-func baseZipFn(name string) string {
-	const tpl = `{"FunctionName":%q,"PackageType":"Zip","Runtime":"python3.12",` +
-		`"Handler":"index.handler","Code":{"ZipFile":"UEsDBA=="},"Role":"arn:aws:iam:::role/r"}`
+func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_NotSet_Omitted(t *testing.T) {
+	t.Parallel()
 
-	return fmt.Sprintf(tpl, name)
+	h, _ := newInMemoryHandler(t)
+
+	body := `{
+		"FunctionName":"vpc6-omit-fn",
+		"PackageType":"Image",
+		"Code":{"ImageUri":"x"},
+		"Role":"arn:aws:iam:::role/r",
+		"VpcConfig":{
+			"SubnetIds":["subnet-1"]
+		}
+	}`
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	vpc, _ := out["VpcConfig"].(map[string]any)
+	require.NotNil(t, vpc)
+	// omitempty: nil pointer → field absent in JSON
+	_, hasField := vpc["Ipv6AllowedForDualStack"]
+	assert.False(t, hasField)
+}
+
+func TestBatch3_VpcConfig_Ipv6AllowedForDualStack_GetConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	body := `{
+		"FunctionName":"vpc6-get-fn",
+		"PackageType":"Image",
+		"Code":{"ImageUri":"x"},
+		"Role":"arn:aws:iam:::role/r",
+		"VpcConfig":{
+			"SubnetIds":["subnet-1"],
+			"SecurityGroupIds":["sg-1"],
+			"Ipv6AllowedForDualStack":true
+		}
+	}`
+	rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec2 := callInMemoryHandler(t, h, http.MethodGet, "/2015-03-31/functions/vpc6-get-fn/configuration", "")
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out))
+	vpc, _ := out["VpcConfig"].(map[string]any)
+	require.NotNil(t, vpc)
+	assert.Equal(t, true, vpc["Ipv6AllowedForDualStack"])
 }
 
 // ---- Gap 1: VpcConfig ----
@@ -291,95 +323,92 @@ func TestAudit_EphemeralStorage_DefaultOn_Create(t *testing.T) {
 	assert.Equal(t, int32(512), fn.EphemeralStorage.Size)
 }
 
-func TestAudit_EphemeralStorage_ValidSize_Create(t *testing.T) {
+// TestAudit_EphemeralStorage_Create covers CreateFunction with an explicit
+// EphemeralStorage.Size: a valid size is accepted and echoed back, and
+// out-of-range sizes are rejected with 400. Table-driven: each case shares
+// the same request/response shape and differs only in the size and the
+// expected outcome.
+func TestAudit_EphemeralStorage_Create(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newInMemoryHandler(t)
+	tests := []struct {
+		name     string
+		fnName   string
+		size     int
+		wantCode int
+	}{
+		{name: "valid size accepted and echoed back", fnName: "eph-valid-fn", size: 1024, wantCode: http.StatusCreated},
+		{name: "too small rejected", fnName: "eph-small-fn", size: 100, wantCode: http.StatusBadRequest},
+		{name: "too large rejected", fnName: "eph-large-fn", size: 99999, wantCode: http.StatusBadRequest},
+	}
 
-	body := `{
-		"FunctionName":"eph-valid-fn",
-		"PackageType":"Image",
-		"Code":{"ImageUri":"ecr/x:latest"},
-		"Role":"arn:aws:iam:::role/r",
-		"EphemeralStorage":{"Size":1024}
-	}`
-	rec := auditCreateFunction(t, h, body)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
-	require.NotNil(t, fn.EphemeralStorage)
-	assert.Equal(t, int32(1024), fn.EphemeralStorage.Size)
+			h, _ := newInMemoryHandler(t)
+
+			body := fmt.Sprintf(`{
+				"FunctionName":"%s",
+				"PackageType":"Image",
+				"Code":{"ImageUri":"ecr/x:latest"},
+				"Role":"arn:aws:iam:::role/r",
+				"EphemeralStorage":{"Size":%d}
+			}`, tc.fnName, tc.size)
+			rec := auditCreateFunction(t, h, body)
+			require.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+
+			if tc.wantCode == http.StatusCreated {
+				var fn lambda.FunctionConfiguration
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+				require.NotNil(t, fn.EphemeralStorage)
+				assert.Equal(t, int32(tc.size), fn.EphemeralStorage.Size)
+			}
+		})
+	}
 }
 
-func TestAudit_EphemeralStorage_TooSmall_Create(t *testing.T) {
+// TestAudit_EphemeralStorage_Update covers UpdateFunctionConfiguration with
+// an EphemeralStorage.Size change: a valid size is accepted and echoed back,
+// and out-of-range sizes are rejected with 400. Table-driven: each case
+// shares the same create-then-update shape and differs only in the update
+// size and the expected outcome.
+func TestAudit_EphemeralStorage_Update(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newInMemoryHandler(t)
+	tests := []struct {
+		name     string
+		fnName   string
+		size     int
+		wantCode int
+	}{
+		{name: "too small rejected", fnName: "eph-update-small-fn", size: 10, wantCode: http.StatusBadRequest},
+		{name: "too large rejected", fnName: "eph-update-large-fn", size: 99999, wantCode: http.StatusBadRequest},
+		{
+			name: "valid size accepted and echoed back", fnName: "eph-update-valid-fn",
+			size: 2048, wantCode: http.StatusOK,
+		},
+	}
 
-	body := `{
-		"FunctionName":"eph-small-fn",
-		"PackageType":"Image",
-		"Code":{"ImageUri":"ecr/x:latest"},
-		"Role":"arn:aws:iam:::role/r",
-		"EphemeralStorage":{"Size":100}
-	}`
-	rec := auditCreateFunction(t, h, body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestAudit_EphemeralStorage_TooLarge_Create(t *testing.T) {
-	t.Parallel()
+			h, _ := newInMemoryHandler(t)
+			rec := auditCreateFunction(t, h, baseImageFn(tc.fnName))
+			require.Equal(t, http.StatusCreated, rec.Code)
 
-	h, _ := newInMemoryHandler(t)
+			rec2 := auditUpdateConfig(t, h, tc.fnName, fmt.Sprintf(`{"EphemeralStorage":{"Size":%d}}`, tc.size))
+			require.Equal(t, tc.wantCode, rec2.Code)
 
-	body := `{
-		"FunctionName":"eph-large-fn",
-		"PackageType":"Image",
-		"Code":{"ImageUri":"ecr/x:latest"},
-		"Role":"arn:aws:iam:::role/r",
-		"EphemeralStorage":{"Size":99999}
-	}`
-	rec := auditCreateFunction(t, h, body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestAudit_EphemeralStorage_TooSmall_Update(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("eph-update-small-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	rec2 := auditUpdateConfig(t, h, "eph-update-small-fn", `{"EphemeralStorage":{"Size":10}}`)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-}
-
-func TestAudit_EphemeralStorage_TooLarge_Update(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("eph-update-large-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	rec2 := auditUpdateConfig(t, h, "eph-update-large-fn", `{"EphemeralStorage":{"Size":99999}}`)
-	assert.Equal(t, http.StatusBadRequest, rec2.Code)
-}
-
-func TestAudit_EphemeralStorage_Valid_Update(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("eph-update-valid-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	rec2 := auditUpdateConfig(t, h, "eph-update-valid-fn", `{"EphemeralStorage":{"Size":2048}}`)
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
-	require.NotNil(t, fn.EphemeralStorage)
-	assert.Equal(t, int32(2048), fn.EphemeralStorage.Size)
+			if tc.wantCode == http.StatusOK {
+				var fn lambda.FunctionConfiguration
+				require.NoError(t, json.NewDecoder(rec2.Body).Decode(&fn))
+				require.NotNil(t, fn.EphemeralStorage)
+				assert.Equal(t, int32(tc.size), fn.EphemeralStorage.Size)
+			}
+		})
+	}
 }
 
 // ---- Gap 6: ImageConfig in responses ----
@@ -443,62 +472,6 @@ func TestAudit_ImageConfig_NotSetForZip(t *testing.T) {
 	var fn lambda.FunctionConfiguration
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
 	assert.Nil(t, fn.ImageConfig)
-}
-
-// ---- Gap 8: ScalingConfig.MaximumConcurrency enforcement ----
-
-func TestAudit_ScalingConfig_MaximumConcurrency_Enforced(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("scaling-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	// Set MaximumConcurrency = 1
-	maxConc := 1
-	_, err := bk.PutFunctionScalingConfig(
-		"scaling-fn",
-		&lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &maxConc},
-	)
-	require.NoError(t, err)
-
-	// Manually hold 1 slot (simulate active invocation)
-	held, err := lambda.AcquireConcurrencySlot(bk, "scaling-fn")
-	require.NoError(t, err)
-	require.True(t, held)
-
-	// Next acquire must fail with TooManyRequests
-	_, err = lambda.AcquireConcurrencySlot(bk, "scaling-fn")
-	require.ErrorIs(t, err, lambda.ErrTooManyRequests)
-
-	// Release and verify slot becomes available
-	lambda.ReleaseConcurrencySlot(bk, "scaling-fn")
-	held2, err := lambda.AcquireConcurrencySlot(bk, "scaling-fn")
-	require.NoError(t, err)
-	require.True(t, held2)
-	lambda.ReleaseConcurrencySlot(bk, "scaling-fn")
-}
-
-func TestAudit_ScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("scaling-zero-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	// MaximumConcurrency = 0 → no invocations permitted
-	zero := 0
-	_, err := bk.PutFunctionScalingConfig(
-		"scaling-zero-fn",
-		&lambda.PutFunctionScalingConfigInput{MaximumConcurrency: &zero},
-	)
-	require.NoError(t, err)
-
-	// No slots should be acquirable (returns false, nil because hasLimit=false and no reserved)
-	// But MaximumConcurrency=0 with scaling config enforcement should block:
-	_, err = lambda.AcquireConcurrencySlot(bk, "scaling-zero-fn")
-	// With MaximumConcurrency=0, active(0) >= 0 is true so it blocks
-	require.ErrorIs(t, err, lambda.ErrTooManyRequests)
 }
 
 // ---- Gap 10: Qualifier validation ----
@@ -570,181 +543,6 @@ func TestAudit_QualifierValidation_AliasName_OK(t *testing.T) {
 	require.NoError(t, h.Handler()(c))
 	// Not 400 — qualifier is valid alias name
 	assert.NotEqual(t, http.StatusBadRequest, rec2.Code)
-}
-
-// ---- RecursiveLoop enforcement ----
-
-func TestAudit_RecursiveLoop_Deny_BlocksSelfInvoke(t *testing.T) {
-	t.Parallel()
-
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
-	closeBackend(t, bk)
-
-	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName: "recursive-fn",
-		FunctionArn:  "arn:aws:lambda:us-east-1:123456789012:function:recursive-fn",
-		Runtime:      "python3.12",
-		Handler:      "index.handler",
-		Role:         "arn:aws:iam:::role/r",
-		PackageType:  "Zip",
-		State:        lambda.FunctionStateActive,
-	}))
-
-	_, putErr := bk.PutFunctionRecursionConfig("recursive-fn", &lambda.PutFunctionRecursionConfigInput{
-		RecursiveLoop: "Deny",
-	})
-	require.NoError(t, putErr)
-
-	// Simulate a self-invocation: inject the function name into the context chain
-	ctx := context.Background()
-	// Use the exported helpers from export_test.go — but RecursiveLoop tests need internal access.
-	// Instead, call InvokeFunctionWithQualifier twice simulating nesting by wrapping context.
-	// We test via the backend directly, injecting the chain.
-	_, _, _, _, err := bk.InvokeFunctionWithQualifier(
-		lambda.WithInvocationChainForTest(ctx, "recursive-fn"),
-		"recursive-fn",
-		"",
-		"", "",
-		lambda.InvocationTypeRequestResponse,
-		[]byte("{}"),
-	)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, lambda.ErrInvalidParameterValue)
-}
-
-func TestAudit_RecursiveLoop_Terminate_AllowsSelfInvoke(t *testing.T) {
-	t.Parallel()
-
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
-	closeBackend(t, bk)
-
-	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName: "recursive-terminate-fn",
-		FunctionArn:  "arn:aws:lambda:us-east-1:123456789012:function:recursive-terminate-fn",
-		Runtime:      "python3.12",
-		Handler:      "index.handler",
-		Role:         "arn:aws:iam:::role/r",
-		PackageType:  "Zip",
-		State:        lambda.FunctionStateActive,
-	}))
-
-	_, putErr := bk.PutFunctionRecursionConfig("recursive-terminate-fn", &lambda.PutFunctionRecursionConfigInput{
-		RecursiveLoop: "Terminate",
-	})
-	require.NoError(t, putErr)
-
-	// With Terminate mode, self-invocation should NOT return ErrInvalidParameterValue
-	// (it will fail for other reasons like no runtime, but not for recursion rejection)
-	ctx := lambda.WithInvocationChainForTest(context.Background(), "recursive-terminate-fn")
-	_, _, _, _, err := bk.InvokeFunctionWithQualifier(
-		ctx,
-		"recursive-terminate-fn",
-		"",
-		"", "",
-		lambda.InvocationTypeRequestResponse,
-		[]byte("{}"),
-	)
-	// Should not be a recursion-denial error
-	assert.NotErrorIs(t, err, lambda.ErrInvalidParameterValue)
-}
-
-// ---- InvokeWithResponseStream ----
-
-func TestAudit_InvokeWithResponseStream_FunctionNotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newInMemoryHandler(t)
-
-	path := "/2021-11-15/functions/nonexistent/response-streaming-invocations"
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
-	rec := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	require.NoError(t, h.Handler()(c))
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAudit_InvokeWithResponseStream_ReturnsEventstreamContentType(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("stream-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	path := "/2021-11-15/functions/stream-fn/response-streaming-invocations"
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
-	rec2 := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec2)
-	require.NoError(t, h.Handler()(c))
-
-	// Should return streaming content type (function will fail to run in test env,
-	// but at minimum should not return 400/404 for existing function)
-	ct := rec2.Header().Get("Content-Type")
-	if rec2.Code == http.StatusOK {
-		assert.Equal(t, "application/vnd.amazon.eventstream", ct)
-	}
-}
-
-// ---- Eventstream frame format ----
-
-func TestAudit_EventstreamFrame_Format(t *testing.T) {
-	t.Parallel()
-
-	// Verify our frame encoding: 4-byte big-endian length prefix followed by payload.
-	payload := []byte(`{"result":"ok"}`)
-	buf := &strings.Builder{}
-
-	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(payload)))
-
-	buf.Write(lenBuf[:])
-	buf.Write(payload)
-
-	// End of stream
-	binary.BigEndian.PutUint32(lenBuf[:], 0)
-	buf.Write(lenBuf[:])
-
-	raw := []byte(buf.String())
-
-	// Read back frame 1
-	require.GreaterOrEqual(t, len(raw), 4)
-	frameLen := binary.BigEndian.Uint32(raw[:4])
-	assert.Equal(t, uint32(len(payload)), frameLen)
-	assert.Equal(t, payload, raw[4:4+frameLen])
-
-	// Read back end-of-stream
-	eos := raw[4+frameLen:]
-	require.Len(t, eos, 4)
-	eosLen := binary.BigEndian.Uint32(eos)
-	assert.Equal(t, uint32(0), eosLen)
-}
-
-// ---- Close() cancels poller ----
-
-func TestAudit_Close_CancelsPoller(t *testing.T) {
-	t.Parallel()
-
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
-	closeBackend(t, bk)
-
-	pollDone := make(chan struct{})
-	poller := lambda.NewPollerWithCancelSignal(pollDone)
-
-	bk.SetKinesisPoller(poller)
-	bk.StartKinesisPoller(context.Background())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	bk.Close(ctx)
-
-	select {
-	case <-pollDone:
-		// poller's goroutine received the cancel signal
-	case <-time.After(2 * time.Second):
-		t.Fatal("poller was not cancelled within 2 seconds after Close()")
-	}
 }
 
 // ---- All new config fields persist through GetFunctionConfiguration ----
@@ -1041,79 +839,4 @@ func TestAudit_ListFunctions_IncludesNewFields(t *testing.T) {
 	require.Len(t, fns, 1)
 	require.NotNil(t, fns[0].VpcConfig)
 	assert.Equal(t, []string{"subnet-list"}, fns[0].VpcConfig.SubnetIDs)
-}
-
-// ---- Streaming invoke reads body correctly ----
-
-func TestAudit_InvokeWithResponseStream_NoBody_NotBadRequest(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newInMemoryHandler(t)
-	rec := auditCreateFunction(t, h, baseImageFn("stream-nobody-fn"))
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	path := "/2021-11-15/functions/stream-nobody-fn/response-streaming-invocations"
-	req := httptest.NewRequest(http.MethodPost, path, nil) // no body
-	rec2 := httptest.NewRecorder()
-	e := echo.New()
-	c := e.NewContext(req, rec2)
-	require.NoError(t, h.Handler()(c))
-	// Nil body must not trigger a 400 body-parse error — any other status is acceptable
-	// (without Docker, InvokeFunction returns 500, which is expected in unit tests).
-	assert.NotEqual(t, http.StatusBadRequest, rec2.Code)
-}
-
-// ---- Streaming response frame structure ----
-
-func TestAudit_InvokeWithResponseStream_FrameStructure(t *testing.T) {
-	t.Parallel()
-
-	// Create a minimal fake response to verify frame encoding.
-	// We can't fully invoke without a container, so we test the frame writer directly.
-	type frame struct {
-		payload []byte
-		length  uint32
-	}
-
-	readFrame := func(r io.Reader) (frame, error) {
-		var lenBuf [4]byte
-		if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
-			return frame{}, err
-		}
-
-		l := binary.BigEndian.Uint32(lenBuf[:])
-		if l == 0 {
-			return frame{length: 0}, nil
-		}
-
-		payload := make([]byte, l)
-		if _, err := io.ReadFull(r, payload); err != nil {
-			return frame{}, err
-		}
-
-		return frame{length: l, payload: payload}, nil
-	}
-
-	// Simulate what writeEventStreamFrame does for a known payload.
-	payload := []byte(`{"status":"ok"}`)
-
-	var buf strings.Builder
-
-	var lb [4]byte
-	binary.BigEndian.PutUint32(lb[:], uint32(len(payload)))
-	buf.Write(lb[:])
-	buf.Write(payload)
-
-	binary.BigEndian.PutUint32(lb[:], 0)
-	buf.Write(lb[:])
-
-	r := strings.NewReader(buf.String())
-	f1, err := readFrame(r)
-	require.NoError(t, err)
-	assert.Equal(t, uint32(len(payload)), f1.length)
-	assert.Equal(t, payload, f1.payload)
-
-	f2, err := readFrame(r)
-	require.NoError(t, err)
-	assert.Equal(t, uint32(0), f2.length)
 }

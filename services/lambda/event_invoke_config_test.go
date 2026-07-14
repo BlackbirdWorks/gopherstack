@@ -2,13 +2,13 @@ package lambda_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/services/lambda"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 // ---- helpers ----
@@ -492,442 +492,6 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 	}
 }
 
-// ---- PutFunctionConcurrency tests ----
-
-func TestPutFunctionConcurrency(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup        func(*testing.T, *lambda.InMemoryBackend)
-		body         string
-		funcName     string
-		name         string
-		wantErrType  string
-		wantCode     int
-		wantReserved int
-	}{
-		{
-			name:     "success_set_concurrency",
-			funcName: "put-conc-fn",
-			body:     `{"ReservedConcurrentExecutions":5}`,
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "put-conc-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-			},
-			wantCode:     http.StatusOK,
-			wantReserved: 5,
-		},
-		{
-			name:     "success_set_zero_disables",
-			funcName: "put-conc-fn-zero",
-			body:     `{"ReservedConcurrentExecutions":0}`,
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "put-conc-fn-zero",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-			},
-			wantCode:     http.StatusOK,
-			wantReserved: 0,
-		},
-		{
-			name:        "function_not_found",
-			funcName:    "put-conc-no-fn",
-			body:        `{"ReservedConcurrentExecutions":1}`,
-			wantCode:    http.StatusNotFound,
-			wantErrType: "ResourceNotFoundException",
-		},
-		{
-			name:        "invalid_json",
-			funcName:    "irrelevant",
-			body:        `not-json`,
-			wantCode:    http.StatusBadRequest,
-			wantErrType: "InvalidParameterValueException",
-		},
-		{
-			name:        "empty_body",
-			funcName:    "irrelevant",
-			body:        ``,
-			wantCode:    http.StatusBadRequest,
-			wantErrType: "InvalidParameterValueException",
-		},
-		{
-			name:        "missing_reserved_field",
-			funcName:    "irrelevant",
-			body:        `{}`,
-			wantCode:    http.StatusBadRequest,
-			wantErrType: "InvalidParameterValueException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
-			h := lambda.NewHandler(bk)
-			h.DefaultRegion = "us-east-1"
-			h.AccountID = "000000000000"
-
-			if tt.setup != nil {
-				tt.setup(t, bk)
-			}
-
-			path := "/2015-03-31/functions/" + tt.funcName + "/concurrency"
-			rec := callHandler(t, h, http.MethodPut, path, tt.body, nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantErrType != "" {
-				assertLambdaError(t, rec, tt.wantErrType)
-
-				return
-			}
-
-			var out lambda.FunctionConcurrency
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Equal(t, tt.wantReserved, out.ReservedConcurrentExecutions)
-		})
-	}
-}
-
-// ---- GetFunctionConcurrency tests ----
-
-func TestGetFunctionConcurrency(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup        func(*testing.T, *lambda.InMemoryBackend)
-		funcName     string
-		name         string
-		wantErrType  string
-		wantCode     int
-		wantReserved int
-	}{
-		{
-			name:     "success",
-			funcName: "get-conc-fn",
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "get-conc-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				_, err := b.PutFunctionConcurrency("get-conc-fn", 3)
-				require.NoError(t, err)
-			},
-			wantCode:     http.StatusOK,
-			wantReserved: 3,
-		},
-		{
-			name:        "function_not_found",
-			funcName:    "get-conc-no-fn",
-			wantCode:    http.StatusNotFound,
-			wantErrType: "ResourceNotFoundException",
-		},
-		{
-			name:     "no_concurrency_set",
-			funcName: "get-conc-no-limit",
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "get-conc-no-limit",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-			},
-			wantCode:    http.StatusNotFound,
-			wantErrType: "ResourceNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
-			h := lambda.NewHandler(bk)
-			h.DefaultRegion = "us-east-1"
-			h.AccountID = "000000000000"
-
-			if tt.setup != nil {
-				tt.setup(t, bk)
-			}
-
-			path := "/2015-03-31/functions/" + tt.funcName + "/concurrency"
-			rec := callHandler(t, h, http.MethodGet, path, "", nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantErrType != "" {
-				assertLambdaError(t, rec, tt.wantErrType)
-
-				return
-			}
-
-			var out lambda.FunctionConcurrency
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Equal(t, tt.wantReserved, out.ReservedConcurrentExecutions)
-		})
-	}
-}
-
-// ---- DeleteFunctionConcurrency tests ----
-
-func TestDeleteFunctionConcurrency(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup       func(*testing.T, *lambda.InMemoryBackend)
-		funcName    string
-		name        string
-		wantErrType string
-		wantCode    int
-	}{
-		{
-			name:     "success",
-			funcName: "del-conc-fn",
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "del-conc-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				_, err := b.PutFunctionConcurrency("del-conc-fn", 5)
-				require.NoError(t, err)
-			},
-			wantCode: http.StatusNoContent,
-		},
-		{
-			name:        "function_not_found",
-			funcName:    "del-conc-no-fn",
-			wantCode:    http.StatusNotFound,
-			wantErrType: "ResourceNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
-			h := lambda.NewHandler(bk)
-			h.DefaultRegion = "us-east-1"
-			h.AccountID = "000000000000"
-
-			if tt.setup != nil {
-				tt.setup(t, bk)
-			}
-
-			path := "/2015-03-31/functions/" + tt.funcName + "/concurrency"
-			rec := callHandler(t, h, http.MethodDelete, path, "", nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantErrType != "" {
-				assertLambdaError(t, rec, tt.wantErrType)
-			}
-		})
-	}
-}
-
-// ---- Concurrency enforcement tests ----
-
-func TestConcurrencyEnforcement(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup          func(*testing.T, *lambda.InMemoryBackend)
-		funcName       string
-		name           string
-		invocationType string
-		wantErrType    string
-		wantCode       int
-	}{
-		{
-			name:           "reserved_zero_blocks_request_response",
-			funcName:       "conc-zero-fn",
-			invocationType: lambda.InvocationTypeRequestResponse,
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "conc-zero-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				_, err := b.PutFunctionConcurrency("conc-zero-fn", 0)
-				require.NoError(t, err)
-			},
-			wantCode:    http.StatusTooManyRequests,
-			wantErrType: "TooManyRequestsException",
-		},
-		{
-			name:           "reserved_zero_blocks_event_invocation",
-			funcName:       "conc-zero-event-fn",
-			invocationType: lambda.InvocationTypeEvent,
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "conc-zero-event-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				_, err := b.PutFunctionConcurrency("conc-zero-event-fn", 0)
-				require.NoError(t, err)
-			},
-			wantCode:    http.StatusTooManyRequests,
-			wantErrType: "TooManyRequestsException",
-		},
-		{
-			name:           "reserved_nonzero_enforced_for_event",
-			funcName:       "conc-event-limit-fn",
-			invocationType: lambda.InvocationTypeEvent,
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "conc-event-limit-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				_, err := b.PutFunctionConcurrency("conc-event-limit-fn", 1)
-				require.NoError(t, err)
-				// Manually acquire the only available slot to simulate a running execution.
-				_, err = lambda.AcquireConcurrencySlot(b, "conc-event-limit-fn")
-				require.NoError(t, err)
-			},
-			wantCode:    http.StatusTooManyRequests,
-			wantErrType: "TooManyRequestsException",
-		},
-		{
-			name:           "no_concurrency_limit_allows_invocation",
-			funcName:       "conc-unlimited-fn",
-			invocationType: lambda.InvocationTypeRequestResponse,
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "conc-unlimited-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				// No concurrency limit set — should fail with ServiceException (no docker), not 429.
-			},
-			wantCode:    http.StatusInternalServerError,
-			wantErrType: "ServiceException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
-			h := lambda.NewHandler(bk)
-			h.DefaultRegion = "us-east-1"
-			h.AccountID = "000000000000"
-
-			if tt.setup != nil {
-				tt.setup(t, bk)
-			}
-
-			path := "/2015-03-31/functions/" + tt.funcName + "/invocations"
-			headers := map[string]string{"X-Amz-Invocation-Type": tt.invocationType}
-			rec := callHandler(t, h, http.MethodPost, path, `{}`, headers)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantErrType != "" {
-				assertLambdaError(t, rec, tt.wantErrType)
-			}
-		})
-	}
-}
-
-// ---- GetFunction includes ReservedConcurrentExecutions ----
-
-func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		setup        func(*testing.T, *lambda.InMemoryBackend)
-		wantReserved *int
-		funcName     string
-		name         string
-		wantCode     int
-	}{
-		{
-			name:     "no_concurrency_set",
-			funcName: "gf-no-conc",
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "gf-no-conc",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-			},
-			wantCode:     http.StatusOK,
-			wantReserved: nil,
-		},
-		{
-			name:     "with_concurrency_set",
-			funcName: "gf-with-conc",
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "gf-with-conc",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-				_, err := b.PutFunctionConcurrency("gf-with-conc", 7)
-				require.NoError(t, err)
-			},
-			wantCode:     http.StatusOK,
-			wantReserved: new(7),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
-			h := lambda.NewHandler(bk)
-			h.DefaultRegion = "us-east-1"
-			h.AccountID = "000000000000"
-
-			if tt.setup != nil {
-				tt.setup(t, bk)
-			}
-
-			path := "/2015-03-31/functions/" + tt.funcName
-			rec := callHandler(t, h, http.MethodGet, path, "", nil)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			var out struct {
-				Configuration *lambda.FunctionConfiguration `json:"Configuration"`
-			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			require.NotNil(t, out.Configuration)
-
-			if tt.wantReserved == nil {
-				assert.Nil(t, out.Configuration.ReservedConcurrentExecutions)
-			} else {
-				require.NotNil(t, out.Configuration.ReservedConcurrentExecutions)
-				assert.Equal(t, *tt.wantReserved, *out.Configuration.ReservedConcurrentExecutions)
-			}
-		})
-	}
-}
-
 // ---- Backend: PutFunctionEventInvokeConfig tests ----
 
 func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
@@ -1051,74 +615,170 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 	}
 }
 
-// ---- Backend: concurrency tests ----
+// --- FunctionEventInvokeConfig tests ---
 
-func TestBackend_PutGetDeleteFunctionConcurrency(t *testing.T) {
+func TestBatch1_FunctionEventInvokeConfig_PutGetUpdateDeleteList(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup        func(*testing.T, *lambda.InMemoryBackend)
-		funcName     string
-		name         string
-		putReserved  int
-		wantErr      bool
-		wantReserved int
-	}{
-		{
-			name:     "put_and_get",
-			funcName: "be-conc-fn",
-			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
-					FunctionName: "be-conc-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}))
-			},
-			putReserved:  10,
-			wantReserved: 10,
-		},
-		{
-			name:        "function_not_found",
-			funcName:    "be-conc-no-fn",
-			putReserved: 5,
-			wantErr:     true,
-		},
-	}
+	h, _ := newInMemoryHandler(t)
+	fnName := "event-invoke-fn"
+	createFunctionForTest(t, h, fnName)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// Put event invoke config
+	rec := callInMemoryHandler(
+		t, h, http.MethodPut,
+		"/2015-03-31/functions/"+fnName+"/event-invoke-config",
+		`{"MaximumRetryAttempts":2,"MaximumEventAgeInSeconds":300}`,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"MaximumRetryAttempts":2`)
 
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
+	// Get event invoke config
+	rec = callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/"+fnName+"/event-invoke-config", "{}")
+	require.Equal(t, http.StatusOK, rec.Code)
 
-			if tt.setup != nil {
-				tt.setup(t, bk)
-			}
+	// Update (POST) event invoke config
+	rec = callInMemoryHandler(
+		t, h, http.MethodPost,
+		"/2015-03-31/functions/"+fnName+"/event-invoke-config",
+		`{"MaximumRetryAttempts":1}`,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-			concurrency, err := bk.PutFunctionConcurrency(tt.funcName, tt.putReserved)
+	// List
+	rec = callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/"+fnName+"/event-invoke-configs", "{}")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), fnName)
 
-			if tt.wantErr {
-				require.Error(t, err)
+	// Delete
+	rec = callInMemoryHandler(t, h, http.MethodDelete,
+		"/2015-03-31/functions/"+fnName+"/event-invoke-config", "{}")
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
 
-				return
-			}
+// ============================================================
+// FunctionEventInvokeConfig
+// ============================================================
 
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantReserved, concurrency.ReservedConcurrentExecutions)
+func TestBatch2_EventInvokeConfig_Lifecycle(t *testing.T) {
+	t.Parallel()
 
-			// Verify GetFunctionConcurrency returns the same value.
-			got, getErr := bk.GetFunctionConcurrency(tt.funcName)
-			require.NoError(t, getErr)
-			assert.Equal(t, tt.wantReserved, got.ReservedConcurrentExecutions)
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "eic-fn")
 
-			// Verify DeleteFunctionConcurrency removes the limit.
-			delErr := bk.DeleteFunctionConcurrency(tt.funcName)
-			require.NoError(t, delErr)
+	// Put config
+	maxRetry := 2
+	maxAge := 3600
+	body := fmt.Sprintf(`{"MaximumRetryAttempts":%d,"MaximumEventAgeInSeconds":%d}`, maxRetry, maxAge)
+	putRec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/eic-fn/event-invoke-config", body)
+	require.Equal(t, http.StatusOK, putRec.Code)
 
-			_, getAfterDel := bk.GetFunctionConcurrency(tt.funcName)
-			require.Error(t, getAfterDel)
-		})
-	}
+	var cfg lambda.FunctionEventInvokeConfig
+	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&cfg))
+	require.NotNil(t, cfg.MaximumRetryAttempts)
+	assert.Equal(t, maxRetry, *cfg.MaximumRetryAttempts)
+	require.NotNil(t, cfg.MaximumEventAgeInSeconds)
+	assert.Equal(t, maxAge, *cfg.MaximumEventAgeInSeconds)
+
+	// Get config
+	getRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/eic-fn/event-invoke-config", "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getCfg lambda.FunctionEventInvokeConfig
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getCfg))
+	assert.Equal(t, maxRetry, *getCfg.MaximumRetryAttempts)
+
+	// Update config
+	updRec := callInMemoryHandler(t, h, http.MethodPost,
+		"/2015-03-31/functions/eic-fn/event-invoke-config",
+		`{"MaximumRetryAttempts":0}`)
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	// List configs
+	listRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/eic-fn/event-invoke-configs", "")
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut lambda.ListFunctionEventInvokeConfigsOutput
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	assert.NotEmpty(t, listOut.FunctionEventInvokeConfigs)
+
+	// Delete config
+	delRec := callInMemoryHandler(t, h, http.MethodDelete,
+		"/2015-03-31/functions/eic-fn/event-invoke-config", "")
+	assert.Equal(t, http.StatusNoContent, delRec.Code)
+
+	// Get after delete → 404
+	getRec2 := callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/eic-fn/event-invoke-config", "")
+	assert.Equal(t, http.StatusNotFound, getRec2.Code)
+}
+
+func TestBatch2_EventInvokeConfig_WithDestinations(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+	createFunctionForTest(t, h, "eic-dest-fn")
+
+	body := `{
+		"DestinationConfig":{
+			"OnSuccess":{"Destination":"arn:aws:sqs:us-east-1:000000000000:success-q"},
+			"OnFailure":{"Destination":"arn:aws:sqs:us-east-1:000000000000:failure-q"}
+		}
+	}`
+	rec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2015-03-31/functions/eic-dest-fn/event-invoke-config", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var cfg lambda.FunctionEventInvokeConfig
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&cfg))
+	require.NotNil(t, cfg.DestinationConfig)
+	require.NotNil(t, cfg.DestinationConfig.OnSuccess)
+	assert.Contains(t, cfg.DestinationConfig.OnSuccess.Destination, "success-q")
+	require.NotNil(t, cfg.DestinationConfig.OnFailure)
+	assert.Contains(t, cfg.DestinationConfig.OnFailure.Destination, "failure-q")
+}
+
+// TestComprehensive_FunctionDestinations verifies PutFunctionEventInvokeConfig with DestinationConfig.
+func TestComprehensive_FunctionDestinations(t *testing.T) {
+	t.Parallel()
+
+	h, bk := newInMemoryHandler(t)
+
+	require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{
+		FunctionName: "dest-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+		State:        lambda.FunctionStateActive,
+	}))
+
+	body := `{
+		"MaximumRetryAttempts":2,
+		"MaximumEventAgeInSeconds":300,
+		"DestinationConfig":{
+			"OnSuccess":{"Destination":"arn:aws:sqs:us-east-1:000000000000:success-q"},
+			"OnFailure":{"Destination":"arn:aws:sqs:us-east-1:000000000000:failure-q"}
+		}
+	}`
+
+	rec := callInMemoryHandler(t, h, http.MethodPut,
+		"/2019-09-30/functions/dest-fn/event-invoke-config", body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out lambda.FunctionEventInvokeConfig
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NotNil(t, out.DestinationConfig)
+	require.NotNil(t, out.DestinationConfig.OnSuccess)
+	require.NotNil(t, out.DestinationConfig.OnFailure)
+	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:success-q", out.DestinationConfig.OnSuccess.Destination)
+	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:failure-q", out.DestinationConfig.OnFailure.Destination)
+
+	// GetFunctionEventInvokeConfig.
+	rec = callInMemoryHandler(t, h, http.MethodGet,
+		"/2019-09-30/functions/dest-fn/event-invoke-config", "")
+	require.Equal(t, http.StatusOK, rec.Code)
 }

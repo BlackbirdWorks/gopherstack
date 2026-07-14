@@ -795,3 +795,87 @@ func TestStartupFailure_ClearsRuntimeEntry(t *testing.T) {
 		})
 	}
 }
+
+// ---- Close() cancels poller ----
+
+func TestAudit_Close_CancelsPoller(t *testing.T) {
+	t.Parallel()
+
+	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
+	closeBackend(t, bk)
+
+	pollDone := make(chan struct{})
+	poller := lambda.NewPollerWithCancelSignal(pollDone)
+
+	bk.SetKinesisPoller(poller)
+	bk.StartKinesisPoller(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bk.Close(ctx)
+
+	select {
+	case <-pollDone:
+		// poller's goroutine received the cancel signal
+	case <-time.After(2 * time.Second):
+		t.Fatal("poller was not cancelled within 2 seconds after Close()")
+	}
+}
+
+// ---- cleanupSem/logSem replaced in Reset() (leak fix) ----
+
+func TestReset_ReplacesSemaphoreChannels(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		resetN  int
+		wantCap int
+	}{
+		{
+			name:    "single_reset_replaces_channels",
+			resetN:  1,
+			wantCap: 64, // maxCleanupConcurrency
+		},
+		{
+			name:    "double_reset_replaces_channels_twice",
+			resetN:  2,
+			wantCap: 64,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := newParityBackend(t)
+
+			capBefore := lambda.CleanupSemCap(bk)
+			require.Equal(t, tt.wantCap, capBefore, "initial cleanupSem capacity")
+
+			for range tt.resetN {
+				bk.Reset()
+			}
+
+			// After Reset(), channels must be fresh (same capacity, zero occupancy).
+			assert.Equal(t, tt.wantCap, lambda.CleanupSemCap(bk),
+				"cleanupSem capacity preserved after Reset()")
+			assert.Equal(t, 0, lambda.CleanupSemLen(bk),
+				"cleanupSem must be empty after Reset()")
+		})
+	}
+}
+
+func TestReset_LogSemReplacedAndEmpty(t *testing.T) {
+	t.Parallel()
+
+	bk := newParityBackend(t)
+	capBefore := lambda.LogSemCap(bk)
+	require.Positive(t, capBefore)
+
+	bk.Reset()
+
+	assert.Equal(t, capBefore, lambda.LogSemCap(bk),
+		"logSem capacity preserved after Reset()")
+}
